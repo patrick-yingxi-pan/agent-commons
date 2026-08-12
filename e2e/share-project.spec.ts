@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test'
  *
  *  The cross-tenant COOPERATION itself (a *different* tenant commissioning onto the
  *  shared Project) is exhaustively locked at the store + route layer
- *  (tests/cross-tenant-runtime.test.ts, tests/capability-remote.test.ts); driving it
+ *  (server/cross-tenant-runtime.test.ts, server/routes/capability-remote.test.ts); driving it
  *  through the UI needs a dev tenant-switcher (a follow-on — see the test plan). */
 test('an owner shares a created project and the toggle + backend reflect it (and un-share reverses)', async ({ page, request }) => {
   await page.goto('/')

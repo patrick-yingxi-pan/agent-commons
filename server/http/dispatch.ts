@@ -6,7 +6,7 @@
  *  middleware chain runs for the inner path — auth gate, identity resolution,
  *  tenancy walls, idempotency, rate limits — which is exactly the point: parity
  *  is a property of the funnel, not of each door's diligence. (Same technique
- *  as tests/helpers/http.ts, which drives the same table the same way.) */
+ *  as server/testkit/http.ts, which drives the same table the same way.) */
 import type { IncomingMessage } from 'node:http'
 import type { Router } from './router.ts'
 

@@ -8,7 +8,7 @@
  *
  *  Get-or-create is the SERVER's rule, not this component's: an open onto an
  *  anchor that already carries a thread appends there (one public stream per
- *  (subject, locus) — `openDiscussion` in server/store.ts). So callers that
+ *  (subject, locus) — `openDiscussion` in server/store/index.ts). So callers that
  *  don't already hold the thread may pass `thread: null` and still land in the
  *  right conversation — two clients racing the first post can't fork it. */
 import { useMemo, useState } from 'react'

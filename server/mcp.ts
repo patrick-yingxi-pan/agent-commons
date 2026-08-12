@@ -36,7 +36,7 @@
  *
  *  The few non-tool routes are the ones whose FORM can't be a request/response
  *  tool call (endless SSE streams; the endpoint itself) — enumerated with
- *  reasons in `MCP_EXCLUDED` and locked by `tests/mcp-parity.test.ts` so an
+ *  reasons in `MCP_EXCLUDED` and locked by `server/mcp-parity.test.ts` so an
  *  exclusion is a visible, argued decision, never a silent gap. Live streams
  *  are delivered by the GET stream above.
  *
@@ -52,7 +52,7 @@ import { positiveNumberEnv } from './env.ts'
 import { API_BASE_PATH } from '../contract/index.ts'
 import { API_BODY_EXAMPLES, catalogOf, pathFor, toolNameFor, type ApiOperation } from './apiSurface.ts'
 import { dispatch } from './http/dispatch.ts'
-import { store } from './store.ts'
+import { store } from './store/index.ts'
 
 export { toolNameFor } // re-exported for the parity test (the shared stem lives in apiSurface.ts)
 
@@ -147,7 +147,7 @@ function toolDefinition(t: ApiOperation) {
  *  catalog, so a model's tool context stays small. STRICTLY presentation:
  *  `tools/call` accepts the FULL catalog on either URL (capability and policy
  *  never vary by toolset — INV-11; the wall is auth, not the list). Every name
- *  here must exist in the generated catalog (locked by tests/mcp.test.ts). */
+ *  here must exist in the generated catalog (locked by server/mcp.test.ts). */
 export const MCP_CORE_TOOLS: readonly string[] = [
   'get_capabilities',
   'get_me',
@@ -217,7 +217,7 @@ function sendRpc(res: ServerResponse, payload: unknown, status = 200): void {
  *  suite green.
  *
  *  So each quoted string is named HERE, interpolated into the instructions
- *  below, and scanned against the live components by `tests/mcp-ui-sync.test.ts`.
+ *  below, and scanned against the live components by `server/mcp-ui-sync.test.ts`.
  *  Quoting more UI copy means adding an entry, not another bare literal. */
 export const MCP_UI_COPY = {
   /** The rail section hosting the token panel — a real `SECTION_LABELS` label. */
@@ -237,7 +237,7 @@ const INSTRUCTIONS = [
   'Resources mirror the parameterless reads (workspace://… uris; parameterized reads are resource templates); prompts mirror the system-prompt library — both tenant-scoped by your credential.',
 ].join(' ')
 
-/** The `initialize` instructions — exported so `tests/mcp-ui-sync.test.ts` can
+/** The `initialize` instructions — exported so `server/mcp-ui-sync.test.ts` can
  *  read what the door ACTUALLY says, not just what the registry declares. */
 export function mcpInstructions(): string {
   return INSTRUCTIONS

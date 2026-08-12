@@ -2,10 +2,38 @@
 
 The always-on map is [`AGENTS.md`](../AGENTS.md).
 
+## Where a suite lives: with the code it locks
+
+**A suite is a module's own file, not a resident of a parallel tree.** It sits
+beside the code it locks, under that module's directory, with that module's
+`CLAUDE.md` and `SPEC.md` — the same progressive disclosure `CLAUDE.md` gets,
+applied to every kind of file. Done for `server/` (see
+[`server/CLAUDE.md`](../server/CLAUDE.md) for its module table); `src/` and
+`contract/` still route through here and are the next pass.
+
+The rule for *which* module: **a suite belongs to what it locks, not to what it
+drives through.** A test that exercises auth over HTTP is an auth test and sits
+next to `auth.ts`; a test whose subject is the endpoint's own contract sits in
+`server/routes/`. When both are real — a store-level lock and a route-level lock
+on one resource — they are two files, and neither is folded into the other.
+
+What stays in `tests/` is what the **repo** owns and no module can: the doc-lint
+and cross-layer locks (`context-map`, `spec-conformance`, `review-rulebook`,
+`contract-boundaries`, `verify-plan`, `ui-sweep-coverage`) plus
+`helpers/source.ts`, which scans the whole tree. This directory is a home, not a
+leftover — if a suite here names one module as its subject, it has a better home.
+
+Suites are excluded from `tsconfig.json` (`**/*.test.ts`) so that colocating
+them inside `src`/`server`/`contract` does not silently reverse the measured
+decision below that the test surface is verified by running, not by compiling.
+
+## The conventions
+
 - **Every feature ships with complete automated tests.** A change isn't done
   until its behavior is locked by tests that fail on a regression —
   reducer/contract behavior in `tests/*.test.ts`, server routes via the HTTP
-  helper, and the boundary contracts in `tests/contract-boundaries.test.ts`
+  helper ([`server/testkit/http.ts`](../server/testkit/http.ts)), and the
+  boundary contracts in `tests/contract-boundaries.test.ts`
   extended whenever a new cross-component seam appears. UI-only behavior the
   `node --test` harness can't exercise (it has no DOM) is verified in the
   running app and called out as such — or locked at the DOM level in `e2e/`
@@ -20,7 +48,7 @@ The always-on map is [`AGENTS.md`](../AGENTS.md).
   locking tests are what prove the behavior.
 - **Tests run in-memory.** The store's filesystem persistence is bypassed
   under `node --test`; snapshot round-trips are locked by
-  `tests/snapshot.test.ts`.
+  `server/persistence/snapshot.test.ts`.
 - **Locking tests read the source, not copies.** A lock that pins prose to
   behavior (e.g. `tests/relay-primer.test.ts`, `tests/context-map.test.ts`)
   extracts the fact from the implementation file and asserts the document

@@ -9,7 +9,7 @@
 ## 1. Problem & scope
 
 The prototype's graph is a pure reducer over an in-memory snapshot (`contract/graph.ts`
-`applyGraphOp`, `server/store.ts` `applyRelationOp`), and the schedule daemon is a
+`applyGraphOp`, `server/store/index.ts` `applyRelationOp`), and the schedule daemon is a
 `setInterval` that fires runs and applies standing effects (`startRunDaemon`,
 `applyStandingEffects`). Production needs **transactional, concurrent-safe** graph edits
 and a **durable, exactly-effected** scheduler. **Shared** model; the web runs a real

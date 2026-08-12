@@ -235,7 +235,7 @@ import type { ContextTypeId } from '../../contract/contexts.ts'
 
 /** What each type's "Recent" list shows before the user has picked anything.
  *  The file-like types (files / photos / folder) seed from the live filesystem
- *  scan instead (server/store.ts), so their entries here are empty — they fill in
+ *  scan instead (server/store/index.ts), so their entries here are empty — they fill in
  *  from the served catalog and from what the user attaches. Repo mixes local +
  *  GitHub ids; connector / mcp seed from the connected sets in savedContexts
  *  (lib/recents `seedFor`), so the entries below are only a fallback. */

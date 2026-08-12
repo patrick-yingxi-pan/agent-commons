@@ -8,7 +8,7 @@
 
 The prototype has **no identity**: a single implicit user, no auth on the API (the
 "one door to the backend", `src/api/client.ts`, sends no credentials), and an
-in-memory single-tenant store (`server/store.ts`). Production needs principals,
+in-memory single-tenant store (`server/store/index.ts`). Production needs principals,
 authentication, authorization, and — for the web deployment — hard tenant isolation.
 
 **Shared vs deployment-specific** is the crux here:

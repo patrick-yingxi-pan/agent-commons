@@ -76,7 +76,7 @@ evaluator-facing summary:
   `<name>-demo-password` credentials, and what each contains). Sign in through
   the real flow (multi-account §12/§13 — nothing enumerates identities); the
   data standard (disjoint worlds, exhaustive-in-types, moderate scale) is
-  locked by `tests/demo-accounts.test.ts`. The untagged flagship seeds belong
+  locked by `server/data/demo-accounts.test.ts`. The untagged flagship seeds belong
   to the backend default AND Ada/Acme (one seat, two faces). The desktop's
   local user has no credential on purpose (it never signs in).
 - **Files / photos / folders are *really* served from a filesystem**, not fixtures.
@@ -127,6 +127,6 @@ evaluator-facing summary:
   a real round-trip whose consent card reads **"Claude would like to Cowork in a
   folder"** (Deny · Choose folder). Nothing in the walk needs setup.
 - **Created state is persisted** to `.data/store.json` and rehydrated on boot
-  (`server/persist.ts`) — it survives a restart; snapshot back-up/restore
+  (`server/persistence/persist.ts`) — it survives a restart; snapshot back-up/restore
   tooling lives in `scripts/snapshot.ts`. Operational detail in
   [`server/CLAUDE.md`](../server/CLAUDE.md).

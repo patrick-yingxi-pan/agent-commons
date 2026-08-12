@@ -27,7 +27,7 @@ export interface ApiOperation {
 const snake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).replace(/-/g, '_')
 
 /** Deterministic tool name for a route. Uniqueness across the catalog is
- *  locked by `tests/mcp-parity.test.ts`. */
+ *  locked by `server/mcp-parity.test.ts`. */
 export function toolNameFor(method: string, pattern: string): string {
   const segs = pattern
     .split('/')
@@ -57,7 +57,7 @@ export function catalogOf(router: Router): ApiOperation[] {
  *  guessing shapes off 400s. Presentation only: the routes remain the
  *  validation authority (an example can never widen capability), and a
  *  malformed body is refused, never guessed at (INV-9). Keys are locked
- *  against the real route table by `tests/mcp.test.ts`, and each example must
+ *  against the real route table by `server/mcp.test.ts`, and each example must
  *  pass its own route's validation on the SUCCESS path — not merely dodge a
  *  400 behind an earlier 401/404 (the vacuous form that test replaced). */
 export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, unknown>([

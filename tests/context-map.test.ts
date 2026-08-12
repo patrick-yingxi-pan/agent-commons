@@ -12,10 +12,15 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, existsSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+/** Link prefixes that leave the repo. Spelled out with their separators: a bare
+ *  `startsWith('http')` also swallows a RELATIVE link into a directory named
+ *  `http/` — which `server/http/` is, so the link check below silently skipped
+ *  it and the reachability check called it unreachable. */
+const EXTERNAL = ['http://', 'https://', 'mailto:']
 const read = (rel: string) => readFileSync(resolve(ROOT, rel), 'utf8')
 const lines = (s: string) => s.split('\n').length
 
@@ -39,7 +44,7 @@ const SCOPED_HOMES: Record<string, string[]> = {
     '@anthropic-ai/sdk',
     'tool-use loop',
     'AUTH_GATE',
-    'server/persist.ts',
+    'server/persistence/persist.ts',
     'docs/demo-accounts.md',
   ],
   'contract/CLAUDE.md': ['load-bearing', 'contract/graph.ts', 'INV-9'],
@@ -47,6 +52,15 @@ const SCOPED_HOMES: Record<string, string[]> = {
   'e2e/CLAUDE.md': ['5183', 'BACKEND=remote', 'fresh draft'],
   'connector/CLAUDE.md': ['session-relay-primer.md', 'delegated-cognition-provider.md'],
   'docs/evaluation.md': ['No mode chosen up front', 'intentionally mock', '11-mock-boundary.md'],
+  // Module-scoped homes: colocation applied to context, not only to code. Each
+  // is one directory's rules, loaded by opening that directory.
+  'server/routes/CLAUDE.md': ['plain data', 'testkit/http.ts'],
+  'server/store/CLAUDE.md': ['rowVisibleTo', 'in-memory'],
+  'server/http/CLAUDE.md': ['No resource knowledge here', 'Router.list()'],
+  'server/model/CLAUDE.md': ['ANTHROPIC_BASE_URL', 'MODEL_API_EXCLUDED'],
+  'server/persistence/CLAUDE.md': ['atomic', 'STORE_VERSION', 'SPEC.md'],
+  'server/data/CLAUDE.md': ['reconcileSeedTenancy', 'demo-accounts.md'],
+  'server/testkit/CLAUDE.md': ['buildRouter()', 'No fixtures here'],
 }
 
 test('the always-loaded files stay small, and the moved bodies stay out', () => {
@@ -62,10 +76,32 @@ test('the always-loaded files stay small, and the moved bodies stay out', () => 
 })
 
 test('every scoped home exists, is reachable from the map, and keeps its moved rules', () => {
-  const agents = read('AGENTS.md')
+  // Reachability is TRANSITIVE, not direct. Colocation pushed context down a
+  // level — a module's rules live in its own directory — and a map that had to
+  // name every one of them directly would stop being a map, which is the thing
+  // the 200-line budget above exists to prevent. So the claim is the weaker,
+  // truer one: starting at AGENTS.md and following relative links through the
+  // scoped files, you ARRIVE at every home. A home nothing links to is
+  // invisible to a non-Claude agent (which gets no automatic injection) and
+  // fails here just as a missing direct mention used to.
+  // NB: the scheme test below is a regex, not startsWith('http') — a relative
+  // link into a directory named `http/` starts with those four letters too.
+  const reachable = new Set<string>()
+  const walk = (file: string) => {
+    if (reachable.has(file) || !existsSync(resolve(ROOT, file))) return
+    reachable.add(file)
+    if (!/\.md$/.test(file)) return
+    for (const match of read(file).matchAll(/\]\(([^)]+)\)/g)) {
+      const target = match[1].split('#')[0].trim()
+      if (!target || EXTERNAL.some((p) => target.startsWith(p))) continue
+      walk(relative(ROOT, resolve(ROOT, dirname(file), target)).split('\\').join('/'))
+    }
+  }
+  walk('AGENTS.md')
+
   for (const [home, anchors] of Object.entries(SCOPED_HOMES)) {
     assert.ok(existsSync(resolve(ROOT, home)), `${home} is missing`)
-    assert.ok(agents.includes(home), `AGENTS.md must point at ${home} — an unreachable scoped file is invisible to non-Claude agents`)
+    assert.ok(reachable.has(home), `nothing links to ${home} — an unreachable scoped file is invisible to non-Claude agents`)
     const body = read(home)
     for (const anchor of anchors) {
       assert.ok(body.includes(anchor), `${home} lost its "${anchor}" rule — moved content must survive the move`)
@@ -79,7 +115,7 @@ test('every relative link in the map and the scoped files resolves', () => {
     const body = read(file)
     for (const match of body.matchAll(/\]\(([^)]+)\)/g)) {
       const target = match[1].split('#')[0].trim()
-      if (!target || target.startsWith('http') || target.startsWith('mailto:')) continue
+      if (!target || EXTERNAL.some((p) => target.startsWith(p))) continue
       const abs = resolve(ROOT, dirname(file), target)
       assert.ok(existsSync(abs), `${file} links to ${target}, which does not exist`)
     }

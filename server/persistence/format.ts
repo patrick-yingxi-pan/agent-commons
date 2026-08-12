@@ -1,6 +1,6 @@
 /** ── The persisted format: shape, version, slice manifest, locations, port ────
  *  A *leaf* module (no back-edges into the rest of `server/`) so the backends
- *  (`json.ts`, `sqlite.ts`) and the facade (`server/persist.ts`) can all import it
+ *  (`json.ts`, `sqlite.ts`) and the facade (`server/persistence/persist.ts`) can all import it
  *  without an import cycle. It defines:
  *    • `PersistedState` — the store's mutable, UI-owned state on disk,
  *    • `STORE_VERSION` — the data-schema version (mismatch ⇒ the store re-seeds),

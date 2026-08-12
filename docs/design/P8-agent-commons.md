@@ -11,7 +11,7 @@
 
 The prototype implements the Agent Commons end-to-end (`contract/providers.ts`,
 `prompts.ts`, `workers.ts`, `commission.ts`, `authority.ts`, `budget.ts`, `roles.ts`;
-the D8 funnel + reclamp in `server/store.ts`) but single-tenant and in-memory. Production
+the D8 funnel + reclamp in `server/store/index.ts`) but single-tenant and in-memory. Production
 makes the registries tenant-scoped, the cascade enforced at scale, and adds the abuse/
 reputation controls a multi-tenant commons needs. **Shared** model; the web carries the
 multi-tenant + cross-user weight, the desktop is the degenerate N=1 case.

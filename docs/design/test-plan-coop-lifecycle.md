@@ -42,7 +42,7 @@ it can be tested cross-tenant; stage D (completion) is unbuilt **and** undesigne
 > `findProject`, and the D12 clamp reads the admitted set from the authoritative
 > `graph.projectContexts`. Membership and the cooperation runtime now **meet** for
 > the D11 guardian / D12 clamp / D14 roles tier — locked cross-tenant by
-> `tests/cross-tenant-runtime.test.ts` (C1–C5, C12). What remains for Stage C is the
+> `server/cross-tenant-runtime.test.ts` (C1–C5, C12). What remains for Stage C is the
 > **authorization + accounting** layer (Phase 2b: caller-identity on the effect
 > routes, owner-pays metering, audit tenant).
 
@@ -76,7 +76,7 @@ D. PROJECT COMPLETES / WINDS DOWN
   reputation, metering. The bulk of the exhaustive matrix lives here.
 - **L2 — route/HTTP** (`node --test` via the HTTP helper), run on **both**
   backends: default single-tenant *and* `BACKEND=remote` multi-tenant with
-  `x-user-id`/`x-tenant-id` headers (as `tests/capability-remote.test.ts` does).
+  `x-user-id`/`x-tenant-id` headers (as `server/routes/capability-remote.test.ts` does).
   This is where cross-tenant isolation + reachability + status codes are locked.
 - **L3 — end-to-end UI**. *No automated browser/DOM harness exists today* (no
   Playwright / vitest / jsdom / testing-library anywhere; all ~105 tests are
@@ -120,7 +120,7 @@ Legend for **Now?**: ✅ lockable today · 🔧 needs a small fix first (see §4
 
 > **STATUS (Phase 2a+2b, 2026-07-02) — BUILT end to end.** The bridge (2a) + the
 > authorization/accounting layer (2b) landed. Locked cross-tenant by
-> `tests/cross-tenant-runtime.test.ts` + `tests/capability-remote.test.ts`:
+> `server/cross-tenant-runtime.test.ts` + `server/routes/capability-remote.test.ts`:
 > **C1/C2/C3** guardian contention (D11), **C4** clamp (D12), **C5** roles (D14),
 > **C6** reputation (agent-scoped, credits the contributor), **C8** caller-identity
 > (act only as your own commission) + **project-binding** (a commission may act only on
@@ -158,7 +158,7 @@ Legend for **Now?**: ✅ lockable today · 🔧 needs a small fix first (see §4
 > existing D11 lifecycle: a sub-goal goes **held → committed → released**, and the
 > shared Project's in-flight set winds back to empty. So Stage D needs **no new status
 > model**; it needed the cross-tenant *completion lifecycle* locked — now done in
-> `tests/cross-tenant-runtime.test.ts` (two different-tenant Contributors each
+> `server/cross-tenant-runtime.test.ts` (two different-tenant Contributors each
 > commit + release their sub-goal → coordination empties → credited + un-commission
 > leaves no dangling holds). The Coordination panel's "No sub-goals in flight" already
 > renders the complete state.

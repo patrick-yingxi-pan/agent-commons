@@ -178,7 +178,7 @@ The one behavioral change that delivers I1:
 - Register the turn in the registry at `onStart`; mirror every `onDelta` into it
   (stamping `seq`); `finish` after the persist + `message.end`.
 - Completion already routes correctly with **zero new code**: `appendMessage`
-  broadcasts `session.updated` (server/store.ts:1471), the events fan-out is
+  broadcasts `session.updated` (server/store/index.ts:1471), the events fan-out is
   tenant-filtered at subscribe time (routes/index.ts:1004), and D13/D16 stamping
   already attributes usage/authorship. That is I2 for turns.
 - The `AbortController` is now tripped only by: the cancel route, and the
@@ -347,18 +347,18 @@ under the PORT table) and the switcher row noted against PORT-8's identity seam.
 
 - **P0 — server-owned turns.** `server/turns.ts`, detach-don't-abort, cancel +
   reattach routes, `Session.activeTurnId`, delta `seq`, slow-beat intent.
-  *Tests:* `tests/turns.test.ts` (registry: buffer/seq/attach/cap),
-  `tests/routes-turns.test.ts` (disconnect mid-turn → completes + persists +
+  *Tests:* `server/turns.test.ts` (registry: buffer/seq/attach/cap),
+  `server/routes/turns.test.ts` (disconnect mid-turn → completes + persists +
   `session.updated`; cancel → `aborted` + partial persist; reattach replays
   `after` correctly; foreign-tenant reattach/cancel 404; post-persist reattach
-  404). Outcome-metric split locked in `tests/generation-outcome.test.ts`.
+  404). Outcome-metric split locked in `server/model/generation-outcome.test.ts`.
 - **P1 — resumable events.** `server/eventlog.ts`, SSE `id:`, `Last-Event-ID`
-  replay, `hello.resumed`. *Tests:* `tests/sse-replay.test.ts` (replay window,
+  replay, `hello.resumed`. *Tests:* `server/sse-replay.test.ts` (replay window,
   aged-out → resumed:false, tenant filter applied to replay, duplication
   harmlessness), client router reset rule in `tests/` events-router coverage.
 - **P2 — idempotent send.** Registry-keyed dedupe + attach-on-retry +
-  post-persist replay. *Tests:* extend `tests/idempotency.test.ts` +
-  `tests/routes-turns.test.ts` (retry never double-appends; mid-turn retry
+  post-persist replay. *Tests:* extend `server/idempotency.test.ts` +
+  `server/routes/turns.test.ts` (retry never double-appends; mid-turn retry
   attaches; post-turn retry returns the persisted message).
 - **P3 — client account layer + identity surface.** `account.ts`, header/query
   injection, generation guard, identity echo, `/v1/identities`, capability flag.
@@ -546,7 +546,7 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
   (`server/index.ts`; `AUTH_GATE=off` opts out — the E2E stack does), so
   pre-sign-in nobody's data is served OR rendered; the auth flow itself exists
   either way (chip menu → Sign in / Create account / Add account, and sign-out
-  lands on the picker). Locked by `tests/auth-gate.test.ts`.
+  lands on the picker). Locked by `server/routes/auth-gate.test.ts`.
 - **Menu → switcher completion**: the chip menu grew an **Accounts** section
   (the stack, instant hops via the bare-userId mint) + "Add account…" (opens
   the full-screen sign-in titled "Add another account" — the current account
@@ -558,8 +558,8 @@ GitHub-style surface** and makes "multiple accounts on one browser" real
   the App shell — "Add account…" mid-session must not replay the intro
   (`e2e/auth-wizard.spec.ts` exercises the round-trip; the overlay check rides
   the onboarding spec's flow).
-- **Locked by**: `tests/auth-stack.test.ts` (cookie primitives: round-trip,
-  tamper→[], per-entry expiry, dedupe/cap), `tests/auth-accounts.test.ts`
+- **Locked by**: `server/auth-stack.test.ts` (cookie primitives: round-trip,
+  tamper→[], per-entry expiry, dedupe/cap), `server/auth-accounts.test.ts`
   (stack over the wire: join on signup/login, strict resolution, hop-back
   lands on last-active tenant, credential-less mint refused without the stack,
   sign-out forgets one/all, seed picks never join, `via` on the wire, the

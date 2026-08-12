@@ -192,7 +192,7 @@ attribution stays `verifiedPeer`/`via`, D28). **(b)** the compile-side lock is t
 mutators' **required-but-undefinable** `principal` parameter (every caller decides
 attribution explicitly) rather than a contract-boundaries row; `resolvedBy` needs
 no stamp — a resolution is definitionally an agent act and that field already
-records the grant. Locks: `tests/principals.test.ts`.
+records the grant. Locks: `server/routes/principals.test.ts`.
 
 **Phase 2 — the workspace collapse. ✅ BUILT (2026-07-12).** Signup mints
 exactly one person namespace (named after the person, GitHub-style — the
@@ -228,7 +228,7 @@ already existed** — D13 built the agent increment (`runProjectEffect`) and the
 owner-profile rollup (`ownerProfile` stats fold, `ownerReputation`) before this
 migration; Phase 3 verified rather than added it. Locks:
 `tests/public-face.test.ts` (funnel + no hand-rolled cue/fallback),
-`tests/principals.test.ts` (the chain on the wire),
+`server/routes/principals.test.ts` (the chain on the wire),
 `e2e/work-item-surface.spec.ts` (the chain rendered, owner door working).
 
 **Phase 4 — docs/spec sweep. ✅ BUILT (2026-07-12).** AGENTS.md (the
@@ -372,7 +372,7 @@ Phase 2 — the seeds were the outlier, not the target. Consequences, checked:
   that carries a public name carries the raw tenant id beside it, and the name
   is written once at mint — so an existing `.data/store.json` booted the demo
   half-renamed, its seeded DM anchored on a name nobody bears.
-  `refreshStoredNames` (server/store.ts) re-derives them on every rehydrate,
+  `refreshStoredNames` (server/store/index.ts) re-derives them on every rehydrate,
   which makes this rename and every future one free. A **follow** has no id to
   re-derive from, and a dangling one is worse than dead — the next signup to
   take that name silently inherits it — so orphans are pruned, which is safe
@@ -423,7 +423,7 @@ SOCIAL-16; locks `tests/owner-door.test.ts`, `e2e/own-profile.spec.ts`.
   `GET /me/invites`, org walls (outsider 404, member-non-owner 403, person
   namespaces take no org machinery). The invite BELL ships with its door in O3
   (a bell without a door is the anti-pattern the notification-doors lock
-  exists for). Locks: `tests/orgs.test.ts`.
+  exists for). Locks: `server/routes/orgs.test.ts`.
 - **O2 — walls + owner picker. ✅ BUILT (2026-07-12).** The union lives in ONE
   funnel pair — `tenantReadsAs` (any seat) / `tenantWritesAs` (the owner seat) —
   threaded through `rowVisibleTo` (so every scoped read inherits it),
@@ -440,7 +440,7 @@ SOCIAL-16; locks `tests/owner-door.test.ts`, `e2e/own-profile.spec.ts`.
   reading the org inbox sees bells for their own acts (actor-exclusion is
   per-recipient-tenant — a wart, v2); the Projects-list ORG BAND is O3 UI (the
   data already lands: org rows carry `ownerName` + write-grade `own`). Locks:
-  `tests/orgs.test.ts` (the O2 case).
+  `server/routes/orgs.test.ts` (the O2 case).
 - **O3 — UI. ✅ BUILT (2026-07-12).** The chip menu's **Organizations** section
   (rows are DOORS to org pages via `openOwner` + the inline "New organization…"
   form — unlike the deleted workspace rows, nothing re-mints; offered to the
@@ -458,6 +458,6 @@ SOCIAL-16; locks `tests/owner-door.test.ts`, `e2e/own-profile.spec.ts`.
   `relation.applied` widens to ORG seats only (`isNamespace` excludes every
   person namespace, so the acting-tenant privacy — including cross-tenant ops
   on shared personal projects — is preserved bit-for-bit; UI-12). Locks:
-  `tests/orgs.test.ts` (roster walls, the org-page door, the event widening),
+  `server/routes/orgs.test.ts` (roster walls, the org-page door, the event widening),
   `e2e/orgs.spec.ts` (found → invite → accept → org-owned project through the
   picker, banded for both seats).

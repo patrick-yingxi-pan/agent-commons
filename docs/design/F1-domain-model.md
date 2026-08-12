@@ -2,13 +2,13 @@
 
 > **Foundation.** The entities the whole system manipulates, and the relation graph
 > that binds them, as a real datastore — replacing the prototype's single-JSON
-> snapshot (`server/persist.ts`) and in-memory store (`server/store.ts`). Serves spec
+> snapshot (`server/persistence/persist.ts`) and in-memory store (`server/store/index.ts`). Serves spec
 > REL-1..7, PERSIST-1..6, and underpins every other design doc.
 
 ## 1. Problem & scope
 
 The prototype keeps all state in memory and snapshots a subset to one
-`.data/store.json` (`PersistedState` in `server/persist.ts`), with the relationship
+`.data/store.json` (`PersistedState` in `server/persistence/persist.ts`), with the relationship
 graph as a denormalized blob (`RelationGraph` in `contract/api.ts`) seeded from
 fixtures and mutated by a pure reducer (`applyGraphOp` in `contract/graph.ts`). That
 is correct *as a prototype* but conflates three things production must separate:
@@ -86,7 +86,7 @@ invalidated, and recomputed:
 `server/data/*` fixtures become **dev-only idempotent seeds** run through the same
 write path (mirroring `scripts/snapshot.ts` `snapshot:build`, which already drives the
 real mutators). Production starts empty per tenant; the demo/tour seed is a dev
-profile. `STORE_VERSION` (`server/persist.ts`) is replaced by real, ordered,
+profile. `STORE_VERSION` (`server/persistence/persist.ts`) is replaced by real, ordered,
 forward-only schema migrations (F6).
 
 ## 3. Failure modes & edge cases

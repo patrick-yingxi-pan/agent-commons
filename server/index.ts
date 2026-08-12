@@ -17,7 +17,7 @@ import { API_BASE_PATH } from '../contract/index.ts'
 import { CORS_HEADERS, SECURITY_HEADERS, sendError, sendJson } from './http/respond.ts'
 import { platformCard } from './a2a.ts'
 import { buildRouter } from './routes/index.ts'
-import { store, startRunDaemon } from './store.ts'
+import { store, startRunDaemon } from './store/index.ts'
 import { startModelServer } from './model/index.ts'
 import { positiveNumberEnv } from './env.ts'
 

@@ -80,7 +80,12 @@ test('every ✅ requirement cites a locking test or is marked in-app (no silent 
     for (const row of requirementRows(read(file))) {
       const statusCell = row.cells[row.cells.length - 1]
       if (!statusCell.includes('✅')) continue
-      if (!/tests\//.test(row.text) && !/in-app/i.test(row.text)) unverified.push(`${rel(file)} ${row.id}`)
+      // What makes a row verified is that it NAMES a locking suite — not that
+      // the suite lives in a particular directory. This read `tests/`, which
+      // stopped meaning "a test" the moment suites colocated with the code they
+      // lock: every server row would have gone quietly unverified while the
+      // suite that locks it ran and passed a directory away.
+      if (!/\.(test|spec)\.ts/.test(row.text) && !/in-app/i.test(row.text)) unverified.push(`${rel(file)} ${row.id}`)
     }
   }
   assert.deepEqual(unverified, [], `✅ rows with no test / in-app verification:\n${unverified.join('\n')}`)

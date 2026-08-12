@@ -6648,7 +6648,7 @@ function McpAccessCard() {
   }
   // Ready-to-paste client wiring (the generic `mcpServers` shape MCP clients
   // share — deliberately no harness-specific install recipe: that design
-  // lesson is locked by tests/connector-serve.test.ts). Computed for the COPY
+  // lesson is locked by server/routes/connector-serve.test.ts). Computed for the COPY
   // ACTION only, never rendered — the credential shows in exactly one place.
   const jsonConfig = minted
     ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${minted.token}` } } } }, null, 2)

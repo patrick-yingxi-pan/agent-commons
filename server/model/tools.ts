@@ -482,7 +482,7 @@ const TOOLS: ToolSpec[] = [
   // ── Agent Commons CRUD tools (docs/agent-commons.md, D6/D9/D10/D7) ───────────
   // Claude managing the Agent Commons concepts through the SAME confirm-card gate.
   // Each yields a RelationOp the user confirms; the canonical write then executes it
-  // through the store's registry mutator (the D8 funnel) — server/store.ts.
+  // through the store's registry mutator (the D8 funnel) — server/store/index.ts.
   {
     name: 'create_provider',
     description:

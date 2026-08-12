@@ -48,13 +48,13 @@
 > loop from the latch onward (idle-floored, backoff on network failure), so the
 > relay stays online through indefinite idle without a daemon; prompts arriving
 > while the model is away are buffered and handed to its next call. Locked by
-> `tests/relay.test.ts`, `tests/relay-migrate.test.ts`,
-> `tests/relay-connector.test.ts`; ledger rows MODEL-10/-11/-18/-19 in
+> `server/relay.test.ts`, `server/persistence/relay-migrate.test.ts`,
+> `server/routes/relay-connector.test.ts`; ledger rows MODEL-10/-11/-18/-19 in
 > [`docs/spec/06-model-and-tools.md`](spec/06-model-and-tools.md).
 >
 > **v1 BUILT** before it (the §9 scope, exactly as the third pass simplified it):
 > `server/relay.ts` (the one-entry slot + `relayReply`), the relay routes + pre-turn
-> gates in `server/routes/index.ts`, the mint/rotate branches in `server/store.ts`,
+> gates in `server/routes/index.ts`, the mint/rotate branches in `server/store/index.ts`,
 > the wire types in `contract/relay.ts`, the user-side connector in
 > `connector/relay-connector.ts`, and the UI affordances (kind toggle, one-time
 > secret panel, status dot, relay badges, provenance chip, waiting state, tour
@@ -252,7 +252,7 @@ to write down, because the panel spent several iterations getting here:
   user copies and saves, so it is the single place the secret appears (the v4 pass
   replaced the connect sentence with the richer bootstrap prompt — same one-place
   rule). `bootstrapPrompt()` lives in `src/lib/connectorInstall.ts`; the rule is
-  locked by `tests/connector-serve.test.ts` ("the credential is shown in exactly ONE
+  locked by `server/routes/connector-serve.test.ts` ("the credential is shown in exactly ONE
   place"), which fails if a standalone raw-secret row is ever re-added.
 - **Proof beats attestation — the close-gate is observed, never promised.** The panel
   used to end in a blind hand-off (paste, close, squint at the provider's dot) *and* to
@@ -270,12 +270,12 @@ to write down, because the panel spent several iterations getting here:
   Copy — so it was a ceremonial second click that proved nothing the first didn't. The
   shared `CopyButton` therefore exposes an `onCopied` observation (its own "Copied"
   flash self-resets, being a *confirmation*, not state), and the prompt row's copy
-  latches the gate. **Copy is the save.** Locked by `tests/connector-serve.test.ts`
+  latches the gate. **Copy is the save.** Locked by `server/routes/connector-serve.test.ts`
   ("the reveal closes on an OBSERVED fact"), which fails if a self-attestation checkbox
   is ever re-added.
 
 Two rules make the typed-credentials shape safe, both locked by
-`tests/relay-connector.test.ts` (spec MODEL-12):
+`server/routes/relay-connector.test.ts` (spec MODEL-12):
 
 - **The first-call latch.** The first `start` that presents credentials binds the
   connector process permanently; any later `start` with different credentials — the
@@ -299,7 +299,7 @@ enrollment — the provider's dot flips green in the Models section and the comp
 model selector. To test without a
 second AI session, drive the two wire calls by hand: `GET /relay/poll` with
 `Authorization: Bearer rv_live_…`, then `POST /relay/reply` with
-`{"entryId": "…", "completion": "…"}` (exactly what `tests/relay.test.ts` does).
+`{"entryId": "…", "completion": "…"}` (exactly what `server/relay.test.ts` does).
 
 ### 4.3 Route a conversation through it and run a turn
 Two ways, one resolution (`session.providerId ?? agent.providerId` — spec MODEL-13):
@@ -717,7 +717,7 @@ protocol:
   is the *mailbox's*, not a probed endpoint's — so the mint wall now demands an
   explicit `toolUse` boolean (the §6.3 no-unset-default rule, kept) and stamps
   `true`; a pre-v2 snapshot's `toolUse:false` session config is normalised up on
-  rehydrate (the P9 code-owned-stamp rule; `tests/relay-migrate.test.ts`). The
+  rehydrate (the P9 code-owned-stamp rule; `server/persistence/relay-migrate.test.ts`). The
   UI's prose-only badges retired into a **Relay** badge.
 
 ## 9.2 The v3 pass (2026-07-15) — the framing dedupe (context-window economy)
@@ -749,8 +749,8 @@ change to the slot protocol:
   printed, headed by "continuing the exchange of entry X". Pure connector-side;
   a restarted connector simply prints everything again.
 
-Spec row MODEL-21; locked by `tests/relay.test.ts` (pruned vs full delivery,
-both delivery paths, reconnect resend) and `tests/relay-connector.test.ts`
+Spec row MODEL-21; locked by `server/relay.test.ts` (pruned vs full delivery,
+both delivery paths, reconnect resend) and `server/routes/relay-connector.test.ts`
 (advertisement, reference + suffix rendering).
 
 ## 9.3 The v4 pass (2026-07-18) — any-agent onboarding + multi-session channels
@@ -1028,7 +1028,7 @@ the repoint remedy in the message).
 
 - **D9 — Model providers**, and slice 18 (endpoints as data): [`agent-commons.md`](agent-commons.md);
   `contract/providers.ts`, `server/data/providers.ts`, `server/generate.ts` (`clientFor`,
-  `probeProviderEndpoint`, the `capabilities.toolUse` gate), `server/store.ts` (`createProvider`,
+  `probeProviderEndpoint`, the `capabilities.toolUse` gate), `server/store/index.ts` (`createProvider`,
   `providerConfig`).
 - **The runner broker** this mirrors: [`capability-broker-architecture.md`](capability-broker-architecture.md)
   (D1 relay-default, D2 agent-as-system-of-record / pull-sync, D3 content audit, "the model relay");

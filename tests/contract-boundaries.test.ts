@@ -37,6 +37,15 @@ test('contract/ + server/ use only erasable TypeScript (no enum / namespace / pa
   const offenders = []
   for (const dir of ['contract', 'server']) {
     for (const file of filesUnder(dir)) {
+      // Suites and their drivers are not the shipped runtime surface, and since
+      // they colocated into `server/` this walk reaches them. They are excluded
+      // on a narrow ground, not a general one: a suite proves its own
+      // erasability by RUNNING (`node --test` type-strips it the same way), so
+      // a real `enum` in a test fails visibly at load — whereas the word
+      // "namespace" is domain vocabulary here (the identity model), and the
+      // prose-level regexes below flag it in assertion messages and property
+      // names. Scanning them bought false positives and no coverage.
+      if (/\.test\.ts$|[\\/]testkit[\\/]/.test(file)) continue
       const src = stripComments(read(file))
       const rel = file.replace(ROOT, '')
       if (/\benum\s+[A-Za-z_]/.test(src)) offenders.push(`${rel}: enum`)

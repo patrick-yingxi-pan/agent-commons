@@ -66,7 +66,7 @@ import {
 import { userPrincipal } from '../identity.ts'
 import { accounts } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
-import { store, type GenerationOutcome } from '../store.ts'
+import { store, type GenerationOutcome } from '../store/index.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'

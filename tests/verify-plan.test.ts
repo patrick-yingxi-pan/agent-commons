@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
-import { envCount, specFiles, specGroups, suiteFiles } from '../scripts/verifyPlan.mjs'
+import { envCount, specFiles, specGroups, suiteFiles, suiteRoots } from '../scripts/verifyPlan.mjs'
 
 test('the sweep runs every node suite the `npm test` glob does', () => {
   // Two enumerations of one set. `package.json`'s `test` script is a RECURSIVE
@@ -26,20 +26,35 @@ test('the sweep runs every node suite the `npm test` glob does', () => {
   const script = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts.test
   assert.match(script, /tests\/\*\*\/\*\.test\.ts/, 'the npm script globs recursively — so the plan must too')
 
-  const planned = new Set(suiteFiles())
-  const onDisk = readdirSync(join(ROOT, 'tests'), { recursive: true })
-    .map((f) => String(f).split('\\').join('/'))
-    .filter((f) => f.endsWith('.test.ts'))
-  assert.ok(onDisk.length > 0, 'there are suites to find')
-  for (const f of onDisk) assert.ok(planned.has(`tests/${f}`), `the sweep would skip tests/${f}`)
-  assert.equal(planned.size, onDisk.length, 'and it invents nothing')
-  assert.ok(planned.has('tests/verify-plan.test.ts'), 'including this one')
+  // Since the suites colocated with the code they lock, there is more than one
+  // root, and a whole ROOT can now go missing the way a subdirectory could
+  // before — silently, with the lane still green over fewer tests. So the
+  // roots are read out of the same `test` script the runner globs, and checked
+  // against the directories that actually hold suites: a layer that colocates
+  // its tests but never reaches the script fails HERE rather than nowhere.
+  const roots = suiteRoots(join(ROOT, 'package.json'))
+  assert.ok(roots.includes('tests'), 'the repo-level suites still run')
+  assert.ok(roots.includes('server'), 'the colocated server suites run')
 
-  // Against a FIXTURE, because every suite currently sits directly in `tests/`
-  // — so a flat readdir and a recursive one return the same list and the
-  // assertions above pass either way. Mutating the implementation back to flat
-  // left this test green until this block existed; a lock that only holds
-  // because of today's directory layout is not a lock on recursion.
+  const planned = new Set(suiteFiles(roots.map((r) => join(ROOT, r))).map((f) => f.split('\\').join('/')))
+  const onDisk: string[] = []
+  for (const root of roots) {
+    for (const f of readdirSync(join(ROOT, root), { recursive: true })) {
+      const p = String(f).split('\\').join('/')
+      if (p.endsWith('.test.ts')) onDisk.push(`${join(ROOT, root).split('\\').join('/')}/${p}`)
+    }
+  }
+  assert.ok(onDisk.length > 0, 'there are suites to find')
+  for (const f of onDisk) assert.ok(planned.has(f), `the sweep would skip ${f}`)
+  assert.equal(planned.size, onDisk.length, 'and it invents nothing')
+  assert.ok([...planned].some((f) => f.endsWith('tests/verify-plan.test.ts')), 'including this one')
+
+  // Still against a FIXTURE. Real suites do now sit in subdirectories, so the
+  // assertions above would finally catch a flat readdir — but they would catch
+  // it for a reason that is a fact about today's tree, and the tree is exactly
+  // what keeps changing. Mutating the implementation back to flat once left
+  // this test green until this block existed; a lock that only holds because of
+  // the current layout is not a lock on recursion.
   const tmp = mkdtempSync(join(tmpdir(), 'verify-plan-'))
   try {
     mkdirSync(join(tmp, 'nested'))

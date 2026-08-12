@@ -1745,7 +1745,7 @@ session↔context binding, mediation handle, and single-resource escrow).
   unrepresentable at mint, the same shape as a D8 over-grant. Generation then branches on
   **capability, never provider identity**: a non-tool-use provider is sent no `tools` param
   (its turns degrade to prose; the consent-gated proposals need a tool-use provider). The
-  flagship lock (`tests/provider-endpoint.test.ts`) registers a second provider against a
+  flagship lock (`server/model/provider-endpoint.test.ts`) registers a second provider against a
   recording pass-through in front of the same mock endpoint and proves the turn arrives at
   *that* endpoint carrying *its* model id and *its* referenced credential while a
   default-config turn lands zero hits there — N=2 exercised, zero provider-specific backend
@@ -1759,12 +1759,12 @@ session↔context binding, mediation handle, and single-resource escrow).
   **D17 discovery** — `GET /directory/projects` + `GET /directory/agents`
   (`contract/directory.ts`), cross-tenant listings of exactly what sharing/publishing
   already exposed (the same redaction functions; `?q=` substring, no ranking), surfaced as
-  the Agents hub's **Discover** tab (`tests/routes-directory.test.ts`).
+  the Agents hub's **Discover** tab (`server/routes/directory.test.ts`).
   **D18 publish/fork** — `Agent.published` (explicit owner PATCH act) puts the DEFINITION
   in the directory; `POST /agents/:id/fork` copies it into the caller's tenant with
   capability UNBOUND (authority/budget dropped, invisible provider/prompt bindings
   cleared), lineage stamped (`forkedFrom`) and the source's `forks` credited; a foreign
-  unpublished Agent is 404 (`tests/agent-fork.test.ts`).
+  unpublished Agent is 404 (`server/routes/agent-fork.test.ts`).
   **D19 open work + standing dispatch** — the persisted Project backlog (`OpenSubGoal`,
   the issues analog) plus `Commission.standing` (owner-pays consent to unprompted spend):
   a posted item dispatches synchronously in role-rank order through the SAME walls as the
@@ -1772,7 +1772,7 @@ session↔context binding, mediation handle, and single-resource escrow).
   `runProjectEffect`); an untakeable item stays open; flipping a commission to standing
   re-dispatches the backlog once; `openwork.changed` (visibility mirrors the Project's)
   keeps the Coordination panel's **Open work** list live
-  (`tests/standing-dispatch.test.ts`, persistence in `tests/snapshot.test.ts`).
+  (`server/routes/standing-dispatch.test.ts`, persistence in `server/persistence/snapshot.test.ts`).
   Spec rows COMMONS-7/8/9; federation stays exploration (BROKER-EXP-5, § Beyond one
   instance). typecheck + full suite + build green; verified live.
 - **Slice 20 — A2A at the edge (D20). ✅ Built.** The platform shell's objects re-served
@@ -1786,8 +1786,8 @@ session↔context binding, mediation handle, and single-resource escrow).
   `via:'a2a'`), and `message/send` to an *Agent* endpoint returns Task `rejected` (the
   D18 wall spoken in protocol); **import** — `POST /agents/import-card` fetches a remote
   card (http/https, 5s timeout) into a private unbound stub with `importedFrom` lineage,
-  surfaced in the Discover tab. Locked by `tests/a2a.test.ts` +
-  `tests/a2a-import.test.ts`; spec rows COMMONS-10/11/12.
+  surfaced in the Discover tab. Locked by `server/routes/a2a.test.ts` +
+  `server/routes/a2a-import.test.ts`; spec rows COMMONS-10/11/12.
 - **Slice 21 — the findability layer (D21 + D22). ✅ Built.** The identities and the
   catalog: **the workspace profile** — `GET /directory/owners/:name` aggregates a display
   name's already-public rows (shared Projects, published Agents, public stats, an
@@ -1799,7 +1799,7 @@ session↔context binding, mediation handle, and single-resource escrow).
   can see, composed exclusively from the same per-tenant reads and redactions the pages
   use; surfaced in the ⌘K palette (the one search surface), where every hit deep-links
   (project → project page, owner/published agent → profile, open work → its backlog).
-  Locked by `tests/owner-profile.test.ts`, `tests/search.test.ts`, `tests/nav.test.ts`,
+  Locked by `server/routes/owner-profile.test.ts`, `server/routes/search.test.ts`, `tests/nav.test.ts`,
   `tests/public-face.test.ts`, `e2e/profile-and-search.spec.ts`; spec rows COMMONS-14/15.
 - **Slice 22 — work-item discussion + the honest close (D23). ✅ Built.** An
   `OpenSubGoal` is now a conversation: a flat, append-only **comment thread**
@@ -1809,7 +1809,7 @@ session↔context binding, mediation handle, and single-resource escrow).
   immutable history). A retracted item leaves every open-work count but stays
   readable. **A2A `tasks/cancel`** now maps to the same store method (`retracted` →
   `canceled`), exactly as the a2a design log predicted. Surfaced in `OpenWorkList`
-  (thread fold + composer + Retract). Locked by `tests/work-discussion.test.ts` +
+  (thread fold + composer + Retract). Locked by `server/routes/work-discussion.test.ts` +
   `e2e/work-discussion.spec.ts`; spec row COMMONS-16; parity ledger rows 1–2
   ([`github-parity.md`](github-parity.md)).
 - **Slice 23 — watching + the notification inbox (D24). ✅ Built.** The bell that
@@ -1820,7 +1820,7 @@ session↔context binding, mediation handle, and single-resource escrow).
   D23's `postedByTenant` anchor. Tenant-TARGETED `notification.changed` SSE
   (`eventVisibleToTenant`, the audit pattern); rail bell + panel of doors; Watch
   toggle on shared project pages for owner and visitor alike. Locked by
-  `tests/notifications.test.ts`; spec row COMMONS-17; parity ledger row 3.
+  `server/routes/notifications.test.ts`; spec row COMMONS-17; parity ledger row 3.
 - **Slice 24 — definition evolution (D25). ✅ Built.** Versions (published edits +
   merges bump; changelog is the public authorship record; forks record the version
   taken), full-field **change proposals** behind the directory's wall (owner-sees-
@@ -1830,14 +1830,14 @@ session↔context binding, mediation handle, and single-resource escrow).
   provenance, not D13 reputation; decline carries the owner's note; stale flagged,
   never auto-rebased). D24 `proposal.*` bells both ways. UI: Propose-a-change on
   the public detail; the owner's side-by-side review queue on the agent card.
-  Locked by `tests/agent-proposals.test.ts` + `e2e/definition-evolution.spec.ts`;
+  Locked by `server/routes/agent-proposals.test.ts` + `e2e/definition-evolution.spec.ts`;
   spec row COMMONS-18; parity rows 4/6.
 - **Slice 25 — the project README (D26). ✅ Built.** The last parity row: a shared
   Project's public "about" as a `projectReadmes` graph overlay (`set-project-readme`
   op — the consent-gated funnel, owner-only, reducer-capped), public in the
   projection for shared projects while instructions stay private, rendered as the
   page-top "About" (owner edits, visitor reads). Locked by
-  `tests/project-readme.test.ts` + `e2e/project-readme.spec.ts`; spec row
+  `server/routes/project-readme.test.ts` + `e2e/project-readme.spec.ts`; spec row
   COMMONS-19; parity row 5 — **the "needed" column of the parity ledger is complete**.
 - **Slice 26 — the proposal becomes a conversation (D27). ✅ Built.** Parity wave 2
   (rows 7–9): the two-party **thread** on a proposal (open-only, bells both ways,
@@ -1845,13 +1845,13 @@ session↔context binding, mediation handle, and single-resource escrow).
   fabricated score on untagged text), and **public authorship** (a merged proposal
   on the proposer's D21 profile, from the changelogs the directory already serves).
   One comment primitive platform-wide; one `ProposalThread` component for both
-  ends. Locked by `tests/agent-proposals.test.ts`; spec row COMMONS-20.
+  ends. Locked by `server/routes/agent-proposals.test.ts`; spec row COMMONS-20.
 - **Slice 27 — peer credentials (D28). ✅ Built.** Verified identity at the A2A
   edge: owner-minted, hashed-at-rest bearer credentials bound to owner-registered
   peer names; verified calls stamp `postedBy`/`verifiedPeer`/comment authors/bell
   actors with that name; card `securitySchemes`; opt-in enforcement
   (`A2A_REQUIRE_AUTH` → transport 401); revocation = deletion. Locked by
-  `tests/a2a-peers.test.ts`; spec row COMMONS-21; parity row 10 — the identity
+  `server/routes/a2a-peers.test.ts`; spec row COMMONS-21; parity row 10 — the identity
   prerequisite BROKER-EXP-5 (federation/outbound dispatch) has named since D20.
 - **The multi-tenant surface (slices 1–10) is built, managed (11–15), persisted (16), and
   conversationally manageable (17).** Every D6–D13 decision is now exercised by a working

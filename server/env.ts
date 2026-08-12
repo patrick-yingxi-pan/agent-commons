@@ -2,7 +2,7 @@
  *  Validate-and-floor helpers so an empty (`Number('')===0`) or garbage (`NaN`) env
  *  var can't collapse a tunable to a degenerate value (which would, e.g., abort every
  *  model call instantly or reap every runner each tick). One source of truth for the
- *  idiom that was being hand-rolled at each call site, locked by tests/env.test.ts. */
+ *  idiom that was being hand-rolled at each call site, locked by server/env.test.ts. */
 
 /** A finite, strictly-positive number, else the fallback. For durations/timeouts. An
  *  unset or empty/whitespace var means "not configured" → fallback. */

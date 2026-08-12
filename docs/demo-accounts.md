@@ -1,7 +1,7 @@
 # The six demo accounts
 
 > The system of record for the seeded account roster and its **data standard**
-> (locked by `tests/demo-accounts.test.ts`). Sign in through the full-screen
+> (locked by `server/data/demo-accounts.test.ts`). Sign in through the full-screen
 > auth flow (chip menu → *Sign in…*, or *Add account…* to stack several and hop
 > between them instantly — multi-account design §12/§13).
 >
@@ -9,7 +9,7 @@
 > shared **showcase projects** across these six owners — each staging one stage
 > of the agent-contribution workflow (the ledger, envelopes, tiers, delegation,
 > intents, aftermath — spec COMMONS-34, locked by
-> `tests/commons-showcase.test.ts`) — so Discover reads as a gallery of the
+> `server/routes/commons-showcase.test.ts`) — so Discover reads as a gallery of the
 > system's own argument from the first sign-in. Seeded through the real
 > mutators; an existing snapshot is never re-seeded (delete `.data/store.json`
 > to regenerate).
@@ -54,7 +54,7 @@ flow (`e2e/orgs.spec.ts`), never seeded (O-D7).
 
 - Seed rows carry an optional `tenantId` (`server/data/sessions.ts`,
   `server/data/cowork.ts`); every tenant-scoped read filters on it
-  (`rowVisibleTo`, `server/store.ts`). Since this split, **schedules, projects,
+  (`rowVisibleTo`, `server/store/index.ts`). Since this split, **schedules, projects,
   artifacts, dispatch, and the recent-runs feed are tenant-scoped** end to end
   (routes pass the caller's tenant; by-id schedule mutations sit behind a
   foreign-tenant 404 wall like sessions).

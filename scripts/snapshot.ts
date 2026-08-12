@@ -1,6 +1,6 @@
 /** ── Backup / restore the mock backend's storage state ─────────────────────
  *  A play-and-roll-back tool for the persisted store (`.data/store.json`, see
- *  server/persist.ts). Four subcommands:
+ *  server/persistence/persist.ts). Four subcommands:
  *
  *    save  [name]   live store  → .data/snapshots/<name>.json   (default: backup)
  *    restore [name] snapshot    → live store     (+ restart the server to load it)
@@ -22,7 +22,7 @@
  *  for save/restore/list; the store is imported lazily, only for `build`. */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { dataFile, type PersistedState } from '../server/persist.ts'
+import { dataFile, type PersistedState } from '../server/persistence/persist.ts'
 import { backendKind } from '../server/persistence/index.ts'
 
 /** The live store path — the SAME resolver the server reads/writes through
@@ -92,8 +92,8 @@ const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
  *  per process — the store is a singleton, so a second call would layer on the
  *  first rather than re-seed. */
 export async function buildComprehensive(): Promise<PersistedState> {
-  const { store } = await import('../server/store.ts')
-  const { loadState } = await import('../server/persist.ts')
+  const { store } = await import('../server/store/index.ts')
+  const { loadState } = await import('../server/persistence/persist.ts')
 
   // Re-seed from the source-controlled fixtures (no file at DATA_FILE → seed,
   // then write the baseline). Every store mutation from here persists.

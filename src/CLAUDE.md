@@ -228,7 +228,7 @@ missed every runtime-created project), no SSE case that invalidates a key nothin
 reads, no component-state "registry" that evaporates on unmount (the Contexts
 page's add/remove once did), no asserted status a registry actually owns (the
 composer quick list's fabricated green dot). Locked by
-`tests/connectivity-freshness.test.ts` + `tests/event-tenancy.test.ts` (the
+`tests/connectivity-freshness.test.ts` + `server/store/event-tenancy.test.ts` (the
 2026-07 connectivity audit's ratchet).
 
 ## Rail navigation is an inline disclosure tree
@@ -254,7 +254,7 @@ beside it:
   has no per-row page to list, and a lens is the VIEWER's own collection — a place
   you go back to — not a slice of the items. Each filters on a server-stamped,
   viewer-relative `CommonsItem` field (`watched` / `liked` / `mine` / `viewedAt`);
-  a lens must never be a client-side guess, and `tests/commons-lenses.test.ts`
+  a lens must never be a client-side guess, and `server/routes/commons-lenses.test.ts`
   fails a lens with no predicate (it would silently show the whole feed).
 - **Instances** — `SECTION_INSTANCE_KEY`: a content section (Projects, Artifacts,
   Contexts, Models, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the

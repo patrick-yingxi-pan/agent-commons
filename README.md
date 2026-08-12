@@ -177,17 +177,25 @@ contract/                 # the shared wire types (the API IS these types)
   events (SSE union) · api (Capabilities + DTOs) · ids (shared invariants)
 
 server/                   # the mock backend (Node 26 native TS; one dep: the SDK)
+                          # every module carries its own CLAUDE.md, the
+                          # requirement rows it owns (SPEC.md), and the
+                          # *.test.ts suites that lock it, as SIBLINGS
   index.ts                # http server: prefix routing, CORS, static dist/, daemon
-  store.ts                # working state + event bus + the run daemon
-  persist.ts              # filesystem persistence — snapshots UI state to .data/store.json
   generate.ts             # the Anthropic Messages seam — declares the tools, runs the tool-use loop, streams the reply
+  auth.ts · accounts.ts · mcp.ts · relay.ts · turns.ts · …   (+ <module>.test.ts beside each)
+  store/index.ts          # working state + event bus + the run daemon
+  persistence/            # filesystem persistence — snapshots UI state to .data/store.json
+    persist.ts            #   the store-facing facade (loadState/saveState, PersistedState)
+    index.ts · json.ts · sqlite.ts · format.ts · migrate.ts
+    SPEC.md               #   PERSIST-1…6 — the rows, next to what satisfies them
   model/                  # the Anthropic-compatible mock model server (POST /v1/messages)
     tools.ts              #   the resource-manipulation tool interface + executor (one tool per manipulation)
     intents.ts            #   the mock's tool-decision logic (fixed-string tour table + keyword fallback)
     replies.ts            #   the mock's canned prose ("weights")
-  http/{router,respond,sse}.ts
+  http/{router,respond,sse,dispatch}.ts
   routes/index.ts         # the route table (one .get/.post per endpoint)
   data/                   # the seed data (sessions, cowork, contexts, …)
+  testkit/{http,connector}.ts  # the drivers suites boot the server with
 
 docs/                     # the written record
   spec/                   #   the requirements ledger — what's BUILT vs mocked, row by row
@@ -196,7 +204,9 @@ docs/                     # the written record
   ui-invariants.md        #   the earned ledger of machine-checkable UI rules
   capability-broker-architecture.md  # forward-looking: control plane + native-agent registry
 
-tests/                    # the behavior locks (node --test)
+tests/                    # the locks the REPO owns (node --test): doc-lint,
+                          # cross-layer contracts, helpers/source.ts — plus the
+                          # src/ and contract/ suites, pending colocation pass 2
 e2e/                      # Playwright browser specs
 scripts/                  # dev orchestration, the ui-sweep harness, snapshot tooling
 connector/                # the session-relay connector (served by the product itself)

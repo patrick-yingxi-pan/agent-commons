@@ -100,8 +100,8 @@ resolve an absence to a mutable entity or privileged value; never silently
 normalize an invalid value; conveniences run at the edge and their result is
 shown on the card/picker.
 **Detection:** review checklist on any diff adding a request field; instance
-locks in `tests/registry-defaults.test.ts`, `tests/routes-worker-agents.test.ts`,
-`tests/model-tools.test.ts`.
+locks in `server/routes/registry-defaults.test.ts`, `server/routes/worker-agents.test.ts`,
+`server/model/model-tools.test.ts`.
 **Fix:** classify or refuse (INV-9); state the resolved value on the consent
 surface.
 
@@ -110,8 +110,8 @@ Every new route/read is tenant-scoped (deny-foreign helpers); every emitted
 event is tenant-scoped; a viewer-relative annotation (`own`, `isDefault`,
 `online`) is computed at serve time, never stored, and stripped at every
 mint/patch funnel.
-**Detection:** `node --test tests/event-tenancy.test.ts tests/usage-tenancy.test.ts
-tests/demo-accounts.test.ts`; for a new route, a two-tenant test is REQUIRED
+**Detection:** `node --test server/store/event-tenancy.test.ts server/store/usage-tenancy.test.ts
+server/data/demo-accounts.test.ts`; for a new route, a two-tenant test is REQUIRED
 before merge.
 **Fix:** scope at the store read, deny at the route, add the two-tenant lock.
 
@@ -119,8 +119,8 @@ before merge.
 A model tool call is a *proposal* — nothing applies until the user confirms;
 the `tool_result` fed back says "proposed, awaiting confirmation", never
 "done"; standing approvals are recorded once, per opKey.
-**Detection:** `node --test tests/model-tools.test.ts tests/consent-state.test.ts
-tests/routes-relations-commons.test.ts`; grep new `executeTool` builders for a
+**Detection:** `node --test server/model/model-tools.test.ts tests/consent-state.test.ts
+server/routes/relations-commons.test.ts`; grep new `executeTool` builders for a
 summary that claims completion.
 **Fix:** return the op/escalation as a proposal; make the summary honest.
 
@@ -128,24 +128,24 @@ summary that claims completion.
 Every new store slice is persisted on mutation and rehydrated on boot; the
 snapshot generator covers it; transient state (reservations, live registries,
 relay slots) is deliberately NOT persisted and says so in a comment.
-**Detection:** `node --test tests/persist.test.ts tests/snapshot.test.ts` (the
+**Detection:** `node --test server/persistence/persist.test.ts server/persistence/snapshot.test.ts` (the
 every-slice coverage invariant fails on an unpersisted slice).
-**Fix:** extend `server/persist.ts` + the snapshot builder + the round-trip test.
+**Fix:** extend `server/persistence/persist.ts` + the snapshot builder + the round-trip test.
 
 ### F-7 · Replays and duplicates are idempotent; async answers are entry-keyed
 A re-applied create op finds its target existing and does not duplicate (the
 create-project exists-check pattern; create-agent's bundled-prompt reuse). An
 async completion names the entry it settles; anything else is answered
 "settled or gone" (410) and can poison nothing.
-**Detection:** `node --test tests/shared-reducer.test.ts tests/relay.test.ts
-tests/routes-relations-commons.test.ts`.
+**Detection:** `node --test tests/shared-reducer.test.ts server/relay.test.ts
+server/routes/relations-commons.test.ts`.
 **Fix:** add the exists-check at apply; key the completion to its entry.
 
 ### F-8 · Every async wait has exactly one deadline owner
 A turn/poll/relay wait is governed by one named, env-tunable clock; a late
 arrival meets an honest terminal answer; the slot/lock is freed on every exit
 path (deadline, cancel, error) — no wedged 409s.
-**Detection:** `node --test tests/relay.test.ts tests/routes-messages.test.ts`
+**Detection:** `node --test server/relay.test.ts server/routes/routes-messages.test.ts`
 (deadline, late-410, slot-freed cases exist for every new wait).
 **Fix:** give the new wait its own `*_TIMEOUT_MS`, race it, clear on all paths,
 lock all three cases.
@@ -173,7 +173,7 @@ Any state cached across a process boundary (the relay connector's framing
 cache, a client cache) must self-heal on either side restarting: the holder
 advertises what it has, the source resends what isn't advertised, and no side
 ASSUMES the other's memory.
-**Detection:** `node --test tests/relay.test.ts tests/relay-connector.test.ts`
+**Detection:** `node --test server/relay.test.ts server/routes/relay-connector.test.ts`
 (the reconnect-resend cases); for any new cache, a restart-both-sides test.
 **Fix:** advertisement + content-address (the MODEL-21 pattern), plus the test.
 
@@ -190,7 +190,7 @@ match the message; grep new `catch` blocks that swallow into success shapes.
 A new page kind extends `src/lib/urlRoutes.ts` (+ round-trip test) — no path
 minted or parsed anywhere else. A new store mutation takes the acting
 principal as a required parameter and stamps only the kind on the wire.
-**Detection:** `node --test tests/url-routes.test.ts tests/principals.test.ts`;
+**Detection:** `node --test tests/url-routes.test.ts server/routes/principals.test.ts`;
 grep `pushState`/`location.pathname` outside the controller.
 **Fix:** extend the one mapping / thread the principal (ADAPT-15, INV-10).
 
@@ -207,7 +207,7 @@ The only fake is the model server; everything around it is production-shaped.
 A new capability is gated by `/capabilities` (remote → 409
 `capability_unavailable`), never by silent stubbing; canned data lives in
 `server/data/` seeds, never inline in components.
-**Detection:** `node --test tests/capabilities.test.ts` (where present) +
+**Detection:** `node --test server/capabilities.test.ts` (where present) +
 route suites; grep `src/components` for object-literal fixtures of server
 entities.
 **Fix:** move data to seeds; gate the capability; document intentional mock

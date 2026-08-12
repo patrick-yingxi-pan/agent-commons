@@ -11,11 +11,11 @@ The always-on map is [`AGENTS.md`](../AGENTS.md).
   alternative): [`docs/delegated-cognition-provider.md`](../docs/delegated-cognition-provider.md).
   Spec rows MODEL-10/-11/-14/-18/-19/-21/-22/-23/-24 in
   [`docs/spec/06-model-and-tools.md`](../docs/spec/06-model-and-tools.md).
-- **Locks:** `tests/relay.test.ts`, `tests/relay-migrate.test.ts`,
-  `tests/relay-connector.test.ts`, `tests/connector-serve.test.ts`.
+- **Locks:** `server/relay.test.ts`, `server/persistence/relay-migrate.test.ts`,
+  `server/routes/relay-connector.test.ts`, `server/routes/connector-serve.test.ts`.
 - The connector is served type-stripped by `GET /api/v1/connector` and must
   stay a single self-contained script runnable on any Node ≥ 18 — no imports
-  beyond `node:` built-ins (`tests/connector-serve.test.ts` runs the served
+  beyond `node:` built-ins (`server/routes/connector-serve.test.ts` runs the served
   bytes under plain `node`).
 - The agent-facing setup guide it pairs with is `server/connectorSetup.ts`
   (`GET /connector/setup`).

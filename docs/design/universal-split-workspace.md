@@ -338,7 +338,7 @@ collapses); prune at render, never in storage.
         routes it (invalidate + a new `onSessionRemoved` seam mirroring
         `onSessionPush`), and App prunes every hosting pane. This client's
         own delete echoes through the same seam (idempotent). Locked by the
-        emit + tenancy locks in `tests/session-tenancy.test.ts`; verified
+        emit + tenancy locks in `server/store/session-tenancy.test.ts`; verified
         live (raw-API DELETE → the SSE round-trip collapsed the pane).
       • **The narrow-tier rail toggle on panel-only surfaces** — NarrowBar
         now covers every focused surface without its own title bar: section

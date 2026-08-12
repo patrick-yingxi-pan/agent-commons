@@ -1,7 +1,7 @@
 /** The live-turn affordances (multi-account design §6.5, built in P6c): the
  *  STOP button cancels the SERVER-owned turn mid-stream — the partial persists
  *  as the record and the streaming state stands down. (The cancel route's
- *  semantics are node-locked in tests/routes-turns.test.ts; this locks the UI
+ *  semantics are node-locked in server/routes/turns.test.ts; this locks the UI
  *  wiring: button → cancelTurn → stream end → coherent thread.) */
 import { test, expect, type Page } from '@playwright/test'
 

@@ -80,10 +80,19 @@ restart.
 
 ## The context map — read on demand
 
+**A module carries its own context, spec and locks.** Progressive disclosure is
+not only a `CLAUDE.md` rule — it applies to every kind of file. A directory
+holds its code, its scoped `CLAUDE.md`, the requirement rows it owns
+(`SPEC.md`), and the suites that lock it, as siblings. So the map below points
+at a *layer*, and the layer's own file points at its modules; you load context
+by opening the directory you are working in. `tests/` keeps only what the
+**repo** owns — doc-lint and cross-layer locks with no single module to belong
+to. (Done for `server/`; `src/` and `contract/` still route through `tests/`.)
+
 | Working on / wondering about | Read |
 |---|---|
 | Wire types, API shape, the graph reducers | [`contract/CLAUDE.md`](contract/CLAUDE.md) |
-| Backend: routes, store, persistence/snapshots, auth gate, the model boundary | [`server/CLAUDE.md`](server/CLAUDE.md) |
+| Backend: routes, store, persistence/snapshots, auth gate, the model boundary | [`server/CLAUDE.md`](server/CLAUDE.md) (→ per-module homes) |
 | UI: shared primitives, registries, rail, URLs, back-history, panes, the split workspace | [`src/CLAUDE.md`](src/CLAUDE.md) |
 | Writing tests, the spec ledger discipline | [`tests/CLAUDE.md`](tests/CLAUDE.md) |
 | Browser E2E: stack, ports, anchor specs, gotchas | [`e2e/CLAUDE.md`](e2e/CLAUDE.md) |
@@ -138,7 +147,7 @@ restart.
   hand-written on that boundary: the door's `initialize` **instructions**, which
   point machine callers at places in the human UI. Every UI string they quote
   lives in `MCP_UI_COPY` (`server/mcp.ts`) and is scanned against the live
-  components by `tests/mcp-ui-sync.test.ts` — earned when an identity-copy pass
+  components by `server/mcp-ui-sync.test.ts` — earned when an identity-copy pass
   renamed a panel and left the MCP door directing callers to words no screen
   said, with every suite green. So: after a UI change, ask what the MCP door
   says about the thing you changed; if it quotes copy, it goes through the
@@ -160,12 +169,14 @@ restart.
 
 ```
 contract/   framework-free wire types — the API IS these types
-server/     mock backend (Node 26 native TS): store, router, SSE, seed data
-server/model/  Anthropic-compatible mock model server — POST /v1/messages (the model seam)
+server/     mock backend (Node 26 native TS) — each module carries its own
+            CLAUDE.md, SPEC.md and *.test.ts siblings:
+              routes/ store/ http/ model/ persistence/ data/ testkit/
 src/        the UI — api/ (cache, events, commands) · controller/ · components/ · data/
 connector/  the session-relay connector (served by the product itself)
 e2e/        Playwright browser specs (DOM-level wiring)
-tests/      node --test suites — the behavior locks
+tests/      what the REPO owns: doc-lint + cross-layer locks, helpers/source.ts
+            (src/ and contract/ suites still live here — colocation pass 2)
 docs/       design notes, spec ledger, explainers
 PROPOSAL.md the written proposal (the argument)
 README.md   architecture + run guide (the engineering tour)

@@ -174,7 +174,7 @@ test('the sweep boots its own isolated stack by default, never the dev server', 
 
 test('the owned stack is really GATED, and the sweep proves it before sweeping', () => {
   // `AUTH_GATE` counts as on only for the exact string 'require'
-  // (`process.env.AUTH_GATE === 'require'`, server/store.ts). A plausible
+  // (`process.env.AUTH_GATE === 'require'`, server/store/index.ts). A plausible
   // spelling — 'on' — reads as OFF, and every cell would then render the
   // ANONYMOUS principal's world while the log still said the sweep signed in as
   // Ada. Measuring a different app than you claim is the same failure class as

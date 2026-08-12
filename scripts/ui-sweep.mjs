@@ -190,7 +190,7 @@ async function bootStack() {
       ANTHROPIC_BASE_URL: 'http://127.0.0.1:8788',
       // The auth gate stays ON — the sweep signs in as Ada, so the gated front
       // door is part of what it exercises. Pinned to the exact string the
-      // server tests for (`AUTH_GATE === 'require'`, server/store.ts): ANY other
+      // server tests for (`AUTH_GATE === 'require'`, server/store/index.ts): ANY other
       // value, an ambient `off` included, means OFF, so this can be neither
       // inherited nor spelled loosely.
       AUTH_GATE: 'require',

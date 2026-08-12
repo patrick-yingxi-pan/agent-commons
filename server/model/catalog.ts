@@ -9,7 +9,7 @@
  *      seeded default provider (server/data/providers.ts).
  *  The backend's `fetchProviderModels` (server/generate.ts) normalizes the wire
  *  face back into `ModelInfo`, so a live refresh of the default provider
- *  round-trips to exactly `seedModels()` — locked by tests/provider-models.test.ts. */
+ *  round-trips to exactly `seedModels()` — locked by server/model/provider-models.test.ts. */
 import type { ModelInfo } from '../../contract/index.ts'
 
 /** The canonical effort ladder order (the Anthropic capability keys, low→max). */

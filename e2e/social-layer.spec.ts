@@ -466,7 +466,7 @@ test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing cont
   const ada = await newUser(browser)
   const grace = await newUser(browser, { 'x-tenant-id': 'tenant-beta' })
 
-  // The BEFORE/AFTER of the wall is locked precisely in tests/social.test.ts
+  // The BEFORE/AFTER of the wall is locked precisely in server/routes/social.test.ts
   // (walled before the grant, visible after, `own` false for the audience) — it
   // needs a clean store, which a persistent e2e store can't promise. This walk
   // owns the DOM half: that the share door exists on the viewer at all, and that
@@ -1130,10 +1130,10 @@ test('a discussion hangs on ONE block of an artifact, and its chip lands back th
 //  for a maximum nesting of one. The cap came out (owner directive 2026-08-11)
 //  because it was recording a falsehood — a post answering Ada was stored as
 //  answering Grace — and the two ends had to move together, which is why this
-//  file changes alongside `tests/discussions.test.ts`.
+//  file changes alongside `server/routes/discussions.test.ts`.
 //
 //  `tests/reply-tree.test.ts` holds the arithmetic (orphans, rings, the indent
-//  clamp) and `tests/discussions.test.ts` the write path. What only a browser
+//  clamp) and `server/routes/discussions.test.ts` the write path. What only a browser
 //  can prove is the structure: the composer opens in place, the answer lands
 //  INSIDE its parent's row, a second answer goes DEEPER still, Ctrl+Enter posts
 //  without touching the button, and the three folds behave — one post collapses

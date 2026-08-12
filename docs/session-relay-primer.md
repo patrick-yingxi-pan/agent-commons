@@ -231,12 +231,12 @@ typically itself a tool-capable agent and mailbox text is untrusted input.
 
 | Piece | File | Locked by |
 |---|---|---|
-| Mailbox runtime (windows, entries, activity) + `relayReply` turn driver | `server/relay.ts` | `tests/relay.test.ts` |
+| Mailbox runtime (windows, entries, activity) + `relayReply` turn driver | `server/relay.ts` | `server/relay.test.ts` |
 | Wire types (prompt/reply shapes, channel, hashes) | `contract/relay.ts` | type-identity (imported by both ends) |
-| Poll/reply routes, pre-turn gates, connector + guide serving | `server/routes/index.ts` | `tests/relay.test.ts`, `tests/connector-serve.test.ts` |
-| The agent-facing setup guide | `server/connectorSetup.ts` | `tests/connector-serve.test.ts` |
-| The connector (start / respond_and_wait / refresh, caches, rendering) | `connector/relay-connector.ts` | `tests/relay-connector.test.ts` |
-| The bootstrap prompt + mint panel | `src/lib/connectorInstall.ts`, `src/components/SectionView.tsx` | `tests/connector-serve.test.ts` |
+| Poll/reply routes, pre-turn gates, connector + guide serving | `server/routes/index.ts` | `server/relay.test.ts`, `server/routes/connector-serve.test.ts` |
+| The agent-facing setup guide | `server/connectorSetup.ts` | `server/routes/connector-serve.test.ts` |
+| The connector (start / respond_and_wait / refresh, caches, rendering) | `connector/relay-connector.ts` | `server/routes/relay-connector.test.ts` |
+| The bootstrap prompt + mint panel | `src/lib/connectorInstall.ts`, `src/components/SectionView.tsx` | `server/routes/connector-serve.test.ts` |
 | Design history (v1–v6, every ruling + rejected alternative, live-run logs) | `docs/delegated-cognition-provider.md` | `tests/spec-conformance.test.ts` |
 | Requirement rows MODEL-10…-24 | `docs/spec/06-model-and-tools.md` | `tests/spec-conformance.test.ts` |
 | This primer's load-bearing facts | `docs/session-relay-primer.md` | `tests/relay-primer.test.ts` |

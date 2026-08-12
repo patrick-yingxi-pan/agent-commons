@@ -13,7 +13,7 @@
  *  This prompt CARRIES THE SECRET, and that is the whole point: it is the single
  *  place the credential is ever displayed (the one-credential/one-place rule the
  *  old connect sentence established). One artifact to copy, one thing to save.
- *  Locked by tests/connector-serve.test.ts. */
+ *  Locked by server/routes/connector-serve.test.ts. */
 export function bootstrapPrompt(relayUrl: string, secret: string): string {
   return (
     `You're going to serve as the model behind one of my providers. Fetch ${relayUrl}/connector/setup and follow it: ` +

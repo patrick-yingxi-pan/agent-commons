@@ -1,6 +1,6 @@
 /** S8 — the @-mention PICKER's logic (`src/lib/mentionPicker.ts`).
  *
- *  The read side of mentions is locked by `tests/mentions.test.ts` (the server
+ *  The read side of mentions is locked by `server/routes/mentions.test.ts` (the server
  *  resolves, `mentionSegments` lights what it resolved). This is the write side:
  *  a mention only rings if the author reproduces a whole display name, and every
  *  display name in this world contains a space — so "can the composer complete a

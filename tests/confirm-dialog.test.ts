@@ -99,7 +99,7 @@ test('a discussion post is never deleted without asking first', () => {
 
 test('the CASCADE option is offered only over a branch the viewer may delete entirely', () => {
   // The server is the wall — it re-asks the delete question of every post that
-  // would go (`tests/discussions.test.ts`). This is the affordance half
+  // would go (`server/routes/discussions.test.ts`). This is the affordance half
   // (SOCIAL-4b): a checkbox offered over somebody else's replies is a promise
   // the write path then refuses, which is the dead-affordance shape this layer's
   // audits keep finding. It must read the answer the wire ALREADY carries per

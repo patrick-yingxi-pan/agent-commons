@@ -12,18 +12,37 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 
-/** Every node suite file, RECURSIVELY.
+/** The roots `npm test` globs — read OUT OF the script that globs them.
+ *
+ *  Since the suites moved next to the code they lock, the set of roots is
+ *  itself something that can drift: a layer whose tests colocate but whose root
+ *  never reaches this list runs nowhere, and the lane still goes green over
+ *  fewer tests — the same silent-subtraction defect the recursion below exists
+ *  to prevent, one level up. Deriving the roots from `package.json` makes it
+ *  unrepresentable: there is one list, and the runner reads the one the package
+ *  script uses. */
+export function suiteRoots(pkgPath = 'package.json') {
+  const script = JSON.parse(readFileSync(pkgPath, 'utf8')).scripts.test
+  const roots = [...script.matchAll(/"([^"*]+)\/\*\*\/\*\.test\.ts"/g)].map((m) => m[1])
+  if (!roots.length) throw new Error('no recursive suite globs in the `test` script: ' + script)
+  return roots
+}
+
+/** Every node suite file under every root, RECURSIVELY.
  *
  *  Recursive because `package.json`'s `test` script is a recursive glob, and
  *  two enumerations of one thing drift: a flat readdir agrees today and stops
  *  agreeing the first time a suite lands in a subdirectory — silently, since
  *  the lane still goes green, just over fewer tests. Separators are normalised
  *  because `recursive: true` yields win32 backslashes for nested entries. */
-export function suiteFiles(dir = 'tests') {
-  return readdirSync(dir, { recursive: true })
-    .map((f) => String(f).split('\\').join('/'))
-    .filter((f) => f.endsWith('.test.ts'))
-    .map((f) => `${dir}/${f}`)
+export function suiteFiles(dirs = suiteRoots()) {
+  return (Array.isArray(dirs) ? dirs : [dirs])
+    .flatMap((dir) =>
+      readdirSync(dir, { recursive: true })
+        .map((f) => String(f).split('\\').join('/'))
+        .filter((f) => f.endsWith('.test.ts'))
+        .map((f) => `${dir}/${f}`),
+    )
     .sort()
 }
 

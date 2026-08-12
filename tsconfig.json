@@ -26,5 +26,9 @@
     "contract",
     "server",
     "vite.config.ts"
+  ],
+  "exclude": [
+    "**/*.test.ts",
+    "**/testkit/**"
   ]
 }

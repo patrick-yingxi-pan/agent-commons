@@ -105,7 +105,7 @@ const CREATE_TAILS = new Set([
 ])
 
 /** The consent-card family for a mutation, chosen mechanically from its shape.
- *  Total over the included surface — locked by `tests/api-tools.test.ts`. */
+ *  Total over the included surface — locked by `server/model/api-tools.test.ts`. */
 export function familyFor(op: Pick<ApiOperation, 'method' | 'pattern'>): ToolCardFamily {
   if (op.method === 'PATCH') return 'edit'
   if (op.method === 'DELETE') return 'danger'

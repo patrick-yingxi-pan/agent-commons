@@ -326,7 +326,7 @@ leans the right way:
   carrying `agent.connected` / `agent.disconnected` / `agent.capabilities.changed`.
   It already half-knows capabilities aren't uniformly local: `scheduledExecution` is
   true even for a remote backend.
-- The `can(feature)` gate ([`../server/store.ts`](../server/store.ts), `can(...)`) and
+- The `can(feature)` gate ([`../server/store/index.ts`](../server/store/index.ts), `can(...)`) and
   the flat native routes (`/fs/...`, `/git/...`) become **addressed + routed** calls
   (`/agents/:id/fs/read`); `409 capability_unavailable` becomes "no connected agent
   offers this on the requested host."
@@ -399,8 +399,8 @@ leans the right way:
   output per capability). Error mapping: `not_found` (unknown agent),
   `capability_unavailable` (offline, or capability not advertised), `forbidden`
   (target outside the grant — a new `403` contract error code). Client "one door"
-  command `invokeCapability()`. Tests: `tests/capabilities.test.ts` (runtime unit:
-  scope matching, grant enforcement, fulfilment) + `tests/routes-invoke.test.ts`
+  command `invokeCapability()`. Tests: `server/capabilities.test.ts` (runtime unit:
+  scope matching, grant enforcement, fulfilment) + `server/routes/invoke.test.ts`
   (integration: every error path). 35 tests total; verified live (in-scope 200,
   out-of-scope 403).
 - **Slice 3 — system of record (D2). ✅ Built.**
@@ -413,8 +413,8 @@ leans the right way:
   `invoke` now records + projects idempotently; `GET /agents/:id/effects?since=`
   (read-through log); `POST /agents/:id/sync` (outbox replay → projected delta +
   cursor). UI: `useAgentEffects`, `syncAgentEffects`, `agent.effect` invalidation.
-  Tests: `tests/journal.test.ts` (unit: idempotency, ordering, cursor/reconcile,
-  merge) + `tests/routes-effects.test.ts` (integration). 47 tests total; verified
+  Tests: `server/journal.test.ts` (unit: idempotency, ordering, cursor/reconcile,
+  merge) + `server/routes/effects.test.ts` (integration). 47 tests total; verified
   live (idempotent retry replays the original effect; sync projects the delta).
 - **Slice 4 — UI surface (the registry, made visible). ✅ Built.**
   `src/components/HostsControl.tsx` — an ambient "Hosts" control in the composer's

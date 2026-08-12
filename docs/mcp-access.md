@@ -5,7 +5,7 @@
 > access methods. Requirement rows: PORT-9
 > ([`spec/05-portable-contract.md`](spec/05-portable-contract.md)) and INV-11
 > ([`spec/09-design-invariants.md`](spec/09-design-invariants.md)). Locks:
-> `tests/mcp.test.ts`, `tests/mcp-parity.test.ts`, `tests/auth-bearer.test.ts`.
+> `server/mcp.test.ts`, `server/mcp-parity.test.ts`, `server/routes/auth-bearer.test.ts`.
 
 ## 1. The three access methods
 
@@ -41,7 +41,7 @@ The MCP server is a **transport wrapper**, not a second implementation:
   404s, idempotency replay, capability 409s, rate limits — applies to an MCP
   caller exactly as to the web UI. `server/mcp.ts` contains **no authorization
   logic of its own**; if it ever grows some, INV-11 is broken.
-- The parity test (`tests/mcp-parity.test.ts`) locks the bijection: every
+- The parity test (`server/mcp-parity.test.ts`) locks the bijection: every
   route is a tool **or** carries an argued exclusion, and nothing is excluded
   that isn't a real route.
 
@@ -89,7 +89,7 @@ new route is a new tool and a UI change that adds *no* route needs no new tool
 hand-written seam is the door's `initialize` **instructions**, which point
 machine callers at places in the human UI. Every UI string they quote lives in
 `MCP_UI_COPY` (`server/mcp.ts`) and is scanned against the live components by
-`tests/mcp-ui-sync.test.ts` — earned the day an identity-copy pass renamed the
+`server/mcp-ui-sync.test.ts` — earned the day an identity-copy pass renamed the
 panel below and left this door naming the old words, with every suite green.
 
 **The one-click path:** the Contexts page's **"This account is an MCP
@@ -98,7 +98,7 @@ token for the signed-in user (`POST /auth/token`, strictly session-verified;
 shown once), and offers a **copy-ready `mcpServers` JSON block** with the
 endpoint and token wired in — the generic shape MCP clients accept (the UI
 deliberately prescribes no harness-specific install command; that design
-lesson is locked by `tests/connector-serve.test.ts`).
+lesson is locked by `server/routes/connector-serve.test.ts`).
 
 **Token lifecycle:** every bearer mint is **registry-backed** (`jti` claim →
 an `ApiToken` row, `server/accounts.ts`): `GET /auth/tokens` lists your rows
@@ -166,12 +166,12 @@ Tool results are the JSON `{status, body}` of the underlying HTTP response.
 
 | Piece | File | Locked by |
 |---|---|---|
-| The endpoint, tool generation, dispatch, exclusions | `server/mcp.ts` | `tests/mcp.test.ts`, `tests/mcp-parity.test.ts` |
-| The enumerable route table | `server/http/router.ts` (`list()`) | `tests/mcp-parity.test.ts` |
-| Bearer resolution of the session credential | `server/identity.ts` | `tests/auth-bearer.test.ts` |
-| `transport: 'bearer'` minting | `server/routes/index.ts` (`mintSession`), `contract/api.ts` (`SessionTransport`, `BearerSession`) | `tests/auth-bearer.test.ts` |
-| Gate + rate-limit postures for `/mcp` | `server/routes/index.ts` | `tests/mcp-parity.test.ts` |
+| The endpoint, tool generation, dispatch, exclusions | `server/mcp.ts` | `server/mcp.test.ts`, `server/mcp-parity.test.ts` |
+| The enumerable route table | `server/http/router.ts` (`list()`) | `server/mcp-parity.test.ts` |
+| Bearer resolution of the session credential | `server/identity.ts` | `server/routes/auth-bearer.test.ts` |
+| `transport: 'bearer'` minting | `server/routes/index.ts` (`mintSession`), `contract/api.ts` (`SessionTransport`, `BearerSession`) | `server/routes/auth-bearer.test.ts` |
+| Gate + rate-limit postures for `/mcp` | `server/routes/index.ts` | `server/mcp-parity.test.ts` |
 | The root mount | `server/index.ts` | in-app (curl the running server) |
-| The core toolset + tool annotations + body examples | `server/mcp.ts` (`MCP_CORE_TOOLS`), `server/apiSurface.ts` (`API_BODY_EXAMPLES`) | `tests/mcp.test.ts` |
-| The token registry (mint / list / revoke) | `server/accounts.ts`, `server/routes/index.ts` (`/auth/token`, `/auth/tokens`), `server/identity.ts` (jti check) | `tests/auth-bearer.test.ts` |
+| The core toolset + tool annotations + body examples | `server/mcp.ts` (`MCP_CORE_TOOLS`), `server/apiSurface.ts` (`API_BODY_EXAMPLES`) | `server/mcp.test.ts` |
+| The token registry (mint / list / revoke) | `server/accounts.ts`, `server/routes/index.ts` (`/auth/token`, `/auth/tokens`), `server/identity.ts` (jti check) | `server/routes/auth-bearer.test.ts` |
 | The connect panel (mint, revoke, client snippets) | `src/components/SectionView.tsx` (`McpAccessCard`) | in-app (verified in preview) |

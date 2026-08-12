@@ -2,12 +2,12 @@
 
 > **Foundation.** The concrete storage tiers, the durable-vs-transient split, and how
 > the system is deployed, observed, backed up, and scaled — the production form of
-> `server/persist.ts` (the JSON snapshot) and the run scripts. Serves spec
+> `server/persistence/persist.ts` (the JSON snapshot) and the run scripts. Serves spec
 > PERSIST-1..6, MOCK-5/6, and grounds [F1](F1-domain-model.md)/[F4](F4-broker-runners.md).
 
 ## 1. Problem & scope
 
-The prototype persists one atomic JSON snapshot (`server/persist.ts`) and runs as one
+The prototype persists one atomic JSON snapshot (`server/persistence/persist.ts`) and runs as one
 Node process (`server/index.ts`) that serves the built UI + API + an in-process mock
 model. Production needs real storage tiers, durability/backup, observability, and two
 very different deployment topologies sharing one image of the UI + contract.

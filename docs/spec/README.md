@@ -37,6 +37,21 @@ Three layers, drill down only as far as you need:
   requirement, traced to its **implementation** and what **verifies** it, with a
   **status**.
 
+### Where the L2 rows live
+
+Colocation applies to the spec too: when a pillar's rows are owned by **one
+module**, the table moves into that module as its `SPEC.md`, beside the code
+that satisfies it and the suites that lock it — and the pillar here keeps the
+*Intent* and links down. **Pillars keep the claim; modules keep the rows.** One
+home per row, so there is no second copy to drift.
+
+Migrated so far: [`07-persistence.md`](07-persistence.md) →
+[`server/persistence/SPEC.md`](../../server/persistence/SPEC.md). The rest still
+hold their tables, because a row can only move once its locking test has found
+its module — and `src/` and `contract/` have not been colocated yet. Rows that
+genuinely span layers (the design invariants, the mock boundary) stay here by
+right, not by default.
+
 ## Status legend
 
 | Status | Meaning |
@@ -97,4 +112,4 @@ Detail + anchors are in [pillar 10](10-forward-looking.md).
 - ~~**FWD-8**~~ `✅` — **`server/` is now typechecked** ([pillar 10](10-forward-looking.md)): `server` joined the tsconfig include (37 errors → 0). Three real defects fell out of it — a dropped session-unfile override, a contract face declaring `epoch: number` against a string, and a seeded Agent missing required fields behind a double cast.
 - **SOCIAL-10** `📝` — **anonymous rendering + indexing** ([pillar 12](12-social-layer.md)): the declared S6 tail. Today "anyone with the link" means anyone SIGNED IN who redeems it; reading with no account, and being indexable, are deliberately unbuilt — the one part of the social layer with no honest mock.
 - **SOCIAL-9** `🟡` — the social layer's remaining delta kind ([pillar 12](12-social-layer.md)): S0–S6 are otherwise built (grants, discussions + locus anchors, proposals with `relation-op` / `schedule-patch` appliers, session fork with provenance, the Commons, notifications, profiles, guardrails, link grants). An **artifact patch** delta remains, blocked on artifacts having a line-oriented body to patch at all; a first-class discussion **Context type** stays deferred (the digest-message form ships the loop). Backlog: `docs/design/social-layer.md`.
-- ~~**FWD-6**~~ `✅` — **orgs as namespaces** is done (v1): founding, consent invitations, the member-union walls, the owner picker, the org page's member panel (`tests/orgs.test.ts`, `e2e/orgs.spec.ts`). Org-owned registries, role-graduated member writes, and the invite bell stay v2 by design.
+- ~~**FWD-6**~~ `✅` — **orgs as namespaces** is done (v1): founding, consent invitations, the member-union walls, the owner picker, the org page's member panel (`server/routes/orgs.test.ts`, `e2e/orgs.spec.ts`). Org-owned registries, role-graduated member writes, and the invite bell stay v2 by design.

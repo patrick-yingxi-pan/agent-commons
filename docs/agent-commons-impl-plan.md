@@ -50,7 +50,7 @@ green before a step is done; UI steps verified in the running app.
 
 - [x] **1.2 Store — fail-closed scope admission.** Add
   `store.commissionAdmitsTarget(commissionId, capability, target)` near
-  [`commissionCanReach` (`server/store.ts:876`)](../server/store.ts): resolve
+  [`commissionCanReach` (`server/store/index.ts:876`)](../server/store/index.ts): resolve
   `commissionAuthority` (the D12 clamp); **unknown commission ⇒ `false` (fail closed)**;
   effective `scopes` unrestricted ⇒ `true`; else `target` must fall within an admitted
   scope root (prefix) — reuse the invoke route's `scopeMatches`, lifting it to a shared

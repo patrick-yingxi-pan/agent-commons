@@ -124,7 +124,7 @@ lineage, ready to be bound), and it exercises the real outbound HTTP path.
   stays behind the sign-in wall: left open, an anonymous caller could self-mint a
   "verified" peer under any name (defeating the attribution `A2A_REQUIRE_AUTH`
   buys), enumerate the roster, or revoke a live peer by id. Found + closed
-  2026-07-15; locked by `tests/auth-gate.test.ts`. Residual (prototype identity
+  2026-07-15; locked by `server/routes/auth-gate.test.ts`. Residual (prototype identity
   model): the registry is instance-GLOBAL, so any signed-in principal reaches it —
   a production deployment gates it behind an instance-admin role, the same way it
   adds the egress allowlist for card import.

@@ -4,9 +4,9 @@
  *  resolved identity in its hello, and scopes the live fan-out by it. Also the
  *  P9 tombstone: the old dev enumeration directory (`GET /v1/identities`) is
  *  GONE — identities are never enumerable; accounts sign in (the seeds carry
- *  demo credentials for exactly that, locked in tests/auth-accounts.test.ts).
+ *  demo credentials for exactly that, locked in server/auth-accounts.test.ts).
  *  Runs the router as the REMOTE variant (BACKEND is read once at store load →
- *  dynamic imports, like tests/capability-remote.test.ts). */
+ *  dynamic imports, like server/routes/capability-remote.test.ts). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -91,7 +91,7 @@ test('/events accepts query identity (the EventSource stand-in) and names it in 
 
 test('query identity scopes the live fan-out: tenant-beta’s stream does not receive acme session pushes', async () => {
   const { buildRouter } = await import('../server/routes/index.ts')
-  const { store } = await import('../server/store.ts')
+  const { store } = await import('../server/store/index.ts')
   const call = caller(buildRouter())
 
   const beta = await call('GET', '/events?user=user-grace&tenant=tenant-beta')
