@@ -18,7 +18,22 @@ export function Tooltip({
   const ref = useRef<HTMLSpanElement>(null)
   const timer = useRef<number | undefined>(undefined)
 
+  /** Two triggers share one timer slot, so this MUST clear before it sets.
+   *
+   *  Hover and focus both open, and a click fires both: `mouseenter` starts one
+   *  timer, `mousedown`'s focus starts another over the top of the handle, and
+   *  `cancel` can then only clear the second. The first survives its own
+   *  cancellation and fires afterwards — a bubble that appears with the pointer
+   *  somewhere else entirely and stays until the button loses focus, which for a
+   *  control you clicked and walked away from is indefinitely.
+   *
+   *  Latent in every `<Tooltip>` in the app (any hover-then-click within the
+   *  delay reaches it) and invisible until 2026-08-12, because it needs a
+   *  tooltipped control that OUTLIVES its own click — the per-post unfold-all
+   *  used to unmount as it was pressed, taking the stuck bubble with it. Found
+   *  by an unrelated assertion two acts later reading the wrong tooltip. */
   const openSoon = () => {
+    window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
       const el = ref.current
       if (!el) return

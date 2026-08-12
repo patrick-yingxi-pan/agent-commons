@@ -112,36 +112,6 @@ export function descendantCount<P extends ReplyLike>(childrenOf: Map<string, P[]
   return descendantsOf(childrenOf, id).size
 }
 
-/** Whether the per-post unfold-all has anything to discard here — the render
- *  gate for the control `DISCARD_SLOT_CLASS` places.
- *
- *  A branch is the post PLUS everything under it, and the control opens all of
- *  it, so the question is whether any of that is folded. Two ways to be:
- *
- *  - the post itself is folded (`hidden`) — the case it was built for, and it
- *    stands there whether or not the interior is clean, so the control has a
- *    predictable place rather than a clever one;
- *  - the post is OPEN and something inside it is folded (owner directive
- *    2026-08-12). That case was missing, and it is the one where the caret is
- *    least able to help: an open post's caret folds it, and unfolding restores
- *    the same buried stubs, so a reader looking at a branch they have picked
- *    apart by hand had no control that would flatten it. "Unfold all" at the
- *    thread's head is the only thing that would, and it discards the fold state
- *    of every OTHER branch to do it.
- *
- *  Pure, and separated from the component for the reason `src/lib/CLAUDE.md`
- *  gives: `node --test` has no DOM, so a predicate left inline in the JSX can
- *  only ever be source-scanned. Here its truth table is testable. */
-export function branchHasFold(hidden: boolean, kin: ReadonlySet<string>, folded: ReadonlySet<string>): boolean {
-  if (kin.size === 0) return false
-  if (hidden) return true
-  // Iterate the FOLD SET and ask the branch, not the other way round: a reader
-  // folds a handful of posts where a branch may hold 199, and this runs once per
-  // row per render. Same answer either way; one of them is O(what you clicked).
-  for (const id of folded) if (kin.has(id)) return true
-  return false
-}
-
 /** Levels that still buy horizontal space. Past this the chain keeps NESTING —
  *  the relation is real, and re-attributing a deep reply to its grandparent is
  *  the falsehood the depth cap was removed for — but it stops spending width it

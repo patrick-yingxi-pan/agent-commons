@@ -108,7 +108,6 @@ import { mentionHint, squareVoices, workItemVoices } from '../lib/mentionPicker'
 import { useMentionPicker } from '../lib/useMentionPicker'
 import {
   ancestorsOf,
-  branchHasFold,
   buildReplyTree,
   descendantsOf,
   foldOthers,
@@ -3028,31 +3027,36 @@ function DiscussionPostList({
      *  So this is unfold-all's own control rather than a mode of the toggle:
      *  it drops the whole branch's fold state instead of restoring it.
      *
-     *  It stands on EVERY folded post with replies, at every depth (owner
-     *  directive 2026-08-11). It used to render only where it DIFFERED from the
-     *  caret — a folded post that really held a folded descendant — which is
-     *  the same "no redundant control" rule that deleted the old fold-branch
-     *  button, and by that rule it was right. It was also unfindable: the
-     *  obvious thing to try is Fold all, and Fold all leaves interiors alone,
-     *  so the control was absent exactly there. Asked for twice in one session,
-     *  a control is not discoverable; predictable placement beats a saved
-     *  glyph, and where nothing is buried it simply agrees with the caret.
+     *  **It stands on EVERY post with replies — folded or open, at every depth,
+     *  whatever is folded inside.** One rule, and the whole gate: `branch > 0`.
      *
-     *  …and on an OPEN post that holds a folded one (owner directive
-     *  2026-08-12: *"the unfold all button should also be usable when the
-     *  corresponding fold/unfold button is in unfolded state, since the user may
-     *  want to unfold all sub-levels beneath it"*). The gate used to be `hidden`
-     *  alone, which put the control exactly where it was least needed and
-     *  removed it exactly where it was most: on a FOLDED post the caret already
-     *  opens the top level, while on an OPEN post whose interior you have picked
-     *  apart by hand the caret is no help at all — it folds the post, and
-     *  unfolding restores the same buried stubs. The only control that would
-     *  flatten that branch was "Unfold all" at the thread's head, which pays for
-     *  it by discarding every other branch's arrangement too. The predicate is
-     *  `branchHasFold` (`src/lib/replyTree.ts`), where a node test can hold its
-     *  truth table; the rule it states is simply "render where there is a fold
-     *  in this branch to discard". */
-    const unfoldBranch = branchHasFold(hidden, kin, folded) && (
+     *  It took three adjudications to get to something that short, and each
+     *  wrong answer was a different way of asking "does this control have work
+     *  to do right now?" — which is the wrong question:
+     *
+     *  1. Only on a folded post that really held a folded DESCENDANT. The "no
+     *     redundant control" rule, correctly applied, and unfindable: the
+     *     obvious thing to try is Fold all, Fold all leaves interiors alone, so
+     *     the control was absent exactly where a reader would look for it.
+     *  2. On every folded post with replies (owner directive 2026-08-11), which
+     *     fixed that half — predictable placement beats a saved glyph.
+     *  3. …plus an open post that held a folded one (owner directive
+     *     2026-08-12). That reached the state where the caret is least able to
+     *     help — an open post's caret folds it, and unfolding restores the same
+     *     buried stubs — but it bought that with an ASYMMETRY (owner report,
+     *     same day): folded, the control is simply there; open, it appears and
+     *     vanishes according to whether anything below happens to be folded.
+     *     Two rules for one button, and the deciding state is usually INVISIBLE
+     *     — a fold five levels down, inside a branch you would have to expand to
+     *     see. That is defect (1) again in a new place: a control whose presence
+     *     depends on what you cannot see is a control you cannot learn.
+     *
+     *  So the question is not what the control would DO if pressed, but what it
+     *  IS: the branch's discard, standing under the branch's caret. Where
+     *  nothing is folded it agrees with the caret and pressing it changes
+     *  nothing — the same benign redundancy step 2 already accepted, now
+     *  extended to the other state instead of being traded for a condition. */
+    const unfoldBranch = branch > 0 && (
       // The POSITIONING sits outside the Tooltip, not on the button. Tooltip
       // wraps its child in a `relative inline-flex` span of its own, so an
       // `absolute` on the button resolves against THAT span rather than the
@@ -3072,10 +3076,14 @@ function DiscussionPostList({
               return next
             })
           }
-          // NOT a disclosure: it has no folded state to report, because pressing
-          // it is the last thing it ever does on this post — the control stops
-          // existing the moment the branch is open. `aria-expanded` here would
-          // claim a toggle that is not one.
+          // NOT a disclosure, and `aria-expanded` here would claim a toggle
+          // that is not one: this control has no second state to be in. It is
+          // IDEMPOTENT — pressing it drives the branch to open and pressing it
+          // again does the same thing — where a disclosure's whole contract is
+          // that the next press undoes this one. (The reason used to be that the
+          // control stopped existing once the branch was open. It no longer
+          // does, and the conclusion is unchanged: it was never the vanishing
+          // that made this not a disclosure.)
           //
           // The name is the same in both states, and names the BRANCH, which is
           // what the control acts on either way. Renaming it per state would be

@@ -14,10 +14,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   ancestorsOf,
-  branchHasFold,
   buildReplyTree,
   descendantCount,
-  descendantsOf,
   foldOthers,
   replyIndentClass,
   MAX_INDENT_DEPTH,
@@ -150,43 +148,6 @@ test('the fold caret sits ON the hairline it collapses, at both tiers', () => {
     assert.ok(gutter !== undefined, `the ${tier} tier gives the caret a slot`)
     assert.ok(margin !== undefined, `the ${tier} tier offsets the child list`)
     assert.equal(margin, gutter / 2, `${tier}: the rail lands on the caret's centre, not beside it`)
-  }
-})
-
-test('the per-post unfold-all renders where there is a fold to DISCARD, in both states', () => {
-  //      a            f
-  //     ╱ ╲            ╲
-  //    b   e            g
-  //   ╱ ╲
-  //  c   d
-  const tree = buildReplyTree([p('a'), p('b', 'a'), p('c', 'b'), p('d', 'b'), p('e', 'a'), p('f'), p('g', 'f')])
-  const kin = (id: string) => descendantsOf(tree.childrenOf, id)
-
-  // FOLDED with replies: it stands there whether or not anything is buried
-  // inside (owner directive 2026-08-11 — predictable placement beats a saved
-  // glyph, since the control was unfindable exactly where a reader would look).
-  assert.equal(branchHasFold(true, kin('a'), new Set()), true, 'a folded post with a clean interior')
-  assert.equal(branchHasFold(true, kin('a'), new Set(['c'])), true, 'and with a folded one')
-
-  // OPEN, holding a fold — the case the `hidden` gate refused (owner directive
-  // 2026-08-12). It is the state where the caret is least able to help: press
-  // it and the post folds, press again and the same stub comes back.
-  assert.equal(branchHasFold(false, kin('a'), new Set(['c'])), true, 'an open post holding a folded child')
-  assert.equal(branchHasFold(false, kin('a'), new Set(['b'])), true, 'or a folded branch below it')
-  assert.equal(branchHasFold(false, kin('b'), new Set(['d'])), true, 'at any depth')
-
-  // …and NOT where it would merely repeat the caret, which is the half a
-  // widening loses first: "render where there is a fold" degrades into "always
-  // render" the moment the negative case has no assertion.
-  assert.equal(branchHasFold(false, kin('a'), new Set()), false, 'an open post with a clean branch')
-  assert.equal(branchHasFold(false, kin('a'), new Set(['g'])), false, 'a fold in ANOTHER branch is not this one’s')
-  assert.equal(branchHasFold(false, kin('a'), new Set(['a'])), false, 'nor is the post’s own id — `hidden` says that')
-
-  // A LEAF never carries it, folded or not: there is no branch to flatten, and
-  // the caret already says everything there is to say about one row.
-  for (const hidden of [true, false]) {
-    assert.equal(branchHasFold(hidden, kin('c'), new Set(['c'])), false, `a leaf (hidden=${hidden})`)
-    assert.equal(branchHasFold(hidden, kin('e'), new Set()), false, `a childless root (hidden=${hidden})`)
   }
 })
 

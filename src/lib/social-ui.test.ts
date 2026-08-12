@@ -573,3 +573,51 @@ test('the shared per-post act face carries no colour of its own', () => {
   assert.match(src, /p\.reacted\s*\?\s*'text-accent'/, 'an endorsed post says so in accent')
   assert.match(src, /\$\{POST_ACT_CLASS\} text-ink-faint/, 'a resting act supplies its own faint')
 })
+
+/** ── The per-post unfold-all has ONE render rule ───────────────────────────
+ *
+ *  `branch > 0`, and nothing else. Adjudicated three times, each wrong answer a
+ *  different way of asking *does this control have work to do right now?*:
+ *  first only on a folded post holding a folded descendant, then on every
+ *  folded post with replies (owner directive 2026-08-11), then also on an open
+ *  post holding a folded one (owner directive 2026-08-12) — which reached the
+ *  right states but made the button obey TWO rules, unconditional when folded
+ *  and conditional when open.
+ *
+ *  The owner's objection to that, and the reason this lock exists (report,
+ *  2026-08-12): the asymmetry costs the design its orthogonality. The deciding
+ *  state is also usually INVISIBLE — a fold five levels down, inside a branch
+ *  you would have to expand to see — so a control gated on it appears and
+ *  vanishes for reasons the reader cannot observe. That is the original
+ *  unfindability defect wearing a new gate.
+ *
+ *  Scanned rather than unit-tested BECAUSE the rule is now one term: there is no
+ *  predicate left to hand a truth table to, which is the point — a condition
+ *  complicated enough to unit-test would already be the regression. `node --test`
+ *  has no DOM (`src/components/CLAUDE.md`), so the gate is read as source here
+ *  and the resulting rows are counted in `e2e/social-anchors.spec.ts`. */
+test('the per-post unfold-all is gated on the BRANCH alone — not on what is folded inside it', () => {
+  const body = stripComments(sectionViewComponent('DiscussionPostList'))
+  const gate = /const unfoldBranch = ([^\n]*?) && \(/.exec(body)
+  assert.ok(gate, 'DiscussionPostList still declares `unfoldBranch` with a render gate')
+  assert.equal(
+    gate[1].trim(),
+    'branch > 0',
+    `the discard renders on every post with replies, in both fold states — a gate mentioning \`folded\` or \`hidden\` ` +
+      `is the asymmetry this rule was collapsed to remove (found: "${gate[1].trim()}")`,
+  )
+  // Vacuity guard: the assertion above would also pass on a component that had
+  // lost the fold model entirely, which is exactly the shape a bad refactor
+  // leaves behind. Both terms must still be live — the claim is that the GATE
+  // does not read them, not that they stopped existing.
+  //
+  //  Matched as the DECLARATIONS rather than by a word-boundary probe. The probe
+  //  is what this was written as, and it failed on arrival for the reason
+  //  `tests/helpers/source.ts` already records: a heredoc collapsed `\\W` to
+  //  `\W`, and inside a template literal that is the letter W. The declarations
+  //  need no escapes and say more — the fold set is state and `hidden` is
+  //  derived from it, which is the model the gate is being kept out of.
+  for (const decl of ['const [folded, setFolded]', 'const hidden = folded.has(p.id)']) {
+    assert.ok(body.includes(decl), `the component still has the fold model to have excluded — missing \`${decl}\``)
+  }
+})

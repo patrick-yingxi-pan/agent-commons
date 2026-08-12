@@ -391,26 +391,30 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // ── The per-post UNFOLD ALL ───────────────────────────────────────────────
   //  Invertibility has a cost: the caret can restore an arrangement but never
   //  flatten one, so a branch folded by hand takes a click per stub to open.
-  //  This is the discard, and it appears ONLY where it differs from the caret —
-  //  on a folded post that really does have a folded descendant.
+  //  This is the discard, and it stands on EVERY post with replies — one rule,
+  //  `branch > 0`, in both fold states and whatever is folded inside. The four
+  //  assertions below walk that truth table; the gate itself is read as source
+  //  by `src/lib/social-ui.test.ts`, since one term has no truth table to hand
+  //  a unit test.
   const graceCaret = parent.getByRole('button', { name: /^Grace Hopper’s post, / }).first()
   const graceUnfoldAll = parent.getByRole('button', {
     name: 'Unfold Grace Hopper’s post and everything folded inside it',
   })
-  // It STANDS on every folded post with replies, whether or not anything is
-  // folded inside it (owner directive 2026-08-11). It used to render only where
-  // it differed from the caret, which was principled and unfindable: the
-  // obvious thing to try is Fold all, Fold all leaves interiors alone, so the
-  // control was absent exactly there. Asserted with a clean interior, which is
-  // the case the old gate refused.
+  // FOLDED with a clean interior — the case the FIRST gate refused, on the
+  // "no redundant control" rule. Principled, and unfindable: the obvious thing
+  // to try is Fold all, Fold all leaves interiors alone, so the control was
+  // absent exactly where a reader would look (owner directive 2026-08-11).
   await graceCaret.click()
   await expect(graceUnfoldAll).toBeVisible()
   await graceCaret.click()
-  // …and NOT on an OPEN post whose branch holds no fold: nothing to discard, so
-  // the control would only repeat the caret. This is the complement of the rule
-  // below — the gate is "is there a fold in this branch", and both halves of it
-  // need an assertion or the widening turns into "always render".
-  await expect(graceUnfoldAll).toHaveCount(0)
+  // …and OPEN with a clean interior, which is the same claim on the other side
+  // of the caret (owner report 2026-08-12). The gate in between rendered here
+  // only when something below happened to be folded — so the button obeyed two
+  // rules, and the deciding state was usually INVISIBLE, five levels down
+  // inside a branch you would have to expand to see. This assertion is the
+  // asymmetry's headstone: it FAILED under that gate, and passes under one.
+  await expect(graceCaret).toHaveAttribute('aria-expanded', 'true')
+  await expect(graceUnfoldAll).toBeVisible()
   // …and never on a post with no replies at all: there is no branch to discard,
   // and the caret already says everything there is to say.
   //  Located by TEXT rather than by `has: p`: folding replaces the body <p>
@@ -426,17 +430,16 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // FIRST caret is ANSWER's own, not a descendant's.
   await answerRow.getByRole('button', { name: /’s post, / }).first().click() // fold ANSWER, which holds SECOND
   await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(0)
-  // ── It appears HERE, while Grace is still open ────────────────────────────
-  //  (owner directive 2026-08-12: *"the unfold all button should also be usable
-  //  when the corresponding fold/unfold button is in unfolded state, since the
-  //  user may want to unfold all sub-levels beneath it"*.) This is the state the
-  //  old `hidden` gate refused, and it is the one where the caret is no help at
-  //  all: pressing Grace's caret folds her, and unfolding restores the same
-  //  buried stub. The only way to flatten this branch was the thread-wide
-  //  Unfold all, which discards every OTHER branch's arrangement to do it.
+  // OPEN and holding a fold — the state the caret is least able to help with
+  // (owner directive 2026-08-12: *"the unfold all button should also be usable
+  // when the corresponding fold/unfold button is in unfolded state, since the
+  // user may want to unfold all sub-levels beneath it"*). Pressing Grace's caret
+  // folds her, and unfolding restores the same buried stub; before this, the
+  // only way to flatten the branch was the thread-wide Unfold all, which
+  // discards every OTHER branch's arrangement to do it.
   await expect(graceUnfoldAll).toBeVisible()
   await expect(graceCaret).toHaveAttribute('aria-expanded', 'true')
-  await graceCaret.click() // and it survives folding her root over the top of it
+  await graceCaret.click() // …and FOLDED holding a fold — the fourth cell
   await expect(graceUnfoldAll).toBeVisible()
 
   // ── …and it costs the row NOTHING ─────────────────────────────────────────
@@ -480,9 +483,13 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // One click, the whole branch — including the post folded two levels down.
   await expect(parent.locator('p', { hasText: ANSWER })).toHaveCount(1)
   await expect(parent.locator('p', { hasText: SECOND })).toHaveCount(1)
-  // …and it is GONE now, because there is nothing left in this branch to
-  // discard: a control that would repeat the caret does not render.
-  await expect(graceUnfoldAll).toHaveCount(0)
+  // …and it is STILL THERE afterwards, which is the inversion of what this
+  // assertion said one revision ago ("GONE now, because there is nothing left to
+  // discard"). Pressing a control must not delete it: the branch is open, the
+  // reader may fold inside it again, and a button that vanishes under the cursor
+  // it was just clicked with is the disappearing act the whole rule was
+  // collapsed to stop. Idempotent, not spent.
+  await expect(graceUnfoldAll).toBeVisible()
 
   // ── …and each discard is its own caret's SHADOW ───────────────────────────
   //  (owner directive 2026-08-11, moved onto the other axis 2026-08-12: *"…
@@ -646,6 +653,15 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   const onlyThis = parent.getByRole('button', { name: /^Fold every post but/ }).first()
   await expect(onlyThis).toHaveText('')
   await onlyThis.hover()
+  // Exactly ONE bubble, and it belongs to the control under the pointer. The
+  // count is not decoration: this assertion caught a leak in the shared
+  // `Tooltip` (2026-08-12) that had nothing to do with what it was written for.
+  // Hover and focus both open, a click fires both, and the two shared one timer
+  // handle — so `cancel` cleared one and the other opened a bubble afterwards,
+  // with the pointer three controls away. It needed a tooltipped control that
+  // survives its own click to become visible, which the per-post unfold-all only
+  // became when its render rule was collapsed to one term.
+  await expect(ada.page.getByRole('tooltip')).toHaveCount(1)
   await expect(ada.page.getByRole('tooltip')).toHaveText('Fold everything else')
 
   // ── The trash ASKS ────────────────────────────────────────────────────────
