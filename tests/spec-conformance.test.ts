@@ -15,7 +15,7 @@
  *  endpoint, or a hidden gap fail loudly. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { ROOT, read, filesUnder, concatSource } from './helpers/source.ts'
 
@@ -28,11 +28,25 @@ const STATUS_GLYPHS = ['✅', '🟡', '🧭', '📝']
  *  they left this file's reach entirely: six ✅ rows stopped being checked for a
  *  status glyph, for a locking-test citation, and for path rot — silently, with
  *  the pillar still green because it no longer had rows to be wrong about. A
- *  ledger whose oracle does not follow its rows is not a ledger. */
-const moduleSpecFiles = () =>
-  ['contract', 'server', 'src']
-    .flatMap((d) => filesUnder(d, ['.md']))
-    .filter((f) => f.endsWith('SPEC.md'))
+ *  ledger whose oracle does not follow its rows is not a ledger.
+ *
+ *  Walked directly rather than through `filesUnder`, which THROWS on a tree
+ *  that matches nothing — the right guard for a source scan (a scan over
+ *  nothing passes vacuously) and the wrong one here, where "this layer has no
+ *  SPEC.md" is a legitimate state. Routed through it, dropping the last
+ *  markdown file from `contract/` would kill this suite with a vacuity error
+ *  about the wrong subject. */
+const moduleSpecFiles = () => {
+  const out = []
+  for (const dir of ['contract', 'server', 'src']) {
+    if (!existsSync(join(ROOT, dir))) continue
+    for (const f of readdirSync(join(ROOT, dir), { recursive: true })) {
+      const p = String(f).split('\\').join('/')
+      if (p.endsWith('SPEC.md')) out.push(join(ROOT, dir, p))
+    }
+  }
+  return out
+}
 
 const specFiles = () => [...filesUnder('docs/spec', ['.md']), ...moduleSpecFiles()]
 const pillarFiles = () => specFiles().filter((f) => !f.endsWith('README.md'))

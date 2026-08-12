@@ -27,25 +27,38 @@
  *  decided must be checkable itself. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
-import { suiteRoots } from '../scripts/verifyPlan.mjs'
+import { suiteFiles, suiteRoots } from '../scripts/verifyPlan.mjs'
 
-/** Every suite in the repo, from the same roots the runner globs — so a layer
- *  that colocates its tests is covered here the moment it reaches the script,
- *  with no second list to keep. */
+/** Every suite in the repo — the RUNNER's own enumeration, not a second one.
+ *
+ *  This walked the roots itself at first, which made it the "two enumerations
+ *  of one thing" that `verifyPlan.mjs`'s own header warns drifts: a filter
+ *  added there and not here, and this lock quietly starts checking a different
+ *  set than `npm test` executes. Reusing `suiteFiles` means there is nothing to
+ *  keep in step. */
 function everySuite(): string[] {
-  const out: string[] = []
-  for (const root of suiteRoots(join(ROOT, 'package.json'))) {
-    for (const f of readdirSync(join(ROOT, root), { recursive: true })) {
-      const p = String(f).split('\\').join('/')
-      if (p.endsWith('.test.ts')) out.push(`${root}/${p}`)
-    }
-  }
+  // ABSOLUTE, because `suiteFiles` prefixes whatever roots it is handed and
+  // these are absolute — re-joining them to ROOT builds `C:\repo\C:\repo\…`.
+  const out = suiteFiles(suiteRoots(join(ROOT, 'package.json')).map((r) => join(ROOT, r))).map((f) =>
+    f.split('\\').join('/'),
+  )
   assert.ok(out.length > 100, `found only ${out.length} suites — this scan has no subject`)
   return out
 }
+
+/** Repo-relative, for messages that a reader can paste. */
+const rel = (abs: string) => abs.slice(ROOT.split('\\').join('/').length + 1)
+
+/** Each suite's comment-stripped source, keyed by absolute path and read ONCE
+ *  for both tests below. Module-level so the second scan reuses the first's
+ *  I/O rather than walking four trees and re-reading ~230 files to recompute
+ *  the same strings. */
+const SUITE_SOURCE: ReadonlyMap<string, string> = new Map(
+  everySuite().map((abs) => [abs, stripComments(readFileSync(abs, 'utf8'))]),
+)
 
 /** Literals that are DATA, not a path the suite reads — so "does not resolve"
  *  is the point of them, not a defect. Named individually with the reason,
@@ -59,14 +72,15 @@ const NOT_A_READ = new Set([
 
 test('every relative path a suite names resolves from where the suite now lives', () => {
   const broken: string[] = []
-  for (const rel of everySuite()) {
-    const dir = dirname(join(ROOT, rel))
-    const src = stripComments(readFileSync(join(ROOT, rel), 'utf8'))
+  const unusedExemptions = new Set(NOT_A_READ)
+  for (const [abs, src] of SUITE_SOURCE) {
+    const dir = dirname(abs)
     // Quoted relative paths carrying a source extension: import specifiers,
     // `new URL(…)` arguments, and the bare literals fed to hand-rolled readers
     // — all the same hazard, so all one scan.
     for (const m of src.matchAll(/'(\.\.?\/[^'\n]*\.(?:ts|tsx|mjs|md|json|css))'/g)) {
-      const entry = `${rel} → '${m[1]}'`
+      const entry = `${rel(abs)} → '${m[1]}'`
+      unusedExemptions.delete(entry)
       if (!NOT_A_READ.has(entry) && !existsSync(resolve(dir, m[1]))) broken.push(entry)
     }
   }
@@ -74,6 +88,14 @@ test('every relative path a suite names resolves from where the suite now lives'
     broken,
     [],
     `a suite names a path that does not exist from its own directory — it moved and this did not:\n${broken.join('\n')}`,
+  )
+  // The sibling guard doc-paths.test.ts already makes: an exemption that
+  // outlives its citation is rot, because it silently excuses whatever lands
+  // at that entry string next. Same allowlist idiom, so the same guard.
+  assert.deepEqual(
+    [...unusedExemptions],
+    [],
+    `NOT_A_READ exempts a literal no suite names any more — delete the entry:\n${[...unusedExemptions].join('\n')}`,
   )
 })
 
@@ -85,14 +107,13 @@ test('no suite computes its own repo ROOT — it imports the one home', () => {
   // location that is not going to move; everyone else imports it. Same
   // registries-have-one-home rule the UI applies to sections and palettes.
   const offenders: string[] = []
-  for (const rel of everySuite()) {
+  for (const [abs, src] of SUITE_SOURCE) {
     // helpers/ is where the one home lives; it is allowed to compute it.
-    if (rel.includes('/helpers/')) continue
-    const src = stripComments(readFileSync(join(ROOT, rel), 'utf8'))
+    if (abs.includes('/helpers/')) continue
     if (/(?:dirname\(fileURLToPath\(import\.meta\.url\)\)|import\.meta\.dirname)\s*,\s*'\.\./.test(src))
-      offenders.push(`${rel}: computes ROOT by counting '..' — import { ROOT } from the source helper`)
+      offenders.push(`${rel(abs)}: computes ROOT by counting '..' — import { ROOT } from the source helper`)
     if (/new URL\(`\.\.\//.test(src))
-      offenders.push(`${rel}: builds repo paths with a '..' template — import { ROOT, read } instead`)
+      offenders.push(`${rel(abs)}: builds repo paths with a '..' template — import { ROOT, read } instead`)
   }
   assert.deepEqual(offenders, [], `hand-counted repo roots break silently on a move:\n${offenders.join('\n')}`)
 })

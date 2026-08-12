@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
-import { envCount, specFiles, specGroups, suiteFiles, suiteRoots } from '../scripts/verifyPlan.mjs'
+import { envCount, specFiles, specGroups, suiteDirs, suiteFiles, suiteRoots } from '../scripts/verifyPlan.mjs'
 
 test('the sweep runs every node suite the `npm test` glob does', () => {
   // Two enumerations of one set. `package.json`'s `test` script is a RECURSIVE
@@ -26,15 +26,25 @@ test('the sweep runs every node suite the `npm test` glob does', () => {
   const script = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts.test
   assert.match(script, /tests\/\*\*\/\*\.test\.ts/, 'the npm script globs recursively — so the plan must too')
 
-  // Since the suites colocated with the code they lock, there is more than one
-  // root, and a whole ROOT can now go missing the way a subdirectory could
-  // before — silently, with the lane still green over fewer tests. So the
-  // roots are read out of the same `test` script the runner globs, and checked
-  // against the directories that actually hold suites: a layer that colocates
-  // its tests but never reaches the script fails HERE rather than nowhere.
+  // Since the suites colocated with the code they lock there is more than one
+  // root, so a whole ROOT can now go missing the way a subdirectory could
+  // before — silently, lane still green over fewer tests. Reading the roots out
+  // of the `test` script gives one source of truth for WHICH run; it says
+  // nothing about whether that set covers the suites on disk. Naming two roots
+  // by hand here left the other two unguarded: deleting `src/**` from the glob
+  // hid 70 suites with all six of these tests green. So coverage is asked of
+  // the FILESYSTEM — a directory that holds suites and is not globbed fails
+  // here, whatever it is called and whoever forgot it.
   const roots = suiteRoots(join(ROOT, 'package.json'))
-  assert.ok(roots.includes('tests'), 'the repo-level suites still run')
-  assert.ok(roots.includes('server'), 'the colocated server suites run')
+  const globbed = new Set(roots)
+  const onDiskRoots = suiteDirs(ROOT)
+  assert.ok(onDiskRoots.length >= 3, `only ${onDiskRoots.length} directories hold suites — this check has no subject`)
+  const unglobbed = onDiskRoots.filter((d) => !globbed.has(d))
+  assert.deepEqual(
+    unglobbed,
+    [],
+    `these directories contain suites that \`npm test\` never runs: ${unglobbed.join(', ')} — add them to the test script`,
+  )
 
   const planned = new Set(suiteFiles(roots.map((r) => join(ROOT, r))).map((f) => f.split('\\').join('/')))
   const onDisk: string[] = []

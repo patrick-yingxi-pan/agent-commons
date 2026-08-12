@@ -28,6 +28,31 @@ export function suiteRoots(pkgPath = 'package.json') {
   return roots
 }
 
+/** Top-level directories that actually CONTAIN suites, found by looking.
+ *
+ *  The counterpart `suiteRoots` needs and did not have. Reading the roots out
+ *  of `package.json` gives one source of truth for *which* roots run, but says
+ *  nothing about whether that set covers the suites on disk — and deleting one
+ *  glob removes an entire layer from every run while every check stays green
+ *  (measured: dropping `src/**` hid 70 suites and all six guards passed). The
+ *  second net degraded with the first, because it derived its subject from the
+ *  same roots. So coverage has to be asked of the FILESYSTEM, not of the list
+ *  being checked. */
+export function suiteDirs(root = '.') {
+  const skip = new Set(['node_modules', 'dist', '.git', '.data', 'test-results', '.claude'])
+  const found = new Set()
+  for (const top of readdirSync(root, { withFileTypes: true })) {
+    if (!top.isDirectory() || skip.has(top.name)) continue
+    // `.tsx` too: the npm glob runs both, so a directory holding only `.test.tsx`
+    // must still be reported as needing a glob rather than reading as suite-free.
+    const hit = readdirSync(`${root}/${top.name}`, { recursive: true }).some((f) =>
+      /\.test\.tsx?$/.test(String(f).split('\\').join('/')),
+    )
+    if (hit) found.add(top.name)
+  }
+  return [...found].sort()
+}
+
 /** Every node suite file under every root, RECURSIVELY.
  *
  *  Recursive because `package.json`'s `test` script is a recursive glob, and

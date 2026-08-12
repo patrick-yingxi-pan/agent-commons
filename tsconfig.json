@@ -28,7 +28,9 @@
     "vite.config.ts"
   ],
   "exclude": [
+    "node_modules",
     "**/*.test.ts",
+    "**/*.test.tsx",
     "**/testkit/**"
   ]
 }

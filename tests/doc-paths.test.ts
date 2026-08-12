@@ -39,12 +39,25 @@ const HISTORICAL: Record<string, string> = {
     'same retirement: rows 49/51 cite it as it stood, row 55 records its removal',
 }
 
-/** Every markdown file under docs/, plus the root-level documents. */
+/** Every markdown file that makes claims about this repo.
+ *
+ *  `docs/` was the first cut, and it left out the two places where a dead path
+ *  misleads an AGENT rather than a reader: the scoped `CLAUDE.md` / `SPEC.md`
+ *  files (context-map checks their markdown LINK targets, and treats backticked
+ *  paths only as presence anchors — asserting the string appears, never that
+ *  the file exists), and `.claude/skills/`, whose SKILL.md files this very
+ *  refactor had to rewrite. A skill with dead pointers misdirects whoever loads
+ *  it, which is the failure the context map exists to prevent. */
+const DOC_TREES = ['docs', 'contract', 'server', 'src', 'tests', 'e2e', 'connector', '.claude/skills']
+
 function docFiles(): string[] {
   const out = ['AGENTS.md', 'CLAUDE.md', 'README.md', 'PROPOSAL.md']
-  for (const f of readdirSync(join(ROOT, 'docs'), { recursive: true })) {
-    const p = String(f).split('\\').join('/')
-    if (p.endsWith('.md')) out.push(`docs/${p}`)
+  for (const tree of DOC_TREES) {
+    if (!existsSync(join(ROOT, tree))) continue
+    for (const f of readdirSync(join(ROOT, tree), { recursive: true })) {
+      const p = String(f).split('\\').join('/')
+      if (p.endsWith('.md')) out.push(`${tree}/${p}`)
+    }
   }
   assert.ok(out.length > 20, `found only ${out.length} docs — this scan has no subject`)
   return out
@@ -61,8 +74,15 @@ test('every repo path named in prose exists, or is a declared reference to histo
       /`((?:contract|server|src|tests|e2e|scripts|connector|docs)\/[A-Za-z0-9._/-]+\.(?:ts|tsx|mjs|md|json|css))`/g,
     )) {
       const entry = `${doc} → ${m[1]}`
-      unusedExemptions.delete(entry)
-      if (!existsSync(join(ROOT, m[1])) && !(entry in HISTORICAL)) dead.push(entry)
+      // Only a citation that STILL fails to resolve keeps its exemption alive.
+      // Marking it used on any sighting meant that if the file came back, the
+      // entry stopped exempting anything and was never reported — the allowlist
+      // silently accumulating lines that excuse nothing, which is the rot the
+      // assertion below exists to catch.
+      if (!existsSync(join(ROOT, m[1]))) {
+        unusedExemptions.delete(entry)
+        if (!(entry in HISTORICAL)) dead.push(entry)
+      }
     }
   }
   assert.deepEqual(
