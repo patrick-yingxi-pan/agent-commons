@@ -36,7 +36,7 @@ test('opAppliedInGraph: applying an op flips its own derivation from pending to 
     { kind: 'save-artifact', artifact: { name: 'Summary', kind: 'doc', meta: 'm' }, sessionId: 's1', sessionTitle: 'S' },
     { kind: 'scope-context', projectId: 'p1', projectName: 'P', context: { label: 'Slack', icon: 'plug' } as never },
     { kind: 'set-project-instructions', projectId: 'p1', projectName: 'P', instructions: 'be terse' },
-    { kind: 'set-project-readme', projectId: 'p1', projectName: 'P', readme: 'about' },
+    { kind: 'set-project-description', projectId: 'p1', projectName: 'P', description: 'about' },
     { kind: 'link-schedule-project', scheduleId: 'sch1', scheduleName: 'Sch', projectId: 'p1', projectName: 'P' },
     { kind: 'set-artifact-source', artifactId: 'a1', artifactName: 'A', contextLabel: 'Slack' },
   ]
@@ -109,10 +109,15 @@ test('the instructions resolver is overlay-or-seed — a consent preview diffs a
   // lastIndexOf: the first hit is the RelationsValue TYPE line; the implementation follows.
   const block = rel.slice(rel.lastIndexOf('instructionsForProject:')).slice(0, 300)
   assert.match(block, /graph\.projectInstructions\?\.\[pid\] \?\?/, 'the overlay wins when set')
+  // `merged()` since 2026-08-13 — the same list, named instead of re-spread. The
+  // description merge gave that list a second job (it applies the description
+  // overlay), and a spread here would have been a second, differently-resolved
+  // answer to "what are the projects". The CLAIM is unchanged: the fallback is
+  // the project record, the read every other consumer uses.
   assert.match(
     block,
-    /\[\.\.\.graph\.extraProjects, \.\.\.projects\]\.find\(\(p\) => p\.id === pid\)\?\.instructions/,
-    'falls back to the project seed, the read every other consumer uses',
+    /merged\(\)\.find\(\(p\) => p\.id === pid\)\?\.instructions/,
+    'falls back to the project record, through the one merged list',
   )
 })
 

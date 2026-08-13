@@ -159,10 +159,10 @@ export interface RelationGraph {
   projectContexts: Record<string, import('./cowork.ts').ProjectContext[]>
   /** project id → its edited custom instructions (overrides the seed). */
   projectInstructions: Record<string, string>
-  /** project id → its README (D26) — the PUBLIC "about" content of a shared
+  /** project id → its ABOUT text (D26) — the one public description of a
    *  project, unlike `projectInstructions` (private owner context): the
    *  projection serves it to every viewer of a shared project. */
-  projectReadmes: Record<string, string>
+  projectDescriptions: Record<string, string>
   /** artifact id → the context label it derives from. */
   artifactSource: Record<string, string>
   /** schedule id → the artifact name it now saves each run. */

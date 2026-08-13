@@ -1,5 +1,5 @@
 /** Section-header action clusters (src/lib/sectionAction.ts + SectionAction) —
- *  every section's verbs (edit the README / instructions / schedule / steps /
+ *  every section's verbs (edit the description / instructions / schedule / steps /
  *  destination, add a routine / context / tool, commission an agent, claim a
  *  sub-goal, post a work item) render as ONE compact icon-button primitive in the
  *  header's right-aligned, hover-revealed cluster (lib/hoverReveal SECTION_REVEAL).
@@ -42,7 +42,7 @@ test('the section surfaces render their header verbs through SectionAction', () 
     assert.match(src, /from\s+'\.\/SectionAction'/, `${rel} imports the shared component`)
     assert.ok(src.includes('<SectionAction'), `${rel} renders <SectionAction>`)
   }
-  // The project + schedule pages carry the bulk of the verbs (README edit,
+  // The project + schedule pages carry the bulk of the verbs (description edit,
   // instructions, commission, claim, post, add routine/tool, schedule/steps/
   // destination edits) — a conversion back to a bespoke button shows up here.
   const section = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))

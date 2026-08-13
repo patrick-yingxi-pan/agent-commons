@@ -1,6 +1,6 @@
 /** ── The section-header icon action ───────────────────────────────────────────
  *  The compact icon button that sits in a SECTION HEADER's right-aligned action
- *  cluster — the section's verbs (edit the README, commission an agent, add a
+ *  cluster — the section's verbs (edit the description, commission an agent, add a
  *  routine / context / tool, post a work item), one h-6 ghost square per verb.
  *  These used to be scattered text buttons ("✎ Edit", "+ Add routine") at panel
  *  feet and beside labels — each a different spelling, all permanently visible

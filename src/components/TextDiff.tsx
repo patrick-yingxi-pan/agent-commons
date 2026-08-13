@@ -5,7 +5,7 @@
  *  value), it renders the proposed body alone rather than faking a diff against an
  *  empty column. This one primitive serves every place a change is shown: the
  *  change-proposal review + the proposer's own view (`ProposalFieldDiff`) and the
- *  content-bearing relation-consent cards (README / instructions / prompt bodies).
+ *  content-bearing relation-consent cards (description / instructions / prompt bodies).
  *  Extracting it the first time a second entity needs it is form-follows-function —
  *  the diff cue can't drift between copies. */
 export function TextDiff({

@@ -143,9 +143,12 @@ export type RelationOp =
   | { kind: 'unscope-context'; projectId: string; projectName: string; contextLabel: string }
   // Project — edit a project's custom instructions (the right-panel "Instructions" card).
   | { kind: 'set-project-instructions'; projectId: string; projectName: string; instructions: string }
-  // Project — edit a project's README (D26): the PUBLIC "about" every viewer of a
-  // shared project reads, unlike instructions (private owner context).
-  | { kind: 'set-project-readme'; projectId: string; projectName: string; readme: string }
+  // Project — edit a project's DESCRIPTION (D26): the one PUBLIC "about" every
+  // viewer of a shared project reads, unlike instructions (private owner
+  // context). It was a second field, `readme`, beside `Project.description`
+  // until 2026-08-13 — the two were the same text asked for twice, and the one
+  // the create dialog collected was never this one.
+  | { kind: 'set-project-description'; projectId: string; projectName: string; description: string }
   // Project ↔ Schedule — link a recurring schedule to a project (null = unlink).
   | { kind: 'link-schedule-project'; scheduleId: string; scheduleName: string; projectId: string | null; projectName: string }
   // Artifact ↔ Context — record that an artifact derives from a context.
@@ -220,8 +223,8 @@ export function opKey(op: RelationOp): string {
       return `unscope-context:${op.projectId}:${op.contextLabel}`
     case 'set-project-instructions':
       return `set-project-instructions:${op.projectId}`
-    case 'set-project-readme':
-      return `set-project-readme:${op.projectId}`
+    case 'set-project-description':
+      return `set-project-description:${op.projectId}`
     case 'link-schedule-project':
       return `link-schedule-project:${op.scheduleId}:${op.projectId ?? 'none'}`
     case 'set-artifact-source':
@@ -369,10 +372,10 @@ export function describeOp(op: RelationOp): OpDescription {
         relationId: 'project-context',
         approval: 'per-action',
       }
-    case 'set-project-readme':
+    case 'set-project-description':
       return {
-        text: `Update the **${op.projectName}** project README`,
-        done: 'README updated',
+        text: `Update the **${op.projectName}** project description`,
+        done: 'Description updated',
         section: 'projects',
         projectId: op.projectId,
         relationId: 'project-context',
@@ -529,12 +532,12 @@ export function describeOp(op: RelationOp): OpDescription {
 }
 
 /** The body a content-bearing consent op would write, for the card to show BEFORE you
- *  approve it (surface-audit S2). A change shown as prose ("Update the README") hides
+ *  approve it (surface-audit S2). A change shown as prose ("Update the description") hides
  *  the actual text being written, so consent is given blind; this returns the proposed
- *  body — and, for an edit to an existing value (README / instructions), the CURRENT
+ *  body — and, for an edit to an existing value (description / instructions), the CURRENT
  *  value so the card can render an old→new diff (`current` omitted ⇒ a create, shown as
  *  the proposed body alone; never a diff faked against an empty column). Pure over the
- *  op + two current-value resolvers (the UI passes `readmeForProject` /
+ *  op + two current-value resolvers (the UI passes `descriptionForProject` /
  *  `instructionsForProject`); every pure-ref op returns null (no body to preview). */
 export interface RelationContentPreview {
   label: string
@@ -543,14 +546,14 @@ export interface RelationContentPreview {
 }
 export function relationContentPreview(
   op: RelationOp,
-  currentReadme: (projectId: string) => string | undefined,
+  currentDescription: (projectId: string) => string | undefined,
   currentInstructions: (projectId: string) => string | undefined,
 ): RelationContentPreview | null {
   switch (op.kind) {
     // A cleared/blank current normalizes to a create (`|| undefined`): a diff
     // against an empty column is exactly the faked-diff the contract above forbids.
-    case 'set-project-readme':
-      return { label: 'README', current: currentReadme(op.projectId) || undefined, proposed: op.readme }
+    case 'set-project-description':
+      return { label: 'Description', current: currentDescription(op.projectId) || undefined, proposed: op.description }
     case 'set-project-instructions':
       return { label: 'Instructions', current: currentInstructions(op.projectId) || undefined, proposed: op.instructions }
     case 'create-prompt':

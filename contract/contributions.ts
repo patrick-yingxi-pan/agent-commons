@@ -90,8 +90,8 @@ export interface ContributionTier {
  *  CW2 machinery), so the shape is real and the derivation is mocked. */
 
 /** What a change entry touches — the project's mergeable surface. */
-export type ChangeEntryKind = 'instructions' | 'readme' | 'artifact' | 'file' | 'note'
-export const CHANGE_ENTRY_KINDS: ChangeEntryKind[] = ['instructions', 'readme', 'artifact', 'file', 'note']
+export type ChangeEntryKind = 'instructions' | 'description' | 'artifact' | 'file' | 'note'
+export const CHANGE_ENTRY_KINDS: ChangeEntryKind[] = ['instructions', 'description', 'artifact', 'file', 'note']
 
 export interface ChangeEntry {
   id: string

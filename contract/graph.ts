@@ -16,7 +16,7 @@ export function emptyGraph(): RelationGraph {
     scheduleProject: {},
     projectContexts: {},
     projectInstructions: {},
-    projectReadmes: {},
+    projectDescriptions: {},
     artifactSource: {},
     scheduleArtifact: {},
     scheduleSession: {},
@@ -152,12 +152,12 @@ export function applyGraphOp(
         ...graph,
         projectInstructions: { ...graph.projectInstructions, [op.projectId]: op.instructions },
       }
-    case 'set-project-readme':
+    case 'set-project-description':
       // The public "about" of a shared project (D26). Capped in the shared reducer
       // so both appliers agree on the bound; empty clears it.
       return {
         ...graph,
-        projectReadmes: { ...graph.projectReadmes, [op.projectId]: op.readme.slice(0, 10_000) },
+        projectDescriptions: { ...graph.projectDescriptions, [op.projectId]: op.description.slice(0, 10_000) },
       }
     case 'link-schedule-project':
       return { ...graph, scheduleProject: { ...graph.scheduleProject, [op.scheduleId]: op.projectId } }
@@ -262,8 +262,8 @@ export function opAppliedInGraph(graph: RelationGraph, op: RelationOp): boolean 
       return !(graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.contextLabel)
     case 'set-project-instructions':
       return graph.projectInstructions?.[op.projectId] === op.instructions
-    case 'set-project-readme':
-      return graph.projectReadmes?.[op.projectId] === op.readme.slice(0, 10_000)
+    case 'set-project-description':
+      return graph.projectDescriptions?.[op.projectId] === op.description.slice(0, 10_000)
     case 'link-schedule-project':
       return op.scheduleId in graph.scheduleProject && graph.scheduleProject[op.scheduleId] === op.projectId
     case 'set-artifact-source':

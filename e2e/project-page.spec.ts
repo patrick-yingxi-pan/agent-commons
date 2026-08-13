@@ -64,7 +64,9 @@ const HEADERS = 'section.group\\/section > div > button[aria-expanded]'
  *  The lesson is the same both times: this app's chrome shares vocabulary with
  *  its content, so a page-level claim needs a page-level scope. */
 const header = (page: import('@playwright/test').Page, title: string) =>
-  page.locator(HEADERS).filter({ hasText: new RegExp(`^${title}$`, 'i') })
+  page
+    .locator(HEADERS)
+    .filter({ has: page.locator('[data-section-title]', { hasText: new RegExp(`^${title}$`, 'i') }) })
 
 test('the project page is one column of foldable sections, configuration folded', async ({ browser }) => {
   test.setTimeout(ms(120_000))
@@ -105,10 +107,14 @@ test('the project page is one column of foldable sections, configuration folded'
   //  would slip through it silently (the sequence of a subset stays sorted), so
   //  the unknown-name check has to be separate.
   //
+  //  Read off the stamped TITLE span, not the header button: a folded section's
+  //  summary rides on the same row inside the same button, so the button's text
+  //  is "Sharingtenant-beta".
+  //
   //  `textContent`, not `innerText`: the label is uppercased in CSS, and
   //  `innerText` returns what the browser painted, so a title-cased list would
   //  fail against a correct page.
-  const seen = (await page.locator(HEADERS).allTextContents()).map((t) => t.trim())
+  const seen = (await page.locator(`${HEADERS} [data-section-title]`).allTextContents()).map((t) => t.trim())
   expect(seen.filter((t) => !ORDER.includes(t)), 'every section on the page is one this order accounts for').toEqual([])
   //  Filtered by what actually rendered, because two sections are conditional:
   //  Attention renders only when something needs the reader (no empty noise),
@@ -150,6 +156,63 @@ test('the project page is one column of foldable sections, configuration folded'
   await expect(sharing).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByText('tenant-beta').first()).toBeVisible()
   await sharing.click()
+
+  // ── A folded section is ONE ROW ───────────────────────────────────────────
+  //  (Owner directive 2026-08-13: *"the summary should sit at the same row of
+  //  section title instead of below it for a more compacted view."*)
+  //
+  //  A MEASUREMENT, because the source-level version — the summary renders
+  //  inside the header button — is already locked in
+  //  `main-column-sections.test.ts` and does not answer the question that was
+  //  actually asked. "Inside the button" is where it is in the markup; "on the
+  //  same row" is a fact about the rendered box, and a summary that wrapped
+  //  under the title would satisfy the first and fail the second.
+  const foldedRow = await header(page, 'Sharing').boundingBox()
+  const openRow = await header(page, 'Contributors').boundingBox()
+  if (!foldedRow || !openRow) throw new Error('section headers not laid out')
+  expect(
+    Math.abs(foldedRow.height - openRow.height),
+    'a folded section header is exactly as tall as an open one — the summary shares its row',
+  ).toBeLessThanOrEqual(1)
+  //  …and the summary really is beside the title, not merely present: same
+  //  vertical centre, further right.
+  const titleBox = await header(page, 'Sharing').locator('[data-section-title]').boundingBox()
+  const summaryBox = await header(page, 'Sharing').locator('span').last().boundingBox()
+  if (!titleBox || !summaryBox) throw new Error('title / summary not laid out')
+  expect(summaryBox.x, 'the summary follows the title').toBeGreaterThan(titleBox.x + titleBox.width - 1)
+  expect(
+    Math.abs(titleBox.y + titleBox.height / 2 - (summaryBox.y + summaryBox.height / 2)),
+    'and shares its centre line',
+  ).toBeLessThanOrEqual(2)
+
+  // ── The page header is a section header, one level up ─────────────────────
+  //  (Owner directive 2026-08-13: *"the reveal action buttons can be placed at
+  //  the same row of the title, effectively becoming project-level actions,
+  //  similar idea to section actions."*)
+  //
+  //  Edit description hides until the header is hovered, exactly like a
+  //  section's verbs — and Watch does NOT, because it carries state. That
+  //  asymmetry is the claim: "am I watching this project?" must not be a
+  //  question you have to hover to answer.
+  const pageHeader = page.locator('header').first()
+  const editVerb = pageHeader.getByRole('button', { name: /^Edit description/ })
+  await expect(editVerb).toHaveCount(1)
+  await page.mouse.move(0, 0)
+  await expect(editVerb.locator('xpath=..')).toHaveCSS('opacity', '0')
+  await pageHeader.hover()
+  await expect(editVerb.locator('xpath=..')).toHaveCSS('opacity', '1')
+
+  //  …and the description it edits is in About, not under the title. The
+  //  sub-line and the About section were the same text on one page (owner
+  //  report: *"all three are actually the same thing"*), so the page must print
+  //  it exactly once.
+  const DESC = 'The self-serve Insights dashboard'
+  expect(
+    await page.locator('header').first().locator(`text=${DESC}`).count(),
+    'the page header no longer prints the description',
+  ).toBe(0)
+  await expect(header(page, 'About')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByText(new RegExp(DESC))).toHaveCount(1)
 
   // ── A section's verbs all live in ONE cluster ─────────────────────────────
   //  (Owner directive 2026-08-13: *"fold/unfold all buttons in discussion

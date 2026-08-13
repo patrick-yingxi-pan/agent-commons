@@ -1365,11 +1365,13 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     scheduleProject: byProjValue(g.scheduleProject),
     projectContexts: byProjKey(g.projectContexts),
     projectInstructions: byProjKey(g.projectInstructions),
-    // The README is the PUBLIC "about" (D26): unlike instructions (owner-scoped),
+    // The description is the PUBLIC "about" (D26): unlike instructions (owner-scoped),
     // its row survives for any viewer of a SHARED project — the same visibility
-    // the project object itself has in this projection.
-    projectReadmes: Object.fromEntries(
-      Object.entries(g.projectReadmes).filter(([pid]) => {
+    // the project object itself has in this projection. This map is an OVERRIDE
+    // of the project record's own description, exactly as projectInstructions
+    // overrides its instructions; the reader resolves map ?? record.
+    projectDescriptions: Object.fromEntries(
+      Object.entries(g.projectDescriptions).filter(([pid]) => {
         if (projVisible(pid)) return true
         const p = findProject(pid)
         return p?.shared === true
@@ -2554,17 +2556,30 @@ export const store = {
     const NOOR = 'tenant-northlight'
     const OMAR = 'tenant-harbor'
     const REI = 'tenant-reislab'
-    const mk = (owner: string, projectId: string, name: string, description: string, readme: string) => {
+    /** Seed a shared showcase project.
+     *
+     *  It used to take TWO texts — a one-line `description` and a longer
+     *  `readme` — and write both. They merged on 2026-08-13 (owner report: the
+     *  create dialog's description field, the sub-line under the title and the
+     *  About section are three faces of one text), so each caller now passes one
+     *  string carrying both sentences: what the project IS, then how it works.
+     *  That is what the two fields were actually saying between them, which is
+     *  the argument for the merge rather than a casualty of it. */
+    const mk = (owner: string, projectId: string, name: string, description: string) => {
       this.applyRelationOp({ kind: 'create-project', projectId, projectName: name, projectDescription: description }, owner)
       this.applyRelationOp({ kind: 'share-project', projectId, projectName: name, shared: true }, owner)
-      this.applyRelationOp({ kind: 'set-project-readme', projectId, projectName: name, readme }, owner)
     }
     const contrib = (projectId: string, by: string, title: string, summary?: string, subGoal?: string) => {
       const c = this.openContribution(projectId, { title, summary, subGoal }, by, undefined)
       return typeof c === 'object' ? c.id : ''
     }
     const crystallizeNote = (projectId: string, cid: string, by: string, target: string, before: string | undefined, after: string) =>
-      this.crystallizeContribution(projectId, cid, { entries: [{ kind: 'readme', target, ...(before !== undefined ? { before } : {}), after }] }, by, undefined)
+      // 'note', not the project's description: these targets are guide pages,
+      // postmortems and token files. The kind was 'readme', and the rename made a
+      // pre-existing mislabel legible — a Changes row reading "description ·
+      // postmortems/cache-stampede" claims a contribution edited the project's
+      // About text when what it wrote was a postmortem.
+      this.crystallizeContribution(projectId, cid, { entries: [{ kind: 'note', target, ...(before !== undefined ? { before } : {}), after }] }, by, undefined)
     const reviewedLand = (projectId: string, cid: string, by: string) => {
       this.reviewContribution(projectId, cid, by, undefined)
       this.landContribution(projectId, cid, by, undefined)
@@ -2573,8 +2588,7 @@ export const store = {
     // 1 · The Commons Field Guide (Ada) — the LINEAR LEDGER + EARNED TRUST:
     // Rei lands three reviewed contributions (L1–L3), so her fourth reads
     // Tier 0 ("trusted: 3 landed here") — the trust arithmetic on display.
-    mk(ADA, 'p-field-guide', 'The Commons Field Guide', 'A living handbook of how this commons works — contributed page by page.',
-      'Every page of this guide arrived as a numbered landing. Open the ledger: each entry traces to its why.')
+    mk(ADA, 'p-field-guide', 'The Commons Field Guide', 'A living handbook of how this commons works — contributed page by page. Every page arrived as a numbered landing: open the ledger and each entry traces to its why.')
     for (const [i, page] of (['Declare before doing', 'The envelope, explained', 'Tiers in plain words'] as const).entries()) {
       const cid = contrib('p-field-guide', REI, `Guide page: ${page}`, `Drafts the "${page}" chapter.`)
       crystallizeNote('p-field-guide', cid, REI, `guide/${i + 1}`, undefined, `${page} — the chapter text, v1.`)
@@ -2585,8 +2599,7 @@ export const store = {
     // 2 · Launch Week Broadcast (Noor) — the EFFECT ENVELOPE: one approved
     // with a draft-escrow send half-used; one PROPOSED, sitting as Noor's
     // liability ask in Attention.
-    mk(NOOR, 'p-launch-broadcast', 'Launch Week Broadcast', 'Outbound comms for launch week — every send pre-approved as an envelope.',
-      'Nothing leaves this project without an approved envelope. Approval happens before the act, not after.')
+    mk(NOOR, 'p-launch-broadcast', 'Launch Week Broadcast', 'Outbound comms for launch week — every send pre-approved as an envelope. Nothing leaves this project without one: approval happens before the act, not after.')
     const lb1 = contrib('p-launch-broadcast', ADA, 'Press note to the launch list', 'Drafts and sends the press note.')
     this.proposeEnvelope('p-launch-broadcast', lb1, { lines: [{ type: 'connector.write', target: 'email:press-list', cardinality: 2, harness: 'draft-escrow', note: 're: launch week' }] }, ADA, undefined)
     this.approveEnvelope('p-launch-broadcast', lb1, NOOR, undefined)
@@ -2600,8 +2613,7 @@ export const store = {
 
     // 3 · Incident Postmortem Library (Grace) — the CHANGESET: v1 → v2 with
     // the review delta on the timeline, landed by the owner.
-    mk(GRACE, 'p-postmortem-library', 'Incident Postmortem Library', 'Blameless postmortems, versioned like code.',
-      'A postmortem is a changeset: before → after, revised in the open, landed once it reads true.')
+    mk(GRACE, 'p-postmortem-library', 'Incident Postmortem Library', 'Blameless postmortems, versioned like code. A postmortem is a changeset: before → after, revised in the open, landed once it reads true.')
     const pm = contrib('p-postmortem-library', OMAR, 'Postmortem: the cache stampede', 'What happened, and the fix.')
     crystallizeNote('p-postmortem-library', pm, OMAR, 'postmortems/cache-stampede', 'Root cause: unknown.', 'Root cause: cold-start stampede past an expired key.')
     crystallizeNote('p-postmortem-library', pm, OMAR, 'postmortems/cache-stampede', 'Root cause: unknown.', 'Root cause: cold-start stampede past an expired key. Fix: jittered TTLs + a request-coalescing gate.')
@@ -2611,8 +2623,7 @@ export const store = {
     // 4 · Growth Experiment Registry (Maya) — the TIER-1 PATH mid-flight: one
     // landed via review; one crystallized and AWAITING its review (the
     // contributor's error-catching ask).
-    mk(MAYA, 'p-experiment-registry', 'Growth Experiment Registry', 'Every experiment writeup lands through review.',
-      'An experiment writeup self-lands once the adversarial review passes over its latest version.')
+    mk(MAYA, 'p-experiment-registry', 'Growth Experiment Registry', 'Every experiment writeup lands through review — self-landing once the adversarial pass clears its latest version.')
     const ex1 = contrib('p-experiment-registry', REI, 'Writeup: onboarding email subject test')
     crystallizeNote('p-experiment-registry', ex1, REI, 'experiments/subject-test', undefined, 'Variant B lifted opens 12%; shipped.')
     reviewedLand('p-experiment-registry', ex1, REI)
@@ -2621,8 +2632,7 @@ export const store = {
 
     // 5 · Support Macro Commons (Omar) — DELEGATION: a draft-mode delegate has
     // drafted one decision; an effectful ask ESCALATED back to the human.
-    mk(OMAR, 'p-macro-commons', 'Support Macro Commons', 'Reply macros, curated — routine approvals delegated, sends escalated.',
-      'A draft-mode delegate holds the routine; anything irreversible escalates back to a human. Labor moves, liability does not.')
+    mk(OMAR, 'p-macro-commons', 'Support Macro Commons', 'Reply macros, curated — routine approvals delegated, sends escalated. A draft-mode delegate holds the routine and anything irreversible escalates back to a human: labor moves, liability does not.')
     // `Omit<Agent,'id'>` requires systemPrompt + instructions; this literal
     // supplied neither and was double-cast past the check, so the seeded agent
     // shipped `undefined` where the contract promises strings. Filled in rather
@@ -2649,16 +2659,14 @@ export const store = {
 
     // 6 · Research Reading Circle (Rei) — VISIBLE INTENTS: two live sub-goal
     // leases on the Coordination board, one tied to an open contribution.
-    mk(REI, 'p-reading-circle', 'Research Reading Circle', 'Papers claimed before they are summarized — no duplicate work.',
-      'Claim a paper before you read it: the lease is visible, and abandonment self-heals in view of everyone.')
+    mk(REI, 'p-reading-circle', 'Research Reading Circle', 'Papers claimed before they are summarized — no duplicate work. Claim one before you read it: the lease is visible, and abandonment self-heals in view of everyone.')
     this.reserveSubGoal('p-reading-circle', 'reader-rei', 'summarize: attention-is-all-you-need')
     this.reserveSubGoal('p-reading-circle', 'reader-ada', 'summarize: constitutional-ai')
     contrib('p-reading-circle', ADA, 'Summary: Constitutional AI', 'The claimed summary, in progress.', 'summarize: constitutional-ai')
 
     // 7 · Design Tokens Garden (Noor) — the AFTERMATH: a landed contribution
     // whose thread keeps accruing (CW7 — the page never fossilizes).
-    mk(NOOR, 'p-token-garden', 'Design Tokens Garden', 'The shared palette, pruned in public.',
-      'Landed work keeps its page alive — reverts, verifications, and follow-ups accrue where the change lives.')
+    mk(NOOR, 'p-token-garden', 'Design Tokens Garden', 'The shared palette, pruned in public. Landed work keeps its page alive — reverts, verifications and follow-ups accrue where the change lives.')
     const tg = contrib('p-token-garden', GRACE, 'Retire the legacy amber ramp')
     crystallizeNote('p-token-garden', tg, GRACE, 'tokens/amber', 'amber-500: #f59e0b (legacy ramp)', 'amber-600: #d97706 (single accent step)')
     this.reviewContribution('p-token-garden', tg, GRACE, undefined)
@@ -2667,22 +2675,19 @@ export const store = {
 
     // 8 · The Data Dictionary (Maya) — OPEN WORK meets the ledger: a posted
     // work item beside a contribution declared against the same sub-goal.
-    mk(MAYA, 'p-data-dictionary', 'The Data Dictionary', 'One canonical definition per metric — argued in the open.',
-      'A metric definition is a contribution: declared, diffed, reviewed, landed. The backlog names what is still fuzzy.')
+    mk(MAYA, 'p-data-dictionary', 'The Data Dictionary', 'One canonical definition per metric — argued in the open. A definition is a contribution: declared, diffed, reviewed, landed; the backlog names what is still fuzzy.')
     this.postOpenSubGoal('p-data-dictionary', { subGoal: 'define: weekly-active-teams', type: 'mcp.query', target: 'warehouse:metrics', note: 'The current definition double-counts org moves.' }, MAYA, undefined)
     contrib('p-data-dictionary', OMAR, 'Define: activation event', 'Pins the activation event to first-project-created.', 'define: activation-event')
 
     // 9 · Onboarding Trailhead (Omar) — the STRANGER path: a first-time
     // contributor's Tier-1 chip, review still pending.
-    mk(OMAR, 'p-onboarding-trailhead', 'Onboarding Trailhead', 'The new-hire guide, improved by the people who just walked it.',
-      'First-time contributors are Tier 1 by arithmetic, not suspicion: one passed review and the work self-lands.')
+    mk(OMAR, 'p-onboarding-trailhead', 'Onboarding Trailhead', 'The new-hire guide, improved by the people who just walked it. First-time contributors are Tier 1 by arithmetic, not suspicion: one passed review and the work self-lands.')
     const ot = contrib('p-onboarding-trailhead', GRACE, 'Add the deploy-keys setup step')
     crystallizeNote('p-onboarding-trailhead', ot, GRACE, 'trailhead/deploy-keys', undefined, 'Step 4: mint your deploy key before the first clone.')
 
     // 10 · Release Notes Atelier (Grace) — the HARNESS LADDER on one envelope:
     // hold-until-landing beside cooling-window, approved, one act run.
-    mk(GRACE, 'p-release-atelier', 'Release Notes Atelier', 'Notes per release — staged sends under explicit harnesses.',
-      'Each send names its harness up front: what is held to landing, what cools before it fires.')
+    mk(GRACE, 'p-release-atelier', 'Release Notes Atelier', 'Notes per release — staged sends under explicit harnesses. Each send names its harness up front: what is held to landing, what cools before it fires.')
     const ra = contrib('p-release-atelier', ADA, 'v2.4 release notes', 'Drafts and stages the v2.4 notes.')
     this.proposeEnvelope('p-release-atelier', ra, {
       lines: [

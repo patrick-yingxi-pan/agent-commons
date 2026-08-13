@@ -139,15 +139,20 @@ function matchKeywords(text: string): ToolCall[] {
     }
   }
 
-  // ── The project README (D26): "write/update the readme for X (saying "…")" ──
-  if (!calls.length && /\breadme\b/.test(t)) {
-    const readmeProject =
-      grab(/\breadme\s+(?:for|on|of)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:project|saying|that)\b|[.,!]|$)/i) ?? project
-    if (readmeProject) {
+  // ── The project DESCRIPTION (D26): "write/update the description for X" ──
+  //  It still answers to "readme" and to "about". The FIELD merged (2026-08-13:
+  //  the create dialog's description, the sub-line under the title and the About
+  //  section were three faces of one text), but the words people use for it did
+  //  not, and an intent parser that stops understanding the ask it used to serve
+  //  is a regression wearing a rename.
+  if (!calls.length && /\b(?:description|readme|about)\b/.test(t)) {
+    const descriptionProject =
+      grab(/\b(?:description|readme|about)\s+(?:for|on|of)\s+(?:the\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:\s+(?:project|saying|that)\b|[.,!]|$)/i) ?? project
+    if (descriptionProject) {
       const body =
         grab(/(?:saying|that says|body)\s+["“]([^"”]+)["”]/i) ??
         'What this project is, who it serves, and how to contribute — start with the open work list.'
-      calls.push({ name: 'set_project_readme', input: { project: readmeProject, readme: body } })
+      calls.push({ name: 'set_project_description', input: { project: descriptionProject, description: body } })
     }
   }
 

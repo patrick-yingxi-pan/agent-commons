@@ -145,11 +145,11 @@ test('the open thread’s title bar renders the LIVE session row (a rename shows
 test('the session→project breadcrumb resolves runtime-created projects too', () => {
   const rel = src('src', 'controller', 'useRelations.tsx')
   const block = rel.slice(rel.indexOf('projectForSessionId: (sid)'))
-  assert.match(
-    block.slice(0, 300),
-    /\[\.\.\.graph\.extraProjects, \.\.\.projects\]\.find/,
-    'searches the same merged list allProjects() serves',
-  )
+  // `merged()`, not a second spread of the same two lists: since 2026-08-13 that
+  // helper also applies the description overlay, so re-spreading here would have
+  // resolved the project and then handed the breadcrumb a stale description —
+  // right about which project, wrong about what it says.
+  assert.match(block.slice(0, 300), /merged\(\)\.find/, 'searches the same merged list allProjects() serves')
 })
 
 // ── The persisted rail filter clamps at render, never in storage (C16) ────────

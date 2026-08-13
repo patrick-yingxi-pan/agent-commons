@@ -135,6 +135,7 @@ import { useSectionFilter } from '../lib/useSectionFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
 import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders, projectFacet } from '../lib/sectionLists'
 import { relativeTime, shortRelativeTime } from '../lib/relativeTime'
+import { countLabel, countOr } from '../lib/countLabel'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
@@ -783,12 +784,19 @@ function NewProjectDialog({
           className={FORM_INPUT_CLASS}
         />
       </FormField>
+      {/* This field IS the project's About section (2026-08-13) — one text, not
+          a subtitle that a longer "readme" would later replace. So the copy has
+          to ask for what it now gets: the placeholder is the one the About
+          editor uses, because they are the same editor at two moments. Left
+          `optional`, which stays true — but a field labelled "what this groups
+          together" collects a subtitle, and a subtitle is what About was full
+          of before the merge. */}
       <FormField label="Description" optional>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          rows={3}
-          placeholder="What this project groups together."
+          rows={4}
+          placeholder="What is this project, and how does one contribute? (public — every viewer reads this)"
           className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
         />
       </FormField>
@@ -961,6 +969,20 @@ function ProjectDetail({
   // legitimately has fewer.
   const [foldEntries, FoldScope] = useFoldScope()
 
+  // The About editor's disclosure. It lives up here because its VERB does — the
+  // description is what the project is, so editing it is a project-level act,
+  // not one of the About section's (owner directive 2026-08-13). The section
+  // takes the flag; the header owns the button.
+  const [editingAbout, setEditingAbout] = useState(false)
+  const projectVerbs =
+    own && !editingAbout ? (
+      <SectionAction
+        label="Edit description — the public “about”, read by every viewer"
+        icon={<Pencil size={13} />}
+        onClick={() => setEditingAbout(true)}
+      />
+    ) : null
+
   return (
     <Page>
       {/* The reading column wraps the HEADER too, so the title, the fold pair
@@ -970,7 +992,20 @@ function ProjectDetail({
           reading as an indented block under a wide title is the bill for that
           width arriving late. */}
       <div className="mx-auto w-full max-w-3xl">
-      <header className={PAGE_HEADER_CLASS}>
+      {/* ── The page header IS a section header, one level up ─────────────
+          (Owner directive 2026-08-13: *"the reveal action buttons can be placed
+          at the same row of the title, effectively becoming project-level
+          actions, similar idea to section actions."*)
+
+          So it wears the section cue, `group/section`, and the name is about
+          the CUE rather than the element — this is a `<header>`, and reusing
+          the primitive is what keeps a project's verbs and a section's verbs
+          from being two conventions. What makes something belong here rather
+          than in a section is SCOPE: Watch is a relation between the reader and
+          the whole project, editing the description is a change to what the
+          project IS, and neither belongs to any one section below. "New
+          session" failed that test this morning and moved down. */}
+      <header className={`${PAGE_HEADER_CLASS} ${SECTION_REVEAL_GROUP}`}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
           <div className="min-w-0">
@@ -988,28 +1023,28 @@ function ProjectDetail({
               />
             </div>
           )}
-          <p className="mt-1 text-sm text-ink-soft">{project.description}</p>
+          {/* The description used to render HERE as a sub-line, and moved into
+              the About section (same directive). It was the same text About was
+              asking for two rows below — see `ProjectAbout` for the field merge
+              that made "same text" literally true rather than nearly. */}
           </div>
         </div>
-        {/* ── What is left in the page header, and why ────────────────────
-            Watch (D24) — on shared projects, for owner and visitor alike:
+        {/* The verbs, hover-revealed, then Watch, always visible.
+            THAT ORDER, and it is not cosmetic: `justify-between` pins this
+            cluster to the right edge, so the persistent control has to be the
+            outermost one. Reversed, Watch would sit an invisible button's width
+            in from the edge — the layout would read as though something were
+            missing beside it, which is the UI-7 corollary about a persistent
+            control standing behind hover-revealed ones.
+            Watch (D24) shows on shared projects for owner and visitor alike:
             watching needs only visibility (capability shapes affordances, not
-            location).
-
-            "New session" used to stand beside it as the page's one solid
-            button, and moved into the Recent sessions header (owner directive
-            2026-08-13 — *"the new session button at the top right corner
-            actually belongs to the recent sessions section"*). The test is
-            scope: Watch is a relation between the READER and the whole project
-            and belongs to no section, while a new session is a row that will
-            appear in exactly one list, one screen below where the button was.
-
-            Rendered conditionally rather than as an always-present flex row: an
-            unshared project now has NOTHING here, and an empty flex child in a
-            `justify-between` header is 0px of nothing that still gets a gap. */}
-        {project.shared === true && (
+            location). And it stays VISIBLE where the verbs hide, because it
+            carries state — hidden until hover, "am I watching this?" becomes a
+            question you have to go looking for. */}
+        {(projectVerbs !== null || project.shared === true) && (
           <div className="flex shrink-0 items-center gap-2">
-            <WatchButton projectId={project.id} />
+            {projectVerbs && <SectionActions>{projectVerbs}</SectionActions>}
+            {project.shared === true && <WatchButton projectId={project.id} />}
           </div>
         )}
       </header>
@@ -1033,9 +1068,15 @@ function ProjectDetail({
       <SectionFoldControls entries={foldEntries} />
       <FoldScope>
       <div className="space-y-6">
-          {/* The README (D26) — the PUBLIC "about", read by owner and visitor alike;
-              only the owner gets the edit affordance (capability shapes affordances). */}
-          <ProjectReadme project={project} own={own} />
+          {/* About (D26) — the project's ONE description, read by owner and
+              visitor alike; only the owner gets the edit affordance, and it is
+              in the page header (capability shapes affordances). */}
+          <ProjectAbout
+            project={project}
+            own={own}
+            editing={editingAbout}
+            onDone={() => setEditingAbout(false)}
+          />
           {/* Every section is the same thing now (S17): a bare uppercase heading
               with its content below, folded or not. Three nested wrappers became
               one — the outer was the two-column flex row, the middle was the main
@@ -1231,6 +1272,7 @@ function ProjectDetail({
 
           <FoldSection
             title="Recent sessions"
+            summary={countOr(convs.length, 'session', 'sessions', 'No sessions')}
             actions={
               own ? (
                 // The page header's solid button, demoted to a section verb
@@ -1290,54 +1332,89 @@ function ProjectDetail({
   )
 }
 
-/** The project README (D26) — the GitHub-parity "about": the PUBLIC landing content
- *  of a shared project, distinct from `instructions` (private owner context the
- *  projection strips for visitors). Rendered for every viewer when non-empty; the
- *  owner gets Edit (a `set-project-readme` op — server-owned, persisted, broadcast). */
-function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
+/** ── About: the project's ONE description (D26) ──────────────────────────────
+ *  The GitHub-parity "about" — the PUBLIC landing text of a shared project,
+ *  distinct from `instructions` (private owner context the projection strips for
+ *  visitors). Rendered for every viewer when non-empty.
+ *
+ *  **It used to be a second field.** `readme` sat beside `Project.description`,
+ *  and the page showed both: the description as a sub-line under the title, the
+ *  readme here — empty on every project a user had ever created, because the
+ *  create dialog only ever asked for the description (owner report, 2026-08-13:
+ *  *"the description texts when creating a project, the sub-line under project
+ *  title, and the about section, all three are actually the same thing"*). They
+ *  are one field now, resolved the way instructions are (`descriptionForProject`
+ *  = the override map over the project record), so the words you type into the
+ *  New project dialog ARE this section, and editing this section is what every
+ *  list fronting the project shows.
+ *
+ *  **The verb is not here.** Editing the description is a PROJECT-level act, so
+ *  it lives in the page header's cluster beside Watch; this component takes
+ *  `editing` as a prop. Same rule the thread's fold pair was moved under: a
+ *  control cannot be lifted out of the component that owns the state it drives,
+ *  so the state came up with it. */
+function ProjectAbout({
+  project,
+  own,
+  editing,
+  onDone,
+}: {
+  project: Project
+  own: boolean
+  /** Driven by the header's Edit verb — see `ProjectDetail`. */
+  editing: boolean
+  onDone: () => void
+}) {
   const rel = useRelations()
-  const current = rel.readmeForProject(project.id) ?? ''
-  const [editing, setEditing] = useState(false)
+  // `project.description`, not a by-id resolver: `allProjects()` applies the
+  // edit overlay at the merge point, so the Project this page was handed is
+  // already the resolved one — and so is the row in the Projects hub, and so is
+  // what hub search matches. One read, one value, everywhere.
+  const current = project.description
   const [draft, setDraft] = useState(current)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+  // The draft is seeded when the EDITOR opens, not when this mounts: the verb
+  // that opens it is a page away now, so "on mount" would capture a stale value
+  // for the whole life of the page.
+  useEffect(() => {
+    if (!editing) return
+    setDraft(current)
+    taRef.current?.focus()
+  }, [editing, current])
   if (!current && !own) return null
   const save = () => {
-    rel.applyOp({ kind: 'set-project-readme', projectId: project.id, projectName: project.name, readme: draft.trim() })
-    setEditing(false)
+    rel.applyOp({
+      kind: 'set-project-description',
+      projectId: project.id,
+      projectName: project.name,
+      description: draft.trim(),
+    })
+    onDone()
   }
   return (
     <div className="mb-6">
       <FoldSection
         title="About"
-        actions={
-          own && !editing ? (
-            <SectionAction
-              label="Edit README — public, every viewer reads this"
-              icon={<Pencil size={13} />}
-              onClick={() => {
-                setDraft(current)
-                setEditing(true)
-              }}
-            />
-          ) : undefined
-        }
+        summary={current ? current.replace(/\s+/g, ' ').trim() : 'No description yet'}
       >
       {editing ? (
         <div>
           <textarea
+            ref={taRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setEditing(false)
+              if (e.key === 'Escape') onDone()
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
             }}
             rows={6}
             placeholder="What is this project, and how does one contribute? (public — every viewer reads this)"
-            aria-label="Project README"
+            aria-label="Project description"
             className="w-full resize-none rounded-md border border-line bg-surface px-2.5 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
           />
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
-              onClick={() => setEditing(false)}
+              onClick={onDone}
               className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink"
             >
               Cancel
@@ -1352,12 +1429,15 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
           </div>
         </div>
       ) : current ? (
-        <p className="whitespace-pre-wrap rounded-xl border border-line bg-surface p-4 text-[13px] leading-relaxed text-ink-soft">
-          {current}
-        </p>
+        // Plain prose. It wore `rounded-xl border bg-surface p-4` until now — a
+        // CARD, the last one on this page, missed by the de-boxing pass because
+        // that pass scanned `FoldSection` and `CardList` and this box was
+        // hand-written here. A box around the one paragraph that says what the
+        // project IS was the loudest possible place to keep one.
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink-soft">{current}</p>
       ) : (
         <p className="text-[12px] text-ink-faint">
-          No README yet — the public “about” a visitor reads first.
+          No description yet — the public “about” a visitor reads first.
         </p>
       )}
       </FoldSection>
@@ -1727,6 +1807,20 @@ function ContributorsPanel({ project }: { project: Project }) {
   return (
     <FoldSection
       title="Contributors"
+      // The NAMES, not a count: this section answers "who is here", and the
+      // roster is short by construction. Sharing's stub reads the same way.
+      //
+      // Resolved through the SAME fallback chain the row below uses, and that
+      // is the whole point of writing it out rather than reaching for
+      // `agentLabel`: the server stamps that field only on the public
+      // cross-tenant face, so an owner reading their own project got "Agent"
+      // in the summary and "Default agent" in the row — a stub disagreeing with
+      // the content it stands for, which is the exact defect the Sharing stub
+      // was fixed for a day earlier.
+      summary={
+        commissions.length === 0 ? 'No agents commissioned'
+        : commissions.map((c) => agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId).join(' · ')
+      }
       actions={
         <CommissionAdd projectId={project.id} available={available} joinRole={project.defaultRole ?? 'writer'} />
       }
@@ -2200,6 +2294,10 @@ function CoordinationPanel({ project }: { project: Project }) {
     <>
     <FoldSection
       title="Coordination"
+      summary={
+        !guarded ? 'Not a guarded resource'
+        : countOr(subGoals.length, 'claim', 'claims', 'Nothing claimed')
+      }
       actions={
         guarded ? (
           <SectionAction
@@ -2367,6 +2465,7 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
   return (
     <FoldSection
       title="Open work"
+      summary={countOr(items.length, 'item', 'items', 'Nothing posted')}
       actions={
         <SectionAction
           label="Post a work item"
@@ -3837,6 +3936,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   return (
     <FoldSection
       title="Discussion"
+      summary={root === null ? 'No discussion yet' : countLabel(root.posts.length, 'post')}
       // Undefined, not an empty fragment: a view-tier reader on an unfoldable,
       // unresolvable thread has no verbs, and the header must render no cluster
       // for them.
@@ -5134,6 +5234,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
   return (
     <FoldSection
       title="Changes"
+      summary={countOr(rows.length, 'entry', 'entries', 'Nothing yet')}
       actions={
         <>
           <SectionAction
@@ -5708,7 +5809,7 @@ function AttentionPanel({ project }: { project: Project }) {
   if (ledger.asks.length === 0 && !ledger.proposal && total === 0) return null
   const openAsk = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
   return (
-    <FoldSection title="Attention">
+    <FoldSection title="Attention" summary={countOr(ledger.asks.length, 'ask', 'asks', 'Nothing needs you')}>
       {ledger.asks.length === 0 ? (
         <p className="text-[12px] text-ink-faint">Nothing needs you right now.</p>
       ) : (
@@ -7302,7 +7403,10 @@ function ContextDetail({
         </div>
 
         <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
-          <FoldSection title="Usage">
+          <FoldSection
+            title="Usage"
+            summary={`${countLabel(ctx.sessions, 'session')} · ${ctx.lastUsedAt == null ? 'never used' : relativeTime(ctx.lastUsedAt)}`}
+          >
             <div className="space-y-2 text-[13px] text-ink">
               <div className="flex items-center justify-between">
                 <span className="text-ink-soft">Sessions</span>
@@ -7316,7 +7420,7 @@ function ContextDetail({
           </FoldSection>
 
           {isRepo && ctx.dependsOnGitHub && (
-            <FoldSection title="Depends on">
+            <FoldSection title="Depends on" summary="GitHub connector">
               <div className="flex items-center gap-2 text-[13px] text-ink">
                 <Github size={15} className="shrink-0 text-ink-soft" />
                 GitHub connector
@@ -12459,6 +12563,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Delivers to"
+      summary={displayTarget}
       actions={
         !editing && !preApproved ? (
           <SectionAction label="Edit destination" icon={<Pencil size={13} />} onClick={startEdit} />
@@ -12577,6 +12682,7 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Context & tools"
+      summary={tools.length === 0 ? 'No connectors' : tools.map((t) => t.label).join(' · ')}
       actions={
         <div className="relative">
           <SectionAction
@@ -12659,6 +12765,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Schedule"
+      summary={task.cadence}
       actions={
         <div className="relative">
           <SectionAction
@@ -12820,7 +12927,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
 function ModelPanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
   return (
-    <FoldSection title="Model">
+    <FoldSection title="Model" summary={task.model}>
       <div className="relative">
         <button
           onClick={() => setEditing((v) => !v)}
@@ -13341,7 +13448,7 @@ function SectionActions({ children }: { children: ReactNode }) {
  *  cheap answer is an array of twelve titles in `ProjectDetail`, and it is the
  *  second hand-kept list the "a registry has ONE home" rule exists to forbid
  *  (`src/lib/CLAUDE.md`): the titles live in the child components — `About` in
- *  `ProjectReadme`, `Coordination` in `CoordinationPanel` — so a restated list
+ *  `ProjectAbout`, `Coordination` in `CoordinationPanel` — so a restated list
  *  is wrong the first time anyone adds, renames or conditionally hides a
  *  section, and wrong SILENTLY, since Fold all would simply skip it.
  *
@@ -13481,8 +13588,17 @@ function FoldSection({
   /** Open folded the first time. A declaration of what the section is FOR
    *  (configuration vs content), never a stored value — see `sectionFold.ts`. */
   defaultFolded?: boolean
-  /** The one-line index entry shown in place of the content while folded. */
-  summary?: ReactNode
+  /** The one-line index entry shown BESIDE the title while folded.
+   *
+   *  REQUIRED, since 2026-08-13. It was optional, and the result was a folded
+   *  page that looked broken: five sections showed a stub and seven showed a
+   *  bare chevron, along no rule a reader could infer (owner report, on the
+   *  fully-folded page). Optional meant the stub rule — a fold is an INDEX
+   *  ENTRY, never a gap — held for the sections someone had gotten around to
+   *  and quietly lapsed for the rest. A section that cannot say what it holds
+   *  in one line is a section whose folded state is a dead end, so the type
+   *  asks for it rather than the reviewer. */
+  summary: ReactNode
   children: ReactNode
 }) {
   const [folded, setFolded] = useSectionFold(title, defaultFolded)
@@ -13525,14 +13641,16 @@ function FoldSection({
           the ramp is the wrong weight for the only thing separating two
           sections. */}
       <div
-        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} pb-1.5 ${
-          folded && summary === undefined ? '' : 'mb-2'
-        }`}
+        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} pb-1.5 ${folded ? '' : 'mb-2'}`}
       >
         <button
           onClick={() => setFolded(!folded)}
           aria-expanded={!folded}
-          className={`${FOLD_HEADER_CLASS} min-w-0`}
+          // Full width while FOLDED, content-width while open. The summary
+          // rides inside this button when there is one, so the whole row is the
+          // way back into what it stands for — one control, not a title you can
+          // press beside a summary you cannot.
+          className={`${FOLD_HEADER_CLASS} min-w-0 ${folded ? 'flex-1' : ''}`}
         >
           <ChevronDown
             size={13}
@@ -13559,28 +13677,47 @@ function FoldSection({
               an icon — an icon shifted the title right and the stub stayed put.
               One indent is now correct everywhere instead of on two thirds of
               the sections. */}
-          <span className="truncate text-[12px] font-semibold uppercase tracking-wide text-ink-soft">{title}</span>
+          {/* Stamped, because the row now holds TWO texts and every caller that
+              wants "the section called X" has to mean this one. Without it a
+              locator matching the header button's text matches title+summary
+              concatenated, which is how a correct page failed two specs the
+              moment the summary moved onto this row. A `data-*` enumeration
+              handle is the repo's answer to that (`data-popover`,
+              `data-session-title-bar`): one attribute, and the structure stops
+              being something each spec re-derives. */}
+          <span
+            data-section-title
+            className="truncate text-[12px] font-semibold uppercase tracking-wide text-ink-soft"
+          >
+            {title}
+          </span>
+          {/* ── The summary, ON the title's row ────────────────────────────
+              (Owner directive 2026-08-13: *"the summary should sit at the same
+              row of section title instead of below it for a more compacted
+              view."*)
+
+              It used to render as its own button under the header, indented to
+              line up with the title. That cost a folded section two rows and a
+              rule between them, so a fully folded page — the exact state the
+              fold is FOR — was taller than an index has any business being.
+              Inline, a folded section is one row: what it is, then what it
+              holds.
+
+              Inside the header button rather than beside it, because two
+              controls that do one thing are one control: pressing the words is
+              how you get back to what they stand for, and a summary you could
+              not press would be the only inert text on a row that is otherwise
+              entirely a disclosure. */}
+          {folded && (
+            <span className="min-w-0 flex-1 truncate text-left text-[12px] font-normal normal-case tracking-normal text-ink-faint">
+              {summary}
+            </span>
+          )}
         </button>
         {actions && <SectionActions>{actions}</SectionActions>}
       </div>
-      {folded ?
-        summary !== undefined && (
-          // Clickable like the thread's stub, and for the same reason: the row
-          // you are looking at is the way back into what it stands for. `pl-*`
-          // lines the words up under the title rather than under the caret.
-          <button
-            onClick={() => setFolded(false)}
-            // The cue comes from `lib/foldHeader`, not from a copy of its
-            // string. Caught by that module's own lock the first time this
-            // rendered: the stub is a second way into the same disclosure, so a
-            // hand-written hover here would be the exact drift the one-home rule
-            // forbids — two halves of one control lighting differently.
-            className={`-ml-1.5 flex w-full min-w-0 items-center rounded-md py-0.5 pl-[1.9rem] pr-2 text-left text-[12px] text-ink-faint ${FOLD_HOVER.page}`}
-          >
-            <span className="truncate">{summary}</span>
-          </button>
-        )
-      : children}
+      {/* Nothing under the header while folded — the summary is ON it. */}
+      {folded ? null : children}
     </section>
   )
 }

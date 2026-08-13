@@ -16,7 +16,7 @@ test('TOOL_DEFINITIONS: every tool has a name, description, and object input_sch
     assert.equal(t.input_schema.type, 'object')
     assert.ok(Array.isArray(t.input_schema.required))
   }
-  // The 3 escalations + 13 relation-op kinds (incl. the D26 README) + Agent
+  // The 3 escalations + 13 relation-op kinds (incl. the D26 description) + Agent
   // Commons CRUD tools (incl. hand-off + the D13 commission-cap setter).
   assert.equal(TOOL_NAMES.length, 23)
 })
@@ -64,7 +64,7 @@ const RELATION_CASES: Array<{ tool: string; input: Record<string, unknown>; kind
   { tool: 'scope_context', input: { connector: 'Figma', project: 'Insights dashboard' }, kind: 'scope-context' },
   { tool: 'unscope_context', input: { context: 'Figma', project: 'Insights dashboard' }, kind: 'unscope-context' },
   { tool: 'set_project_instructions', input: { project: 'Insights dashboard', instructions: 'Be brief.' }, kind: 'set-project-instructions' },
-  { tool: 'set_project_readme', input: { project: 'Insights dashboard', readme: 'What this is.' }, kind: 'set-project-readme', check: (op) => assert.equal((op as any).readme, 'What this is.') },
+  { tool: 'set_project_description', input: { project: 'Insights dashboard', description: 'What this is.' }, kind: 'set-project-description', check: (op) => assert.equal((op as any).description, 'What this is.') },
   { tool: 'link_schedule_project', input: { schedule: 'Triage new GitHub issues', project: 'Insights dashboard' }, kind: 'link-schedule-project' },
   { tool: 'set_artifact_source', input: { artifact: 'insights-onepager.md', context: 'brand-kit/' }, kind: 'set-artifact-source' },
   { tool: 'set_schedule_session', input: { schedule: 'Daily AI news briefing' }, kind: 'set-schedule-session' },

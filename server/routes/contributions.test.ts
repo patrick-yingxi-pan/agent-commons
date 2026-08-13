@@ -358,7 +358,7 @@ test('changeset: append-only versions with review deltas; author-only; landed = 
 
   const v1 = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
     { entries: [
-      { kind: 'readme', target: 'README', before: 'old intro', after: 'new intro' },
+      { kind: 'description', target: 'description', before: 'old intro', after: 'new intro' },
       { kind: 'file', target: 'src/app.ts', after: 'created content' },
     ] }, { 'x-tenant-id': B })
   assert.equal(v1.status, 200)
@@ -374,7 +374,7 @@ test('changeset: append-only versions with review deltas; author-only; landed = 
   // delta vs v1 keyed by (kind, target): one changed, one removed, one added.
   const v2 = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
     { entries: [
-      { kind: 'readme', target: 'README', before: 'old intro', after: 'REVISED intro' },
+      { kind: 'description', target: 'description', before: 'old intro', after: 'REVISED intro' },
       { kind: 'note', target: 'follow-up', after: 'added note' },
     ] }, { 'x-tenant-id': B })
   assert.equal(v2.json.changeset.length, 2, 'append-only — v1 survives beside v2')

@@ -22,6 +22,13 @@ import { join } from 'node:path'
 import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 
 const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+/** …and the same source with COMMENTS GONE, for the tag scanner below.
+ *
+ *  This suite already records the lesson once, about its extractor, and the tag
+ *  scanner had it too: a doc comment containing the words `<FoldSection actions>`
+ *  parsed as a real section with a dynamic title and no summary. A source scan
+ *  that reads comments is asserting about comments. */
+const code = stripComments(src)
 
 /** One component's source, COMMENT-STRIPPED, through the SHARED extractor.
  *
@@ -45,14 +52,14 @@ const fn = (name: string): string => stripComments(sectionViewComponent(name))
  *  used to be `icon={<Globe size={14} />}`, which is gone; the hazard is not.) */
 function foldSectionTags(): string[] {
   const out: string[] = []
-  for (let i = src.indexOf('<FoldSection'); i >= 0; i = src.indexOf('<FoldSection', i + 1)) {
+  for (let i = code.indexOf('<FoldSection'); i >= 0; i = code.indexOf('<FoldSection', i + 1)) {
     let depth = 0
-    for (let j = i; j < src.length; j++) {
-      const c = src[j]
+    for (let j = i; j < code.length; j++) {
+      const c = code[j]
       if (c === '{') depth++
       else if (c === '}') depth--
       else if (c === '>' && depth === 0) {
-        out.push(src.slice(i, j))
+        out.push(code.slice(i, j))
         break
       }
     }
@@ -275,16 +282,100 @@ test('same-titled sections agree on their default — the key is the title', () 
   )
 })
 
-test('nothing folds to a gap — a section that opens folded owes a summary', () => {
+test('nothing folds to a gap — EVERY section owes a summary, and it rides the title row', () => {
   // The thread's stub rule, carried across (SOCIAL-18): a folded post is an
   // INDEX ENTRY — who, when, the opening words, how much is hidden — never a
-  // gap, because you cannot navigate a history you cannot recognise. A section
-  // that opens folded is in exactly that position on first visit, so "Sharing ·
-  // Shared — audiences and default role" is worth folding to and a bare chevron
-  // is not. Checked only for `defaultFolded`: a section the READER folded by
-  // hand needs no reminder of what they just put away.
+  // gap, because you cannot navigate a history you cannot recognise.
+  //
+  // It used to be checked only for `defaultFolded`, on the reasoning that a
+  // section the READER folded by hand needs no reminder of what they just put
+  // away. That reasoning does not survive the page it produced: press Fold all
+  // and five sections showed a line while seven showed a bare chevron, along no
+  // rule a reader could infer (owner report, 2026-08-13, on that exact screen).
+  // The prop is REQUIRED now, so the compiler holds the roster and this holds
+  // the two things a type cannot say.
   const missing = foldSectionTags()
-    .filter((t) => /\bdefaultFolded\b/.test(t) && !/\bsummary=/.test(t))
+    .filter((t) => !/(^|[\s{])summary=/.test(ownProps(t)))
     .map(titleOf)
-  assert.deepEqual(missing, [], `these open folded with nothing to show for it: ${missing.join(', ')}`)
+  assert.deepEqual(missing, [], `these fold to a bare chevron: ${missing.join(', ')}`)
+  assert.ok(foldSectionTags().length >= 15, 'the scan found the sections')
+
+  // (1) The summary is ON the title's row, inside the header button — one row
+  //     per folded section (owner directive 2026-08-13: *"the summary should
+  //     sit at the same row of section title instead of below it for a more
+  //     compacted view"*). Asserted as containment, because "renders a summary"
+  //     was true of the old two-row spelling too.
+  const section = fn('FoldSection')
+  const header = section.slice(section.indexOf('<button'), section.indexOf('</button>'))
+  assert.match(header, /\{folded && \(/, 'the folded-only branch is inside the header button')
+  assert.ok(header.includes('{summary}'), 'and it is the summary that renders there')
+  // (2) …and NOTHING renders under the header while folded. The separate stub
+  //     button is what made a folded section two rows plus a rule between them,
+  //     so a fully folded page — the state the fold is FOR — scrolled.
+  assert.match(section, /\{folded \? null : children\}/, 'a folded section renders no body at all')
+})
+
+test('the project has ONE text about itself — the description, and About is it', () => {
+  // Owner report, 2026-08-13: *"the description texts when creating a project,
+  // the sub-line under project title, and the about section, all three are
+  // actually the same thing and should be de-duped."*
+  //
+  // They were two FIELDS — `Project.description`, collected by the New project
+  // dialog, and a `readme` graph overlay that only the About section's editor
+  // ever wrote. Every project a user created therefore showed its description
+  // under the title and an empty "No README yet" three rows below, asking for
+  // the same text again. Stated as the absence of the retired name, because the
+  // failure mode is a RE-INTRODUCTION: nothing breaks if a second "about" field
+  // reappears, the page just quietly starts asking twice again.
+  const layers = {
+    'contract/api.ts': ['projectReadmes'],
+    'contract/graph.ts': ['projectReadmes', 'set-project-readme'],
+    'contract/relations.ts': ['set-project-readme'],
+    'contract/contributions.ts': ["'readme'"],
+    'src/controller/useRelations.tsx': ['readmeForProject', 'projectReadmes'],
+    'src/components/SectionView.tsx': ['set-project-readme', 'readmeForProject', 'ProjectReadme'],
+  }
+  for (const [rel, gone] of Object.entries(layers)) {
+    const body = read(join(ROOT, ...rel.split('/')))
+    for (const name of gone) {
+      assert.ok(!body.includes(name), `${rel} still carries \`${name}\` — the second field is back`)
+    }
+  }
+  // The positive half, and it is what the first cut got WRONG. That version
+  // resolved the overlay inside the About section — `rel.descriptionForProject(
+  // project.id)` — which made About correct and left every other surface reading
+  // the raw record: edit the description and the Projects hub row still showed
+  // the creation text, and hub SEARCH could not find the new words. A merge that
+  // only one reader honours has moved the duplication, not removed it.
+  //
+  // So the overlay is applied at the MERGE POINT, and the assertion is about
+  // that: `allProjects()` hands out resolved rows, so a caller holding a
+  // `Project` reads `project.description` and is right by construction.
+  const controller = read(join(ROOT, 'src', 'controller', 'useRelations.tsx'))
+  assert.match(controller, /const withDescriptions = \(list: Project\[\]\): Project\[\] =>/, 'the overlay has one applier')
+  assert.match(controller, /const merged = \(\) => withDescriptions\(\[\.\.\.graph\.extraProjects, \.\.\.projects\]\)/,
+    'and it wraps the one merged list')
+  assert.match(controller, /allProjects: merged,/, 'which is what every project reader is served')
+  // …and it is the ONLY place the two lists are spread together. A second spread
+  // is a second, unresolved answer to "what are the projects" — which is what
+  // `projectForSessionId` and `descriptionForProject` each were until now, one
+  // of them handing the session breadcrumb a stale description.
+  assert.equal(
+    (controller.match(/\[\.\.\.graph\.extraProjects, \.\.\.projects\]/g) ?? []).length,
+    1,
+    'the two project lists are merged in exactly one place',
+  )
+  assert.match(fn('ProjectAbout'), /const current = project\.description/, 'About reads the resolved field')
+  assert.match(fn('ProjectAbout'), /kind: 'set-project-description'/, 'and edits the one field')
+  // …and the sub-line is gone from the page header, which is the duplication a
+  // reader could actually SEE.
+  const detail = fn('ProjectDetail')
+  assert.ok(
+    !/<p className="mt-1 text-sm text-ink-soft">\{project\.description\}/.test(detail),
+    'the page header no longer prints the description as a sub-line — About is where it lives',
+  )
+  // The verb went with it: editing what the project IS is a project-level act,
+  // so it sits in the header's cluster and About takes `editing` as a prop.
+  assert.match(detail, /label="Edit description/, 'the header carries the Edit verb')
+  assert.match(detail, /editing=\{editingAbout\}/, 'and About is driven by it')
 })

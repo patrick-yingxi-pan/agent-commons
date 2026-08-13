@@ -385,17 +385,17 @@ const TOOLS: ToolSpec[] = [
     },
   },
   {
-    name: 'set_project_readme',
-    description: "Update a project's README — the PUBLIC 'about' every viewer of a shared project reads (unlike instructions, which stay private to the owner). Edits the project's public face (D26).",
+    name: 'set_project_description',
+    description: "Update a project's description — the one public 'about' text every viewer of a shared project reads, shown in the About section and in every list that fronts the project (unlike instructions, which stay private to the owner). Edits the project's public face (D26).",
     properties: {
       project: { type: 'string', description: 'The project to update.' },
-      readme: { type: 'string', description: 'The new README text (plain text).' },
+      description: { type: 'string', description: 'The new description text (plain text).' },
     },
-    required: ['project', 'readme'],
+    required: ['project', 'description'],
     build: (input, ctx) => {
       const p = resolveProject(str(input.project), ctx)
       if (!p) return noMatch('project', str(input.project))
-      return { relationOps: [{ kind: 'set-project-readme', projectId: p.id, projectName: p.name, readme: str(input.readme) }], summary: `Proposed updating ${p.name}'s README; awaiting confirmation.` }
+      return { relationOps: [{ kind: 'set-project-description', projectId: p.id, projectName: p.name, description: str(input.description) }], summary: `Proposed updating ${p.name}'s description; awaiting confirmation.` }
     },
   },
   {

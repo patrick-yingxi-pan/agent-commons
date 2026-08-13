@@ -31,7 +31,7 @@ const SHOWCASE = [
 
 store.seedCommonsShowcase()
 
-test('all ten showcase projects exist, shared, with a README — and re-seeding is a no-op', async () => {
+test('all ten showcase projects exist, shared, with a description — and re-seeding is a no-op', async () => {
   for (const id of SHOWCASE) {
     const p = store.findProject(id)
     assert.ok(p, `${id} exists`)

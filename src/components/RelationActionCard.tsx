@@ -75,7 +75,7 @@ export function RelationActionCard({
   /** The persisted verdicts (`Message.relationsResolved`), when loaded. */
   resolved?: Record<string, 'confirmed' | 'skipped'>
 }) {
-  const { applyOp, navigate, isStandingApproved, appliedInGraph, readmeForProject, instructionsForProject } =
+  const { applyOp, navigate, isStandingApproved, appliedInGraph, descriptionForProject, instructionsForProject } =
     useRelations()
   // An attach-context op attaches to THIS card's session (the message it rode
   // in on names it) through the session-parametric funnel — the pre-split root
@@ -133,9 +133,9 @@ export function RelationActionCard({
             appliedInGraph(op) === true
           const isSkipped = !isDone && (resolved?.[key] === 'skipped' || skipped.has(key))
           const cadence = 'cadence' in op ? op.cadence : ''
-          // S2 — for a content-bearing op (README / instructions / prompt / agent /
+          // S2 — for a content-bearing op (description / instructions / prompt / agent /
           // project body), the actual text being written, so consent isn't given blind.
-          const preview = relationContentPreview(op, readmeForProject, instructionsForProject)
+          const preview = relationContentPreview(op, descriptionForProject, instructionsForProject)
 
           return (
             <div key={key} className="flex flex-col gap-2 px-3 py-2.5">
@@ -216,7 +216,7 @@ export function RelationActionCard({
 }
 
 /** The default-collapsed disclosure that reveals the body a content-bearing op would
- *  write (S2) — an old→new diff when there's a current value (README / instructions),
+ *  write (S2) — an old→new diff when there's a current value (description / instructions),
  *  the proposed body alone for a create. Uses the shared TextDiff primitive so the diff
  *  cue matches the change-proposal review. */
 function ProposedBody({ preview }: { preview: RelationContentPreview }) {

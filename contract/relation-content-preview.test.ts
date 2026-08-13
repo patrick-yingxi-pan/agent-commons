@@ -8,19 +8,19 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { relationContentPreview, type RelationOp } from './relations.ts'
 
-// Resolvers: project p1 has an existing README; nothing has custom instructions.
-const readme = (pid: string) => (pid === 'p1' ? 'old readme' : undefined)
+// Resolvers: project p1 has an existing description; nothing has custom instructions.
+const description = (pid: string) => (pid === 'p1' ? 'old description' : undefined)
 const instructions = (_pid: string) => undefined
-const preview = (op: RelationOp) => relationContentPreview(op, readme, instructions)
+const preview = (op: RelationOp) => relationContentPreview(op, description, instructions)
 
-test('set-project-readme surfaces the CURRENT readme (old→new diff) + the proposed body', () => {
-  const got = preview({ kind: 'set-project-readme', projectId: 'p1', projectName: 'P', readme: 'new readme' })
-  assert.deepEqual(got, { label: 'README', current: 'old readme', proposed: 'new readme' })
+test('set-project-description surfaces the CURRENT description (old→new diff) + the proposed body', () => {
+  const got = preview({ kind: 'set-project-description', projectId: 'p1', projectName: 'P', description: 'new description' })
+  assert.deepEqual(got, { label: 'Description', current: 'old description', proposed: 'new description' })
 })
 
 test('an edit to a value with NO current overlay surfaces the proposed body alone — no faked diff', () => {
-  // p9 has no README overlay → current undefined → the card renders proposed alone.
-  const got = preview({ kind: 'set-project-readme', projectId: 'p9', projectName: 'P9', readme: 'brand new' })
+  // p9 has no description overlay → current undefined → the card renders proposed alone.
+  const got = preview({ kind: 'set-project-description', projectId: 'p9', projectName: 'P9', description: 'brand new' })
   assert.equal(got?.current, undefined, 'no empty-left diff column is invented')
   assert.equal(got?.proposed, 'brand new')
 })

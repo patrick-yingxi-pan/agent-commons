@@ -74,8 +74,22 @@ export interface RelationsValue {
   // ── Project instructions (the CURRENT value: edited overlay, else the seed —
   //    the same overlay-or-seed read the project page renders) ──
   instructionsForProject: (pid: string) => string | undefined
-  /** The project's public README (D26) — served to every viewer of a shared project. */
-  readmeForProject: (pid: string) => string | undefined
+  /** The project's public ABOUT text (D26), BY ID — the ONE text describing what
+   *  the project is.
+   *
+   *  It arrives by two routes: written into the project record at creation (the
+   *  New project dialog's Description field) and edited afterwards through
+   *  `set-project-description`, which lands in the graph as an overlay. That
+   *  overlay is applied inside `allProjects()`, so **a caller holding a `Project`
+   *  should read `project.description`** — this exists for the callers that hold
+   *  only an id, which in practice is the consent card's content preview
+   *  (`relationContentPreview` diffs the proposed body against the current one).
+   *
+   *  Before 2026-08-13 `description` and `readme` were two different FIELDS, and
+   *  the project page showed both — the first as a sub-line under the title, the
+   *  second as an empty "No README yet" a few rows below asking for the same
+   *  thing. Nobody creating a project ever filled the second one. */
+  descriptionForProject: (pid: string) => string | undefined
   // ── Nav bridge (the card's "View in …" deep-link). The id's meaning follows the
   //    section (a project / a schedule / an owner display name under the Commons);
   //    the optional subId narrows to a sub-entity page (today: a project's work item).
@@ -147,17 +161,38 @@ export function RelationsProvider({
     const scheduleProjectId = (schedId: string) =>
       schedId in graph.scheduleProject ? graph.scheduleProject[schedId] : null
 
+    /** The merged project list with the description OVERLAY already applied.
+     *
+     *  Applied HERE, at the one merge point, rather than by each reader —
+     *  because "one text about the project" (2026-08-13) is a claim about every
+     *  surface that fronts a project, not just the one that edits it. The first
+     *  cut resolved the overlay inside the About section alone, and the result
+     *  was a merge that had moved the duplication rather than removed it: About
+     *  showed the edit, the Projects hub row showed the text the project was
+     *  created with, and hub SEARCH could not find the new words. A funnel every
+     *  caller has to remember is not a funnel.
+     *
+     *  Untouched rows keep their identity (`.map` returns `p` itself unless
+     *  there is an edit), and the whole pass is skipped when nothing has been
+     *  edited — which is every session that has not used the editor. */
+    const withDescriptions = (list: Project[]): Project[] => {
+      const edits = graph.projectDescriptions
+      if (!edits || Object.keys(edits).length === 0) return list
+      return list.map((p) => (edits[p.id] === undefined ? p : { ...p, description: edits[p.id]! }))
+    }
+    const merged = () => withDescriptions([...graph.extraProjects, ...projects])
+
     return {
       applyOp,
-      allProjects: () => [...graph.extraProjects, ...projects],
+      allProjects: merged,
       isCreatedProject: (pid) => graph.extraProjects.some((p) => p.id === pid),
       projectIdForSession,
       projectForSessionId: (sid) => {
         const pid = projectIdForSession(sid)
-        // Search the SAME merged list allProjects() serves — a session filed into a
+        // The SAME merged list allProjects() serves — a session filed into a
         // runtime-created project (graph.extraProjects) must resolve too, or the
         // thread's breadcrumb goes blank for exactly the projects Claude creates.
-        return pid ? [...graph.extraProjects, ...projects].find((p) => p.id === pid) : undefined
+        return pid ? merged().find((p) => p.id === pid) : undefined
       },
       sessionsForProject: (pid) => sessions.filter((s) => projectIdForSession(s.id) === pid),
       artifactProjectId,
@@ -176,9 +211,8 @@ export function RelationsProvider({
       // consent card previewing an instructions edit diffs against what the user
       // actually sees (an overlay-only read showed an edit as a blind create).
       instructionsForProject: (pid) =>
-        graph.projectInstructions?.[pid] ??
-        [...graph.extraProjects, ...projects].find((p) => p.id === pid)?.instructions,
-      readmeForProject: (pid) => graph.projectReadmes?.[pid],
+        graph.projectInstructions?.[pid] ?? merged().find((p) => p.id === pid)?.instructions,
+      descriptionForProject: (pid) => merged().find((p) => p.id === pid)?.description,
       navigate: (section, id, subId) => navigate?.(section, id, subId),
     }
   }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, navigate])

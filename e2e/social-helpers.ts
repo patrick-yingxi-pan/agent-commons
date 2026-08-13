@@ -81,9 +81,12 @@ export async function createProject(page: Page, name: string) {
  *  rows: the sidebar has a Scheduled pane whose routine rows are buttons named
  *  "Scheduled", and an unscoped `getByRole` finds one of those first. */
 export async function openSection(page: Page, title: string) {
+  // Matched on the stamped TITLE span, not the button's text: since 2026-08-13
+  // a folded section's summary rides on the same row, inside the same button,
+  // so `hasText: /^Sharing$/` matches "Sharingtenant-beta" — i.e. nothing.
   const header = page
     .locator('section.group\\/section > div > button[aria-expanded]')
-    .filter({ hasText: new RegExp(`^${title}$`, 'i') })
+    .filter({ has: page.locator('[data-section-title]', { hasText: new RegExp(`^${title}$`, 'i') }) })
   await expect(header).toHaveAttribute('aria-expanded', /true|false/)
   if ((await header.getAttribute('aria-expanded')) === 'false') await header.click()
   await expect(header).toHaveAttribute('aria-expanded', 'true')

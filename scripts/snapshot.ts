@@ -312,7 +312,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
     // append-only versions (entries + before/after) round-trip.
     store.crystallizeContribution(
       'p-insights', landedContribution.id,
-      { entries: [{ kind: 'readme', target: 'digest template', before: 'Weekly numbers below.', after: 'Lead with the metric, then the mechanism.' }] },
+      { entries: [{ kind: 'note', target: 'digest template', before: 'Weekly numbers below.', after: 'Lead with the metric, then the mechanism.' }] },
       store.defaultTenantId(), builder,
     )
     // Phase E: run the mock adversarial review too, so the persisted

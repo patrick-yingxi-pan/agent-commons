@@ -1151,29 +1151,46 @@ redaction to get wrong). Also rejected: auto-merge on owner inactivity (consent 
 defaults to yes), and proposing against UNPUBLISHED agents (the public face is the
 subject; a private definition has no visitors to propose).
 
-### D26 — The README: a shared Project's public "about" (the last parity row)
+### D26 — The description: a shared Project's public "about" (the last parity row)
 
-**Decision.** A Project gets a **README** (parity row 5): owner-editable public
-landing content, stored as a graph overlay (`projectReadmes`, a `set-project-readme`
+**Decision.** A Project gets one **description** (parity row 5): owner-editable
+public landing content, written in the New project dialog and edited afterwards
+through a graph overlay (`projectDescriptions`, a `set-project-description`
 relation op — the same consent-gated funnel every graph edit rides, so Claude can
 propose one conversationally through the standard confirm card for free). It is the
 **public complement of `instructions`**: instructions are private owner context (the
-projection strips them from visitors); the README is served to every viewer of a
-shared Project — that's its whole job. Rendered as an "About" section at the top of
+projection strips them from visitors); the description is served to every viewer of a
+shared Project — that's its whole job. Rendered as the "About" section at the top of
 the one project page (COMMONS-13: same page, the owner gets Edit, the visitor gets
 prose); capped in the SHARED reducer so both appliers agree on the bound; plain
 text v1 (the app deliberately has no markdown renderer to feed). **[COMMONS]**
+
+**Revised 2026-08-13 — it was TWO fields, and that was the bug.** This shipped as a
+`readme` overlay *beside* `Project.description`, described here as "the complement of
+a one-line description". In use they were not complements, they were the same
+question asked twice: the create dialog only ever collected the description, the
+project page printed it as a sub-line under the title, and the About section
+underneath asked for the same text again — empty on every project a user had ever
+made (owner report: *"the description texts when creating a project, the sub-line
+under project title, and the about section, all three are actually the same
+thing"*). One field now, resolved as overlay-over-record exactly as `instructions`
+already was, so what you type at creation IS the About section and what you edit
+there is what every list fronting the project shows. The ten seeded showcase
+projects carried genuinely different text in each field; each pair was merged into
+one string that says both — which is the evidence for the merge rather than a
+casualty of it, since between them the two fields were saying what the project is
+and then how it works.
 
 **Why.** A visitor deciding whether to commission an agent onto a project — or take
 its open work — had one line of description and a backlog to reason from. GitHub's
 README is where a repo says *what this is and how to contribute*; a cooperation
 platform needs the same first page, or every joining decision starts under-informed.
 
-**Trade-off accepted.** Plain text (no markdown pipeline for one field); one README
-per project (no docs tree); the cap is coarse. Owner-only editing — contributors
-propose README changes in the work-item threads (D23) rather than through a
-PR-mechanism of its own (the definition-evolution machinery stays scoped to agent
-definitions, where reuse justifies it).
+**Trade-off accepted.** Plain text (no markdown pipeline for one field); one
+description per project (no docs tree); the cap is coarse. Owner-only editing —
+contributors propose description changes in the work-item threads (D23) rather than
+through a PR-mechanism of its own (the definition-evolution machinery stays scoped to
+agent definitions, where reuse justifies it).
 
 **Rejected alternative.** A README as a special Artifact filed to the project — it
 would inherit the artifact model's private-by-default visibility and gallery
@@ -1832,12 +1849,12 @@ session↔context binding, mediation handle, and single-resource escrow).
   the public detail; the owner's side-by-side review queue on the agent card.
   Locked by `server/routes/agent-proposals.test.ts` + `e2e/definition-evolution.spec.ts`;
   spec row COMMONS-18; parity rows 4/6.
-- **Slice 25 — the project README (D26). ✅ Built.** The last parity row: a shared
-  Project's public "about" as a `projectReadmes` graph overlay (`set-project-readme`
+- **Slice 25 — the project description (D26). ✅ Built.** The last parity row: a shared
+  Project's public "about" as a `projectDescriptions` graph overlay (`set-project-description`
   op — the consent-gated funnel, owner-only, reducer-capped), public in the
   projection for shared projects while instructions stay private, rendered as the
   page-top "About" (owner edits, visitor reads). Locked by
-  `server/routes/project-readme.test.ts` + `e2e/project-readme.spec.ts`; spec row
+  `server/routes/project-description.test.ts` + `e2e/project-description.spec.ts`; spec row
   COMMONS-19; parity row 5 — **the "needed" column of the parity ledger is complete**.
 - **Slice 26 — the proposal becomes a conversation (D27). ✅ Built.** Parity wave 2
   (rows 7–9): the two-party **thread** on a proposal (open-only, bells both ways,
