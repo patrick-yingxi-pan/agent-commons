@@ -45,3 +45,48 @@ export const FOLD_HOVER = {
  *  property any caller varies; the two callers who want the margin now say so. */
 export const FOLD_HEADER_CLASS =
   `group -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left ${FOLD_HOVER.page}`
+
+/** ── The child ORDER these headers share: label first, chevron last ──────────
+ *  Not expressible in the class above — a string has no opinion about child
+ *  order — so it is stated here and locked in `foldHeader.test.ts` against both
+ *  consumers (`FoldSection` on entity pages, the group header on hub lists).
+ *
+ *  Earned by measurement (owner report 2026-08-13: *"the layout is still
+ *  visually messy"*). With the chevron leading, a section's LABEL rendered 19px
+ *  right of its own rule and its own content — the rule spanned the column, the
+ *  content started at the column, and the only thing that did not was the word
+ *  naming them. Twelve sections down a page, that reads as a zigzag nobody can
+ *  name but everybody sees.
+ *
+ *  Why not hang the chevron in the margin, the way a document outline does: at
+ *  375px the container has 16px of padding, so a −19px hang puts the glyph
+ *  outside the viewport — UI-2, no horizontal scroll, ever.
+ *
+ *  What trailing costs: the chevrons stop forming a column of their own, since
+ *  they now follow words of different lengths. That is the right trade at this
+ *  ratio — the labels are the page's skeleton and the glyphs are 13px. */
+export const FOLD_HEADER_ORDER = 'label, then chevron' as const
+
+/** ── The section's body indent ───────────────────────────────────────────────
+ *  A section is a RULE spanning the column, a label flush under its left end,
+ *  and its content inset from both — so the rule and the title read as the
+ *  section's frame and everything else reads as being inside it (owner
+ *  directive 2026-08-13: *"indenting section contents to make section frames
+ *  outstanding is the right direction … we need to apply this rule uniformly
+ *  across all sections"*).
+ *
+ *  **Uniformly is the whole requirement.** Two sections already indented and
+ *  ten did not, because the indent was an accident of each content type's own
+ *  padding rather than a decision anyone had made: measured across one project
+ *  page, the first glyph of a section's content landed at 0, 16, 24, 32, 39 or
+ *  44 — six different left edges down twelve sections. The number here is 16
+ *  because that is what the in-section rows were already using (`px-4`), so the
+ *  page keeps the spacing it had and only the sections that had none change.
+ *
+ *  The companion rule, which is what makes it uniform rather than additive: a
+ *  section indents its content ONCE, and nothing inside re-indents. Rows in a
+ *  section's list carry vertical padding only (both sides — the inset is symmetric, so
+ *  a row and the prose above it share a right edge as well as a left one) — their horizontal padding was
+ *  this same 16px applied a second time, which is why list text sat at 32 while
+ *  the prose beside it sat at 0. Locked in `main-column-sections.test.ts`. */
+export const SECTION_BODY_CLASS = 'px-4'

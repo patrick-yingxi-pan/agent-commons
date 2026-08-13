@@ -7,7 +7,7 @@
 import { test, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { ms } from './budget.ts'
-import { STAMP, createProject, gotoSection, newUser, openAdaProfile, openSection } from './social-helpers.ts'
+import { STAMP, createProject, gotoSection, newUser, openAdaProfile, openSection, openShareForm } from './social-helpers.ts'
 test('the Commons lenses: an act fills the collection the rail lists it under', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   // The lenses are the viewer's OWN relationships (UI-19), so the proof has to
@@ -22,7 +22,7 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
   await createProject(ada.page, LENS_PROJECT)
   // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
   // controls are one click behind their header now — exactly as a reader finds them.
-  await openSection(ada.page, 'Sharing')
+  await openShareForm(ada.page)
   await ada.page.getByLabel('Audience id').fill('tenant-beta')
   await ada.page.getByLabel('Tier').selectOption({ label: 'Propose' })
   await ada.page.getByLabel('Share note (publishes when present)').fill(LENS_NOTE)
@@ -118,7 +118,7 @@ test('follow → the Following lens; message → one thread with two ends', asyn
   await createProject(ada.page, FOLLOW_PROJECT)
   // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
   // controls are one click behind their header now — exactly as a reader finds them.
-  await openSection(ada.page, 'Sharing')
+  await openShareForm(ada.page)
   await ada.page.getByLabel('Audience id').fill('tenant-beta')
   await ada.page.getByLabel('Share note (publishes when present)').fill(NOTE_S7)
   await ada.page.getByRole('button', { name: 'Share', exact: true }).click()

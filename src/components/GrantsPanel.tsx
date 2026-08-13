@@ -6,7 +6,21 @@
  *  (INV-9: blank = silent access-only share).
  *
  *  Lives in its own module because it has more than one host — importing it from
- *  the section tree would drag that whole surface into the conversation chrome. */
+ *  the section tree would drag that whole surface into the conversation chrome.
+ *
+ *  ── Why the form is DISCLOSED, and why it defaults to standing open ─────────
+ *  `composing` is UI-18 arriving here late (2026-08-13). This form stood open
+ *  inside the project page's Sharing section, which made that one section 346px
+ *  against a 97px median and the only place on the page holding a form field at
+ *  all — five of them, where every other section held zero. The rule was already
+ *  written: *a section's compose form is disclosed by its header verb; a
+ *  standing form is only for a surface that IS the thing being composed.*
+ *
+ *  The default is `true` because the OTHER host is exactly that surface: the
+ *  title-bar share POPOVER is opened to share, so a form you must then disclose
+ *  again is a click that buys nothing. The exception is principled — the same
+ *  one the discussion page's standing composer holds — so it is spelled as the
+ *  default and the section passes `false` until its verb is pressed. */
 import { useState } from 'react'
 import { MinusCircle } from 'lucide-react'
 import { SHARE_TIERS, type ShareTier, type SocialEntityRef } from '../../contract/index.ts'
@@ -20,7 +34,7 @@ import { TIER_LABELS } from '../lib/tierBadge'
 import { CopyButton } from './CopyButton'
 import { Tooltip } from './Tooltip'
 
-export function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
+export function GrantsPanel({ subject, composing = true }: { subject: SocialEntityRef; composing?: boolean }) {
   const roster = useGrants(subject.kind, subject.id).data ?? []
   const [audKind, setAudKind] = useState<'org' | 'principal' | 'link'>('org')
   const [audId, setAudId] = useState('')
@@ -77,6 +91,7 @@ export function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
           ))}
         </ul>
       )}
+      {composing && (
       <div className="space-y-1.5">
         {/* flex-wrap + min-w-0: the 288px rail can't fit all three controls on
             one line — the tier select wraps rather than clipping off the card
@@ -123,6 +138,7 @@ export function GrantsPanel({ subject }: { subject: SocialEntityRef }) {
           {error && <span className="min-w-0 truncate text-[11px] text-danger">{error}</span>}
         </div>
       </div>
+      )}
     </div>
   )
 }

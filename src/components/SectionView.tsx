@@ -59,7 +59,7 @@ import {
 } from 'lucide-react'
 import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
-import { FOLD_HEADER_CLASS, FOLD_HOVER } from '../lib/foldHeader'
+import { FOLD_HEADER_CLASS, FOLD_HOVER, SECTION_BODY_CLASS } from '../lib/foldHeader'
 import { useSectionFold } from '../lib/useSectionFold'
 import { audienceLabel } from '../lib/audienceLabel'
 import { isSectionFolded, pageFoldWork, setSectionFolded } from '../lib/sectionFold'
@@ -974,6 +974,11 @@ function ProjectDetail({
   // not one of the About section's (owner directive 2026-08-13). The section
   // takes the flag; the header owns the button.
   const [editingAbout, setEditingAbout] = useState(false)
+  // The Sharing section's grant composer — disclosed by its header verb like
+  // every other section's form (UI-18). Held here rather than in `GrantsPanel`
+  // for the reason that keeps recurring: the verb lives in the section header,
+  // so the state it drives has to live where the header can reach it.
+  const [sharing, setSharing] = useState(false)
   const projectVerbs =
     own && !editingAbout ? (
       <SectionAction
@@ -1181,12 +1186,25 @@ function ProjectDetail({
               : project.shared === true ? 'Shared — no audiences yet'
               : 'Not shared'
             }
+            // UI-18, arriving here last. Opened, this section measured 346px on
+            // a page whose median section is 97, and it was the only one holding
+            // a form field at all — five of them, where every other section held
+            // zero. The grant composer stood permanently open; every other
+            // section's form hangs off its header verb.
+            actions={
+              <SectionAction
+                label="Share with an audience"
+                icon={<Plus size={14} />}
+                onClick={() => setSharing((v) => !v)}
+                expanded={sharing}
+              />
+            }
           >
             {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
             {/* The grants roster (social S1) — audience-scoped shares over the
                 generic subject ref; org-wide `shared` above stays the legacy
                 everyone-switch. */}
-            <GrantsPanel subject={{ kind: 'project', id: project.id }} />
+            <GrantsPanel subject={{ kind: 'project', id: project.id }} composing={sharing} />
             <DefaultRolePicker project={project} />
           </FoldSection>
 
@@ -1297,7 +1315,7 @@ function ProjectDetail({
                 >
                   <button
                     onClick={() => onOpenSession(c.id)}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+                    className="flex min-w-0 flex-1 items-center gap-3 py-3 text-left"
                   >
                     <MessageSquare size={16} className="shrink-0 text-ink-faint" />
                     <div className="min-w-0 flex-1">
@@ -1830,7 +1848,7 @@ function ContributorsPanel({ project }: { project: Project }) {
       ) : (
         <CardList>
           {commissions.map((c) => (
-            <div key={c.id} className="px-4 py-3">
+            <div key={c.id} className="py-3">
               <ContributorRow
                 commission={c}
                 agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
@@ -2318,7 +2336,7 @@ function CoordinationPanel({ project }: { project: Project }) {
           ) : (
             <CardList>
               {subGoals.map((s) => (
-                <div key={s.reservationId} className="group flex items-start gap-2.5 px-4 py-3">
+                <div key={s.reservationId} className="group flex items-start gap-2.5 py-3">
                   <span
                     className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                       s.status === 'committed' ? 'bg-accent' : 'bg-ok'
@@ -2482,7 +2500,7 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
       ) : (
         <CardList>
           {items.map((o) => (
-            <div key={o.id} className="px-4 py-3">
+            <div key={o.id} className="py-3">
               <WorkItemRow item={o} projectId={projectId} shared={shared} myName={myName} />
             </div>
           ))}
@@ -5287,7 +5305,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
             const { c, p } = row
             if (c)
               return (
-                <div key={row.key} className="flex items-center gap-2.5 px-4 py-2.5">
+                <div key={row.key} className="flex items-center gap-2.5 py-2.5">
                   {/* The leading slot carries the entity's state in ONE form: a live
                       pulse while open/offered, the ledger number once landed — same
                       column across both row kinds, so the list reads as one ledger
@@ -5334,7 +5352,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
               )
             if (p)
               return (
-                <div key={row.key} className="flex items-start gap-2.5 px-4 py-2.5">
+                <div key={row.key} className="flex items-start gap-2.5 py-2.5">
                   <span className="flex w-8 shrink-0 items-center justify-end pt-0.5">
                     {p.state === 'offered' ? (
                       <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Offered" />
@@ -5815,7 +5833,7 @@ function AttentionPanel({ project }: { project: Project }) {
       ) : (
         <CardList>
           {ledger.asks.map((a) => (
-            <div key={`${a.contributionId}-${a.label}`} className="flex items-center gap-2.5 px-4 py-2.5">
+            <div key={`${a.contributionId}-${a.label}`} className="flex items-center gap-2.5 py-2.5">
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                   a.function === 'liability' ? 'bg-warn-strong/10 text-warn-text' : 'border border-line text-ink-faint'
@@ -11878,6 +11896,8 @@ function ScheduledDetail({
   // The Sharing stub's source — the roster the section itself renders, never a
   // second fact about it (the project page's stub got that wrong first).
   const scheduleGrants = useGrants('schedule', task.id).data ?? []
+  // …and its grant composer's disclosure, the same as the project page's.
+  const [sharingSchedule, setSharingSchedule] = useState(false)
 
   return (
     <Page>
@@ -12007,8 +12027,22 @@ function ScheduledDetail({
             summary={
               scheduleGrants.length > 0 ? scheduleGrants.map((g) => audienceLabel(g.audience)).join(' · ') : 'Not shared'
             }
+            // The same verb the project page's Sharing carries (UI-18). This
+            // section was left standing-open when that one was fixed, which is
+            // the shape of miss the FIRST lock could not see: it asked whether
+            // SOME disclosure gate appeared before the field, and this component
+            // has an unrelated one (the name editor) hundreds of lines earlier.
+            // A gate is not a gate for every field in the file.
+            actions={
+              <SectionAction
+                label="Share with an audience"
+                icon={<Plus size={14} />}
+                onClick={() => setSharingSchedule((v) => !v)}
+                expanded={sharingSchedule}
+              />
+            }
           >
-            <GrantsPanel subject={{ kind: 'schedule', id: task.id }} />
+            <GrantsPanel subject={{ kind: 'schedule', id: task.id }} composing={sharingSchedule} />
           </FoldSection>
 
           <SchedulePanel task={task} />
@@ -13298,12 +13332,16 @@ function FoldGroupHeader({
 }) {
   return (
     <button onClick={onToggle} aria-expanded={!folded} className={`${FOLD_HEADER_CLASS} mb-1.5`}>
+      {/* Label first, chevron last — the same order `FoldSection` uses, and for
+          the same reason. Two consumers of one cue that disagreed about where
+          the glyph goes would be the drift `lib/foldHeader` exists to prevent,
+          one level up from the colour it already owns. */}
+      <span className="text-[13px] font-semibold text-ink">{label}</span>
+      <span className="text-[12px] text-ink-faint">{count}</span>
       <ChevronDown
         size={15}
         className={`text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
       />
-      <span className="text-[13px] font-semibold text-ink">{label}</span>
-      <span className="text-[12px] text-ink-faint">{count}</span>
     </button>
   )
 }
@@ -13652,11 +13690,23 @@ function FoldSection({
           // press beside a summary you cannot.
           className={`${FOLD_HEADER_CLASS} min-w-0 ${folded ? 'flex-1' : ''}`}
         >
-          <ChevronDown
-            size={13}
-            className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
-          />
-          {/* ── Chevron, then the words, and nothing else ──────────────────
+          {/* ── The words FIRST, then the chevron ──────────────────────────
+              Measured, not preferred: with the chevron leading, every section's
+              label sat 19px right of its own rule AND its own content, so a page
+              of twelve sections tracked 0 · 19 · 0 · 19 all the way down. The
+              rule spans the column, the content starts at the column, and the
+              only thing that did not was the word naming them.
+
+              A leading chevron cannot be fixed by hanging it in the margin: at
+              375px the column has 16px of container padding, so a −19px hang
+              puts the glyph 3px outside the viewport — UI-2, no horizontal
+              scroll, ever. Trailing costs nothing and buys one left edge.
+
+              What it costs instead is that the chevrons no longer form a column
+              of their own; they follow words of different lengths. That is the
+              right trade at this ratio — twelve labels are the page's skeleton,
+              twelve 13px glyphs are not.
+
               The icon slot is gone (owner directive 2026-08-13 — *"remove
               icons from section titles, unifying the style"*), and with it the
               last difference `SidePanel` had from `MainSection`. The merge doc
@@ -13669,14 +13719,7 @@ function FoldSection({
               structure and the label only named it. The label IS the structure
               now — it and the rule under it are the whole of what separates two
               sections — and it had been carrying that at caption size with a
-              glyph beside it doing the noticing.
-
-              A second thing falls out for free: the folded stub's `pl-[1.9rem]`
-              lines its summary up under the TITLE rather than under the caret,
-              and that measurement was only ever right on the sections WITHOUT
-              an icon — an icon shifted the title right and the stub stayed put.
-              One indent is now correct everywhere instead of on two thirds of
-              the sections. */}
+              glyph beside it doing the noticing. */}
           {/* Stamped, because the row now holds TWO texts and every caller that
               wants "the section called X" has to mean this one. Without it a
               locator matching the header button's text matches title+summary
@@ -13691,6 +13734,10 @@ function FoldSection({
           >
             {title}
           </span>
+          <ChevronDown
+            size={13}
+            className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
+          />
           {/* ── The summary, ON the title's row ────────────────────────────
               (Owner directive 2026-08-13: *"the summary should sit at the same
               row of section title instead of below it for a more compacted
@@ -13716,8 +13763,12 @@ function FoldSection({
         </button>
         {actions && <SectionActions>{actions}</SectionActions>}
       </div>
-      {/* Nothing under the header while folded — the summary is ON it. */}
-      {folded ? null : children}
+      {/* Nothing under the header while folded — the summary is ON it.
+          Open, the content is INSET (`SECTION_BODY_CLASS`), so the rule and the
+          label read as the section's frame and the content reads as being
+          inside it. One indent, applied here — see that constant for why the
+          rows underneath had to give theirs up. */}
+      {folded ? null : <div className={SECTION_BODY_CLASS}>{children}</div>}
     </section>
   )
 }

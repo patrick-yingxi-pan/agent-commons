@@ -193,10 +193,19 @@ test('S17 — owner configuration is its OWN section, never folded into the Cont
   const contributors = fn('ContributorsPanel')
   assert.ok(!contributors.includes('ShareToggle'), 'ShareToggle is not in the Contributors payload')
   assert.ok(!contributors.includes('DefaultRolePicker'), 'DefaultRolePicker is not in the Contributors payload')
-  assert.ok(
-    /<FoldSection\s+title="Sharing"[\s\S]{0,600}<ShareToggle[\s\S]{0,600}<DefaultRolePicker/.test(src),
-    'a Sharing section carries both controls',
-  )
+  // Scanned as "inside the Sharing SECTION", not "within 600 characters of its
+  // title" — which is what this was, and which broke the moment the section
+  // grew a header verb. A character budget between two markers is a proxy for
+  // containment that shrinks every time anyone adds code (or a comment) between
+  // them, so it fails against correct pages and says nothing about the rule.
+  // Sections do not nest, so the first closing tag after the title is this
+  // section's.
+  const sharingAt = code.indexOf('title="Sharing"')
+  assert.ok(sharingAt > 0, 'there is a Sharing section')
+  const sharingBody = code.slice(sharingAt, code.indexOf('</FoldSection>', sharingAt))
+  for (const control of ['<ShareToggle', '<GrantsPanel', '<DefaultRolePicker']) {
+    assert.ok(sharingBody.includes(control), `the Sharing section carries ${control}`)
+  }
 })
 
 test('the fold DEFAULTS are the owner’s split: configuration folded, content open', () => {
@@ -312,7 +321,11 @@ test('nothing folds to a gap — EVERY section owes a summary, and it rides the 
   // (2) …and NOTHING renders under the header while folded. The separate stub
   //     button is what made a folded section two rows plus a rule between them,
   //     so a fully folded page — the state the fold is FOR — scrolled.
-  assert.match(section, /\{folded \? null : children\}/, 'a folded section renders no body at all')
+  assert.match(
+    section,
+    /\{folded \? null : <div className=\{SECTION_BODY_CLASS\}>\{children\}<\/div>\}/,
+    'a folded section renders no body at all — and an open one renders it INSET',
+  )
 })
 
 test('the project has ONE text about itself — the description, and About is it', () => {
@@ -378,4 +391,114 @@ test('the project has ONE text about itself — the description, and About is it
   // so it sits in the header's cluster and About takes `editing` as a prop.
   assert.match(detail, /label="Edit description/, 'the header carries the Edit verb')
   assert.match(detail, /editing=\{editingAbout\}/, 'and About is driven by it')
+})
+
+test('no section holds a standing form — the composer hangs off the header verb (UI-18)', () => {
+  // UI-18 already says this, and `thread-composer.test.ts` already enforces it
+  // for the THREAD composer. What neither covered is any OTHER standing form,
+  // and one was hiding in plain sight: the Sharing section's grant composer
+  // stood permanently open, which made that section 346px on a page whose
+  // median section is 97 and the only one on it holding a form field at all —
+  // five of them, against zero everywhere else (measured 2026-08-13, on the
+  // owner's report that the layout still read as messy).
+  //
+  // So the scan is over FIELDS, not over one component: any `<input>`,
+  // `<select>` or `<textarea>` rendered inside a section must sit behind a
+  // state gate. That is the general form of the rule the specific lock missed.
+  // A disclosure gate in either spelling this file uses — `{editing ? (` and
+  // `{composing && `. The first cut matched only `&&` and reported three
+  // correctly-gated sections as offenders; a lock that fails against a correct
+  // page is worse than no lock, because the next person to see it deletes it.
+  const GATE = /\{[A-Za-z]*(?:editing|composing|sharing|claiming|picking|adding)[A-Za-z]*\s*(?:\?|&&|===)/i
+  const offenders: string[] = []
+  for (const body of code.split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)) {
+    if (!body.includes('<FoldSection')) continue
+    const name = body.match(/^(?:export )?(?:function|const) ([A-Za-z]+)/)?.[1] ?? '(anonymous)'
+    // Per FIELD, not per component: gating one form and leaving a second
+    // standing open beside it is exactly the state this looks for, and a
+    // body-wide test would pass straight over it.
+    for (const m of body.matchAll(/<(input|select|textarea)\b/g)) {
+      if (!GATE.test(body.slice(0, m.index))) offenders.push(`${name}: <${m[1]}>`)
+    }
+  }
+  assert.deepEqual(offenders, [], `these render form fields with no disclosure gate: ${offenders.join(', ')}`)
+  // Vacuity guard: the scan means nothing if no section component renders a
+  // field at all — which was very nearly true, and is the point.
+  const withFields = code
+    .split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)
+    .filter((b) => b.includes('<FoldSection') && /<(input|select|textarea)\b/.test(b))
+  assert.ok(withFields.length >= 1, 'at least one section hosts a form (the scan has a subject)')
+  // ── The form that lives in ANOTHER module ─────────────────────────────────
+  //  The field scan above cannot see into `GrantsPanel`, and its first cut could
+  //  not see the miss either: it asked whether SOME disclosure gate appeared
+  //  before each field, and `ScheduledDetail` has an unrelated one (the name
+  //  editor) hundreds of lines above its Sharing section. So the routine page
+  //  kept a standing grant form while the project page lost one, and the suite
+  //  was green. A gate is not a gate for every field in the file.
+  //
+  //  Enumerated instead: every host of `<GrantsPanel>` is named, and each is
+  //  either a SECTION (which must pass `composing`) or a surface that IS the
+  //  share act (which must not — a form you disclose inside a popover you opened
+  //  to share is a click that buys nothing). Naming them is the point: a new
+  //  host has to say out loud which kind it is.
+  // `[\s\S]*?` and not `[^}]*`: the subject prop is an object literal, so it
+  // carries braces of its own and a negated-brace class stops at the first one.
+  const SECTION_HOSTS = ['SectionView.tsx']
+  const ACT_HOSTS = ['SessionShareButton.tsx', 'artifactPreview.tsx']
+  for (const file of [...SECTION_HOSTS, ...ACT_HOSTS]) {
+    const body = stripComments(read(join(ROOT, 'src', 'components', file)))
+    // `[\s\S]*?` and not `[^}]*`: the subject prop is an object literal, so it
+    // carries braces of its own and a negated-brace class stops at the first.
+    const hosts = [...body.matchAll(/<GrantsPanel[\s\S]{0,160}?\/>/g)].map((m) => m[0])
+    assert.ok(hosts.length > 0, `${file} hosts GrantsPanel (the enumeration is current)`)
+    for (const h of hosts) {
+      const disclosed = /composing=\{/.test(h)
+      const one = h.replace(/\s+/g, ' ').slice(0, 90)
+      if (SECTION_HOSTS.includes(file)) assert.ok(disclosed, `a section's grant form must be disclosed: ${one}`)
+      else assert.ok(!disclosed, `${file} IS the share act — its form stands open: ${one}`)
+    }
+  }
+  assert.match(
+    read(join(ROOT, 'src', 'components', 'GrantsPanel.tsx')),
+    /composing = true \}: \{ subject: SocialEntityRef; composing\?: boolean \}/,
+    'and GrantsPanel defaults to open — so the act surfaces get it by saying nothing',
+  )
+})
+
+test('a section indents its content ONCE — nothing inside re-indents', () => {
+  // The companion to `SECTION_BODY_CLASS` (owner directive 2026-08-13:
+  // *"indenting section contents to make section frames outstanding … applied
+  // uniformly across all sections"*), and the half that makes it uniform rather
+  // than additive.
+  //
+  // The indent used to be an accident of each content type's own padding, not a
+  // decision: measured across one project page, a section's content began at 0,
+  // 16, 24, 32, 39 or 44 — six left edges down twelve sections. The rows in a
+  // section's list carried the very same 16px a second time, which is why list
+  // text sat at 32 while the prose beside it sat at 0.
+  //
+  // So: the section owns the inset; a row inside it carries vertical padding
+  // only. The rendered version of this claim is a MEASUREMENT in
+  // `e2e/project-page.spec.ts` (every section's content inset by the same
+  // amount); this is the source half, which catches the next row to be written
+  // rather than the next page to be rendered.
+  const bodies = code.split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)
+  const sectionComponents = bodies.filter((b) => b.includes('<FoldSection'))
+  assert.ok(sectionComponents.length >= 10, 'the scan found the section components')
+  const offenders: string[] = []
+  for (const b of sectionComponents) {
+    const name = b.match(/^(?:export )?(?:function|const) ([A-Za-z]+)/)?.[1] ?? '(anonymous)'
+    // `px-3.5` / `px-4` / `pl-4` on a ROW is the doubled indent. Deliberately
+    // narrow: a chip, a badge and a button legitimately pad themselves, and
+    // those are `px-1.5`/`px-2`/`px-2.5` — an order of magnitude below the
+    // section's own inset, and they are objects rather than rows.
+    for (const m of b.matchAll(/className="[^"]*\b(px-4|px-3\.5|pl-4|pl-3\.5)\b[^"]*"/g)) {
+      offenders.push(`${name}: ${m[1]}`)
+    }
+  }
+  assert.deepEqual(offenders, [], `these re-indent inside a section that already indented: ${offenders.join(', ')}`)
+  // …and the inset itself comes from the one home, applied by the one primitive.
+  assert.match(fn('FoldSection'), /SECTION_BODY_CLASS/, 'FoldSection applies the shared inset')
+  const lib = read(join(ROOT, 'src', 'lib', 'foldHeader.ts'))
+  assert.match(lib, /export const SECTION_BODY_CLASS = 'px-4'/, 'and the inset is stated once, symmetric')
 })

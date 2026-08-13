@@ -12,8 +12,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, concatSource } from '../../tests/helpers/source.ts'
-import { FOLD_HOVER, FOLD_HEADER_CLASS } from './foldHeader.ts'
+import { ROOT, read, concatSource, stripComments } from '../../tests/helpers/source.ts'
+import { FOLD_HOVER, FOLD_HEADER_CLASS, FOLD_HEADER_ORDER } from './foldHeader.ts'
 import { SIDEBAR_HOVER } from './sidebar.ts'
 
 test('every fold-header surface carries a visible hover affordance', () => {
@@ -91,5 +91,40 @@ test('the fold-header consumers source their styling from the shared module', ()
     const src = read(join(ROOT, ...rel.split('/')))
     assert.match(src, /from\s+'(\.\.\/)+lib\/foldHeader'/, `${rel} imports the shared fold-header module`)
     assert.ok(src.includes(symbol), `${rel} uses ${symbol}`)
+  }
+})
+
+test('a fold header reads LABEL first, chevron last — one left edge down the page', () => {
+  // Measured, not preferred (owner report 2026-08-13: *"the layout is still
+  // visually messy"*). With the chevron leading, a section's label rendered 19px
+  // right of its own rule AND its own content, so a page of twelve sections
+  // tracked 0 · 19 · 0 · 19 all the way down — the rule spanned the column, the
+  // content started at the column, and the only thing that did not was the word
+  // naming them.
+  //
+  // A leading chevron cannot be rescued by hanging it in the margin: at 375px
+  // the container has 16px of padding, so a −19px hang puts the glyph outside
+  // the viewport, which is UI-2. Trailing costs nothing and buys one left edge.
+  //
+  // Locked on BOTH consumers, because this is an ordering the shared class
+  // cannot express — `FOLD_HEADER_CLASS` is a string, and a string has no
+  // opinion about child order. Two consumers that disagreed about where the
+  // glyph goes would be exactly the drift this module owns one level up, and
+  // nothing else would notice.
+  assert.equal(FOLD_HEADER_ORDER, 'label, then chevron', 'the rule is stated where the cue lives')
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  for (const [name, marker] of [
+    ['FoldSection', 'data-section-title'],
+    ['the group header', 'text-[13px] font-semibold text-ink">{label}'],
+  ] as const) {
+    const at = src.indexOf(marker)
+    assert.ok(at > 0, `${name}'s label is in the source`)
+    // The chevron that belongs to THIS header is the first one after its label,
+    // and there must be none between the button's start and the label.
+    const buttonStart = src.lastIndexOf('FOLD_HEADER_CLASS', at)
+    assert.ok(buttonStart > 0, `${name} wears the shared class`)
+    const before = src.slice(buttonStart, at)
+    assert.ok(!before.includes('<ChevronDown'), `${name} puts its label before the chevron, not after`)
+    assert.ok(src.slice(at, at + 700).includes('<ChevronDown'), `${name} still HAS a chevron — the fold state stays visible`)
   }
 })

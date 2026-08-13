@@ -7,7 +7,7 @@
 import { test, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { ms } from './budget.ts'
-import { API, ARTIFACT, CHANGE, COMMENT, GUEST_POST, LINK_PROJECT, NEW_CADENCE, NOTE, PROJECT, ROUTINE, ROUTINE_CHANGE, STAMP, TURN_SESSION, createProject, gotoSection, newUser, openProject, projectId, openSection } from './social-helpers.ts'
+import { API, ARTIFACT, CHANGE, COMMENT, GUEST_POST, LINK_PROJECT, NEW_CADENCE, NOTE, PROJECT, ROUTINE, ROUTINE_CHANGE, STAMP, TURN_SESSION, createProject, gotoSection, newUser, openProject, projectId, openSection, openShareForm } from './social-helpers.ts'
 test('share → feed → discuss → improve: one thread, one ledger, across two tenants', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser) // seeded default: user-ada / tenant-acme (owner)
@@ -18,7 +18,7 @@ test('share → feed → discuss → improve: one thread, one ledger, across two
   await createProject(ada.page, PROJECT)
   // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
   // controls are one click behind their header now — exactly as a reader finds them.
-  await openSection(ada.page, 'Sharing')
+  await openShareForm(ada.page)
   await ada.page.getByLabel('Audience id').fill('tenant-beta')
   await ada.page.getByLabel('Tier').selectOption({ label: 'Propose' })
   await ada.page.getByLabel('Share note (publishes when present)').fill(NOTE)
@@ -85,7 +85,7 @@ test('the share link: a signed-in third tenant opens /shared/:token and lands on
   await createProject(ada.page, LINK_PROJECT)
   // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
   // controls are one click behind their header now — exactly as a reader finds them.
-  await openSection(ada.page, 'Sharing')
+  await openShareForm(ada.page)
   await ada.page.getByLabel('Audience kind').selectOption({ label: 'Link' })
   await ada.page.getByRole('button', { name: 'Share', exact: true }).click()
   await expect(ada.page.getByText('anyone with the link')).toBeVisible()
@@ -224,7 +224,7 @@ test('a shared ROUTINE: the visitor page is read-only, and landing their change 
   await expect(ada.page.getByRole('heading', { name: /Triage/i })).toBeVisible({ timeout: ms(20_000) })
   // Configuration sections open FOLDED (owner decision 2026-08-12), so the share
   // controls are one click behind their header now — exactly as a reader finds them.
-  await openSection(ada.page, 'Sharing')
+  await openShareForm(ada.page)
   await ada.page.getByLabel('Audience kind').selectOption('org')
   await ada.page.getByLabel('Audience id').fill('tenant-beta')
   await ada.page.getByLabel('Tier').selectOption({ label: 'Propose' })

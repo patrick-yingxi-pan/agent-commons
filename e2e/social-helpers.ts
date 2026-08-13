@@ -125,3 +125,21 @@ export async function openAdaProfile(page: Page) {
   await page.getByRole('button', { name: 'by Ada Lovelace', exact: true }).first().click()
   await expect(page.getByRole('heading', { name: 'Ada Lovelace' })).toBeVisible({ timeout: ms(20_000) })
 }
+
+/** Open a Sharing section AND disclose its grant composer.
+ *
+ *  The composer stopped standing open on 2026-08-13 (UI-18: a section's form
+ *  hangs off its header verb — it was the last standing form on the entity
+ *  page, and the reason that section measured 346px against a 97px median).
+ *  Every walk that mints a grant therefore needs one more press, and it needs it
+ *  in one place: fourteen specs open this section and eight of them go on to
+ *  drive the form.
+ *
+ *  Idempotent in both halves, like `openSection` — a walk that lands here twice
+ *  must not toggle the form shut. */
+export async function openShareForm(page: Page, section = 'Sharing') {
+  await openSection(page, section)
+  const verb = page.getByRole('button', { name: 'Share with an audience' })
+  if ((await verb.getAttribute('aria-expanded')) === 'false') await verb.click()
+  await expect(page.getByLabel('Audience kind')).toBeVisible()
+}

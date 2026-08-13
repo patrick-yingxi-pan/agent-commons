@@ -122,6 +122,64 @@ test('the project page is one column of foldable sections, configuration folded'
   //  roster — CONFIG/CONTENT above are what hold the roster.
   expect(seen, 'the sections arrive in the declared order').toEqual(ORDER.filter((t) => seen.includes(t)))
 
+  // ── ONE left edge, all the way down ───────────────────────────────────────
+  //  (Owner report 2026-08-13: *"the layout is still visually messy."* It was,
+  //  and it was measurable: the chevron led each header, so every section's
+  //  LABEL rendered 19px right of both its own rule and its own content. Twelve
+  //  sections, so the eye tracked 0 · 19 · 0 · 19 the whole way down the page.)
+  //
+  //  A MEASUREMENT and nothing else, because the source-level version of this
+  //  claim — "the label element precedes the chevron" — is what
+  //  `src/lib/foldHeader.test.ts` holds, and it is not the same claim: a label
+  //  written first can still be pushed right by anything laid out before it.
+  //  What a reader sees is the box, so the box is what this asserts.
+  const edges = await page.evaluate(() => {
+    const col = document.querySelector('.max-w-3xl')!
+    const left = col.getBoundingClientRect().left
+    // Filtered by className rather than selected with `section.group\/section`:
+    // the class holds a slash, so the selector needs a CSS escape, and that
+    // escape sits inside a JS string inside a `page.evaluate` — three levels of
+    // backslash to get right, and it arrived as `section.group/section` and
+    // threw on the first run. A filter has no escaping at all.
+    const all = [...document.querySelectorAll('section')].filter((e) => e.className.includes('group/section'))
+    return all.map((s) => {
+      const head = s.querySelector('div')!
+      const title = s.querySelector('[data-section-title]')!
+      const body = [...s.children].find((c) => c !== head)
+      // The INSET is what a reader sees, so measure the content itself, not the
+      // wrapper that pads it: the wrapper's own box starts at the rule, and an
+      // assertion on it would pass with the padding deleted.
+      const inner = body?.firstElementChild ?? body
+      return {
+        name: title.textContent ?? '?',
+        rule: Math.round(head.getBoundingClientRect().left - left),
+        label: Math.round(title.getBoundingClientRect().left - left),
+        content: inner ? Math.round(inner.getBoundingClientRect().left - left) : null,
+      }
+    })
+  })
+  expect(edges.length, 'the page rendered its sections').toBeGreaterThanOrEqual(10)
+  //  (1) The FRAME: every section's rule and label start at the column edge.
+  const raggedFrame = edges.filter((e) => e.label !== e.rule)
+  expect(
+    raggedFrame.map((e) => `${e.name}: rule ${e.rule}, label ${e.label}`),
+    'every section starts its rule and its label at the same x',
+  ).toEqual([])
+  //  (2) The CONTENT: inset from that edge, by the SAME amount every time
+  //      (owner directive 2026-08-13 — *"indenting section contents to make
+  //      section frames outstanding … applied uniformly across all sections"*).
+  //      It was an accident of each content type's own padding before this:
+  //      measured across this page, a section's content began at 0, 16, 24, 32,
+  //      39 or 44 — six left edges down twelve sections.
+  //      Over the OPEN sections only: a folded one renders no body at all (its
+  //      summary is on the title's row), so it has nothing to inset and would
+  //      report a phantom 0.
+  const open = edges.filter((e) => e.content !== null)
+  expect(open.length, 'some sections are open to measure').toBeGreaterThanOrEqual(5)
+  const insets = [...new Set(open.map((e) => e.content! - e.rule))]
+  expect(insets, 'every section insets its content by the same amount').toHaveLength(1)
+  expect(insets[0], 'and the inset is real — the content sits inside the frame').toBeGreaterThan(0)
+
   // ── Configuration opens folded, content opens open ────────────────────────
   for (const title of CONFIG) {
     await expect(header(page, title), `${title} is configuration — it opens folded`).toHaveAttribute(
