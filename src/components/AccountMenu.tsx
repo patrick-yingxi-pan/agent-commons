@@ -63,11 +63,11 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
   const initial = name.trim().charAt(0).toUpperCase() || 'Y'
   const identityRow = (
     <div className="flex items-center gap-2" title={me?.user.email}>
-      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-solid text-sm font-semibold text-on-solid">
+      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-solid text-[13px] font-semibold text-on-solid">
         {initial}
       </div>
       <div className="min-w-0 leading-tight">
-        <div className="truncate text-xs font-medium text-ink">{name}</div>
+        <div className="truncate text-[12px] font-medium text-ink">{name}</div>
         {subtitle && <div className="truncate text-[11px] text-ink-faint">{subtitle}</div>}
       </div>
     </div>
@@ -127,7 +127,7 @@ function MenuBody({
         <>
           <SectionLabel>Invitations</SectionLabel>
           {invites.map((inv) => (
-            <div key={inv.id} data-testid="org-invite-row" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-ink-soft">
+            <div key={inv.id} data-testid="org-invite-row" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-ink-soft">
               <span className="min-w-0 flex-1 truncate">
                 {inv.orgName}
                 <span className="ml-1 text-[10px] text-ink-faint">from {inv.invitedBy}</span>
@@ -274,7 +274,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 /** The one menu-row look — Row and the stacked-account button (which needs a
  *  wrapper for its hover sign-out, so it can't BE a Row) share it verbatim. */
 function rowClass(active?: boolean): string {
-  return `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition ${
+  return `flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[12px] transition ${
     active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
   }`
 }
@@ -326,7 +326,7 @@ function NewOrgForm({
   return (
     <form onSubmit={submit} className="space-y-1.5 p-1.5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-ink">New organization</span>
+        <span className="text-[12px] font-medium text-ink">New organization</span>
         <button type="button" onClick={onBack} className="text-[11px] text-ink-faint hover:text-ink">
           Back
         </button>

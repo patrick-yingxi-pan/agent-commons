@@ -169,7 +169,7 @@ function Prompt({
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[14px] leading-snug text-ink-soft">{title}</div>
+        <div className="text-[13px] leading-snug text-ink-soft">{title}</div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-ink-faint">{subtitle}</p>
         <div className="mt-2.5 flex items-center justify-end gap-2">
           <button
@@ -263,7 +263,7 @@ function DeniedView({
         <ShieldAlert size={16} />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[14px] font-medium leading-snug text-ink">Access denied</div>
+        <div className="text-[13px] font-medium leading-snug text-ink">Access denied</div>
         <p className="mt-0.5 text-[12px] leading-relaxed text-ink-faint">
           {kind === 'workspace'
             ? 'Claude can’t open a workspace without a folder to work in.'

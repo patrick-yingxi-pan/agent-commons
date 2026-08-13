@@ -106,7 +106,7 @@ export function ModelEffortControl({
     <div ref={wrapRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-medium transition ${
+        className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium transition ${
           open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2'
         }`}
         title="Model & effort"

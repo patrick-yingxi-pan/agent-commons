@@ -80,7 +80,7 @@ export interface MainPaneNav {
 function Background() {
   return (
     <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-canvas" data-main-background>
-      <p className="max-w-xs text-center text-sm leading-relaxed text-ink-faint">
+      <p className="max-w-xs text-center text-[13px] leading-relaxed text-ink-faint">
         No pages open. Start a new session or open anything from the sidebar.
       </p>
     </div>

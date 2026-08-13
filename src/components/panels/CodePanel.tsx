@@ -61,7 +61,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition ${
+      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12px] font-medium transition ${
         active ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-soft hover:bg-surface/60'
       }`}
     >
@@ -86,7 +86,7 @@ function FilesView({ files }: { files: FileNode[] }) {
         return (
           <div key={f.path} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-surface/60">
             <span
-              className={`flex h-4 w-4 items-center justify-center rounded text-[10px] font-bold ${meta.cls}`}
+              className={`flex h-4 w-4 items-center justify-center rounded text-[10px] font-semibold ${meta.cls}`}
             >
               {meta.label}
             </span>

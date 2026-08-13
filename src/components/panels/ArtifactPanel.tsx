@@ -90,7 +90,7 @@ export function ArtifactPanel({
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-line px-3 py-2">
-        <div className="text-xs font-semibold text-ink">{workspaceName}</div>
+        <div className="text-[12px] font-semibold text-ink">{workspaceName}</div>
         <div className="text-[11px] text-ink-faint">
           {artifacts.length} item{artifacts.length === 1 ? '' : 's'}
           {folderCount > 0 ? ` · ${folderCount} folder${folderCount === 1 ? '' : 's'}` : ' in workspace'}
@@ -204,7 +204,7 @@ function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: (
           <X size={14} />
         </button>
       </div>
-      <div className="mb-3 truncate text-sm font-semibold text-ink">{artifact.name}</div>
+      <div className="mb-3 truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
       <ArtifactBodyView kind={artifact.kind} name={artifact.name} artifactId={artifact.id} size="compact" served={served} />
     </div>
   )

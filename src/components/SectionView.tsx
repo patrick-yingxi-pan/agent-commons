@@ -59,7 +59,7 @@ import {
 } from 'lucide-react'
 import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
-import { FOLD_HEADER_CLASS, FOLD_HOVER, SECTION_BODY_CLASS, SECTION_GAP } from '../lib/foldHeader'
+import { FOLD_HEADER_CLASS, FOLD_HOVER, SECTION_BODY_CLASS, SECTION_GAP, SECTION_RULE_SPACE } from '../lib/foldHeader'
 import { useSectionFold } from '../lib/useSectionFold'
 import { audienceLabel } from '../lib/audienceLabel'
 import { isSectionFolded, pageFoldWork, setSectionFolded } from '../lib/sectionFold'
@@ -850,7 +850,7 @@ function ProjectRow({
       <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">
         {project.description}
       </span>
-      <span className="shrink-0 text-[11.5px] text-ink-faint">
+      <span className="shrink-0 text-[11px] text-ink-faint">
         {shortRelativeTime(project.updatedAt)} · {sessionCount} session{sessionCount === 1 ? '' : 's'}
       </span>
     </div>
@@ -1319,7 +1319,7 @@ function ProjectDetail({
                   >
                     <MessageSquare size={16} className="shrink-0 text-ink-faint" />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14px] font-medium text-ink">{c.title}</div>
+                      <div className="truncate text-[13px] font-medium text-ink">{c.title}</div>
                       <div className="truncate text-[12px] text-ink-faint">{c.preview}</div>
                     </div>
                     <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(c.updatedAt)}</span>
@@ -4147,7 +4147,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
         </span>
       </div>
       {item.note && (
-        <p className="mt-2.5 whitespace-pre-wrap text-[14px] leading-relaxed text-ink-soft">
+        <p className="mt-2.5 whitespace-pre-wrap text-[13px] leading-relaxed text-ink-soft">
           {/* S8 — a mention is a door to the person named, from the server's own
               resolution (the set it rang), never a second client-side parse. */}
           <MentionText body={item.note} mentions={root?.posts[0]?.mentions} onOpen={(n: string) => rel.openOwner(n)} />
@@ -4896,7 +4896,7 @@ function DiscussionsSection({
               </span>
               <div className="min-w-0 flex-1">
                 {/* Title-as-door: the first post fronts the thread's page. */}
-                <button onClick={() => rel.navigate('discussions', d.id)} className={`block max-w-full truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}>
+                <button onClick={() => rel.navigate('discussions', d.id)} className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}>
                   {discussionTitle(d.posts[0]?.body)}
                 </button>
                 <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
@@ -4954,7 +4954,7 @@ function FollowRosterBand({
       ) : (
         <CardList>
           {rows.map((r) => (
-            <div key={r.name} className="flex items-center gap-3 px-4 py-2.5">
+            <div key={r.name} className="flex items-center gap-3 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <OwnerLink ownerName={r.name} own={r.own} bare onClick={() => onOpenOwner(r.name)} />
               </div>
@@ -5144,7 +5144,7 @@ function MessagesSection() {
                       row is scanned for. */}
                   <button
                     onClick={() => rel.navigate('discussions', d.id)}
-                    className={`block max-w-full truncate text-left text-[14px] ${unread > 0 ? 'font-medium text-ink' : 'text-ink'} ${DOOR_CLASS}`}
+                    className={`block max-w-full truncate text-left text-[13px] ${unread > 0 ? 'font-medium text-ink' : 'text-ink'} ${DOOR_CLASS}`}
                   >
                     {d.counterpart ?? d.openedBy}
                   </button>
@@ -5305,7 +5305,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
             const { c, p } = row
             if (c)
               return (
-                <div key={row.key} className="flex items-center gap-2.5 py-2.5">
+                <div key={row.key} className="flex items-center gap-2.5 py-3">
                   {/* The leading slot carries the entity's state in ONE form: a live
                       pulse while open/offered, the ledger number once landed — same
                       column across both row kinds, so the list reads as one ledger
@@ -5352,7 +5352,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
               )
             if (p)
               return (
-                <div key={row.key} className="flex items-start gap-2.5 py-2.5">
+                <div key={row.key} className="flex items-start gap-2.5 py-3">
                   <span className="flex w-8 shrink-0 items-center justify-end pt-0.5">
                     {p.state === 'offered' ? (
                       <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Offered" />
@@ -5833,7 +5833,7 @@ function AttentionPanel({ project }: { project: Project }) {
       ) : (
         <CardList>
           {ledger.asks.map((a) => (
-            <div key={`${a.contributionId}-${a.label}`} className="flex items-center gap-2.5 py-2.5">
+            <div key={`${a.contributionId}-${a.label}`} className="flex items-center gap-2.5 py-3">
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                   a.function === 'liability' ? 'bg-warn-strong/10 text-warn-text' : 'border border-line text-ink-faint'
@@ -6671,7 +6671,7 @@ function NewArtifactDialog({
               onChange={(e) => setExcerpt(e.target.value)}
               rows={2}
               placeholder="A one-line preview shown on the card."
-              className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2 text-[14px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
+              className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
             />
           </label>
 
@@ -6682,7 +6682,7 @@ function NewArtifactDialog({
             <select
               value={projectId ?? ''}
               onChange={(e) => setProjectId(e.target.value || null)}
-              className="w-full rounded-md border border-line bg-surface px-3 py-2 text-[14px] text-ink outline-none transition focus:border-co"
+              className="w-full rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none transition focus:border-co"
             >
               <option value="">No project</option>
               {projects.map((p) => (
@@ -7273,7 +7273,7 @@ function ContextRow({
           <div className="flex items-center gap-2">
             <button
               onClick={onOpen}
-              className={`min-w-0 truncate text-left text-[14px] text-ink hover:text-co ${DOOR_CLASS}`}
+              className={`min-w-0 truncate text-left text-[13px] text-ink hover:text-co ${DOOR_CLASS}`}
             >
               {ctx.label}
             </button>
@@ -7838,12 +7838,12 @@ function CommonsCardHead({
         {onOpen ? (
           <button
             onClick={onOpen}
-            className={`block max-w-full truncate text-left text-[14px] text-ink ${DOOR_CLASS}`}
+            className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
           >
             {title}
           </button>
         ) : (
-          <div className="truncate text-[14px] font-medium text-ink">{title}</div>
+          <div className="truncate text-[13px] font-medium text-ink">{title}</div>
         )}
         <div className="truncate text-[12px] text-ink-faint">{subtitle}</div>
       </div>
@@ -8469,7 +8469,7 @@ function ProposalsReviewDialog({
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
           <GitPullRequest size={16} className="shrink-0 text-ink-faint" />
-          <span className="flex-1 text-[14px] font-semibold text-ink">
+          <span className="flex-1 text-[15px] font-semibold text-ink">
             Proposals — {agent.label} <span className="font-normal text-ink-faint">(v{currentVersion})</span>
           </span>
           <button onClick={onClose} aria-label="Close" className="text-ink-faint transition hover:text-ink">
@@ -9101,7 +9101,7 @@ function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvid
           <RelayBadge />
         </div>
         <div className="p-5">
-          <p className="text-[15px] font-semibold leading-5 text-ink">Paste into the session that will do the thinking</p>
+          <p className="text-[15px] font-semibold leading-snug text-ink">Paste into the session that will do the thinking</p>
           <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">
             Works in any agent — it fetches the setup guide and installs itself (MCP), or drives the relay protocol
             directly.
@@ -10837,7 +10837,7 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
               {row?.seeded && <AdminBadge>Seeded</AdminBadge>}
               {row?.deactivated && <AdminBadge tone="danger">Deactivated</AdminBadge>}
             </div>
-            <p className="mt-1 text-sm text-ink-soft">
+            <p className="mt-1 text-[13px] text-ink-soft">
               {row?.user.email ?? 'no credential'} · <span className="font-mono text-[12px]">{userId}</span>
             </p>
           </div>
@@ -11695,7 +11695,7 @@ function ScheduledRow({
         <div className="min-w-0 flex-1 overflow-hidden">
           <button
             onClick={onOpen}
-            className={`block max-w-full truncate text-left text-[14px] text-ink hover:text-co ${DOOR_CLASS}`}
+            className={`block max-w-full truncate text-left text-[13px] text-ink hover:text-co ${DOOR_CLASS}`}
           >
             {task.name}
           </button>
@@ -13041,7 +13041,7 @@ function DispatchView() {
           <DispatchStatus status={r.status} />
           <div className="min-w-0 flex-1">
             <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-[14px] font-medium text-ink">{r.title}</span>
+              <span className="truncate text-[13px] font-medium text-ink">{r.title}</span>
               <span className="shrink-0 text-[11px] text-ink-faint">
                 {r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
               </span>
@@ -13389,7 +13389,7 @@ function PageHeader({
             <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
             {badge}
           </div>
-          {subtitle && <p className="mt-1 text-sm text-ink-soft max-sm:mt-0">{subtitle}</p>}
+          {subtitle && <p className="mt-1 text-[13px] text-ink-soft max-sm:mt-0">{subtitle}</p>}
         </div>
       </div>
       {children && <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
@@ -13433,7 +13433,7 @@ function SearchBox({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="flex-1 bg-transparent text-[14px] text-ink outline-none placeholder:text-ink-faint"
+        className="flex-1 bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
       />
     </div>
   )
@@ -13679,7 +13679,7 @@ function FoldSection({
           the ramp is the wrong weight for the only thing separating two
           sections. */}
       <div
-        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} pb-1.5 ${folded ? '' : 'mb-2'}`}
+        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} ${SECTION_RULE_SPACE.above} ${folded ? '' : SECTION_RULE_SPACE.below}`}
       >
         <button
           onClick={() => setFolded(!folded)}
@@ -13789,7 +13789,15 @@ function FoldSection({
  *  together" twice; the rule says "the section starts here", which nothing was
  *  saying. Chrome comes from the shared recipe (lib/ledger) either way. */
 function CardList({ children }: { children: ReactNode }) {
-  return <div className={LEDGER_LIST_CLASS}>{children}</div>
+  // Stamped so a SECTION can find it: sitting directly under a section's rule,
+  // this list's first row must not repeat the space the section already left
+  // (`SECTION_LIST_UNDOUBLE`, which states the rule and why it lives there
+  // rather than here). The attribute is the enumeration handle, not the rule.
+  return (
+    <div data-card-list className={LEDGER_LIST_CLASS}>
+      {children}
+    </div>
+  )
 }
 
 /** A section with nothing in it — one quiet line, not a frame.
@@ -13867,7 +13875,7 @@ function Card({ title, desc, children }: { title: string; desc: string; children
       {/* The label keeps a readable basis; a control that can't fit beside it
           wraps below instead of squeezing the text one word per line. */}
       <div className="min-w-0 flex-1 basis-56">
-        <div className="text-[14px] font-medium text-ink">{title}</div>
+        <div className="text-[13px] font-medium text-ink">{title}</div>
         <div className="text-[12px] text-ink-faint">{desc}</div>
       </div>
       <div className="shrink-0">{children}</div>

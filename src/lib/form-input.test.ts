@@ -52,7 +52,7 @@ test('the composer shell is the same field with its frame moved outward', () => 
 
   // The control keeps type and loses chrome — a border or ground here is the
   // box-inside-a-box this split exists to remove.
-  for (const piece of ['text-[14px]', 'text-ink', 'placeholder:text-ink-faint', 'outline-none']) {
+  for (const piece of ['text-[13px]', 'text-ink', 'placeholder:text-ink-faint', 'outline-none']) {
     assert.ok(FIELD_BARE_CLASS.includes(piece), `the bare control still reads as a field (${piece})`)
     assert.ok(FORM_INPUT_CLASS.includes(piece), `…identically to the plain one`)
   }

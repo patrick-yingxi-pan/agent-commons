@@ -439,3 +439,111 @@ test('Fold all · Unfold all act on the whole page, and the posture survives a r
 
   await ada.context.close()
 })
+
+/** The space AROUND a section's rule, per open section, in the two units the
+ *  code actually owns: `above` is geometry (the label's line box to the top of
+ *  the stroke), `below` is the header's own bottom MARGIN.
+ *
+ *  Below is read as a margin rather than measured to the content box on purpose.
+ *  A list directly under the rule gives back its first row's doubled padding
+ *  with a negative top margin (`SECTION_LIST_UNDOUBLE`), so the content box in a
+ *  list section legitimately starts AT the rule — a geometric "below" would read
+ *  0 there and 12 next door and call a correct page broken. What the section
+ *  owns is the margin; what the content does with the space it is given is the
+ *  next claim's business. */
+const ruleSpace = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const out: { title: string; above: number; below: number }[] = []
+    for (const s of document.querySelectorAll('section')) {
+      if (!s.className.includes('group/section')) continue
+      const head = s.querySelector(':scope > div')
+      const label = head?.querySelector('[data-section-title]')
+      if (!head || !label || head.nextElementSibling === null) continue // folded: no body, no space below
+      const cs = getComputedStyle(head)
+      const ruleTop = head.getBoundingClientRect().bottom - parseFloat(cs.borderBottomWidth)
+      out.push({
+        title: label.textContent!.trim(),
+        above: Math.round(ruleTop - label.getBoundingClientRect().bottom),
+        below: Math.round(parseFloat(cs.marginBottom)),
+      })
+    }
+    return out
+  })
+
+/** Where a section's first LINE OF TEXT lands under the rule — a text range, not
+ *  an element box, because the element that holds the first words differs per
+ *  content type and only the text is comparable across them. */
+const firstLineUnderRule = (page: import('@playwright/test').Page, titles: string[]) =>
+  page.evaluate((want) => {
+    const out: Record<string, number> = {}
+    for (const s of document.querySelectorAll('section')) {
+      if (!s.className.includes('group/section')) continue
+      const head = s.querySelector(':scope > div')
+      const label = head?.querySelector('[data-section-title]')
+      const body = head?.nextElementSibling
+      const title = label?.textContent?.trim() ?? ''
+      if (!head || !body || !want.includes(title)) continue
+      const walk = document.createTreeWalker(body, NodeFilter.SHOW_TEXT)
+      let node = walk.nextNode()
+      while (node && !node.textContent!.trim()) node = walk.nextNode()
+      if (!node) continue
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      out[title] = Math.round(range.getBoundingClientRect().top - head.getBoundingClientRect().bottom)
+    }
+    return out
+  }, titles)
+
+test('a section rule sits in equal space, and the space is the same in every section', async ({ browser }) => {
+  test.setTimeout(ms(120_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  await page.goto(PROJECT)
+  await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
+  // Every section open, so the claim covers all of them and not just the eight
+  // the resting page happens to show. Conditional rather than a swallowed click:
+  // the control is ABSENT once nothing is folded (it is never an inert button),
+  // and a `.catch(() => {})` would hide a real failure to press it as well.
+  const unfoldAll = page.getByRole('button', { name: 'Unfold all sections', exact: true })
+  if ((await unfoldAll.count()) > 0) await unfoldAll.click()
+  await expect(page.locator(HEADERS + '[aria-expanded="false"]')).toHaveCount(0)
+
+  // ── Equal above and below (owner directive 2026-08-13) ────────────────────
+  //  Measured rather than read off `SECTION_RULE_SPACE`, because that constant
+  //  states the pair in two different units — a padding under a button that
+  //  carries its own, and a straight margin. A source scan can bless `pb-2` +
+  //  `mb-3` as "12 and 12" only by re-doing the arithmetic the browser is
+  //  already doing here, and if the label button's own padding ever changes, the
+  //  scan keeps passing while the page goes lopsided.
+  const spaces = await ruleSpace(page)
+  expect(spaces.length, 'every open section reported its rule spacing').toBeGreaterThan(8)
+  for (const { title, above, below } of spaces) {
+    expect(above, `${title}: the gap above the rule equals the gap below (${above} vs ${below})`).toBe(below)
+  }
+  // …and it is ONE number down the page, not each section's own symmetry.
+  expect([...new Set(spaces.map((s) => s.above))], 'one spacing, every section').toHaveLength(1)
+
+  // ── Space it ONCE: a list must not add its own on top ─────────────────────
+  //  `divide-y` draws no border above the first row, so that row's top padding
+  //  is the space under a divider that is not there — and under the section's
+  //  rule it landed on top of the space the section had already left. Measured
+  //  before the fix: a list section put its first line 20px under the rule where
+  //  a prose section put its first line at 8. The named sections are one prose
+  //  and three lists; the claim is that a reader cannot tell which is which.
+  const lines = await firstLineUnderRule(page, ['About', 'Contributors', 'Coordination', 'Recent sessions'])
+  expect(Object.keys(lines).sort(), 'all four sections measured').toEqual(
+    ['About', 'Contributors', 'Coordination', 'Recent sessions'],
+  )
+  //  Within a pixel, not exactly equal, and the pixel is named: a text range's
+  //  rect is its LINE BOX, so prose set `leading-relaxed` (21.125px on 13px) and
+  //  a row set at the default (19.5px) round to 14 and 13 from the same 12px
+  //  offset. That residue is half-leading, not spacing — and the defect this
+  //  replaced was 12px wide, so a 1px bound still catches it twelve times over.
+  const offsets = Object.values(lines)
+  expect(
+    Math.max(...offsets) - Math.min(...offsets),
+    `prose and lists start at one distance under the rule (${JSON.stringify(lines)})`,
+  ).toBeLessThanOrEqual(1)
+
+  await ada.context.close()
+})

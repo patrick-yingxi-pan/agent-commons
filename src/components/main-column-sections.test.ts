@@ -20,6 +20,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { SECTION_BODY_CLASS, SECTION_BODY_INSET, SECTION_LIST_UNDOUBLE } from '../lib/foldHeader.ts'
 
 const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
 /** …and the same source with COMMENTS GONE, for the tag scanner below.
@@ -500,5 +501,41 @@ test('a section indents its content ONCE — nothing inside re-indents', () => {
   // …and the inset itself comes from the one home, applied by the one primitive.
   assert.match(fn('FoldSection'), /SECTION_BODY_CLASS/, 'FoldSection applies the shared inset')
   const lib = read(join(ROOT, 'src', 'lib', 'foldHeader.ts'))
-  assert.match(lib, /export const SECTION_BODY_CLASS = 'px-4'/, 'and the inset is stated once, symmetric')
+  assert.match(lib, /export const SECTION_BODY_INSET = 'px-4'/, 'and the inset is stated once, symmetric')
+  // The VERTICAL half of space-it-once, added 2026-08-13: a list sitting
+  // directly under the section's rule gives back the row padding that would
+  // otherwise be added to the space the section already left. Scoped by the
+  // SECTION, not by the list — asserted here because the difference is the
+  // whole point (on `CardList` it also fired for lists with no rule above them,
+  // e.g. the profile page's follower bands). The measurement is in
+  // `e2e/project-page.spec.ts`; what this holds is WHERE the rule lives.
+  assert.match(lib, /SECTION_LIST_UNDOUBLE[\s\S]*?data-card-list/, 'the un-double rule is stated in the section body')
+  assert.ok(
+    SECTION_BODY_CLASS.includes(SECTION_LIST_UNDOUBLE) && SECTION_BODY_CLASS.includes(SECTION_BODY_INSET),
+    'the section body composes both halves',
+  )
+  assert.match(
+    fn('CardList'),
+    /data-card-list/,
+    'CardList stamps the handle the section body selects on — without it the rule silently matches nothing',
+  )
+})
+
+test('the space around a section rule comes from the one constant, not from the header', () => {
+  // The MEASUREMENT lives in `e2e/project-page.spec.ts` — 12px above the rule
+  // and 12 below it, in every section — because the pair is stated in two units
+  // (`pb-2` under a label button carrying its own `py-1`, and a straight `mb-3`)
+  // and only a browser resolves that to one number. What a source scan can hold
+  // is the ONE HOME: the header must not spell its own padding or margin, or the
+  // constant becomes a description of one of two places the value lives.
+  const header = fn('FoldSection')
+  assert.match(header, /SECTION_RULE_SPACE\.above/, 'the header takes its space above the rule from the constant')
+  assert.match(header, /SECTION_RULE_SPACE\.below/, '…and its space below it')
+  const ruleRow = header.match(/className=\{`[^`]*LEDGER_RULE_CLASS[^`]*`\}/)?.[0] ?? ''
+  assert.ok(ruleRow, 'found the class expression that draws the rule')
+  assert.doesNotMatch(
+    ruleRow,
+    /\b(p[bty]|m[bty])-[\d.]+/,
+    `the rule row hardcodes its own spacing: ${ruleRow}`,
+  )
 })

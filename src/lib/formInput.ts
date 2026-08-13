@@ -23,7 +23,7 @@
 const FIELD_CHROME = 'w-full rounded-md border border-line bg-surface transition'
 
 /** How text reads inside a field, wherever the frame happens to be. */
-const FIELD_TEXT = 'text-[14px] text-ink outline-none placeholder:text-ink-faint'
+const FIELD_TEXT = 'text-[13px] text-ink outline-none placeholder:text-ink-faint'
 
 /** The plain field: chrome and control on one element. `focus:border-co` —
  *  field focus is a PLACE cue, so it answers in the co-color (the seat law,

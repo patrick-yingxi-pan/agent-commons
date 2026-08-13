@@ -277,11 +277,11 @@ function AccountPicker({ onMode }: { onMode: (m: AuthScreenView) => void }) {
             }}
             className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-panel-2"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-solid text-sm font-semibold text-on-solid">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-solid text-[13px] font-semibold text-on-solid">
               {(a.user.name.trim().charAt(0) || '?').toUpperCase()}
             </span>
             <span className="min-w-0 flex-1 leading-tight">
-              <span className="block truncate text-sm font-medium text-ink">{a.user.name}</span>
+              <span className="block truncate text-[13px] font-medium text-ink">{a.user.name}</span>
               <span className="block truncate text-[11px] text-ink-faint">{accountSubtitle(a.user, a.tenant)}</span>
             </span>
             {a.current && <span className="text-[10px] font-medium uppercase tracking-wide text-ink-faint">Current</span>}

@@ -94,7 +94,7 @@ export function ContextPanelView({
         {/* A pane whose content was just detached (before the tree prunes it a
             frame later) shows a quiet placeholder rather than a blank pane. */}
         {body ?? (
-          <div className="flex h-full flex-col items-center justify-center bg-panel px-6 text-center text-sm text-ink-faint">
+          <div className="flex h-full flex-col items-center justify-center bg-panel px-6 text-center text-[13px] text-ink-faint">
             This context is no longer attached.
           </div>
         )}

@@ -89,7 +89,42 @@ export const FOLD_HEADER_ORDER = 'label, then chevron' as const
  *  a row and the prose above it share a right edge as well as a left one) — their horizontal padding was
  *  this same 16px applied a second time, which is why list text sat at 32 while
  *  the prose beside it sat at 0. Locked in `main-column-sections.test.ts`. */
-export const SECTION_BODY_CLASS = 'px-4'
+export const SECTION_BODY_INSET = 'px-4'
+
+/** ── …and the same rule on the VERTICAL axis: space it once, from outside ────
+ *  `divide-y` draws no border above its FIRST row, so that row's top padding is
+ *  the space under a divider that is not there — and directly under a section's
+ *  rule it landed on top of the space the section had already left
+ *  (`SECTION_RULE_SPACE.below`). Measured: a list section put its first line of
+ *  text 20px under the rule where a prose section put its at 8.
+ *
+ *  So the section takes it back — and takes it HERE rather than on `CardList`,
+ *  which is the difference between a rule and a side effect. The first spelling
+ *  put `first:-mt-3` on the list itself, where it fires for any list that
+ *  happens to be its parent's first child: the profile page's follower bands
+ *  are a heading plus a list, so the cancel reached one that has no rule above
+ *  it and never doubled anything. The claim is "the section's rule IS this
+ *  list's first divider", which is only true of a list sitting directly under
+ *  that rule — so the selector says exactly that, and `data-card-list` is the
+ *  handle `CardList` stamps to be found by (the repo's `data-popover` /
+ *  `data-section-title` idiom).
+ *
+ *  **The TOP only, and the missing bottom half is the interesting part.** The
+ *  first cut carried `last:-mb-3` too, on the symmetric-looking reasoning that
+ *  a list's trailing row padding is added to the gap before the next section.
+ *  It is — and it is not a DOUBLING: at the top the section's rule had already
+ *  supplied the space, while at the bottom the last row's padding is the row's
+ *  own breathing room, the mirror of the top padding every other row has.
+ *  Cancelling it made the section's border box end 12px above its own content,
+ *  so the gap between section BOXES measured 20 where the visible gap was 32 —
+ *  and the inter-section rhythm lock, which measures boxes, correctly reported a
+ *  third rhythm on a page that is supposed to have two. **A negative margin that
+ *  makes a box smaller than what it contains is a lie every later measurement
+ *  inherits**, which is a steep price for 12px of trailing space that was never
+ *  wrong. */
+export const SECTION_LIST_UNDOUBLE = '[&>[data-card-list]:first-child]:-mt-3'
+
+export const SECTION_BODY_CLASS = `${SECTION_BODY_INSET} ${SECTION_LIST_UNDOUBLE}`
 
 /** ── The gap BETWEEN sections, which depends on whether they are folded ──────
  *  Owner question, 2026-08-13: *"how about giving more vertical space between
@@ -106,9 +141,36 @@ export const SECTION_BODY_CLASS = 'px-4'
  *    At 36 the folded page was twelve scattered lines that had stopped being
  *    an index; at 12 it is an index again.
  *
+ *  (Those ratios are the reasoning as it stood. The 8 became 12 the same day,
+ *  when `SECTION_RULE_SPACE` equalized the space around the rule, so the open
+ *  ratio today is 32:12. The comparison is what decided the number; it is kept
+ *  as it was made rather than quietly restated against a figure that moved.)
+ *
  *  So the gap belongs to the SECTION, not to the stack that holds it — a
  *  container can only say one thing, and this needs to say two. Callers that
  *  used to space their own section stacks give that up (`ProjectDetail`'s
  *  `space-y-6`), or the two would fight and the larger would win, which is
  *  exactly the folded case losing. */
 export const SECTION_GAP = { open: 'mb-8', folded: 'mb-3' } as const
+
+/** ── The space AROUND the rule, which is the same on both sides ──────────────
+ *  Owner directive 2026-08-13: *"make the vertical spaces above and below the
+ *  rule equal."* It shipped at 6 above and 8 below, and measured worse than
+ *  that sounds, because two other things were adding to one side only.
+ *
+ *  **12px, both sides, and 12 is not an arbitrary pick** — it is the vertical
+ *  padding a `CardList` row already carries. That is what makes the rule
+ *  uniform rather than merely symmetric: under a rule, a list's first row and a
+ *  section's first line of prose now start at the same distance, and the first
+ *  row sits as far below the section's rule as every later row sits below its
+ *  own hairline. One number spaces the label, the rule, the prose and the list.
+ *
+ *  The two class values differ because they measure from different edges:
+ *  `above` is the header's padding under a label button that carries its own
+ *  `py-1` (`FOLD_HEADER_CLASS`, for the hover pill), so 4 + 8 = 12; `below` is
+ *  the header's margin, straight, 12. Written as one constant so the pair can
+ *  never drift apart, and measured — not read — by `e2e/project-page.spec.ts`,
+ *  which asserts the gap above equals the gap below in every section on the
+ *  page. A spacing rule stated in two units is exactly the kind a source scan
+ *  can bless while the page shows something else. */
+export const SECTION_RULE_SPACE = { above: 'pb-2', below: 'mb-3' } as const

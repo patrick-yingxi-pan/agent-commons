@@ -84,7 +84,7 @@ export const LEDGER_HEAD_CLASS =
 
 /** The count chip inside a ledger head. */
 export const LEDGER_COUNT_CLASS =
-  'rounded-full bg-line px-1.5 py-px text-[10.5px] font-semibold leading-4 text-ink-soft'
+  'rounded-full bg-line px-1.5 py-px text-[10px] font-semibold leading-relaxed text-ink-soft'
 
 /** A ledger row's layout skeleton: baseline-aligned columns. Callers append the
  *  door cue (ROW_DOOR_CLASS) when the row fronts a page, plus their own type

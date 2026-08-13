@@ -126,7 +126,7 @@ export function AttachmentPanel({
           />
         )
       ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-ink-faint">No items</div>
+        <div className="flex flex-1 items-center justify-center text-[13px] text-ink-faint">No items</div>
       )}
     </PanelShell>
   )
@@ -317,7 +317,7 @@ function FileBody({
               <button
                 onClick={() => onDraft({ text, saved: text })}
                 disabled={!dirty}
-                className={`${SOFT_BUTTON_CLASS} px-3 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-40`}
+                className={`${SOFT_BUTTON_CLASS} px-3 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-40`}
               >
                 Save
               </button>

@@ -113,7 +113,7 @@ export function MessageRow({ message, sessionId, onOpenSession }: { message: Mes
       <div className="mx-auto flex w-full max-w-3xl gap-3">
         <div className="mt-0.5 shrink-0">
           {isUser ? (
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-userbubble text-xs font-semibold text-ink-soft">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-userbubble text-[12px] font-semibold text-ink-soft">
               P
             </div>
           ) : (
@@ -123,7 +123,7 @@ export function MessageRow({ message, sessionId, onOpenSession }: { message: Mes
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex items-center gap-1.5 text-xs font-semibold text-ink-soft">
+          <div className="mb-0.5 flex items-center gap-1.5 text-[12px] font-semibold text-ink-soft">
             {isUser ? 'You' : byline}
             {!isUser && relayed && (
               <span

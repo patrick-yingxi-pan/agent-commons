@@ -141,6 +141,21 @@ awkward to assert is usually a rule whose logic wants to move.
   the dark-mode CTA shipped at 1.74:1 that way. Locked by
   `src/lib/contrast.test.ts` (the whole palette × mode × seat matrix, plus a
   tree-wide call-site scan); the image-backdrop exemptions are enumerated there.
+- **The type scale is CLOSED** (owner directive 2026-08-13: *"reduce the number
+  of font sizes, types and styles"*; invariant UI-27). Seven sizes — 10 meta-caps
+  · 11 meta · 12 label · 13 body · 15 reading · 20 title · 24 display — three
+  weights, four leadings, three families, and ONE relative size (inline code, a
+  ratio of its host). Declared in `src/lib/typeScale.ts` and enforced by
+  `src/lib/type-scale.test.ts`, which scans the whole of `src/` and fails on any
+  utility outside the set; the one exempt file (`artifactPreview.tsx`, which
+  renders a MINIATURE of a document and so uses the document's ladder, not the
+  UI's) is named there with its argument. It replaced **fourteen** sizes, five of
+  them inside a four-pixel band, two spellings of one size, and single-call-site
+  strays in weight and leading — none of it decided, all of it the sum of local
+  choices. Deliberately a MEMBERSHIP rule, not an adoption rule: call sites keep
+  writing `text-[13px]`; routing ~850 of them through named tokens would be a
+  diff with no visual result and one more hop between a component and its own
+  appearance.
 - **No "before" view.** The prototype deliberately does *not* reproduce today's
   three-tab UI. The motivation lives in the docs, and reviewers can diff against
   the live app — so don't build a side-by-side "before".
@@ -194,6 +209,26 @@ and twelve sections wore a glyph along no rule anyone could state. There is no
 version of "which sections get an icon" easier to keep true than "none do", so
 the prop is gone rather than made consistent — and the label went 11px → 12px,
 since it and the rule under it are now the whole of what separates two sections.
+A section's RULE sits in equal space —
+the same 12px above it and below it (`SECTION_RULE_SPACE`), and 12 because that
+is the vertical padding a `CardList` row already carries, so a list's first row
+and a section's first line of prose start at the same distance under the stroke.
+The companion is the vertical form of the indent-once rule: **space a thing
+once, from the outside.** `divide-y` draws no border above its first row, so
+that row's top padding is the space under a divider that is not there — under a
+section rule it landed on top of the space the section had already left, which
+is why a list section put its first line 20px down where a prose section put its
+at 8. The section takes it back (`SECTION_LIST_UNDOUBLE`, selecting the
+`data-card-list` stamp on its own first child) — the TOP only, and the missing
+bottom half is the lesson: cancelling the last row's padding too made a
+section's box end above its own content, so the gap between section boxes
+measured 20 where the visible gap was 32 and the inter-section rhythm lock
+correctly reported a third rhythm. **A negative margin that makes a box smaller
+than what it contains is a lie every later measurement inherits.** Measured,
+not read, by `e2e/project-page.spec.ts`: the constant
+states the pair in two different units (a padding under a button carrying its
+own `py-1`, and a straight margin), so a source scan could bless it only by
+re-doing the arithmetic the browser is already doing.
 An entity page is one reading column of these, **configuration
 folded and content open**; a section that opens folded owes a `summary` — the
 thread's stub rule, an index entry and never a gap. Posture persists per account

@@ -55,7 +55,7 @@ export function PermissionModeControl() {
         aria-label={`Permission mode: ${mode.name}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`rounded-lg px-2 py-1 text-xs font-medium transition ${PILL_TONE[modeId]}`}
+        className={`rounded-lg px-2 py-1 text-[12px] font-medium transition ${PILL_TONE[modeId]}`}
       >
         {mode.short}
       </button>

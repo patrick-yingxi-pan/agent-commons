@@ -78,7 +78,7 @@ export function ConfirmDialog({
         onMouseDown={(e) => e.stopPropagation()}
         className={`relative h-fit w-[380px] max-w-full p-4 ${DIALOG_SURFACE_CLASS}`}
       >
-        <p className="text-[14px] font-semibold text-ink">{title}</p>
+        <p className="text-[15px] font-semibold text-ink">{title}</p>
         <p className="mt-1.5 text-[12px] leading-relaxed text-ink-soft">{body}</p>
         {/* The shared `CheckboxRow`, not a raw `<input type="checkbox">` — the
             first cut wrote one and `src/lib/checkbox.test.ts` caught it. Worth

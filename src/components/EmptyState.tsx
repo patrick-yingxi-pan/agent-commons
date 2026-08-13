@@ -23,7 +23,7 @@ export function EmptyState({
       <div className="flex h-full flex-col items-center justify-center px-6 text-center">
         <div className="max-w-md">
           <div className="font-serif text-xl font-semibold text-ink">What should we work on?</div>
-          <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+          <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
             Start typing below. Attach a folder, a repo, or a connector and this one session grows a
             workspace or a code panel as the work needs it — no tabs, no lost context.
           </p>
@@ -50,8 +50,8 @@ export function EmptyState({
   return (
     <div className="flex h-full flex-col items-center justify-center px-6 text-center">
       <div className="max-w-sm">
-        <div className="font-serif text-lg font-semibold text-ink">No messages yet</div>
-        <p className="mt-2 text-sm leading-relaxed text-ink-soft">
+        <div className="font-serif text-xl font-semibold text-ink">No messages yet</div>
+        <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
           Start typing below to pick this session back up.
         </p>
       </div>

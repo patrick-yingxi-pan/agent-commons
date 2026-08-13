@@ -81,13 +81,13 @@ export function stepBefore(step: SignUpStep): SignUpStep | null {
  * apart. Locked by src/lib/auth-flow.test.ts (no component re-hardcodes them). */
 
 export const AUTH_INPUT_CLASS =
-  'w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-co focus:outline-none focus:ring-2 focus:ring-co/30'
+  'w-full rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink placeholder:text-ink-faint focus:border-co focus:outline-none focus:ring-2 focus:ring-co/30'
 
 export const AUTH_LABEL_CLASS = 'mb-1 block text-[12px] font-medium text-ink-soft'
 
 // The face comes from the one solid-button funnel (lib/button); auth owns only
 // the size and the full-width layout.
-export const AUTH_PRIMARY_CLASS = `w-full ${SOLID_BUTTON_CLASS} px-3 py-2 text-sm disabled:opacity-50`
+export const AUTH_PRIMARY_CLASS = `w-full ${SOLID_BUTTON_CLASS} px-3 py-2 text-[13px] disabled:opacity-50`
 
 export const AUTH_LINK_CLASS = 'font-medium text-accent-strong transition hover:underline'
 
