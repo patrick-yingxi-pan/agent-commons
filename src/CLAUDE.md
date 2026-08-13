@@ -156,14 +156,36 @@ them onto a single shared component/token rather than hand-restyling one to matc
 Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
 "+ Add ‹thing›" picker-opener) and `src/lib/sectionAction.ts` +
 `src/components/SectionAction.tsx` (every SECTION HEADER's verb — edit/add/post/
-commission — one compact icon button in the header's right-aligned cluster,
+commission/fold — one compact icon button in the header's right-aligned cluster,
 hover-revealed via `SECTION_REVEAL` in `src/lib/hoverReveal.ts`, pinned visible
-when the section is empty; locked by `src/lib/sectionAction.test.ts`) and
+when the section is empty; locked by `src/lib/sectionAction.test.ts`. **A
+section's verbs ALL live in that one cluster** — owner directive 2026-08-13,
+*"make all per-section buttons of the same style that show upon hover … normally
+hidden"*. Two controls were outside it and each moved in: the project page's
+solid "New session" (it starts a row in the Recent sessions list, so it is that
+section's verb, not the page's — the header keeps only what belongs to the whole
+project, like Watch), and the Discussion thread's floating Fold all · Unfold all
+text pair. Neither was a bad button; each was a second answer to *how does a
+section offer a verb*, which is what makes a page look busy while every
+individual control looks fine) and
+`FoldPairRow` in `src/components/SectionView.tsx` (every **Fold all · Unfold
+all** row — a thread's roots and a page's sections are the same control at two
+scopes, so one component draws both; each button renders only when it has work,
+and they are never one toggle, SOCIAL-21. The arithmetic under them is pure and
+therefore lives in `src/lib/replyTree.ts` — `draftLine` / `foldableRoots` /
+`foldAllRoots` / `unfoldBranch`, locked in `src/lib/reply-tree.test.ts`) and
 `src/lib/foldHeader.ts` (every foldable section
 header) and `FoldSection` in `src/components/SectionView.tsx` (every SECTION of
-an entity page — ONE primitive with an optional icon, merged 2026-08-12 from the
-`MainSection` / `SidePanel` pair that by then differed by that icon and half a
-rem of margin. An entity page is one reading column of these, **configuration
+an entity page — ONE primitive, merged 2026-08-12 from the
+`MainSection` / `SidePanel` pair that by then differed by an icon and half a
+rem of margin. The icon survived that merge as "the adapted style" and went on
+2026-08-13 (*"remove icons from section titles, unifying the style"*): an
+optional decoration on a shared primitive is a standing invitation to two looks,
+and twelve sections wore a glyph along no rule anyone could state. There is no
+version of "which sections get an icon" easier to keep true than "none do", so
+the prop is gone rather than made consistent — and the label went 11px → 12px,
+since it and the rule under it are now the whole of what separates two sections.
+An entity page is one reading column of these, **configuration
 folded and content open**; a section that opens folded owes a `summary` — the
 thread's stub rule, an index entry and never a gap. Posture persists per account
 keyed by TITLE (`src/lib/sectionFold.ts`), which is what bounds the key space
@@ -171,9 +193,16 @@ and imposes the one constraint worth knowing: two same-named sections MUST
 declare the same `defaultFolded`, because they share a stored key. What is
 deliberately NOT shared with the thread's fold is `src/lib/replyTree.ts` — a
 discussion is a recursive tree, a page's sections are a flat list; the cue and
-the Fold all · Unfold all rule are the parts that generalize. Locked by
-`src/components/main-column-sections.test.ts`, `src/lib/section-fold.test.ts`
-and `e2e/project-page.spec.ts`)
+the Fold all · Unfold all rule are the parts that generalize. **Section ORDER is
+bounded-before-growing** (owner directive 2026-08-13) — three bands separated by
+how a section behaves after a year of use, not by what it is about: state ·
+configuration · histories. The reasoning, including why Open work is band 1
+(a queue is drained; a ledger only lengthens) and why this reversed the previous
+day's config-at-the-tail decision, is at the render site in `ProjectDetail`.
+Locked by `src/components/main-column-sections.test.ts`,
+`src/lib/section-fold.test.ts` and `e2e/project-page.spec.ts` — the order lives
+in the E2E alone, since a source scan and a rendered walk would be two
+statements of one JSX sequence)
 and `src/lib/pageHeader.ts` (every PAGE's opening title block — hub and
 detail pages share one title look + container rhythm; the chrome bars
 `SessionTitleBar`/`PanelShell` are a different role, deliberately distinct)

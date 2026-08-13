@@ -26,6 +26,28 @@ const PROJECT = '/projects/p-insights'
 const CONFIG = ['Instructions', 'Sharing', 'Delegation', 'Scheduled', 'Context']
 const CONTENT = ['About', 'Recent sessions', 'Changes', 'Discussion', 'Contributors', 'Coordination', 'Open work']
 
+/** The page's section order, top to bottom (owner directive 2026-08-13:
+ *  *"reorder the sections into logical order and fixed-length before elongating
+ *  ones like discussion and recent sessions"*).
+ *
+ *  Three bands, separated by how a section behaves after a year of use rather
+ *  than by what it is about: STATE (bounded answers) · CONFIGURATION (owner-only,
+ *  every one of them folded to a line) · HISTORIES (unbounded). The reasoning,
+ *  including why Open work stays in band 1 and why configuration moved ahead of
+ *  the histories, is at the render site in `ProjectDetail`.
+ *
+ *  Locked HERE and nowhere else. Order is one JSX sequence, so a source scan and
+ *  a rendered walk would be two statements of one decision — the hazard this
+ *  file already names about CONFIG/CONTENT, which earn their double statement by
+ *  checking genuinely different things (what the source declares vs what a
+ *  signed-in reader sees). Order does not: the rendered walk subsumes the source
+ *  one and additionally proves the conditional sections land in the right place. */
+const ORDER = [
+  'About', 'Attention', 'Contributors', 'Coordination', 'Open work',
+  'Instructions', 'Context', 'Sharing', 'Delegation', 'Scheduled',
+  'Changes', 'Recent sessions', 'Discussion',
+]
+
 /** Every section header on the page — the disclosure buttons, and only those.
  *
  *  A direct-child path rather than a descendant sweep, because the Discussion
@@ -76,6 +98,24 @@ test('the project page is one column of foldable sections, configuration folded'
     'and a right edge — one column, not a column beside a wider header',
   ).toBeLessThanOrEqual(1)
 
+  // ── The order: bounded before growing ─────────────────────────────────────
+  //  Read off the page rather than declared, and checked two ways, because the
+  //  two failures look nothing alike. A section that MOVED shows up in the
+  //  sequence check; a section that appeared under a name nobody planned for
+  //  would slip through it silently (the sequence of a subset stays sorted), so
+  //  the unknown-name check has to be separate.
+  //
+  //  `textContent`, not `innerText`: the label is uppercased in CSS, and
+  //  `innerText` returns what the browser painted, so a title-cased list would
+  //  fail against a correct page.
+  const seen = (await page.locator(HEADERS).allTextContents()).map((t) => t.trim())
+  expect(seen.filter((t) => !ORDER.includes(t)), 'every section on the page is one this order accounts for').toEqual([])
+  //  Filtered by what actually rendered, because two sections are conditional:
+  //  Attention renders only when something needs the reader (no empty noise),
+  //  and Open work only on a guarded project. The claim is the ORDER, not the
+  //  roster — CONFIG/CONTENT above are what hold the roster.
+  expect(seen, 'the sections arrive in the declared order').toEqual(ORDER.filter((t) => seen.includes(t)))
+
   // ── Configuration opens folded, content opens open ────────────────────────
   for (const title of CONFIG) {
     await expect(header(page, title), `${title} is configuration — it opens folded`).toHaveAttribute(
@@ -110,6 +150,51 @@ test('the project page is one column of foldable sections, configuration folded'
   await expect(sharing).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByText('tenant-beta').first()).toBeVisible()
   await sharing.click()
+
+  // ── A section's verbs all live in ONE cluster ─────────────────────────────
+  //  (Owner directive 2026-08-13: *"fold/unfold all buttons in discussion
+  //  section can be per-section buttons, too … make all per-section buttons of
+  //  the same style that show upon hover"*.)
+  //
+  //  The thread's Fold all · Unfold all used to hang above the posts as its own
+  //  right-aligned row of text buttons — a third place the Discussion section
+  //  put a verb, alongside the header cluster and the per-post acts. Checked
+  //  here and not by source scan because this section passes `actions` a
+  //  VARIABLE, so a scan for hand-rolled buttons in the prop (which
+  //  `main-column-sections.test.ts` does run) cannot see through it.
+  const threadFold = page.getByRole('button', { name: /^Fold all posts/ })
+  await expect(threadFold).toHaveCount(1)
+  //  Hidden at rest and revealed on hover — the "normally hidden, contributing
+  //  to a visually cleaner page" half of the directive, and the half a walk that
+  //  merely clicks the button cannot see: Playwright presses an `opacity-0`
+  //  control perfectly happily, so pressing it proves nothing about whether
+  //  anyone can see it.
+  //
+  //  Asserted as COMPUTED opacity, not as a class. The first cut checked for
+  //  `opacity-0` in the class list and passed against a deliberately pinned
+  //  cluster — `SECTION_REVEAL` always contains `opacity-0` and pinning appends
+  //  `opacity-100` to beat it by cascade, so the class is present in both
+  //  states. A class name is what the code says; this is what the reader sees.
+  const cluster = threadFold.locator('xpath=..')
+  await expect(cluster).toHaveCSS('opacity', '0')
+  await header(page, 'Discussion').hover()
+  await expect(cluster).toHaveCSS('opacity', '1')
+  //  …and it is the THREAD's control, distinct from the page's — two Fold alls
+  //  at two scopes, which is why the accessible names carry their nouns.
+  await expect(page.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(1)
+
+  const OPENING = 'Read through the Q3 baseline'
+  await expect(page.locator('p', { hasText: OPENING })).toHaveCount(1)
+  await threadFold.click()
+  //  Folded: the body paragraph is gone and the stub stands in its place. (The
+  //  stub quotes the same opening words, so this asserts on the `<p>` the open
+  //  post renders — `getByText` would match either.)
+  await expect(page.locator('p', { hasText: OPENING })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Unfold all posts/ })).toHaveCount(1)
+  //  The pair is two independent acts (SOCIAL-21), so the way back is its own
+  //  control and not a relabelled one.
+  await page.getByRole('button', { name: /^Unfold all posts/ }).click()
+  await expect(page.locator('p', { hasText: OPENING })).toHaveCount(1)
 
   await ada.context.close()
 })

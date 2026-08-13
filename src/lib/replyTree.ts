@@ -294,3 +294,70 @@ export function foldOthers<P extends ReplyLike>(
   }
   return next
 }
+
+/** ── The thread-wide fold acts, as arithmetic ────────────────────────────────
+ *  The three sweeps a reader can press over a whole thread — fold every root,
+ *  fold everything off one reading line (`foldOthers`, above), discard a
+ *  branch's folds — plus the guard all of them owe the composer.
+ *
+ *  They live here rather than in the hook that calls them because
+ *  `src/components/CLAUDE.md` says where pure logic goes and why: `node --test`
+ *  has no DOM, so a rule that stays in a component can only be scanned as
+ *  source or walked in a browser, and *"if a rule there is hard to assert, that
+ *  is usually a sign the logic wants to move rather than that the assertion
+ *  wants to be cleverer."* The draft guard in particular is a rule with a truth
+ *  table and a failure mode nobody sees — it fails silently, and only for the
+ *  person who happened to be mid-reply — which is precisely the kind that
+ *  should not be locked by hoping a browser spec has a composer open.
+ *
+ *  Same shape as `foldOthers`: current set in, next set out. Nothing here knows
+ *  about React. */
+
+/** The posts a thread-wide fold MAY NOT touch: the one being answered, and every
+ *  post above it.
+ *
+ *  The composer holds an unsaved draft, and a sweep that eats one silently is a
+ *  loss the author only discovers afterwards. The ANCESTORS are the half that is
+ *  easy to get wrong — sparing only the composing post leaves a parent free to
+ *  fold, a folded parent renders none of its children, so the draft goes anyway
+ *  and the guard reads as though it works. */
+export function draftLine<P extends ReplyLike>(tree: ReplyTree<P>, replyingTo: string | null): Set<string> {
+  if (replyingTo === null) return new Set<string>()
+  const line = ancestorsOf(tree, replyingTo)
+  line.add(replyingTo)
+  return line
+}
+
+/** Which ROOTS "Fold all" still has work on — the render gate for the control.
+ *
+ *  Roots only, and that asymmetry is the fix SOCIAL-21 records: Fold all is a
+ *  bulk press of the fold TOGGLE, so it may not reach inside the branches it
+ *  folds, while Unfold all answers for the set at every depth. */
+export function foldableRoots<P extends ReplyLike>(
+  tree: ReplyTree<P>,
+  folded: ReadonlySet<string>,
+  spared: ReadonlySet<string>,
+): string[] {
+  return tree.roots.filter((p) => !folded.has(p.id) && !spared.has(p.id)).map((p) => p.id)
+}
+
+/** "Fold all" — every root that is not already folded and not holding the draft.
+ *  Interiors untouched, so opening one afterwards restores what was built in it. */
+export function foldAllRoots<P extends ReplyLike>(
+  tree: ReplyTree<P>,
+  folded: ReadonlySet<string>,
+  spared: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set(folded)
+  for (const id of foldableRoots(tree, folded, spared)) next.add(id)
+  for (const id of spared) next.delete(id)
+  return next
+}
+
+/** The discard at BRANCH scope: drop `ids` from the fold set, at every depth.
+ *  Not invertible and not a toggle — pressing it twice is pressing it once. */
+export function unfoldBranch(folded: ReadonlySet<string>, ids: Iterable<string>): Set<string> {
+  const next = new Set(folded)
+  for (const id of ids) next.delete(id)
+  return next
+}

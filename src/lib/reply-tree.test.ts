@@ -16,7 +16,11 @@ import {
   ancestorsOf,
   buildReplyTree,
   descendantCount,
+  draftLine,
+  foldAllRoots,
+  foldableRoots,
   foldOthers,
+  unfoldBranch,
   replyIndentClass,
   MAX_INDENT_DEPTH,
   DISCARD_SLOT_CLASS,
@@ -256,4 +260,89 @@ test('“only this” terminates on a ring rather than hanging the click', () =>
   }
   const folded = foldOthers(ring, 'x', new Set())
   assert.deepEqual([...folded], ['z'], 'the ring is walked once and the unrelated root folds')
+})
+
+/** ── The thread-wide sweeps ──────────────────────────────────────────────────
+ *  Moved out of `useThreadFold` on 2026-08-13, when the two thread-level
+ *  controls became the Discussion section's header verbs and the state had to
+ *  be hoisted out of the list to follow them. `src/components/CLAUDE.md` names
+ *  where the arithmetic then belongs and why: a rule that stays in a component
+ *  can only be source-scanned or walked in a browser, and *"if a rule there is
+ *  hard to assert, that is usually a sign the logic wants to move."*
+ *
+ *  The draft guard is the one that most needed the move. It fails silently and
+ *  only for the person mid-reply, so its whole truth table was previously
+ *  resting on a browser spec happening to have a composer open at the moment it
+ *  swept — which is the shape of a lock that passes for years and then doesn't
+ *  catch the regression. */
+
+test('the draft line is the composing post AND every post above it', () => {
+  //     a
+  //     └ b
+  //       └ c   ← answering here
+  //     d
+  const tree = buildReplyTree([p('a'), p('b', 'a'), p('c', 'b'), p('d')])
+  assert.deepEqual([...draftLine(tree, 'c')].sort(), ['a', 'b', 'c'])
+  // The ancestors are the half that fails quietly: sparing only `c` leaves `a`
+  // free to fold, and a folded `a` renders none of its children — so the draft
+  // goes anyway while the guard reads as though it works.
+  assert.ok(draftLine(tree, 'c').has('a'), 'a grandparent counts — folding it conceals the composer too')
+  assert.ok(!draftLine(tree, 'c').has('d'), 'and an unrelated root does not')
+  // No composer, nothing spared. Stated because the alternative — treating
+  // "nobody is replying" as "spare everything" — would silently disable
+  // Fold all rather than fail.
+  assert.equal(draftLine(tree, null).size, 0, 'no composer open ⇒ nothing is spared')
+})
+
+test('Fold all folds the ROOTS, spares the draft line, and never reaches inside', () => {
+  //     a          d          e
+  //     └ b        └ (none)
+  //       └ c
+  const tree = buildReplyTree([p('a'), p('b', 'a'), p('c', 'b'), p('d'), p('e')])
+  const none = new Set<string>()
+  // Roots only — `b` and `c` are inside `a`, and a bulk act may fold a post but
+  // not decide what it looks like when it is opened again (SOCIAL-21).
+  assert.deepEqual([...foldAllRoots(tree, none, none)].sort(), ['a', 'd', 'e'])
+  // What was already folded INSIDE a root survives, which is the invertibility
+  // contract: open `a` afterwards and `c` is still folded, exactly as left.
+  assert.deepEqual([...foldAllRoots(tree, new Set(['c']), none)].sort(), ['a', 'c', 'd', 'e'])
+  // The draft line is spared — and spared even when it was already folded, so
+  // the sweep cannot leave a composer buried behind a stub it did not create.
+  const spared = draftLine(tree, 'c')
+  assert.deepEqual([...foldAllRoots(tree, none, spared)].sort(), ['d', 'e'])
+  assert.deepEqual([...foldAllRoots(tree, new Set(['a']), spared)].sort(), ['d', 'e'], 'and un-folds a spared root')
+})
+
+test('Fold all reports its work honestly — the gate is the roots it would actually change', () => {
+  const tree = buildReplyTree([p('a'), p('b', 'a'), p('d')])
+  const none = new Set<string>()
+  assert.deepEqual(foldableRoots(tree, none, none).sort(), ['a', 'd'])
+  // Already folded ⇒ no work. This is the render gate, and a control that
+  // renders with nothing to do is the "two equally-lit buttons where only one
+  // means anything" defect the pair was split to avoid.
+  assert.deepEqual(foldableRoots(tree, new Set(['a', 'd']), none), [])
+  // Spared ⇒ no work either, and the two must agree: a sweep that would change
+  // nothing must not offer a button, or pressing it does nothing visible.
+  assert.deepEqual(foldableRoots(tree, none, draftLine(tree, 'b')), ['d'])
+  const spared = draftLine(tree, 'b')
+  assert.deepEqual(
+    foldableRoots(tree, new Set(['d']), spared),
+    [],
+    'the gate and the act agree — nothing left to fold means no control',
+  )
+  assert.deepEqual([...foldAllRoots(tree, new Set(['d']), spared)], ['d'], 'and the act really is a no-op there')
+})
+
+test('the branch discard drops exactly what it names, and is idempotent', () => {
+  const folded = new Set(['a', 'b', 'c', 'z'])
+  assert.deepEqual([...unfoldBranch(folded, ['a', 'b', 'c'])], ['z'])
+  // Pressing it twice is pressing it once — it has no second state, which is
+  // why its control carries no `aria-expanded`.
+  const once = unfoldBranch(folded, ['a', 'b', 'c'])
+  assert.deepEqual([...unfoldBranch(once, ['a', 'b', 'c'])], ['z'])
+  // An id that was never folded is not an error, and the input is not mutated:
+  // the caller holds React state and a sweep that edited it in place would
+  // change the set the next render compares against.
+  assert.deepEqual([...unfoldBranch(folded, ['nobody'])].sort(), ['a', 'b', 'c', 'z'])
+  assert.equal(folded.size, 4, 'the current set is left alone — current in, NEXT out')
 })

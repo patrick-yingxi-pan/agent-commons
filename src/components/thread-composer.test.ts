@@ -36,7 +36,7 @@ test('posting to a thread has exactly ONE caller — the shared composer', () =>
   )
 })
 
-/** Every top-level component in SectionView that renders a `<MainSection>`, as
+/** Every top-level component in SectionView that renders a `<FoldSection>`, as
  *  its whole function body — derived, not a hand-listed set, so a new section is
  *  covered the day it lands (UI-1's lesson about allowlists). The BODY, not just
  *  the JSX block, because a section's verbs are legitimately built into consts

@@ -111,11 +111,14 @@ import { profileTagline, profileTitle } from '../lib/publicFace'
 import { mentionHint, squareVoices, workItemVoices } from '../lib/mentionPicker'
 import { useMentionPicker } from '../lib/useMentionPicker'
 import {
-  ancestorsOf,
   buildReplyTree,
   descendantsOf,
+  draftLine,
+  foldAllRoots,
+  foldableRoots,
   foldOthers,
   replyIndentClass,
+  unfoldBranch,
   DISCARD_SLOT_CLASS,
   FOLD_GUTTER_CLASS,
 } from '../lib/replyTree'
@@ -988,16 +991,27 @@ function ProjectDetail({
           <p className="mt-1 text-sm text-ink-soft">{project.description}</p>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {/* Watch (D24) — on shared projects, for owner and visitor alike: watching
-              needs only visibility (capability shapes affordances, not location). */}
-          {project.shared === true && <WatchButton projectId={project.id} />}
-          {own && (
-            <PrimaryButton icon={<Plus size={15} />} onClick={onNewSession}>
-              New session
-            </PrimaryButton>
-          )}
-        </div>
+        {/* ── What is left in the page header, and why ────────────────────
+            Watch (D24) — on shared projects, for owner and visitor alike:
+            watching needs only visibility (capability shapes affordances, not
+            location).
+
+            "New session" used to stand beside it as the page's one solid
+            button, and moved into the Recent sessions header (owner directive
+            2026-08-13 — *"the new session button at the top right corner
+            actually belongs to the recent sessions section"*). The test is
+            scope: Watch is a relation between the READER and the whole project
+            and belongs to no section, while a new session is a row that will
+            appear in exactly one list, one screen below where the button was.
+
+            Rendered conditionally rather than as an always-present flex row: an
+            unshared project now has NOTHING here, and an empty flex child in a
+            `justify-between` header is 0px of nothing that still gets a gap. */}
+        {project.shared === true && (
+          <div className="flex shrink-0 items-center gap-2">
+            <WatchButton projectId={project.id} />
+          </div>
+        )}
       </header>
 
       {/* ── ONE column of foldable sections ──────────────────────────────────
@@ -1025,87 +1039,102 @@ function ProjectDetail({
           {/* Every section is the same thing now (S17): a bare uppercase heading
               with its content below, folded or not. Three nested wrappers became
               one — the outer was the two-column flex row, the middle was the main
-              column's flex-1, and only the third had a job left (the rhythm). */}
-          <FoldSection title="Recent sessions">
-          {convs.length === 0 ? (
-            <Empty>
-              {own
-                ? 'No sessions in this project yet.'
-                : 'The owner’s sessions are private — the shared surfaces are below: commission your agent, claim a sub-goal, or take open work.'}
-            </Empty>
-          ) : (
-            <CardList>
-              {convs.map((c) => (
-                <div
-                  key={c.id}
-                  className="group flex items-center transition hover:bg-panel-2/60"
-                >
-                  <button
-                    onClick={() => onOpenSession(c.id)}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
-                  >
-                    <MessageSquare size={16} className="shrink-0 text-ink-faint" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[14px] font-medium text-ink">{c.title}</div>
-                      <div className="truncate text-[12px] text-ink-faint">{c.preview}</div>
-                    </div>
-                    <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(c.updatedAt)}</span>
-                  </button>
-                  <Tooltip label="Remove from project">
-                    <button
-                      onClick={() => unfileSession(c.id, c.title)}
-                      aria-label={`Remove ${c.title} from ${project.name}`}
-                      className={`mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
-                    >
-                      <MinusCircle size={15} />
-                    </button>
-                  </Tooltip>
-                </div>
-              ))}
-            </CardList>
-          )}
-          </FoldSection>
+              column's flex-1, and only the third had a job left (the rhythm).
+
+              ── The order: BOUNDED before GROWING ──────────────────────────────
+              (Owner directive 2026-08-13 — *"reorder the sections into logical
+              order and fixed-length before elongating ones like discussion and
+              recent sessions"*.)
+
+              Three bands, and the rule that separates them is how a section
+              behaves after a year of use, not what it is about:
+
+                1. STATE — About · Attention · Contributors · Coordination ·
+                   Open work. Each answers a question with a bounded answer, so
+                   each is roughly as tall on a year-old project as on a new one.
+                2. CONFIGURATION — the owner's run, every section `defaultFolded`
+                   and therefore one line each.
+                3. HISTORIES — Changes · Recent sessions · Discussion. These
+                   accumulate without limit, and reading them is a scroll you
+                   opt into.
+
+              The one that was NOT obvious: Open work stays in band 1, beside
+              Coordination, though it is a list that grows. It is a QUEUE — items
+              are taken and leave it — where the three in band 3 are LEDGERS that
+              only ever get longer. Placement follows the steady-state length,
+              which is the whole point of the ordering, and it keeps the pair
+              that reads as one thought (what is claimed / what is unclaimed)
+              from being split by five configuration stubs.
+
+              This reverses the 2026-08-12 decision that put configuration at the
+              tail — deliberately, because that decision's premise is gone. Config
+              went last while it was HEAVY (the Sharing form was five stacked
+              bordered controls, the tallest block on the page). Folding it made
+              each section one line, and one-line sections cost nothing to pass
+              on the way down; what they cannot survive is sitting BEHIND a
+              discussion, where five lines end up three screens from the top. */}
+          {/* Attention (CW9, Phase G): what needs YOU, each ask naming which
+              approval function it serves — the interrupt justifies itself.
+              Renders only when there is something to say (no empty noise).
+              Second only to About: an interrupt that arrives below the fold has
+              not interrupted anything. */}
+          <AttentionPanel project={project} />
 
           {/* The commons panels live in the MAIN column, not the rail: Contributors
               and Coordination/Open work are the page's PAYLOAD (for a visitor, the
               entire point — the earlier aside squeezed the issues-tray analog to
               288px behind an empty "sessions are private" note), while the rail
               keeps what a rail is for: the owner's configuration. */}
-          {/* Attention (CW9, Phase G): what needs YOU, each ask naming which
-              approval function it serves — the interrupt justifies itself.
-              Renders only when there is something to say (no empty noise). */}
-          <AttentionPanel project={project} />
-
-          {/* The ONE landing ledger (the Changes/Improvements consolidation,
-              2026-07-21): contributions (workflow Phase A) and social proposals
-              (S3) are two paths into the same history, so they render as one
-              panel over one L# sequence — what's in flight now, then the linear
-              history of what landed. Payload for owner and visitor alike. */}
-          <ChangesPanel project={project} own={own} onOpenSession={onOpenSession} />
-          {/* The public thread (social S2): the same root discussion the Commons
-              card will project under its feed post — one conversation, two
-              projections. */}
-          <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />
           <ContributorsPanel project={project} />
           <CoordinationPanel project={project} />
 
-          {/* The OWNER's configuration — instructions, sharing, delegation,
-              scheduled runs, attached context. A visitor's projection redacts
-              all of it (P8), so this whole run is owner-only; it used to be the
-              right rail, and is now the tail of the one column, each section
-              declaring `defaultFolded` because configuration is not what you
-              opened a project to read. */}
+          {/* ── Band 2 · the OWNER's configuration ────────────────────────────
+              Instructions, attached context, sharing, delegation, scheduled runs.
+              A visitor's projection redacts all of it (P8), so this whole run is
+              owner-only, and every section declares `defaultFolded` because
+              configuration is not what you opened a project to read.
+
+              Ordered as a sentence about one run of work: what to do
+              (Instructions) · with what (Context) · who may read it (Sharing) ·
+              who may decide (Delegation) · when it happens (Scheduled). */}
           {own && (
           <>
           <ProjectInstructions project={project} />
 
+          <FoldSection
+            title="Context"
+            defaultFolded
+            summary={contexts.length === 0 ? 'Nothing attached' : contexts.map((c) => c.label).join(' · ')}
+            revealActions={contexts.length === 0}
+            actions={
+              <AddContextButton
+                variant="section"
+                onAttach={attachToProject}
+                connectors={contextsToConnectors(contexts)}
+                repos={[]}
+                attachments={[]}
+                workspaces={[]}
+              />
+            }
+          >
+            {contexts.length === 0 ? (
+              <p className="text-[12px] text-ink-faint">No context attached yet.</p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {contexts.map((ctx, i) => (
+                  <ProjectContextChip key={`${ctx.label}-${i}`} ctx={ctx} onRemove={() => removeContext(ctx.label)} />
+                ))}
+              </div>
+            )}
+          </FoldSection>
+
           {/* Sharing — the owner's audience/onboarding CONFIGURATION (S17): it used
-              to hide inside the Contributors payload; config belongs in the rail.
+              to hide inside the Contributors payload, and configuration is its
+              own section (the rule survives the rail it was first written for).
               Seed projects can't toggle share (the server refuses), so the switch
               gates on isCreatedProject; the role pre-selection applies either way. */}
           <FoldSection
             title="Sharing"
-            icon={<Globe size={14} />}
             defaultFolded
             summary={
               grants.length > 0 ? grants.map((g) => audienceLabel(g.audience)).join(' · ')
@@ -1122,16 +1151,15 @@ function ProjectDetail({
           </FoldSection>
 
           {/* Delegation (CW8, Phase F) — the owner's judgment, handed to their
-              own worker Agent under a written policy: rail because it is the
+              own worker Agent under a written policy: band 2 because it is the
               owner's CONFIGURATION (S16's rule), while the delegated acts
               themselves show on each contribution's public timeline. */}
           <DelegationPanel project={project} />
 
-          {/* The whole aside is already owner-gated above — these panels don't
+          {/* The whole run is already owner-gated above — these panels don't
               re-check `own` (the inner guards were dead-always-true). */}
           <FoldSection
             title="Scheduled"
-            icon={<Clock size={14} />}
             defaultFolded
             summary={
               hasSchedules ?
@@ -1183,35 +1211,85 @@ function ProjectDetail({
             )}
           </FoldSection>
 
-          <FoldSection
-            title="Context"
-            icon={<Folder size={14} />}
-            defaultFolded
-            summary={contexts.length === 0 ? 'Nothing attached' : contexts.map((c) => c.label).join(' · ')}
-            revealActions={contexts.length === 0}
-            actions={
-              <AddContextButton
-                variant="section"
-                onAttach={attachToProject}
-                connectors={contextsToConnectors(contexts)}
-                repos={[]}
-                attachments={[]}
-                workspaces={[]}
-              />
-            }
-          >
-            {contexts.length === 0 ? (
-              <p className="text-[12px] text-ink-faint">No context attached yet.</p>
-            ) : (
-              <div className="flex flex-wrap gap-1.5">
-                {contexts.map((ctx, i) => (
-                  <ProjectContextChip key={`${ctx.label}-${i}`} ctx={ctx} onRemove={() => removeContext(ctx.label)} />
-                ))}
-              </div>
-            )}
-          </FoldSection>
           </>
           )}
+
+          {/* ── Band 3 · the HISTORIES ────────────────────────────────────────
+              What accumulates. Each of these three is as long as the project is
+              old, so they go last — everything a reader can answer at a glance
+              sits above them, and reaching one is a scroll they chose.
+
+              Within the band, the work's own order: what landed (Changes) · how
+              it was done (Recent sessions) · what was said about it
+              (Discussion). Discussion is last of the last on purpose: it is the
+              only one with no upper bound at all, growing by replies to replies
+              where the other two grow one row per event. */}
+          {/* The ONE landing ledger (the Changes/Improvements consolidation,
+              2026-07-21): contributions (workflow Phase A) and social proposals
+              (S3) are two paths into the same history, so they render as one
+              panel over one L# sequence — what's in flight now, then the linear
+              history of what landed. Payload for owner and visitor alike. */}
+          <ChangesPanel project={project} own={own} onOpenSession={onOpenSession} />
+
+          <FoldSection
+            title="Recent sessions"
+            // Pinned when the list is empty, the way every other section on this
+            // page pins its verb: a section whose only affordance is invisible
+            // is a discoverability dead end, and "No sessions in this project
+            // yet" with nothing to press is the worst case of it.
+            revealActions={convs.length === 0}
+            actions={
+              own ? (
+                // The page header's solid button, demoted to a section verb
+                // (owner directive 2026-08-13). What it starts is a row in THIS
+                // list; the header keeps only what belongs to the whole project.
+                <SectionAction label="New session" icon={<Plus size={14} />} onClick={onNewSession} />
+              ) : undefined
+            }
+          >
+          {convs.length === 0 ? (
+            <Empty>
+              {own
+                ? 'No sessions in this project yet.'
+                : 'The owner’s sessions are private — the shared surfaces are above: commission your agent, claim a sub-goal, or take open work.'}
+            </Empty>
+          ) : (
+            <CardList>
+              {convs.map((c) => (
+                <div
+                  key={c.id}
+                  className="group flex items-center transition hover:bg-panel-2/60"
+                >
+                  <button
+                    onClick={() => onOpenSession(c.id)}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+                  >
+                    <MessageSquare size={16} className="shrink-0 text-ink-faint" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[14px] font-medium text-ink">{c.title}</div>
+                      <div className="truncate text-[12px] text-ink-faint">{c.preview}</div>
+                    </div>
+                    <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(c.updatedAt)}</span>
+                  </button>
+                  <Tooltip label="Remove from project">
+                    <button
+                      onClick={() => unfileSession(c.id, c.title)}
+                      aria-label={`Remove ${c.title} from ${project.name}`}
+                      className={`mr-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
+                    >
+                      <MinusCircle size={15} />
+                    </button>
+                  </Tooltip>
+                </div>
+              ))}
+            </CardList>
+          )}
+          </FoldSection>
+
+          {/* The public thread (social S2): the same root discussion the Commons
+              card will project under its feed post — one conversation, two
+              projections. */}
+          <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />
       </div>
       </FoldScope>
       </div>
@@ -1327,7 +1405,6 @@ function ProjectInstructions({ project }: { project: Project }) {
   return (
     <FoldSection
       title="Instructions"
-      icon={<FileText size={14} />}
       defaultFolded
       summary={current ? (current.trim().split(/\r?\n/)[0] ?? '') : 'None yet'}
       revealActions={!current}
@@ -2963,15 +3040,238 @@ function leaseLabel(expiresAt: number): string {
  *  (both `canDelete`, two parties that `mine` alone can't express), and everyone
  *  ELSE may report it to whoever holds that delete. The acts are hover-revealed
  *  — moderation should be available, not ambient. */
+/** ── The thread's fold posture, hoisted out of the list that draws it ────────
+ *  What a reader has folded away, plus the two thread-wide acts over it — held
+ *  in a hook so the CONTROLS can render somewhere the list does not reach.
+ *
+ *  That is the whole reason it moved (owner directive 2026-08-13: *"fold/unfold
+ *  all buttons in discussion section can be per-section buttons, too"*). The
+ *  pair used to hang above the roots as its own right-aligned row, which is a
+ *  third place a Discussion section put a verb — the header cluster, the
+ *  per-post acts, and this. On a page whose every other section keeps its verbs
+ *  in one hover-revealed cluster, a floating row of two text buttons is not a
+ *  smaller control, it is a different convention.
+ *
+ *  **`replyingTo` lives here too, and that is deliberate.** It is not fold
+ *  state; it is the input to `spared`, the guard that stops a thread-wide fold
+ *  eating a half-written reply. Splitting them would put "which post is being
+ *  answered" in two places, and this exact pair has already disagreed once — for
+ *  one commit "Fold all" refused to become "Unfold all" while a nested composer
+ *  was open, because a guard and the label describing its result were computing
+ *  the spared set separately. One owner, one answer.
+ *
+ *  Still transient by design (it is `useState`, not `uiPrefs`): folding is a
+ *  viewing POSTURE, not a fact about the discussion, so it stays off the wire
+ *  and does not outlive the page. That is what keeps every door into a thread
+ *  honest — a bell or a mention lands on a post with the thread open, because
+ *  there is no stored fold to have hidden it. */
+type ThreadFold = ReturnType<typeof useThreadFold>
+
+/** The empty thread, once. Every host reaches this hook before its thread has
+ *  resolved (`root?.posts ?? …`), and a fresh `[]` on each of those renders is a
+ *  new identity — which is the one input `buildReplyTree`'s memo keys on, so it
+ *  would rebuild the tree every render for exactly the threads that have no
+ *  posts to build it from. */
+const NO_POSTS: DiscussionPost[] = []
+
+function useThreadFold(posts: DiscussionPost[]) {
+  // Which post is open for a reply — transient composing state, so it lives
+  // here rather than in the page (the same call the turn gutter makes).
+  const [replyingTo, setReplyingTo] = useState<string | null>(null)
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set<string>())
+  // S9 — the chain, at whatever depth it runs (owner directive 2026-08-11).
+  // Orphans, cycles and the every-post-renders-once invariant live in the pure
+  // module, where a node test can hold them — and since 2026-08-13 so do the
+  // three sweeps below (`src/components/CLAUDE.md`: pure logic goes to lib/,
+  // where it is locked exactly rather than scanned or walked). What is left
+  // here is the part that is genuinely React: two `useState`s and the wiring.
+  const tree = useMemo(() => buildReplyTree(posts), [posts])
+  /** The reading line the composer is on — what no sweep may fold. Derived ONCE
+   *  and shared by every act below, because a guard and the control that
+   *  describes its result have to agree about what was spared. */
+  const spared = useMemo(() => draftLine(tree, replyingTo), [replyingTo, tree])
+  /** Your OWN caret still folds a post you are answering — a deliberate act on
+   *  one post rather than a thread-wide sweep — and it closes the composer on
+   *  the way, so the draft never disappears without a gesture that asked for it.
+   *  Folding an ANCESTOR counts: it conceals the composer just as completely,
+   *  and leaving `replyingTo` set would spring the half-written reply back open
+   *  on some later unfold. */
+  const toggle = (id: string) => {
+    const willFold = !folded.has(id)
+    setFolded((f) => {
+      const next = new Set(f)
+      if (willFold) next.add(id)
+      else next.delete(id)
+      return next
+    })
+    if (willFold && spared.has(id)) setReplyingTo(null)
+  }
+  const foldable = foldableRoots(tree, folded, spared)
+  return {
+    tree,
+    posts,
+    folded,
+    replyingTo,
+    setReplyingTo,
+    toggle,
+    /** Whether each act has work — the render gate for either projection of the
+     *  pair. `posts.length > 1` because one post is not a thread to fold. */
+    canFold: posts.length > 1 && foldable.length > 0,
+    canUnfold: posts.length > 1 && folded.size > 0,
+    foldAll: () => setFolded(foldAllRoots(tree, folded, spared)),
+    unfoldAll: () => setFolded(new Set()),
+    /** Fold every post but one line of the thread — the row-level "Fold
+     *  everything else". Draft-guarded like the sweep it is. */
+    foldAllBut: (pid: string) => setFolded(unfoldBranch(foldOthers(tree, pid, folded), spared)),
+    /** The discard at BRANCH scope: this post and everything folded inside it,
+     *  at every depth. Not a toggle and not invertible — see the control's own
+     *  note at its render site. */
+    unfoldBranch: (ids: Iterable<string>) => setFolded((f) => unfoldBranch(f, ids)),
+  }
+}
+
+/** The two thread-wide acts, worded once for the two projections that draw them
+ *  — the Discussion section's icon cluster and the standalone row of text
+ *  buttons. Each act keeps BOTH spellings side by side rather than deriving one
+ *  from the other: an icon-only button carries its whole meaning in its
+ *  accessible NAME and must state its scope ("posts", because a project page
+ *  also offers Fold all over its SECTIONS and two controls may not share one
+ *  name), while a text button already shows the verb and spends its TITLE on
+ *  the explanation. Different words, one act; keeping them adjacent is what
+ *  stops them drifting apart.
+ *
+ *  TWO acts and never a toggle (SOCIAL-21, owner directive 2026-08-11): they
+ *  are not inverses — Fold all leaves the interiors of the roots alone, Unfold
+ *  all discards fold state at every depth — and as one control the way back
+ *  vanished exactly when it was needed. Each renders only when it has work. */
+const THREAD_FOLD_ACTS = {
+  fold: {
+    Icon: ChevronsUp,
+    name: 'Fold all posts — each thread collapses to one line, keeping what you have opened inside it',
+    title: 'Collapse every thread to one line, keeping what you have opened inside them',
+  },
+  unfold: {
+    Icon: ChevronsDown,
+    name: 'Unfold all posts — every post in this thread, at every depth',
+    title: 'Open every post in this thread, at every depth',
+  },
+} as const
+
+/** The pair as SECTION-HEADER verbs: two icon buttons in the hover-revealed
+ *  cluster, the same cue every other section verb on the page wears. Returned
+ *  as an array (or `undefined`) so the host can concatenate it with its own
+ *  verbs — `<FoldSection actions>` takes a node, and a nested fragment would
+ *  put a second flex container inside the cluster. */
+function threadFoldVerbs(fold: ThreadFold): ReactNode[] {
+  return [
+    fold.canFold && (
+      <SectionAction
+        key="fold-all"
+        label={THREAD_FOLD_ACTS.fold.name}
+        icon={<THREAD_FOLD_ACTS.fold.Icon size={14} />}
+        onClick={fold.foldAll}
+      />
+    ),
+    fold.canUnfold && (
+      <SectionAction
+        key="unfold-all"
+        label={THREAD_FOLD_ACTS.unfold.name}
+        icon={<THREAD_FOLD_ACTS.unfold.Icon size={14} />}
+        onClick={fold.unfoldAll}
+      />
+    ),
+  ].filter(Boolean) as ReactNode[]
+}
+
+/** ── The Fold all · Unfold all row, once ─────────────────────────────────────
+ *  A right-aligned pair of ghost text buttons over a foldable collection. TWO
+ *  scopes render it and they are the same control: a THREAD's roots (here) and
+ *  a PAGE's sections (`SectionFoldControls`).
+ *
+ *  One component because they had been two copies of one recipe — same row
+ *  class, same glyphs, same words, same "each button renders only when it has
+ *  work" rule — which is the drift `lib/foldHeader` and `lib/ledger` exist to
+ *  prevent, at the level of a component rather than a class. The copies had
+ *  already started to cost: the reasoning about keeping their accessible names
+ *  apart was written out twice, in both comment blocks, because neither could
+ *  see the other.
+ *
+ *  What genuinely differs is the WORK each scope has (a thread's roots vs a
+ *  page's sections) and the words, so those are the props; the shape is not.
+ *
+ *  `name` is optional, and its absence is the modelled difference rather than
+ *  an oversight: an accessible name must be given only where two controls would
+ *  otherwise share one. A project page carries a page-level pair AND a
+ *  Discussion section, so the page's says "sections"; a thread's own page
+ *  carries nothing to be confused with, so "Fold all" is already unambiguous
+ *  and a redundant label would only make it read differently to a screen reader
+ *  than to everyone else. */
+type FoldAct = { act: () => void; title: string; name?: string }
+
+function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct }) {
+  if (!fold && !unfold) return null
+  return (
+    <div className="mb-2 flex items-center justify-end gap-1">
+      {(
+        [
+          ['Fold all', ChevronsUp, fold],
+          ['Unfold all', ChevronsDown, unfold],
+        ] as const
+      ).map(([text, Icon, a]) =>
+        a ? (
+          <button key={text} onClick={a.act} aria-label={a.name} title={a.title} className={INLINE_ACTION_CLASS}>
+            <Icon size={12} className="shrink-0" />
+            {text}
+          </button>
+        ) : null,
+      )}
+    </div>
+  )
+}
+
+/** The thread's pair as that row — for the projections with no section header to
+ *  move into (a post's own page, a feed card's opened thread). Not a fallback:
+ *  an icon-only control is legible inside a cluster of them, and alone above a
+ *  list of prose it is a mystery glyph. Same reasoning that keeps the
+ *  PAGE-level pair in words. */
+function ThreadFoldControls({ fold }: { fold: ThreadFold }) {
+  return (
+    <FoldPairRow
+      fold={fold.canFold ? { act: fold.foldAll, title: THREAD_FOLD_ACTS.fold.title } : undefined}
+      unfold={fold.canUnfold ? { act: fold.unfoldAll, title: THREAD_FOLD_ACTS.unfold.title } : undefined}
+    />
+  )
+}
+
 function DiscussionPostList({
-  posts,
+  fold,
   onReact,
   onDelete,
   onReport,
   onOpenPerson,
   replyComposer,
 }: {
-  posts: DiscussionPost[]
+  /** This thread — its posts, its tree, and the reader's posture over both,
+   *  from `useThreadFold(posts)`.
+   *
+   *  The HOST owns it because the host decides where the two thread-wide acts
+   *  render — inside a section header's cluster (`threadFoldVerbs`) or above
+   *  the roots as text (`<ThreadFoldControls>`) — and a control cannot be
+   *  lifted out of the component that holds the state it drives. Required, not
+   *  optional: an "or the list makes its own" fallback would be a second,
+   *  invisible source of one state, and a host that forgot the prop would
+   *  silently render a thread nobody can fold.
+   *
+   *  **The posts ride IN the handle, and that is the second half of the same
+   *  rule.** The first cut kept a `posts` prop beside it, so the list built its
+   *  `byId` index from one array while rendering roots from a tree built out of
+   *  another, with no type able to say they must be the same. Handing the list
+   *  two arrays that must agree is an invitation it does not need: a host with
+   *  both a thread and a `slice` of it in scope (the feed card has exactly
+   *  that) could pair them wrong, every `byId` lookup would miss, and the only
+   *  symptom would be the cascade-delete checkbox quietly never appearing for
+   *  an owner who holds the authority. One source, no pairing to get wrong. */
+  fold: ThreadFold
   onReact: (pid: string) => void
   /** Absent on a projection that only PREVIEWS a thread (the feed card's tail):
    *  a destructive act belongs where the whole thread is.
@@ -3001,9 +3301,6 @@ function DiscussionPostList({
   replyComposer?: (parent: DiscussionPost, done: () => void) => ReactNode
 }) {
   const [reported, setReported] = useState<string | null>(null)
-  // Which post is open for a reply — transient composing state, so it lives
-  // here rather than in the page (the same call the turn gutter makes).
-  const [replyingTo, setReplyingTo] = useState<string | null>(null)
   // The post whose retraction is waiting on an answer. The POST, not its id:
   // the dialog names the author and quotes the words, and holding the id would
   // make it re-find in the thread what the click was already holding.
@@ -3012,68 +3309,27 @@ function DiscussionPostList({
   // the dialog opens (below), never remembered: a widening this destructive
   // must be re-asked for, not inherited from the last time you said yes.
   const [cascade, setCascade] = useState(false)
-  // Which posts the READER has folded away. Transient by design: folding is a
-  // viewing POSTURE, not a fact about the discussion, so it stays off the wire
-  // and does not outlive the page. That is also what keeps every door into a
-  // thread honest — a bell or a mention lands on a post with the thread open,
-  // because there is no stored fold to have hidden it. Persist this and that
-  // stops being true; unfold the path to the focused post if it ever does.
-  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set<string>())
-  // S9 — the chain, at whatever depth it runs (owner directive 2026-08-11).
-  // Orphans, cycles and the every-post-renders-once invariant live in the pure
-  // module, where a node test can hold them.
-  const tree = useMemo(() => buildReplyTree(posts), [posts])
+  // The thread and the reader's posture over it come from the HOST's handle —
+  // see `useThreadFold`. Destructured so the body below reads exactly as it did
+  // when this component owned them.
+  const { tree, posts, folded, replyingTo, setReplyingTo, toggle } = fold
   const { roots, childrenOf } = tree
   // Post by id — so the cascade option can ask whether the viewer may delete
   // every post in a branch, from the `canDelete` the server already stamped on
   // each one, without walking the list once per descendant.
   const byId = useMemo(() => new Map(posts.map((p) => [p.id, p])), [posts])
-
-  /** The posts a thread-wide fold may not touch: the one you are part-way
-   *  through ANSWERING, and every post above it.
-   *
-   *  The composer holds an unsaved draft, and a sweep that eats one silently is
-   *  a loss the author only discovers afterwards. The ANCESTORS are the half
-   *  that is easy to get wrong — sparing just the composing post leaves a parent
-   *  free to fold, a folded parent renders none of its children, so the draft
-   *  goes anyway and the guard reads as though it works.
-   *
-   *  Derived ONCE and shared by all three readers below, because a guard and the
-   *  label that describes its result have to agree about what was spared: they
-   *  disagreed for one commit and "Fold all" refused to become "Unfold all"
-   *  while a nested composer was open. */
-  const spared = useMemo(
-    () => (replyingTo === null ? new Set<string>() : new Set([replyingTo, ...ancestorsOf(tree, replyingTo)])),
-    [replyingTo, tree],
-  )
-  const sparingTheDraft = (ids: Set<string>) => {
-    for (const id of spared) ids.delete(id)
-    return ids
-  }
-  /** Your OWN caret still folds a post you are answering — a deliberate act on
-   *  one post rather than a thread-wide sweep — and it closes the composer on
-   *  the way, so the draft never disappears without a gesture that asked for it.
-   *  Folding an ANCESTOR counts: it conceals the composer just as completely,
-   *  and leaving `replyingTo` set would spring the half-written reply back open
-   *  on some later unfold. */
-  const toggle = (id: string) => {
-    const willFold = !folded.has(id)
-    setFolded((f) => {
-      const next = new Set(f)
-      if (willFold) next.add(id)
-      else next.delete(id)
-      return next
-    })
-    if (willFold && spared.has(id)) setReplyingTo(null)
-  }
-  /** What each thread-level act has left to do. Deliberately asymmetric, and the
-   *  asymmetry is the fix: "Fold all" works on the ROOTS (it is a bulk press of
-   *  the fold toggle, so it may not reach inside them), while "Unfold all"
-   *  answers for the set at EVERY depth — a thread whose only folded post is
-   *  three levels down still needs the way out, which is exactly the state the
-   *  old single toggle could not represent. */
-  const foldableRoots = roots.filter((p) => !folded.has(p.id) && !spared.has(p.id)).map((p) => p.id)
-  const anyFolded = folded.size > 0
+  // The composer pointer dies with the list that renders the composer.
+  //
+  // It used to die on its own, because it lived HERE and this component
+  // unmounts whenever its surface puts the thread away — a feed card's
+  // disclosure closing, a Discussion section being folded. Hoisting it to the
+  // host (which does NOT unmount then) quietly outlived that: the draft itself
+  // still goes, since `AnchorThreadComposer` unmounts with the list, so
+  // reopening the card sprang an EMPTY reply box under a post the reader had
+  // walked away from. The fold set surviving is a feature — it is an
+  // arrangement they built. A pointer to a composer that no longer exists is
+  // not one.
+  useEffect(() => () => setReplyingTo(null), [setReplyingTo])
 
   const row = (p: DiscussionPost, depth: number) => {
     const answers = childrenOf.get(p.id) ?? []
@@ -3138,13 +3394,7 @@ function DiscussionPostList({
       <span className={DISCARD_SLOT_CLASS}>
       <Tooltip label="Unfold this branch and everything folded inside it">
         <button
-          onClick={() =>
-            setFolded((f) => {
-              const next = new Set(f)
-              for (const id of [p.id, ...kin]) next.delete(id)
-              return next
-            })
-          }
+          onClick={() => fold.unfoldBranch([p.id, ...kin])}
           // NOT a disclosure, and `aria-expanded` here would claim a toggle
           // that is not one: this control has no second state to be in. It is
           // IDEMPOTENT — pressing it drives the branch to open and pressing it
@@ -3368,7 +3618,7 @@ function DiscussionPostList({
                   {posts.length > 1 && (
                     <Tooltip label="Fold everything else">
                       <button
-                        onClick={() => setFolded(sparingTheDraft(foldOthers(tree, p.id, folded)))}
+                        onClick={() => fold.foldAllBut(p.id)}
                         aria-label={`Fold every post but ${p.author}’s`}
                         className={`${POST_ACT_CLASS} text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
                       >
@@ -3470,47 +3720,11 @@ function DiscussionPostList({
   }
   return (
     <div>
-      {/* ── Fold all · Unfold all ───────────────────────────────────────────
-          TWO buttons, not a toggle — and that correction is the whole of this
-          revision (owner directive 2026-08-11). As one toggle it read
-          `allFolded ? 'Unfold all' : 'Fold all'`, which meant Unfold all
-          existed for exactly as long as you did not use it: fold everything,
-          open a single stub to read it, and the way back out was gone. Every
-          route to a partly-folded thread had the same dead end.
-
-          They are not inverses, so they should never have shared a control.
-          Fold all is a bulk press of the fold TOGGLE — it folds the roots and
-          leaves their interiors alone, so opening one restores what you had
-          built inside it. Unfold all DISCARDS fold state, at every depth. One
-          is reversible and the other is the discard; a single button cannot
-          honestly offer both.
-
-          Each appears when it has work to do, so the pair is never two
-          equally-lit controls where only one means anything. */}
-      {posts.length > 1 && (foldableRoots.length > 0 || anyFolded) && (
-        <div className="mb-2 flex items-center justify-end gap-1">
-          {foldableRoots.length > 0 && (
-            <button
-              onClick={() => setFolded(sparingTheDraft(new Set([...folded, ...foldableRoots])))}
-              title="Collapse every thread to one line, keeping what you have opened inside them"
-              className={INLINE_ACTION_CLASS}
-            >
-              <ChevronsUp size={12} className="shrink-0" />
-              Fold all
-            </button>
-          )}
-          {anyFolded && (
-            <button
-              onClick={() => setFolded(new Set())}
-              title="Open every post in this thread, at every depth"
-              className={INLINE_ACTION_CLASS}
-            >
-              <ChevronsDown size={12} className="shrink-0" />
-              Unfold all
-            </button>
-          )}
-        </div>
-      )}
+      {/* The thread-wide pair used to render HERE, above the roots. It is the
+          host's now (`threadFoldVerbs` / `<ThreadFoldControls>`) — see
+          `useThreadFold` for why the state moved with it. The list draws posts;
+          where the thread's own verbs live is a question about the surface
+          around it, and only the surface can answer it. */}
       <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>
       {/* The question the trash can now asks. Its BODY is the part that earns
           the interruption: a dialog that only says "Are you sure?" moves the
@@ -3603,6 +3817,10 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   // to sit permanently open below the thread, the one section on the page whose
   // primary act was a standing form instead of a header verb.
   const [composing, setComposing] = useState(false)
+  // The thread's fold posture, held HERE so its two acts can render in the
+  // section header's cluster with the section's other verbs (owner directive
+  // 2026-08-13) rather than as a floating row above the roots.
+  const fold = useThreadFold(root?.posts ?? NO_POSTS)
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, subject)
   }
@@ -3627,13 +3845,22 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
         onClick={flip}
       />
     ) : null
+  const verbs = [...threadFoldVerbs(fold), composeVerb, resolveVerb].filter(Boolean)
   return (
     <FoldSection
       title="Discussion"
       revealActions={!root || composing}
-      // Undefined, not an empty fragment: a view-tier reader on an unresolvable
-      // thread has no verbs, and MainSection must render no cluster for them.
-      actions={composeVerb || resolveVerb ? [composeVerb, resolveVerb] : undefined}
+      // Undefined, not an empty fragment: a view-tier reader on an unfoldable,
+      // unresolvable thread has no verbs, and the header must render no cluster
+      // for them.
+      //
+      // The fold pair comes FIRST — before compose and resolve — because it is
+      // the one pair whose usefulness scales with the thread. On the long thread
+      // where you actually reach for it, the cluster is the only thing on screen
+      // that is not a post, and the act you want should not be at the end of it.
+      actions={
+        verbs.length > 0 ? verbs : undefined
+      }
     >
       {root === null ? (
         // Names the verb, like Open work's empty state — with the form now
@@ -3651,7 +3878,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
             </p>
           )}
           <DiscussionPostList
-            posts={root.posts}
+            fold={fold}
             onReact={react}
             onDelete={(pid, cascade) => void deleteDiscussionPost(root.id, pid, subject, cascade)}
             onReport={(pid) => void reportDiscussionPost(root.id, pid)}
@@ -3756,7 +3983,14 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
   const root = isPost ? byId : (threads.find((d) => d.anchor.locus === undefined) ?? null)
   // A post's opening entry is the card's own text, so it is not one of the
   // replies below it.
-  const shown = root ? (isPost ? root.posts.slice(1) : root.posts) : []
+  // Memoized, because it is now the input to `useThreadFold` as well as to the
+  // list: `slice(1)` mints a new array on every render, and the reply tree
+  // keys on that identity.
+  const shown = useMemo(() => (root ? (isPost ? root.posts.slice(1) : root.posts) : NO_POSTS), [root, isPost])
+  // A card has no section header to put the thread's verbs in, so it keeps the
+  // TEXT pair above the roots — see `<ThreadFoldControls>`. The handle is held
+  // here all the same, because the list no longer owns it either way.
+  const fold = useThreadFold(shown)
   // The conversation is DISCLOSED, and Reply is what discloses it (owner
   // directive 2026-08-08). It used to be a door to `/discussions/:id` — but that
   // page is the same thread in another projection, so the trip bought the reader
@@ -3912,8 +4146,10 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
       {open && (
         <div className="mt-2 border-t border-line pt-3">
           {shown.length > 0 && (
+            <>
+            <ThreadFoldControls fold={fold} />
             <DiscussionPostList
-              posts={shown}
+              fold={fold}
               onReact={react}
               // The S5 guardrails follow the rule they were written with: "a
               // destructive act belongs where the whole thread is." In a FEED
@@ -3927,6 +4163,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
               onReport={standalone && root ? (pid) => void reportDiscussionPost(root.id, pid) : undefined}
               onOpenPerson={(n) => rel.openOwner(n)}
             />
+            </>
           )}
           <div className={shown.length > 0 ? 'mt-3' : undefined}>
             <RootThreadComposer
@@ -4330,6 +4567,11 @@ function DiscussionPage({
   // you could cold-open to that person (asymmetric, and false for the recipient
   // who may certainly reply). One decision, server-side, like `canResolve`.
   const canComment = d?.canPost === true
+  // This page IS the thread, so there is no section header to put the fold pair
+  // in and it keeps the text pair above the roots (`<ThreadFoldControls>`).
+  // Declared here, above the not-found return, for the same reason the reads
+  // above are: hook order must not depend on whether the thread resolved.
+  const fold = useThreadFold(d?.posts ?? NO_POSTS)
   // Opening a message marks it read — that is what "opened" means for an inbox,
   // and leaving the dot lit on a thread the reader is looking at would be a
   // visible lie. Keyed on the newest post so a reply while the page is open
@@ -4450,8 +4692,9 @@ function DiscussionPage({
         </div>
       ) : (
       <div className="max-w-3xl">
+        <ThreadFoldControls fold={fold} />
         <DiscussionPostList
-          posts={d.posts}
+          fold={fold}
           onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
           onDelete={(pid, cascade) => void deleteDiscussionPost(d.id, pid, d.anchor.ref, cascade)}
           onReport={(pid) => void reportDiscussionPost(d.id, pid)}
@@ -5563,7 +5806,6 @@ function DelegationPanel({ project }: { project: Project }) {
   return (
     <FoldSection
       title="Delegation"
-      icon={<Check size={14} />}
       defaultFolded
       summary={list.length === 0 ? 'No judgment delegated' : `${list.length} standing ${list.length === 1 ? 'policy' : 'policies'}`}
       revealActions={list.length === 0 || composing}
@@ -7075,7 +7317,7 @@ function ContextDetail({
         </div>
 
         <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
-          <FoldSection title="Usage" icon={<Clock size={14} />}>
+          <FoldSection title="Usage">
             <div className="space-y-2 text-[13px] text-ink">
               <div className="flex items-center justify-between">
                 <span className="text-ink-soft">Sessions</span>
@@ -7089,7 +7331,7 @@ function ContextDetail({
           </FoldSection>
 
           {isRepo && ctx.dependsOnGitHub && (
-            <FoldSection title="Depends on" icon={<Github size={14} />}>
+            <FoldSection title="Depends on">
               <div className="flex items-center gap-2 text-[13px] text-ink">
                 <Github size={15} className="shrink-0 text-ink-soft" />
                 GitHub connector
@@ -11672,7 +11914,6 @@ function ScheduledDetail({
               `main-column-sections.test.ts`. */}
           <FoldSection
             title="Sharing"
-            icon={<Globe size={14} />}
             defaultFolded
             summary={
               scheduleGrants.length > 0 ? scheduleGrants.map((g) => audienceLabel(g.audience)).join(' · ') : 'Not shared'
@@ -12233,7 +12474,6 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Delivers to"
-      icon={<SendHorizontal size={14} />}
       actions={
         !editing && !preApproved ? (
           <SectionAction label="Edit destination" icon={<Pencil size={13} />} onClick={startEdit} />
@@ -12352,7 +12592,6 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Context & tools"
-      icon={<Plug size={14} />}
       revealActions={tools.length === 0}
       actions={
         <div className="relative">
@@ -12436,7 +12675,6 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Schedule"
-      icon={<Clock size={14} />}
       actions={
         <div className="relative">
           <SectionAction
@@ -12598,7 +12836,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
 function ModelPanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
   return (
-    <FoldSection title="Model" icon={<Sparkles size={14} />}>
+    <FoldSection title="Model">
       <div className="relative">
         <button
           onClick={() => setEditing((v) => !v)}
@@ -13149,39 +13387,39 @@ function SectionFoldControls({ entries }: { entries: FoldEntry[] }) {
   const bits = useSyncExternalStore(subscribeLayout, read, read)
   const folded = (i: number) => bits[i] === '1'
   const { foldable, unfoldable } = pageFoldWork(titles, (t) => folded(titles.indexOf(t)))
-  if (foldable.length === 0 && unfoldable.length === 0) return null
+  // The row itself is `<FoldPairRow>` — the same component the THREAD's pair
+  // renders through, because they are the same control at two scopes. What is
+  // page-specific is only what is below: which sections have work, and the
+  // names.
+  //
+  // The accessible names carry "sections"; the visible text does not. A page
+  // can hold a SECOND pair with the same words — the Discussion section
+  // contains a thread, and a thread has its own Fold all over its posts — so
+  // two controls at different scopes would otherwise share one accessible name,
+  // which is the ambiguity the DM composer's Post buttons were renamed for.
+  // Both names still CONTAIN their visible text, so "click Fold all" remains a
+  // thing a voice user can say (WCAG 2.5.3).
   return (
-    <div className="mb-2 flex items-center justify-end gap-1">
-      {/* The accessible names carry "sections"; the visible text does not.
-          A page can hold a SECOND pair with the same words — the Discussion
-          section contains a thread, and a thread has its own Fold all over its
-          posts — so two controls at different scopes would otherwise share one
-          accessible name, which is the ambiguity the DM composer's Post buttons
-          were renamed for. Both names still CONTAIN their visible text, so
-          "click Fold all" remains a thing a voice user can say (WCAG 2.5.3). */}
-      {foldable.length > 0 && (
-        <button
-          onClick={() => foldable.forEach((t) => setSectionFolded(t, true))}
-          aria-label="Fold all sections"
-          title="Collapse every section on this page to its one-line summary"
-          className={INLINE_ACTION_CLASS}
-        >
-          <ChevronsUp size={12} className="shrink-0" />
-          Fold all
-        </button>
-      )}
-      {unfoldable.length > 0 && (
-        <button
-          onClick={() => unfoldable.forEach((t) => setSectionFolded(t, false))}
-          aria-label="Unfold all sections"
-          title="Open every section on this page"
-          className={INLINE_ACTION_CLASS}
-        >
-          <ChevronsDown size={12} className="shrink-0" />
-          Unfold all
-        </button>
-      )}
-    </div>
+    <FoldPairRow
+      fold={
+        foldable.length > 0 ?
+          {
+            act: () => foldable.forEach((t) => setSectionFolded(t, true)),
+            name: 'Fold all sections',
+            title: 'Collapse every section on this page to its one-line summary',
+          }
+        : undefined
+      }
+      unfold={
+        unfoldable.length > 0 ?
+          {
+            act: () => unfoldable.forEach((t) => setSectionFolded(t, false)),
+            name: 'Unfold all sections',
+            title: 'Open every section on this page',
+          }
+        : undefined
+      }
+    />
   )
 }
 
@@ -13191,7 +13429,16 @@ function SectionFoldControls({ entries }: { entries: FoldEntry[] }) {
  *  margin-harvest pass (2026-08-03) took the box off the side column, the pair
  *  differed by an icon and half a rem of margin. Two components differing by a
  *  prop are one component (owner directive 2026-08-12 — *"one solution for many
- *  similar problems with adapted UI styles"*); the icon IS the adapted style.
+ *  similar problems with adapted UI styles"*).
+ *
+ *  The merge kept the icon as that adapted style, and a day later it went too
+ *  (owner directive 2026-08-13). Worth recording why the second step is not
+ *  merely more of the first: an OPTIONAL decoration on a shared primitive is a
+ *  standing invitation to two looks. Twelve sections wore a glyph and the rest
+ *  did not, along no rule anyone could state — Sharing had a globe because it
+ *  used to live in a rail, Discussion never did because it never had. So the
+ *  prop is gone rather than made consistent: there is no version of "which
+ *  sections get an icon" that is easier to keep true than "none do".
  *
  *  **Foldable, and that is the point of the merge.** The entity page was two
  *  columns of always-open sections; it is one column now, and a column of twelve
@@ -13215,7 +13462,6 @@ function SectionFoldControls({ entries }: { entries: FoldEntry[] }) {
  *  a button is invalid, and "add a routine" is not "fold this". */
 function FoldSection({
   title,
-  icon,
   actions,
   revealActions,
   defaultFolded,
@@ -13223,9 +13469,6 @@ function FoldSection({
   children,
 }: {
   title: string
-  /** The side-column decoration — presence is the only difference the old
-   *  `SidePanel` had left. Absent on a plain content section. */
-  icon?: ReactNode
   /** Header verbs (SectionAction buttons / popover triggers), hover-revealed. */
   actions?: ReactNode
   /** Pin the verbs visible — pass "the section is empty" (discoverability). */
@@ -13290,8 +13533,28 @@ function FoldSection({
             size={13}
             className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
           />
-          {icon}
-          <span className="truncate text-[11px] font-semibold uppercase tracking-wide text-ink-soft">{title}</span>
+          {/* ── Chevron, then the words, and nothing else ──────────────────
+              The icon slot is gone (owner directive 2026-08-13 — *"remove
+              icons from section titles, unifying the style"*), and with it the
+              last difference `SidePanel` had from `MainSection`. The merge doc
+              above called the icon "the adapted style" that justified one
+              component with a prop; a page where five sections wear a glyph and
+              eight do not is not an adapted style, it is two looks — the very
+              defect the merge was for, surviving inside the survivor.
+
+              12px, up from 11. Faint 11px was calibrated when a box drew the
+              structure and the label only named it. The label IS the structure
+              now — it and the rule under it are the whole of what separates two
+              sections — and it had been carrying that at caption size with a
+              glyph beside it doing the noticing.
+
+              A second thing falls out for free: the folded stub's `pl-[1.9rem]`
+              lines its summary up under the TITLE rather than under the caret,
+              and that measurement was only ever right on the sections WITHOUT
+              an icon — an icon shifted the title right and the stub stayed put.
+              One indent is now correct everywhere instead of on two thirds of
+              the sections. */}
+          <span className="truncate text-[12px] font-semibold uppercase tracking-wide text-ink-soft">{title}</span>
         </button>
         {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
       </div>

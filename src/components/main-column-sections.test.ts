@@ -39,9 +39,10 @@ const fn = (name: string): string => stripComments(sectionViewComponent(name))
 /** Every `<FoldSection …>` opening tag's prop text.
  *
  *  Scanned with a brace counter rather than a regex to the first `>`, because
- *  the first `>` is routinely INSIDE a prop — `icon={<Globe size={14} />}` — and
- *  a lazy match would cut every icon-bearing section's props in half, silently
- *  exempting exactly the configuration sections this suite is about. */
+ *  the first `>` is routinely INSIDE a prop — `actions={<SectionAction … />}` —
+ *  and a lazy match would cut every verb-bearing section's props in half,
+ *  silently exempting exactly the sections these tests are about. (The example
+ *  used to be `icon={<Globe size={14} />}`, which is gone; the hazard is not.) */
 function foldSectionTags(): string[] {
   const out: string[] = []
   for (let i = src.indexOf('<FoldSection'); i >= 0; i = src.indexOf('<FoldSection', i + 1)) {
@@ -60,6 +61,22 @@ function foldSectionTags(): string[] {
 }
 
 const titleOf = (tag: string): string => tag.match(/title="([^"]+)"/)?.[1] ?? '(dynamic)'
+
+/** A tag's OWN props — every nested brace group emptied.
+ *
+ *  Because a prop can render another ELEMENT, and that element has props of its
+ *  own with the same names. `actions={<SectionAction icon={<Plus …/>} …/>}` is
+ *  a section with no icon that contains the string `icon=`, and the first cut
+ *  of the no-icons lock reported all ten verb-bearing sections as offenders —
+ *  a red bar against a correct page, which is the same brace-depth mistake the
+ *  extractor above exists to avoid, made one level in. */
+const ownProps = (tag: string): string => {
+  let out = '', depth = 0
+  for (const c of tag) {
+    if (c === '{') { if (depth === 0) out += '{'; depth++ } else if (c === '}') { depth--; if (depth === 0) out += '}' } else if (depth === 0) out += c
+  }
+  return out
+}
 
 test('S17 — sections are bare headings with carded lists, and there is ONE primitive', () => {
   // The merged component draws no box of its own: the LIST cards, not the
@@ -89,6 +106,58 @@ test('S17 — sections are bare headings with carded lists, and there is ONE pri
   for (const name of ['ContributorsPanel', 'CoordinationPanel', 'OpenWorkList']) {
     assert.ok(fn(name).includes('<CardList'), `${name} rows are carded via CardList`)
   }
+})
+
+test('a section title is a chevron and a word — no icon slot to be inconsistent about', () => {
+  // Owner directive 2026-08-13: *"remove icons from section titles, unifying
+  // the style"*. Stated as the ABSENCE OF THE PROP rather than as "no section
+  // passes an icon", because those are different strengths and only one of them
+  // holds. Twelve of the thirty-odd sections wore a glyph along no rule anyone
+  // could state, and a surviving optional prop is a standing invitation to
+  // start again — the next section to want a little emphasis would take it, and
+  // nothing would fail.
+  const section = fn('FoldSection')
+  assert.ok(!/\bicon\?:/.test(section), 'FoldSection declares no icon prop')
+  assert.ok(!/\{icon\}/.test(section), 'and renders no icon slot')
+  const withIcon = foldSectionTags().filter((t) => /\bicon=/.test(ownProps(t))).map(titleOf)
+  assert.deepEqual(withIcon, [], `these still pass an icon to a section title: ${withIcon.join(', ')}`)
+  // The title carries the boundary now (the box came off on 2026-08-12 and the
+  // glyph on 2026-08-13), so it is not caption-sized any more. Asserted as the
+  // exact step because "bigger than it was" is not a thing a later reader can
+  // check, and 11px is the value it must not slide back to.
+  assert.match(section, /text-\[12px\] font-semibold uppercase tracking-wide/, 'the label is the 12px small-caps')
+})
+
+test('a section verb is a SectionAction — one look for every per-section button', () => {
+  // Owner directive 2026-08-13: *"make all per-section buttons of the same
+  // style that show upon hover … normally hidden, contributing to a visually
+  // cleaner page"*. The cluster and its cue are locked in
+  // `src/lib/sectionAction.test.ts`; what THIS asserts is that nothing gets
+  // into a header cluster without going through it.
+  //
+  // A raw `<button` inside `actions=` is the whole failure mode, and it is what
+  // both of the controls this directive moved used to be: the page header's
+  // solid "New session", and the Discussion thread's floating Fold all ·
+  // Unfold all text pair. Neither was a bad button; each was a second answer to
+  // "how does a section offer a verb", which is what makes a page look busy
+  // while every individual control looks fine.
+  // `(^|[\s{])actions=` and not `\bactions=`: the latter matches inside
+  // `revealActions=`, which every one of these sections also carries.
+  const verbTags = foldSectionTags().filter((t) => /(^|[\s{])actions=/.test(t))
+  const offenders = verbTags.filter((t) => /<button\b/.test(t.slice(t.search(/(^|[\s{])actions=/)))).map(titleOf)
+  assert.deepEqual(offenders, [], `these hand-roll a header verb instead of using <SectionAction>: ${offenders.join(', ')}`)
+  // Vacuity guard: the scan means nothing if no section has verbs at all.
+  const withVerbs = verbTags.length
+  assert.ok(withVerbs >= 8, `the scan found the verb-bearing sections (got ${withVerbs})`)
+  // …and the page header no longer competes with them. `PrimaryButton` is the
+  // solid, always-visible face — right for a page's own act, and the thing
+  // "New session" stopped being when it became a row in one list.
+  const detail = fn('ProjectDetail')
+  assert.ok(!detail.includes('<PrimaryButton'), 'the project page header carries no solid button of its own')
+  assert.ok(
+    /title="Recent sessions"[\s\S]{0,600}label="New session"/.test(detail),
+    'New session is the Recent sessions section’s verb',
+  )
 })
 
 test('S17 — owner configuration is its OWN section, never folded into the Contributors payload', () => {

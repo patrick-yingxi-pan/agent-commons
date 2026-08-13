@@ -350,7 +350,14 @@ test('the feed card discloses its thread in place — Reply toggles, nothing nav
   assert.ok(/setOpen\(!open\)/.test(card), 'and actually toggles rather than only opening')
 
   // The whole thread, not a teaser — `shown`, never a slice of it.
-  assert.ok(/posts=\{shown\}/.test(card), 'an opened card renders the entire thread')
+  //
+  // The subject moved on 2026-08-13 and the claim did not: the list used to take
+  // a `posts` prop and now takes the fold HANDLE, which carries the posts (one
+  // source, so a host cannot pair a tree of one array with an index of
+  // another). So the thread the card renders is whatever `useThreadFold` was
+  // built from, and that is where "the whole thread" now has to be asserted.
+  assert.ok(/useThreadFold\(shown\)/.test(card), 'the card’s thread is the whole of `shown`')
+  assert.ok(/<DiscussionPostList\s+fold=\{fold\}/.test(card), '…and the list renders that same thread')
   assert.ok(!/shown\.slice/.test(card), 'a tail would leave the rest of the thread reachable from nowhere')
 
   // The composer is INSIDE the disclosure (owner directive 2026-08-08): the
@@ -617,7 +624,52 @@ test('the per-post unfold-all is gated on the BRANCH alone — not on what is fo
   //  `\W`, and inside a template literal that is the letter W. The declarations
   //  need no escapes and say more — the fold set is state and `hidden` is
   //  derived from it, which is the model the gate is being kept out of.
-  for (const decl of ['const [folded, setFolded]', 'const hidden = folded.has(p.id)']) {
+  //
+  //  The first term is the DESTRUCTURE, not a `useState` pair, since 2026-08-13:
+  //  the fold set moved up to `useThreadFold` so the thread's two sweep verbs
+  //  could render in the Discussion section's header cluster (a control cannot
+  //  leave the component that holds the state it drives). The guard is about the
+  //  model being reachable from this component, not about where it is declared —
+  //  so it follows the model rather than failing at it, which is what a lock is
+  //  for. `folded` and `hidden` still have to be live here either way.
+  for (const decl of ['folded, replyingTo, setReplyingTo, toggle } = fold', 'const hidden = folded.has(p.id)']) {
     assert.ok(body.includes(decl), `the component still has the fold model to have excluded — missing \`${decl}\``)
+  }
+})
+
+/** ── Every host of a thread offers the thread's two sweeps ───────────────────
+ *  The pair moved out of `DiscussionPostList` on 2026-08-13 so it could render
+ *  in the Discussion section's header cluster with that section's other verbs
+ *  (owner directive: *"fold/unfold all buttons in discussion section can be
+ *  per-section buttons, too"*). The list draws posts now; where the thread's
+ *  own verbs live is a question about the surface around it.
+ *
+ *  Which creates a failure the old shape could not have: a host can render the
+ *  list and simply never place the pair, and the thread becomes unfoldable in
+ *  that projection alone. There are three hosts and two answers between them
+ *  (`threadFoldVerbs` in a section header, `<ThreadFoldControls>` where there is
+ *  no header), so "did each host pick one" is a real question with no other
+ *  asker — the browser walks cover the section header and the discussion PAGE,
+ *  and nothing covered the feed card.
+ *
+ *  DERIVED from the file rather than hand-listed, so a fourth projection is
+ *  covered the day it lands — the same rule `thread-composer.test.ts` follows
+ *  for the same file, and the reason UI-1's allowlist lesson keeps being cited. */
+test('every surface that renders a thread also renders its Fold all · Unfold all', () => {
+  const bodies = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+    .split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)
+  const hosts = bodies.filter((b) => b.includes('<DiscussionPostList'))
+  assert.ok(hosts.length >= 3, `the scan found the thread hosts (got ${hosts.length})`)
+  const naked = hosts
+    .filter((b) => !b.includes('<ThreadFoldControls') && !b.includes('threadFoldVerbs('))
+    .map((b) => b.match(/^(?:export )?(?:function|const) ([A-Za-z]+)/)?.[1] ?? '(anonymous)')
+  assert.deepEqual(naked, [], `these render a thread nobody can fold: ${naked.join(', ')}`)
+  // …and each host hands the LIST the same handle it drove the controls with.
+  // Cheap to get wrong now that the posts ride inside the handle: a host that
+  // built one handle for the controls and passed a second to the list would
+  // render one thread and fold another.
+  for (const b of hosts) {
+    const handles = new Set([...b.matchAll(/(?:fold=\{|<ThreadFoldControls fold=\{)([A-Za-z]+)\}/g)].map((m) => m[1]))
+    assert.equal(handles.size, 1, `one host, one fold handle — found ${[...handles].join(', ')}`)
   }
 })
