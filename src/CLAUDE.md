@@ -157,8 +157,17 @@ Embodied by `src/lib/inlineAction.ts` + `src/components/AddTrigger.tsx` (every
 "+ Add ‹thing›" picker-opener) and `src/lib/sectionAction.ts` +
 `src/components/SectionAction.tsx` (every SECTION HEADER's verb — edit/add/post/
 commission/fold — one compact icon button in the header's right-aligned cluster,
-hover-revealed via `SECTION_REVEAL` in `src/lib/hoverReveal.ts`, pinned visible
-when the section is empty; locked by `src/lib/sectionAction.test.ts`. **A
+hover-revealed via `SECTION_REVEAL` in `src/lib/hoverReveal.ts` and **only**
+hover-revealed; locked by `src/lib/sectionAction.test.ts`. There was a
+`revealActions` pin for EMPTY sections until 2026-08-13 — the owner rejected it
+on sight (*"there are still section buttons constantly showed"*), and it deserved
+rejecting: on a fresh project most sections are empty, so the exception was the
+common case. Its `|| composing` half was redundant with the structure —
+`SectionAction` stamps `data-open` from `expanded` and `SECTION_REVEAL` carries
+`has-[[data-open=true]]:opacity-100`, so a disclosed form holds its own cluster
+lit (UI-18's rule now rests there, and `src/lib/hoverReveal.test.ts` says so).
+An empty section names its act in its COPY instead — "Nothing posted. Post a
+work item…" says more than a glyph and costs the page nothing. **A
 section's verbs ALL live in that one cluster** — owner directive 2026-08-13,
 *"make all per-section buttons of the same style that show upon hover … normally
 hidden"*. Two controls were outside it and each moved in: the project page's

@@ -179,6 +179,33 @@ test('the project page is one column of foldable sections, configuration folded'
   await expect(cluster).toHaveCSS('opacity', '0')
   await header(page, 'Discussion').hover()
   await expect(cluster).toHaveCSS('opacity', '1')
+
+  //  …and EVERY section, not just the one under test. This is the assertion the
+  //  first pass should have made: it kept a `revealActions` pin for empty
+  //  sections, on the reasoning that an empty section whose only affordance is
+  //  invisible is a discoverability dead end — and shipped a page with four
+  //  glyphs standing on it, because on a fresh project most sections ARE empty,
+  //  so the exception was the common case (owner report, 2026-08-13: *"there are
+  //  still section buttons constantly showed, instead of showed upon hover"*).
+  //  A per-section assertion could not have caught that; a page-wide one does.
+  //  `expect.poll`, not a bare read: the reveal is a TRANSITION, so moving the
+  //  pointer away starts an animation rather than ending a state, and a one-shot
+  //  `evaluateAll` catches the section just hovered at some opacity between 1
+  //  and 0 (it did, first run — a red bar against a correct page).
+  await page.mouse.move(0, 0)
+  await expect
+    .poll(
+      () =>
+        page
+          .locator(`${HEADERS} + div`)
+          .evaluateAll((els) =>
+            els
+              .filter((e) => getComputedStyle(e).opacity !== '0')
+              .map((e) => e.parentElement?.textContent?.trim() ?? '?'),
+          ),
+      { message: 'no section shows its verbs until you hover it' },
+    )
+    .toEqual([])
   //  …and it is the THREAD's control, distinct from the page's — two Fold alls
   //  at two scopes, which is why the accessible names carry their nouns.
   await expect(page.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(1)

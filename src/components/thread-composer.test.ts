@@ -74,10 +74,21 @@ test('no section leaves a compose form standing open — it hangs off the header
     // Disclosed = the composer sits behind a state gate AND the header carries
     // the verb that flips it, announced as a disclosure (aria-expanded).
     if (!/\{composing && /.test(body)) offenders.push(`${title}: composer renders unconditionally`)
+    // `expanded={composing}` is now carrying TWO jobs, and that is why this
+    // check reads as one line rather than two.
+    //
+    // It announces the verb as a disclosure (`aria-expanded`) — and it is also
+    // what keeps the cluster lit while the form is open, because `SectionAction`
+    // stamps `data-open` from it and `SECTION_REVEAL` carries
+    // `has-[[data-open=true]]:opacity-100`. This test used to demand a THIRD
+    // thing, `revealActions={… || composing}`, on the rule that the verb you
+    // just pressed must not fade out from under the pointer (UI-7). That prop is
+    // gone (owner directive 2026-08-13 — the pin was showing four glyphs on a
+    // page that was meant to be quiet), and its composing half turned out to
+    // have been redundant the whole time: measured with the pin stripped, an
+    // open form holds the cluster at opacity 1 and closing it returns it to 0.
+    // So the rule did not weaken; one mechanism now serves it where two did.
     else if (!/expanded=\{composing\}/.test(body)) offenders.push(`${title}: no header verb discloses it`)
-    // …and the cluster must PIN while composing, or the verb you just pressed
-    // fades out from under the pointer when it leaves the header (UI-7).
-    else if (!/revealActions=\{[^}]*composing/.test(body)) offenders.push(`${title}: the verb unpins mid-compose`)
   }
   assert.deepEqual(
     offenders,

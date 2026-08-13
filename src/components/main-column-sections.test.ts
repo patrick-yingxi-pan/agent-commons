@@ -141,8 +141,26 @@ test('a section verb is a SectionAction — one look for every per-section butto
   // Unfold all text pair. Neither was a bad button; each was a second answer to
   // "how does a section offer a verb", which is what makes a page look busy
   // while every individual control looks fine.
-  // `(^|[\s{])actions=` and not `\bactions=`: the latter matches inside
-  // `revealActions=`, which every one of these sections also carries.
+  // A section's verbs are hover-revealed with NO pinned case (owner directive
+  // 2026-08-13: *"there are still section buttons constantly showed, instead of
+  // showed upon hover"*). Stated as the absence of the PROP, like the icon
+  // above and for the same reason: `revealActions` was an escape hatch with a
+  // principled-sounding justification ("an empty section whose only affordance
+  // is invisible is a dead end"), and on a fresh project most sections are
+  // empty — so the exception was the common case, and a pass meant to quieten
+  // the page left four glyphs standing on it.
+  //
+  // Its `|| composing` half is NOT lost: `SectionAction` stamps `data-open`
+  // from `expanded`, and `SECTION_REVEAL` carries
+  // `has-[[data-open=true]]:opacity-100`, so an open form holds its own cluster
+  // lit. That is asserted where it lives, in `src/lib/hoverReveal.test.ts`.
+  const section = fn('FoldSection')
+  assert.ok(!/revealActions/.test(section), 'FoldSection has no pin — the cluster is hover-revealed, always')
+  assert.ok(!fn('SectionActions').includes('opacity-100'), 'and the cluster appends no pin of its own')
+  const pinned = foldSectionTags().filter((t) => /revealActions/.test(ownProps(t))).map(titleOf)
+  assert.deepEqual(pinned, [], `these pin their verbs visible: ${pinned.join(', ')}`)
+  // `(^|[\s{])actions=` and not `\bactions=`: the latter would also match
+  // inside a longer prop name ending in "actions".
   const verbTags = foldSectionTags().filter((t) => /(^|[\s{])actions=/.test(t))
   const offenders = verbTags.filter((t) => /<button\b/.test(t.slice(t.search(/(^|[\s{])actions=/)))).map(titleOf)
   assert.deepEqual(offenders, [], `these hand-roll a header verb instead of using <SectionAction>: ${offenders.join(', ')}`)

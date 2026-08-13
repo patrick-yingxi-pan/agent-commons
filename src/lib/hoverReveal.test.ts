@@ -28,7 +28,16 @@ test('the section-scoped cue is a NAMED group that stays reachable and persists 
   assert.ok(SECTION_REVEAL.includes('group-hover/section:opacity-100'), 'revealed on section hover')
   // Keyboard reach (WCAG 2.1.1) and an open popover both pin the cluster visible.
   assert.ok(SECTION_REVEAL.includes('focus-within:opacity-100'), 'revealed while focused')
-  assert.ok(SECTION_REVEAL.includes('has-[[data-open=true]]:opacity-100'), 'revealed while a popover is open')
+  // The `data-open` variant carries more weight than it looks. Since 2026-08-13
+  // it is the ONLY thing keeping a section's verbs on screen while the form one
+  // of them opened is up — `FoldSection`'s `revealActions` pin, which used to
+  // say `empty || composing`, was deleted when the owner reported the page still
+  // showing buttons at rest, and the composing half of it turned out to be
+  // redundant with this. `SectionAction` stamps `data-open` from `expanded`, so
+  // a disclosed composer holds its own cluster lit. UI-18's "the verb must not
+  // fade out from under the pointer" now rests here; if this line goes, the
+  // pressed verb vanishes the moment the pointer leaves the header.
+  assert.ok(SECTION_REVEAL.includes('has-[[data-open=true]]:opacity-100'), 'revealed while a popover or disclosed form is open')
   // Real controls (UI-7): persistent below sm, never invisible tap targets.
   assert.ok(SECTION_REVEAL.includes('max-sm:opacity-100'), 'controls persist below sm')
 })

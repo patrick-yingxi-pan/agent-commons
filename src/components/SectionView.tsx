@@ -1105,7 +1105,6 @@ function ProjectDetail({
             title="Context"
             defaultFolded
             summary={contexts.length === 0 ? 'Nothing attached' : contexts.map((c) => c.label).join(' · ')}
-            revealActions={contexts.length === 0}
             actions={
               <AddContextButton
                 variant="section"
@@ -1166,7 +1165,6 @@ function ProjectDetail({
                 `${realSchedules.length + staticSchedules.length} routine${realSchedules.length + staticSchedules.length === 1 ? '' : 's'}`
               : 'No routines'
             }
-            revealActions={!hasSchedules}
             actions={
               <ProjectScheduleAdd
                 linkedIds={new Set(realSchedules.map((t) => t.id))}
@@ -1233,11 +1231,6 @@ function ProjectDetail({
 
           <FoldSection
             title="Recent sessions"
-            // Pinned when the list is empty, the way every other section on this
-            // page pins its verb: a section whose only affordance is invisible
-            // is a discoverability dead end, and "No sessions in this project
-            // yet" with nothing to press is the worst case of it.
-            revealActions={convs.length === 0}
             actions={
               own ? (
                 // The page header's solid button, demoted to a section verb
@@ -1315,7 +1308,6 @@ function ProjectReadme({ project, own }: { project: Project; own: boolean }) {
     <div className="mb-6">
       <FoldSection
         title="About"
-        revealActions={!current}
         actions={
           own && !editing ? (
             <SectionAction
@@ -1407,7 +1399,6 @@ function ProjectInstructions({ project }: { project: Project }) {
       title="Instructions"
       defaultFolded
       summary={current ? (current.trim().split(/\r?\n/)[0] ?? '') : 'None yet'}
-      revealActions={!current}
       actions={
         !editing ? (
           <SectionAction
@@ -1736,7 +1727,6 @@ function ContributorsPanel({ project }: { project: Project }) {
   return (
     <FoldSection
       title="Contributors"
-      revealActions={commissions.length === 0}
       actions={
         <CommissionAdd projectId={project.id} available={available} joinRole={project.defaultRole ?? 'writer'} />
       }
@@ -2210,7 +2200,6 @@ function CoordinationPanel({ project }: { project: Project }) {
     <>
     <FoldSection
       title="Coordination"
-      revealActions={subGoals.length === 0 || claiming}
       actions={
         guarded ? (
           <SectionAction
@@ -2378,7 +2367,6 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
   return (
     <FoldSection
       title="Open work"
-      revealActions={items.length === 0 || composing}
       actions={
         <SectionAction
           label="Post a work item"
@@ -3849,7 +3837,6 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   return (
     <FoldSection
       title="Discussion"
-      revealActions={!root || composing}
       // Undefined, not an empty fragment: a view-tier reader on an unfoldable,
       // unresolvable thread has no verbs, and the header must render no cluster
       // for them.
@@ -5147,7 +5134,6 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
   return (
     <FoldSection
       title="Changes"
-      revealActions={rows.length === 0 || composing !== null}
       actions={
         <>
           <SectionAction
@@ -5808,7 +5794,6 @@ function DelegationPanel({ project }: { project: Project }) {
       title="Delegation"
       defaultFolded
       summary={list.length === 0 ? 'No judgment delegated' : `${list.length} standing ${list.length === 1 ? 'policy' : 'policies'}`}
-      revealActions={list.length === 0 || composing}
       actions={
         <SectionAction
           label="Delegate a judgment — labor moves, liability stays yours"
@@ -12592,7 +12577,6 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Context & tools"
-      revealActions={tools.length === 0}
       actions={
         <div className="relative">
           <SectionAction
@@ -13318,16 +13302,38 @@ function PanelLabel({ children, flush }: { children: ReactNode; flush?: boolean 
   )
 }
 
-/** A section header's right-aligned verb cluster — hover-revealed (SECTION_REVEAL),
- *  pinned visible via `revealed` when the section is empty (the action then IS the
- *  content). Negative block margin swallows the h-6 buttons' extra height so a
- *  header with actions keeps the exact rhythm of one without. */
-function SectionActions({ children, revealed }: { children: ReactNode; revealed?: boolean }) {
-  return (
-    <div className={`-my-1.5 flex shrink-0 items-center gap-0.5 ${SECTION_REVEAL} ${revealed ? 'opacity-100' : ''}`}>
-      {children}
-    </div>
-  )
+/** ── A section header's right-aligned verb cluster ──────────────────────────
+ *  Hover-revealed, and **only** hover-revealed (SECTION_REVEAL). Negative block
+ *  margin swallows the h-6 buttons' extra height so a header with actions keeps
+ *  the exact rhythm of one without.
+ *
+ *  It took a `revealed` prop until 2026-08-13 — "pin the verbs when the section
+ *  is EMPTY", on the argument that an empty section whose only affordance is
+ *  invisible is a discoverability dead end. The owner rejected it on sight of
+ *  the result: *"there are still section buttons constantly showed, instead of
+ *  showed upon hover."* Which is the honest reading of the page — on a fresh
+ *  project MOST sections are empty, so the exception was not an exception, it
+ *  was the common case, and the pass that was meant to quieten the page left
+ *  four glyphs standing on it.
+ *
+ *  **Deleting the prop cost nothing, and that is worth recording**, because two
+ *  of its twelve call sites read `empty || composing` and the second half looked
+ *  load-bearing (UI-18: the verb must not fade out from under the pointer while
+ *  the form it opened is on screen). It was already covered structurally:
+ *  `SectionAction` stamps `data-open` from `expanded`, and `SECTION_REVEAL`
+ *  carries `has-[[data-open=true]]:opacity-100`, so the cluster stays lit for as
+ *  long as its form is open with no help from the caller. Measured before
+ *  removing it — pin stripped, form open ⇒ opacity 1; form closed ⇒ 0 — because
+ *  "this other mechanism already handles it" is exactly the claim that should
+ *  never be taken on inspection.
+ *
+ *  What genuinely goes is the empty-section pin. The replacement is the one the
+ *  section already had: empty-state COPY that names the act ("Nothing posted.
+ *  Post a work item — a standing contributor may take it unprompted"), which
+ *  says more than a glyph could and costs the page nothing when it is not
+ *  needed. */
+function SectionActions({ children }: { children: ReactNode }) {
+  return <div className={`-my-1.5 flex shrink-0 items-center gap-0.5 ${SECTION_REVEAL}`}>{children}</div>
 }
 
 /** ── The page's sections, discovered rather than listed ─────────────────────
@@ -13463,16 +13469,15 @@ function SectionFoldControls({ entries }: { entries: FoldEntry[] }) {
 function FoldSection({
   title,
   actions,
-  revealActions,
   defaultFolded,
   summary,
   children,
 }: {
   title: string
-  /** Header verbs (SectionAction buttons / popover triggers), hover-revealed. */
+  /** Header verbs (SectionAction buttons / popover triggers), hover-revealed —
+   *  always, with no pinned case. See `SectionActions` for why the escape hatch
+   *  went and why removing it changed no behaviour but the one asked for. */
   actions?: ReactNode
-  /** Pin the verbs visible — pass "the section is empty" (discoverability). */
-  revealActions?: boolean
   /** Open folded the first time. A declaration of what the section is FOR
    *  (configuration vs content), never a stored value — see `sectionFold.ts`. */
   defaultFolded?: boolean
@@ -13556,7 +13561,7 @@ function FoldSection({
               the sections. */}
           <span className="truncate text-[12px] font-semibold uppercase tracking-wide text-ink-soft">{title}</span>
         </button>
-        {actions && <SectionActions revealed={revealActions}>{actions}</SectionActions>}
+        {actions && <SectionActions>{actions}</SectionActions>}
       </div>
       {folded ?
         summary !== undefined && (
