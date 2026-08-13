@@ -90,3 +90,25 @@ export const FOLD_HEADER_ORDER = 'label, then chevron' as const
  *  this same 16px applied a second time, which is why list text sat at 32 while
  *  the prose beside it sat at 0. Locked in `main-column-sections.test.ts`. */
 export const SECTION_BODY_CLASS = 'px-4'
+
+/** ── The gap BETWEEN sections, which depends on whether they are folded ──────
+ *  Owner question, 2026-08-13: *"how about giving more vertical space between
+ *  sections? Can that bring more cleanness?"* Tried at 24 (what it was), 32, 36
+ *  and 10 in the running app, and the answer turned out to be yes AND no,
+ *  because the two states of this page want opposite things:
+ *
+ *  - OPEN, a section is a BLOCK — a rule, a label and a paragraph or a list.
+ *    Blocks need air between them or the label reads as belonging to the
+ *    content above it as much as below. 24px against the 8px inside a section
+ *    is a 3:1 ratio; 32 makes it 4:1, and the grouping snaps into place.
+ *  - FOLDED, a section is a ROW — one line, in a list of twelve. Rows want to
+ *    be tight, because the tightness is what makes them read as ONE list.
+ *    At 36 the folded page was twelve scattered lines that had stopped being
+ *    an index; at 12 it is an index again.
+ *
+ *  So the gap belongs to the SECTION, not to the stack that holds it — a
+ *  container can only say one thing, and this needs to say two. Callers that
+ *  used to space their own section stacks give that up (`ProjectDetail`'s
+ *  `space-y-6`), or the two would fight and the larger would win, which is
+ *  exactly the folded case losing. */
+export const SECTION_GAP = { open: 'mb-8', folded: 'mb-3' } as const

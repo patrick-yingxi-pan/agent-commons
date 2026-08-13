@@ -59,7 +59,7 @@ import {
 } from 'lucide-react'
 import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
-import { FOLD_HEADER_CLASS, FOLD_HOVER, SECTION_BODY_CLASS } from '../lib/foldHeader'
+import { FOLD_HEADER_CLASS, FOLD_HOVER, SECTION_BODY_CLASS, SECTION_GAP } from '../lib/foldHeader'
 import { useSectionFold } from '../lib/useSectionFold'
 import { audienceLabel } from '../lib/audienceLabel'
 import { isSectionFolded, pageFoldWork, setSectionFolded } from '../lib/sectionFold'
@@ -1072,7 +1072,7 @@ function ProjectDetail({
           margin this leaves is the price of the merge, paid deliberately. */}
       <SectionFoldControls entries={foldEntries} />
       <FoldScope>
-      <div className="space-y-6">
+      <div>
           {/* About (D26) — the project's ONE description, read by owner and
               visitor alike; only the owner gets the edit affordance, and it is
               in the page header (capability shapes affordances). */}
@@ -1410,7 +1410,7 @@ function ProjectAbout({
     onDone()
   }
   return (
-    <div className="mb-6">
+    <div>
       <FoldSection
         title="About"
         summary={current ? current.replace(/\s+/g, ' ').trim() : 'No description yet'}
@@ -13654,7 +13654,7 @@ function FoldSection({
     // open-canvas — the uppercase label and the column's own gap carry the
     // structure. The box this dropped was the last per-section frame here, and
     // folding is what replaces it as the way to quieten a long page.
-    <section className={SECTION_REVEAL_GROUP}>
+    <section className={`${SECTION_REVEAL_GROUP} ${folded ? SECTION_GAP.folded : SECTION_GAP.open}`}>
       {/* The header's bottom margin belongs to the CONTENT under it, so a
           section folded to nothing gives it back. Fold every section on a
           project page and the old spelling left 24px of gap plus 8px of margin

@@ -63,6 +63,17 @@ const HEADERS = 'section.group\\/section > div > button[aria-expanded]'
  *  against a perfectly correct page, which is the second one this spec has had.
  *  The lesson is the same both times: this app's chrome shares vocabulary with
  *  its content, so a page-level claim needs a page-level scope. */
+/** The gaps between consecutive sections, deduped — one value means one rhythm. */
+const sectionGaps = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => {
+    const secs = [...document.querySelectorAll('section')].filter((e) => e.className.includes('group/section'))
+    const out: number[] = []
+    for (let i = 0; i < secs.length - 1; i++) {
+      out.push(Math.round(secs[i + 1].getBoundingClientRect().top - secs[i].getBoundingClientRect().bottom))
+    }
+    return [...new Set(out)]
+  })
+
 const header = (page: import('@playwright/test').Page, title: string) =>
   page
     .locator(HEADERS)
@@ -370,8 +381,30 @@ test('Fold all · Unfold all act on the whole page, and the posture survives a r
   await expect(foldAll).toBeVisible()
   await expect(unfoldAll).toBeVisible()
 
+  // ── The rhythm, before and after ──────────────────────────────────────────
+  //  (Owner question 2026-08-13: *"how about giving more vertical space between
+  //  sections? Can that bring more cleanness?"* Yes AND no, which is why this
+  //  asserts two different numbers rather than one.)
+  //
+  //  OPEN, a section is a BLOCK and wants air — 24px against the 8px inside a
+  //  section is 3:1, and at 32 the grouping snaps into place. FOLDED, it is a
+  //  ROW in a list of twelve, and rows want to be tight, because the tightness
+  //  is what makes them read as ONE index. Tried at 36 in the running app: the
+  //  folded page became twelve scattered lines that had stopped being a list.
+  //
+  //  So the gap belongs to the SECTION, not the stack — a container can say only
+  //  one thing, and this needs to say two. Measured in BOTH states here because
+  //  that is the whole claim; either number alone is just a spacing value.
+  //  At REST the page is mixed — content open, configuration folded — so it
+  //  carries BOTH rhythms at once, which is the first thing to assert: exactly
+  //  two, not one and not three. (The first cut expected one here and failed
+  //  against a perfectly correct page; the mixed state is the resting state.)
+  expect(await sectionGaps(page), 'the resting page carries both rhythms').toHaveLength(2)
+
   await foldAll.click()
   await expect(expanded()).toHaveCount(0)
+  const foldedGaps = await sectionGaps(page)
+  expect(foldedGaps, 'all folded ⇒ one rhythm').toHaveLength(1)
   // …and Fold all now has nothing to do, so it is GONE rather than sitting inert
   // beside the one control that means something.
   await expect(foldAll).toHaveCount(0)
@@ -393,6 +426,16 @@ test('Fold all · Unfold all act on the whole page, and the posture survives a r
   const count = await page.locator(HEADERS).count()
   await expect(expanded()).toHaveCount(count)
   await expect(page.getByRole('button', { name: 'Unfold all sections', exact: true })).toHaveCount(0)
+
+  //  …and now every section is open, so the other rhythm is uniform — and it is
+  //  the LARGER one. That comparison is the claim; either number alone is just a
+  //  spacing value somebody picked.
+  const openGaps = await sectionGaps(page)
+  expect(openGaps, 'all open ⇒ one rhythm').toHaveLength(1)
+  expect(
+    foldedGaps[0],
+    `a folded section is a row in a list and sits TIGHTER than an open one, which is a block (folded ${foldedGaps[0]}, open ${openGaps[0]})`,
+  ).toBeLessThan(openGaps[0]!)
 
   await ada.context.close()
 })
