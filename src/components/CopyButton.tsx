@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { Check, Copy, X } from 'lucide-react'
 import { COPY_BUTTON_CLASS } from '../lib/copyButton'
+import { SECTION_ACTION_CLASS } from '../lib/sectionAction'
 
 /** The one copy-to-clipboard button. Every "Copy" affordance wears this so the cue
  *  (the compact bordered pill, the label swapping to "Copied" on click, and the
@@ -14,6 +16,7 @@ export function CopyButton({
   copiedLabel = 'Copied',
   ariaLabel,
   onCopied,
+  variant = 'pill',
 }: {
   /** The exact string written to the clipboard. */
   text: string
@@ -29,6 +32,10 @@ export function CopyButton({
    *  by taking the credential rather than by ticking a box promising you did — must
    *  be told. Observation, not attestation. */
   onCopied?: () => void
+  /** A copy action inside a FoldSection still owns clipboard feedback here,
+   *  but wears the section-header icon cue instead of importing a second
+   *  visual language into that cluster. */
+  variant?: 'pill' | 'section'
 }) {
   const [copied, setCopied] = useState(false)
   // Self-reset so the button doesn't sit on a stale "Copied" — the modern default.
@@ -52,14 +59,18 @@ export function CopyButton({
       setFailed(true)
     }
   }
+  const feedback = copied ? copiedLabel : failed ? 'Copy failed' : label
   return (
     <button
       type="button"
       onClick={() => void doCopy()}
       aria-label={ariaLabel ?? label}
-      className={COPY_BUTTON_CLASS}
+      title={variant === 'section' ? feedback : undefined}
+      className={variant === 'section' ? SECTION_ACTION_CLASS : COPY_BUTTON_CLASS}
     >
-      {copied ? copiedLabel : failed ? 'Copy failed' : label}
+      {variant === 'section' ? (
+        copied ? <Check size={13} /> : failed ? <X size={13} /> : <Copy size={13} />
+      ) : feedback}
     </button>
   )
 }

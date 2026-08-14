@@ -363,9 +363,10 @@ the tree fixes — a rail that reflows or navigates-away on expand is the bug.) 
 toggles children without navigating; the row body opens the page.
 
 **A rail child is a PLACE; a partition is a FILTER** (invariant UI-19, owner
-directive 2026-07-24). Three kinds of child; a section has exactly one kind of
-LIST child (surfaces or instances, never both), and may carry a standing door
-beside it:
+directive 2026-07-24). The rail is the account-resource FOREST and the main
+page is the honest projection of the selected node (UI-28). A section has
+exactly one kind of LIST child (surfaces or instances, never both), and may
+carry a standing door beside it:
 
 - **Declared surfaces** — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`): a hub whose
   children are genuinely different PAGES (the Agents hub's Prompts / Commissions /
@@ -384,6 +385,17 @@ beside it:
   The key IS the `PaneSeed` field that opens one, so "the rail lists it" and "a row of
   it is addressable" are one fact — `/artifacts/:id` and `/models/:id` exist because
   of this rule.
+- **Composite instances** — `src/lib/resourceNature.ts` classifies the account
+  ontology independently of its renderers. An atomic resource stops at its row;
+  a composite instance is a branch whose disclosure lists every composing
+  resource that has a canonical place. The parent name opens the parent — it
+  never skips to a preferred child. Projects therefore expand to work,
+  artifacts, saved contexts, routines, changes, sessions and discussion;
+  Scheduled routines expand to their run sessions. Association is not
+  composition: a session's context bindings and artifact provenance do not turn
+  the session into a branch. The selected composite's main page enumerates the
+  same children and uses ProjectDetail's one-column `FoldSection` grammar;
+  `src/lib/resource-nature.test.ts` locks both projections.
 - **Standing doors** — a FIXED child whose place already has its own canonical
   address, so it links out of the section's URL grammar instead of extending it.
   There is exactly one (owner directive 2026-08-09): the Commons' **Your

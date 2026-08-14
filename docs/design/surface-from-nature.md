@@ -53,7 +53,34 @@ Ask these of any event or entity before drawing anything:
    - Outbound: "this proposal targets *that* agent"; "this item is on *that* project."
      → a **ref link** (a chip that navigates, ideally with a hover preview).
    - Inbound (back-references): "referenced by", "forked into", "resolved by". → a
-     reciprocal entry in the target's timeline ("mentioned in …").
+   reciprocal entry in the target's timeline ("mentioned in …").
+
+### Resource composition — one nature, two projections
+
+For an account resource, ask one more structural question before drawing either
+navigation or content: **is this resource atomic, or does it contain other
+independently addressable account resources?** A relation alone does not make a
+composite. A session can reference context and be the provenance of an artifact
+without containing either; a routine contains its run sessions, and a project
+contains its work, artifacts, scoped contexts, routines, changes, sessions and
+discussion.
+
+That answer governs two surfaces at once:
+
+- The **left rail is the account-resource forest**. An atomic resource is a leaf.
+  A composite resource is a branch whose disclosure lists the canonical places
+  that compose it; its name still opens the parent rather than skipping to a
+  child.
+- The **main page is the honest projection of the selected node**. An atomic
+  resource may use the form its payload names. A composite page enumerates all
+  of its composing resources, then uses the Project page's shared grammar: one
+  `max-w-3xl` reading column, one `FoldSection` vocabulary, bounded definition
+  before folded configuration before growing history, and one page-level fold
+  scope.
+
+The dependency-free classification lives in `src/lib/resourceNature.ts`. Keep
+the rail and page projections honest against it; never infer the ontology from
+whatever one component happens to render today.
 
 ## Step 2 — map nature → form (the vocabulary)
 

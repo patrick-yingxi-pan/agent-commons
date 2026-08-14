@@ -15,11 +15,21 @@
  *
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
-import { useState, type ReactNode } from 'react'
-import { useMe, useMyDiscussions, useMyOrgs, useProviders, useSavedContexts } from '../api'
+import { useEffect, useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import {
+  useContributions,
+  useDiscussions,
+  useMe,
+  useMyDiscussions,
+  useMyOrgs,
+  useOpenSubGoals,
+  useProviders,
+  useSavedContexts,
+} from '../api'
 import { useRelations } from '../controller/useRelations'
 import { discussionTitle } from '../../contract/social.ts'
-import type { SectionId } from '../types'
+import type { Project, SectionId } from '../types'
 import type { PaneSeed } from '../lib/paneNav'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
@@ -41,6 +51,8 @@ import { SECTION_META } from '../lib/sections'
 export function SubNavRow({
   label,
   title,
+  kind,
+  depth = 2,
   active,
   onClick,
 }: {
@@ -48,6 +60,11 @@ export function SubNavRow({
   /** The row's full text when the label truncates (an artifact name, a thread's
    *  opening post) — the rail is narrow and these are real entity names. */
   title?: string
+  /** A direct child of a composite can be a different resource kind from its
+   *  parent; name that kind without spending another group row. */
+  kind?: string
+  /** Section → instance is level 2; composite → composing resource is level 3. */
+  depth?: 2 | 3
   active: boolean
   onClick: () => void
 }) {
@@ -56,7 +73,9 @@ export function SubNavRow({
       onClick={onClick}
       title={title}
       aria-current={active ? 'page' : undefined}
-      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-7 pr-2 text-[13px] transition ${
+      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pr-2 text-[13px] transition ${
+        depth === 3 ? 'pl-11' : 'pl-7'
+      } ${
         active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
@@ -64,6 +83,7 @@ export function SubNavRow({
         className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-accent' : 'border border-line-strong bg-transparent'}`}
       />
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      {kind && <span className="shrink-0 text-[10px] text-ink-faint">{kind}</span>}
     </button>
   )
 }
@@ -190,8 +210,14 @@ export interface InstanceChildProps {
   /** The detail id the focused pane is currently showing in this section (null
    *  = its list) — which child wears the highlight. */
   activeId: string | null
+  /** The full focused detail lets a composite child (work / change) carry the
+   *  highlight, not just its parent id. */
+  activeSeed?: PaneSeed | null
+  /** Sessions live outside section grammar, but are still resource leaves. */
+  activeSessionId?: string | null
   /** Open one row: the section, seeded with its detail id. */
   onOpenDetail: (section: SectionId, seed: PaneSeed) => void
+  onOpenSession?: (sessionId: string) => void
 }
 
 /** The instance children of whichever content section this is. A section absent
@@ -262,13 +288,189 @@ function ProjectChildren(props: InstanceChildProps) {
   const rel = useRelations()
   const myOrgIds = new Set((useMyOrgs().data ?? []).map((o) => o.tenant.id))
   const rows = listProjects(rel.allProjects(), filter, myOrgIds)
+  const [showAll, setShowAll] = useState(false)
+  if (rows.length === 0) return <NoRowsRow>No projects here yet.</NoRowsRow>
+  const head = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
   return (
-    <InstanceRows
-      section="projects"
-      rows={rows.map((p) => ({ id: p.id, label: p.name }))}
-      empty="No projects here yet."
-      {...props}
-    />
+    <>
+      {head.map((project) => <ProjectBranch key={project.id} project={project} {...props} />)}
+      {rows.length > RAIL_INSTANCE_CAP && (
+        <ShowAllRow
+          hidden={rows.length - RAIL_INSTANCE_CAP}
+          open={showAll}
+          onToggle={() => setShowAll((v) => !v)}
+        />
+      )}
+    </>
+  )
+}
+
+/** One composite project in the resource forest. Clicking the NAME opens the
+ *  project's honest page; clicking the chevron reveals the SAME composing
+ *  resources that page enumerates — work, artifacts, contexts, routines,
+ *  changes, sessions, and discussion. */
+function ProjectBranch({
+  project,
+  activeSeed,
+  activeSessionId,
+  onOpenDetail,
+  onOpenSession,
+}: { project: Project } & InstanceChildProps) {
+  const branchActive = activeSeed?.projectId === project.id
+  const rootActive = branchActive && !activeSeed?.workItemId && !activeSeed?.contributionId
+  const [expanded, setExpanded] = useState(branchActive)
+  useEffect(() => {
+    if (branchActive) setExpanded(true)
+  }, [branchActive])
+  return (
+    <>
+      <div
+        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-5 pr-2 text-[13px] transition ${
+          rootActive ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${project.name}`}
+          aria-expanded={expanded}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition hover:bg-surface hover:text-ink"
+        >
+          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </button>
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${rootActive ? 'bg-accent' : 'border border-line-strong bg-transparent'}`}
+        />
+        <button
+          onClick={() => onOpenDetail('projects', { projectId: project.id })}
+          title={project.name}
+          aria-current={rootActive ? 'page' : undefined}
+          className="min-w-0 flex-1 truncate text-left"
+        >
+          {project.name}
+        </button>
+      </div>
+      {expanded && (
+        <ProjectResourceChildren
+          project={project}
+          activeSeed={activeSeed}
+          activeSessionId={activeSessionId}
+          onOpenDetail={onOpenDetail}
+          onOpenSession={onOpenSession}
+        />
+      )}
+    </>
+  )
+}
+
+function ProjectResourceChildren({
+  project,
+  activeSeed,
+  activeSessionId,
+  onOpenDetail,
+  onOpenSession,
+}: {
+  project: Project
+  activeSeed?: PaneSeed | null
+  activeSessionId?: string | null
+  onOpenDetail: InstanceChildProps['onOpenDetail']
+  onOpenSession?: InstanceChildProps['onOpenSession']
+}) {
+  const rel = useRelations()
+  const saved = useSavedContexts().data?.contexts ?? []
+  const work = useOpenSubGoals(project.id).data ?? []
+  const changes = useContributions(project.id).data ?? []
+  const discussions = useDiscussions('project', project.id).data ?? []
+  const artifacts = rel.artifactsForProject(project.id)
+  const contexts = rel.contextsForProject(project.id)
+    .map((ctx) => saved.find((item) => item.id === ctx.label || item.label === ctx.label))
+    .filter((ctx): ctx is NonNullable<typeof ctx> => ctx !== undefined)
+  const schedules = rel.schedulesForProject(project.id)
+  const sessions = rel.sessionsForProject(project.id)
+  const rows: {
+    key: string
+    label: string
+    kind: string
+    active: boolean
+    open: () => void
+  }[] = [
+    ...work.map((item) => ({
+      key: `work:${item.id}`,
+      label: item.subGoal,
+      kind: 'work',
+      active: activeSeed?.projectId === project.id && activeSeed.workItemId === item.id,
+      open: () => onOpenDetail('projects', { projectId: project.id, workItemId: item.id }),
+    })),
+    ...artifacts.map((artifact) => ({
+      key: `artifact:${artifact.id}`,
+      label: artifact.name,
+      kind: 'artifact',
+      active: activeSeed?.artifactId === artifact.id,
+      open: () => onOpenDetail('artifacts', { artifactId: artifact.id }),
+    })),
+    ...contexts.map((ctx) => ({
+      key: `context:${ctx.id}`,
+      label: ctx.label,
+      kind: 'context',
+      active: activeSeed?.contextId === ctx.id,
+      open: () => onOpenDetail('contexts', { contextId: ctx.id }),
+    })),
+    ...schedules.map((schedule) => ({
+      key: `schedule:${schedule.id}`,
+      label: schedule.name,
+      kind: 'schedule',
+      active: activeSeed?.scheduleId === schedule.id,
+      open: () => onOpenDetail('scheduled', { scheduleId: schedule.id }),
+    })),
+    ...changes.map((change) => ({
+      key: `change:${change.id}`,
+      label: change.title,
+      kind: 'change',
+      active: activeSeed?.projectId === project.id && activeSeed.contributionId === change.id,
+      open: () => onOpenDetail('projects', { projectId: project.id, contributionId: change.id }),
+    })),
+    ...sessions.map((session) => ({
+      key: `session:${session.id}`,
+      label: session.title,
+      kind: 'session',
+      active: activeSessionId === session.id,
+      open: () => onOpenSession?.(session.id),
+    })),
+    ...discussions.map((discussion) => ({
+      key: `discussion:${discussion.id}`,
+      label: discussionTitle(discussion.posts[0]?.body, 60),
+      kind: 'discussion',
+      active: activeSeed?.discussionId === discussion.id,
+      open: () => onOpenDetail('discussions', { discussionId: discussion.id }),
+    })),
+  ]
+  const [showAll, setShowAll] = useState(false)
+  const cap = 12
+  if (rows.length === 0) return <p className="py-1 pl-11 pr-2 text-[12px] text-ink-faint">No child resources yet.</p>
+  const visible = showAll ? rows : rows.slice(0, cap)
+  return (
+    <>
+      {visible.map((row) => (
+        <SubNavRow
+          key={row.key}
+          label={row.label}
+          title={`${row.label} · ${row.kind}`}
+          kind={row.kind}
+          depth={3}
+          active={row.active}
+          onClick={row.open}
+        />
+      ))}
+      {rows.length > cap && (
+        <button
+          onClick={() => setShowAll((v) => !v)}
+          aria-expanded={showAll}
+          className={`flex w-full items-center rounded-lg py-1.5 pl-11 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+        >
+          {showAll ? 'Show fewer' : `Show all — ${rows.length - cap} more`}
+        </button>
+      )}
+    </>
   )
 }
 

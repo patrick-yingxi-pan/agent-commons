@@ -10,6 +10,7 @@ import {
 import {
   Archive,
   ArchiveRestore,
+  ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
@@ -41,7 +42,14 @@ import { SECTION_FILTERS } from '../lib/sectionFilter'
 import { OwnerProfileChild, SectionFilterMenu, SectionInstanceChildren, SubNavRow } from './SectionTreeChildren'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import { SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
-import { removeSchedule, runScheduleNow, toggleScheduleEnabled, useMe, useNotifications, useSchedules } from '../api'
+import {
+  removeSchedule,
+  runScheduleNow,
+  toggleScheduleEnabled,
+  useMe,
+  useNotifications,
+  useSchedules,
+} from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
@@ -305,14 +313,6 @@ export function Sidebar({
   const toggleSched = () => {
     setLayout('schedOpen', !schedOpen)
     setSchedOpen(!schedOpen)
-  }
-
-  // Open a routine from the rail: land on its latest run (a run *is* a session);
-  // a routine that hasn't run yet opens its page instead.
-  const openRoutine = (task: ScheduledTask) => {
-    const latest = task.runs[0]
-    if (latest) onSelect(runSessionId(task.id, latest.id))
-    else onOpenSchedule(task.id)
   }
 
   // ── Resizable, foldable rail body panes (ADAPT-13) ──────────────────────────
@@ -598,8 +598,14 @@ export function Sidebar({
                       <SectionInstanceChildren
                         section={id}
                         activeId={activeDetailId}
+                        activeSeed={activeSeed}
+                        activeSessionId={inSession ? activeId : null}
                         onOpenDetail={(section, seed) => {
                           onOpenDetail(section, seed)
+                          onLeafNavigate?.()
+                        }}
+                        onOpenSession={(sessionId) => {
+                          onSelect(sessionId)
                           onLeafNavigate?.()
                         }}
                       />
@@ -610,8 +616,9 @@ export function Sidebar({
           </div>
           )}
         </nav>
-        {/* ── Scheduled pane ── each row is a recurring routine; clicking opens its
-            latest run. Folds to its header (like every pane); resizable when open. Its
+        {/* ── Scheduled pane ── each row is a recurring routine; its name opens the
+            routine page and its disclosure lists run-session children. Folds to its
+            header (like every pane); resizable when open. Its
             divider sits ABOVE it — a SIBLING between panes (an in-flow gutter), not
             inside a pane, so it never overlays scroll content / a scrollbar — and
             dragging it up grows this pane while the flex Sections pane absorbs. */}
@@ -653,8 +660,14 @@ export function Sidebar({
                         // hand-rolled `srun-${t.id}-` prefix — that false-positived
                         // across task ids where one extends another (t1 vs t1-2:
                         // srun-t1-2-r1 startsWith srun-t1-).
-                        active={inSession && t.runs.some((r) => runSessionId(t.id, r.id) === activeId)}
-                        onOpen={() => openRoutine(t)}
+                        activeRunId={
+                          inSession
+                            ? (t.runs.find((r) => runSessionId(t.id, r.id) === activeId)?.id ?? null)
+                            : null
+                        }
+                        pageActive={activeSection === 'scheduled' && activeSeed?.scheduleId === t.id}
+                        onOpenPage={() => onOpenSchedule(t.id)}
+                        onOpenRun={(runId) => onSelect(runSessionId(t.id, runId))}
                         menuItems={[
                           {
                             kind: 'action',
@@ -1118,37 +1131,80 @@ function GroupHeader({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
 }
 
-/** One Scheduled-routine row — an outcome/paused dot, the routine name, its short
- *  cadence, and a hover "⋮" menu. Clicking opens the routine's latest run. */
+/** One Scheduled-routine branch — the parent name opens the routine page, while
+ *  its disclosure lists the run sessions composing that routine. */
 function RoutineRow({
   task,
-  active,
-  onOpen,
+  activeRunId,
+  pageActive,
+  onOpenPage,
+  onOpenRun,
   menuItems,
 }: {
   task: ScheduledTask
-  active: boolean
-  onOpen: () => void
+  activeRunId: string | null
+  pageActive: boolean
+  onOpenPage: () => void
+  onOpenRun: (runId: string) => void
   menuItems: RowMenuItem[]
 }) {
   const cadence = task.cadence.split('·')[0]?.trim() || task.cadence
+  // A routine is the composite; a run is one of its children. The old row
+  // skipped the parent whenever a run existed and opened the latest child,
+  // making the routine page unreachable from the very tree that listed it.
+  // Expansion is local disclosure state; an active parent or run opens its
+  // branch so the current place is always visible.
+  const [expanded, setExpanded] = useState(pageActive || activeRunId !== null)
+  useEffect(() => {
+    if (pageActive || activeRunId !== null) setExpanded(true)
+  }, [pageActive, activeRunId])
   return (
-    <div
-      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
-        active ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
-      }`}
-    >
-      <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />
-      <button
-        onClick={onOpen}
-        title={`${task.cadence} · ${task.subtitle}`}
-        className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+    <>
+      <div
+        className={`group flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition ${
+          pageActive ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
+        }`}
       >
-        {task.name}
-      </button>
-      <span className="shrink-0 text-[11px] text-ink-faint group-hover:hidden">{cadence}</span>
-      <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} />
-    </div>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${task.name}`}
+          aria-expanded={expanded}
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+        >
+          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </button>
+        <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />
+        <button
+          onClick={onOpenPage}
+          title={`${task.cadence} · ${task.subtitle}`}
+          aria-current={pageActive ? 'page' : undefined}
+          className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+        >
+          {task.name}
+        </button>
+        <span className="shrink-0 text-[11px] text-ink-faint group-hover:hidden">{cadence}</span>
+        <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} />
+      </div>
+      {expanded && (
+        <div>
+          {task.runs.length === 0 ? (
+            <p className="py-1 pl-9 pr-2 text-[12px] text-ink-faint">No runs yet.</p>
+          ) : (
+            task.runs.map((run) => (
+              <SubNavRow
+                key={run.id}
+                label={`${run.summary}`}
+                title={`${run.summary} · ${run.duration}`}
+                kind="session"
+                active={activeRunId === run.id}
+                onClick={() => onOpenRun(run.id)}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </>
   )
 }
 

@@ -211,23 +211,16 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   // leave the walk looking like it still checked something about them.
   await expect(paneB.locator('aside')).toHaveCount(0)
 
-  // …so UI-9's stacking rule follows the pages that still HAVE two columns. A
-  // routine's detail does, and the rule is the point: the layout gates on the
-  // PANE's container width, not the (wide) viewport — `lg:flex-row` used to hold
-  // two squeezed columns in here. Re-pointed rather than dropped; a rule with no
-  // subject left is a rule nothing enforces.
+  // A routine is the other composite resource. It uses the same one-column
+  // page grammar in this half-width pane; configuration is folded into the
+  // flow instead of restored as a squeezed side rail.
   await page.locator('nav[aria-label="Sections"]').getByText('Scheduled', { exact: true }).click()
   await paneB.getByText('Triage new GitHub issues').first().click()
-  await expect(paneB.locator('aside')).toHaveCount(1)
-  const stacked = await paneB.evaluate((el) => {
-    const aside = el.querySelector('aside')
-    if (!aside) return 'no-aside'
-    const main = aside.parentElement!.firstElementChild!
-    return aside.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 4
-  })
-  expect(stacked, 'a detail side column stacks in a half-width pane').toBe(true)
+  await expect(paneB.locator('aside')).toHaveCount(0)
+  await expect(paneB.getByText('Instruction', { exact: true })).toBeVisible()
+  await expect(paneB.getByText('Recent runs', { exact: true })).toBeVisible()
   const routineHScroll = await paneB.evaluate((el) => el.scrollWidth > el.clientWidth + 1)
-  expect(routineHScroll, 'and the stacked page still fits the pane').toBe(false)
+  expect(routineHScroll, 'and the one-column page still fits the pane').toBe(false)
 })
 
 test('New session lands in the FOCUSED pane and materializes in place — the primary keeps its content', async ({ page }) => {
@@ -336,6 +329,14 @@ test('an entity door inside a pane-hosted section page stays IN THE PANE (the na
   // detail on the PRIMARY, the reported bug).
   await paneB.getByRole('button').filter({ hasText: 'GitHub' }).first().click()
   await expect(paneB.getByText('Disconnect').first()).toBeVisible()
+  const atomicAside = paneB.locator('aside')
+  await expect(atomicAside).toHaveCount(1)
+  const atomicStacked = await paneB.evaluate((el) => {
+    const aside = el.querySelector('aside')!
+    const main = aside.parentElement!.firstElementChild!
+    return aside.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 4
+  })
+  expect(atomicStacked, 'an atomic detail side column yields to the pane container').toBe(true)
 
   // The primary is untouched; the address names the focused pane's DEEP page
   // (the connector's detail — the pane reports its live location).
@@ -367,10 +368,14 @@ test('an entity DOOR (the ⌘K palette) lands in the FOCUSED pane, detail open �
 test('a run session is ONE surface: run history floats as a click-down, never a second pane (UI-15)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
-  // Open the scheduled routine's latest run from the rail: the run SESSION
-  // fills the focused pane ALONE — no run-switcher pane tiles beside it (the
-  // old two-split-windows look this locks out).
-  await page.locator('aside').getByText('Triage new GitHub').first().click()
+  // The routine name now honestly opens the composite parent (UI-28), while
+  // its disclosed run child opens the run SESSION. That child still fills the
+  // focused pane ALONE — no run-switcher pane tiles beside it (the old
+  // two-split-windows look this locks out).
+  const scheduled = page.locator('[data-rail-pane="scheduled"]')
+  const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })
+  if ((await routineToggle.getAttribute('aria-expanded')) === 'false') await routineToggle.click()
+  await scheduled.getByRole('button', { name: 'Labeled 11 issues, drafted 6 replies' }).click()
   await expect(page).toHaveURL(/\/s\/srun-/)
   await expect(page.locator('[data-context-pane]'), 'no runs pane tiles beside the thread').toHaveCount(0)
   await expect(page.locator('[data-main-pane]')).toHaveCount(1)

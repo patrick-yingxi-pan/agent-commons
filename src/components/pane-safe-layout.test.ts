@@ -56,6 +56,6 @@ test('the Page scroller is the @container the page layouts key on', () => {
   const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
   assert.match(src, /flex-1 overflow-y-auto @container/, 'Page carries the @container context')
   // The converted switches exist and are container-gated (the escape sites).
-  assert.ok(src.includes('@3xl:flex-row'), 'detail side-columns gate on the container')
+  assert.ok(src.includes('@3xl:flex-row'), 'atomic detail side-columns gate on the container')
   assert.ok(src.includes('@2xl:grid-cols-2'), 'the artifact grid gates on the container')
 })

@@ -17,14 +17,14 @@ import { newUser } from './social-helpers.ts'
  *  routines, four contexts. A quiet project would let a half-rendered page pass. */
 const PROJECT = '/projects/p-insights'
 
-/** The five configuration sections, and the seven the page is FOR. Written out
+/** The five configuration sections, and the eight the page is FOR. Written out
  *  because this is the owner's decision being locked, not a fact derived from
  *  the source — the source-level version of the same split lives in
  *  `src/components/main-column-sections.test.ts`, and two independent statements
  *  of one decision is exactly how a decision stops being enforced. Here it is
  *  asserted through what a signed-in reader actually SEES. */
 const CONFIG = ['Instructions', 'Sharing', 'Delegation', 'Scheduled', 'Context']
-const CONTENT = ['About', 'Recent sessions', 'Changes', 'Discussion', 'Contributors', 'Coordination', 'Open work']
+const CONTENT = ['About', 'Artifacts', 'Recent sessions', 'Changes', 'Discussion', 'Contributors', 'Coordination', 'Open work']
 
 /** The page's section order, top to bottom (owner directive 2026-08-13:
  *  *"reorder the sections into logical order and fixed-length before elongating
@@ -43,7 +43,7 @@ const CONTENT = ['About', 'Recent sessions', 'Changes', 'Discussion', 'Contribut
  *  signed-in reader sees). Order does not: the rendered walk subsumes the source
  *  one and additionally proves the conditional sections land in the right place. */
 const ORDER = [
-  'About', 'Attention', 'Contributors', 'Coordination', 'Open work',
+  'About', 'Attention', 'Contributors', 'Coordination', 'Open work', 'Artifacts',
   'Instructions', 'Context', 'Sharing', 'Delegation', 'Scheduled',
   'Changes', 'Recent sessions', 'Discussion',
 ]
@@ -354,6 +354,53 @@ test('the project page is one column of foldable sections, configuration folded'
   //  control and not a relabelled one.
   await page.getByRole('button', { name: /^Unfold all posts/ }).click()
   await expect(page.locator('p', { hasText: OPENING })).toHaveCount(1)
+
+  await ada.context.close()
+})
+
+test('composite resources are branches in the rail and honest one-column pages', async ({ browser }) => {
+  test.setTimeout(ms(120_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  await page.goto(PROJECT)
+  await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
+
+  // The Projects section lists resources; a composite project is another
+  // disclosure level, and its canonical children sit directly underneath it.
+  // The chevron discloses; the name remains the door to the parent.
+  const sectionsNav = page.getByRole('navigation', { name: 'Sections' })
+  const projectToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Insights dashboard$/ })
+  await expect(projectToggle).toBeVisible()
+  if ((await projectToggle.getAttribute('aria-expanded')) === 'false') await projectToggle.click()
+  await expect(sectionsNav.getByRole('button', { name: 'insights-onepager.md' })).toBeVisible()
+  await expect(sectionsNav.getByText('artifact', { exact: true }).first()).toBeVisible()
+  const showAllChildren = sectionsNav.getByRole('button', { name: /^Show all —/ })
+  if ((await showAllChildren.count()) > 0) await showAllChildren.first().click()
+  await expect(sectionsNav.getByText('session', { exact: true }).first()).toBeVisible()
+
+  await sectionsNav.getByRole('button', { name: 'Insights dashboard', exact: true }).click()
+  await expect(page).toHaveURL(/\/projects\/p-insights$/)
+  await expect(header(page, 'Artifacts')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('button', { name: 'insights-onepager.md', exact: true })).toBeVisible()
+
+  // Scheduled owns its own pane rather than duplicating the list under the
+  // section tree. A routine is still a composite branch: the parent name opens
+  // the routine and the disclosure holds the run sessions.
+  const scheduled = page.locator('[data-rail-pane="scheduled"]')
+  const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })
+  await expect(routineToggle).toBeVisible()
+  if ((await routineToggle.getAttribute('aria-expanded')) === 'false') await routineToggle.click()
+  await expect(scheduled.getByRole('button', { name: 'Labeled 11 issues, drafted 6 replies' })).toBeVisible()
+
+  await scheduled.getByRole('button', { name: 'Triage new GitHub issues', exact: true }).click()
+  await expect(page).toHaveURL(/\/scheduled\/s-issue-triage$/)
+  await expect(page.getByRole('heading', { name: 'Triage new GitHub issues' })).toBeVisible()
+  const routineColumn = page.locator('div:has(> header)')
+  await expect(routineColumn).toHaveCount(1)
+  await expect(routineColumn.locator('aside')).toHaveCount(0)
+  await expect(header(page, 'Instruction')).toBeVisible()
+  await expect(header(page, 'Workflow')).toBeVisible()
+  await expect(header(page, 'Recent runs')).toBeVisible()
 
   await ada.context.close()
 })

@@ -880,6 +880,7 @@ function ProjectDetail({
   const rel = useRelations()
   useRecordView('project', project.id)
   const convs = rel.sessionsForProject(project.id)
+  const artifacts = rel.artifactsForProject(project.id)
   const contexts = rel.contextsForProject(project.id)
 
   // The project's recurring runs split two ways: the *real* routines the relation
@@ -1133,6 +1134,41 @@ function ProjectDetail({
               keeps what a rail is for: the owner's configuration. */}
           <ContributorsPanel project={project} />
           <CoordinationPanel project={project} />
+
+          {/* An artifact filed to this project is one of the resources that
+              COMPOSES it, not merely a gallery row elsewhere. The project page
+              therefore projects the same child here that the rail nests under
+              the project. Its title remains the canonical door to the artifact
+              page; this page summarizes the composition, it does not mint a
+              second artifact surface. */}
+          <FoldSection
+            title="Artifacts"
+            summary={countOr(artifacts.length, 'artifact', 'artifacts', 'No artifacts')}
+          >
+            {artifacts.length === 0 ? (
+              <p className="text-[12px] text-ink-faint">No artifacts filed here yet.</p>
+            ) : (
+              <CardList>
+                {artifacts.map((artifact) => (
+                  <div key={artifact.id} className="flex items-center gap-3 py-3">
+                    <FileText size={15} className="shrink-0 text-ink-faint" />
+                    <div className="min-w-0 flex-1">
+                      <button
+                        onClick={() => rel.navigate('artifacts', artifact.id)}
+                        className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
+                      >
+                        {artifact.name}
+                      </button>
+                      <div className="truncate text-[11px] text-ink-faint">
+                        {artifact.meta} · from {artifact.source}
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(artifact.editedAt)}</span>
+                  </div>
+                ))}
+              </CardList>
+            )}
+          </FoldSection>
 
           {/* ── Band 2 · the OWNER's configuration ────────────────────────────
               Instructions, attached context, sharing, delegation, scheduled runs.
@@ -11898,10 +11934,17 @@ function ScheduledDetail({
   const scheduleGrants = useGrants('schedule', task.id).data ?? []
   // …and its grant composer's disclosure, the same as the project page's.
   const [sharingSchedule, setSharingSchedule] = useState(false)
+  const [foldEntries, FoldScope] = useFoldScope()
 
   return (
     <Page>
-      <header className={PAGE_HEADER_CLASS}>
+      {/* A routine is a composite resource: instruction + workflow + execution
+          history + its standing configuration. ProjectDetail established the
+          page form for that nature, so routines use the same one reading column
+          and the same discoverable fold scope rather than a payload column plus
+          a configuration sidebar. */}
+      <div className="mx-auto w-full max-w-3xl">
+      <header className={`${PAGE_HEADER_CLASS} ${SECTION_REVEAL_GROUP}`}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
@@ -11964,50 +12007,35 @@ function ScheduledDetail({
             shared this routine reads it, discusses it and offers improvements;
             they never see a control that would 404. */}
         {task.own !== false && (
-          <div className="flex shrink-0 items-center gap-2">
-            <button
+          <SectionActions>
+            <SectionAction
+              label={running ? 'Running now' : 'Run now'}
+              icon={running ? <Spinner size={14} /> : <Play size={14} />}
               onClick={onRunNow}
               disabled={running}
-              className={`flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:opacity-60`}
-            >
-              {running ? <Spinner size={15} /> : <Play size={15} />}
-              {running ? 'Running…' : 'Run now'}
-            </button>
-            <button
+            />
+            <SectionAction
+              label={task.enabled ? 'Pause routine' : 'Resume routine'}
+              icon={task.enabled ? <PauseCircle size={14} /> : <PlayCircle size={14} />}
               onClick={onToggleEnabled}
-              className="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
-            >
-              {task.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />}
-              {task.enabled ? 'Pause' : 'Resume'}
-            </button>
-            <button
-              onClick={onRemove}
-              className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
-          </div>
+            />
+            <SectionAction label="Delete routine" icon={<Trash2 size={14} />} onClick={onRemove} />
+          </SectionActions>
         )}
       </header>
 
-      <div className="flex flex-col gap-6 @3xl:flex-row">
-        <div className="min-w-0 flex-1 space-y-4">
+      <SectionFoldControls entries={foldEntries} />
+      <FoldScope>
+        <div>
           <PromptCard prompt={task.prompt} onSave={task.own !== false ? (prompt) => void updateSchedule(task.id, { prompt }) : undefined} />
           <WorkflowCard task={task} run={shownRun} running={running} />
-          <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
-          {/* A routine is a social subject like any other: it can be shared,
-              discussed, and IMPROVED. Landing a routine change runs the same
-              `updateSchedule` the owner's own editor calls. */}
-          <ProposalsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
-          <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
-        </div>
 
-        {/* The right rail is owner CONFIGURATION throughout (delivery, tools,
-            model, schedule) — the same rule the project page keeps: a visitor's
-            page is one column. */}
+        {/* The bounded definition comes first. The owner's standing
+            configuration follows as folded index rows, then the histories that
+            can grow forever. This is the exact bounded → configuration → history
+            ordering the project page established for composite resources. */}
         {task.own !== false && (
-        <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
+        <>
           {/* Sharing — the OWNER's audience configuration, as on a project.
               Without it the routine's social surface was unreachable: it could be
               discussed and improved, but never shared with anyone to discuss or
@@ -12052,8 +12080,17 @@ function ScheduledDetail({
           <ContextToolsPanel task={task} />
 
           <ModelPanel task={task} />
-        </aside>
+        </>
         )}
+
+          <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
+          {/* A routine is a social subject like any other: it can be shared,
+              discussed, and IMPROVED. Landing a routine change runs the same
+              `updateSchedule` the owner's own editor calls. */}
+          <ProposalsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
+          <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
+        </div>
+      </FoldScope>
       </div>
     </Page>
   )
@@ -12083,18 +12120,20 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: stri
   }, [editing])
 
   return (
-    <div className={`border-line ${QUIET_CARD_CLASS} p-4 ${SECTION_REVEAL_GROUP}`}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Instruction</span>
-        {!editing && (
-          <SectionActions>
+    <FoldSection
+      title="Instruction"
+      summary={prompt}
+      actions={
+        !editing ? (
+          <>
             {onSave && <SectionAction label="Edit instruction" icon={<Pencil size={13} />} onClick={startEdit} />}
-            <CopyButton text={prompt} ariaLabel="Copy instruction" />
-          </SectionActions>
-        )}
-      </div>
+            <CopyButton text={prompt} ariaLabel="Copy instruction" variant="section" />
+          </>
+        ) : undefined
+      }
+    >
       {editing ? (
-        <div className="mt-2">
+        <div>
           <textarea
             ref={taRef}
             value={draft}
@@ -12124,11 +12163,11 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: stri
           </div>
         </div>
       ) : (
-        <p className="mt-2 whitespace-pre-wrap rounded-lg bg-panel-2/40 px-3 py-2.5 text-[13px] leading-relaxed text-ink">
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
           {prompt}
         </p>
       )}
-    </div>
+    </FoldSection>
   )
 }
 
@@ -12214,23 +12253,15 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
       : 'idle'
 
   return (
-    <div className={`${LEDGER_LIST_CLASS} ${SECTION_REVEAL_GROUP}`}>
-      <div className="flex items-center justify-between gap-2 px-4 py-3">
-        <span className="text-[13px] font-semibold text-ink">Workflow</span>
-        {editing ? (
-          <span className="text-[12px] font-medium text-ink-faint">Editing steps</span>
-        ) : (
-          <div className="flex items-center gap-2">
-            <span className="text-[12px] text-ink-faint">
-              {task.steps.length} step{task.steps.length === 1 ? '' : 's'} · runs top to bottom
-            </span>
-            <SectionActions>
-              <SectionAction label="Edit steps" icon={<Pencil size={13} />} onClick={() => setEditing(true)} />
-            </SectionActions>
-          </div>
-        )}
-      </div>
-      <div className="p-4">
+    <FoldSection
+      title="Workflow"
+      summary={`${countLabel(task.steps.length, 'step')} · ${task.trigger}`}
+      actions={
+        !editing ? (
+          <SectionAction label="Edit steps" icon={<Pencil size={13} />} onClick={() => setEditing(true)} />
+        ) : undefined
+      }
+    >
         <div className="mb-3 flex items-center gap-2.5 rounded-lg bg-panel-2/40 px-3 py-2.5">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface text-ink-soft">
             <Clock size={15} />
@@ -12268,8 +12299,7 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
             </RailRow>
           </div>
         )}
-      </div>
-    </div>
+    </FoldSection>
   )
 }
 
@@ -12483,19 +12513,23 @@ function RunHistoryCard({
   onOpenRun: (id: string) => void
 }) {
   return (
-    <div className={LEDGER_LIST_CLASS}>
-      <div className="flex items-center justify-between px-4 py-3">
-        <span className="text-[13px] font-semibold text-ink">Recent runs</span>
-        {task.runs.length > 0 && <WeekStrip runs={task.runs} />}
-      </div>
+    <FoldSection
+      title="Recent runs"
+      summary={countOr(task.runs.length, 'run', 'runs', 'No runs')}
+    >
       {task.runs.length === 0 ? (
-        <div className="px-4 py-8 text-center text-[13px] text-ink-faint">No runs yet — Run now to try it.</div>
+        <p className="py-4 text-center text-[13px] text-ink-faint">No runs yet — Run now to try it.</p>
       ) : (
-        // Runs sit directly in the ledger box so divide-y rules between them —
-        // a wrapper div would swallow every row into one divider segment.
-        task.runs.map((r) => <RunRow key={r.id} run={r} taskId={task.id} onOpen={() => onOpenRun(r.id)} />)
+        <>
+          <div className="mb-2 flex justify-end">
+            <WeekStrip runs={task.runs} />
+          </div>
+          <CardList>
+            {task.runs.map((r) => <RunRow key={r.id} run={r} taskId={task.id} onOpen={() => onOpenRun(r.id)} />)}
+          </CardList>
+        </>
       )}
-    </div>
+    </FoldSection>
   )
 }
 
@@ -12526,7 +12560,7 @@ function RunRow({
       // duration was already a hint, not a control. The flash owns the background
       // while it lasts — see CommonsCard for why the two can't be worn together.
       // Dividers come from the ledger container's divide-y (lib/ledger).
-      className={`group flex items-start gap-3 px-4 py-3 transition ${
+      className={`group flex items-start gap-3 py-3 transition ${
         flash ? FOCUS_FLASH_CLASS : ROW_DOOR_CLASS
       }`}
     >
@@ -12597,6 +12631,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Delivers to"
+      defaultFolded
       summary={displayTarget}
       actions={
         !editing && !preApproved ? (
@@ -12716,6 +12751,7 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Context & tools"
+      defaultFolded
       summary={tools.length === 0 ? 'No connectors' : tools.map((t) => t.label).join(' · ')}
       actions={
         <div className="relative">
@@ -12799,6 +12835,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Schedule"
+      defaultFolded
       summary={task.cadence}
       actions={
         <div className="relative">
@@ -12961,7 +12998,7 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
 function ModelPanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
   return (
-    <FoldSection title="Model" summary={task.model}>
+    <FoldSection title="Model" defaultFolded summary={task.model}>
       <div className="relative">
         <button
           onClick={() => setEditing((v) => !v)}

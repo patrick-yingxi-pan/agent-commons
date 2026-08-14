@@ -209,8 +209,9 @@ test('S17 — owner configuration is its OWN section, never folded into the Cont
   }
 })
 
-test('the fold DEFAULTS are the owner’s split: configuration folded, content open', () => {
-  // Owner decision, 2026-08-12. The failure this guards is drift by accident —
+test('the fold DEFAULTS are the composite-page split: configuration folded, content open', () => {
+  // Owner decision, 2026-08-12, generalized across composite resources on
+  // 2026-08-14. The failure this guards is drift by accident —
   // a new configuration section that forgets `defaultFolded` puts a form back in
   // the reading flow, and a content section that gains it hides the thing the
   // page is for. Neither breaks anything, so nothing else would notice.
@@ -223,8 +224,8 @@ test('the fold DEFAULTS are the owner’s split: configuration folded, content o
   const folded = [...new Set(tags.filter((t) => /\bdefaultFolded\b/.test(t)).map(titleOf))].sort()
   assert.deepEqual(
     folded,
-    ['Context', 'Delegation', 'Instructions', 'Scheduled', 'Sharing'],
-    'exactly the five configuration sections open folded',
+    ['Context', 'Context & tools', 'Delegation', 'Delivers to', 'Instructions', 'Model', 'Schedule', 'Scheduled', 'Sharing'],
+    'exactly the composite pages’ configuration sections open folded',
   )
   // The complement, named rather than implied: these are what a project page is
   // FOR, and a page that opens with them folded is a page of chevrons.

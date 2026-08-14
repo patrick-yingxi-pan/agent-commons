@@ -28,6 +28,7 @@ test('the SectionAction component sources the class and names its verb', () => {
   assert.ok(src.includes('SECTION_ACTION_CLASS'), 'wears the shared class')
   assert.ok(src.includes('title={label}'), 'the verb is the tooltip')
   assert.ok(src.includes('aria-label={label}'), 'the verb is the accessible name')
+  assert.ok(src.includes('disabled={disabled}'), 'an in-flight action keeps native disabled semantics')
   assert.ok(src.includes('data-open={state || undefined}'), 'open/expanded triggers stamp data-open for the cluster reveal')
   // Two stateful shapes, distinct aria: a popover trigger (`open`) carries
   // aria-haspopup="dialog"; an inline-disclosure toggle (`expanded`) carries

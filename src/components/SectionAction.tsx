@@ -12,6 +12,7 @@ export function SectionAction({
   onClick,
   open,
   expanded,
+  disabled,
 }: {
   /** The verb, spelled out — becomes the tooltip and the accessible name. */
   label: string
@@ -25,18 +26,21 @@ export function SectionAction({
    *  stamps `aria-expanded` + `data-open` WITHOUT `aria-haspopup` — the disclosed
    *  content is section content, not a dialog. Omit for one-shot actions. */
   expanded?: boolean
+  /** Preserve native one-shot action semantics while work is in flight. */
+  disabled?: boolean
 }) {
   const state = open ?? expanded
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       title={label}
       aria-label={label}
       {...(open !== undefined ? { 'aria-haspopup': 'dialog' as const } : {})}
       {...(state !== undefined ? { 'aria-expanded': state } : {})}
       data-open={state || undefined}
-      className={SECTION_ACTION_CLASS}
+      className={`${SECTION_ACTION_CLASS} disabled:pointer-events-none disabled:opacity-50`}
     >
       {icon}
     </button>

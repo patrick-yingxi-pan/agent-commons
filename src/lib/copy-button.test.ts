@@ -23,6 +23,11 @@ test('SectionView sources its copy buttons from the shared component', () => {
   // The rendezvous-secret reveal (3) + the A2A-card viewer (url + JSON) all route
   // through <CopyButton>, so the tag appears several times.
   assert.ok((src.match(/<CopyButton\b/g) ?? []).length >= 4, 'multiple copy affordances wear the shared component')
+  assert.match(
+    src,
+    /<CopyButton\s+text=\{prompt\}\s+ariaLabel="Copy instruction"\s+variant="section"/,
+    'a copy verb in a section header keeps the copy funnel but wears the section-action cue',
+  )
 })
 
 test('the copy-pill literal is defined once — no component re-hardcodes it', () => {
