@@ -3,6 +3,7 @@
  *
  *   • the contract stays framework-/Node-free (so both ends import it verbatim),
  *   • contract + server stay erasable TS (the Node runtime only type-strips),
+ *   • the production build's asset base agrees with the server's SPA fallback,
  *   • every declared SSE event has BOTH a server producer and a client consumer
  *     (no dead/reserved wire surface, no unhandled event),
  *   • every `*Request` DTO the contract declares is actually used by a route/command.
@@ -12,6 +13,23 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { ROOT, filesUnder, read, stripComments, concatSource } from './helpers/source.ts'
 import { join } from 'node:path'
+import { resolveConfig } from 'vite'
+
+// ── The built UI survives a canonical deep link ─────────────────────────────
+test('production assets are root-absolute so the SPA fallback can boot nested canonical URLs', async () => {
+  // `server/index.ts` deliberately serves dist/index.html for a route such as
+  // `/projects/p-insights`. With a relative Vite base (`./`), that HTML asks
+  // the browser for `/projects/assets/...` and the app stays blank: client-side
+  // navigation works, while the same canonical URL pasted or refreshed does
+  // not. Resolve the REAL build config rather than scanning its source so this
+  // lock follows Vite's own interpretation of the value.
+  const config = await resolveConfig({ configFile: join(ROOT, 'vite.config.ts') }, 'build')
+  assert.equal(
+    config.base,
+    '/',
+    'the same-origin deploy shape needs root-absolute assets; a relative base breaks every nested SPA fallback',
+  )
+})
 
 // ── The contract is portable: framework-free and Node-free ───────────────────
 test('contract/ imports only other contract modules — no React, no node:, no UI deps', () => {

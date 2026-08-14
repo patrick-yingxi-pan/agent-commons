@@ -6,10 +6,14 @@ import tailwindcss from '@tailwindcss/vite'
 // pulling in @types/node (the UI tsconfig ships no Node types by design).
 declare const process: { env: Record<string, string | undefined> }
 
-// `base` is set to a relative path so the production build works both on
-// GitHub Pages (project subpath) and when opened from a static host.
+// The production deploy is a same-origin server with canonical root URLs. Its
+// SPA fallback serves this one index.html at nested paths such as
+// `/projects/p-insights`, so assets must stay rooted at `/assets/...`: a
+// relative `./assets/...` would resolve to `/projects/assets/...` on refresh
+// and leave every deep link blank. A static project-subpath host is not this
+// app's deploy shape — it could not serve the same-origin API in any case.
 export default defineConfig({
-  base: './',
+  base: '/',
   plugins: [react(), tailwindcss()],
   // Bind to IPv4 loopback explicitly — on this host "localhost" resolves to
   // ::1 only, which the preview/browser (hitting 127.0.0.1) can't reach.
