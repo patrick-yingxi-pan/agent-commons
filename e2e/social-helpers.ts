@@ -78,8 +78,8 @@ export async function createProject(page: Page, name: string) {
  *  on the first pass and CLOSE it on a re-run inside the same context, which is
  *  the class of flake that reads as "the app broke" and is really the test
  *  toggling. Scoped to the section headers so it cannot catch the rail's own
- *  rows: the sidebar has a Scheduled pane whose routine rows are buttons named
- *  "Scheduled", and an unscoped `getByRole` finds one of those first. */
+ *  rows: Scheduled is also an expandable resource branch in the left panel,
+ *  and an unscoped `getByRole` can find that chrome first. */
 export async function openSection(page: Page, title: string) {
   // Matched on the stamped TITLE span, not the button's text: since 2026-08-13
   // a folded section's summary rides on the same row, inside the same button,

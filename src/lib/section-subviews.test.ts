@@ -8,8 +8,8 @@
  *  one INSTANCE of the section's own list (a project, an artifact, a saved
  *  context, a provider, a thread). What a child is NOT is a partition of that
  *  list — kind, state, ownership — which is a FILTER, and a filter's one home
- *  is the section row's "Filter & sort" menu, the same primitive the Scheduled
- *  and Recents panes already used one row lower in the same rail.
+ *  is the section row's "Filter & sort" menu, the same primitive Scheduled now
+ *  uses on its tree row and Recents uses in its utility pane.
  *
  *  These lock that shape: the two registries stay disjoint and derived, every
  *  listed kind is addressable (a place has an address — the URL half is locked
@@ -51,12 +51,10 @@ test('a section has ONE kind of child: surfaces or instances, never both', () =>
       `${id} declares surfaces AND instances — a tree row has one kind of child`,
     )
   }
-  // Scheduled is deliberately in NEITHER: its instances already have their own
-  // rail pane (routines + that pane's filter), and the same list twice in one
-  // rail is worse than once. Its page bands by status instead of offering a
-  // control, so the partition still has exactly one home.
+  // Scheduled is now an ordinary instance branch. Its richer routine filter is
+  // still a single control on that row, shared live with the page.
   assert.equal(SECTION_SUBVIEWS.scheduled, undefined)
-  assert.equal(SECTION_INSTANCE_KEY.scheduled, undefined)
+  assert.equal(SECTION_INSTANCE_KEY.scheduled, 'scheduleId')
   assert.equal(SECTION_FILTERS.scheduled, undefined)
   // Dispatch (a flat feed) and Customize (a settings stack) have neither.
   for (const id of ['dispatch', 'customize']) {
@@ -71,7 +69,10 @@ test('every section that LISTS rows can also order them — and vice versa', () 
   // section with instance children must carry a filter spec. The converse holds
   // too except for the Commons, whose feed has no per-row page to list.
   for (const id of Object.keys(SECTION_INSTANCE_KEY)) {
-    assert.ok(SECTION_FILTERS[id], `${id} lists rows, so it needs a Filter & sort spec to order them`)
+    assert.ok(
+      SECTION_FILTERS[id] || id === 'scheduled',
+      `${id} lists rows, so it needs one live Filter & sort control to order them`,
+    )
   }
   for (const id of Object.keys(SECTION_FILTERS)) {
     assert.ok(
@@ -118,10 +119,17 @@ test('the rail and the page compute a section’s list with the SAME function', 
     contexts: 'listContexts',
     models: 'listProviders',
     discussions: 'listDiscussions',
+    scheduled: 'filterRoutines',
   }
-  const rail = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
+  const rail = stripComments(
+    read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')) +
+      read(join(ROOT, 'src', 'components', 'Sidebar.tsx')),
+  )
   const page = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
-  const lists = stripComments(read(join(ROOT, 'src', 'lib', 'sectionLists.ts')))
+  const lists = stripComments(
+    read(join(ROOT, 'src', 'lib', 'sectionLists.ts')) +
+      read(join(ROOT, 'src', 'lib', 'routineFilter.ts')),
+  )
   for (const [section, fn] of Object.entries(FUNNELS)) {
     assert.ok(SECTION_INSTANCE_KEY[section], `${section} is an instance section`)
     assert.ok(lists.includes(`export function ${fn}(`), `${fn} is the shared list function`)
@@ -186,38 +194,34 @@ test('the rail has one fold/unfold-all control that toggles the whole tree', () 
   assert.match(sidebar, /setExpanded\(allExpanded \? new Set\(\) : new Set\(expandableIds\)\)/)
 })
 
-test('the rail body is an accordion of foldable, resizable panes with draggable dividers', () => {
+test('the rail body gives the canonical tree priority over the foldable Recents utility', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
   // Two landmark-unique rail navs (WCAG): New session ("Create") and the Sections tree.
   assert.match(sidebar, /<nav aria-label="Create" className="mt-3 shrink-0 px-2">/)
   assert.match(sidebar, /aria-label="Sections"/, 'the Sections pane nav is labeled')
   assert.match(sidebar, /ref=\{stackRef\}/, 'the pane stack is a measured region')
-  // Every pane folds like Scheduled (symmetry): one PaneFoldHeader each, and all three
-  // fold states persist (only a manual toggle changes them).
-  for (const label of ['Sections', 'Scheduled', 'Recents'])
+  // The resource tree and the remaining utility both fold; Scheduled is a tree
+  // row now, never a second pane.
+  for (const label of ['Sections', 'Recents'])
     assert.match(sidebar, new RegExp(`PaneFoldHeader label="${label}"`), `${label} pane folds`)
   assert.match(sidebar, /setLayout\('railSectionsOpen'/)
   assert.match(sidebar, /setLayout\('railRecentsOpen'/)
-  assert.match(sidebar, /setLayout\('schedOpen'/)
+  assert.doesNotMatch(sidebar, /data-rail-pane="scheduled"|railScheduledH|schedOpen/)
   // Dividers are in-flow gutters (PaneDivider) riding ABOVE the pane they resize, gated
   // on the pane's own layout.divider so a folded/flex pane has none; dropped entirely on
   // the narrow tier (ADAPT-11). Sections is the flex pane (top-most open), so it carries
   // no stored height and no divider of its own.
   assert.match(sidebar, /<PaneDivider/, 'dividers are the in-flow gutter primitive')
-  assert.match(sidebar, /paneOf\('scheduled'\)\?\.divider/)
   assert.match(sidebar, /paneOf\('recents'\)\?\.divider/)
   // Heights come from the accordion reducer; fixed heights persist only on drag.
   assert.match(sidebar, /layoutPanes/, 'pane heights come from the accordion reducer')
-  assert.match(sidebar, /setLayout\('railScheduledH'/)
   assert.match(sidebar, /setLayout\('railRecentsH'/)
   // A too-short rail scrolls instead of spilling over the account chip: the resizable
   // stack keeps an overflow fallback and the flex pane floors at a pane-min (can't be
   // squeezed to 0px).
   assert.match(sidebar, /flex min-h-0 flex-1 flex-col overflow-y-auto/)
   assert.match(sidebar, /min-h-\[6rem\] flex-1 flex-col/, 'the flex pane floors at a pane-min')
-  // The fold header's accessible name includes its suffix, so the Scheduled pane fold
-  // ("Collapse Scheduled routines") stays distinct from the Scheduled section chevron.
-  assert.match(sidebar, /\$\{label\}\$\{suffix/, 'the fold aria-label carries the suffix')
+  assert.match(sidebar, /getLayout\('railRecentsOpen', false\)/, 'Recents starts subordinate and folded')
   // The old fixed 2-divider model + auto-sizing/floor are gone.
   assert.doesNotMatch(sidebar, /railPaneHeights/)
   assert.doesNotMatch(sidebar, /flex-auto overflow-y-auto/)

@@ -1,6 +1,11 @@
 import type { Project } from '../types'
 import { FilterMenu, type FilterRowSpec } from './FilterMenu'
-import type { RoutineFilter, RoutineSortBy, RoutineStatusFilter } from '../lib/routineFilter'
+import {
+  DEFAULT_ROUTINE_FILTER,
+  type RoutineFilter,
+  type RoutineSortBy,
+  type RoutineStatusFilter,
+} from '../lib/routineFilter'
 
 /** ── Scheduled "Filter & sort" — the routine-flavoured menu ───────────────────
  *  The same control as Recents, retuned for the rail's routine list: the session
@@ -71,7 +76,7 @@ export function ScheduledFilterMenu({
       key: 'group',
       label: 'Group by',
       value: GROUP_LABEL(filter.groupBy),
-      accent: filter.groupBy !== 'none',
+      accent: filter.groupBy !== DEFAULT_ROUTINE_FILTER.groupBy,
       width: 184,
       dividerBefore: true,
       options: [

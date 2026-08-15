@@ -10,7 +10,7 @@ export type SubView = { id: string; label: string }
  *  YOUR standing collections. A partition of a section's list by a property of
  *  its items — kind, state, ownership — is a **filter**, and a filter's one
  *  home is the section row's "Filter & sort" menu (`./sectionFilter.ts`), the
- *  same primitive the Scheduled and Recents panes already use.
+ *  same primitive the Scheduled tree row and Recents pane use.
  *
  *  So the rail has exactly two kinds of child, and this registry holds only the
  *  first:
@@ -39,11 +39,6 @@ export type SubView = { id: string; label: string }
  *     one owner door (`useRelations().openOwner`) like every other name in the
  *     product. It is still a PLACE, so the directive above is satisfied — what
  *     differs is only whose grammar its address belongs to.
- *
- *  Scheduled is in neither: its instances already have their own rail pane
- *  (routines, with their own "Filter & sort"), and a second copy of them under
- *  the tree row would be the same list twice in one rail. Its section page
- *  reads that pane's filter, so the partition still has exactly one control.
  *
  *  Deliberately pure (only a type-only import), so `tests/` can import the
  *  registry without pulling the UI's icon deps. */
@@ -99,6 +94,7 @@ export const SECTION_INSTANCE_KEY: Partial<Record<SectionId, keyof PaneSeed>> = 
   artifacts: 'artifactId',
   contexts: 'contextId',
   models: 'providerId',
+  scheduled: 'scheduleId',
   discussions: 'discussionId',
 }
 

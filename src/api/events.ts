@@ -100,8 +100,8 @@ function route(e: ServerEvent): void {
       invalidate(keys.schedules)
       break
     // A routine was created / edited / paused / removed (another client or device;
-    // this one's commands invalidate locally too) — the rail's Scheduled pane and
-    // the Scheduled section read the same list, so one refetch heals both.
+    // this one's commands invalidate locally too) — the rail's Scheduled tree
+    // branch and its main page read the same list, so one refetch heals both.
     case 'schedule.changed':
       invalidate(keys.schedules)
       break

@@ -58,9 +58,8 @@ const HEADERS = 'section.group\\/section > div > button[aria-expanded]'
 /** One section's fold toggle, by its visible name.
  *
  *  Located through `HEADERS` and not by accessible name alone: the RAIL has a
- *  Scheduled pane whose routine rows are buttons named "Scheduled", and a
- *  `getByRole` over the document resolved to one of those — a locator that fails
- *  against a perfectly correct page, which is the second one this spec has had.
+ *  Scheduled resource branch and Project has a Scheduled section, so a
+ *  `getByRole` over the document can resolve to chrome instead of page content.
  *  The lesson is the same both times: this app's chrome shares vocabulary with
  *  its content, so a page-level claim needs a page-level scope. */
 /** The gaps between consecutive sections, deduped — one value means one rhythm. */
@@ -421,13 +420,13 @@ test('composite resources preserve parent → section → resource in the rail a
   const artifactSectionToggle = projectTree.getByRole('button', { name: /^(Expand|Collapse) Artifacts$/ })
   if ((await artifactSectionToggle.getAttribute('aria-expanded')) === 'false') await artifactSectionToggle.click()
   await expect(projectTree.getByRole('button', { name: 'insights-onepager.md' })).toBeVisible()
-  await expect(projectTree.getByText('artifact', { exact: true }).first()).toBeVisible()
+  await expect(projectTree.getByText('artifact', { exact: true })).toHaveCount(0)
 
   await projectTree.getByRole('button', { name: 'Artifacts', exact: true }).click()
   await expect(page).toHaveURL(/\/projects\/p-insights\/artifacts$/)
   await expect(header(page, 'Artifacts')).toHaveAttribute('aria-expanded', 'true')
   await expect(header(page, 'About')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'insights-onepager.md', exact: true })).toBeVisible()
+  await expect(page.getByRole('main').getByRole('button', { name: 'insights-onepager.md', exact: true })).toBeVisible()
 
   // The section is a real page, not transient selection state: its canonical
   // address survives a cold render and still excludes sibling sections.
@@ -438,11 +437,15 @@ test('composite resources preserve parent → section → resource in the rail a
   await sectionsNav.getByRole('button', { name: 'Insights dashboard', exact: true }).click()
   await expect(page).toHaveURL(/\/projects\/p-insights$/)
   await expect(header(page, 'Artifacts')).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByRole('button', { name: 'insights-onepager.md', exact: true })).toBeVisible()
+  await expect(page.getByRole('main').getByRole('button', { name: 'insights-onepager.md', exact: true })).toBeVisible()
 
   // A routine follows the same hierarchy: section pages sit under the parent,
   // and run sessions sit under Recent runs rather than under the routine.
-  const scheduled = page.locator('[data-rail-pane="scheduled"]')
+  const projectsToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Projects$/ })
+  if ((await projectsToggle.getAttribute('aria-expanded')) === 'true') await projectsToggle.click()
+  const scheduledSectionToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Scheduled$/ })
+  if ((await scheduledSectionToggle.getAttribute('aria-expanded')) === 'false') await scheduledSectionToggle.click()
+  const scheduled = sectionsNav.locator('[data-section-tree="scheduled"]')
   const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })
   await expect(routineToggle).toBeVisible()
   if ((await routineToggle.getAttribute('aria-expanded')) === 'false') await routineToggle.click()

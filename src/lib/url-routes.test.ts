@@ -83,6 +83,7 @@ test('every kind the rail LISTS is addressable — a rail child is a place (UI-1
     artifacts: 'artifactId',
     contexts: 'contextId',
     models: 'providerId',
+    scheduled: 'scheduleId',
     discussions: 'discussionId',
   }
   assert.deepEqual(SECTION_INSTANCE_KEY, EXPECTED, 'the sections whose rail children are their own rows')

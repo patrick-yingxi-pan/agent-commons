@@ -15,7 +15,7 @@
  *
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   useAgents,
@@ -34,7 +34,12 @@ import { useRelations } from '../controller/useRelations'
 import { discussionTitle } from '../../contract/social.ts'
 import type { Project, SectionId } from '../types'
 import type { PaneSeed } from '../lib/paneNav'
-import { SIDEBAR_HOVER } from '../lib/sidebar'
+import {
+  SIDEBAR_ACTIVE,
+  SIDEBAR_BRANCH,
+  SIDEBAR_FOCUS_WITHIN,
+  SIDEBAR_HOVER,
+} from '../lib/sidebar'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { FilterMenu, type FilterRowSpec } from './FilterMenu'
@@ -54,13 +59,18 @@ import {
   type ProjectSectionId,
 } from '../lib/compositeSections'
 
-/** One child node under an expanded section — indented, with a leading dot echoing the
- *  Recents rows, so the two-level tree reads clearly. */
+/** One structural guide. Nest it once per disclosed level; every row can then
+ *  use the same local inset instead of calculating an absolute depth. */
+export function RailTreeBranch({ className = '', ...props }: ComponentProps<'div'>) {
+  return <div {...props} className={`${SIDEBAR_BRANCH} ${className}`} />
+}
+
+/** One resource leaf under an expanded branch. The parent section already
+ * names the resource kind, so repeating "artifact" / "session" beside every
+ * row would spend the leaf's scarce width on tautology. */
 export function SubNavRow({
   label,
   title,
-  kind,
-  depth = 2,
   active,
   onClick,
 }: {
@@ -68,12 +78,6 @@ export function SubNavRow({
   /** The row's full text when the label truncates (an artifact name, a thread's
    *  opening post) — the rail is narrow and these are real entity names. */
   title?: string
-  /** A direct child of a composite can be a different resource kind from its
-   *  parent; name that kind without spending another group row. */
-  kind?: string
-  /** Section → instance is level 2; composite → section is level 3;
-   * section → composing resource is level 4. */
-  depth?: 2 | 3 | 4
   active: boolean
   onClick: () => void
 }) {
@@ -82,17 +86,14 @@ export function SubNavRow({
       onClick={onClick}
       title={title}
       aria-current={active ? 'page' : undefined}
-      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pr-2 text-[13px] transition ${
-        depth === 4 ? 'pl-[3.5rem]' : depth === 3 ? 'pl-11' : 'pl-7'
-      } ${
-        active ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-2 text-[13px] transition ${
+        active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
       <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-accent' : 'border border-line-strong bg-transparent'}`}
+        className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
       />
       <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-      {kind && <span className="shrink-0 text-[10px] text-ink-faint">{kind}</span>}
     </button>
   )
 }
@@ -146,12 +147,12 @@ export function OwnerProfileChild({
  *  disclosure). Not a `SubNavRow` — it names a QUANTITY, not a place, so it
  *  deliberately doesn't wear the instance dot (UI-19). While unfolded it reads
  *  "Show fewer", so the fold back out is the same control. */
-function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: boolean; onToggle: () => void }) {
+export function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: boolean; onToggle: () => void }) {
   return (
     <button
       onClick={onToggle}
       aria-expanded={open}
-      className={`flex w-full items-center rounded-lg py-1.5 pl-7 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+      className={`flex w-full items-center rounded-lg py-1.5 pl-2 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
     >
       {open ? 'Show fewer' : `Show all — ${hidden} more`}
     </button>
@@ -160,8 +161,8 @@ function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: boolean;
 
 /** The empty state of an expanded section: the tree said "there are children
  *  here" and there are none, which is worth a word rather than a blank gap. */
-function NoRowsRow({ children }: { children: ReactNode }) {
-  return <p className="py-1.5 pl-7 pr-2 text-[12px] text-ink-faint">{children}</p>
+export function NoRowsRow({ children }: { children: ReactNode }) {
+  return <p className="py-1.5 pl-2 pr-2 text-[12px] text-ink-faint">{children}</p>
 }
 
 /** The section row's "Filter & sort" — the facet's ONE home (UI-19). Reveals on
@@ -334,8 +335,8 @@ function ProjectBranch({
   return (
     <>
       <div
-        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-5 pr-2 text-[13px] transition ${
-          rootActive ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[13px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
+          rootActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
         }`}
       >
         <button
@@ -348,7 +349,7 @@ function ProjectBranch({
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
         <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${rootActive ? 'bg-accent' : 'border border-line-strong bg-transparent'}`}
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${rootActive ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
         />
         <button
           onClick={() => onOpenDetail('projects', { projectId: project.id })}
@@ -360,7 +361,7 @@ function ProjectBranch({
         </button>
       </div>
       {expanded && (
-        <div data-project-tree={project.id}>
+        <RailTreeBranch data-project-tree={project.id}>
           <ProjectResourceChildren
             project={project}
             activeSeed={activeSeed}
@@ -368,7 +369,7 @@ function ProjectBranch({
             onOpenDetail={onOpenDetail}
             onOpenSession={onOpenSession}
           />
-        </div>
+        </RailTreeBranch>
       )}
     </>
   )
@@ -533,8 +534,8 @@ function ProjectSectionBranch({
   return (
     <>
       <div
-        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-8 pr-2 text-[13px] transition ${
-          pageActive ? 'bg-panel-2 font-medium text-ink' : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
+          pageActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
         }`}
       >
         {hasResources ? (
@@ -557,16 +558,15 @@ function ProjectSectionBranch({
         >
           {section.label}
         </button>
+        {hasResources && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{rows.length}</span>}
       </div>
       {hasResources && expanded && (
-        <>
+        <RailTreeBranch data-project-section-resources={section.id}>
           {visible.map((row) => (
             <SubNavRow
               key={row.key}
               label={row.label}
               title={`${row.label} · ${row.kind}`}
-              kind={row.kind}
-              depth={4}
               active={row.active}
               onClick={row.open}
             />
@@ -575,12 +575,12 @@ function ProjectSectionBranch({
             <button
               onClick={() => setShowAll((value) => !value)}
               aria-expanded={showAll}
-              className={`flex w-full items-center rounded-lg py-1.5 pl-[3.5rem] pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+              className={`flex w-full items-center rounded-lg py-1.5 pl-2 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
             >
               {showAll ? 'Show fewer' : `Show all — ${rows.length - RAIL_INSTANCE_CAP} more`}
             </button>
           )}
-        </>
+        </RailTreeBranch>
       )}
     </>
   )

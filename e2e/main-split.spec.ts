@@ -376,7 +376,10 @@ test('a run session is ONE surface: run history floats as a click-down, never a 
   // its disclosed run child opens the run SESSION. That child still fills the
   // focused pane ALONE — no run-switcher pane tiles beside it (the old
   // two-split-windows look this locks out).
-  const scheduled = page.locator('[data-rail-pane="scheduled"]')
+  const sectionsNav = page.getByRole('navigation', { name: 'Sections' })
+  const scheduledToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Scheduled$/ })
+  if ((await scheduledToggle.getAttribute('aria-expanded')) === 'false') await scheduledToggle.click()
+  const scheduled = sectionsNav.locator('[data-section-tree="scheduled"]')
   const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })
   if ((await routineToggle.getAttribute('aria-expanded')) === 'false') await routineToggle.click()
   const routineTree = scheduled.locator('[data-routine-tree="s-issue-triage"]')

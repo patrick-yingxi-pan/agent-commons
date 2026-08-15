@@ -1,10 +1,11 @@
-/** ── Scheduled-routines filter / sort / group — the model behind the left
- *  rail's "Filter & sort" menu. The rail now lists *routines* (each entry is a
- *  recurring workflow, not one run of it), so this is the routine-flavoured
- *  sibling of sessionFilter.ts: the session filter's "Status" becomes routine
- *  Active/Paused, and a routine's "recency" is its freshest run. No React here —
- *  just the option vocabulary, the persisted blob, and the pipeline. */
+/** ── Scheduled-routines filter / sort / group ────────────────────────────────
+ *  Scheduled is a normal instance branch in the account-resource tree. Its
+ *  rail rows and main page therefore read this same live, per-account choice:
+ *  the session filter's "Status" becomes routine Active/Paused, and a
+ *  routine's "recency" is its freshest run. No React here — just the option
+ *  vocabulary, persistence, stable snapshot, and pipeline. */
 import type { ScheduledTask } from '../types'
+import { getLayout, setLayout, subscribeLayout, uiPrefScope } from './uiPrefs.ts'
 
 export type RoutineStatusFilter = 'all' | 'active' | 'paused'
 export type RoutineGroupBy = 'none' | 'project' | 'status'
@@ -18,22 +19,23 @@ export interface RoutineFilter {
   sortBy: RoutineSortBy
 }
 
-/** Neutral defaults: every routine, no grouping, freshest-run-first. */
+/** Neutral defaults: every routine, status bands, freshest-run-first. */
 export const DEFAULT_ROUTINE_FILTER: RoutineFilter = {
   status: 'all',
   projectId: 'all',
-  groupBy: 'none',
+  groupBy: 'status',
   sortBy: 'recency',
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────
-// `.v2` — the rail switched from a per-run feed to a per-routine one, so a stale
-// v1 run-filter blob (outcome / activity / date-group) must not poison this.
-const KEY = 'claude-ui.scheduled-filter.v2'
+// One JSON string inside uiPrefs: a filter is rail chrome, so it follows the
+// active account and not the browser. The suffix retires the former browser-
+// wide localStorage blob owned by the separate Scheduled pane.
+const KEY = 'scheduledFilter.v3'
 
 export function loadRoutineFilter(): RoutineFilter {
   try {
-    const raw = localStorage.getItem(KEY)
+    const raw = getLayout(KEY, '')
     if (!raw) return DEFAULT_ROUTINE_FILTER
     return { ...DEFAULT_ROUTINE_FILTER, ...(JSON.parse(raw) as Partial<RoutineFilter>) }
   } catch {
@@ -42,11 +44,36 @@ export function loadRoutineFilter(): RoutineFilter {
 }
 
 export function saveRoutineFilter(f: RoutineFilter) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(f))
-  } catch {
-    /* ignore quota / privacy-mode errors */
+  setLayout(KEY, JSON.stringify(f))
+}
+
+let memo: RoutineFilter | null = null
+let memoScope: string | null = uiPrefScope()
+
+subscribeLayout(() => {
+  memo = null
+})
+
+/** Stable live snapshot for useSyncExternalStore. Account scope is part of its
+ *  identity because scope switches are intentionally silent during render. */
+export function routineFilterSnapshot(): RoutineFilter {
+  const scope = uiPrefScope()
+  if (scope !== memoScope) {
+    memoScope = scope
+    memo = null
   }
+  if (memo) return memo
+  memo = loadRoutineFilter()
+  return memo
+}
+
+export function isRoutineFilterActive(filter: RoutineFilter): boolean {
+  return (
+    filter.status !== DEFAULT_ROUTINE_FILTER.status ||
+    filter.projectId !== DEFAULT_ROUTINE_FILTER.projectId ||
+    filter.groupBy !== DEFAULT_ROUTINE_FILTER.groupBy ||
+    filter.sortBy !== DEFAULT_ROUTINE_FILTER.sortBy
+  )
 }
 
 /** Clamp a persisted filter at RENDER, never in storage — the sessionFilter rule:

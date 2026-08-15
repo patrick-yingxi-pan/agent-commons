@@ -51,7 +51,17 @@ export const SIDEBAR_HOVER = 'hover:bg-panel-2/70'
  *  One constant for the section pill AND the session/recents rows, which had
  *  drifted into two different active looks (a tinted pill vs a ringed fill) in
  *  one panel — same role, same look. */
-export const SIDEBAR_ACTIVE = 'bg-panel-2 font-medium text-ink'
+export const SIDEBAR_ACTIVE =
+  "relative bg-panel-2 font-medium text-ink before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-ink-soft before:content-['']"
+
+/** Focus belongs to the control that received it; its containing row gets only
+ *  the shared soft wash. This keeps keyboard response visibly distinct from
+ *  SIDEBAR_ACTIVE's persistent fill + location marker. */
+export const SIDEBAR_FOCUS_WITHIN = 'focus-within:bg-panel-2/70'
+
+/** One guide for every disclosed branch. Nesting this primitive produces the
+ *  depth grammar; rows no longer hand-calculate four unrelated left paddings. */
+export const SIDEBAR_BRANCH = 'ml-2.5 border-l border-line pl-1.5'
 
 /** The rail's h-8 ghost icon button — the header trio (collapse / search /
  *  bell), the split-view controls, AND the collapsed mini-rail's vertical

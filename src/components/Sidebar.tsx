@@ -37,11 +37,25 @@ import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
-import { SECTION_INSTANCE_KEY } from '../lib/subviews'
+import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
-import { OwnerProfileChild, SectionFilterMenu, SectionInstanceChildren, SubNavRow } from './SectionTreeChildren'
+import {
+  NoRowsRow,
+  OwnerProfileChild,
+  RailTreeBranch,
+  SectionFilterMenu,
+  SectionInstanceChildren,
+  ShowAllRow,
+  SubNavRow,
+} from './SectionTreeChildren'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
-import { SIDEBAR_ACTIVE, SIDEBAR_HOVER, SIDEBAR_ICON_BUTTON } from '../lib/sidebar'
+import {
+  SIDEBAR_ACTIVE,
+  SIDEBAR_FOCUS_WITHIN,
+  SIDEBAR_HOVER,
+  SIDEBAR_ICON_BUTTON,
+} from '../lib/sidebar'
+import { HOVER_REVEAL } from '../lib/hoverReveal'
 import {
   removeSchedule,
   runScheduleNow,
@@ -68,7 +82,6 @@ import {
   paneMax,
   RAIL_PANE_MIN,
   RAIL_RECENTS_DEFAULT,
-  RAIL_SCHEDULED_DEFAULT,
   type PaneId,
   type PaneInput,
 } from '../lib/railPanes'
@@ -83,10 +96,11 @@ import {
 import {
   clampRoutineFilter,
   filterRoutines,
-  loadRoutineFilter,
-  saveRoutineFilter,
+  isRoutineFilterActive,
+  type RoutineGroup,
   type RoutineFilter,
 } from '../lib/routineFilter'
+import { useRoutineFilter } from '../lib/useRoutineFilter'
 
 
 /** Does this section's row expand? Both LIST kinds count (UI-19) — a declared
@@ -267,10 +281,9 @@ export function Sidebar({
     onOpenSubview(id, subviewId)
     onLeafNavigate?.()
   }
-  // The "Scheduled" section folds (persisted) to save rail space.
-  const [schedOpen, setSchedOpen] = useState<boolean>(() => getLayout('schedOpen', true))
-  // The rail now lists scheduled *routines* (each entry is the recurring workflow,
-  // not one run of it) — the same live source the Scheduled section reads.
+  // Scheduled is a normal instance branch in the account-resource forest. The
+  // branch lists recurring routines (not runs) from the same live source as its
+  // main page; a routine then discloses its sections and canonical resources.
   const routines = useSchedules().data ?? []
 
   const { applyOp, projectIdForSession, scheduleProjectId, allProjects } = useRelations()
@@ -302,14 +315,13 @@ export function Sidebar({
     })
   }, [sessions, filter, projectIdForSession, projects])
 
-  // The Scheduled feed gets the same "Filter & sort" control, retuned for routines
-  // (Status active/paused, group by project). Its own persisted choice + project
-  // resolver (routine → project, via the relations graph).
-  const [rawRoutineFilter, setRoutineFilter] = useState<RoutineFilter>(loadRoutineFilter)
+  // The Scheduled branch gets the same "Filter & sort" control, retuned for
+  // routines (Status active/paused, group by project). Its live per-account
+  // choice is shared with the main page.
+  const [rawRoutineFilter, setRoutineFilter] = useRoutineFilter()
   const routineFilter = clampRoutineFilter(rawRoutineFilter, projectIds)
   const updateRoutineFilter = (next: RoutineFilter) => {
     setRoutineFilter(next)
-    saveRoutineFilter(next)
   }
   const { groups: routineGroups, total: routineTotal } = useMemo(() => {
     return filterRoutines(routines, routineFilter, {
@@ -318,21 +330,16 @@ export function Sidebar({
     })
   }, [routines, routineFilter, scheduleProjectId, projects])
 
-  const toggleSched = () => {
-    setLayout('schedOpen', !schedOpen)
-    setSchedOpen(!schedOpen)
-  }
-
   // ── Resizable, foldable rail body panes (ADAPT-13) ──────────────────────────
-  // The rail body is an accordion: each pane (Sections / Scheduled / Recents) folds
+  // The rail body is an accordion: each pane (Sections / Recents) folds
   // to its header, and open panes hold a persisted FIXED height except the TOP-most
   // open one, which flexes to fill — Sections is the pane with the most rows, so it
-  // gets the spare height, and folding Scheduled/Recents drops their headers toward
-  // the bottom, handing the space upward. A divider moves only on drag — folding or
+  // gets the spare height, and folding Recents drops its header toward the
+  // bottom, handing the space upward. A divider moves only on drag — folding or
   // new content never does; heights clamp at render (layoutPanes), never in storage.
   // The whole mechanism is gated on `resizable` (dropped on the narrow tier, ADAPT-11).
   const [sectionsOpen, setSectionsOpen] = useState<boolean>(() => getLayout('railSectionsOpen', true))
-  const [recentsOpen, setRecentsOpen] = useState<boolean>(() => getLayout('railRecentsOpen', true))
+  const [recentsOpen, setRecentsOpen] = useState<boolean>(() => getLayout('railRecentsOpen', false))
   const toggleSectionsOpen = () => {
     setLayout('railSectionsOpen', !sectionsOpen)
     setSectionsOpen(!sectionsOpen)
@@ -343,7 +350,6 @@ export function Sidebar({
   }
 
   const stackRef = useRef<HTMLDivElement>(null)
-  const scheduledPaneRef = useRef<HTMLDivElement>(null)
   const recentsPaneRef = useRef<HTMLDivElement>(null)
   const dragBottomRef = useRef(0)
   const [avail, setAvail] = useState(0)
@@ -358,16 +364,12 @@ export function Sidebar({
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const [scheduledH, setScheduledH] = useState<number>(() => getLayout('railScheduledH', RAIL_SCHEDULED_DEFAULT))
   const [recentsH, setRecentsH] = useState<number>(() => getLayout('railRecentsH', RAIL_RECENTS_DEFAULT))
-  const scheduledHRef = useRef(scheduledH)
-  scheduledHRef.current = scheduledH
   const recentsHRef = useRef(recentsH)
   recentsHRef.current = recentsH
 
   const paneInputs: PaneInput[] = [
     { id: 'sections', present: true, open: sectionsOpen, height: 0 },
-    { id: 'scheduled', present: routines.length > 0, open: schedOpen, height: scheduledH },
     { id: 'recents', present: true, open: recentsOpen, height: recentsH },
   ]
   const layout = layoutPanes(paneInputs, avail)
@@ -390,26 +392,17 @@ export function Sidebar({
   // above absorbs). The pane's bottom edge stays put (everything below it is fixed),
   // so the drag anchors on it: height = bottom − cursor. Anchored on the effective
   // layout, so the clamp can't leak into storage.
-  const startScheduledDrag = () => {
-    dragBottomRef.current = scheduledPaneRef.current?.getBoundingClientRect().bottom ?? 0
-  }
   const startRecentsDrag = () => {
     dragBottomRef.current = recentsPaneRef.current?.getBoundingClientRect().bottom ?? 0
   }
   // The move handlers refresh the persist ref THEMSELVES (not just at render): a
   // keyboard gesture runs move → end in one tick, before React re-renders, so an
   // at-render-only ref would persist one step stale (a reload snapped the pane back).
-  const moveScheduledDrag = (clientY: number) => {
-    const h = dragPane('scheduled', dragBottomRef.current - clientY, paneInputs, avail)
-    scheduledHRef.current = h
-    setScheduledH(h)
-  }
   const moveRecentsDrag = (clientY: number) => {
     const h = dragPane('recents', dragBottomRef.current - clientY, paneInputs, avail)
     recentsHRef.current = h
     setRecentsH(h)
   }
-  const persistScheduledH = () => setLayout('railScheduledH', scheduledHRef.current)
   const persistRecentsH = () => setLayout('railRecentsH', recentsHRef.current)
 
   // The project-membership menu items, shared by sessions and routines, built from
@@ -444,6 +437,35 @@ export function Sidebar({
       { add: <FolderInput size={15} />, remove: <FolderMinus size={15} /> },
     )
 
+  const routineMenuItems = (t: ScheduledTask): RowMenuItem[] => [
+    {
+      kind: 'action',
+      key: 'run',
+      label: 'Run now',
+      icon: <Play size={15} />,
+      onSelect: () => void runScheduleNow(t.id),
+    },
+    {
+      kind: 'action',
+      key: 'toggle',
+      label: t.enabled ? 'Pause' : 'Resume',
+      icon: t.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />,
+      onSelect: () => void toggleScheduleEnabled(t.id, !t.enabled),
+    },
+    { kind: 'divider', key: 'd1' },
+    ...routineProjectItems(t),
+    { kind: 'divider', key: 'd2' },
+    {
+      kind: 'action',
+      key: 'delete',
+      label: 'Delete',
+      icon: <Trash2 size={15} />,
+      danger: true,
+      confirm: `Delete the “${t.name}” routine? A server restart restores the seed.`,
+      onSelect: () => void removeSchedule(t.id),
+    },
+  ]
+
   return (
     <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
       {resizable && (
@@ -461,27 +483,40 @@ export function Sidebar({
       {/* Rail header — the collapse toggle sits at the top-left, with a search
           icon beside it; both on one line (no separate product top bar). Search
           opens a floating palette rather than filtering inline. */}
-      <div className="flex items-center gap-1 px-2 pt-2.5">
-        <button
-          onClick={onToggleCollapse}
-          title="Collapse sidebar"
-          aria-label="Collapse sidebar"
-          className={SIDEBAR_ICON_BUTTON}
-        >
-          <PanelLeftClose size={18} />
-        </button>
-        <button
-          onClick={onOpenSearch}
-          title="Search  (⌘K)"
-          aria-label="Search"
-          className={SIDEBAR_ICON_BUTTON}
-        >
-          <Search size={18} />
-        </button>
-        {/* The bell (D24) — the inbox of public acts on what you watch, own, or
-            posted. The badge is the unread count, live via notification.changed. */}
-        <NotificationBell onClick={onOpenNotifications} />
-        <PaneActionButtons onSplitRow={onSplitRow} onSplitCol={onSplitCol} onCloseView={onCloseView} />
+      <div data-rail-toolbar className="flex items-center px-2 pt-2.5">
+        <div data-rail-toolbar-group="global" className="flex items-center gap-1">
+          <button
+            onClick={onToggleCollapse}
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
+            className={SIDEBAR_ICON_BUTTON}
+          >
+            <PanelLeftClose size={18} />
+          </button>
+          <button
+            onClick={onOpenSearch}
+            title="Search  (⌘K)"
+            aria-label="Search"
+            className={SIDEBAR_ICON_BUTTON}
+          >
+            <Search size={18} />
+          </button>
+          {/* The bell (D24) — the inbox of public acts on what you watch, own,
+              or posted. The badge is live via notification.changed. */}
+          <NotificationBell onClick={onOpenNotifications} />
+        </div>
+        {(onSplitRow || onSplitCol || onCloseView) && (
+          <div
+            data-rail-toolbar-group="view"
+            className="ml-auto flex items-center gap-1 border-l border-line pl-1.5"
+          >
+            <PaneActionButtons
+              onSplitRow={onSplitRow}
+              onSplitCol={onSplitCol}
+              onCloseView={onCloseView}
+            />
+          </div>
+        )}
       </div>
 
       {/* New session — pinned above the pane stack, in a labeled <nav> so e2e's
@@ -511,11 +546,12 @@ export function Sidebar({
         </button>
       </nav>
 
-      {/* Rail body: an accordion of foldable, resizable panes — Sections, Scheduled,
-          Recents (ADAPT-13). Each folds to its header; open panes hold a persisted FIXED
+      {/* Rail body: an accordion of foldable, resizable panes — the canonical
+          Sections tree and the Recents utility (ADAPT-13). Each folds to its
+          header; open panes hold a persisted FIXED
           height except the top-most open one, which flexes to fill — Sections has the
-          most rows, so folding Scheduled/Recents drops their headers downward and hands
-          the space to it. A divider moves only on drag (folding / new content never
+          most rows, so folding Recents drops its header downward and hands the
+          space to it. A divider moves only on drag (folding / new content never
           does); heights clamp at render, never in storage. On the narrow tier
           (`resizable` false) the dividers drop and the panes flow inside the scrolling
           drawer. */}
@@ -580,21 +616,77 @@ export function Sidebar({
                 onOpen={() => onSectionClick(id)}
                 // The facet's one home (UI-19). Rendered for every section that
                 // HAS a partition, whether its children are surfaces or rows.
-                trailing={SECTION_FILTERS[id] ? <SectionFilterMenu section={id} /> : undefined}
+                trailing={
+                  id === 'scheduled' ? (
+                    <span
+                      className={`${isRoutineFilterActive(routineFilter) ? '' : HOVER_REVEAL} has-[[data-open=true]]:opacity-100 focus-within:opacity-100`}
+                    >
+                      <ScheduledFilterMenu
+                        filter={routineFilter}
+                        onChange={updateRoutineFilter}
+                        projects={projects}
+                      />
+                    </span>
+                  ) : SECTION_FILTERS[id] ? (
+                    <SectionFilterMenu section={id} />
+                  ) : undefined
+                }
               />
-              {isExpanded && id === OWNER_SECTION && onOpenOwner && (
-                // The standing door — YOUR public face, first among the Commons'
-                // children because it is the one that is you (the lenses below
-                // are what you watch, liked, posted). It opens `/u/:name`, the
-                // profile's own address, so it is a door rather than a sub-view.
-                <OwnerProfileChild
-                  activeOwner={activeSection === id ? (activeSeed?.ownerName ?? null) : null}
-                  onOpenOwner={onOpenOwner}
-                />
-              )}
-              {isExpanded &&
-                (surfaces
-                  ? surfaces.map((sv) => (
+              {isExpanded && (
+                <RailTreeBranch data-section-tree={id}>
+                  {id === OWNER_SECTION && onOpenOwner && (
+                    // The standing door — YOUR public face, first among the
+                    // Commons' children because it is the one that is you.
+                    <OwnerProfileChild
+                      activeOwner={activeSection === id ? (activeSeed?.ownerName ?? null) : null}
+                      onOpenOwner={onOpenOwner}
+                    />
+                  )}
+                  {id === 'scheduled' ? (
+                    <ScheduledTreeChildren
+                      groups={routineGroups}
+                      total={routineTotal}
+                      renderRoutine={(t) => (
+                        <RoutineRow
+                          key={t.id}
+                          task={t}
+                          activeRunId={
+                            inSession
+                              ? (t.runs.find((r) => runSessionId(t.id, r.id) === activeId)?.id ?? null)
+                              : null
+                          }
+                          pageActive={
+                            activeSection === 'scheduled' &&
+                            activeSeed?.scheduleId === t.id &&
+                            !activeSeed.scheduleSectionId
+                          }
+                          activeSectionId={
+                            activeSection === 'scheduled' && activeSeed?.scheduleId === t.id
+                              ? (scheduleSection(activeSeed.scheduleSectionId)?.id ?? null)
+                              : null
+                          }
+                          onOpenPage={() => {
+                            onOpenSchedule(t.id)
+                            onLeafNavigate?.()
+                          }}
+                          onOpenSection={(sectionId) => {
+                            onOpenDetail('scheduled', { scheduleId: t.id, scheduleSectionId: sectionId })
+                            onLeafNavigate?.()
+                          }}
+                          onOpenRun={(runId) => {
+                            onSelect(runSessionId(t.id, runId))
+                            onLeafNavigate?.()
+                          }}
+                          onOpenDiscussion={(discussionId) => {
+                            onOpenDetail('discussions', { discussionId })
+                            onLeafNavigate?.()
+                          }}
+                          menuItems={routineMenuItems(t)}
+                        />
+                      )}
+                    />
+                  ) : surfaces ? (
+                    surfaces.map((sv) => (
                       <SubNavRow
                         key={sv.id}
                         label={sv.label}
@@ -602,138 +694,32 @@ export function Sidebar({
                         onClick={() => onChildClick(id, sv.id)}
                       />
                     ))
-                  : instanceKey && (
-                      <SectionInstanceChildren
-                        section={id}
-                        activeId={activeDetailId}
-                        activeSeed={activeSeed}
-                        activeSessionId={inSession ? activeId : null}
-                        onOpenDetail={(section, seed) => {
-                          onOpenDetail(section, seed)
-                          onLeafNavigate?.()
-                        }}
-                        onOpenSession={(sessionId) => {
-                          onSelect(sessionId)
-                          onLeafNavigate?.()
-                        }}
-                      />
-                    ))}
+                  ) : instanceKey ? (
+                    <SectionInstanceChildren
+                      section={id}
+                      activeId={activeDetailId}
+                      activeSeed={activeSeed}
+                      activeSessionId={inSession ? activeId : null}
+                      onOpenDetail={(section, seed) => {
+                        onOpenDetail(section, seed)
+                        onLeafNavigate?.()
+                      }}
+                      onOpenSession={(sessionId) => {
+                        onSelect(sessionId)
+                        onLeafNavigate?.()
+                      }}
+                    />
+                  ) : null}
+                </RailTreeBranch>
+              )}
             </Fragment>
           )
         })}
           </div>
           )}
         </nav>
-        {/* ── Scheduled pane ── each row is a recurring routine; its name opens the
-            routine page and its disclosure lists run-session children. Folds to its
-            header (like every pane); resizable when open. Its
-            divider sits ABOVE it — a SIBLING between panes (an in-flow gutter), not
-            inside a pane, so it never overlays scroll content / a scrollbar — and
-            dragging it up grows this pane while the flex Sections pane absorbs. */}
-        {routines.length > 0 && (
-          <>
-          {resizable && paneOf('scheduled')?.divider && (
-            <PaneDivider
-              label="Resize Scheduled pane"
-              value={paneOf('scheduled')!.height}
-              max={paneMax('scheduled', paneInputs, avail)}
-              onStart={startScheduledDrag}
-              onMove={moveScheduledDrag}
-              onEnd={persistScheduledH}
-            />
-          )}
-          <div
-            ref={scheduledPaneRef}
-            data-rail-pane="scheduled"
-            style={paneStyle('scheduled')}
-            className={paneClass('scheduled')}
-          >
-            <PaneFoldHeader label="Scheduled" open={schedOpen} onToggle={toggleSched} suffix="routines">
-              <ScheduledFilterMenu
-                filter={routineFilter}
-                onChange={updateRoutineFilter}
-                projects={projects}
-              />
-            </PaneFoldHeader>
-            {schedOpen && (
-              <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto' : ''}>
-                {routineGroups.map((g) => (
-                  <Fragment key={g.key}>
-                    {g.label && <GroupHeader>{g.label}</GroupHeader>}
-                    {g.tasks.map((t) => (
-                      <RoutineRow
-                        key={t.id}
-                        task={t}
-                        // Match the run session via the CONTRACT id-derivation, not a
-                        // hand-rolled `srun-${t.id}-` prefix — that false-positived
-                        // across task ids where one extends another (t1 vs t1-2:
-                        // srun-t1-2-r1 startsWith srun-t1-).
-                        activeRunId={
-                          inSession
-                            ? (t.runs.find((r) => runSessionId(t.id, r.id) === activeId)?.id ?? null)
-                            : null
-                        }
-                        pageActive={
-                          activeSection === 'scheduled' &&
-                          activeSeed?.scheduleId === t.id &&
-                          !activeSeed.scheduleSectionId
-                        }
-                        activeSectionId={
-                          activeSection === 'scheduled' && activeSeed?.scheduleId === t.id
-                            ? (scheduleSection(activeSeed.scheduleSectionId)?.id ?? null)
-                            : null
-                        }
-                        onOpenPage={() => onOpenSchedule(t.id)}
-                        onOpenSection={(sectionId) =>
-                          onOpenDetail('scheduled', { scheduleId: t.id, scheduleSectionId: sectionId })
-                        }
-                        onOpenRun={(runId) => onSelect(runSessionId(t.id, runId))}
-                        onOpenDiscussion={(discussionId) =>
-                          onOpenDetail('discussions', { discussionId })
-                        }
-                        menuItems={[
-                          {
-                            kind: 'action',
-                            key: 'run',
-                            label: 'Run now',
-                            icon: <Play size={15} />,
-                            onSelect: () => void runScheduleNow(t.id),
-                          },
-                          {
-                            kind: 'action',
-                            key: 'toggle',
-                            label: t.enabled ? 'Pause' : 'Resume',
-                            icon: t.enabled ? <PauseCircle size={15} /> : <PlayCircle size={15} />,
-                            onSelect: () => void toggleScheduleEnabled(t.id, !t.enabled),
-                          },
-                          { kind: 'divider', key: 'd1' },
-                          ...routineProjectItems(t),
-                          { kind: 'divider', key: 'd2' },
-                          {
-                            kind: 'action',
-                            key: 'delete',
-                            label: 'Delete',
-                            icon: <Trash2 size={15} />,
-                            danger: true,
-                            confirm: `Delete the “${t.name}” routine? A server restart restores the seed.`,
-                            onSelect: () => void removeSchedule(t.id),
-                          },
-                        ]}
-                      />
-                    ))}
-                  </Fragment>
-                ))}
-                {routineTotal === 0 && (
-                  <p className="px-2 py-2 text-[12px] text-ink-faint">No routines match these filters.</p>
-                )}
-              </div>
-            )}
-          </div>
-          </>
-        )}
-
         {/* ── Recents pane ── one compact line per conversation. Folds to its header;
-            a fixed-height pane at the bottom, its divider above it (like Scheduled). */}
+            a fixed-height utility pane at the bottom, its divider above it. */}
         {resizable && paneOf('recents')?.divider && (
           <PaneDivider
             label="Resize Recents pane"
@@ -910,13 +896,11 @@ function PaneFoldHeader({
   label,
   open,
   onToggle,
-  suffix,
   children,
 }: {
   label: string
   open: boolean
   onToggle: () => void
-  suffix?: string
   children?: ReactNode
 }) {
   return (
@@ -924,17 +908,11 @@ function PaneFoldHeader({
       <button
         onClick={onToggle}
         aria-expanded={open}
-        // Include the suffix in the name so the Scheduled pane fold ("… Scheduled routines")
-        // stays distinct from the Scheduled *section* row's chevron ("… Scheduled"), and the
-        // accessible name matches the visible label (WCAG 2.5.3).
-        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}${suffix ? ` ${suffix}` : ''}`}
+        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
         className={`flex flex-1 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
       >
         {label}
         <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
-        {suffix && (
-          <span className="font-normal normal-case tracking-normal text-ink-faint">{suffix}</span>
-        )}
       </button>
       {open && children}
     </div>
@@ -1041,7 +1019,7 @@ function SectionTreeRow({
 }) {
   return (
     <div
-      className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${
+      className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${SIDEBAR_FOCUS_WITHIN} ${
         active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}
     >
@@ -1109,7 +1087,7 @@ function SessionRow({
 
   return (
     <div
-      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${
+      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${SIDEBAR_FOCUS_WITHIN} ${
         active ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
       }`}
     >
@@ -1154,6 +1132,46 @@ function GroupHeader({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
 }
 
+/** The Scheduled section's instance head. It keeps the shared eight-row cap
+ * even when the chosen grouping divides the list into several visual bands. */
+function ScheduledTreeChildren({
+  groups,
+  total,
+  renderRoutine,
+}: {
+  groups: RoutineGroup[]
+  total: number
+  renderRoutine: (task: ScheduledTask) => ReactNode
+}) {
+  const [showAll, setShowAll] = useState(false)
+  if (total === 0) return <NoRowsRow>No routines match these filters.</NoRowsRow>
+  let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
+  const visibleGroups = groups
+    .map((group) => {
+      const tasks = group.tasks.slice(0, Math.max(0, remaining))
+      remaining -= tasks.length
+      return { ...group, tasks }
+    })
+    .filter((group) => group.tasks.length > 0)
+  return (
+    <>
+      {visibleGroups.map((group) => (
+        <Fragment key={group.key}>
+          {group.label && <GroupHeader>{group.label}</GroupHeader>}
+          {group.tasks.map(renderRoutine)}
+        </Fragment>
+      ))}
+      {total > RAIL_INSTANCE_CAP && (
+        <ShowAllRow
+          hidden={total - RAIL_INSTANCE_CAP}
+          open={showAll}
+          onToggle={() => setShowAll((value) => !value)}
+        />
+      )}
+    </>
+  )
+}
+
 /** One Scheduled-routine branch — the parent opens the complete routine page;
  * its disclosure preserves the routine's section pages before run/discussion
  * resources. */
@@ -1178,7 +1196,6 @@ function RoutineRow({
   onOpenDiscussion: (discussionId: string) => void
   menuItems: RowMenuItem[]
 }) {
-  const cadence = task.cadence.split('·')[0]?.trim() || task.cadence
   // A routine is the composite; a run is one of its children. The old row
   // skipped the parent whenever a run existed and opened the latest child,
   // making the routine page unreachable from the very tree that listed it.
@@ -1191,8 +1208,8 @@ function RoutineRow({
   return (
     <>
       <div
-        className={`group flex w-full items-center gap-2 rounded-md px-2 py-1.5 transition ${
-          pageActive ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
+        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[13px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
+          pageActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
         }`}
       >
         <button
@@ -1209,15 +1226,14 @@ function RoutineRow({
           onClick={onOpenPage}
           title={`${task.cadence} · ${task.subtitle}`}
           aria-current={pageActive ? 'page' : undefined}
-          className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+          className="min-w-0 flex-1 truncate text-left"
         >
           {task.name}
         </button>
-        <span className="shrink-0 text-[11px] text-ink-faint group-hover:hidden">{cadence}</span>
         <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} />
       </div>
       {expanded && (
-        <div data-routine-tree={task.id}>
+        <RailTreeBranch data-routine-tree={task.id}>
           <RoutineSectionRows
             task={task}
             activeSectionId={activeSectionId}
@@ -1226,7 +1242,7 @@ function RoutineRow({
             onOpenRun={onOpenRun}
             onOpenDiscussion={onOpenDiscussion}
           />
-        </div>
+        </RailTreeBranch>
       )}
     </>
   )
@@ -1265,9 +1281,9 @@ function RoutineSectionRows({
         return (
           <div key={section.id}>
             <div
-              className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-5 pr-2 text-[13px] transition ${
+              className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
                 activeSectionId === section.id
-                  ? 'bg-panel-2 font-medium text-ink'
+                  ? SIDEBAR_ACTIVE
                   : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
               }`}
             >
@@ -1293,27 +1309,34 @@ function RoutineSectionRows({
               >
                 {section.label}
               </button>
+              {hasResources && (
+                <span className="shrink-0 text-[10px] font-normal text-ink-faint">
+                  {runs ? task.runs.length : 1}
+                </span>
+              )}
             </div>
-            {runs && runsExpanded && task.runs.map((run) => (
+            {runs && runsExpanded && (
+              <RailTreeBranch data-routine-section-resources={section.id}>
+                {task.runs.map((run) => (
                   <SubNavRow
                     key={run.id}
                     label={run.summary}
                     title={`${run.summary} · ${run.duration}`}
-                    kind="session"
-                    depth={4}
                     active={activeRunId === run.id}
                     onClick={() => onOpenRun(run.id)}
                   />
                 ))}
+              </RailTreeBranch>
+            )}
             {discussion && discussionExpanded && rootDiscussion && (
-              <SubNavRow
-                label={discussionTitle(rootDiscussion.posts[0]?.body, 60)}
-                title="Routine discussion"
-                kind="discussion"
-                depth={4}
-                active={false}
-                onClick={() => onOpenDiscussion(rootDiscussion.id)}
-              />
+              <RailTreeBranch data-routine-section-resources={section.id}>
+                <SubNavRow
+                  label={discussionTitle(rootDiscussion.posts[0]?.body, 60)}
+                  title="Routine discussion"
+                  active={false}
+                  onClick={() => onOpenDiscussion(rootDiscussion.id)}
+                />
+              </RailTreeBranch>
             )}
           </div>
         )
@@ -1327,7 +1350,7 @@ function Dot({ active }: { active: boolean }) {
   return (
     <span
       className={`h-2 w-2 shrink-0 rounded-full ${
-        active ? 'bg-accent' : 'border border-line-strong bg-transparent'
+        active ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'
       }`}
     />
   )

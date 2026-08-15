@@ -25,8 +25,8 @@ test('every composite projects its canonical children in the rail', () => {
     assert.match(tree, new RegExp(`kind: '${kind}'`), `a project exposes its ${kind} children in the forest`)
   }
   assert.match(sidebar, /task\.runs\.map/, 'a routine exposes each run session beneath the routine')
-  assert.match(sidebar, /kind="session"/, 'a routine names its run children as sessions')
-  assert.match(sidebar, /onOpenPage=\{\(\) => onOpenSchedule\(t\.id\)\}/, 'the composite row opens the parent, never skips to its newest child')
+  assert.match(sidebar, /onSelect\(runSessionId\(t\.id, runId\)\)/, 'a run child opens its canonical session')
+  assert.match(sidebar, /onOpenSchedule\(t\.id\)/, 'the composite row opens the parent, never skips to its newest child')
 })
 
 test('composite main pages use the project reading-column form and enumerate the same child kinds', () => {

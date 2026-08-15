@@ -11,7 +11,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
-import { SIDEBAR_ACTIVE, SIDEBAR_HOVER } from './sidebar.ts'
+import {
+  SIDEBAR_ACTIVE,
+  SIDEBAR_BRANCH,
+  SIDEBAR_FOCUS_WITHIN,
+  SIDEBAR_HOVER,
+} from './sidebar.ts'
 
 const sidebarSrc = () => stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
 
@@ -44,6 +49,7 @@ test('the rail marks WHERE YOU ARE without hue — one active look, no co-color'
   assert.ok(!/\bco\b|-co(?![\w])|co-/.test(SIDEBAR_ACTIVE), `the active row wears no co-color: "${SIDEBAR_ACTIVE}"`)
   assert.match(SIDEBAR_ACTIVE, /\bbg-/, 'it still fills, so "here" reads at a glance')
   assert.match(SIDEBAR_ACTIVE, /\bfont-medium\b/, 'and carries the weight bump that replaces the hue')
+  assert.match(SIDEBAR_ACTIVE, /before:left-0/, 'the persistent location marker is distinct from keyboard focus')
 
   // The whole rail, not just the token: no element may reintroduce the tint by
   // hand. This is the half that actually regresses — the pill was spelled inline
@@ -56,4 +62,12 @@ test('the rail marks WHERE YOU ARE without hue — one active look, no co-color'
   // rows had drifted into two (a tinted pill vs a ringed fill) in one panel.
   assert.ok(!src.includes("'bg-panel-2 ring-1 ring-line-strong'"), 'the ringed active fill folded into SIDEBAR_ACTIVE')
   assert.ok(src.includes('SIDEBAR_ACTIVE'), 'Sidebar.tsx applies the shared active cue')
+})
+
+test('focus and tree depth each have one rail-wide cue', () => {
+  assert.match(SIDEBAR_FOCUS_WITHIN, /focus-within:bg-/, 'focus washes the containing row')
+  assert.doesNotMatch(SIDEBAR_FOCUS_WITHIN, /before:/, 'focus never impersonates the standing location marker')
+  assert.match(SIDEBAR_BRANCH, /border-l/, 'a disclosed branch carries one visible guide')
+  const src = sidebarSrc()
+  assert.ok(src.includes('SIDEBAR_FOCUS_WITHIN'), 'Sidebar rows source the focus cue')
 })

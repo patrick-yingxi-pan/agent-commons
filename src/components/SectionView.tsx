@@ -138,8 +138,10 @@ import {
 } from '../lib/compositeSections'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
 import { useSectionFilter } from '../lib/useSectionFilter'
+import { useRoutineFilter } from '../lib/useRoutineFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
 import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders, projectFacet } from '../lib/sectionLists'
+import { clampRoutineFilter, filterRoutines } from '../lib/routineFilter'
 import { relativeTime, shortRelativeTime } from '../lib/relativeTime'
 import { countLabel, countOr } from '../lib/countLabel'
 import { Chip } from './Chip'
@@ -11598,12 +11600,8 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
   return { tone: 'ok', label: last ? `Ran ${relativeTime(last.at)}` : 'Active' }
 }
 
-/** The Scheduled section. Alone among the content sections it has NO rail tree
- *  children and no "Filter & sort" on its row (UI-19): its instances already
- *  have their own rail pane — routines, with that pane's own filter — and the
- *  same list twice in one rail is worse than once. Its page needs no status
- *  control either: it BANDS by status, so the partition is visible without a
- *  control to choose it. */
+/** The Scheduled section. Its main page and rail branch read the same live
+ * routine filter, so the tree's head is an honest projection of this list. */
 function ScheduledSection({
   scheduleId,
   scheduleSectionId,
@@ -11622,11 +11620,15 @@ function ScheduledSection({
   /** Open a run's session (the run-history rows + the rail both land here). */
   onOpenSession: (id: string) => void
 }) {
-  // The routines come from the server; ScheduledSection keeps a local working
-  // The routines + their runs come straight from the server now (one live source,
-  // shared with the rail's recent-runs feed). Mutations are commands; the run.*
+  // The routines + their runs come straight from the server (one live source,
+  // shared with the rail tree). Mutations are commands; the run.*
   // events invalidate the cache, so the list reflects run-now / the daemon live.
   const items = useSchedules().data ?? []
+  const rel = useRelations()
+  const projects = rel.allProjects()
+  const projectIds = new Set(projects.map((project) => project.id))
+  const [rawRoutineFilter] = useRoutineFilter()
+  const routineFilter = clampRoutineFilter(rawRoutineFilter, projectIds)
   const [query, setQuery] = useState('')
   // Ids with a "Run now" in flight — drives the button spinner until the run's
   // run.finished event lands (cleared on a timer as a safety net).
@@ -11689,10 +11691,17 @@ function ScheduledSection({
       t.subtitle.toLowerCase().includes(needle) ||
       t.steps.some((s) => s.tool.label.toLowerCase().includes(needle)),
   )
-  const groups = [
-    { key: 'active' as const, label: 'Active', items: matches.filter((t) => t.enabled) },
-    { key: 'paused' as const, label: 'Paused', items: matches.filter((t) => !t.enabled) },
-  ].filter((g) => g.items.length > 0)
+  const filtered = filterRoutines(matches, routineFilter, {
+    projectIdOfTask: rel.scheduleProjectId,
+    projectName: (projectId) => projects.find((project) => project.id === projectId)?.name ?? 'Project',
+  })
+  const groups = filtered.groups
+    .filter((group) => group.tasks.length > 0)
+    .map((group) => ({
+      key: group.key,
+      label: group.label || 'Routines',
+      items: group.tasks,
+    }))
 
   return (
     <Page>

@@ -82,7 +82,7 @@ test('the rail carries a standing door to YOUR profile, under the Commons', () =
   assert.match(children, /<SubNavRow\s/, 'the standing door is a SubNavRow like its siblings')
   // Rendered under OWNER_SECTION only — a standing door is not a general
   // mechanism, and a second one would need its own argument.
-  assert.match(sidebar, /isExpanded && id === OWNER_SECTION && onOpenOwner/, 'rendered under the owner section only')
+  assert.match(sidebar, /id === OWNER_SECTION && onOpenOwner && \(/, 'rendered under the owner section only')
   assert.equal(
     filesUnder('src').filter((f) => stripComments(read(f)).includes('<OwnerProfileChild')).length,
     1,

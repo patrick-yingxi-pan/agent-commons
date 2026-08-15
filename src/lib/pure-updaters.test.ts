@@ -41,7 +41,7 @@ import { ALL_FACET, saveSectionFilter, sectionFilterSnapshot } from './sectionFi
 // is every export that funnels into uiPrefs' notifyLayout — `setUiPrefScope` is
 // deliberately NOT among them any more (it is pure; the tests below hold it so).
 const IMPURE =
-  /set[A-Z]\w*\(\s*\(\s*\w*\s*\)\s*=>\s*\{[^{}]*\b(?:setLayout|saveSectionFilter)\s*\(/g
+  /set[A-Z]\w*\(\s*\(\s*\w*\s*\)\s*=>\s*\{[^{}]*\b(?:setLayout|saveSectionFilter|saveRoutineFilter)\s*\(/g
 
 test('no setState updater writes to the layout store (updaters run during render)', () => {
   const offenders: string[] = []

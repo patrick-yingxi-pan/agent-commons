@@ -394,7 +394,7 @@ carry a standing door beside it:
   a lens must never be a client-side guess, and `server/routes/commons-lenses.test.ts`
   fails a lens with no predicate (it would silently show the whole feed).
 - **Instances** — `SECTION_INSTANCE_KEY`: a content section (Projects, Artifacts,
-  Contexts, Models, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the
+  Contexts, Models, Scheduled, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the
   very list its page renders, with a "Show all — N more" tail row that unfolds the
   remaining rows in place ("Show fewer" folds them back — never a page jump).
   The key IS the `PaneSeed` field that opens one, so "the rail lists it" and "a row of
@@ -433,26 +433,29 @@ carry a standing door beside it:
 A partition of a list by a property of its items — kind, state, ownership — is
 **not** a child: it is a filter, and its ONE home is the section row's "Filter &
 sort" menu (`src/lib/sectionFilter.ts` + the shared `FilterMenu`), the same
-primitive Scheduled and Recents use one row lower in the same rail. So: no in-page
+primitive Scheduled and Recents use in the same rail. So: no in-page
 tab/dropdown that re-selects a facet, and no second sort control. The rail and the
 page derive their list with ONE function per section (`src/lib/sectionLists.ts`)
 over ONE live stored choice (`useSectionFilter`, per account through `uiPrefs`) —
 otherwise the rail's eight names are not the page's first eight, which is worse
-than listing none. Scheduled is in NEITHER registry: its instances already have
-their own rail pane, and the same list twice in one rail is worse than once. A
+than listing none. Scheduled is an instance branch in that same tree; its richer
+status / project / cadence filter remains a dedicated funnel (`filterRoutines` +
+`useRoutineFilter`), but the branch and the main page consume the SAME live,
+per-account choice. There is no second Scheduled pane. A
 section lands on its **default** view (rail sub-view `null`; each hub body maps
 null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
 not a push; the registries disjoint; the shared-funnel pairing scanned both ways;
 no second facet control), `src/lib/section-lists.test.ts`, and
 `src/lib/url-routes.test.ts` (every listed kind round-trips as a URL).
 A **Sections** header carries one **fold/unfold-all** toggle. The
-rail's lower body is an **accordion of foldable, resizable panes** — Sections, Scheduled,
-Recents. Each pane's header has a **fold caret** (symmetric across all three); folding
+rail's lower body is an **accordion of foldable, resizable panes** — Sections and
+Recents. Scheduled is a resource branch inside Sections, not a peer utility pane.
+Each pane's header has a **fold caret** (symmetric across both); folding
 collapses it to its header (persisted per pane). Open panes hold a **persisted, FIXED**
 height except the **top-most open one**, which **flexes** to fill — Sections is the pane
-with the most rows, so it takes every spare pixel, and folding Scheduled/Recents drops
-their headers **downward** while handing the space to Sections (folding never opens a
-gap; fold Sections and Scheduled flexes instead). A
+with the most rows, so it takes every spare pixel, while Recents starts folded and
+stays subordinate until the user opens it (folding never opens a gap; fold Sections
+and Recents flexes instead). A
 divider moves only on drag — folding or a content change never moves it (**fixed unless
 manually adjusted**); heights **clamp at render, never in storage** (the rule the rail
 *width* follows, `useLayout`). A drag rewrites **only the dragged pane's** stored height,
@@ -472,10 +475,20 @@ constants the clamp enforces.
 Dividers **drop on the narrow tier** (`resizable` false → panes flow in the
 drawer, ADAPT-11; folding still works). Two **labeled** `<nav>` landmarks keep the rail
 landmark-unique (WCAG) *and* section rows navigation-scoped for e2e — "Create" (New
-session) and "Sections" (the tree) — while Scheduled/Recents stay out of navigation.
+session) and "Sections" (the complete resource tree, including Scheduled) — while
+Recents stays out of navigation.
 Locked by `src/lib/rail-panes.test.ts` (fold combos + flex promotion, fit-to-avail clamp,
 min floors both drag directions, no clamp-leak into storage) and
 `src/components/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
+
+The tree communicates depth without spending identity width: every expanded branch
+uses the ONE `RailTreeBranch` guide, homogeneous leaves show their name rather than a
+repeated kind word, and composite parents / structural sections / leaves step down in
+type weight. A neutral left marker means **current location**; the softer
+`focus-within` wash means keyboard focus only, so tabbing never impersonates
+navigation. The rail toolbar is two spatial groups — global rail acts, then the main
+view's split/close acts behind a divider. These are behavioral cues, not decoration;
+`src/lib/rail-refinement.test.ts` locks their shared funnels and hierarchy coverage.
 
 ## Every page has a canonical URL — the address bar projects the nav model
 

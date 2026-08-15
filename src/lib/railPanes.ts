@@ -1,6 +1,7 @@
 /** ── Resizable, foldable rail body panes (ADAPT-13) ───────────────────────────
- *  The rail's lower body is a small **accordion** of stacked panes — Sections,
- *  Scheduled, Recents. Each pane can be **folded** (collapsed to just its header)
+ *  The rail's lower body is a small **accordion** of stacked panes — the account
+ *  resource tree (Sections) and the utility history (Recents). Each pane can be
+ *  **folded** (collapsed to just its header)
  *  and, when open, holds a **persisted, FIXED** height — except the **top-most
  *  open pane**, which **flexes** to fill whatever height the others leave. The
  *  Sections tree is the pane with the most rows, so it gets every freed pixel:
@@ -29,14 +30,13 @@ export const RAIL_PANE_MIN = 96
  *  Deliberately lean: the flex Sections pane keeps the lion's share of a typical rail
  *  (it's the pane with the most rows); the fixed panes start just big enough to show a
  *  few entries and are a drag away from more. */
-export const RAIL_SCHEDULED_DEFAULT = 120
 export const RAIL_RECENTS_DEFAULT = 176
 /** A folded pane collapses to just its header — this strip's approximate height. */
 export const RAIL_PANE_HEADER = 32
 /** The in-flow gutter each divider occupies between two panes. */
 export const RAIL_GUTTER = 8
 
-export type PaneId = 'sections' | 'scheduled' | 'recents'
+export type PaneId = 'sections' | 'recents'
 
 export type PaneInput = {
   id: PaneId

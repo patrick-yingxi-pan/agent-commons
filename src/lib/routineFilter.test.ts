@@ -1,7 +1,14 @@
-import { test } from 'node:test'
+import { beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DEFAULT_ROUTINE_FILTER, filterRoutines, type RoutineFilterContext } from './routineFilter.ts'
+import {
+  DEFAULT_ROUTINE_FILTER,
+  filterRoutines,
+  routineFilterSnapshot,
+  saveRoutineFilter,
+  type RoutineFilterContext,
+} from './routineFilter.ts'
 import type { ScheduledRun, ScheduledTask } from '../../contract/cowork.ts'
+import { setLayout, setUiPrefScope } from './uiPrefs.ts'
 
 /** A routine's recency is its freshest run's `at`, which moved to absolute
  *  epoch-ms (larger = newer). The recency sort must therefore be descending —
@@ -51,8 +58,40 @@ test('a never-run routine sorts last under recency (not first)', () => {
 test('alpha sort orders by name; the status filter narrows to active / paused', () => {
   const on = task('on', 'Beta', true, [])
   const off = task('off', 'Alpha', false, [])
-  assert.deepEqual(ids(filterRoutines([on, off], { ...DEFAULT_ROUTINE_FILTER, sortBy: 'alpha' }, ctx)), ['off', 'on'])
+  assert.deepEqual(
+    ids(filterRoutines([on, off], { ...DEFAULT_ROUTINE_FILTER, groupBy: 'none', sortBy: 'alpha' }, ctx)),
+    ['off', 'on'],
+  )
   const active = filterRoutines([on, off], { ...DEFAULT_ROUTINE_FILTER, status: 'active' }, ctx)
   assert.deepEqual(ids(active), ['on'])
   assert.equal(active.total, 1)
+})
+
+test('the default keeps the existing Active / Paused page bands', () => {
+  const on = task('on', 'On', true, [])
+  const off = task('off', 'Off', false, [])
+  const groups = filterRoutines([off, on], DEFAULT_ROUTINE_FILTER, ctx).groups
+  assert.deepEqual(groups.map((group) => group.label), ['Active', 'Paused'])
+})
+
+beforeEach(() => {
+  const store = new Map<string, string>()
+  ;(globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+  }
+  setLayout('__routine_filter_reset__', 0)
+})
+
+test('the Scheduled filter is stable, live, and scoped per account', () => {
+  setUiPrefScope('ada')
+  const initial = routineFilterSnapshot()
+  assert.equal(routineFilterSnapshot(), initial, 'useSyncExternalStore receives a stable snapshot')
+  saveRoutineFilter({ ...DEFAULT_ROUTINE_FILTER, status: 'paused' })
+  assert.equal(routineFilterSnapshot().status, 'paused', 'a tree-row write reaches the next page read')
+
+  setUiPrefScope('grace')
+  assert.deepEqual(routineFilterSnapshot(), DEFAULT_ROUTINE_FILTER, 'Grace never inherits Ada’s routine filter')
+  setUiPrefScope('ada')
+  assert.equal(routineFilterSnapshot().status, 'paused', 'switching back restores Ada’s choice')
 })

@@ -29,12 +29,20 @@ test('the rail projects composite → section → resource, never a flat descend
   assert.match(projects, /visibleCompositeSections\(PROJECT_SECTIONS, project\.own !== false\)/)
   assert.match(projects, /sections\.map\(\(section\) => \(\s*<ProjectSectionBranch/)
   assert.match(projects, /onOpenDetail\('projects', \{ projectId, projectSectionId: section\.id \}\)/)
-  assert.match(projects, /depth=\{4\}/, 'resource rows sit one level below their section')
+  assert.match(
+    projects,
+    /<RailTreeBranch data-project-section-resources=\{section\.id\}>/,
+    'resource rows sit inside a guide one level below their section',
+  )
 
   const routines = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
   assert.match(routines, /visibleCompositeSections\(SCHEDULE_SECTIONS, task\.own !== false\)/)
   assert.match(routines, /onOpenSection\(section\.id\)/, 'each routine section is a page door')
-  assert.match(routines, /depth=\{4\}/, 'run and discussion resources sit below their section')
+  assert.match(
+    routines,
+    /<RailTreeBranch data-routine-section-resources=\{section\.id\}>/,
+    'run and discussion resources sit inside a guide below their section',
+  )
 })
 
 test('a composite section destination renders only that section and forces its content open', () => {
