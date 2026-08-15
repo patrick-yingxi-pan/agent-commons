@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   Mail,
   Pencil,
+  Plus,
   Presentation,
   Sheet,
   type LucideIcon,
@@ -22,7 +23,7 @@ import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusC
 import { useArtifactContent, useFsText, fsContentUrl, updateArtifactBlock } from '../api'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
-import { ProposalsPanel } from './ProposalsPanel'
+import { ProposalsPanel, type MainPageSectionComponent } from './ProposalsPanel'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { PhotoThumb } from './PhotoThumb'
 import { GrantsPanel } from './GrantsPanel'
@@ -34,6 +35,7 @@ import { usePopoverShift } from '../lib/usePopoverShift'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { BackButton } from './BackButton'
 import type { NavLocation } from '../lib/nav'
+import { SectionAction } from './SectionAction'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -728,6 +730,7 @@ export function ArtifactDetailPage({
   onOpenSource,
   onBack,
   backTo,
+  Section,
 }: {
   artifact: ArtifactItem
   projects: { id: string; name: string }[]
@@ -749,6 +752,9 @@ export function ArtifactDetailPage({
   onOpenSource?: () => void
   onBack: () => void
   backTo: NavLocation | null
+  /** The same FoldSection every other main page uses. Injected by SectionView
+   * so this body module stays reusable without importing its parent. */
+  Section: MainPageSectionComponent
 }) {
   const Icon = KIND_ICON[artifact.kind]
 
@@ -759,6 +765,7 @@ export function ArtifactDetailPage({
   const [draft, setDraft] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [sharing, setSharing] = useState(false)
   const edit: DocEdit | undefined = own
     ? {
         index: editing,
@@ -838,53 +845,69 @@ export function ArtifactDetailPage({
       </header>
 
       <div className="min-w-0">
-        <ArtifactBodyView
-          kind={artifact.kind}
-          name={artifact.name}
-          artifactId={artifact.id}
-          size="full"
-          excerpt={artifact.excerpt}
-          edit={edit}
-          // The canonical page is the artifact's READING surface, so it is
-          // the one place a block carries its own thread (social S2).
-          discuss={{ kind: 'artifact', id: artifact.id }}
-        />
+        <Section
+          title="Content"
+          summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
+        >
+          <ArtifactBodyView
+            kind={artifact.kind}
+            name={artifact.name}
+            artifactId={artifact.id}
+            size="full"
+            excerpt={artifact.excerpt}
+            edit={edit}
+            // The canonical page is the artifact's READING surface, so it is
+            // the one place a block carries its own thread (social S2).
+            discuss={{ kind: 'artifact', id: artifact.id }}
+          />
+        </Section>
         {/* Improvements (social S3) — the generic ProposalsPanel, the third
             social primitive on the one canonical surface. An artifact could be
             shared and discussed but never IMPROVED: `artifact-patch` had no
             host, which is the "capability with no surface" failure the layer's
             own audits keep finding. Everyone sees the ledger; the offer form
             is the panel's own propose-tier gate, land/decline the owner's. */}
-        <div className="mt-5 border-t border-line pt-4">
-          <ProposalsPanel subject={{ kind: 'artifact', id: artifact.id }} own={own} />
-        </div>
+        <ProposalsPanel subject={{ kind: 'artifact', id: artifact.id }} own={own} Section={Section} />
         {/* Sharing (social S1) — the OWNER's audience configuration, the same
             generic GrantsPanel every other subject hosts. Without it an
             artifact could be granted only through the API: the read now
             widens for an audience that had no way to be created. */}
         {own && (
-          <div className="mt-5 border-t border-line pt-4">
-            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">Share this artifact</p>
-            <GrantsPanel subject={{ kind: 'artifact', id: artifact.id }} />
-          </div>
+          <Section
+            title="Sharing"
+            defaultFolded
+            summary="Audience and permissions"
+            actions={
+              <SectionAction
+                label="Share with an audience"
+                icon={<Plus size={14} />}
+                onClick={() => setSharing((value) => !value)}
+                expanded={sharing}
+              />
+            }
+          >
+            <GrantsPanel subject={{ kind: 'artifact', id: artifact.id }} composing={sharing} />
+          </Section>
         )}
-        <div className="mt-5 flex items-center gap-2 border-t border-line pt-4 text-[12px] text-ink-faint">
-          {onOpenSource ? (
-            <button
-              onClick={onOpenSource}
-              title={`Open ${artifact.source}`}
-              className="group inline-flex max-w-full items-center gap-1 truncate transition hover:text-ink"
-            >
-              From{' '}
-              <span className={`truncate font-medium text-ink-soft ${STANDING_DOOR_CLASS} group-hover:text-ink`}>
-                {artifact.source}
-              </span>
-              <ArrowUpRight size={12} className="shrink-0 opacity-60 transition group-hover:opacity-100" />
-            </button>
-          ) : (
-            <span className="truncate">From {artifact.source}</span>
-          )}
-        </div>
+        <Section title="Provenance" summary={`From ${artifact.source}`}>
+          <div className="flex items-center gap-2 text-[12px] text-ink-faint">
+            {onOpenSource ? (
+              <button
+                onClick={onOpenSource}
+                title={`Open ${artifact.source}`}
+                className="group inline-flex max-w-full items-center gap-1 truncate transition hover:text-ink"
+              >
+                From{' '}
+                <span className={`truncate font-medium text-ink-soft ${STANDING_DOOR_CLASS} group-hover:text-ink`}>
+                  {artifact.source}
+                </span>
+                <ArrowUpRight size={12} className="shrink-0 opacity-60 transition group-hover:opacity-100" />
+              </button>
+            ) : (
+              <span className="truncate">From {artifact.source}</span>
+            )}
+          </div>
+        </Section>
       </div>
     </div>
   )

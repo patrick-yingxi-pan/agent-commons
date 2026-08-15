@@ -237,6 +237,20 @@ their resource-specific row/card/timeline form stays inside it. Stable schema
 sections persist; data-defined bands pass `persist={false}` so a user-created
 project name never becomes an unbounded preference key.
 
+That closure is **total and transitive**, not a list of root components that
+looked right when the rule was written. Every `SECTION_INSTANCE_KEY` entry must
+name an explicit canonical detail renderer; a detail id may never degrade to
+"the index, scrolled and flashed" (the Models provider leaf was the escape that
+earned this rule). Stable multi-group details — profile, published Agent,
+artifact, provider, routine, context and maintainer account — express their
+groups through the same `FoldSection`; atomic timelines may vary only inside the
+shared `Page` + page-header frame. A detail body split into another module does
+not redraw the primitive or import its parent: `SectionView` injects the one
+`MainPageSectionComponent` into `ArtifactDetailPage` and `ProposalsPanel`, and
+the prop is required. `src/lib/page-grammar.test.ts` derives its detail key set
+from `SECTION_INSTANCE_KEY`, enumerates the stable details and the argued atomic
+exceptions, and scans those cross-file seams.
+
 The Artifacts root's entry is a synopsis row, never a miniature body renderer
 (UI-31). All five kinds carry the same index grammar—kind/name, excerpt,
 descriptor/provenance/recency—through `ArtifactPreviewRow`; the rich document,

@@ -476,7 +476,7 @@ export function SectionView({
     ) : section === 'contexts' ? (
       <ContextsSection contextId={focusContextId} onBack={onBack} backTo={backTo} />
     ) : section === 'models' ? (
-      <ModelsSection providerId={focusProviderId} />
+      <ModelsSection providerId={focusProviderId} onBack={onBack} backTo={backTo} />
     ) : section === 'agents' ? (
       // The Agents hub's children are distinct SURFACES (not one list filtered), so its
       // sub-view is a surface id — defaulting to the worker list when the rail sub-view is
@@ -3072,48 +3072,49 @@ function WorkItemPage({
 
   return (
     <Page>
-      <div className="mx-auto w-full max-w-3xl">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
-            <BackButton to={backTo} onBack={onBack} />
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-3">
+          <BackButton to={backTo} onBack={onBack} />
+          <div className="min-w-0">
             <h1 className={PAGE_TITLE_CLASS}>{o.subGoal}</h1>
+            <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
+              {badge}
+              <span>
+                posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => rel.openOwner(o.postedBy)} /> ·{' '}
+                {relativeTime(o.postedAt)}
+              </span>
+              <span>
+                · {o.type} → {o.target}
+                {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
+              </span>
+              <span>
+                · in{' '}
+                <button
+                  onClick={() => rel.navigate('projects', project.id)}
+                  className={`text-ink-soft ${DOOR_CLASS}`}
+                >
+                  {project.name}
+                </button>
+              </span>
+            </div>
           </div>
-          {mayRetract && (
-            <button
-              onClick={retract}
-              disabled={busy}
-              title="Close this item unresolved (poster or project owner)"
-              className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
-            >
-              Retract
-            </button>
-          )}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
-          {badge}
-          <span>
-            posted by <OwnerLink bare ownerName={o.postedBy} onClick={() => rel.openOwner(o.postedBy)} /> ·{' '}
-            {relativeTime(o.postedAt)}
-          </span>
-          <span>
-            · {o.type} → {o.target}
-            {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
-          </span>
-          <span>
-            · in{' '}
-            <button
-              onClick={() => rel.navigate('projects', project.id)}
-              className={`text-ink-soft ${DOOR_CLASS}`}
-            >
-              {project.name}
-            </button>
-          </span>
-        </div>
+        {mayRetract && (
+          <button
+            onClick={retract}
+            disabled={busy}
+            title="Close this item unresolved (poster or project owner)"
+            className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
+          >
+            Retract
+          </button>
+        )}
+      </header>
 
-        {/* The timeline — transitions + conversation, interleaved in time order. */}
-        <div className="mt-5 space-y-3 border-l-2 border-line pl-4">
-          {events.map((ev) =>
-            ev.kind === 'posted' ? (
+      {/* The timeline — transitions + conversation, interleaved in time order. */}
+      <div className="space-y-3 border-l-2 border-line pl-4">
+        {events.map((ev) =>
+          ev.kind === 'posted' ? (
               <div key={ev.key} className="rounded-lg border border-line bg-surface px-3 py-2">
                 <div className="text-[12px] text-ink-faint">
                   <OwnerLink bare ownerName={o.postedBy} onClick={() => rel.openOwner(o.postedBy)} /> posted this
@@ -3170,33 +3171,32 @@ function WorkItemPage({
                   {o.retractedAt ? ` · ${relativeTime(o.retractedAt)}` : ''} — closed unresolved
                 </span>
               </div>
-            ),
-          )}
-        </div>
-
-        {/* The conversation continues below the timeline — same funnel as the
-            backlog row's composer (anyone who can see the project may comment),
-            and the same mention picker: the two composers post to one route, so
-            they must offer one thing. */}
-        <div className="mt-4 flex items-center gap-1.5">
-          <input
-            {...mention.fieldProps}
-            value={draft}
-            placeholder={mentionHint(project.shared === true)}
-            aria-label={`Comment on ${o.subGoal}`}
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-          />
-          <button
-            onClick={send}
-            disabled={busy || !draft.trim()}
-            className={`shrink-0 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
-          >
-            Post
-          </button>
-          {mention.list}
-        </div>
-        {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
+          ),
+        )}
       </div>
+
+      {/* The conversation continues below the timeline — same funnel as the
+          backlog row's composer (anyone who can see the project may comment),
+          and the same mention picker: the two composers post to one route, so
+          they must offer one thing. */}
+      <div className="mt-4 flex items-center gap-1.5">
+        <input
+          {...mention.fieldProps}
+          value={draft}
+          placeholder={mentionHint(project.shared === true)}
+          aria-label={`Comment on ${o.subGoal}`}
+          className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+        />
+        <button
+          onClick={send}
+          disabled={busy || !draft.trim()}
+          className={`shrink-0 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
+        >
+          Post
+        </button>
+        {mention.list}
+      </div>
+      {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
     </Page>
   )
 }
@@ -4385,16 +4385,16 @@ function ProfileCommonsBand({ actor }: { actor: string }) {
   const mine = (useCommons().data ?? []).filter((i) => i.actor === actor)
   if (mine.length === 0) return null
   return (
-    <div>
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-        Commons activity
-      </div>
+    <FoldSection
+      title="Commons activity"
+      summary={`${mine.length} public act${mine.length === 1 ? '' : 's'}`}
+    >
       <div className="space-y-4">
         {mine.map((item) => (
           <FeedCard key={item.id} item={item} />
         ))}
       </div>
-    </div>
+    </FoldSection>
   )
 }
 
@@ -5677,11 +5677,50 @@ function ContributionPage({
 
   return (
     <Page>
-      <div className="mx-auto w-full max-w-3xl">
-        <div className="flex items-start justify-between gap-3">
+      <div>
+        <header className={PAGE_HEADER_CLASS}>
           <div className="flex min-w-0 items-start gap-3">
             <BackButton to={backTo} onBack={onBack} />
-            <h1 className={PAGE_TITLE_CLASS}>{c.title}</h1>
+            <div className="min-w-0">
+              <h1 className={PAGE_TITLE_CLASS}>{c.title}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
+                {badge}
+                {/* CW5 — the gate as VISIBLE arithmetic: the level and its basis in
+                    plain words, never a black box. */}
+                {c.status === 'open' && c.tier && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-soft"
+                    title="The landing gate, computed from risk × trust × the owner's tightening"
+                  >
+                    Tier {c.tier.level} · {c.tier.basis}
+                  </span>
+                )}
+                <span>
+                  by <OwnerLink bare ownerName={c.contributor} onClick={() => rel.openOwner(c.contributor)} /> ·{' '}
+                  {relativeTime(c.openedAt)}
+                </span>
+                {c.subGoal && <span>· {c.subGoal}</span>}
+                <span>
+                  · in{' '}
+                  <button
+                    onClick={() => rel.navigate('projects', project.id)}
+                    className={`text-ink-soft ${DOOR_CLASS}`}
+                  >
+                    {project.name}
+                  </button>
+                </span>
+                {/* The trace door — only offered to its owner (sessions are
+                    tenant-walled; a door that can never open is worse than none). */}
+                {c.sessionId && c.mine === true && (
+                  <span>
+                    ·{' '}
+                    <button onClick={() => onOpenSession(c.sessionId!)} className={`text-ink-soft ${DOOR_CLASS}`}>
+                      View the work
+                    </button>
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             {mayRequire && (
@@ -5730,44 +5769,7 @@ function ContributionPage({
               </button>
             )}
           </div>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
-          {badge}
-          {/* CW5 — the gate as VISIBLE arithmetic: the level and its basis in
-              plain words, never a black box. */}
-          {c.status === 'open' && c.tier && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-ink-soft"
-              title="The landing gate, computed from risk × trust × the owner's tightening"
-            >
-              Tier {c.tier.level} · {c.tier.basis}
-            </span>
-          )}
-          <span>
-            by <OwnerLink bare ownerName={c.contributor} onClick={() => rel.openOwner(c.contributor)} /> ·{' '}
-            {relativeTime(c.openedAt)}
-          </span>
-          {c.subGoal && <span>· {c.subGoal}</span>}
-          <span>
-            · in{' '}
-            <button
-              onClick={() => rel.navigate('projects', project.id)}
-              className={`text-ink-soft ${DOOR_CLASS}`}
-            >
-              {project.name}
-            </button>
-          </span>
-          {/* The trace door — only offered to its owner (sessions are
-              tenant-walled; a door that can never open is worse than none). */}
-          {c.sessionId && c.mine === true && (
-            <span>
-              ·{' '}
-              <button onClick={() => onOpenSession(c.sessionId!)} className={`text-ink-soft ${DOOR_CLASS}`}>
-                View the work
-              </button>
-            </span>
-          )}
-        </div>
+        </header>
 
         {/* The changeset (CW3/CW4, Phase D) — the work's mergeable payload as
             before→after diffs, versioned append-only. */}
@@ -6603,6 +6605,7 @@ function ArtifactsSection({
           onOpenSource={sourceSessionId ? () => onOpenSession(sourceSessionId) : undefined}
           onBack={onBack}
           backTo={backTo}
+          Section={FoldSection}
         />
       </Page>
     )
@@ -7132,13 +7135,17 @@ function ContextsSection({
 
   return (
     <Page>
-      <PageHeader title="Contexts">
+      <PageHeader
+        title="Contexts"
+        subtitle={
+          <>
+            Accounts, servers, and repos you’ve set up once. Any session can reuse them from Add context — no
+            re-authenticating, no re-cloning.
+          </>
+        }
+      >
         <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
       </PageHeader>
-      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
-        Accounts, servers, and repos you’ve set up once. Any session can reuse them from{' '}
-        <span className="font-medium text-ink">Add context</span> — no re-authenticating, no re-cloning.
-      </p>
       <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" />
 
       {groups.length === 0 ? (
@@ -8863,61 +8870,128 @@ function ProbeResultCard({ probe }: { probe: PromptProbeResult }) {
  *  surface. Every entry here is selectable as a model in any session's composer
  *  (the selector reads this same registry), so registering a provider and using
  *  it are two views of one concept: models are first-class citizens. */
-function ModelsSection({ providerId }: { providerId: string | null }) {
-  const providers = useProviders().data ?? []
+function ModelsSection({
+  providerId,
+  onBack,
+  backTo,
+}: {
+  providerId: string | null
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
+  const rel = useRelations()
+  const providersQ = useProviders()
+  const providers = providersQ.data ?? []
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
   const [filter] = useSectionFilter('models')
   // The same list the rail's provider children show — kind facet (the shared
   // built-ins, the endpoints you registered, delegated Sessions) + order.
   const shown = listProviders(providers, filter)
-  // A provider is addressable (`/models/:id`, UI-19) even though it has no page
-  // of its own: the address opens the list with that card scrolled to and lit,
-  // the same landing a notification door gives. Waits for the row to be
-  // PRESENT — the list is a live fetch, so the id can arrive first.
-  const focusRef = useRef<HTMLDivElement>(null)
-  const focusPresent = shown.some((p) => p.id === providerId)
-  useEffect(() => {
-    if (providerId && focusPresent) focusRef.current?.scrollIntoView({ block: 'center' })
-  }, [providerId, focusPresent])
+  const openProvider = providerId ? providers.find((provider) => provider.id === providerId) ?? null : null
+
+  // A provider is a rail LEAF with a canonical URL, so it gets an honest page;
+  // the composite Models page remains the overview. The old implementation
+  // merely scrolled and flashed this card in the index, making the rail promise
+  // a resource that the main pane declined to show (UI-28/UI-30).
+  if (providerId) {
+    if (openProvider) {
+      return (
+        <ProviderDetailPage
+          provider={openProvider}
+          onEdit={() => setEditing(openProvider)}
+          onBack={onBack}
+          backTo={backTo}
+          onDeleted={onBack}
+        >
+          {editing && (
+            <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+          )}
+        </ProviderDetailPage>
+      )
+    }
+    return (
+      <Page>
+        <header className={PAGE_HEADER_CLASS}>
+          <div className="flex min-w-0 items-start gap-1">
+            <BackButton to={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }} onBack={onBack} />
+            <h1 className={PAGE_TITLE_CLASS}>Provider</h1>
+          </div>
+        </header>
+        {providersQ.data && <PageEmpty>This provider no longer exists.</PageEmpty>}
+      </Page>
+    )
+  }
+
   return (
     <Page>
-      <PageHeader title="Models">
+      <PageHeader
+        title="Models"
+        subtitle="Every model your sessions can run on — built-in, registered endpoint, or delegated AI session."
+      >
         <PrimaryButton icon={<Plus size={15} />} onClick={() => setEditing('new')}>
           New provider
         </PrimaryButton>
       </PageHeader>
-      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
-        Every model your sessions can run on. Each entry is a{' '}
-        <span className="font-medium text-ink">model provider</span> — the built-in Anthropic
-        one, a Messages endpoint you register, or a{' '}
-        <span className="font-medium text-ink">Session provider</span> answered by an AI
-        session you already run. All of them appear in the composer’s model selector, so a
-        model registered here is immediately usable in any conversation.
-      </p>
       <FoldSection title="Providers" summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
         <div className="space-y-3">
           {shown.length === 0 ? (
             <Empty>No providers in this view.</Empty>
           ) : (
-            shown.map((p) => {
-              const isFocus = p.id === providerId
-              return (
-                <div
-                  key={p.id}
-                  ref={isFocus ? focusRef : undefined}
-                  className={`scroll-mt-6 rounded-lg transition-colors ${isFocus ? FOCUS_FLASH_CLASS : ''}`}
-                >
-                  <ProviderCard provider={p} onEdit={() => setEditing(p)} />
-                </div>
-              )
-            })
+            shown.map((p) => (
+              <ProviderCard
+                key={p.id}
+                provider={p}
+                onEdit={() => setEditing(p)}
+                onOpen={() => rel.navigate('models', p.id)}
+              />
+            ))
           )}
         </div>
       </FoldSection>
       {editing && (
         <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
+    </Page>
+  )
+}
+
+/** The canonical page behind one Models rail leaf. Provider configuration,
+ * catalog/relay state, and management acts use the same named-section grammar
+ * as ProjectDetail instead of redrawing a second kind of detail surface. */
+function ProviderDetailPage({
+  provider,
+  onEdit,
+  onBack,
+  backTo,
+  onDeleted,
+  children,
+}: {
+  provider: ModelProvider
+  onEdit: () => void
+  onBack: () => void
+  backTo: NavLocation | null
+  onDeleted: () => void
+  children?: ReactNode
+}) {
+  return (
+    <Page>
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-1">
+          <BackButton to={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }} onBack={onBack} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{provider.label}</h1>
+              {provider.isDefault && <DefaultBadge />}
+            </div>
+            <p className="mt-1 text-[13px] text-ink-soft">
+              {provider.kind === 'session' ? 'Session provider · relay' : provider.modelFamily}
+            </p>
+          </div>
+        </div>
+      </header>
+      <ProviderCard provider={provider} onEdit={onEdit} detail onDeleted={onDeleted} />
+      {children}
     </Page>
   )
 }
@@ -8938,7 +9012,19 @@ function RelayBadge() {
   )
 }
 
-function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: () => void }) {
+function ProviderCard({
+  provider,
+  onEdit,
+  onOpen,
+  detail = false,
+  onDeleted,
+}: {
+  provider: ModelProvider
+  onEdit: () => void
+  onOpen?: () => void
+  detail?: boolean
+  onDeleted?: () => void
+}) {
   const [error, setError] = useState<string | null>(null)
   // Rotate mints a fresh rendezvous secret (kill switch) — shown once via the panel.
   const [rotated, setRotated] = useState<CreatedProvider | null>(null)
@@ -8948,6 +9034,7 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
     setError(null)
     try {
       await deleteProvider(provider.id)
+      onDeleted?.()
     } catch (e) {
       // The server refuses the default / a still-bound provider (409) — show its reason.
       setError(e instanceof Error ? e.message : 'Could not delete this provider.')
@@ -8962,6 +9049,7 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
     }
   }
   const refresh = async () => {
+    if (refreshing) return
     setError(null)
     setRefreshing(true)
     try {
@@ -8973,11 +9061,129 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
       setRefreshing(false)
     }
   }
+  const overview = (
+    <>
+      <div className="flex flex-wrap items-center gap-1">
+        {isSession && (
+          <span className="flex items-center gap-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
+            <span className={`h-1.5 w-1.5 rounded-full ${provider.online ? 'bg-added' : 'bg-ink-faint/50'}`} />
+            {provider.online ? 'Session connected' : 'Offline — drain loop not running'}
+          </span>
+        )}
+        {isSession && provider.online && typeof provider.conversationWindow === 'number' && (
+          <span
+            className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint"
+            title="What this session's binding declared it can serve concurrently — the platform admits no more."
+          >
+            {provider.activeConversations ? `Answering ${provider.activeConversations} of ` : 'Serves up to '}
+            {provider.conversationWindow} conversation{provider.conversationWindow === 1 ? '' : 's'}
+          </span>
+        )}
+        {isSession && <RelayBadge />}
+        {provider.effortLevels.map((effort) => (
+          <span key={effort} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
+            {effort}
+          </span>
+        ))}
+      </div>
+      <p className="mt-2 text-[12px] text-ink-soft">Grants {authorityLabel(provider.authority)}</p>
+      <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
+      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
+    </>
+  )
+
+  const catalog = !isSession ? (
+    <>
+      {(provider.models?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap items-center gap-1">
+          {provider.models!.map((model) => (
+            <span
+              key={model.id}
+              title={modelBlurb(model)}
+              className={`rounded px-1.5 py-0.5 text-[10px] ${
+                model.id === provider.defaultModelId ? 'bg-accent/10 text-ink' : 'bg-panel-2 text-ink-faint'
+              }`}
+            >
+              {model.label}
+              {model.id === provider.defaultModelId && <span className="text-ink-faint"> · default</span>}
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="mt-1.5 text-[11px] text-ink-faint">
+        {provider.models?.length
+          ? provider.catalogSource === 'listed'
+            ? `${provider.models.length} models, listed from its endpoint`
+            : `${provider.models.length} models, declared at registration`
+          : 'No model catalog — turns run its configured model.'}
+      </p>
+    </>
+  ) : null
+
+  const relay = isSession ? (
+    <>
+      <div className="flex items-center gap-2 text-[12px] text-ink-soft">
+        <KeyRound size={12} className="shrink-0 text-ink-faint" />
+        <span className="font-mono">rv_live_••••{provider.secretHint ?? '????'}</span>
+      </div>
+      {rotated?.secret && <RelaySecretPanel provider={rotated} secret={rotated.secret} onClose={() => setRotated(null)} />}
+    </>
+  ) : null
+
+  if (detail) {
+    return (
+      <>
+        <FoldSection
+          title="Overview"
+          summary={`${provider.kind === 'session' ? 'Session relay' : provider.modelFamily} · grants ${authorityLabel(provider.authority)}`}
+          actions={
+            <>
+              <SectionAction label="Edit provider" icon={<Pencil size={14} />} onClick={onEdit} />
+              <SectionAction label="Delete provider" icon={<Trash2 size={14} />} onClick={() => void del()} />
+            </>
+          }
+        >
+          {overview}
+        </FoldSection>
+        {!isSession && (
+          <FoldSection
+            title="Models"
+            summary={`${provider.models?.length ?? 0} model${provider.models?.length === 1 ? '' : 's'}`}
+            actions={
+              provider.catalogSource === 'listed' ? (
+                <SectionAction
+                  label={refreshing ? 'Refreshing model catalog' : 'Refresh model catalog'}
+                  icon={<RefreshCw size={14} />}
+                  onClick={() => void refresh()}
+                  disabled={refreshing}
+                />
+              ) : undefined
+            }
+          >
+            {catalog}
+          </FoldSection>
+        )}
+        {isSession && (
+          <FoldSection
+            title="Relay"
+            summary={provider.online ? 'Session connected' : 'Offline'}
+            actions={
+              <SectionAction label="Rotate relay secret" icon={<RefreshCw size={14} />} onClick={() => void rotate()} />
+            }
+          >
+            {relay}
+          </FoldSection>
+        )}
+      </>
+    )
+  }
+
   return (
-    <CommonsCard>
+    <CommonsCard onOpen={onOpen}>
       <CommonsCardHead
         icon={<Cpu size={16} />}
         title={provider.label}
+        onOpen={onOpen}
         subtitle={isSession ? 'Session · relay' : provider.modelFamily}
         trailing={
           <div className="flex items-center gap-1.5">
@@ -8986,64 +9192,14 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
           </div>
         }
       />
-      <div className="mt-2 flex flex-wrap items-center gap-1">
-        {isSession && (
-          <span className="flex items-center gap-1.5 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
-            <span className={`h-1.5 w-1.5 rounded-full ${provider.online ? 'bg-added' : 'bg-ink-faint/50'}`} />
-            {provider.online ? 'Session connected' : 'Offline — drain loop not running'}
-          </span>
-        )}
-        {/* The observed serving picture (v5 handshake): what the binding DECLARED
-            (the negotiated window) and what it is doing right now — kept live by
-            relay.activity events, stamped per read, never a promise. */}
-        {isSession && provider.online && typeof provider.conversationWindow === 'number' && (
-          <span
-            className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint"
-            title="What this session's binding declared it can serve concurrently — the platform admits no more. The count is live: conversations with a relayed turn in flight right now."
-          >
-            {provider.activeConversations ? `Answering ${provider.activeConversations} of ` : 'Serves up to '}
-            {provider.conversationWindow} conversation{provider.conversationWindow === 1 ? '' : 's'}
-          </span>
-        )}
-        {isSession && <RelayBadge />}
-        {provider.effortLevels.map((e) => (
-          <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
-            {e}
-          </span>
-        ))}
-      </div>
+      <div className="mt-2">{overview}</div>
       {/* The provider's own model catalog (spec MODEL-16) — what the composer's
           Model section lists for it. One chip per model (the configured default
           marked); the source note says how the list was obtained, and a LISTED
           catalog can be re-fetched from the endpoint it came from. A Session
           provider has none (its cognition is whatever session drains it). */}
-      {!isSession && (
-        <div className="mt-2">
-          {(provider.models?.length ?? 0) > 0 && (
-            <div className="flex flex-wrap items-center gap-1">
-              {provider.models!.map((m) => (
-                <span
-                  key={m.id}
-                  title={modelBlurb(m)}
-                  className={`rounded px-1.5 py-0.5 text-[10px] ${
-                    m.id === provider.defaultModelId ? 'bg-accent/10 text-ink' : 'bg-panel-2 text-ink-faint'
-                  }`}
-                >
-                  {m.label}
-                  {m.id === provider.defaultModelId && <span className="text-ink-faint"> · default</span>}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="mt-1.5 flex items-center gap-2 text-[11px] text-ink-faint">
-            <span>
-              {provider.models?.length
-                ? provider.catalogSource === 'listed'
-                  ? `${provider.models.length} models, listed from its endpoint`
-                  : `${provider.models.length} models, declared at registration`
-                : 'No model catalog — turns run its configured model.'}
-            </span>
-            {provider.catalogSource === 'listed' && (
+      {!isSession && <div className="mt-2">{catalog}
+          {provider.catalogSource === 'listed' && (
               <button
                 onClick={refresh}
                 disabled={refreshing}
@@ -9053,10 +9209,8 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
                 <RefreshCw size={11} />
                 {refreshing ? 'Refreshing…' : 'Refresh models'}
               </button>
-            )}
-          </div>
-        </div>
-      )}
+          )}
+        </div>}
       {isSession && (
         <div className="mt-2 flex items-center gap-2 text-[12px] text-ink-soft">
           <KeyRound size={12} className="shrink-0 text-ink-faint" />
@@ -9072,9 +9226,6 @@ function ProviderCard({ provider, onEdit }: { provider: ModelProvider; onEdit: (
           </button>
         </div>
       )}
-      <p className="mt-2 text-[12px] text-ink-soft">Grants {authorityLabel(provider.authority)}</p>
-      <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
-      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
       {rotated?.secret && <RelaySecretPanel provider={rotated} secret={rotated.secret} onClose={() => setRotated(null)} />}
     </CommonsCard>
   )
@@ -10139,8 +10290,12 @@ function OwnerProfilePage({
         </div>
       </header>
 
-      <div className="space-y-6">
-        {profile.org && <OrgMemberPanel org={profile.org} />}
+      <div>
+        {profile.org && (
+          <FoldSection title="Organization" summary={`${profile.org.role} seat`}>
+            <OrgMemberPanel org={profile.org} />
+          </FoldSection>
+        )}
 
         {/* S7 — the follow graph, walkable. Placed first among the bands because
             a profile is a PERSON's page and these are the person-to-person
@@ -10149,27 +10304,34 @@ function OwnerProfilePage({
             This page renders inside split panes, so a viewport gate would put
             two roster columns in a 380px pane on a wide window (the UI-9 rule,
             locked by src/components/pane-safe-layout.test.ts — which caught this). */}
-        <div ref={followBandRef} className="grid gap-6 @2xl:grid-cols-2">
-          <FollowRosterBand
-            title="Followers"
-            rows={profile.follow.followerList}
-            total={profile.follow.followers}
-            emptyText={profile.own ? 'Nobody follows you yet.' : `Nobody follows ${profile.name} yet.`}
-            onOpenOwner={(n) => rel.openOwner(n)}
-          />
-          <FollowRosterBand
-            title="Following"
-            rows={profile.follow.followingList}
-            total={profile.follow.following}
-            emptyText={profile.own ? 'You aren’t following anyone yet.' : `${profile.name} isn’t following anyone yet.`}
-            onOpenOwner={(n) => rel.openOwner(n)}
-          />
+        <div ref={followBandRef}>
+          <FoldSection
+            title="Network"
+            summary={`${profile.follow.followers} followers · ${profile.follow.following} following`}
+          >
+            <div className="grid gap-6 @2xl:grid-cols-2">
+              <FollowRosterBand
+                title="Followers"
+                rows={profile.follow.followerList}
+                total={profile.follow.followers}
+                emptyText={profile.own ? 'Nobody follows you yet.' : `Nobody follows ${profile.name} yet.`}
+                onOpenOwner={(n) => rel.openOwner(n)}
+              />
+              <FollowRosterBand
+                title="Following"
+                rows={profile.follow.followingList}
+                total={profile.follow.following}
+                emptyText={profile.own ? 'You aren’t following anyone yet.' : `${profile.name} isn’t following anyone yet.`}
+                onOpenOwner={(n) => rel.openOwner(n)}
+              />
+            </div>
+          </FoldSection>
         </div>
 
-        <div>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            Shared projects
-          </div>
+        <FoldSection
+          title="Shared projects"
+          summary={`${profile.projects.length} project${profile.projects.length === 1 ? '' : 's'}`}
+        >
           {profile.projects.length === 0 ? (
             <Empty>No shared projects.</Empty>
           ) : (
@@ -10184,7 +10346,7 @@ function OwnerProfilePage({
               ))}
             </div>
           )}
-        </div>
+        </FoldSection>
 
         {/* Commons activity (S5 profiles): what this owner PUBLISHED and
             LANDED — a viewer-walled projection of the feed (the caller's own
@@ -10193,32 +10355,31 @@ function OwnerProfilePage({
         <ProfileCommonsBand actor={profile.name} />
 
         <div ref={agentsBandRef}>
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            Published agents
-          </div>
-          {profile.agents.length === 0 ? (
-            <Empty>No published agents.</Empty>
-          ) : (
-            <div className="space-y-3">
-              {profile.agents.map((a) => (
-                <PublishedAgentCard
-                  key={a.id}
-                  entry={a}
-                  onView={() => onOpenAgentPage(a.id)}
-                  onOwnerClick={() => rel.openOwner(a.owner)}
-                />
-              ))}
-            </div>
-          )}
+          <FoldSection
+            title="Published agents"
+            summary={`${profile.agents.length} agent${profile.agents.length === 1 ? '' : 's'}`}
+          >
+            {profile.agents.length === 0 ? (
+              <Empty>No published agents.</Empty>
+            ) : (
+              <div className="space-y-3">
+                {profile.agents.map((a) => (
+                  <PublishedAgentCard
+                    key={a.id}
+                    entry={a}
+                    onView={() => onOpenAgentPage(a.id)}
+                    onOwnerClick={() => rel.openOwner(a.owner)}
+                  />
+                ))}
+              </div>
+            )}
+          </FoldSection>
         </div>
 
-        <div>
-          <div className="mb-2 flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            <span>Recent public activity</span>
-            <span className="font-normal normal-case tracking-normal">
-              {s.workPosted} posted · {s.workResolved} resolved
-            </span>
-          </div>
+        <FoldSection
+          title="Recent public activity"
+          summary={`${s.workPosted} posted · ${s.workResolved} resolved`}
+        >
           {profile.activity.length === 0 ? (
             <Empty>No public activity yet — posting or resolving open work shows up here.</Empty>
           ) : (
@@ -10276,7 +10437,7 @@ function OwnerProfilePage({
               ))}
             </ul>
           )}
-        </div>
+        </FoldSection>
       </div>
 
     </Page>
@@ -10492,25 +10653,25 @@ function AgentPublicPage({
       <div className="mx-auto w-full max-w-3xl">
         <header className={PAGE_HEADER_CLASS}>
           <div className="flex min-w-0 flex-1 items-start gap-3.5">
-          <BackButton to={backTo} onBack={onBack} />
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-panel-2 text-ink-soft">
-            <Bot size={22} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className={PAGE_TITLE_CLASS}>{entry.label}</h1>
-            <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-faint">
-              <span className="inline-flex items-center gap-1">
-                <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.openOwner(entry.owner)} />
-                {' '}· v{entry.version}
-              </span>
-              <CreditLine
-                contributions={entry.contributions}
-                forks={entry.forks}
-                onContributions={() => scrollTo(resolvedRef)}
-                onForks={() => scrollTo(forksRef)}
-              />
-            </p>
-          </div>
+            <BackButton to={backTo} onBack={onBack} />
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-panel-2 text-ink-soft">
+              <Bot size={22} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className={PAGE_TITLE_CLASS}>{entry.label}</h1>
+              <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-faint">
+                <span className="inline-flex items-center gap-1">
+                  <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.openOwner(entry.owner)} />{' '}
+                  · v{entry.version}
+                </span>
+                <CreditLine
+                  contributions={entry.contributions}
+                  forks={entry.forks}
+                  onContributions={() => scrollTo(resolvedRef)}
+                  onForks={() => scrollTo(forksRef)}
+                />
+              </p>
+            </div>
           </div>
           <button
             onClick={fork}
@@ -10524,65 +10685,83 @@ function AgentPublicPage({
           </button>
         </header>
 
-        <div className="space-y-4">
-          <FormField label="System prompt">
-            <pre className="whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-3 font-sans text-[12px] leading-relaxed text-ink-soft">
-              {entry.systemPrompt}
-            </pre>
-          </FormField>
-          {entry.instructions && (
-            <FormField label="Instructions">
-              <p className="rounded-lg border border-line bg-panel-2 p-3 text-[12px] leading-relaxed text-ink-soft">
-                {entry.instructions}
-              </p>
+        <FoldSection
+          title="Definition"
+          summary={`${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'} · version ${entry.version}`}
+          actions={
+            <>
+              <SectionAction
+                label="Open A2A card"
+                icon={<ExternalLink size={14} />}
+                onClick={() => setShowCard(true)}
+              />
+              <SectionAction
+                label="Propose a change"
+                icon={<GitPullRequest size={14} />}
+                onClick={() => setProposing(true)}
+                expanded={proposing}
+              />
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <FormField label="System prompt">
+              <pre className="whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-3 font-sans text-[12px] leading-relaxed text-ink-soft">
+                {entry.systemPrompt}
+              </pre>
             </FormField>
-          )}
-          <FormField label={`Tools (${entry.tools.length})`}>
-            <div className="flex flex-wrap gap-1.5">
-              {entry.tools.length === 0 ? (
-                <span className="text-[12px] text-ink-faint">No tools — a prose-only definition.</span>
-              ) : (
-                entry.tools.map((t) => (
-                  <span key={t} className="rounded-md bg-panel-2 px-1.5 py-0.5 text-[11px] text-ink-soft">
-                    {t}
-                  </span>
-                ))
-              )}
+            {entry.instructions && (
+              <FormField label="Instructions">
+                <p className="rounded-lg border border-line bg-panel-2 p-3 text-[12px] leading-relaxed text-ink-soft">
+                  {entry.instructions}
+                </p>
+              </FormField>
+            )}
+            <FormField label={`Tools (${entry.tools.length})`}>
+              <div className="flex flex-wrap gap-1.5">
+                {entry.tools.length === 0 ? (
+                  <span className="text-[12px] text-ink-faint">No tools — a prose-only definition.</span>
+                ) : (
+                  entry.tools.map((t) => (
+                    <span key={t} className="rounded-md bg-panel-2 px-1.5 py-0.5 text-[11px] text-ink-soft">
+                      {t}
+                    </span>
+                  ))
+                )}
+              </div>
+            </FormField>
+          </div>
+        </FoldSection>
+        {(entry.changelog?.length ?? 0) > 0 && (
+          <FoldSection
+            title="Changelog"
+            summary={`${entry.changelog!.length} version${entry.changelog!.length === 1 ? '' : 's'}`}
+          >
+            <ChangelogList changelog={entry.changelog!} />
+          </FoldSection>
+        )}
+        <FoldSection
+          title="Track record"
+          summary={`${entry.contributions} contribution${entry.contributions === 1 ? '' : 's'} · ${entry.forks} fork${entry.forks === 1 ? '' : 's'}`}
+        >
+          <div className="space-y-4">
+            {/* S10/S18 — the acts behind the contribution count (P8-redacted to shared
+                projects), each row a door to the item's own page; then the public
+                forks behind the fork count. The header counts anchor here. */}
+            <div ref={resolvedRef}>
+              <AgentResolvedWork agentId={entry.id} totalContributions={entry.contributions} />
             </div>
-          </FormField>
-          {(entry.changelog?.length ?? 0) > 0 && (
-            <FormField label={`Changelog (${entry.changelog!.length})`}>
-              <ChangelogList changelog={entry.changelog!} />
-            </FormField>
-          )}
-          <p className="flex items-center gap-3 text-[11px] text-ink-faint">
-            <button
-              onClick={() => setShowCard(true)}
-              className={INLINE_ACTION_CLASS}
-              title="This definition as a machine-readable A2A Agent Card — hand the URL to a foreign agent framework"
-            >
-              A2A card
-            </button>
-            {/* D25 — the fork's inverse: send an improvement BACK to the owner. */}
-            <button onClick={() => setProposing(true)} className={INLINE_ACTION_CLASS}>
-              Propose a change
-            </button>
-          </p>
-          {/* S10/S18 — the acts behind the contribution count (P8-redacted to shared
-              projects), each row a door to the item's own page; then the public
-              forks behind the fork count. The header counts anchor here. */}
-          <div ref={resolvedRef}>
-            <AgentResolvedWork agentId={entry.id} totalContributions={entry.contributions} />
+            <div ref={forksRef}>
+              <AgentPublicForks agentId={entry.id} totalForks={entry.forks} onOpenAgent={onOpenAgent} />
+            </div>
+            {entry.contributions === 0 && entry.forks === 0 && <Empty>No public work or forks yet.</Empty>}
           </div>
-          <div ref={forksRef}>
-            <AgentPublicForks agentId={entry.id} totalForks={entry.forks} onOpenAgent={onOpenAgent} />
-          </div>
-          {/* D27 — the proposer's end of the conversation: their proposals against this
-              definition (status, the owner's note, the thread). The owner sees all of
-              them here too — the same rows their review dialog resolves. */}
-          <YourProposals entry={entry} focusProposalId={proposalFocus} />
-          {error && <p className="text-[12px] text-removed">{error}</p>}
-        </div>
+        </FoldSection>
+        {/* D27 — the proposer's end of the conversation: their proposals against this
+            definition (status, the owner's note, the thread). The owner sees all of
+            them here too — the same rows their review dialog resolves. */}
+        <YourProposals entry={entry} focusProposalId={proposalFocus} />
+        {error && <p className="text-[12px] text-removed">{error}</p>}
       </div>
       {showCard && (
         <A2aCardDialog
@@ -10616,38 +10795,43 @@ function YourProposals({ entry, focusProposalId = null }: { entry: AgentDirector
     tools: entry.tools.join(', '),
   }
   return (
-    <FormField label={`Your proposals (${mine.length})`}>
+    <FoldSection
+      title="Your proposals"
+      summary={`${mine.length} proposal${mine.length === 1 ? '' : 's'}`}
+    >
       <div className="space-y-2">
         {mine.map((p) => {
           const isFocus = p.id === focusProposalId
           return (
-          <div
-            key={p.id}
-            ref={isFocus ? focusRef : undefined}
-            className={`scroll-mt-4 rounded-lg border p-2 transition-colors ${
-              isFocus ? `border-co ${FOCUS_FLASH_CLASS}` : 'border-line'
-            }`}
-          >
-            <div className="flex items-center gap-2 text-[11px] text-ink-faint">
-              <span className="font-medium text-ink-soft">against v{p.baseVersion}</span>
-              <span>· {relativeTime(p.at)}</span>
-              <span className="rounded-full bg-panel-2 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide">
-                {p.status}
-              </span>
-              {/* The terminal lifecycle event — WHEN the owner merged/declined (D25;
-                  surface-audit S1: resolvedAt was rendered nowhere). */}
-              {p.status !== 'open' && p.resolvedAt && <span>· {relativeTime(p.resolvedAt)}</span>}
+            <div
+              key={p.id}
+              ref={isFocus ? focusRef : undefined}
+              className={`scroll-mt-4 rounded-lg border p-2 transition-colors ${
+                isFocus ? `border-co ${FOCUS_FLASH_CLASS}` : 'border-line'
+              }`}
+            >
+              <div className="flex items-center gap-2 text-[11px] text-ink-faint">
+                <span className="font-medium text-ink-soft">against v{p.baseVersion}</span>
+                <span>· {relativeTime(p.at)}</span>
+                <span className="rounded-full bg-panel-2 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide">
+                  {p.status}
+                </span>
+                {/* The terminal lifecycle event — WHEN the owner merged/declined (D25;
+                    surface-audit S1: resolvedAt was rendered nowhere). */}
+                {p.status !== 'open' && p.resolvedAt && <span>· {relativeTime(p.resolvedAt)}</span>}
+              </div>
+              {p.note && <p className="mt-1 text-[12px] text-ink-soft">{p.note}</p>}
+              {/* The proposer can now review THEIR OWN change, not just its note (S1). */}
+              <ProposalFieldDiff fields={p.fields} current={current} />
+              {p.responseNote && (
+                <p className="mt-1 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>
+              )}
+              <ProposalThread agentId={entry.id} proposal={p} openForComments={p.status === 'open'} />
             </div>
-            {p.note && <p className="mt-1 text-[12px] text-ink-soft">{p.note}</p>}
-            {/* The proposer can now review THEIR OWN change, not just its note (S1). */}
-            <ProposalFieldDiff fields={p.fields} current={current} />
-            {p.responseNote && <p className="mt-1 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>}
-            <ProposalThread agentId={entry.id} proposal={p} openForComments={p.status === 'open'} />
-          </div>
           )
         })}
       </div>
-    </FormField>
+    </FoldSection>
   )
 }
 
@@ -10944,10 +11128,12 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
       {!row ? (
         <PageEmpty>{usersQ.error ? 'The account read failed — are you still on the maintainer allowlist?' : 'Loading account…'}</PageEmpty>
       ) : (
-        <div className="space-y-5">
+        <div>
           {error && <p className="text-[12px] text-removed">{error}</p>}
-          <div>
-            <h2 className="mb-2 text-[13px] font-semibold text-ink">Namespace</h2>
+          <FoldSection
+            title="Namespace"
+            summary={row.homeTenant ? `${row.homeTenant.name} · ${row.homeTenant.kind}` : 'No home namespace'}
+          >
             <CommonsCard>
               {row.homeTenant ? (
                 <div className="flex items-center gap-2.5">
@@ -10959,9 +11145,11 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
                 <p className="text-[13px] text-ink-faint">No home namespace (a dangling membership).</p>
               )}
             </CommonsCard>
-          </div>
-          <div>
-            <h2 className="mb-2 text-[13px] font-semibold text-ink">Organization seats</h2>
+          </FoldSection>
+          <FoldSection
+            title="Organization seats"
+            summary={`${row.orgSeats.length} seat${row.orgSeats.length === 1 ? '' : 's'}`}
+          >
             {row.orgSeats.length === 0 ? (
               <Empty>No org seats beyond the home namespace.</Empty>
             ) : (
@@ -10977,9 +11165,11 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
                 </div>
               </CommonsCard>
             )}
-          </div>
-          <div>
-            <h2 className="mb-2 text-[13px] font-semibold text-ink">Bearer tokens</h2>
+          </FoldSection>
+          <FoldSection
+            title="Bearer tokens"
+            summary={`${tokens.length} token${tokens.length === 1 ? '' : 's'}`}
+          >
             {tokens.length === 0 ? (
               <Empty>No bearer tokens on this account.</Empty>
             ) : (
@@ -11003,10 +11193,9 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
                 </div>
               </CommonsCard>
             )}
-          </div>
+          </FoldSection>
           {!row.seeded && !row.deactivated && (
-            <div>
-              <h2 className="mb-2 text-[13px] font-semibold text-ink">Danger zone</h2>
+            <FoldSection title="Danger zone" summary="Deactivate this account" defaultFolded>
               <CommonsCard>
                 <div className="flex items-center gap-2.5">
                   <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-ink-soft">
@@ -11019,7 +11208,7 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
                   />
                 </div>
               </CommonsCard>
-            </div>
+            </FoldSection>
           )}
         </div>
       )}
@@ -11705,13 +11894,12 @@ function ScheduledSection({
 
   return (
     <Page>
-      <PageHeader title="Routines">
+      <PageHeader
+        title="Routines"
+        subtitle="Recurring workflows — Claude runs their steps on a cadence and delivers the result."
+      >
         <NewScheduleControl onAdd={addFromTemplate} />
       </PageHeader>
-      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
-        Recurring workflows — Claude runs a sequence of steps on a cadence and delivers the result. Open one to
-        see its steps and run history.
-      </p>
       <SearchBox value={query} onChange={setQuery} placeholder="Search routines…" />
 
       {groups.length === 0 ? (
@@ -12166,7 +12354,9 @@ function ScheduledDetail({
           {/* A routine is a social subject like any other: it can be shared,
               discussed, and IMPROVED. Landing a routine change runs the same
               `updateSchedule` the owner's own editor calls. */}
-          {showScheduleSection('improvements') && <ProposalsPanel subject={{ kind: 'schedule', id: task.id }} own={own} />}
+          {showScheduleSection('improvements') && (
+            <ProposalsPanel subject={{ kind: 'schedule', id: task.id }} own={own} Section={FoldSection} />
+          )}
           {showScheduleSection('discussion') && <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={own} />}
         </div>
         </CompositeSectionPageContext.Provider>

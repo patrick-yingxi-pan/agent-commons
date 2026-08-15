@@ -17,7 +17,8 @@
  *      subject supports. That floor used to be claimed in this comment and not
  *      implemented — the panel rendered the ROUTINE form on every kind — which
  *      was harmless only while a routine was the sole host. */
-import { useState } from 'react'
+import { useState, type ComponentType, type ReactNode } from 'react'
+import { Plus } from 'lucide-react'
 import {
   PROPOSABLE_SCHEDULE_FIELDS,
   type ProposableScheduleField,
@@ -44,8 +45,30 @@ import {
   suggestionDelta,
 } from '../lib/proposalForm'
 import { useRelations } from '../controller/useRelations'
+import { SectionAction } from './SectionAction'
 
-export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own: boolean }) {
+/** The one main-page section surface, injected by the page owner to avoid a
+ * circular dependency on SectionView. Requiring it here closes the old escape:
+ * Improvements used to redraw its own framed header while every neighbouring
+ * project/routine section used FoldSection. */
+export type MainPageSectionComponent = ComponentType<{
+  title: string
+  summary: ReactNode
+  actions?: ReactNode
+  defaultFolded?: boolean
+  persist?: boolean
+  children: ReactNode
+}>
+
+export function ProposalsPanel({
+  subject,
+  own,
+  Section,
+}: {
+  subject: SocialEntityRef
+  own: boolean
+  Section: MainPageSectionComponent
+}) {
   const list = useSocialProposals(subject.kind, subject.id).data ?? []
   const canPropose = useSocialCapability(subject.kind, subject.id).data?.canPropose === true
   const [composing, setComposing] = useState(false)
@@ -108,18 +131,22 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
   })
 
   return (
-    <div className="rounded-lg border border-line bg-surface">
-      <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <span className="text-[13px] font-semibold text-ink">Improvements</span>
-        {canPropose && (
-          <button onClick={() => setComposing((v) => !v)} className={INLINE_ACTION_CLASS} aria-expanded={composing}>
-            {composing ? 'Cancel' : 'Offer a change'}
-          </button>
-        )}
-      </div>
-
+    <Section
+      title="Improvements"
+      summary={rows.length === 0 ? 'No improvements offered' : `${rows.length} improvement${rows.length === 1 ? '' : 's'}`}
+      actions={
+        canPropose ? (
+          <SectionAction
+            label={composing ? 'Cancel change offer' : 'Offer a change'}
+            icon={<Plus size={14} />}
+            onClick={() => setComposing((v) => !v)}
+            expanded={composing}
+          />
+        ) : undefined
+      }
+    >
       {composing && (
-        <div className="space-y-1.5 border-b border-line px-4 py-3">
+        <div className="space-y-1.5 border-b border-line pb-3">
           {form === 'schedule-fields' ? (
             <div className="flex flex-wrap gap-1.5">
               <select
@@ -211,13 +238,13 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
       )}
 
       {rows.length === 0 ? (
-        <p className="px-4 py-6 text-center text-[12px] text-ink-faint">
+        <p className="py-1.5 text-[13px] text-ink-faint">
           No improvements offered yet{canPropose ? ' — offer one above.' : '.'}
         </p>
       ) : (
-        <ul>
+        <ul className="divide-y divide-line">
           {rows.map((p) => (
-            <li key={p.id} className="flex items-start gap-3 border-t border-line px-4 py-3 first:border-t-0">
+            <li key={p.id} className="flex items-start gap-3 py-3">
               {/* The shared leading-slot idiom: a pulse in flight, L{n} once
                   landed, a muted "no" when declined. */}
               <span className="mt-0.5 w-8 shrink-0 text-[11px] font-medium tabular-nums text-ink-faint">
@@ -241,6 +268,6 @@ export function ProposalsPanel({ subject, own }: { subject: SocialEntityRef; own
           ))}
         </ul>
       )}
-    </div>
+    </Section>
   )
 }

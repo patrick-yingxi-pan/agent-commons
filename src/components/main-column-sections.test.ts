@@ -224,7 +224,7 @@ test('the fold DEFAULTS are the composite-page split: configuration folded, cont
   const folded = [...new Set(tags.filter((t) => /\bdefaultFolded\b/.test(t)).map(titleOf))].sort()
   assert.deepEqual(
     folded,
-    ['Context', 'Context & tools', 'Delegation', 'Delivers to', 'Instructions', 'Model', 'Routines', 'Schedule', 'Sharing'],
+    ['Context', 'Context & tools', 'Danger zone', 'Delegation', 'Delivers to', 'Instructions', 'Model', 'Routines', 'Schedule', 'Sharing'],
     'exactly the composite pages’ configuration sections open folded',
   )
   // The complement, named rather than implied: these are what a project page is
@@ -458,8 +458,8 @@ test('no section holds a standing form — the composer hangs off the header ver
   //  host has to say out loud which kind it is.
   // `[\s\S]*?` and not `[^}]*`: the subject prop is an object literal, so it
   // carries braces of its own and a negated-brace class stops at the first one.
-  const SECTION_HOSTS = ['SectionView.tsx']
-  const ACT_HOSTS = ['SessionShareButton.tsx', 'artifactPreview.tsx']
+  const SECTION_HOSTS = ['SectionView.tsx', 'artifactPreview.tsx']
+  const ACT_HOSTS = ['SessionShareButton.tsx']
   for (const file of [...SECTION_HOSTS, ...ACT_HOSTS]) {
     const body = stripComments(read(join(ROOT, 'src', 'components', file)))
     // `[\s\S]*?` and not `[^}]*`: the subject prop is an object literal, so it
