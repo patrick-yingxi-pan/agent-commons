@@ -33,5 +33,7 @@ export const PAGE_BACK_CLASS =
 
 /** The one page-header container: a left identity group and an optional right
  *  action cluster, wrap-friendly (a header must survive a half-width split
- *  pane, UI-9), one bottom rhythm. */
+ *  pane, UI-9), one bottom rhythm. PageHeader gives its identity a 16rem basis
+ *  plus grow and the action `ml-auto`: long subtitles wrap inside the remaining
+ *  width; tight panes wrap the action as one unit, still at the right edge. */
 export const PAGE_HEADER_CLASS = 'mb-6 flex flex-wrap items-start justify-between gap-3 max-sm:mb-3'

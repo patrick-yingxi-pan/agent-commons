@@ -2,7 +2,7 @@
  *  The one face for a SOLID action button (form follows function, like
  *  lib/textDoor and lib/ledger). Before this funnel the app spoke two primary
  *  languages at once — nineteen ink-dark solids (`bg-ink text-canvas
- *  hover:opacity-90`, PrimaryButton included) beside the claret solids the
+ *  hover:opacity-90`, the former page-header button included) beside the claret solids the
  *  consent cards wore — plus a third spelling on the destructive confirm
  *  (`bg-removed`, the DIFF hue, where the token contract says destructive is
  *  the danger ramp). Under the Claret direction the affirmative solid is the
@@ -43,10 +43,18 @@ export const DANGER_BUTTON_CLASS =
 export const SOFT_BUTTON_CLASS =
   'rounded-md bg-accent-tint font-medium text-accent-strong transition hover:bg-accent/20'
 
-/** The bordered SECONDARY: the page-level verb ("New project", "New provider")
- *  and any action that shouldn't shout. The Claret candidate's caveat is the
- *  law here: solid claret is reserved for the CTA tier (the rail's New
- *  session, a consent card's Approve) — a page header's New-X wears this quiet
- *  frame instead, and answers in claret only on hover. */
+/** The PAGE verb — one stable, theme-driven shape for an index or hub's
+ *  standing action ("New project", "Add context", "New routine"). It is the
+ *  soft affirmative face at a fixed 32px control height, with a quiet inset
+ *  accent edge so its silhouette survives both light/dark mode and every
+ *  palette. Unlike the face constants above, this is a complete ROLE: page
+ *  headers must not choose their own size, icon gap, ring, or focus treatment. */
+export const PAGE_ACTION_BUTTON_CLASS =
+  `inline-flex h-8 shrink-0 items-center justify-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 text-[13px] ring-1 ring-inset ring-accent/15 hover:ring-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35 disabled:cursor-not-allowed disabled:opacity-50`
+
+/** The bordered SECONDARY: a neutral alternative such as Cancel beside a form's
+ *  affirmative Save. It never competes with PAGE_ACTION_BUTTON_CLASS: page
+ *  headers use the theme-colored page verb, while paired neutral choices keep
+ *  this quiet frame and answer in accent only on hover. */
 export const SECONDARY_BUTTON_CLASS =
   'rounded-md border border-line-strong bg-surface font-medium text-ink transition hover:border-accent hover:text-accent-strong'

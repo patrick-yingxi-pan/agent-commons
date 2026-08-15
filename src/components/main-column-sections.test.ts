@@ -175,11 +175,11 @@ test('a section verb is a SectionAction — one look for every per-section butto
   // Vacuity guard: the scan means nothing if no section has verbs at all.
   const withVerbs = verbTags.length
   assert.ok(withVerbs >= 8, `the scan found the verb-bearing sections (got ${withVerbs})`)
-  // …and the page header no longer competes with them. `PrimaryButton` is the
-  // solid, always-visible face — right for a page's own act, and the thing
+  // …and the page header no longer competes with them. `PageActionButton` is the
+  // standing, always-visible face — right for a page's own act, and the thing
   // "New session" stopped being when it became a row in one list.
   const detail = fn('ProjectDetail')
-  assert.ok(!detail.includes('<PrimaryButton'), 'the project page header carries no solid button of its own')
+  assert.ok(!detail.includes('<PageActionButton'), 'the project page header carries no standing action of its own')
   assert.ok(
     /title="Recent sessions"[\s\S]{0,600}label="New session"/.test(detail),
     'New session is the Recent sessions section’s verb',

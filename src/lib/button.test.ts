@@ -1,6 +1,6 @@
 /** The solid button (src/lib/button.ts) — one face for a solid action button.
  *  Before the funnel the app spoke three solid languages at once: nineteen
- *  ink-dark solids (`bg-ink text-canvas hover:opacity-90`, PrimaryButton
+ *  ink-dark solids (`bg-ink text-canvas hover:opacity-90`, the former page-header button
  *  included), the claret solids on the consent cards, and a `bg-removed`
  *  destructive confirm on the diff hue. These lock that:
  *    1. the two recipes carry face-ness (color ramp, weight, radius, ramp
@@ -11,8 +11,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, filesUnder, stripComments } from '../../tests/helpers/source.ts'
-import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from './button.ts'
+import { ROOT, read, filesUnder, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import {
+  SOLID_BUTTON_CLASS,
+  DANGER_BUTTON_CLASS,
+  PAGE_ACTION_BUTTON_CLASS,
+  SECONDARY_BUTTON_CLASS,
+  SOFT_BUTTON_CLASS,
+} from './button.ts'
 
 const FUNNEL = join('src', 'lib', 'button.ts')
 
@@ -34,9 +40,8 @@ test('the solid faces ramp on hover and carry no size', () => {
     // approve chip) — the textDoor lesson.
     assert.ok(!/\btext-\[|\btext-sm|\bpx-|\bpy-|\bflex\b/.test(cue), `${ramp} carries no size or layout`)
   }
-  // The bordered secondary: a frame, never a fill — the Claret candidate
-  // reserves solid claret for the CTA tier, so the page-level verb answers in
-  // accent only on hover.
+  // The bordered secondary: a frame, never a fill — the neutral alternative in
+  // an action pair answers in accent only on hover.
   assert.ok(SECONDARY_BUTTON_CLASS.includes('border-line-strong'), 'the secondary is framed')
   assert.ok(!/bg-(accent|danger|ink)(?![\w-])/.test(SECONDARY_BUTTON_CLASS), 'the secondary never fills solid')
   assert.ok(/hover:(border|text)-accent/.test(SECONDARY_BUTTON_CLASS), 'the secondary answers in accent on hover')
@@ -56,6 +61,37 @@ test('the solid faces ramp on hover and carry no size', () => {
   for (const cue of [SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS]) {
     assert.ok(!/\bco\b|-co(?![\w])|co-/.test(cue), `verbs never wear the co-color: "${cue}"`)
   }
+})
+
+test('the page action is one complete, palette-driven control role', () => {
+  assert.ok(PAGE_ACTION_BUTTON_CLASS.includes(SOFT_BUTTON_CLASS), 'the page verb uses the soft affirmative face')
+  for (const cue of ['h-8', 'px-3.5', 'text-[13px]', 'gap-1.5']) {
+    assert.ok(PAGE_ACTION_BUTTON_CLASS.includes(cue), `the page role owns ${cue}`)
+  }
+  assert.ok(PAGE_ACTION_BUTTON_CLASS.includes('ring-accent/15'), 'its refined edge follows the active palette')
+  assert.ok(PAGE_ACTION_BUTTON_CLASS.includes('focus-visible:ring-2'), 'keyboard focus strengthens the same edge')
+  assert.ok(!/#|rgb|claret|terracotta|indigo|forest/.test(PAGE_ACTION_BUTTON_CLASS), 'no palette is baked into the role')
+
+  const component = read(join(ROOT, 'src', 'components', 'PageActionButton.tsx'))
+  assert.match(component, /className=\{PAGE_ACTION_BUTTON_CLASS\}/, 'the shared component sources the complete role')
+  assert.match(component, /data-page-action/, 'rendered audits can enumerate the role')
+  assert.match(component, /\.\.\.props/, 'popover state and native button semantics pass through')
+
+  const section = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  const uses = (section.match(/<PageActionButton\b/g) ?? []).length
+  assert.ok(uses >= 7, `every page/hub creation door shares the component (found ${uses})`)
+  assert.ok(!section.includes('PrimaryButton'), 'the former neutral page-button fork is gone')
+  for (const label of ['New project', 'New artifact', 'Add context', 'New provider', 'New routine', 'New dispatch']) {
+    assert.match(
+      section,
+      new RegExp(`<PageActionButton[\\s\\S]{0,260}${label}[\\s\\S]{0,80}</PageActionButton>`),
+      `${label} uses the page action`,
+    )
+  }
+
+  const header = stripComments(sectionViewComponent('PageHeader'))
+  assert.match(header, /min-w-0 grow basis-64 items-start/, 'the identity grows beside the action and wraps before it becomes cramped')
+  assert.match(header, /ml-auto flex min-w-0 shrink-0/, 'a wrapped action remains right-aligned')
 })
 
 /** The one element allowed to pair `bg-ink` with `text-canvas`: the tooltip's
@@ -174,7 +210,7 @@ test('every call site sizes the face it wears (the other half of the split)', ()
 test('the consumers source the face from the module', () => {
   const consumers: Array<[string, string, number]> = [
     // The soft tier carries every below-CTA affirmative (2026-08-03).
-    ['src/components/SectionView.tsx', 'SOFT_BUTTON_CLASS', 15],
+    ['src/components/SectionView.tsx', 'SOFT_BUTTON_CLASS', 13],
     ['src/components/SectionView.tsx', 'DANGER_BUTTON_CLASS', 1],
     ['src/components/EscalationPrompt.tsx', 'SOFT_BUTTON_CLASS', 2],
     ['src/components/RelationActionCard.tsx', 'SOFT_BUTTON_CLASS', 1],
@@ -182,8 +218,8 @@ test('the consumers source the face from the module', () => {
     ['src/components/RowMenu.tsx', 'DANGER_BUTTON_CLASS', 1],
     ['src/components/Composer.tsx', 'DANGER_BUTTON_CLASS', 2],
     ['src/components/panels/ArtifactPanel.tsx', 'DANGER_BUTTON_CLASS', 1],
-    // PrimaryButton (the shared page-header verb) is a SECONDARY under the
-    // candidate's CTA guardrail. Exactly ONE true solid survives: the auth
+    // PageActionButton is a complete soft role; neutral form alternatives use
+    // SECONDARY. Exactly ONE true solid survives: the auth
     // Sign in — the single act on a screen that has no other.
     //
     // The rail's New session left this list on 2026-08-10 (owner directive:
@@ -191,7 +227,7 @@ test('the consumers source the face from the module', () => {
     // more important scenarios"). It is a quiet rail row now, findable by
     // POSITION rather than fill; the scan below fails if a solid reappears in
     // the rail, which is the half of this decision worth locking.
-    ['src/components/SectionView.tsx', 'SECONDARY_BUTTON_CLASS', 1],
+    ['src/components/SectionView.tsx', 'SECONDARY_BUTTON_CLASS', 2],
     ['src/lib/authFlow.ts', 'SOLID_BUTTON_CLASS', 1],
   ]
   // The rail carries NO solid: navigation chrome may not wear the loudest ink

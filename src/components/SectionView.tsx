@@ -128,6 +128,7 @@ import { CopyButton } from './CopyButton'
 import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
 import { BackButton, PageBackContext } from './BackButton'
+import { PageActionButton } from './PageActionButton'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
 import {
@@ -686,9 +687,9 @@ function ProjectsSection({
   return (
     <Page>
       <PageHeader title="Projects">
-        <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+        <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
           New project
-        </PrimaryButton>
+        </PageActionButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
       {/* The three relationships stay BANDED whatever the facet — picking one in
@@ -6614,9 +6615,9 @@ function ArtifactsSection({
   return (
     <Page>
       <PageHeader title="Artifacts">
-        <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+        <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
           New artifact
-        </PrimaryButton>
+        </PageActionButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" />
 
@@ -6795,7 +6796,7 @@ function NewArtifactDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-md border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+            className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
           >
             Cancel
           </button>
@@ -7005,15 +7006,14 @@ function AddContextControl({
 
   return (
     <div ref={ref} className="relative">
-      <button
+      <PageActionButton
+        icon={<Plus size={15} />}
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`flex shrink-0 items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
       >
-        <Plus size={15} />
         Add context
-      </button>
+      </PageActionButton>
 
       {open && (
         <div
@@ -7757,9 +7757,9 @@ function CommonsCard({
 function TabToolbar({ newLabel, onNew }: { newLabel: string; onNew: () => void }) {
   return (
     <div className="flex justify-end">
-      <PrimaryButton icon={<Plus size={15} />} onClick={onNew}>
+      <PageActionButton icon={<Plus size={15} />} onClick={onNew}>
         {newLabel}
-      </PrimaryButton>
+      </PageActionButton>
     </div>
   )
 }
@@ -7875,7 +7875,7 @@ function FormDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
-            className="rounded-md border border-line-strong bg-surface px-3.5 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
+            className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
           >
             Cancel
           </button>
@@ -8929,9 +8929,9 @@ function ModelsSection({
         title="Models"
         subtitle="Every model your sessions can run on — built-in, registered endpoint, or delegated AI session."
       >
-        <PrimaryButton icon={<Plus size={15} />} onClick={() => setEditing('new')}>
+        <PageActionButton icon={<Plus size={15} />} onClick={() => setEditing('new')}>
           New provider
-        </PrimaryButton>
+        </PageActionButton>
       </PageHeader>
       <FoldSection title="Providers" summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
         {shown.length === 0 ? (
@@ -11626,9 +11626,9 @@ function GenericSection({ section }: { section: SectionId }) {
         subtitle={meta.subtitle}
       >
         {section === 'dispatch' && (
-          <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+          <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
             New dispatch
-          </PrimaryButton>
+          </PageActionButton>
         )}
       </PageHeader>
 
@@ -12047,15 +12047,14 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
 
   return (
     <div ref={ref} className="relative">
-      <button
+      <PageActionButton
+        icon={<Plus size={15} />}
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`flex shrink-0 items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
       >
-        <Plus size={15} />
         New routine
-      </button>
+      </PageActionButton>
 
       {open && (
         <div
@@ -13629,7 +13628,7 @@ function PageHeader({
   const back = useContext(PageBackContext)
   return (
     <header className={PAGE_HEADER_CLASS}>
-      <div className="flex min-w-0 items-start gap-1">
+      <div className="flex min-w-0 grow basis-64 items-start gap-1">
         {back && <BackButton to={back.to} onBack={back.onBack} />}
         <div className="min-w-0">
           {/* Below sm the shell's NarrowBar already carries the section title —
@@ -13641,28 +13640,8 @@ function PageHeader({
           {subtitle && <p className="mt-1 text-[13px] text-ink-soft max-sm:mt-0">{subtitle}</p>}
         </div>
       </div>
-      {children && <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
+      {children && <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
     </header>
-  )
-}
-
-function PrimaryButton({
-  icon,
-  children,
-  onClick,
-}: {
-  icon?: ReactNode
-  children: ReactNode
-  onClick?: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex shrink-0 items-center gap-1.5 ${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
-    >
-      {icon}
-      {children}
-    </button>
   )
 }
 
