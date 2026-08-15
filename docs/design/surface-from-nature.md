@@ -82,8 +82,11 @@ That answer governs two surfaces at once:
   before folded configuration before growing history, and one page-level fold
   scope. Collection roots and hubs solve the same grouped-resource presentation
   problem, so they reuse that page grammar too while keeping the payload form
-  named by their contents: projects scan as rows, artifacts tile as a gallery,
-  and messages read as conversations. A visible ownership/state/kind band does
+  named by their contents: projects scan as rows, artifacts preview as synopsis
+  rows, and messages read as conversations. An artifact's rich document, email,
+  image, slide, or sheet body stays on its canonical page; the index does not
+  miniaturize five reading surfaces into five unrelated cards. A visible
+  ownership/state/kind band does
   not thereby become a rail place; those partitions remain filters under UI-19.
 
 The dependency-free classification lives in `src/lib/resourceNature.ts`; the

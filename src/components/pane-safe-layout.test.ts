@@ -3,11 +3,12 @@
  *  render full-surface OR inside a half-width split pane, so a viewport
  *  breakpoint is the wrong variable for a page's own columns: at a 1280px
  *  window, `lg:flex-row` once held a context detail's two columns inside a 500px
- *  pane and squeezed both to unreadable widths, and the artifact grid kept
+ *  pane and squeezed both to unreadable widths, and the old artifact grid kept
  *  three columns of ~150px cards (the 2026-07-16 owner report). Context detail
- *  has since joined UI-30's one reading column; grids that still adapt remain
- *  container-gated. The page
- *  scroller (`Page`) is a `@container`; layout switches use `@`-variants.
+ *  has since joined UI-30's one reading column; the artifact index joined it in
+ *  UI-31 as a single preview list. Grids that still adapt remain container-
+ *  gated. The page scroller (`Page`) is a `@container`; layout switches use
+ *  `@`-variants.
  *
  *  Visibility gates (`max-sm:hidden` on a page title the NarrowBar already
  *  carries) are TIER rules — genuinely about the app viewport — and stay
@@ -16,7 +17,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, concatSource, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, read, concatSource, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 
 test('no page-level layout switch is viewport-gated — pane-hosted pages must gate on the container', () => {
   const components = concatSource('src/components')
@@ -57,8 +58,11 @@ test('list-row metadata is gated on the ROW container, not the viewport', () => 
 test('the Page scroller is the @container the page layouts key on', () => {
   const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
   assert.match(src, /flex-1 overflow-y-auto @container/, 'Page carries the @container context')
-  // The surviving layout switch exists and is container-gated. Context detail
-  // deliberately has no switch now: UI-30 gives it the Project reading column.
+  // Context detail deliberately has no switch now: UI-30 gives it the Project
+  // reading column. UI-31 removes the Artifact grid entirely; one index cannot
+  // promise the same reading order while changing from one to two columns.
   assert.ok(!src.includes('@3xl:flex-row'), 'Context detail no longer escapes into a side-column grammar')
-  assert.ok(src.includes('@2xl:grid-cols-2'), 'the artifact grid gates on the container')
+  const artifacts = stripComments(sectionViewComponent('ArtifactsSection'))
+  assert.match(artifacts, /<CardList>/, 'the Artifact index is one shared preview list')
+  assert.doesNotMatch(artifacts, /grid-cols-/, 'the Artifact index never changes reading order by width')
 })

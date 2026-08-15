@@ -294,7 +294,13 @@ test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing cont
   // owns the DOM half: that the share door exists on the artifact page at all,
   // and that the visitor's copy of the same page carries no owner controls.
   await ada.page.goto('/artifacts')
-  await ada.page.getByText(ARTIFACT).first().click()
+  const indexPreview = ada.page.locator('[data-artifact-preview-row]').filter({ hasText: ARTIFACT })
+  await expect(indexPreview).toBeVisible({ timeout: ms(20_000) })
+  await expect(indexPreview.getByText('Why Insights, who it’s for, and the launch plan — on one screen.')).toBeVisible()
+  await expect(indexPreview.locator('table, img, [data-artifact-page]')).toHaveCount(0)
+  // Plain synopsis copy is inside the whole-row mouse door, not a dead patch
+  // between the title and metadata.
+  await indexPreview.getByText('Why Insights, who it’s for, and the launch plan — on one screen.').click()
   const artifactPage = ada.page.locator('[data-artifact-page]')
   await expect(artifactPage).toBeVisible({ timeout: ms(20_000) })
   await expect(ada.page).toHaveURL(/\/artifacts\/a1$/)

@@ -106,9 +106,11 @@ function route(e: ServerEvent): void {
       invalidate(keys.schedules)
       break
     // An artifact's BODY changed — its owner edited a block, or an
-    // `artifact-patch` proposal landed (social S3). Every preview reads the one
-    // name-keyed library, so a single refetch heals the gallery card, the
-    // viewer, the workspace panel and the Commons embed at once (UI-12).
+    // `artifact-patch` proposal landed (social S3). Every rich body projection
+    // reads the one name-keyed library, so a single refetch heals the canonical
+    // page, workspace panel, attachment preview and explicit thumbnails at once
+    // (UI-12). The Artifacts index is deliberately a stored synopsis (UI-31),
+    // not a second rendering of the mutable body.
     case 'artifact.changed':
       invalidate(keys.artifactContent)
       break

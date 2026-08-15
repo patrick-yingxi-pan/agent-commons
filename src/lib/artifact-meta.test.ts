@@ -1,7 +1,7 @@
-/** Surface-audit S6 — the canonical artifact surfaces (main page + gallery card)
+/** Surface-audit S6 — the canonical artifact surfaces (main page + index preview)
  *  should be at least as specific as the humble side panel, which shows the artifact's
  *  own descriptor (meta). These lock the shared guard: reveal meta ONLY when it's more
- *  specific than the generic kind label, so a gallery-created artifact (meta = the
+ *  specific than the generic kind label, so an index-created artifact (meta = the
  *  label) never reads "Document · Document". */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -14,7 +14,7 @@ test('a concrete descriptor that beats the kind label is shown', () => {
 })
 
 test('meta equal to the kind label is NOT specific — no "Document · Document"', () => {
-  assert.equal(artifactMetaIsSpecific('Document', 'Document'), false, 'gallery-created artifact')
+  assert.equal(artifactMetaIsSpecific('Document', 'Document'), false, 'index-created artifact')
   assert.equal(artifactMetaIsSpecific('Image', 'Image'), false)
 })
 

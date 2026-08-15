@@ -134,8 +134,11 @@ test('the Projects hub keeps ledger rows inside the shared page-section frame', 
   // (\b keeps SharedProjectCard — Discover's card, a later conversion — out of
   // this assertion's reach).
   assert.ok(!/\bProjectCard\b/.test(src), 'the ProjectCard card pile is fully replaced')
-  // The quiet-card consumers: the artifact tile, the one Commons card funnel, and
-  // the context detail frame all take the frame from the module.
+  // The remaining quiet-card consumers — the Commons card funnel and context
+  // detail frame — take the frame from the module. The Artifact tile was the
+  // third until UI-31 deliberately made the index a row; that replacement is
+  // enumerated by artifact-index-preview.test.ts rather than kept alive here to
+  // satisfy an obsolete subject floor.
   const quietUses = (src.match(/\$\{QUIET_CARD_CLASS\}/g) ?? []).length
-  assert.ok(quietUses >= 3, `SectionView wears QUIET_CARD_CLASS at 3+ frames (found ${quietUses})`)
+  assert.ok(quietUses >= 2, `SectionView wears QUIET_CARD_CLASS at 2+ frames (found ${quietUses})`)
 })

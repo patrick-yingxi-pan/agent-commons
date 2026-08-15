@@ -220,9 +220,9 @@ export interface ArtifactItem {
    *  two sessions can share one). Unset on seed/legacy artifacts, which fall back
    *  to a title lookup. */
   sourceSessionId?: string
-  /** The project it belongs to (groups the Artifacts gallery). */
+  /** The project it belongs to (groups the Artifacts index). */
   projectId: string
-  /** A one-line preview shown on the card and in the viewer. */
+  /** A one-line synopsis shown in the index and on the artifact page. */
   excerpt?: string
   /** When it was last edited (epoch ms). The UI renders a live "time ago" label
    *  from it (src/lib/relativeTime) so the stamp advances instead of freezing. */

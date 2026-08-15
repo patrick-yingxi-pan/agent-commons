@@ -52,8 +52,9 @@ export const KIND_LABEL: Record<ArtifactKind, string> = {
 }
 
 /** Where the body is being rendered — drives type scale and how much we show.
- *  `thumb` = the small gallery card preview; `compact` = the workspace side
- *  panel; `full` = the artifact's canonical main page. */
+ *  `thumb` = an explicit miniature embed (never the Artifacts index; UI-31);
+ *  `compact` = the workspace side panel; `full` = the artifact's canonical
+ *  main page. */
 type Size = 'thumb' | 'compact' | 'full'
 
 function hashId(seed: string): number {
@@ -586,10 +587,11 @@ function Scaffold({ kind, name, size, excerpt }: { kind: ArtifactKind; name: str
 
 /* ───────────────────────────── shared entry point ──────────────────────── */
 
-/** The real, kind-appropriate body for an artifact — shared by the gallery card
- *  thumbnail, the artifact's full page, and the workspace side panel. Looks the
- *  body up by file name; falls back to a structured scaffold for unauthored
- *  files. */
+/** The real, kind-appropriate body for an artifact — shared by the artifact's
+ *  full page, the workspace side panel, and explicit miniature embeds. The
+ *  Artifacts index deliberately uses a synopsis row instead: an index previews
+ *  content without redrawing five different reading surfaces. Looks the body up
+ *  by file name; falls back to a structured scaffold for unauthored files. */
 export function ArtifactBodyView({
   kind,
   name,
@@ -686,8 +688,9 @@ function ServedImage({ url, name, size }: { url: string; name: string; size: Siz
   )
 }
 
-/** A compact, kind-appropriate thumbnail for an artifact card — a faithful
- *  miniature of the file's real content. */
+/** A compact, kind-appropriate thumbnail for an explicit embed — a faithful
+ *  miniature of the file's real content. It is deliberately not the canonical
+ *  Artifacts index preview (UI-31). */
 export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; name: string; excerpt?: string }) {
   const content = useArtifactContent().data?.[name]
   const isFigure = (content?.type === 'figure' && content.shape === 'hero') || (!content && kind === 'image')
@@ -813,7 +816,7 @@ export function ArtifactDetailPage({
               {/* S6 — the canonical page should be at least as specific as the humble
                   side panel: show the artifact's own descriptor (meta — "functional spec",
                   "1600×900") when it beats the generic kind label (the shared guard skips
-                  gallery-created artifacts whose meta = the label — no "Document · Document"). */}
+                  index-created artifacts whose meta = the label — no "Document · Document"). */}
               <span>
                 {artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
               </span>

@@ -6,14 +6,14 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 
-test('an artifact detail replaces the gallery with a standard main page', () => {
+test('an artifact detail replaces the index with a standard main page', () => {
   const section = stripComments(sectionViewComponent('ArtifactsSection')).replace(/\s+/g, ' ')
   assert.ok(
     section.includes('if (openArtifact) {') &&
       section.includes('return ( <Page> <ArtifactDetailPage'),
-    'the routed artifact must return through Page instead of layering over the gallery',
+    'the routed artifact must return through Page instead of layering over the index',
   )
-  assert.doesNotMatch(section, /<ArtifactViewer\b/, 'the gallery no longer mounts an overlay viewer')
+  assert.doesNotMatch(section, /<ArtifactViewer\b/, 'the index no longer mounts an overlay viewer')
 })
 
 test('the artifact surface carries page grammar and no modal grammar', () => {

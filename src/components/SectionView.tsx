@@ -337,7 +337,7 @@ import {
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
-import { ArtifactDetailPage, ArtifactThumb, KIND_ICON, KIND_LABEL } from './artifactPreview'
+import { ArtifactDetailPage, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -4255,7 +4255,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
           <span className="block truncate text-[13px] font-medium text-ink">{item.subjectName}</span>
         )}
         {item.subjectBlurb && <p className="mt-0.5 truncate text-[12px] text-ink-faint">{item.subjectBlurb}</p>}
-        {/* An artifact wears the gallery's own kind cue (one registry, no drift). */}
+        {/* An artifact wears the index's own kind cue (one registry, no drift). */}
         {item.subjectArtifactKind && (
           <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-ink-faint">
             {(() => {
@@ -6485,7 +6485,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
 /* ─────────────────────────── Artifacts ─────────────────────────── */
 
 
-/** The Artifacts gallery. Its kind facet is chosen in the rail row's "Filter &
+/** The Artifacts index. Its kind facet is chosen in the rail row's "Filter &
  *  sort" (UI-19 — the facet ids ARE the ArtifactKind values), never an in-page
  *  bar; the rail's children are the artifacts themselves.
  *
@@ -6538,7 +6538,7 @@ function ArtifactsSection({
 
   // Sorted by project by default — group in PROJECTS order, drop empty groups.
   // Membership comes from the relation graph, so an AI "move to project" /
-  // "save as artifact under …" edit re-groups the gallery live. A trailing
+  // "save as artifact under …" edit re-groups the index live. A trailing
   // "Unfiled" bucket catches artifacts not under any project (e.g. a draft
   // saved with no project), so nothing a user confirmed can vanish from view.
   const knownProjectId = new Set(projects.map((p) => p.id))
@@ -6548,13 +6548,13 @@ function ArtifactsSection({
   ].filter((g) => g.items.length > 0)
 
   // An id the registry doesn't know (a stale link, a deleted artifact) degrades
-  // to the plain gallery — the same graceful read every detail page gives.
+  // to the plain index — the same graceful read every detail page gives.
   const openArtifact = artifactId ? (rel.allArtifacts().find((a) => a.id === artifactId) ?? null) : null
   // The open artifact IS this section's detail page now, so it records a view
   // like every other one (only when it actually resolved).
   useRecordView('artifact', openArtifact?.id)
 
-  // Create an artifact straight from the gallery (no session): a sessionless
+  // Create an artifact straight from the index (no session): a sessionless
   // save-artifact op, optionally filed under a project. Server-owned + persisted
   // via the same /relations/ops path; not auto-opened because the server mints
   // its id (the optimistic id would be replaced on reconcile).
@@ -6570,9 +6570,9 @@ function ArtifactsSection({
   }
 
   // Assign an artifact to a project (or unfile it, projectId null) — re-files via
-  // the relation graph, re-grouping the gallery live for every client. A not-yet-
+  // the relation graph, re-grouping the index live for every client. A not-yet-
   // reconciled artifact has no server id to re-file (its optimistic id is about to
-  // be replaced), so skip it — the gallery already prevents opening one.
+  // be replaced), so skip it — the index already prevents opening one.
   const assignProject = (artifact: ArtifactItem, projectId: string | null) => {
     if (isOptimisticId(artifact.id)) return
     const project = projectId ? projects.find((p) => p.id === projectId) : undefined
@@ -6625,7 +6625,7 @@ function ArtifactsSection({
             summary={`${g.items.length} artifact${g.items.length === 1 ? '' : 's'}`}
             persist={false}
           >
-            <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
+            <CardList>
               {g.items.map((a) => {
                 // A just-created artifact carries a temporary optimistic id until the
                 // server's authoritative `art-live-*` id replaces it on reconcile. Don't
@@ -6633,7 +6633,7 @@ function ArtifactsSection({
                 // recognize, so opening (then re-filing) it would target a phantom id.
                 const pending = isOptimisticId(a.id)
                 return (
-                  <ArtifactCard
+                  <ArtifactPreviewRow
                     key={a.id}
                     artifact={a}
                     source={rel.artifactSourceFor(a.id)}
@@ -6644,7 +6644,7 @@ function ArtifactsSection({
                   />
                 )
               })}
-            </div>
+            </CardList>
           </FoldSection>
         ))
       )}
@@ -6763,7 +6763,7 @@ function NewArtifactDialog({
               value={excerpt}
               onChange={(e) => setExcerpt(e.target.value)}
               rows={2}
-              placeholder="A one-line preview shown on the card."
+              placeholder="A one-line synopsis shown in the index."
               className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
             />
           </label>
@@ -6809,7 +6809,11 @@ function NewArtifactDialog({
   )
 }
 
-function ArtifactCard({
+/** One artifact's INDEX preview. Every kind uses this same information shape:
+ * identity, synopsis, provenance, and recency. The artifact's kind still has a
+ * recognizable icon; it does not redraw the list row into a tiny document,
+ * email, image, slide, or sheet. Rich content belongs to the canonical page. */
+function ArtifactPreviewRow({
   artifact,
   source,
   pending = false,
@@ -6824,52 +6828,51 @@ function ArtifactCard({
   onOpen: () => void
 }) {
   const Icon = KIND_ICON[artifact.kind]
+  const preview = artifact.excerpt?.trim() || 'No preview available.'
+  const specificMeta = artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind])
   return (
-    // The tile is the mouse target, its NAME the named keyboard door (UI-17) —
-    // it was one whole-card <button> whose accessible name was the tile's every
-    // word (name + excerpt + "from ‹source›" + "Edited 2 days ago").
+    // The row is the mouse target, its NAME the named keyboard door (UI-17).
+    // Nested metadata stays descriptive rather than becoming extra controls.
     <div
+      data-artifact-preview-row={artifact.kind}
       aria-busy={pending}
       onClick={pending ? undefined : cardDoorClick(onOpen)}
-      className={`flex flex-col overflow-hidden border-line ${QUIET_CARD_CLASS} transition ${
-        pending ? 'cursor-default opacity-60' : CARD_DOOR_CLASS
-      }`}
+      className={`flex items-start gap-3 py-3 ${pending ? 'cursor-default opacity-60' : ROW_DOOR_CLASS}`}
     >
-      <div className="h-28 w-full overflow-hidden border-b border-line bg-panel-2/40">
-        <ArtifactThumb kind={artifact.kind} name={artifact.name} excerpt={artifact.excerpt} />
-      </div>
-      <div className="flex flex-1 flex-col p-3.5">
-        <div className="flex items-center gap-2">
-          <Icon size={15} className="shrink-0 text-cap-workspace" />
-          {/* Disabled while pending, exactly as the whole-card button was: a
-              temporary id the server won't recognize must not be openable. */}
+      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-cap-workspace">
+        <Icon size={16} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          {/* Disabled while pending: a temporary id the server won't recognize
+              must not be openable. */}
           <button
             onClick={onOpen}
             disabled={pending}
-            className={`block min-w-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS} disabled:cursor-default`}
+            className={`min-w-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS} disabled:cursor-default`}
           >
             {artifact.name}
           </button>
+          <span className="shrink-0 text-[11px] text-ink-faint">{KIND_LABEL[artifact.kind]}</span>
         </div>
-        {artifact.excerpt && (
-          <p className="mt-1.5 line-clamp-2 text-[12px] leading-snug text-ink-soft">
-            {artifact.excerpt}
-          </p>
-        )}
-        {source && (
-          <div className="mt-2 inline-flex w-fit items-center gap-1 rounded bg-accent-tint px-1.5 py-0.5 text-[10px] font-medium text-accent-strong">
-            from {source}
-          </div>
-        )}
-        <div className="mt-3">
-          {/* S6 — the gallery card's own descriptor (meta), when it's more specific than
-              the generic kind label (the shared guard prevents "Document · Document"). */}
-          {artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) && (
-            <span className="mr-2 text-[11px] text-ink-soft">{artifact.meta}</span>
+        <p
+          data-artifact-preview-copy
+          className={`mt-1 line-clamp-2 text-[12px] leading-relaxed ${artifact.excerpt?.trim() ? 'text-ink-soft' : 'text-ink-faint'}`}
+        >
+          {preview}
+        </p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-ink-faint">
+          {specificMeta && <span className="text-ink-soft">{artifact.meta}</span>}
+          {specificMeta && <span aria-hidden="true">·</span>}
+          <span>{artifact.source === 'Created here' ? artifact.source : `From ${artifact.source}`}</span>
+          {source && (
+            <>
+              <span aria-hidden="true">·</span>
+              <span>Context {source}</span>
+            </>
           )}
-          <span className="text-[11px] text-ink-faint">
-            {pending ? 'Saving…' : `Edited ${relativeTime(artifact.editedAt)}`}
-          </span>
+          <span aria-hidden="true">·</span>
+          <span>{pending ? 'Saving…' : `Edited ${relativeTime(artifact.editedAt)}`}</span>
         </div>
       </div>
     </div>

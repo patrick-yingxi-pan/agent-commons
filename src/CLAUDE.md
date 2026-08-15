@@ -235,11 +235,20 @@ Projects → Yours/Shared and Project → About/Discussion solved the same group
 resource problem with two grammars. The root pages now use `FoldSection` too;
 their resource-specific row/card/timeline form stays inside it. Stable schema
 sections persist; data-defined bands pass `persist={false}` so a user-created
-project name never becomes an unbounded preference key. Entity-page configuration is
-**folded and content open**; a section that opens folded owes a `summary` — the
-thread's stub rule, an index entry and never a gap. Posture persists per account
-keyed by TITLE (`src/lib/sectionFold.ts`), which is what bounds the key space
-and imposes the one constraint worth knowing: two same-named sections MUST
+project name never becomes an unbounded preference key.
+
+The Artifacts root's entry is a synopsis row, never a miniature body renderer
+(UI-31). All five kinds carry the same index grammar—kind/name, excerpt,
+descriptor/provenance/recency—through `ArtifactPreviewRow`; the rich document,
+email, image, slide or sheet body begins only on the canonical artifact page.
+The index is one column at every pane width, so scanning order cannot change at
+a breakpoint. Locked by `src/lib/artifact-index-preview.test.ts` and the
+artifact walk in `e2e/social-sharing.spec.ts`.
+
+Entity-page configuration is **folded and content open**; a section that opens
+folded owes a `summary` — the thread's stub rule, an index entry and never a gap.
+Posture persists per account keyed by TITLE (`src/lib/sectionFold.ts`), which is
+what bounds the key space and imposes the one constraint worth knowing: two same-named sections MUST
 declare the same `defaultFolded`, because they share a stored key. What is
 deliberately NOT shared with the thread's fold is `src/lib/replyTree.ts` — a
 discussion is a recursive tree, a page's sections are a flat list; the cue and
@@ -508,7 +517,7 @@ the bug it was earned for was a row that lit up wider than it was clickable.
 
 **An addressable resource renders as a MAIN PAGE, never as a modal over its
 parent list** (UI-29). URL and pane identity are not merely persistence for an
-overlay: once `/artifacts/:id` names an artifact, the gallery yields to a normal
+overlay: once `/artifacts/:id` names an artifact, the index yields to a normal
 `Page` with the shared header/back grammar and natural page scroll. Modals remain
 for transient acts such as creating an artifact; the artifact itself is the
 place. Locked structurally by `src/lib/artifact-page.test.ts` and in the DOM by

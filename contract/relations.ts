@@ -61,7 +61,7 @@ export const RELATIONS: RelationDef[] = [
     ends: ['project', 'artifact'],
     verb: 'collects',
     cardinality: 'one project, many artifacts',
-    blurb: 'The Artifacts gallery groups every artifact under its project.',
+    blurb: 'The Artifacts index groups every artifact under its project.',
   },
   {
     id: 'project-context',
@@ -133,7 +133,7 @@ export type RelationOp =
   | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string | null; projectName: string }
   // Session ↔ Artifact — save a draft as an artifact. Optionally files it under a
   // project (projectId), and optionally cites the session it came from — a user
-  // creating one from the Artifacts gallery passes neither session field.
+  // creating one from the Artifacts index passes neither session field.
   | { kind: 'save-artifact'; artifact: ArtifactDraft; sessionId?: string; sessionTitle?: string; projectId?: string; projectName?: string }
   // Session ↔ Context — attach a connector/context to the live session.
   | { kind: 'attach-context'; sessionTitle: string; connectorId: string; connectorLabel: string; connectorKind?: 'github' | 'connector' | 'mcp' }
