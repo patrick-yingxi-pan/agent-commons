@@ -237,8 +237,8 @@ test('a shared ROUTINE: the visitor page is read-only, and landing their change 
   // beside it proves the locator can match.
   const ownerControls = (p: Page) => [
     p.getByRole('button', { name: 'Run now' }),
-    p.getByRole('button', { name: /^(Pause|Resume)$/ }),
-    p.getByRole('button', { name: 'Delete' }),
+    p.getByRole('button', { name: /^(Pause|Resume) routine$/ }),
+    p.getByRole('button', { name: 'Delete routine' }),
     p.getByTitle('Rename routine'),
     p.getByLabel('Audience id'),
     p.getByLabel('Edit instruction'),
@@ -291,17 +291,20 @@ test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing cont
   // The BEFORE/AFTER of the wall is locked precisely in server/routes/social.test.ts
   // (walled before the grant, visible after, `own` false for the audience) — it
   // needs a clean store, which a persistent e2e store can't promise. This walk
-  // owns the DOM half: that the share door exists on the viewer at all, and that
-  // the visitor's copy of the same modal carries no owner controls.
+  // owns the DOM half: that the share door exists on the artifact page at all,
+  // and that the visitor's copy of the same page carries no owner controls.
   await ada.page.goto('/artifacts')
   await ada.page.getByText(ARTIFACT).first().click()
-  const viewer = ada.page.getByRole('dialog', { name: ARTIFACT })
-  await expect(viewer).toBeVisible({ timeout: ms(20_000) })
-  await expect(viewer.getByTitle('Assign to a project')).toBeVisible()
-  await viewer.getByLabel('Audience kind').selectOption('org')
-  await viewer.getByLabel('Audience id').fill('tenant-beta')
-  await viewer.getByRole('button', { name: 'Share', exact: true }).click()
-  await expect(viewer.getByText('tenant-beta')).toBeVisible({ timeout: ms(20_000) })
+  const artifactPage = ada.page.locator('[data-artifact-page]')
+  await expect(artifactPage).toBeVisible({ timeout: ms(20_000) })
+  await expect(ada.page).toHaveURL(/\/artifacts\/a1$/)
+  await expect(ada.page.getByRole('dialog', { name: ARTIFACT })).toHaveCount(0)
+  await expect(artifactPage.getByRole('button', { name: 'Back to Artifacts' })).toBeVisible()
+  await expect(artifactPage.getByTitle('Assign to a project')).toBeVisible()
+  await artifactPage.getByLabel('Audience kind').selectOption('org')
+  await artifactPage.getByLabel('Audience id').fill('tenant-beta')
+  await artifactPage.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(artifactPage.getByText('tenant-beta')).toBeVisible({ timeout: ms(20_000) })
 
   // THE POINT: before this, the grant was accepted and the artifact stayed
   // invisible — discussable but unviewable. Now the read widens.
@@ -311,10 +314,10 @@ test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing cont
   // …and ownership did NOT widen: she reads it, and gets no filing control and
   // no share configuration of someone else's artifact.
   await grace.page.getByText(ARTIFACT).first().click()
-  const hers = grace.page.getByRole('dialog', { name: ARTIFACT })
-  await expect(hers).toBeVisible({ timeout: ms(20_000) })
-  await expect(hers.getByTitle('Assign to a project')).toHaveCount(0)
-  await expect(hers.getByText('Share this artifact')).toHaveCount(0)
+  const visitorPage = grace.page.locator('[data-artifact-page]')
+  await expect(visitorPage).toBeVisible({ timeout: ms(20_000) })
+  await expect(visitorPage.getByTitle('Assign to a project')).toHaveCount(0)
+  await expect(visitorPage.getByText('Share this artifact')).toHaveCount(0)
 
   await ada.context.close()
   await grace.context.close()
@@ -330,61 +333,61 @@ test('improve an ARTIFACT: the owner edits in place, a visitor proposes, the own
 
   // ── The owner's own door: edit one block, in place ────────────────────────
   await ada.page.goto('/artifacts/a1')
-  const viewer = ada.page.getByRole('dialog', { name: ARTIFACT })
-  await expect(viewer).toBeVisible({ timeout: ms(20_000) })
+  const ownerPage = ada.page.locator('[data-artifact-page]')
+  await expect(ownerPage).toBeVisible({ timeout: ms(20_000) })
 
   // The pencil appears on exactly the blocks that carry ONE editable string.
   // Blocks 4 and 6 of this document are LISTS — a one-line before→after cannot
   // address them, so they must have no pencil (the `docBlockText` cut, in DOM form).
-  await expect(viewer.getByRole('button', { name: 'Edit block 2' })).toHaveCount(1)
-  await expect(viewer.getByRole('button', { name: 'Edit block 4' })).toHaveCount(0)
-  await expect(viewer.getByRole('button', { name: 'Edit block 6' })).toHaveCount(0)
+  await expect(ownerPage.getByRole('button', { name: 'Edit block 2' })).toHaveCount(1)
+  await expect(ownerPage.getByRole('button', { name: 'Edit block 4' })).toHaveCount(0)
+  await expect(ownerPage.getByRole('button', { name: 'Edit block 6' })).toHaveCount(0)
 
-  await viewer.getByRole('button', { name: 'Edit block 2' }).click()
-  const box = viewer.getByRole('textbox', { name: 'Rewrite block 2' })
+  await ownerPage.getByRole('button', { name: 'Edit block 2' }).click()
+  const box = ownerPage.getByRole('textbox', { name: 'Rewrite block 2' })
   await expect(box).toBeVisible()
   await box.fill(OWNER_EDIT)
-  await viewer.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(viewer.getByText(OWNER_EDIT)).toBeVisible({ timeout: ms(20_000) })
+  await ownerPage.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(ownerPage.getByText(OWNER_EDIT)).toBeVisible({ timeout: ms(20_000) })
 
   // Share at PROPOSE so the audience may offer a change.
-  await viewer.getByLabel('Audience kind').selectOption('org')
-  await viewer.getByLabel('Audience id').fill('tenant-beta')
-  await viewer.getByLabel('Tier').selectOption({ label: 'Propose' })
-  await viewer.getByRole('button', { name: 'Share', exact: true }).click()
-  await expect(viewer.getByText('tenant-beta')).toBeVisible({ timeout: ms(20_000) })
+  await ownerPage.getByLabel('Audience kind').selectOption('org')
+  await ownerPage.getByLabel('Audience id').fill('tenant-beta')
+  await ownerPage.getByLabel('Tier').selectOption({ label: 'Propose' })
+  await ownerPage.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(ownerPage.getByText('tenant-beta')).toBeVisible({ timeout: ms(20_000) })
 
   // ── The visitor: reads the owner's edit, may NOT rewrite it, may PROPOSE ──
   await grace.page.goto('/artifacts/a1')
-  const hers = grace.page.getByRole('dialog', { name: ARTIFACT })
-  await expect(hers).toBeVisible({ timeout: ms(20_000) })
-  await expect(hers.getByText(OWNER_EDIT)).toBeVisible({ timeout: ms(20_000) })
+  const visitorPage = grace.page.locator('[data-artifact-page]')
+  await expect(visitorPage).toBeVisible({ timeout: ms(20_000) })
+  await expect(visitorPage.getByText(OWNER_EDIT)).toBeVisible({ timeout: ms(20_000) })
   // The read widened; the write did not — no pencil anywhere in her copy.
-  await expect(hers.getByRole('button', { name: /^Edit block / })).toHaveCount(0)
+  await expect(visitorPage.getByRole('button', { name: /^Edit block / })).toHaveCount(0)
 
-  await hers.getByRole('button', { name: 'Offer a change' }).click()
+  await visitorPage.getByRole('button', { name: 'Offer a change' }).click()
   // The picker offers BLOCKS, not a routine's fields — the per-kind form. The
   // block is chosen by what it SAYS, never by its position in the list: an
   // option index would silently retarget (or vanish) the day the seed document
   // gains or reorders a block, and the walk would then read as a regression in
   // artifact-patch rather than a fixture change. Resolving the option's value
   // from its text binds the walk to the block it means.
-  const picker = hers.getByLabel('Block to rewrite')
+  const picker = visitorPage.getByLabel('Block to rewrite')
   const blockValue = await picker.locator('option', { hasText: 'Who it’s for' }).first().getAttribute('value')
   assert(blockValue, 'the seed document still has a "Who it’s for" heading to rewrite')
   await picker.selectOption(blockValue)
-  await hers.getByLabel('Rewritten text').fill(PROPOSED)
-  await hers.getByLabel('Why this change').fill(`Plainer wording ${STAMP}`)
-  await hers.getByRole('button', { name: 'Offer', exact: true }).click()
+  await visitorPage.getByLabel('Rewritten text').fill(PROPOSED)
+  await visitorPage.getByLabel('Why this change').fill(`Plainer wording ${STAMP}`)
+  await visitorPage.getByRole('button', { name: 'Offer', exact: true }).click()
   // The card is a DIFF — a change wears the form a change wants.
-  await expect(hers.getByText('body edit')).toBeVisible({ timeout: ms(20_000) })
-  await expect(hers.getByText(PROPOSED)).toBeVisible()
+  await expect(visitorPage.getByText('body edit')).toBeVisible({ timeout: ms(20_000) })
+  await expect(visitorPage.getByText(PROPOSED)).toBeVisible()
   // …and a visitor holds no consent: land/decline are the owner's alone.
-  await expect(hers.getByRole('button', { name: 'Land' })).toHaveCount(0)
+  await expect(visitorPage.getByRole('button', { name: 'Land' })).toHaveCount(0)
 
   // ── The owner lands it, and the DOCUMENT changes ──────────────────────────
   await ada.page.reload()
-  const again = ada.page.getByRole('dialog', { name: ARTIFACT })
+  const again = ada.page.locator('[data-artifact-page]')
   await expect(again.getByText(PROPOSED).first()).toBeVisible({ timeout: ms(20_000) })
   await again.getByRole('button', { name: 'Land' }).first().click()
   // The body now carries the proposed text as a HEADING (the block it addressed),

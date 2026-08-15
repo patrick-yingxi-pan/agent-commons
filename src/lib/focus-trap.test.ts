@@ -60,8 +60,10 @@ test('every component that declares aria-modal="true" wires useFocusTrap', () =>
     .map((f) => ({ rel: f.replace(ROOT, ''), src: stripComments(read(f)) }))
     .filter((m) => m.src.includes('aria-modal="true"'))
 
-  // The known modals: New project / New artifact, the artifact viewer, the
-  // search palette, and the Add-context browse window. The floor dropped from 5
+  // The known modals: transient create/edit/confirm acts, the search palette,
+  // and the Add-context browse window. Artifact detail deliberately left this
+  // population in 2026-08-15 when it became a standard main page (UI-29).
+  // The floor dropped from 5
   // to 4 on 2026-08-08, when the notification inbox stopped being a modal and
   // became a PAGE — a floor is a guard against the scan silently finding
   // nothing, so it tracks the real population rather than pinning a high-water

@@ -337,7 +337,7 @@ import {
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
-import { ArtifactThumb, ArtifactViewer, KIND_ICON, KIND_LABEL } from './artifactPreview'
+import { ArtifactDetailPage, ArtifactThumb, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -442,7 +442,7 @@ export function SectionView({
   focusAdminUserId?: string | null
   /** A discussion's own page under Discussions (social S2); null = the hub. */
   focusDiscussionId?: string | null
-  /** An artifact open in the gallery's viewer (UI-19 — `/artifacts/:id`, so a
+  /** An artifact open on its standard main page (UI-19 — `/artifacts/:id`, so a
    *  rail row and a pasted link land on the same thing); null = the gallery. */
   focusArtifactId?: string | null
   /** A provider expanded in the Models list (UI-19); null = the plain list. */
@@ -464,7 +464,12 @@ export function SectionView({
         onNewSession={onNewSession}
       />
     ) : section === 'artifacts' ? (
-      <ArtifactsSection artifactId={focusArtifactId} onOpenSession={onOpenSession} />
+      <ArtifactsSection
+        artifactId={focusArtifactId}
+        onBack={onBack}
+        backTo={backTo}
+        onOpenSession={onOpenSession}
+      />
     ) : section === 'contexts' ? (
       <ContextsSection contextId={focusContextId} onBack={onBack} backTo={backTo} />
     ) : section === 'models' ? (
@@ -758,7 +763,7 @@ function uniqueProjectId(name: string, taken: Set<string>): string {
   return `${base}-${n}`
 }
 
-/** The "New project" form — a centered modal (same idiom as ArtifactViewer): a
+/** The "New project" form — a centered modal for the transient create act: a
  *  required name, an optional description, and — when the caller holds org
  *  seats (FWD-6 O-D4) — an OWNER picker: "You" (the default pre-selection; the
  *  request then omits ownerTenantId, the fixed INV-9 absence) or one of your
@@ -6468,11 +6473,21 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
  *  sort" (UI-19 — the facet ids ARE the ArtifactKind values), never an in-page
  *  bar; the rail's children are the artifacts themselves.
  *
- *  The open artifact is a PLACE (`/artifacts/:id`): the viewer used to be local
+ *  The open artifact is a PLACE (`/artifacts/:id`): its surface used to be local
  *  state with no address, so it could be reached but never linked, restored, or
- *  highlighted in the rail. It is now the pane's detail focus, like a saved
- *  context's page — opened and closed through the pane nav bridge. */
-function ArtifactsSection({ artifactId, onOpenSession }: { artifactId: string | null; onOpenSession: (id: string) => void }) {
+ *  highlighted in the rail. It is now the pane's standard detail page, like a
+ *  saved context — opened and left through the pane nav bridge, never a popup. */
+function ArtifactsSection({
+  artifactId,
+  onBack,
+  backTo,
+  onOpenSession,
+}: {
+  artifactId: string | null
+  onBack: () => void
+  backTo: NavLocation | null
+  onOpenSession: (id: string) => void
+}) {
   const [query, setQuery] = useState('')
   const [folded, setFolded] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
@@ -6562,6 +6577,27 @@ function ArtifactsSection({ artifactId, onOpenSession }: { artifactId: string | 
     })
   }
 
+  if (openArtifact) {
+    const sourceSessionId = sourceSessionOf(openArtifact)
+    return (
+      <Page>
+        <ArtifactDetailPage
+          // Keyed by the artifact so per-page state — an open block editor and
+          // its draft — cannot leak to a different artifact at the same pane.
+          key={openArtifact.id}
+          artifact={openArtifact}
+          projects={projects}
+          currentProjectId={rel.artifactProjectId(openArtifact)}
+          own={openArtifact.own !== false}
+          onAssignProject={openArtifact.own !== false ? (projectId) => assignProject(openArtifact, projectId) : undefined}
+          onOpenSource={sourceSessionId ? () => onOpenSession(sourceSessionId) : undefined}
+          onBack={onBack}
+          backTo={backTo}
+        />
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageHeader title="Artifacts">
@@ -6613,31 +6649,6 @@ function ArtifactsSection({ artifactId, onOpenSession }: { artifactId: string | 
         </div>
       )}
 
-      {openArtifact && (
-        <ArtifactViewer
-          // Keyed by the artifact so the viewer's per-artifact state — an OPEN
-          // block editor and its draft — cannot outlive the document it belongs
-          // to; a draft surviving an id change would be saved onto whatever
-          // block shares that index in the NEW body. Defensive rather than a
-          // fix for a reachable path: the viewer's scrim is `fixed inset-0`, so
-          // while it is open every door that could change the id (the rail, the
-          // palette) is covered, and closing it unmounts this anyway. The key
-          // costs nothing and removes the whole class.
-          key={openArtifact.id}
-          artifact={openArtifact}
-          projects={projects}
-          currentProjectId={rel.artifactProjectId(openArtifact)}
-          own={openArtifact.own !== false}
-          onAssignProject={openArtifact.own !== false ? (projectId) => assignProject(openArtifact, projectId) : undefined}
-          onOpenSource={(() => {
-            const sid = sourceSessionOf(openArtifact)
-            return sid ? () => onOpenSession(sid) : undefined
-          })()}
-          // Closing is a navigation now (the viewer IS the address): back to
-          // this section's list, which clears the detail from the URL too.
-          onClose={() => rel.navigate('artifacts')}
-        />
-      )}
       {creating && (
         <NewArtifactDialog projects={projects} onCreate={createArtifact} onClose={() => setCreating(false)} />
       )}

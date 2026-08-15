@@ -1,7 +1,7 @@
 /** The overlay scrim (src/lib/scrim.ts) — the dimmed backdrop behind every layer
  *  that floats over the app (the tier-driven right-panel overlay and left-rail
  *  drawer in the shell, and the centered dialogs: search palette, pickers,
- *  artifact preview). Form follows function: one styled primitive, worn by every
+ *  transient create forms). Form follows function: one styled primitive, worn by every
  *  scrim, defined once. These lock that:
  *    1. the shared class is a real full-bleed backdrop cue,
  *    2. the shell and every dialog-bearing component source it from the module,
@@ -32,7 +32,6 @@ test('every dialog scrim sources the shared module', () => {
     'src/components/SearchPanel.tsx',
     'src/components/SectionView.tsx',
     'src/components/AddContextButton.tsx',
-    'src/components/artifactPreview.tsx',
   ]
   for (const rel of consumers) {
     const src = read(join(ROOT, ...rel.split('/')))

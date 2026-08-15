@@ -500,6 +500,14 @@ makes the card's whole text its accessible name. A card door needs no restating
 click: `src/lib/card-door.test.ts` scans that pairing in both directions, because
 the bug it was earned for was a row that lit up wider than it was clickable.
 
+**An addressable resource renders as a MAIN PAGE, never as a modal over its
+parent list** (UI-29). URL and pane identity are not merely persistence for an
+overlay: once `/artifacts/:id` names an artifact, the gallery yields to a normal
+`Page` with the shared header/back grammar and natural page scroll. Modals remain
+for transient acts such as creating an artifact; the artifact itself is the
+place. Locked structurally by `src/lib/artifact-page.test.ts` and in the DOM by
+`e2e/social-sharing.spec.ts`.
+
 ## The back-history rule — an in-page door carries its origin; browser Back is per-page
 
 (Owner directive 2026-07-17, spec ADAPT-18.) Every page opened by

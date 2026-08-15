@@ -10,7 +10,6 @@ import {
   Pencil,
   Presentation,
   Sheet,
-  X,
   type LucideIcon,
 } from 'lucide-react'
 import type { ArtifactKind } from '../types'
@@ -27,14 +26,14 @@ import { ProposalsPanel } from './ProposalsPanel'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { PhotoThumb } from './PhotoThumb'
 import { GrantsPanel } from './GrantsPanel'
-import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { relativeTime } from '../lib/relativeTime'
-import { SCRIM_CLASS } from '../lib/scrim'
-import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
+import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
+import { BackButton } from './BackButton'
+import type { NavLocation } from '../lib/nav'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -54,7 +53,7 @@ export const KIND_LABEL: Record<ArtifactKind, string> = {
 
 /** Where the body is being rendered — drives type scale and how much we show.
  *  `thumb` = the small gallery card preview; `compact` = the workspace side
- *  panel; `full` = the modal viewer. */
+ *  panel; `full` = the artifact's canonical main page. */
 type Size = 'thumb' | 'compact' | 'full'
 
 function hashId(seed: string): number {
@@ -136,7 +135,7 @@ function DocBlockView({ block, size }: { block: DocBlock; size: Size }) {
  *  text is — the same reasoning that made the turn gutter's composer inline —
  *  so the open block becomes a textarea in the flow rather than opening a form
  *  elsewhere. Absent ⇒ a read-only body, which is every surface except the
- *  owner's own viewer. */
+ *  owner's own artifact page. */
 export interface DocEdit {
   /** The block open for editing, or null when none is. */
   index: number | null
@@ -162,7 +161,7 @@ function DocView({
   size: Size
   edit?: DocEdit
   /** The artifact this body belongs to, when the surface can host discussion —
-   *  the canonical viewer, and no other (a thumbnail and a side panel are
+   *  the canonical page, and no other (a thumbnail and a side panel are
    *  previews, not reading surfaces). Present ⇒ each block carries the shared
    *  locus gutter, so a thread can hang on ONE block. */
   discuss?: SocialEntityRef
@@ -588,7 +587,7 @@ function Scaffold({ kind, name, size, excerpt }: { kind: ArtifactKind; name: str
 /* ───────────────────────────── shared entry point ──────────────────────── */
 
 /** The real, kind-appropriate body for an artifact — shared by the gallery card
- *  thumbnail, the gallery's full viewer, and the workspace side panel. Looks the
+ *  thumbnail, the artifact's full page, and the workspace side panel. Looks the
  *  body up by file name; falls back to a structured scaffold for unauthored
  *  files. */
 export function ArtifactBodyView({
@@ -614,7 +613,7 @@ export function ArtifactBodyView({
    *  other renderers ignore it rather than pretending. */
   edit?: DocEdit
   /** Hang the per-block discussion gutter off this artifact (social S2). Passed
-   *  ONLY by the canonical viewer: a thumbnail and a side panel are previews,
+   *  ONLY by the canonical page: a thumbnail and a side panel are previews,
    *  and a preview that sprouted comment affordances would tax every surface an
    *  artifact appears on. Like `edit`, only a `doc` body has the addressable
    *  unit, so the other renderers ignore it. */
@@ -710,23 +709,26 @@ export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; nam
   )
 }
 
-/* ─────────────────────────────── full viewer ───────────────────────────── */
+/* ─────────────────────────────── full page ─────────────────────────────── */
 
-/** A modal that opens an artifact "in full" from the Artifacts gallery. The header
- *  carries a project picker so the artifact can be (re)assigned to a project — or
- *  unfiled — right here. */
-export function ArtifactViewer({
+/** The artifact's canonical MAIN PAGE. `/artifacts/:id` is a routed pane place,
+ *  so its surface uses the same page header, back history and natural page
+ *  scroll as every other resource — never a dialog laid over its own gallery.
+ *  The header keeps the project picker so the artifact can be (re)assigned or
+ *  unfiled without leaving its page. */
+export function ArtifactDetailPage({
   artifact,
   projects,
   currentProjectId,
   own,
   onAssignProject,
   onOpenSource,
-  onClose,
+  onBack,
+  backTo,
 }: {
   artifact: ArtifactItem
   projects: { id: string; name: string }[]
-  /** Whether the viewer OWNS this artifact — a grant widens the read, so
+  /** Whether the reader OWNS this artifact — a grant widens the read, so
    *  "can see it" and "may rewrite it" are different questions (the routine
    *  page's lesson). Gates the body editor and the share roster; a visitor
    *  offers an `artifact-patch` proposal instead. */
@@ -742,14 +744,9 @@ export function ArtifactViewer({
    *  doesn't resolve to a known session (a created/sourceless artifact), so the
    *  provenance stays a plain label rather than a dead link. */
   onOpenSource?: () => void
-  onClose: () => void
+  onBack: () => void
+  backTo: NavLocation | null
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null)
-
-  // Trap Tab within the viewer, close on Escape, restore focus on close (the
-  // viewer has no single primary field, so focus lands on the first control).
-  useFocusTrap(dialogRef, onClose)
-
   const Icon = KIND_ICON[artifact.kind]
 
   // The owner's body edit (social S3): which block is open, and its draft. The
@@ -798,24 +795,22 @@ export function ArtifactViewer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[8dvh]"
-      onMouseDown={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={artifact.name}
+      data-artifact-page={artifact.id}
+      className="mx-auto w-full max-w-3xl"
     >
-      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
-      <div
-        ref={dialogRef}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={`relative flex max-h-[80dvh] w-[680px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
-      >
-        <div className="flex shrink-0 items-start gap-3 border-b border-line px-5 py-3.5">
-          <Icon size={20} className="mt-0.5 shrink-0 text-cap-workspace" />
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-3">
+          <BackButton
+            to={backTo ?? { kind: 'section', section: 'artifacts', projectId: null, scheduleId: null }}
+            onBack={onBack}
+          />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-cap-workspace">
+            <Icon size={20} className="shrink-0" />
+          </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
+            <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-faint">
-              {/* S6 — the canonical viewer should be at least as specific as the humble
+              {/* S6 — the canonical page should be at least as specific as the humble
                   side panel: show the artifact's own descriptor (meta — "functional spec",
                   "1600×900") when it beats the generic kind label (the shared guard skips
                   gallery-created artifacts whose meta = the label — no "Document · Document"). */}
@@ -836,50 +831,41 @@ export function ArtifactViewer({
               <span>Edited {relativeTime(artifact.editedAt)}</span>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            title="Close"
-            aria-label="Close"
-            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-          >
-            <X size={16} />
-          </button>
         </div>
+      </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
-          <ArtifactBodyView
-            kind={artifact.kind}
-            name={artifact.name}
-            artifactId={artifact.id}
-            size="full"
-            excerpt={artifact.excerpt}
-            edit={edit}
-            // The canonical viewer is the artifact's READING surface, so it is
-            // the one place a block carries its own thread (social S2).
-            discuss={{ kind: 'artifact', id: artifact.id }}
-          />
-          {/* Improvements (social S3) — the generic ProposalsPanel, the third
-              social primitive on the one canonical surface. An artifact could be
-              shared and discussed but never IMPROVED: `artifact-patch` had no
-              host, which is the "capability with no surface" failure the layer's
-              own audits keep finding. Everyone sees the ledger; the offer form
-              is the panel's own propose-tier gate, land/decline the owner's. */}
+      <div className="min-w-0">
+        <ArtifactBodyView
+          kind={artifact.kind}
+          name={artifact.name}
+          artifactId={artifact.id}
+          size="full"
+          excerpt={artifact.excerpt}
+          edit={edit}
+          // The canonical page is the artifact's READING surface, so it is
+          // the one place a block carries its own thread (social S2).
+          discuss={{ kind: 'artifact', id: artifact.id }}
+        />
+        {/* Improvements (social S3) — the generic ProposalsPanel, the third
+            social primitive on the one canonical surface. An artifact could be
+            shared and discussed but never IMPROVED: `artifact-patch` had no
+            host, which is the "capability with no surface" failure the layer's
+            own audits keep finding. Everyone sees the ledger; the offer form
+            is the panel's own propose-tier gate, land/decline the owner's. */}
+        <div className="mt-5 border-t border-line pt-4">
+          <ProposalsPanel subject={{ kind: 'artifact', id: artifact.id }} own={own} />
+        </div>
+        {/* Sharing (social S1) — the OWNER's audience configuration, the same
+            generic GrantsPanel every other subject hosts. Without it an
+            artifact could be granted only through the API: the read now
+            widens for an audience that had no way to be created. */}
+        {own && (
           <div className="mt-5 border-t border-line pt-4">
-            <ProposalsPanel subject={{ kind: 'artifact', id: artifact.id }} own={own} />
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">Share this artifact</p>
+            <GrantsPanel subject={{ kind: 'artifact', id: artifact.id }} />
           </div>
-          {/* Sharing (social S1) — the OWNER's audience configuration, the same
-              generic GrantsPanel every other subject hosts. Without it an
-              artifact could be granted only through the API: the read now
-              widens for an audience that had no way to be created. */}
-          {own && (
-            <div className="mt-5 border-t border-line pt-4">
-              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">Share this artifact</p>
-              <GrantsPanel subject={{ kind: 'artifact', id: artifact.id }} />
-            </div>
-          )}
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2 border-t border-line bg-panel px-5 py-2.5 text-[12px] text-ink-faint">
+        )}
+        <div className="mt-5 flex items-center gap-2 border-t border-line pt-4 text-[12px] text-ink-faint">
           {onOpenSource ? (
             <button
               onClick={onOpenSource}
@@ -901,7 +887,7 @@ export function ArtifactViewer({
   )
 }
 
-/** The header's project control: shows the artifact's current project (or "Unfiled")
+/** The page header's project control: shows the artifact's current project (or "Unfiled")
  *  and, on click, a menu to assign it to any project or remove it from one. The edit
  *  routes through a refile-artifact relation op, so the gallery re-groups live. */
 function ProjectAssignMenu({
@@ -914,10 +900,7 @@ function ProjectAssignMenu({
   onAssign: (projectId: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
-  // This dropdown lives inside the focus-trapped ArtifactViewer, which already
-  // closes the whole viewer on Escape — so opt out of Escape here (outside-click
-  // only, as before) to avoid one Escape collapsing both layers.
-  const ref = useDismissable<HTMLSpanElement>(open, () => setOpen(false), { escape: false })
+  const ref = useDismissable<HTMLSpanElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
 
   const current = projects.find((p) => p.id === currentProjectId)

@@ -23,7 +23,7 @@ import type { FocusTarget } from './notificationDoor'
 /** Which rail SECTION opens a social noun's page — the ONE answer, because two
  *  surfaces ask it (the Commons feed card and the `AnchorChip`) and they were
  *  asking it with two hand-copied ternaries. That is how `artifact` came to be
- *  missing from both: an artifact has a canonical viewer at `/artifacts/:id`,
+ *  missing from both: an artifact has a canonical page at `/artifacts/:id`,
  *  but neither copy listed it, so a thread anchored to an artifact rendered its
  *  own subject as dead text.
  *
@@ -86,7 +86,7 @@ export function locusFocus(anchor: SocialAnchor): FocusTarget | null {
     // A routine's page lists its runs, each an addressable row.
     case 'schedule-run':
       return { runId: locus.runId }
-    // An artifact's viewer renders its body one BLOCK at a time, each an
+    // An artifact's page renders its body one BLOCK at a time, each an
     // addressable element — the address `artifact-patch` already edits by, so a
     // thread and a patch land on the same thing.
     case 'artifact-block':

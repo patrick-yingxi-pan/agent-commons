@@ -1,4 +1,4 @@
-/** Surface-audit S6 — the canonical artifact surfaces (full viewer + gallery card)
+/** Surface-audit S6 — the canonical artifact surfaces (main page + gallery card)
  *  should be at least as specific as the humble side panel, which shows the artifact's
  *  own descriptor (meta). These lock the shared guard: reveal meta ONLY when it's more
  *  specific than the generic kind label, so a gallery-created artifact (meta = the

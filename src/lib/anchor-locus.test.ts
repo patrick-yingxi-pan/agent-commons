@@ -70,7 +70,7 @@ test('every social noun answers where its page lives — one map, not one per su
   // Two surfaces asked this (the Commons card and the AnchorChip) with two
   // hand-copied ternaries, and `artifact` was missing from BOTH — so a thread
   // anchored to an artifact rendered its own subject as dead text.
-  assert.equal(sectionForSocialKind('artifact'), 'artifacts', 'an artifact has a canonical viewer to open')
+  assert.equal(sectionForSocialKind('artifact'), 'artifacts', 'an artifact has a canonical page to open')
   assert.equal(sectionForSocialKind('project'), 'projects')
   assert.equal(sectionForSocialKind('discussion'), 'discussions')
   // A session is a pane fill, not a section page — null is the deliberate answer.

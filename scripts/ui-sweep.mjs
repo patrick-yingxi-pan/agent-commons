@@ -445,7 +445,7 @@ async function seedIds(page) {
     repoSessionId: repoSessionId ?? chipSessionId,
     projectId: arr(projects)[0]?.id ?? null,
     scheduleId: arr(schedules)[0]?.id ?? null,
-    artifactName: arr(artifacts)[0]?.name ?? null,
+    artifactId: arr(artifacts)[0]?.id ?? null,
     discussionId: arr(discussions)[0]?.id ?? null,
   }
 }
@@ -600,27 +600,20 @@ for (const vp of VIEWPORTS) {
       }
     } else unreachable(cell, 'no discussion visible to this account')
 
-    // ── cell: the artifact viewer modal (now carrying the Sharing panel) ──
-    cell = at('artifact-viewer')
-    if (ids.artifactName) {
-      if (await goTo(page, '/artifacts', cell)) {
-        const card = page.locator('main').getByText(ids.artifactName, { exact: false }).first()
-        if (await card.count()) {
-          await card.click({ timeout: 4000 }).catch(() => {})
-          await tick(500)
-          const dlg = page.locator('[role="dialog"]:visible').first()
-          if (await dlg.count()) {
-            const b = await dlg.boundingBox()
-            if (b && (b.y < 0 || b.y + b.height > vp.height + 1 || b.width > vp.width)) {
-              note(cell, 'UI-6', `viewer modal [y ${Math.round(b.y)} h ${Math.round(b.height)}] exceeds ${vp.width}×${vp.height}`)
-            }
-            await noHScroll(page, cell)
-            await shot(page, cell.replace('/', '_'))
-            await sweepTriggers(page, vp, cell, dlg)
-            await page.keyboard.press('Escape')
-            covered(cell)
-          } else unreachable(cell, 'the artifact card opened no dialog — check the entry locator')
-        } else unreachable(cell, `artifact "${ids.artifactName}" is not rendered in the gallery`)
+    // ── cell: the artifact's canonical main page (including Sharing) ──
+    cell = at('artifact-page')
+    if (ids.artifactId) {
+      if (await goTo(page, `/artifacts/${ids.artifactId}`, cell)) {
+        const artifactPage = page.locator(`[data-artifact-page="${ids.artifactId}"]`)
+        if (await artifactPage.isVisible().catch(() => false)) {
+          if (await page.locator('[role="dialog"]:visible').count()) {
+            note(cell, 'UI-29', 'the canonical artifact URL rendered a dialog instead of the pane main page')
+          }
+          await noHScroll(page, cell)
+          await shot(page, cell.replace('/', '_'))
+          await sweepTriggers(page, vp, cell, artifactPage)
+          covered(cell)
+        } else unreachable(cell, `artifact ${ids.artifactId} did not render its canonical main page`)
       }
     } else unreachable(cell, 'no artifact exists for this account')
   } catch (e) {
