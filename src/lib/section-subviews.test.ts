@@ -21,6 +21,7 @@ import { join } from 'node:path'
 import { ROOT, read, concatSource, stripComments } from '../../tests/helpers/source.ts'
 import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY, SECTION_SUBVIEWS } from './subviews.ts'
 import { SECTION_FILTERS, ALL_FACET, clampSectionFilter } from './sectionFilter.ts'
+import { AGENT_SUBVIEWS } from './agentStructure.ts'
 // Every section id — from the pure nav module, since `lib/sections.tsx` carries
 // the icons (a .tsx node --test can't load).
 import { SECTION_LABELS } from './nav.ts'
@@ -34,7 +35,7 @@ test('the subview registry holds only SURFACE hubs — every facet has left it',
   // `following` (S7) joins them as the fifth — and the only one keyed on WHO
   // ACTED rather than on the subject, which is what makes the feed social.
   assert.deepEqual(SECTION_SUBVIEWS.commons.map((s) => s.id), ['following', 'watched', 'liked', 'posted', 'viewed'])
-  assert.deepEqual(SECTION_SUBVIEWS.agents.map((s) => s.id), ['work', 'prompts', 'commissions', 'discover', 'audit'])
+  assert.deepEqual(SECTION_SUBVIEWS.agents, AGENT_SUBVIEWS, 'Agents addresses derive from its nested structure')
   assert.deepEqual(SECTION_SUBVIEWS.admin.map((s) => s.id), ['orgs', 'credentials', 'audit', 'ops'])
   for (const subs of Object.values(SECTION_SUBVIEWS)) {
     const ids = subs.map((s) => s.id)
@@ -230,7 +231,8 @@ test('the rail body gives the canonical tree priority over the foldable Recents 
 
 test('the section body + controller route through the registry; a section lands on its default', () => {
   const sectionView = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
-  assert.match(sectionView, /subview \?\? 'agents'/, 'the Agents hub maps the null default to its worker-list surface')
+  assert.match(sectionView, /subview === null \?/, 'the Agents root is its complete overview, not one child disguised as the default')
+  assert.match(sectionView, /AGENT_SECTIONS\.map/, 'the root projects every declared structural section')
   assert.match(sectionView, /subview \?\? 'accounts'/, 'the maintainer console does the same')
   // A bare-section door routes sub-view NULL into the focused pane (Phase 6).
   const controller = read(join(ROOT, 'src', 'controller', 'useSessionWorkspace.ts'))

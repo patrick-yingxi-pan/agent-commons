@@ -49,6 +49,7 @@ import type {
   ModelProvider,
   ProjectSubGoal,
   SystemPromptEntry,
+  AgentToolCatalog,
   Project,
   RecentsSnapshot,
   RelationGraph,
@@ -384,8 +385,8 @@ export function useAgents(): QueryState<Agent[]> {
 /** The Agent tool CATALOG — the names an explicit tool grant can spell out. An omitted
  *  grant is the EMPTY set (INV-9 minimal risk), so the dialog's "full catalog" grant
  *  reads this live list rather than hard-coding a mirror of the server's tools. */
-export function useAgentToolCatalog(): QueryState<{ tools: string[] }> {
-  return useQuery(keys.agentTools, () => apiGet<{ tools: string[] }>(paths.agentTools))
+export function useAgentToolCatalog(): QueryState<AgentToolCatalog> {
+  return useQuery(keys.agentTools, () => apiGet<AgentToolCatalog>(paths.agentTools))
 }
 
 /** A Project's Contributors — the commissions assigning Agents onto it

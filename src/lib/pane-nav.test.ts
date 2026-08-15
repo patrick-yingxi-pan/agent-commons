@@ -31,6 +31,9 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
   )
   assert.deepEqual(seedFor('scheduled', 't1'), { scheduleId: 't1' })
   assert.deepEqual(seedFor('contexts', 'c1'), { contextId: 'c1' })
+  assert.deepEqual(seedFor('agents', 'agent-1'), { agentId: 'agent-1' })
+  assert.deepEqual(seedFor('agents', 'prompt-1', 'prompts'), { promptId: 'prompt-1' })
+  assert.deepEqual(seedFor('agents', 'read_file', 'tools'), { toolId: 'read_file' })
   assert.deepEqual(seedFor(OWNER_SECTION, 'nova'), { ownerName: 'nova' }, 'commons+id = an OWNER profile (agent pages route via the prop)')
   assert.deepEqual(seedFor('admin', 'user-grace'), { adminUserId: 'user-grace' }, "admin+id = an account's console detail (FWD-7 v1.1)")
   assert.deepEqual(seedFor('discussions', 'disc-1'), { discussionId: 'disc-1' })
@@ -77,9 +80,9 @@ test('a cross-section entity door RETARGETS the pane, seeded with the detail', (
     section: 'commons',
     seed: { ownerName: 'nova' },
   })
-  // And the section it USED to live under no longer claims a name: an
-  // `agents` door with an id is now the hub, not a silently-dropped profile.
-  assert.equal(seedFor('agents', 'nova'), null)
+  // An Agents id is an Agent resource now; owner profiles remain on the
+  // explicit Commons door above and can no longer collide with this grammar.
+  assert.deepEqual(seedFor('agents', 'nova'), { agentId: 'nova' })
   // A linked-context chip inside a Projects pane.
   assert.deepEqual(paneNavTarget('projects', 'contexts', 'ctx-1'), {
     kind: 'retarget',

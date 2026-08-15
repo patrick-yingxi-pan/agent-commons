@@ -92,6 +92,8 @@ test('stable multi-group detail pages use the Project section grammar', () => {
     'ProviderDetailPage',
     'OwnerProfilePage',
     'AgentPublicPage',
+    'PromptDetailPage',
+    'ToolDetailPage',
     'AdminUserDetail',
     'ScheduledDetail',
   ]) {

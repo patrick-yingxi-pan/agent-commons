@@ -176,6 +176,8 @@ export function SectionPane({
         focusWorkItemId={focus.workItemId}
         focusContributionId={focus.contributionId}
         focusAgentId={focus.agentId}
+        focusPromptId={focus.promptId}
+        focusToolId={focus.toolId}
         focusContextId={focus.contextId}
         focusAdminUserId={focus.adminUserId}
         focusDiscussionId={focus.discussionId}

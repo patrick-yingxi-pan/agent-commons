@@ -40,6 +40,10 @@ export type NavLocation =
       /** A published definition's own page under the agents section (the repo-page
        *  analog, COMMONS-26). Optional for the same back-compat reason; absent ≡ null. */
       agentId?: string | null
+      /** A reusable prompt material (`/agents/prompts/:id`). */
+      promptId?: string | null
+      /** A built-in tool material (`/agents/tools/:id`). */
+      toolId?: string | null
       /** A saved context's detail page under the contexts section (ADAPT-15 — the
        *  detail was once component state with no address). Absent ≡ null. */
       contextId?: string | null
@@ -88,6 +92,8 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.workItemId ?? null) === (b.workItemId ?? null) &&
       (a.contributionId ?? null) === (b.contributionId ?? null) &&
       (a.agentId ?? null) === (b.agentId ?? null) &&
+      (a.promptId ?? null) === (b.promptId ?? null) &&
+      (a.toolId ?? null) === (b.toolId ?? null) &&
       (a.contextId ?? null) === (b.contextId ?? null) &&
       (a.adminUserId ?? null) === (b.adminUserId ?? null) &&
       (a.discussionId ?? null) === (b.discussionId ?? null) &&
@@ -113,7 +119,7 @@ export function pushLocation(stack: NavLocation[], leaving: NavLocation, to: Nav
  *  `resolveBackLabel` handed a half-filled map degrades exactly like the bug it
  *  replaced, silently, so "is it total?" and "is it fed?" are two questions and
  *  both are asked (`src/lib/nav.test.ts`). */
-export const BACK_LABEL_SOURCES = ['project', 'schedule', 'discussion', 'artifact', 'context', 'provider', 'agent'] as const
+export const BACK_LABEL_SOURCES = ['project', 'schedule', 'discussion', 'artifact', 'context', 'provider', 'agent', 'prompt', 'tool'] as const
 
 /** Live display names for the back label, one map per registry, keyed by id.
  *  Supplied by `BackButton` from the same api hooks the pages themselves read
@@ -143,6 +149,8 @@ const DETAIL_LABEL: {
   workItemId: () => undefined,
   contributionId: () => undefined,
   agentId: (id, n) => n.agent?.[id],
+  promptId: (id, n) => n.prompt?.[id],
+  toolId: (id, n) => n.tool?.[id],
   contextId: (id, n) => n.context?.[id],
   // The maintainer console's account detail: its roster is grant-walled and
   // fetched only by the console itself, so a back label would mean a

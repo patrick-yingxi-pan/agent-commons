@@ -13,6 +13,21 @@
 import type { Budget } from './budget.ts'
 import type { Authority } from './authority.ts'
 
+/** One built-in material in the Agent tool catalog. The name is the exact grant
+ * token; the description is the model-facing explanation of what it can do. */
+export interface AgentToolEntry {
+  name: string
+  description: string
+}
+
+/** The explicit grant vocabulary plus its display metadata. `tools` remains the
+ * compact list every create/update request sends; `entries` makes each material
+ * an honest resource in the UI instead of an unexplained string. */
+export interface AgentToolCatalog {
+  tools: string[]
+  entries: AgentToolEntry[]
+}
+
 export interface Agent {
   id: string
   /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every

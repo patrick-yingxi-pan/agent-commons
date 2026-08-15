@@ -41,6 +41,7 @@ import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
 import {
   NoRowsRow,
+  AgentTreeChildren,
   OwnerProfileChild,
   RailTreeBranch,
   SectionFilterMenu,
@@ -602,6 +603,8 @@ export function Sidebar({
           // claim to be on its feed while a profile filled the pane.
           const activeDetailId = instanceKey
             ? (activeSeed?.[instanceKey] ?? null)
+            : id === 'agents'
+              ? (activeSeed?.agentId ?? activeSeed?.promptId ?? activeSeed?.toolId ?? null)
             : id === OWNER_SECTION
               ? (activeSeed?.ownerName ?? null)
               : null
@@ -647,7 +650,17 @@ export function Sidebar({
                       onOpenOwner={onOpenOwner}
                     />
                   )}
-                  {id === 'scheduled' ? (
+                  {id === 'agents' ? (
+                    <AgentTreeChildren
+                      activeSubview={activeSection === id ? activeSubview : null}
+                      activeSeed={activeSection === id ? activeSeed : null}
+                      onOpenSubview={(subviewId) => onChildClick(id, subviewId)}
+                      onOpenDetail={(section, seed) => {
+                        onOpenDetail(section, seed)
+                        onLeafNavigate?.()
+                      }}
+                    />
+                  ) : id === 'scheduled' ? (
                     <ScheduledTreeChildren
                       groups={routineGroups}
                       total={routineTotal}

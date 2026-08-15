@@ -1,5 +1,6 @@
 import type { SectionId } from '../types'
 import type { PaneSeed } from './paneNav.ts'
+import { AGENT_SUBVIEWS } from './agentStructure.ts'
 
 /** A section's sub-view — one child node in the rail's inline disclosure tree. `id` is
  *  the section's own switch key (a surface id), `label` is what the rail shows. */
@@ -16,7 +17,7 @@ export type SubView = { id: string; label: string }
  *  first:
  *
  *  1. **Declared surfaces** — this file. A hub whose children are genuinely
- *     distinct PAGES (the Agents hub's Prompts / Commissions / Discover / Audit;
+ *     distinct PAGES (the Agents composite's structural sections and resources;
  *     the maintainer console's Organizations / Credentials / Audit / Ops), and
  *     the Commons' standing lenses, which are the viewer's own collections
  *     (what you watch / liked / posted / opened) rather than a slice of the
@@ -63,16 +64,10 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
     { id: 'posted', label: 'Posted' },
     { id: 'viewed', label: 'Recently viewed' },
   ],
-  // The Agents hub's children are its NON-default *surfaces* — the section row itself
-  // opens the worker-agents list (the default), so listing "Agents" again as a child
-  // would duplicate it.
-  agents: [
-    { id: 'work', label: 'Your work' },
-    { id: 'prompts', label: 'Prompts' },
-    { id: 'commissions', label: 'Commissions' },
-    { id: 'discover', label: 'Discover' },
-    { id: 'audit', label: 'Audit' },
-  ],
+  // Agents is a real composite: the root is its overview, and this flattened
+  // address registry is derived from the nested hierarchy the rail renders.
+  // Runtime agent / prompt / tool leaves live below these declared pages.
+  agents: AGENT_SUBVIEWS,
   // The maintainer console's children are its SURFACES (like the Agents hub) —
   // the section row itself opens Accounts (the default), so it isn't re-listed.
   admin: [

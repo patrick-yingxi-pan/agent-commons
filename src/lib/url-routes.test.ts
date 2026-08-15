@@ -127,13 +127,25 @@ test('a contribution page round-trips through /projects/:id/changes/:cid (workfl
   )
 })
 
-test('a published definition page round-trips through /agents/:id; sub-view ids stay reserved', () => {
+test('an agent definition page round-trips through /agents/:id; sub-view ids stay reserved', () => {
   const loc = section({ section: 'agents', agentId: 'agent-7' })
   const path = pathForView(loc, null)
   assert.equal(path, '/agents/agent-7')
   assert.deepEqual(viewForPath(path), { loc: { ...loc, agentId: 'agent-7' }, subview: null })
   // /agents/work is the "Your work" sub-view, never an agent whose id collides with it.
   assert.deepEqual(viewForPath('/agents/work'), { loc: section({ section: 'agents' }), subview: 'work' })
+})
+
+test('Agent building-block leaves have canonical nested addresses', () => {
+  const prompt = section({ section: 'agents', promptId: 'prompt one/two' })
+  const promptPath = pathForView(prompt, null)
+  assert.equal(promptPath, '/agents/prompts/prompt%20one%2Ftwo')
+  assert.deepEqual(viewForPath(promptPath), { loc: prompt, subview: null })
+
+  const tool = section({ section: 'agents', toolId: 'read_file' })
+  const toolPath = pathForView(tool, null)
+  assert.equal(toolPath, '/agents/tools/read_file')
+  assert.deepEqual(viewForPath(toolPath), { loc: tool, subview: null })
 })
 
 test('a saved context detail round-trips through /contexts/:id', () => {

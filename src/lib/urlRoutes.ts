@@ -32,6 +32,8 @@
  *    /artifacts/:artifactId an artifact open in the gallery (UI-19 — the rail
  *                           lists artifacts, so one has to be addressable)
  *    /models/:providerId    the Models list with that provider expanded
+ *    /agents/prompts/:id    one reusable system-prompt material
+ *    /agents/tools/:id      one callable tool material
  *    /admin/users/:userId   an account's detail page in the maintainer console
  *                           (nested under `users` so the reserved admin
  *                           subview ids can never collide)
@@ -66,6 +68,8 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
     return loc.sessionId === DRAFT_ID ? '/' : `/s/${encodeURIComponent(loc.sessionId)}`
   }
   if (loc.ownerName) return `/u/${encodeURIComponent(loc.ownerName)}`
+  if (loc.promptId) return `/agents/prompts/${encodeURIComponent(loc.promptId)}`
+  if (loc.toolId) return `/agents/tools/${encodeURIComponent(loc.toolId)}`
   if (loc.agentId) return `/agents/${encodeURIComponent(loc.agentId)}`
   if (loc.projectId && loc.workItemId)
     return `/projects/${encodeURIComponent(loc.projectId)}/work/${encodeURIComponent(loc.workItemId)}`
@@ -129,6 +133,12 @@ export function viewForPath(pathname: string): RoutedView | null {
   }
   if (section === 'scheduled' && segs.length === 3 && segs[1] && isScheduleSectionId(segs[2])) {
     return { loc: { ...base, scheduleId: segs[1], scheduleSectionId: segs[2] }, subview: null }
+  }
+  if (section === 'agents' && segs.length === 3 && segs[1] === 'prompts' && segs[2]) {
+    return { loc: { ...base, promptId: segs[2] }, subview: null }
+  }
+  if (section === 'agents' && segs.length === 3 && segs[1] === 'tools' && segs[2]) {
+    return { loc: { ...base, toolId: segs[2] }, subview: null }
   }
   // The maintainer console's account detail (FWD-7 v1.1) — nested under a
   // static `users` segment so it can never collide with the reserved admin

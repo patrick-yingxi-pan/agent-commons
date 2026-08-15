@@ -103,6 +103,8 @@ test('EVERY detail kind names itself — a back label never says the section for
     scheduleId: { section: 'scheduled', names: { schedule: { x: 'Daily news briefing' } }, want: 'Daily news briefing' },
     ownerName: { section: 'commons', names: {}, want: 'x' },
     agentId: { section: 'agents', names: { agent: { x: 'Atlas Guide' } }, want: 'Atlas Guide' },
+    promptId: { section: 'agents', names: { prompt: { x: 'Careful reviewer' } }, want: 'Careful reviewer' },
+    toolId: { section: 'agents', names: { tool: { x: 'Open Workspace' } }, want: 'Open Workspace' },
     contextId: { section: 'contexts', names: { context: { x: 'acme/insights' } }, want: 'acme/insights' },
     discussionId: { section: 'discussions', names: { discussion: { x: 'Is the retention cut…' } }, want: 'Is the retention cut…' },
     artifactId: { section: 'artifacts', names: { artifact: { x: 'Launch brief' } }, want: 'Launch brief' },

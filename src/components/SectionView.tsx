@@ -132,6 +132,14 @@ import { PageActionButton } from './PageActionButton'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
 import {
+  AGENT_SECTION,
+  AGENT_SECTIONS,
+  agentSection,
+  agentSectionForSubview,
+  agentToolLabel,
+  type AgentSectionId,
+} from '../lib/agentStructure'
+import {
   projectSection,
   scheduleSection,
   type ProjectSectionId,
@@ -316,6 +324,7 @@ import {
   type EscalationTrigger,
   type A2aAgentCard,
   type Agent,
+  type AgentToolEntry,
   type AgentChangeProposal,
   type AgentChangelogEntry,
   type AgentDirectoryEntry,
@@ -381,6 +390,8 @@ export function SectionView({
   focusWorkItemId = null,
   focusContributionId = null,
   focusAgentId = null,
+  focusPromptId = null,
+  focusToolId = null,
   focusContextId = null,
   focusAdminUserId = null,
   focusDiscussionId = null,
@@ -439,6 +450,10 @@ export function SectionView({
   focusContributionId?: string | null
   /** A published definition's own page under Agents (COMMONS-26); null = hub/profile. */
   focusAgentId?: string | null
+  /** A reusable system prompt's canonical material page under Agents. */
+  focusPromptId?: string | null
+  /** A callable tool's canonical material page under Agents. */
+  focusToolId?: string | null
   /** A saved context's detail page under Contexts (ADAPT-15); null = the list. */
   focusContextId?: string | null
   /** An account's detail page under the maintainer console (FWD-7 v1.1);
@@ -479,13 +494,14 @@ export function SectionView({
     ) : section === 'models' ? (
       <ModelsSection providerId={focusProviderId} onBack={onBack} backTo={backTo} />
     ) : section === 'agents' ? (
-      // The Agents hub's children are distinct SURFACES (not one list filtered), so its
-      // sub-view is a surface id — defaulting to the worker list when the rail sub-view is
-      // null. The content sections below instead take the raw sub-view (a group id or null).
+      // Agents is a composite: null is its honest overview, sub-views are its
+      // structural section/resource pages, and focus ids are canonical leaves.
       <AgentCommonsSection
         agentId={focusAgentId}
-        subview={subview ?? 'agents'}
-        onOpenProject={onOpenProject}
+        promptId={focusPromptId}
+        toolId={focusToolId}
+        subview={subview}
+        onOpenSubview={onOpenSubview}
         onOpenProposal={onOpenProposal}
         onOpenAgentPage={onOpenAgentPage}
         onBack={onBack}
@@ -7619,77 +7635,254 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
 
 /* ─────────────────────────── Agents (Agent Commons) ─────────────────────────── */
 
-/** The Agents hub (docs/agent-commons.md) — one left-panel home for the multi-tenant
- *  fabric: the worker Agents, the Model providers + system prompts they run on, and the
- *  commissions placing them on Projects. The four concepts are interdependent (an Agent
- *  binds a provider + prompt; a commission binds an Agent to a Project), so they read as
- *  ONE surface — its sub-views live in the rail's drill-in menu (lib/subviews), not an
- *  in-page segmented control, so all of the app's section navigation lives in one place. */
-type CommonsTab = 'agents' | 'work' | 'prompts' | 'commissions' | 'discover' | 'audit'
-
+/** Agents is a composite resource, not a disguised default tab. Its rail and
+ *  root page project the same `AGENT_SECTIONS` tree; every structural node has
+ *  a page, and every runtime agent/prompt/tool leaf has a canonical detail. */
 function AgentCommonsSection({
   agentId,
+  promptId,
+  toolId,
   subview,
-  onOpenProject,
+  onOpenSubview,
   onOpenProposal,
   onOpenAgentPage,
   onBack,
   backTo,
 }: {
-  /** A published definition's own page (COMMONS-26) — null = the hub. */
   agentId: string | null
-  /** The active hub sub-view — a CommonsTab id, defaulting to the worker-agents surface
-   *  ('agents') when the section is on its default (rail subview null). */
-  subview: string
-  onOpenProject: (id: string) => void
+  promptId: string | null
+  toolId: string | null
+  subview: string | null
+  onOpenSubview: (id: string | null) => void
   /** Open a change proposal on its review surface (the same door the bell uses). */
   onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
   onOpenAgentPage: (agentId: string) => void
   onBack: () => void
   backTo: NavLocation | null
 }) {
-  const tab = subview as CommonsTab
+  const promptsQ = useSystemPrompts()
+  const toolsQ = useAgentToolCatalog()
+  const prompts = promptsQ.data ?? []
+  const tools = toolsQ.data?.entries ?? []
+  const prompt = promptId ? prompts.find((entry) => entry.id === promptId) ?? null : null
+  const tool = toolId ? tools.find((entry) => entry.name === toolId) ?? null : null
   const [creating, setCreating] = useState<'agent' | 'prompt' | null>(null)
-  useEffect(() => setCreating(null), [tab])
-  // NB: no "reset the sub-view for an agent door" effect here — the door entry
-  // points (openAgent / openProposal in useSessionWorkspace) already land the hub
-  // on its default surface in the same update that sets the focus target, and a
-  // component-side reset routed through the openSubview funnel would CLEAR that
-  // pendingFocus. The controller is the single source of the reset.
+  useEffect(() => setCreating(null), [subview, agentId, promptId, toolId])
+
   if (agentId) {
     return <AgentPublicPage agentId={agentId} onOpenAgent={onOpenAgentPage} onBack={onBack} backTo={backTo} />
   }
-  const surfaceTitle = tab === 'agents'
-    ? 'Worker agents'
-    : (SECTION_SUBVIEWS.agents ?? []).find((surface) => surface.id === tab)?.label ?? 'Agents'
+  if (promptId) {
+    return (
+      <PromptDetailPage
+        prompt={prompt}
+        loaded={promptsQ.data !== undefined}
+        onBack={onBack}
+        backTo={backTo}
+      />
+    )
+  }
+  if (toolId) {
+    return (
+      <ToolDetailPage
+        tool={tool}
+        toolId={toolId}
+        loaded={toolsQ.data !== undefined}
+        onBack={onBack}
+        backTo={backTo}
+      />
+    )
+  }
+
+  const top = agentSection(subview)
+  const parent = agentSectionForSubview(subview)
+  const surfaceTitle = subview
+    ? (SECTION_SUBVIEWS.agents ?? []).find((surface) => surface.id === subview)?.label ?? 'Agents'
+    : 'Agents'
+  const surfaceSummary = top?.summary
+    ?? parent?.children.find((child) => child.id === subview)?.summary
+    ?? 'Build reusable agents from prompts and tools, then commission or publish them.'
+  const canCreateAgent = subview === null || subview === 'ready-agents'
+  const canCreatePrompt = subview === 'building-blocks' || subview === 'prompts'
+
   return (
     <Page>
       <PageHeader
-        title="Agents"
-        subtitle="Your worker agents, the prompts they start from, and the commissions placing them on projects."
+        title={surfaceTitle}
+        subtitle={surfaceSummary}
       >
-        {tab === 'agents' && (
+        {canCreateAgent && (
           <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating('agent')}>
             New agent
           </PageActionButton>
         )}
-        {tab === 'prompts' && (
+        {canCreatePrompt && (
           <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating('prompt')}>
             New prompt
           </PageActionButton>
         )}
       </PageHeader>
-      <FoldSection title={surfaceTitle} summary="Agent resources" persist={false}>
-        {tab === 'agents' && <AgentsTab onOpenPage={onOpenAgentPage} />}
-        {tab === 'work' && <YourWorkTab onOpenProposal={onOpenProposal} />}
-        {tab === 'prompts' && <PromptsTab />}
-        {tab === 'commissions' && <CommissionsTab />}
-        {tab === 'discover' && <DiscoverTab onOpenAgentPage={onOpenAgentPage} />}
-        {tab === 'audit' && <AuditTab />}
-      </FoldSection>
+      {subview === null ? (
+        AGENT_SECTIONS.map((section) => {
+          const action = (
+            <SectionAction
+              label={`Open ${section.label} page`}
+              icon={<ExternalLink size={14} />}
+              onClick={() => onOpenSubview(section.id)}
+            />
+          )
+          const body = (
+            <AgentOverviewSection
+              section={section.id}
+              onOpenSubview={onOpenSubview}
+              onOpenAgentPage={onOpenAgentPage}
+              onOpenProposal={onOpenProposal}
+            />
+          )
+          return section.id === 'building-blocks' ? (
+            <FoldSection key={section.id} title="Building blocks" summary={section.summary} defaultFolded persist={false} actions={action}>
+              {body}
+            </FoldSection>
+          ) : (
+            <FoldSection key={section.id} title={section.label} summary={section.summary} persist={false} actions={action}>
+              {body}
+            </FoldSection>
+          )
+        })
+      ) : (
+        <AgentSubviewPage
+          subview={subview}
+          onOpenSubview={onOpenSubview}
+          onOpenAgentPage={onOpenAgentPage}
+          onOpenProposal={onOpenProposal}
+        />
+      )}
       {creating === 'agent' && <AgentDialog agent={null} onClose={() => setCreating(null)} />}
       {creating === 'prompt' && <PromptDialog prompt={null} onClose={() => setCreating(null)} />}
     </Page>
+  )
+}
+
+function AgentOverviewSection({
+  section,
+  onOpenSubview,
+  onOpenAgentPage,
+  onOpenProposal,
+}: {
+  section: AgentSectionId
+  onOpenSubview: (id: string | null) => void
+  onOpenAgentPage: (agentId: string) => void
+  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
+}) {
+  if (section === 'ready-agents') return <AgentsTab onOpenPage={onOpenAgentPage} />
+  if (section === 'discover') return <DiscoverTab onOpenAgentPage={onOpenAgentPage} />
+  if (section === 'audit') return <AuditTab />
+  if (section === 'building-blocks') {
+    return (
+      <div className="space-y-6">
+        <AgentNestedGroup title="Prompts" summary="Reusable instructions injected before a task." onOpen={() => onOpenSubview('prompts')}>
+          <PromptsTab />
+        </AgentNestedGroup>
+        <AgentNestedGroup title="Tools" summary="Callable workspace capabilities an agent may receive." onOpen={() => onOpenSubview('tools')}>
+          <ToolsTab />
+        </AgentNestedGroup>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-6">
+      <AgentNestedGroup title="Your work" summary="Open work and proposals waiting on you." onOpen={() => onOpenSubview('work')}>
+        <YourWorkTab onOpenProposal={onOpenProposal} />
+      </AgentNestedGroup>
+      <AgentNestedGroup title="Commissions" summary="Assignments connecting an agent to a project." onOpen={() => onOpenSubview('commissions')}>
+        <CommissionsTab />
+      </AgentNestedGroup>
+    </div>
+  )
+}
+
+function AgentNestedGroup({
+  title,
+  summary,
+  onOpen,
+  children,
+}: {
+  title: string
+  summary: string
+  onOpen: () => void
+  children: ReactNode
+}) {
+  return (
+    <div>
+      <div className={`flex items-end justify-between gap-3 pb-2 ${LEDGER_RULE_CLASS}`}>
+        <div className="min-w-0">
+          <button onClick={onOpen} className={`text-[13px] font-semibold text-ink ${DOOR_CLASS}`}>
+            {title}
+          </button>
+          <p className="mt-0.5 text-[11px] text-ink-faint">{summary}</p>
+        </div>
+        <button onClick={onOpen} className={INLINE_ACTION_CLASS}>Open page</button>
+      </div>
+      <div className="pt-2">{children}</div>
+    </div>
+  )
+}
+
+function AgentSubviewPage({
+  subview,
+  onOpenSubview,
+  onOpenAgentPage,
+  onOpenProposal,
+}: {
+  subview: string
+  onOpenSubview: (id: string | null) => void
+  onOpenAgentPage: (agentId: string) => void
+  onOpenProposal: (agentId: string, proposalId: string, ownerName: string | null) => void
+}) {
+  if (subview === 'building-blocks') {
+    return (
+      <>
+        <FoldSection title="Prompts" summary="Reusable instructions injected before a task." persist={false} actions={<SectionAction label="Open Prompts page" icon={<ExternalLink size={14} />} onClick={() => onOpenSubview('prompts')} />}>
+          <PromptsTab />
+        </FoldSection>
+        <FoldSection title="Tools" summary="Callable workspace capabilities an agent may receive." persist={false} actions={<SectionAction label="Open Tools page" icon={<ExternalLink size={14} />} onClick={() => onOpenSubview('tools')} />}>
+          <ToolsTab />
+        </FoldSection>
+      </>
+    )
+  }
+  if (subview === 'coordination') {
+    return (
+      <>
+        <FoldSection title="Your work" summary="Open work and proposals waiting on you." persist={false} actions={<SectionAction label="Open Your work page" icon={<ExternalLink size={14} />} onClick={() => onOpenSubview('work')} />}>
+          <YourWorkTab onOpenProposal={onOpenProposal} />
+        </FoldSection>
+        <FoldSection title="Commissions" summary="Assignments connecting an agent to a project." persist={false} actions={<SectionAction label="Open Commissions page" icon={<ExternalLink size={14} />} onClick={() => onOpenSubview('commissions')} />}>
+          <CommissionsTab />
+        </FoldSection>
+      </>
+    )
+  }
+  const content = subview === 'ready-agents'
+    ? <AgentsTab onOpenPage={onOpenAgentPage} />
+    : subview === 'prompts'
+      ? <PromptsTab />
+      : subview === 'tools'
+        ? <ToolsTab />
+        : subview === 'work'
+          ? <YourWorkTab onOpenProposal={onOpenProposal} />
+          : subview === 'commissions'
+            ? <CommissionsTab />
+            : subview === 'discover'
+              ? <DiscoverTab onOpenAgentPage={onOpenAgentPage} />
+              : subview === 'audit'
+                ? <AuditTab />
+                : <PageEmpty>This Agents page does not exist.</PageEmpty>
+  const meta = (SECTION_SUBVIEWS.agents ?? []).find((surface) => surface.id === subview)
+  return (
+    <FoldSection title={meta?.label ?? 'Agents'} summary={agentSectionForSubview(subview)?.summary ?? 'Agent resources'} persist={false}>
+      {content}
+    </FoldSection>
   )
 }
 
@@ -8039,7 +8232,14 @@ function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
         <Empty>No agents yet.</Empty>
       ) : (
         agents.map((a) => (
-          <AgentCard key={a.id} agent={a} providerLabel={providerLabel(a.providerId)} onEdit={() => setEditing(a)} onOpenPage={onOpenPage} />
+          <AgentCard
+            key={a.id}
+            agent={a}
+            providerLabel={providerLabel(a.providerId)}
+            manageable={a.tenantId !== undefined}
+            onEdit={() => setEditing(a)}
+            onOpenPage={onOpenPage}
+          />
         ))
       )}
       {editing && <AgentDialog agent={editing} onClose={() => setEditing(null)} />}
@@ -8050,21 +8250,26 @@ function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
 function AgentCard({
   agent,
   providerLabel,
+  manageable,
   onEdit,
   onOpenPage,
 }: {
   agent: Agent
   providerLabel: string
+  /** Shared seed infrastructure is visible in every account but is not a custom
+   * definition owned by the viewer. Only tenant-stamped agents expose mutation. */
+  manageable: boolean
   onEdit: () => void
-  /** Door to this definition's PUBLIC page (published agents only — the page is the
-   *  directory's face, so an unpublished agent has none and its count stays text). */
+  /** Door to this definition's canonical page. Owned definitions have a private
+   *  management page whether or not they are published; published ones expose
+   *  their public face to other accounts at the same address. */
   onOpenPage: (agentId: string) => void
 }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   // D25 — the owner's review queue: fetched only for published definitions (the
   // only ones that can receive proposals).
-  const proposals = useAgentProposals(agent.id, agent.published === true).data ?? []
+  const proposals = useAgentProposals(agent.id, manageable && agent.published === true).data ?? []
   const openProposals = proposals.filter((p) => p.status === 'open')
   const [reviewing, setReviewing] = useState(false)
   // S4 — the version-history timeline the owner (who authored every version) could see
@@ -8116,11 +8321,12 @@ function AgentCard({
     }
   }
   return (
-    <CommonsCard cardRef={cardRef} flash={flash}>
+    <CommonsCard cardRef={cardRef} flash={flash} onOpen={() => onOpenPage(agent.id)}>
       <CommonsCardHead
         icon={<Bot size={16} />}
         title={agent.label}
         subtitle={`Runs on ${providerLabel} · ${agent.tools.length} tool${agent.tools.length === 1 ? '' : 's'}`}
+        onOpen={() => onOpenPage(agent.id)}
         trailing={
           <div className="flex shrink-0 items-center gap-1.5">
             {agent.published && (
@@ -8131,7 +8337,11 @@ function AgentCard({
                 Published · v{agent.version ?? 1}
               </span>
             )}
-            <CardActions onEdit={onEdit} onDelete={del} />
+            {manageable ? (
+              <CardActions onEdit={onEdit} onDelete={del} />
+            ) : (
+              <StatusPill tone="neutral" label="Built in" />
+            )}
           </div>
         }
       />
@@ -8182,57 +8392,61 @@ function AgentCard({
           </p>
         )
       ) : null}
-      <div className="mt-2 flex items-center gap-3">
-        <button
-          onClick={togglePublish}
-          disabled={busy}
-          className={INLINE_ACTION_CLASS}
-          title={
-            agent.published
-              ? 'Remove this agent from the directory (copies already forked stay with their owners)'
-              : 'Share this agent’s definition (prompt · tools · instructions) in the directory — your model, authority, and budget are never shared'
-          }
-        >
-          {agent.published ? 'Unpublish' : 'Publish to directory'}
-        </button>
-        {agent.published && (
-          <button
-            onClick={() => setCardModal({ url: a2aAgentCardUrl(agent.id), title: `A2A card — ${agent.label}` })}
-            className={INLINE_ACTION_CLASS}
-            title="The machine-readable A2A Agent Card for this published definition — hand this URL to a foreign agent framework"
-          >
-            A2A card
-          </button>
-        )}
-        {(agent.forks ?? 0) > 0 && (
-          <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
-            <GitFork size={11} /> forked {agent.forks} time{agent.forks === 1 ? '' : 's'}
-          </span>
-        )}
-        {/* S4 — the owner reaches their own version-history timeline, not just a badge. */}
-        {changelog.length > 0 && (
-          <button
-            onClick={() => setShowHistory((v) => !v)}
-            className={INLINE_ACTION_CLASS}
-            aria-expanded={showHistory}
-            title="This definition’s version history — who authored each version and why"
-          >
-            <History size={12} /> {showHistory ? 'Hide history' : `History (${changelog.length})`}
-          </button>
-        )}
-        {/* D25 — the review queue: proposals sent back by forkers/visitors. */}
-        {agent.published && proposals.length > 0 && (
-          <button
-            onClick={() => setReviewing(true)}
-            className={INLINE_ACTION_CLASS}
-            title="Review change proposals against this published definition"
-          >
-            {openProposals.length > 0
-              ? `Review ${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
-              : 'Proposal history'}
-          </button>
-        )}
-      </div>
+      {(manageable || agent.published || (agent.forks ?? 0) > 0 || changelog.length > 0) && (
+        <div className="mt-2 flex items-center gap-3">
+          {manageable && (
+            <button
+              onClick={togglePublish}
+              disabled={busy}
+              className={INLINE_ACTION_CLASS}
+              title={
+                agent.published
+                  ? 'Remove this agent from the directory (copies already forked stay with their owners)'
+                  : 'Share this agent’s definition (prompt · tools · instructions) in the directory — your model, authority, and budget are never shared'
+              }
+            >
+              {agent.published ? 'Unpublish' : 'Publish to directory'}
+            </button>
+          )}
+          {agent.published && (
+            <button
+              onClick={() => setCardModal({ url: a2aAgentCardUrl(agent.id), title: `A2A card — ${agent.label}` })}
+              className={INLINE_ACTION_CLASS}
+              title="The machine-readable A2A Agent Card for this published definition — hand this URL to a foreign agent framework"
+            >
+              A2A card
+            </button>
+          )}
+          {(agent.forks ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
+              <GitFork size={11} /> forked {agent.forks} time{agent.forks === 1 ? '' : 's'}
+            </span>
+          )}
+          {/* S4 — the owner reaches their own version-history timeline, not just a badge. */}
+          {changelog.length > 0 && (
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className={INLINE_ACTION_CLASS}
+              aria-expanded={showHistory}
+              title="This definition’s version history — who authored each version and why"
+            >
+              <History size={12} /> {showHistory ? 'Hide history' : `History (${changelog.length})`}
+            </button>
+          )}
+          {/* D25 — the review queue: proposals sent back by forkers/visitors. */}
+          {manageable && agent.published && proposals.length > 0 && (
+            <button
+              onClick={() => setReviewing(true)}
+              className={INLINE_ACTION_CLASS}
+              title="Review change proposals against this published definition"
+            >
+              {openProposals.length > 0
+                ? `Review ${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
+                : 'Proposal history'}
+            </button>
+          )}
+        </div>
+      )}
       {showHistory && changelog.length > 0 && (
         <div className="mt-2">
           <ChangelogList changelog={changelog} />
@@ -8242,7 +8456,7 @@ function AgentCard({
       {cardModal && (
         <A2aCardDialog url={cardModal.url} title={cardModal.title} onClose={() => setCardModal(null)} />
       )}
-      {reviewing && (
+      {manageable && reviewing && (
         <ProposalsReviewDialog
           agent={agent}
           proposals={proposals}
@@ -9743,17 +9957,24 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
  *  default-else-first provider's family (the pure `promptFitWarning` against the same
  *  entry the New-agent picker pre-selects). */
 function PromptsTab() {
+  const rel = useRelations()
   const prompts = useSystemPrompts().data ?? []
   const providers = useProviders().data ?? []
   const providerFamily = defaultEntry(providers)?.modelFamily ?? 'claude'
   const [editing, setEditing] = useState<SystemPromptEntry | null>(null)
   return (
-    <div className="space-y-3">
+    <div className={prompts.length === 0 ? '' : LEDGER_LIST_CLASS}>
       {prompts.length === 0 ? (
         <Empty>No system prompts yet.</Empty>
       ) : (
         prompts.map((p) => (
-          <LibraryPromptCard key={p.id} prompt={p} providerFamily={providerFamily} onEdit={() => setEditing(p)} />
+          <LibraryPromptCard
+            key={p.id}
+            prompt={p}
+            providerFamily={providerFamily}
+            onOpen={() => rel.navigate(AGENT_SECTION, p.id, 'prompts')}
+            onEdit={() => setEditing(p)}
+          />
         ))
       )}
       {editing && <PromptDialog prompt={editing} onClose={() => setEditing(null)} />}
@@ -9764,10 +9985,12 @@ function PromptsTab() {
 function LibraryPromptCard({
   prompt,
   providerFamily,
+  onOpen,
   onEdit,
 }: {
   prompt: SystemPromptEntry
   providerFamily: string
+  onOpen: () => void
   onEdit: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
@@ -9781,26 +10004,65 @@ function LibraryPromptCard({
     }
   }
   return (
-    <CommonsCard>
-      <CommonsCardHead
-        icon={<FileText size={16} />}
-        title={prompt.label}
-        subtitle={`Tuned for ${prompt.targetFamily}`}
-        trailing={
-          <div className="flex items-center gap-1.5">
-            {prompt.isDefault && <DefaultBadge />}
-            {warning && (
-              <span title={warning} className="shrink-0 text-warn-strong">
-                <AlertCircle size={15} />
-              </span>
-            )}
-            <CardActions onEdit={onEdit} onDelete={del} />
-          </div>
-        }
-      />
-      <p className="mt-2 line-clamp-2 text-[12px] text-ink-soft">{prompt.body}</p>
-      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
-    </CommonsCard>
+    <div onClick={cardDoorClick(onOpen)} className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS} group w-full items-center text-left`}>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-panel-2 text-ink-soft">
+        <FileText size={15} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <button onClick={onOpen} className={`block max-w-full truncate text-left text-[13px] font-medium text-ink ${DOOR_CLASS}`}>
+          {prompt.label}
+        </button>
+        <span className="mt-0.5 line-clamp-1 text-[12px] text-ink-soft">{prompt.body}</span>
+        <span className="mt-0.5 block text-[11px] text-ink-faint">Tuned for {prompt.targetFamily}</span>
+        {error && <span className="mt-1 block text-[12px] text-removed">{error}</span>}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        {prompt.isDefault && <DefaultBadge />}
+        {warning && <span title={warning} className="shrink-0 text-warn-strong"><AlertCircle size={15} /></span>}
+        {prompt.tenantId ? (
+          <CardActions onEdit={onEdit} onDelete={del} />
+        ) : (
+          <StatusPill tone="neutral" label="Built in" />
+        )}
+      </span>
+    </div>
+  )
+}
+
+/** The other half of Building blocks. Tools used to be visible only as a count
+ *  or an opaque snake_case grant inside an agent editor. A material is a
+ *  resource in the Agents tree, so it gets the same scannable list and
+ *  canonical page as a prompt. */
+function ToolsTab() {
+  const rel = useRelations()
+  const query = useAgentToolCatalog()
+  const tools = query.data?.entries ?? []
+  if (!query.data) return <Empty>Loading tools…</Empty>
+  if (tools.length === 0) return <Empty>No tools available.</Empty>
+  return (
+    <div className={LEDGER_LIST_CLASS}>
+      {tools.map((tool) => (
+        <div
+          key={tool.name}
+          onClick={cardDoorClick(() => rel.navigate(AGENT_SECTION, tool.name, 'tools'))}
+          className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS} w-full text-left`}
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-panel-2 text-ink-soft">
+            <Plug size={15} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <button
+              onClick={() => rel.navigate(AGENT_SECTION, tool.name, 'tools')}
+              className={`block max-w-full truncate text-left text-[13px] font-medium text-ink ${DOOR_CLASS}`}
+            >
+              {agentToolLabel(tool.name)}
+            </button>
+            <span className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-ink-faint">{tool.description}</span>
+          </span>
+          <span className="shrink-0 font-mono text-[10px] text-ink-faint">{tool.name}</span>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -10546,17 +10808,109 @@ function PublishedAgentCard({
   )
 }
 
-/** The public PAGE of a published Agent (COMMONS-26) — the repo-page analog behind
- *  every directory card, replacing the old detail dialog (a published definition is
- *  a versioned lifecycle entity — versions, changelog, proposals, forks — and the
- *  surface-from-nature rule gives that a page, not a modal): the FULL definition
- *  (prompt / instructions / tools — exactly the D18 public face, nothing more), the
- *  changelog, the public track record, and the doors out — Fork (the human act),
- *  the A2A card (the same fact, machine-readable — D20), Propose a change (the
- *  fork's inverse, in a dialog: a transient act). One page for every viewer;
- *  what is structurally absent mirrors the wire (no authority, budget, provider).
- *  Addressable at /agents/:id (ADAPT-15); a proposal.* bell for the PROPOSER lands
- *  here with their proposal focused (the pending-focus consumption, R5b). */
+function AgentFactRow({ label, value, onOpen }: { label: string; value: string; onOpen?: () => void }) {
+  return (
+    <div className={LEDGER_ROW_CLASS}>
+      <span className="w-24 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{label}</span>
+      {onOpen ? (
+        <button onClick={onOpen} className={`min-w-0 text-left text-[13px] text-ink ${DOOR_CLASS}`}>{value}</button>
+      ) : (
+        <span className="min-w-0 text-[13px] leading-relaxed text-ink-soft">{value}</span>
+      )}
+    </div>
+  )
+}
+
+function PromptDetailPage({
+  prompt,
+  loaded,
+  onBack,
+  backTo,
+}: {
+  prompt: SystemPromptEntry | null
+  loaded: boolean
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
+  const providers = useProviders().data ?? []
+  const defaultFamily = defaultEntry(providers)?.modelFamily ?? 'claude'
+  const [editing, setEditing] = useState(false)
+  if (!prompt) {
+    return (
+      <Page>
+        {backTo && <div className="mb-4"><BackButton to={backTo} onBack={onBack} /></div>}
+        {loaded && <PageEmpty>This prompt does not exist.</PageEmpty>}
+      </Page>
+    )
+  }
+  const warning = promptFitWarning(prompt, defaultFamily)
+  return (
+    <Page>
+      <PageHeader
+        title={prompt.label}
+        badge={prompt.tenantId
+          ? (prompt.isDefault ? <StatusPill tone="ok" label="Default" /> : undefined)
+          : <StatusPill tone="neutral" label={prompt.isDefault ? 'Built in · Default' : 'Built in'} />}
+        subtitle={`Prompt · Tuned for ${prompt.targetFamily}`}
+      >
+        {prompt.tenantId && <PageActionButton icon={<Pencil size={14} />} onClick={() => setEditing(true)}>Edit prompt</PageActionButton>}
+      </PageHeader>
+      <FoldSection title="Prompt" summary="Text injected into an agent before its task instructions.">
+        <pre className="whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-3 font-sans text-[12px] leading-relaxed text-ink-soft">{prompt.body}</pre>
+      </FoldSection>
+      <FoldSection title="Compatibility" summary={`Authored for ${prompt.targetFamily}`}>
+        <div className={LEDGER_LIST_CLASS}>
+          <AgentFactRow label="Target" value={prompt.targetFamily} />
+          <AgentFactRow label="Current default" value={defaultFamily} />
+          <AgentFactRow label="Fit" value={warning ?? 'Matches the default provider family'} />
+        </div>
+      </FoldSection>
+      {editing && prompt.tenantId && <PromptDialog prompt={prompt} onClose={() => setEditing(false)} />}
+    </Page>
+  )
+}
+
+function ToolDetailPage({
+  tool,
+  toolId,
+  loaded,
+  onBack,
+  backTo,
+}: {
+  tool: AgentToolEntry | null
+  toolId: string
+  loaded: boolean
+  onBack: () => void
+  backTo: NavLocation | null
+}) {
+  if (!tool) {
+    return (
+      <Page>
+        {backTo && <div className="mb-4"><BackButton to={backTo} onBack={onBack} /></div>}
+        {loaded && <PageEmpty>The tool “{agentToolLabel(toolId)}” is not available.</PageEmpty>}
+      </Page>
+    )
+  }
+  return (
+    <Page>
+      <PageHeader title={agentToolLabel(tool.name)} subtitle="Tool · Built-in agent material" />
+      <FoldSection title="Capability" summary={tool.description}>
+        <p className="text-[13px] leading-relaxed text-ink-soft">{tool.description}</p>
+      </FoldSection>
+      <FoldSection title="Grant" summary="The exact capability token stored on an agent.">
+        <div className={LEDGER_LIST_CLASS}>
+          <AgentFactRow label="Token" value={tool.name} />
+          <AgentFactRow label="Availability" value="Built in to this workspace" />
+        </div>
+      </FoldSection>
+    </Page>
+  )
+}
+
+/** The one Agent entity page (COMMONS-26), shared by owner and visitor. An
+ *  unpublished owned definition still resolves here; a visitor can resolve only
+ *  the published directory projection. Capability changes controls and private
+ *  sections, never the address or the page component. */
 function AgentPublicPage({
   agentId,
   onOpenAgent,
@@ -10572,18 +10926,52 @@ function AgentPublicPage({
 }) {
   const rel = useRelations()
   const entries = useAgentDirectory(undefined)
+  const agentsQ = useAgents()
+  const me = useMe().data
+  const providers = useProviders().data ?? []
+  const prompts = useSystemPrompts().data ?? []
+  const registryAgent = (agentsQ.data ?? []).find((agent) => agent.id === agentId) ?? null
+  // A tenant stamp means this account created the definition. An unstamped row is
+  // shared seed infrastructure: visible and usable everywhere, but not silently
+  // relabeled as every viewer's private custom agent.
+  const ownedAgent = registryAgent?.tenantId ? registryAgent : null
+  const builtInAgent = registryAgent && !registryAgent.tenantId ? registryAgent : null
+  const directoryEntry = (entries.data ?? []).find((candidate) => candidate.id === agentId) ?? null
+  const entry = useMemo<AgentDirectoryEntry | null>(() => {
+    if (directoryEntry) return directoryEntry
+    const localAgent = ownedAgent ?? builtInAgent
+    if (!localAgent || !me) return null
+    return {
+      id: localAgent.id,
+      label: localAgent.label,
+      owner: builtInAgent ? 'Built in' : me.tenant.name,
+      own: !builtInAgent,
+      systemPrompt: localAgent.systemPrompt,
+      tools: localAgent.tools,
+      instructions: localAgent.instructions,
+      contributions: localAgent.contributions ?? 0,
+      forks: localAgent.forks ?? 0,
+      version: localAgent.version ?? 1,
+      changelog: localAgent.changelog ?? [],
+    }
+  }, [directoryEntry, ownedAgent, builtInAgent, me])
+  const builtIn = !!builtInAgent
+  const own = !builtIn && (!!ownedAgent || directoryEntry?.own === true)
+  const published = directoryEntry !== null || ownedAgent?.published === true
+  const provider = providers.find((candidate) => candidate.id === registryAgent?.providerId)
+  const prompt = prompts.find((candidate) => candidate.id === registryAgent?.systemPromptId)
   // S18 — the header counts are doors to their lineage SECTIONS on this page
   // (contributions → resolved work, forks → public forks): same-page anchors.
   const resolvedRef = useRef<HTMLDivElement>(null)
   const forksRef = useRef<HTMLDivElement>(null)
   const scrollTo = (ref: { current: HTMLDivElement | null }) =>
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-  const entry = (entries.data ?? []).find((e) => e.id === agentId) ?? null
   const [busy, setBusy] = useState(false)
   const [forked, setForked] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [proposing, setProposing] = useState(false)
   const [showCard, setShowCard] = useState(false)
+  const [editing, setEditing] = useState(false)
   // R5b — a proposal bell landed here: focus that proposal in "Your proposals".
   const [proposalFocus, setProposalFocus] = useState<string | null>(null)
   const { pending, consume } = usePendingFocus()
@@ -10599,9 +10987,9 @@ function AgentPublicPage({
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
-        {entries.data ? (
-          // The 404 face: an unpublished definition is indistinguishable from one
-          // that never existed (existence-hiding, D18).
+        {entries.data && agentsQ.data ? (
+          // The 404 face: another account's unpublished definition remains
+          // indistinguishable from one that never existed (existence-hiding, D18).
           <PageEmpty>This definition isn’t in the directory — unpublished, or it never existed.</PageEmpty>
         ) : null}
       </Page>
@@ -10621,60 +11009,59 @@ function AgentPublicPage({
       setBusy(false)
     }
   }
+  const togglePublish = async () => {
+    if (!ownedAgent || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await updateAgent(ownedAgent.id, { published: !ownedAgent.published })
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not change publishing.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <Page>
       <div className="mx-auto w-full max-w-3xl">
-        <header className={PAGE_HEADER_CLASS}>
-          <div className="flex min-w-0 flex-1 items-start gap-3.5">
-            <BackButton to={backTo} onBack={onBack} />
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-panel-2 text-ink-soft">
-              <Bot size={22} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h1 className={PAGE_TITLE_CLASS}>{entry.label}</h1>
-              <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12px] text-ink-faint">
-                <span className="inline-flex items-center gap-1">
-                  <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.openOwner(entry.owner)} />{' '}
-                  · v{entry.version}
-                </span>
-                <CreditLine
-                  contributions={entry.contributions}
-                  forks={entry.forks}
-                  onContributions={() => scrollTo(resolvedRef)}
-                  onForks={() => scrollTo(forksRef)}
-                />
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={fork}
-            disabled={busy || forked}
-            title="Forking copies the definition — you grant your own model & authority."
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium transition ${
-              forked ? 'text-ok-text' : 'text-ink-soft hover:border-line-strong hover:text-ink'
-            } disabled:cursor-default`}
-          >
-            <GitFork size={14} /> {forked ? 'Forked ✓' : 'Fork'}
-          </button>
-        </header>
+        <PageHeader
+          title={entry.label}
+          badge={builtIn
+            ? <StatusPill tone="neutral" label="Built in" />
+            : own
+              ? (published ? <StatusPill tone="ok" label={`Published · v${entry.version}`} /> : <StatusPill tone="neutral" label="Private" />)
+              : undefined}
+          subtitle={
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+              <span className="inline-flex items-center gap-1">
+                {builtIn ? 'Workspace default' : <OwnerLink ownerName={entry.owner} own={entry.own} onClick={() => rel.openOwner(entry.owner)} />} · v{entry.version}
+              </span>
+              <CreditLine contributions={entry.contributions} forks={entry.forks} onContributions={() => scrollTo(resolvedRef)} onForks={() => scrollTo(forksRef)} />
+            </span>
+          }
+        >
+          {own ? (
+            <PageActionButton icon={<Pencil size={14} />} onClick={() => setEditing(true)}>Edit agent</PageActionButton>
+          ) : directoryEntry && !builtIn ? (
+            <PageActionButton
+              icon={<GitFork size={14} />}
+              onClick={() => void fork()}
+              disabled={busy || forked}
+              title="Forking copies the definition — you grant your own model and authority."
+            >
+              {forked ? 'Forked' : 'Fork agent'}
+            </PageActionButton>
+          ) : null}
+        </PageHeader>
 
         <FoldSection
           title="Definition"
           summary={`${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'} · version ${entry.version}`}
           actions={
             <>
-              <SectionAction
-                label="Open A2A card"
-                icon={<ExternalLink size={14} />}
-                onClick={() => setShowCard(true)}
-              />
-              <SectionAction
-                label="Propose a change"
-                icon={<GitPullRequest size={14} />}
-                onClick={() => setProposing(true)}
-                expanded={proposing}
-              />
+              {published && <SectionAction label="Open A2A card" icon={<ExternalLink size={14} />} onClick={() => setShowCard(true)} />}
+              {!own && !builtIn && <SectionAction label="Propose a change" icon={<GitPullRequest size={14} />} onClick={() => setProposing(true)} expanded={proposing} />}
             </>
           }
         >
@@ -10696,16 +11083,47 @@ function AgentPublicPage({
                 {entry.tools.length === 0 ? (
                   <span className="text-[12px] text-ink-faint">No tools — a prose-only definition.</span>
                 ) : (
-                  entry.tools.map((t) => (
-                    <span key={t} className="rounded-md bg-panel-2 px-1.5 py-0.5 text-[11px] text-ink-soft">
-                      {t}
-                    </span>
+                  entry.tools.map((tool) => (
+                    <button key={tool} onClick={() => rel.navigate(AGENT_SECTION, tool, 'tools')} className={`${INLINE_ACTION_CLASS} rounded-md bg-panel-2 px-2 py-1`}>
+                      {agentToolLabel(tool)}
+                    </button>
                   ))
                 )}
               </div>
             </FormField>
           </div>
         </FoldSection>
+        {registryAgent && (
+          <>
+            <FoldSection title="Runtime" summary={`${provider?.label ?? 'No provider bound'} · ${prompt?.label ?? 'Bespoke prompt'}`}>
+              <div className={LEDGER_LIST_CLASS}>
+                <AgentFactRow label="Provider" value={provider?.label ?? 'No provider bound yet'} />
+                <AgentFactRow label="Prompt" value={prompt?.label ?? 'Bespoke prompt'} onOpen={prompt ? () => rel.navigate(AGENT_SECTION, prompt.id, 'prompts') : undefined} />
+                <AgentFactRow label="Authority" value={authorityLabel(registryAgent.authority)} />
+                <AgentFactRow
+                  label="Budget"
+                  value={registryAgent.budget
+                    ? registryAgent.budget.windows.map((window) => `${window.ceiling.toLocaleString()} tokens / ${window.label}`).join(' · ')
+                    : 'Inherited from provider'}
+                />
+              </div>
+            </FoldSection>
+            {ownedAgent && (
+              <FoldSection title="Distribution" summary={published ? `Published at version ${entry.version}` : 'Private to this account'}>
+                <div className="space-y-2.5">
+                  <p className="text-[12px] leading-relaxed text-ink-soft">
+                    {published
+                      ? 'This definition is available in Discover. Provider binding, authority, and budget remain private.'
+                      : 'Publish the definition to make it forkable in Discover. Capability never travels with it.'}
+                  </p>
+                  <button onClick={() => void togglePublish()} disabled={busy} className={INLINE_ACTION_CLASS}>
+                    {published ? 'Unpublish' : 'Publish to directory'}
+                  </button>
+                </div>
+              </FoldSection>
+            )}
+          </>
+        )}
         {(entry.changelog?.length ?? 0) > 0 && (
           <FoldSection
             title="Changelog"
@@ -10734,17 +11152,18 @@ function AgentPublicPage({
         {/* D27 — the proposer's end of the conversation: their proposals against this
             definition (status, the owner's note, the thread). The owner sees all of
             them here too — the same rows their review dialog resolves. */}
-        <YourProposals entry={entry} focusProposalId={proposalFocus} />
+        {published && <YourProposals entry={entry} focusProposalId={proposalFocus} />}
         {error && <p className="text-[12px] text-removed">{error}</p>}
       </div>
-      {showCard && (
+      {editing && ownedAgent && <AgentDialog agent={ownedAgent} onClose={() => setEditing(false)} />}
+      {showCard && published && (
         <A2aCardDialog
           url={a2aAgentCardUrl(entry.id)}
           title={`A2A card — ${entry.label}`}
           onClose={() => setShowCard(false)}
         />
       )}
-      {proposing && <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={() => setProposing(false)} />}
+      {proposing && !own && !builtIn && <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={() => setProposing(false)} />}
     </Page>
   )
 }

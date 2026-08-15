@@ -85,7 +85,7 @@ import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
-import { TOOL_NAMES } from '../model/tools.ts'
+import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import type {
@@ -1518,7 +1518,7 @@ export function buildRouter(): Router {
   // hard-coding a mirror (UI-12) — an omitted grant is the EMPTY set (INV-9 minimal
   // risk), so the full grant must be spelled out by the caller.
   r.get('/agent-tools', ({ res }) => {
-    sendJson(res, { tools: TOOL_NAMES })
+    sendJson(res, { tools: TOOL_NAMES, entries: TOOL_CATALOG })
   })
 
   // ── System-prompt library (the cognition half — docs/agent-commons.md, D10) ──

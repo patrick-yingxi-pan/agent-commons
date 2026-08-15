@@ -11,7 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
-import { TOOL_NAMES } from '../model/tools.ts'
+import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { DEFAULT_PROVIDER_ID } from '../../contract/index.ts'
 import { call } from '../testkit/http.ts'
 
@@ -51,7 +51,9 @@ test('GET /agent-tools serves the live catalog the explicit grant names', async 
   const res = await call('GET', '/agent-tools')
   assert.equal(res.status, 200)
   assert.deepEqual(res.json.tools, TOOL_NAMES)
+  assert.deepEqual(res.json.entries, TOOL_CATALOG)
   assert.ok(res.json.tools.length > 0)
+  assert.ok(res.json.entries.every((entry: { name?: string; description?: string }) => entry.name && entry.description))
 })
 
 test('POST refuses missing bindings — the API never resolves to a default (400)', async () => {

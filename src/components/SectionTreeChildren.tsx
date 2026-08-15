@@ -15,10 +15,11 @@
  *
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
-import { useEffect, useState, type ComponentProps, type ReactNode } from 'react'
+import { Fragment, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   useAgents,
+  useAgentToolCatalog,
   useAttention,
   useCommissions,
   useContributions,
@@ -29,6 +30,7 @@ import {
   useOpenSubGoals,
   useProviders,
   useSavedContexts,
+  useSystemPrompts,
 } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { discussionTitle } from '../../contract/social.ts'
@@ -58,6 +60,7 @@ import {
   visibleCompositeSections,
   type ProjectSectionId,
 } from '../lib/compositeSections'
+import { AGENT_SECTIONS, agentSectionForSubview, agentToolLabel } from '../lib/agentStructure'
 
 /** One structural guide. Nest it once per disclosed level; every row can then
  *  use the same local inset instead of calculating an absolute depth. */
@@ -156,6 +159,210 @@ export function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: b
     >
       {open ? 'Show fewer' : `Show all — ${hidden} more`}
     </button>
+  )
+}
+
+/** Agents is a composite rather than a flat surface switcher. The same
+ * `AGENT_SECTIONS` map drives its root page; this projection adds the runtime
+ * resource leaves below Ready agents, Prompts, and Tools. */
+export function AgentTreeChildren({
+  activeSubview,
+  activeSeed,
+  onOpenSubview,
+  onOpenDetail,
+}: {
+  activeSubview: string | null
+  activeSeed?: PaneSeed | null
+  onOpenSubview: (id: string) => void
+  onOpenDetail: InstanceChildProps['onOpenDetail']
+}) {
+  const agents = useAgents().data ?? []
+  const prompts = useSystemPrompts().data ?? []
+  const tools = useAgentToolCatalog().data?.entries ?? []
+  const ownsOpenAgent = !!activeSeed?.agentId && agents.some((agent) => agent.id === activeSeed.agentId)
+  const activeTop = activeSeed?.agentId
+    ? (ownsOpenAgent ? 'ready-agents' : 'discover')
+    : activeSeed?.promptId || activeSeed?.toolId
+      ? 'building-blocks'
+      : agentSectionForSubview(activeSubview)?.id ?? null
+  const initiallyOpen: string[] = AGENT_SECTIONS.flatMap((section) => {
+    const open: string[] = section.id === activeTop ? [section.id] : []
+    if (section.children.some((child) => child.id === activeSubview)) open.push(section.id)
+    if (activeSeed?.promptId) open.push('prompts')
+    if (activeSeed?.toolId) open.push('tools')
+    return open
+  })
+  const [open, setOpen] = useState<Set<string>>(() => new Set(initiallyOpen))
+  useEffect(() => {
+    setOpen((current) => {
+      const next = new Set(current)
+      let changed = false
+      for (const id of initiallyOpen) {
+        if (!next.has(id)) {
+          next.add(id)
+          changed = true
+        }
+      }
+      return changed ? next : current
+    })
+  }, [activeTop, activeSubview, activeSeed?.promptId, activeSeed?.toolId])
+  const toggle = (id: string) => setOpen((current) => {
+    const next = new Set(current)
+    next.has(id) ? next.delete(id) : next.add(id)
+    return next
+  })
+
+  return (
+    <>
+      {AGENT_SECTIONS.map((section) => {
+        const hasChildren = section.id === 'ready-agents' || section.children.length > 0
+        const count = section.id === 'ready-agents'
+          ? agents.length
+          : section.id === 'building-blocks'
+            ? prompts.length + tools.length
+            : undefined
+        const pageActive =
+          (activeSubview === section.id && !activeSeed?.agentId && !activeSeed?.promptId && !activeSeed?.toolId) ||
+          (section.id === 'discover' && !!activeSeed?.agentId && !ownsOpenAgent)
+        const expanded = open.has(section.id)
+        return (
+          <Fragment key={section.id}>
+            <AgentStructureRow
+              label={section.label}
+              count={count}
+              active={pageActive}
+              expanded={expanded}
+              hasChildren={hasChildren}
+              onToggle={() => toggle(section.id)}
+              onOpen={() => onOpenSubview(section.id)}
+            />
+            {hasChildren && expanded && (
+              <RailTreeBranch data-agent-section={section.id}>
+                {section.id === 'ready-agents' ? (
+                  <AgentLeafList
+                    rows={agents.map((agent) => ({ id: agent.id, label: agent.label }))}
+                    empty="No ready agents yet."
+                    activeId={activeSeed?.agentId ?? null}
+                    onOpen={(id) => onOpenDetail('agents', { agentId: id })}
+                  />
+                ) : section.id === 'building-blocks' ? (
+                  <>
+                    <AgentMaterialBranch
+                      id="prompts"
+                      label="Prompts"
+                      count={prompts.length}
+                      active={activeSubview === 'prompts' && !activeSeed?.promptId}
+                      expanded={open.has('prompts')}
+                      onToggle={() => toggle('prompts')}
+                      onOpen={() => onOpenSubview('prompts')}
+                    >
+                      <AgentLeafList
+                        rows={prompts.map((prompt) => ({ id: prompt.id, label: prompt.label }))}
+                        empty="No prompts yet."
+                        activeId={activeSeed?.promptId ?? null}
+                        onOpen={(id) => onOpenDetail('agents', { promptId: id })}
+                      />
+                    </AgentMaterialBranch>
+                    <AgentMaterialBranch
+                      id="tools"
+                      label="Tools"
+                      count={tools.length}
+                      active={activeSubview === 'tools' && !activeSeed?.toolId}
+                      expanded={open.has('tools')}
+                      onToggle={() => toggle('tools')}
+                      onOpen={() => onOpenSubview('tools')}
+                    >
+                      <AgentLeafList
+                        rows={tools.map((tool) => ({ id: tool.name, label: agentToolLabel(tool.name) }))}
+                        empty="No tools available."
+                        activeId={activeSeed?.toolId ?? null}
+                        onOpen={(id) => onOpenDetail('agents', { toolId: id })}
+                      />
+                    </AgentMaterialBranch>
+                  </>
+                ) : section.id === 'coordination' ? (
+                  section.children.map((child) => (
+                    <SubNavRow
+                      key={child.id}
+                      label={child.label}
+                      active={activeSubview === child.id}
+                      onClick={() => onOpenSubview(child.id)}
+                    />
+                  ))
+                ) : null}
+              </RailTreeBranch>
+            )}
+          </Fragment>
+        )
+      })}
+    </>
+  )
+}
+
+function AgentStructureRow({
+  label,
+  count,
+  active,
+  expanded,
+  hasChildren,
+  onToggle,
+  onOpen,
+}: {
+  label: string
+  count?: number
+  active: boolean
+  expanded: boolean
+  hasChildren: boolean
+  onToggle: () => void
+  onOpen: () => void
+}) {
+  return (
+    <div className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`}`}>
+      {hasChildren ? (
+        <button type="button" onClick={onToggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`} aria-expanded={expanded} className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}>
+          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+        </button>
+      ) : <span className="h-5 w-5 shrink-0" aria-hidden />}
+      <button onClick={onOpen} aria-current={active ? 'page' : undefined} className="min-w-0 flex-1 truncate text-left">{label}</button>
+      {count !== undefined && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{count}</span>}
+    </div>
+  )
+}
+
+function AgentMaterialBranch({ id, label, count, active, expanded, onToggle, onOpen, children }: {
+  id: string
+  label: string
+  count: number
+  active: boolean
+  expanded: boolean
+  onToggle: () => void
+  onOpen: () => void
+  children: ReactNode
+}) {
+  return (
+    <>
+      <AgentStructureRow label={label} count={count} active={active} expanded={expanded} hasChildren={count > 0} onToggle={onToggle} onOpen={onOpen} />
+      {count > 0 && expanded && <RailTreeBranch data-agent-material={id}>{children}</RailTreeBranch>}
+    </>
+  )
+}
+
+function AgentLeafList({ rows, empty, activeId, onOpen }: {
+  rows: { id: string; label: string }[]
+  empty: string
+  activeId: string | null
+  onOpen: (id: string) => void
+}) {
+  const [showAll, setShowAll] = useState(false)
+  if (rows.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
+  const visible = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
+  return (
+    <>
+      {visible.map((row) => (
+        <SubNavRow key={row.id} label={row.label} title={row.label} active={activeId === row.id} onClick={() => onOpen(row.id)} />
+      ))}
+      {rows.length > RAIL_INSTANCE_CAP && <ShowAllRow hidden={rows.length - RAIL_INSTANCE_CAP} open={showAll} onToggle={() => setShowAll((value) => !value)} />}
+    </>
   )
 }
 

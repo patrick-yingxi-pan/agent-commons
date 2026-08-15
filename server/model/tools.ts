@@ -713,8 +713,12 @@ export const TOOL_DEFINITIONS = TOOLS.map((t) => ({
   },
 }))
 
-/** Every tool name, for the mock model + tests. */
-export const TOOL_NAMES = TOOLS.map((t) => t.name)
+/** Display metadata for the Agent-building-materials page, derived from the same
+ * table as the model schema and executor. */
+export const TOOL_CATALOG = TOOLS.map((t) => ({ name: t.name, description: t.description }))
+
+/** Every tool name, for explicit grants, the mock model, and tests. */
+export const TOOL_NAMES = TOOL_CATALOG.map((t) => t.name)
 
 /** Execute one tool call: build its consent-gated proposal (a relation-edit card
  *  or an escalation) and the `tool_result` summary fed back to the model. An

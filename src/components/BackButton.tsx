@@ -12,8 +12,9 @@ import { ArrowLeft } from 'lucide-react'
 import { PAGE_BACK_CLASS } from '../lib/pageHeader'
 import { resolveBackLabel, type NavLocation } from '../lib/nav'
 import { useRelations } from '../controller/useRelations'
-import { useAgents, useMyDiscussions, useProviders, useSavedContexts, useSchedules } from '../api'
+import { useAgents, useAgentToolCatalog, useMyDiscussions, useProviders, useSavedContexts, useSchedules, useSystemPrompts } from '../api'
 import { discussionTitle } from '../../contract/social.ts'
+import { agentToolLabel } from '../lib/agentStructure.ts'
 
 const byId = <T,>(rows: T[], id: (r: T) => string, name: (r: T) => string): Record<string, string> =>
   Object.fromEntries(rows.map((r) => [id(r), name(r)]))
@@ -30,6 +31,8 @@ export function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () 
   const contexts = useSavedContexts().data?.contexts ?? []
   const providers = useProviders().data ?? []
   const agents = useAgents().data ?? []
+  const prompts = useSystemPrompts().data ?? []
+  const tools = useAgentToolCatalog().data?.entries ?? []
   const label = resolveBackLabel(to, {
     project: byId(rel.allProjects(), (p) => p.id, (p) => p.name),
     schedule: byId(schedules, (s) => s.id, (s) => s.name),
@@ -40,6 +43,8 @@ export function BackButton({ to, onBack }: { to: NavLocation | null; onBack: () 
     context: byId(contexts, (c) => c.id, (c) => c.label),
     provider: byId(providers, (p) => p.id, (p) => p.label),
     agent: byId(agents, (a) => a.id, (a) => a.label),
+    prompt: byId(prompts, (p) => p.id, (p) => p.label),
+    tool: byId(tools, (tool) => tool.name, (tool) => agentToolLabel(tool.name)),
   })
   return (
     <button onClick={onBack} title={`Back to ${label}`} aria-label={`Back to ${label}`} className={PAGE_BACK_CLASS}>

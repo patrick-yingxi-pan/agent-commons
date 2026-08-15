@@ -422,9 +422,12 @@ exactly one kind of LIST child (surfaces or instances, never both), and may
 carry a standing door beside it:
 
 - **Declared surfaces** — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`): a hub whose
-  children are genuinely different PAGES (the Agents hub's Prompts / Commissions /
-  Discover / Audit; the maintainer console's panels). The section row itself is the
-  hub's default surface, so it is never re-listed as a child. The **Commons' four
+  children are genuinely different PAGES. Agents is itself composite: the shared
+  `agentStructure.ts` hierarchy is **Ready agents · Building blocks · Coordination ·
+  Discover · Audit**; Building blocks preserves Prompts / Tools and Coordination
+  preserves Your work / Commissions as another structural level before their live
+  resource leaves. Its root is the complete overview, never one child disguised as
+  the default. The maintainer console's panels are the other declared hub. The **Commons' four
   lenses** (Watched / Liked / Posted / Recently viewed) are surfaces too: the feed
   has no per-row page to list, and a lens is the VIEWER's own collection — a place
   you go back to — not a slice of the items. Each filters on a server-stamped,

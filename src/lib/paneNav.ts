@@ -44,6 +44,10 @@ export interface PaneSeed {
    *  Phase A) — meaningful only with `projectId`, like `workItemId`. */
   contributionId?: string
   agentId?: string
+  /** A reusable prompt material under Agents → Building blocks. */
+  promptId?: string
+  /** A built-in callable material under Agents → Building blocks. */
+  toolId?: string
   contextId?: string
   adminUserId?: string
   /** A discussion's page under the discussions section (social S2). */
@@ -63,7 +67,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
+export const PANE_SEED_KEYS = ['projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -120,6 +124,11 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
     return subId ? { projectId: id, projectSectionId: 'open-work', workItemId: subId } : { projectId: id }
   if (section === 'scheduled') return { scheduleId: id }
   if (section === 'contexts') return { contextId: id }
+  if (section === 'agents') {
+    if (subId === 'prompts') return { promptId: id }
+    if (subId === 'tools') return { toolId: id }
+    return { agentId: id }
+  }
   if (section === OWNER_SECTION) return { ownerName: id }
   if (section === 'admin') return { adminUserId: id }
   if (section === 'discussions') return { discussionId: id }
