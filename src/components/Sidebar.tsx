@@ -47,12 +47,20 @@ import {
   runScheduleNow,
   toggleScheduleEnabled,
   useMe,
+  useDiscussions,
   useNotifications,
   useSchedules,
 } from '../api'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
+import { discussionTitle } from '../../contract/social.ts'
+import {
+  SCHEDULE_SECTIONS,
+  scheduleSection,
+  visibleCompositeSections,
+  type ScheduleSectionId,
+} from '../lib/compositeSections'
 import { getLayout, setLayout } from '../lib/uiPrefs'
 import {
   dragPane,
@@ -665,9 +673,24 @@ export function Sidebar({
                             ? (t.runs.find((r) => runSessionId(t.id, r.id) === activeId)?.id ?? null)
                             : null
                         }
-                        pageActive={activeSection === 'scheduled' && activeSeed?.scheduleId === t.id}
+                        pageActive={
+                          activeSection === 'scheduled' &&
+                          activeSeed?.scheduleId === t.id &&
+                          !activeSeed.scheduleSectionId
+                        }
+                        activeSectionId={
+                          activeSection === 'scheduled' && activeSeed?.scheduleId === t.id
+                            ? (scheduleSection(activeSeed.scheduleSectionId)?.id ?? null)
+                            : null
+                        }
                         onOpenPage={() => onOpenSchedule(t.id)}
+                        onOpenSection={(sectionId) =>
+                          onOpenDetail('scheduled', { scheduleId: t.id, scheduleSectionId: sectionId })
+                        }
                         onOpenRun={(runId) => onSelect(runSessionId(t.id, runId))}
+                        onOpenDiscussion={(discussionId) =>
+                          onOpenDetail('discussions', { discussionId })
+                        }
                         menuItems={[
                           {
                             kind: 'action',
@@ -1131,21 +1154,28 @@ function GroupHeader({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
 }
 
-/** One Scheduled-routine branch — the parent name opens the routine page, while
- *  its disclosure lists the run sessions composing that routine. */
+/** One Scheduled-routine branch — the parent opens the complete routine page;
+ * its disclosure preserves the routine's section pages before run/discussion
+ * resources. */
 function RoutineRow({
   task,
   activeRunId,
   pageActive,
+  activeSectionId,
   onOpenPage,
+  onOpenSection,
   onOpenRun,
+  onOpenDiscussion,
   menuItems,
 }: {
   task: ScheduledTask
   activeRunId: string | null
   pageActive: boolean
+  activeSectionId: ScheduleSectionId | null
   onOpenPage: () => void
+  onOpenSection: (sectionId: ScheduleSectionId) => void
   onOpenRun: (runId: string) => void
+  onOpenDiscussion: (discussionId: string) => void
   menuItems: RowMenuItem[]
 }) {
   const cadence = task.cadence.split('·')[0]?.trim() || task.cadence
@@ -1154,10 +1184,10 @@ function RoutineRow({
   // making the routine page unreachable from the very tree that listed it.
   // Expansion is local disclosure state; an active parent or run opens its
   // branch so the current place is always visible.
-  const [expanded, setExpanded] = useState(pageActive || activeRunId !== null)
+  const [expanded, setExpanded] = useState(pageActive || activeSectionId !== null || activeRunId !== null)
   useEffect(() => {
-    if (pageActive || activeRunId !== null) setExpanded(true)
-  }, [pageActive, activeRunId])
+    if (pageActive || activeSectionId !== null || activeRunId !== null) setExpanded(true)
+  }, [pageActive, activeSectionId, activeRunId])
   return (
     <>
       <div
@@ -1187,24 +1217,108 @@ function RoutineRow({
         <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} />
       </div>
       {expanded && (
-        <div>
-          {task.runs.length === 0 ? (
-            <p className="py-1 pl-9 pr-2 text-[12px] text-ink-faint">No runs yet.</p>
-          ) : (
-            task.runs.map((run) => (
-              <SubNavRow
-                key={run.id}
-                label={`${run.summary}`}
-                title={`${run.summary} · ${run.duration}`}
-                kind="session"
-                active={activeRunId === run.id}
-                onClick={() => onOpenRun(run.id)}
-              />
-            ))
-          )}
+        <div data-routine-tree={task.id}>
+          <RoutineSectionRows
+            task={task}
+            activeSectionId={activeSectionId}
+            activeRunId={activeRunId}
+            onOpenSection={onOpenSection}
+            onOpenRun={onOpenRun}
+            onOpenDiscussion={onOpenDiscussion}
+          />
         </div>
       )}
     </>
+  )
+}
+
+function RoutineSectionRows({
+  task,
+  activeSectionId,
+  activeRunId,
+  onOpenSection,
+  onOpenRun,
+  onOpenDiscussion,
+}: {
+  task: ScheduledTask
+  activeSectionId: ScheduleSectionId | null
+  activeRunId: string | null
+  onOpenSection: (sectionId: ScheduleSectionId) => void
+  onOpenRun: (runId: string) => void
+  onOpenDiscussion: (discussionId: string) => void
+}) {
+  const [runsExpanded, setRunsExpanded] = useState(activeSectionId === 'recent-runs' || activeRunId !== null)
+  const [discussionExpanded, setDiscussionExpanded] = useState(false)
+  const discussions = useDiscussions('schedule', task.id).data ?? []
+  const rootDiscussion = discussions.find((discussion) => discussion.anchor.locus === undefined) ?? null
+  useEffect(() => {
+    if (activeSectionId === 'recent-runs' || activeRunId !== null) setRunsExpanded(true)
+  }, [activeSectionId, activeRunId])
+  const sections = visibleCompositeSections(SCHEDULE_SECTIONS, task.own !== false)
+  return (
+    <div>
+      {sections.map((section) => {
+        const runs = section.id === 'recent-runs'
+        const discussion = section.id === 'discussion'
+        const hasResources = runs ? task.runs.length > 0 : discussion ? rootDiscussion !== null : false
+        const sectionExpanded = runs ? runsExpanded : discussionExpanded
+        return (
+          <div key={section.id}>
+            <div
+              className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-5 pr-2 text-[13px] transition ${
+                activeSectionId === section.id
+                  ? 'bg-panel-2 font-medium text-ink'
+                  : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+              }`}
+            >
+              {hasResources ? (
+                <button
+                  type="button"
+                  onClick={() => runs
+                    ? setRunsExpanded((value) => !value)
+                    : setDiscussionExpanded((value) => !value)}
+                  aria-label={`${sectionExpanded ? 'Collapse' : 'Expand'} ${section.label}`}
+                  aria-expanded={sectionExpanded}
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
+                >
+                  {sectionExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </button>
+              ) : (
+                <span className="h-5 w-5 shrink-0" aria-hidden />
+              )}
+              <button
+                onClick={() => onOpenSection(section.id)}
+                aria-current={activeSectionId === section.id ? 'page' : undefined}
+                className="min-w-0 flex-1 truncate text-left"
+              >
+                {section.label}
+              </button>
+            </div>
+            {runs && runsExpanded && task.runs.map((run) => (
+                  <SubNavRow
+                    key={run.id}
+                    label={run.summary}
+                    title={`${run.summary} · ${run.duration}`}
+                    kind="session"
+                    depth={4}
+                    active={activeRunId === run.id}
+                    onClick={() => onOpenRun(run.id)}
+                  />
+                ))}
+            {discussion && discussionExpanded && rootDiscussion && (
+              <SubNavRow
+                label={discussionTitle(rootDiscussion.posts[0]?.body, 60)}
+                title="Routine discussion"
+                kind="discussion"
+                depth={4}
+                active={false}
+                onClick={() => onOpenDiscussion(rootDiscussion.id)}
+              />
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 

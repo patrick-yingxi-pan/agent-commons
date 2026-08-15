@@ -318,14 +318,14 @@ test('nothing folds to a gap — EVERY section owes a summary, and it rides the 
   //     was true of the old two-row spelling too.
   const section = fn('FoldSection')
   const header = section.slice(section.indexOf('<button'), section.indexOf('</button>'))
-  assert.match(header, /\{folded && \(/, 'the folded-only branch is inside the header button')
+  assert.match(header, /\{effectiveFolded && \(/, 'the folded-only branch is inside the header button')
   assert.ok(header.includes('{summary}'), 'and it is the summary that renders there')
   // (2) …and NOTHING renders under the header while folded. The separate stub
   //     button is what made a folded section two rows plus a rule between them,
   //     so a fully folded page — the state the fold is FOR — scrolled.
   assert.match(
     section,
-    /\{folded \? null : <div className=\{SECTION_BODY_CLASS\}>\{children\}<\/div>\}/,
+    /\{effectiveFolded \? null : <div className=\{SECTION_BODY_CLASS\}>\{children\}<\/div>\}/,
     'a folded section renders no body at all — and an open one renders it INSET',
   )
 })

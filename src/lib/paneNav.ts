@@ -30,7 +30,13 @@ import type { SectionId } from '../types'
 
 /** The pane's detail-focus shape (MainSplit's PaneFocusState, structurally). */
 export interface PaneSeed {
+  /** An addressable section inside a composite Project. Meaningful only with
+   * `projectId`; the parent overview omits it. */
+  projectSectionId?: string
   projectId?: string
+  /** An addressable section inside a composite routine. Meaningful only with
+   * `scheduleId`; the parent overview omits it. */
+  scheduleSectionId?: string
   scheduleId?: string
   ownerName?: string
   workItemId?: string
@@ -57,7 +63,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['projectId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
+export const PANE_SEED_KEYS = ['projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -109,8 +115,9 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   // the root bridge only, so the 3-arg nav bridge carries both page kinds
   // without a signature change at every call site.
   if (section === 'projects' && subId?.startsWith('changes/'))
-    return { projectId: id, contributionId: subId.slice('changes/'.length) }
-  if (section === 'projects') return subId ? { projectId: id, workItemId: subId } : { projectId: id }
+    return { projectId: id, projectSectionId: 'changes', contributionId: subId.slice('changes/'.length) }
+  if (section === 'projects')
+    return subId ? { projectId: id, projectSectionId: 'open-work', workItemId: subId } : { projectId: id }
   if (section === 'scheduled') return { scheduleId: id }
   if (section === 'contexts') return { contextId: id }
   if (section === OWNER_SECTION) return { ownerName: id }

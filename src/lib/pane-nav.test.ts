@@ -23,10 +23,10 @@ import type { MainPaneContent, MainSplitNode } from './mainSplit.ts'
 
 test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for shape', () => {
   assert.deepEqual(seedFor('projects', 'p1'), { projectId: 'p1' })
-  assert.deepEqual(seedFor('projects', 'p1', 'w1'), { projectId: 'p1', workItemId: 'w1' }, 'projects+subId = a work item page')
+  assert.deepEqual(seedFor('projects', 'p1', 'w1'), { projectId: 'p1', projectSectionId: 'open-work', workItemId: 'w1' }, 'projects+subId = a work item page under Open work')
   assert.deepEqual(
     seedFor('projects', 'p1', 'changes/contrib-3'),
-    { projectId: 'p1', contributionId: 'contrib-3' },
+    { projectId: 'p1', projectSectionId: 'changes', contributionId: 'contrib-3' },
     'the typed changes/ prefix = a contribution page (workflow Phase A), parsed here and in the root bridge only',
   )
   assert.deepEqual(seedFor('scheduled', 't1'), { scheduleId: 't1' })
@@ -65,7 +65,7 @@ test('a same-section entity door lands as pane FOCUS (the reported Contexts bug)
   // A work item inside the pane's own Projects section stays in the pane too.
   assert.deepEqual(paneNavTarget('projects', 'projects', 'p1', 'w1'), {
     kind: 'focus',
-    focus: { projectId: 'p1', workItemId: 'w1' },
+    focus: { projectId: 'p1', projectSectionId: 'open-work', workItemId: 'w1' },
   })
 })
 

@@ -96,8 +96,10 @@ test('EVERY detail kind names itself — a back label never says the section for
   // Enumerated from PANE_SEED_KEYS rather than hand-listed, so a NEW detail
   // kind fails here until it is given a name (the compiler already forces a
   // DETAIL_LABEL entry; this forces the entry to be a decision, not a stub).
-  const NAMED: Partial<Record<(typeof PANE_SEED_KEYS)[number], { section: SectionId; names: BackLabelNames; want: string }>> = {
+  const NAMED: Partial<Record<(typeof PANE_SEED_KEYS)[number], { section: SectionId; names: BackLabelNames; want: string; id?: string }>> = {
+    projectSectionId: { section: 'projects', names: {}, want: 'About', id: 'about' },
     projectId: { section: 'projects', names: { project: { x: 'Q4 launch planning' } }, want: 'Q4 launch planning' },
+    scheduleSectionId: { section: 'scheduled', names: {}, want: 'Workflow', id: 'workflow' },
     scheduleId: { section: 'scheduled', names: { schedule: { x: 'Daily news briefing' } }, want: 'Daily news briefing' },
     ownerName: { section: 'commons', names: {}, want: 'x' },
     agentId: { section: 'agents', names: { agent: { x: 'Atlas Guide' } }, want: 'Atlas Guide' },
@@ -107,8 +109,8 @@ test('EVERY detail kind names itself — a back label never says the section for
     providerId: { section: 'models', names: { provider: { x: 'Together' } }, want: 'Together' },
   }
   // The two deliberate abstentions, each with its reason in DETAIL_LABEL: a
-  // work item / contribution is NESTED under its project (which the walk
-  // reaches first, so its label is the project's — asserted below), and the
+  // work item / contribution is NESTED under a structural Project section
+  // (which the walk reaches first — asserted below), and the
   // console's account roster is grant-walled, so naming it would mean a
   // cross-tenant read from every page in the app.
   const UNNAMED = ['workItemId', 'contributionId', 'adminUserId'] as const
@@ -118,20 +120,29 @@ test('EVERY detail kind names itself — a back label never says the section for
       assert.ok(UNNAMED.includes(key as (typeof UNNAMED)[number]), `${key} has no back label and no argued reason to lack one`)
       continue
     }
-    const to: NavLocation = { kind: 'section', section: spec.section, projectId: null, scheduleId: null, [key]: 'x' }
+    const to: NavLocation = { kind: 'section', section: spec.section, projectId: null, scheduleId: null, [key]: spec.id ?? 'x' }
     assert.equal(resolveBackLabel(to, spec.names), spec.want, `${key} names its own page`)
     // …and degrades to the section name when the registry hasn't got it.
     assert.equal(
       resolveBackLabel(to, {}),
-      key === 'ownerName' ? 'x' : SECTION_LABELS[spec.section],
+      key === 'ownerName' ? 'x'
+      : key === 'projectSectionId' || key === 'scheduleSectionId' ? spec.want
+      : SECTION_LABELS[spec.section],
       `${key} degrades to its section when unnamed`,
     )
   }
-  // A work item's page reads its PROJECT — nested pages take the container's
-  // name, which is why the walk follows PANE_SEED_KEYS order rather than the
-  // order the branches happen to be written in.
-  const workItem: NavLocation = { kind: 'section', section: 'projects', projectId: 'p1', scheduleId: null, workItemId: 'w1' }
-  assert.equal(resolveBackLabel(workItem, { project: { p1: 'Q4 launch planning' } }), 'Q4 launch planning')
+  // A work item's page reads its structural SECTION — the closest named
+  // container, which is why the walk follows PANE_SEED_KEYS order rather than
+  // the order the branches happen to be written in.
+  const workItem: NavLocation = {
+    kind: 'section',
+    section: 'projects',
+    projectId: 'p1',
+    projectSectionId: 'open-work',
+    scheduleId: null,
+    workItemId: 'w1',
+  }
+  assert.equal(resolveBackLabel(workItem, { project: { p1: 'Q4 launch planning' } }), 'Open work')
 })
 
 test('the ONE back control feeds every name source it can be asked for', () => {

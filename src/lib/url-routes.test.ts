@@ -58,6 +58,22 @@ test('project and routine details round-trip', () => {
   assert.deepEqual(viewForPath('/projects/mine'), { loc: section({ projectId: 'mine' }), subview: null })
 })
 
+test('every composite section is a canonical page between its parent and resources', async () => {
+  const { PROJECT_SECTIONS, SCHEDULE_SECTIONS } = await import('./compositeSections.ts')
+  for (const projectSection of PROJECT_SECTIONS) {
+    const loc = section({ projectId: 'p_42', projectSectionId: projectSection.id })
+    const path = `/projects/p_42/${projectSection.id}`
+    assert.equal(pathForView(loc, null), path)
+    assert.deepEqual(viewForPath(path), { loc, subview: null })
+  }
+  for (const routineSection of SCHEDULE_SECTIONS) {
+    const loc = section({ section: 'scheduled', scheduleId: 'sch_1', scheduleSectionId: routineSection.id })
+    const path = `/scheduled/sch_1/${routineSection.id}`
+    assert.equal(pathForView(loc, null), path)
+    assert.deepEqual(viewForPath(path), { loc, subview: null })
+  }
+})
+
 test('every kind the rail LISTS is addressable — a rail child is a place (UI-19)', () => {
   // The rail expands a content section to its rows, so each row must have an
   // address to open. Derived from the registry: adding a section to the rail's
@@ -83,7 +99,10 @@ test('a work item page round-trips through /projects/:id/work/:itemId', () => {
   const loc = section({ projectId: 'p_42', workItemId: 'osg_7' })
   const path = pathForView(loc, null)
   assert.equal(path, '/projects/p_42/work/osg_7')
-  assert.deepEqual(viewForPath(path), { loc: { ...loc, workItemId: 'osg_7' }, subview: null })
+  assert.deepEqual(viewForPath(path), {
+    loc: { ...loc, projectSectionId: 'open-work', workItemId: 'osg_7' },
+    subview: null,
+  })
   // The nested form exists only under projects, and only with the /work/ segment.
   assert.equal(viewForPath('/scheduled/s1/work/x'), null)
   assert.equal(viewForPath('/projects/p_42/other/x'), null)
@@ -94,10 +113,17 @@ test('a contribution page round-trips through /projects/:id/changes/:cid (workfl
   const loc = section({ projectId: 'p_42', contributionId: 'contrib-7' })
   const path = pathForView(loc, null)
   assert.equal(path, '/projects/p_42/changes/contrib-7')
-  assert.deepEqual(viewForPath(path), { loc: { ...loc, contributionId: 'contrib-7' }, subview: null })
+  assert.deepEqual(viewForPath(path), {
+    loc: { ...loc, projectSectionId: 'changes', contributionId: 'contrib-7' },
+    subview: null,
+  })
   // Its sibling rule: only under projects, only with the /changes/ segment.
   assert.equal(viewForPath('/scheduled/s1/changes/x'), null)
-  assert.equal(viewForPath('/projects/p_42/changes/'), null)
+  assert.deepEqual(
+    viewForPath('/projects/p_42/changes/'),
+    { loc: section({ projectId: 'p_42', projectSectionId: 'changes' }), subview: null },
+    'without a contribution id, Changes names the intermediate section page',
+  )
 })
 
 test('a published definition page round-trips through /agents/:id; sub-view ids stay reserved', () => {

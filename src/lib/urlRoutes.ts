@@ -23,7 +23,11 @@
  *                           subview ids win over detail ids (reserved words,
  *                           the GitHub rule)
  *    /projects/:projectId   a project detail page
+ *    /projects/:projectId/:sectionId
+ *                           one Project section page
  *    /scheduled/:scheduleId a routine detail page
+ *    /scheduled/:scheduleId/:sectionId
+ *                           one routine section page
  *    /contexts/:contextId   a saved context's detail page
  *    /artifacts/:artifactId an artifact open in the gallery (UI-19 — the rail
  *                           lists artifacts, so one has to be addressable)
@@ -40,6 +44,7 @@ import { DRAFT_ID } from '../data/liveSession.ts'
 import { SECTION_LABELS, type NavLocation } from './nav.ts'
 import { OWNER_SECTION } from './paneNav.ts'
 import { SECTION_SUBVIEWS } from './subviews.ts'
+import { isProjectSectionId, isScheduleSectionId } from './compositeSections.ts'
 
 /** A parsed address: the page plus the section sub-view (which nav history
  *  ignores but the address must carry — GitHub's tabs are URLs). */
@@ -66,7 +71,11 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
     return `/projects/${encodeURIComponent(loc.projectId)}/work/${encodeURIComponent(loc.workItemId)}`
   if (loc.projectId && loc.contributionId)
     return `/projects/${encodeURIComponent(loc.projectId)}/changes/${encodeURIComponent(loc.contributionId)}`
+  if (loc.projectId && loc.projectSectionId)
+    return `/projects/${encodeURIComponent(loc.projectId)}/${encodeURIComponent(loc.projectSectionId)}`
   if (loc.projectId) return `/projects/${encodeURIComponent(loc.projectId)}`
+  if (loc.scheduleId && loc.scheduleSectionId)
+    return `/scheduled/${encodeURIComponent(loc.scheduleId)}/${encodeURIComponent(loc.scheduleSectionId)}`
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
   if (loc.contextId) return `/contexts/${encodeURIComponent(loc.contextId)}`
   if (loc.discussionId) return `/discussions/${encodeURIComponent(loc.discussionId)}`
@@ -106,14 +115,20 @@ export function viewForPath(pathname: string): RoutedView | null {
   // The one deeper form: /projects/:id/work/:itemId — a work item's own page
   // (the issue-page analog; nested because the item is project-scoped by nature).
   if (section === 'projects' && segs.length === 4 && segs[2] === 'work' && segs[3]) {
-    return { loc: { ...base, projectId: segs[1], workItemId: segs[3] }, subview: null }
+    return { loc: { ...base, projectId: segs[1], projectSectionId: 'open-work', workItemId: segs[3] }, subview: null }
   }
   // Its sibling: /projects/:id/changes/:cid — a contribution's own page (the
   // PR-page analog; the address carries the stable contribution id, not the
   // landing number — an OPEN contribution has no number yet, and an address
   // must never change when the entity's display state does).
   if (section === 'projects' && segs.length === 4 && segs[2] === 'changes' && segs[3]) {
-    return { loc: { ...base, projectId: segs[1], contributionId: segs[3] }, subview: null }
+    return { loc: { ...base, projectId: segs[1], projectSectionId: 'changes', contributionId: segs[3] }, subview: null }
+  }
+  if (section === 'projects' && segs.length === 3 && segs[1] && isProjectSectionId(segs[2])) {
+    return { loc: { ...base, projectId: segs[1], projectSectionId: segs[2] }, subview: null }
+  }
+  if (section === 'scheduled' && segs.length === 3 && segs[1] && isScheduleSectionId(segs[2])) {
+    return { loc: { ...base, scheduleId: segs[1], scheduleSectionId: segs[2] }, subview: null }
   }
   // The maintainer console's account detail (FWD-7 v1.1) — nested under a
   // static `users` segment so it can never collide with the reserved admin

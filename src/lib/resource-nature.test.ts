@@ -15,7 +15,7 @@ test('the account-resource ontology is total and only canonical children make a 
   assert.equal(isCompositeResource('agent'), false)
   assert.equal(isCompositeResource('session'), false, 'linked provenance does not make a session contain those resources')
   assert.equal(isCompositeResource('project'), true)
-  assert.deepEqual(COMPOSITE_CHILD_KINDS.schedule, ['session'], 'a routine composes run sessions, not its internal steps')
+  assert.deepEqual(COMPOSITE_CHILD_KINDS.schedule, ['session', 'discussion'], 'a routine composes run sessions and its canonical discussion, not internal steps')
 })
 
 test('every composite projects its canonical children in the rail', () => {
@@ -38,7 +38,8 @@ test('composite main pages use the project reading-column form and enumerate the
     assert.doesNotMatch(body, /<aside\b/, 'a composite never moves part of itself into a second page rail')
   }
   const projectChildren = {
-    work: /<CoordinationPanel\b/,
+    work: /<OpenWorkList\b/,
+    agent: /<ContributorsPanel\b/,
     artifact: /title="Artifacts"/,
     context: /title="Context"/,
     schedule: /title="Scheduled"/,

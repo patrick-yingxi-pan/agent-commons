@@ -214,7 +214,11 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   // A routine is the other composite resource. It uses the same one-column
   // page grammar in this half-width pane; configuration is folded into the
   // flow instead of restored as a squeezed side rail.
-  await page.locator('nav[aria-label="Sections"]').getByText('Scheduled', { exact: true }).click()
+  await page
+    .locator('nav[aria-label="Sections"]')
+    .getByRole('button', { name: 'Scheduled', exact: true })
+    .filter({ has: page.locator('svg') })
+    .click()
   await paneB.getByText('Triage new GitHub issues').first().click()
   await expect(paneB.locator('aside')).toHaveCount(0)
   await expect(paneB.getByText('Instruction', { exact: true })).toBeVisible()
@@ -375,7 +379,10 @@ test('a run session is ONE surface: run history floats as a click-down, never a 
   const scheduled = page.locator('[data-rail-pane="scheduled"]')
   const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })
   if ((await routineToggle.getAttribute('aria-expanded')) === 'false') await routineToggle.click()
-  await scheduled.getByRole('button', { name: 'Labeled 11 issues, drafted 6 replies' }).click()
+  const routineTree = scheduled.locator('[data-routine-tree="s-issue-triage"]')
+  const runsToggle = routineTree.getByRole('button', { name: /^(Expand|Collapse) Recent runs$/ })
+  if ((await runsToggle.getAttribute('aria-expanded')) === 'false') await runsToggle.click()
+  await routineTree.getByRole('button', { name: 'Labeled 11 issues, drafted 6 replies' }).click()
   await expect(page).toHaveURL(/\/s\/srun-/)
   await expect(page.locator('[data-context-pane]'), 'no runs pane tiles beside the thread').toHaveCount(0)
   await expect(page.locator('[data-main-pane]')).toHaveCount(1)

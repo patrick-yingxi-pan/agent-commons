@@ -1,9 +1,12 @@
+import { PROJECT_SECTIONS, SCHEDULE_SECTIONS } from './compositeSections.ts'
+
 /** ── The account resource ontology ──────────────────────────────────────────
  *
  * The rail and the main region are two projections of the same account world:
  * the rail is its forest; a canonical page is the honest face of one selected
  * node. A resource is COMPOSITE only when it contains other account resources
- * with canonical places of their own. Internal fields, workflow steps, posts,
+ * with canonical places of their own; `compositeSections.ts` preserves the
+ * addressable section places between that parent and those children. Internal fields, workflow steps, posts,
  * and provider catalog rows do not turn their host into a composite — they are
  * the host's content, not independently addressable account resources.
  *
@@ -27,9 +30,12 @@ export const ACCOUNT_RESOURCE_NATURE = {
 export type AccountResourceKind = keyof typeof ACCOUNT_RESOURCE_NATURE
 export type ResourceNature = (typeof ACCOUNT_RESOURCE_NATURE)[AccountResourceKind]
 
+const sectionChildKinds = (sections: readonly { childKinds: readonly string[] }[]) =>
+  [...new Set(sections.flatMap((section) => section.childKinds))]
+
 export const COMPOSITE_CHILD_KINDS = {
-  project: ['work', 'artifact', 'context', 'schedule', 'change', 'session', 'discussion'],
-  schedule: ['session'],
+  project: sectionChildKinds(PROJECT_SECTIONS),
+  schedule: sectionChildKinds(SCHEDULE_SECTIONS),
 } as const satisfies Record<
   Extract<
     AccountResourceKind,

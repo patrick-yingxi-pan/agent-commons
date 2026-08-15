@@ -68,9 +68,13 @@ discussion.
 That answer governs two surfaces at once:
 
 - The **left rail is the account-resource forest**. An atomic resource is a leaf.
-  A composite resource is a branch whose disclosure lists the canonical places
-  that compose it; its name still opens the parent rather than skipping to a
-  child.
+  A composite resource is a branch with an addressable structural level between
+  it and its descendants: **parent → section → canonical resource**. A Project
+  therefore discloses About / Contributors / Context / Recent sessions / …
+  before any artifact, context, session or discussion row. The parent name opens
+  the overview, the section name opens that section's page, and the resource name
+  opens its one canonical page. Flattening descendants under the parent erases
+  the explanation of how the composite is built.
 - The **main page is the honest projection of the selected node**. An atomic
   resource may use the form its payload names. A composite page enumerates all
   of its composing resources, then uses the Project page's shared grammar: one
@@ -78,9 +82,10 @@ That answer governs two surfaces at once:
   before folded configuration before growing history, and one page-level fold
   scope.
 
-The dependency-free classification lives in `src/lib/resourceNature.ts`. Keep
-the rail and page projections honest against it; never infer the ontology from
-whatever one component happens to render today.
+The dependency-free classification lives in `src/lib/resourceNature.ts`; the
+ordered structural pages live in `src/lib/compositeSections.ts`. Keep the rail,
+overview, section page, and resource-page projections honest against them;
+never infer the ontology from whatever one component happens to render today.
 
 ## Step 2 — map nature → form (the vocabulary)
 

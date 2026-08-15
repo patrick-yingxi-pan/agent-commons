@@ -13,6 +13,7 @@
  *  its label is resolved at render from the live project / schedule names. */
 import type { SectionId } from '../types'
 import { PANE_SEED_KEYS, type PaneSeed } from './paneNav.ts'
+import { projectSection, scheduleSection } from './compositeSections.ts'
 
 export type NavLocation =
   | { kind: 'session'; sessionId: string; title: string }
@@ -21,6 +22,10 @@ export type NavLocation =
       section: SectionId
       projectId: string | null
       scheduleId: string | null
+      /** A section page inside a composite Project (`/projects/:id/:section`). */
+      projectSectionId?: string | null
+      /** A section page inside a composite routine (`/scheduled/:id/:section`). */
+      scheduleSectionId?: string | null
       /** A workspace profile open under the agents section (D21) — the display name,
        *  which IS the public handle. Optional so older call sites / history entries
        *  stay valid; absent ≡ null. */
@@ -75,7 +80,9 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
   if (a.kind === 'section' && b.kind === 'section')
     return (
       a.section === b.section &&
+      (a.projectSectionId ?? null) === (b.projectSectionId ?? null) &&
       a.projectId === b.projectId &&
+      (a.scheduleSectionId ?? null) === (b.scheduleSectionId ?? null) &&
       a.scheduleId === b.scheduleId &&
       (a.ownerName ?? null) === (b.ownerName ?? null) &&
       (a.workItemId ?? null) === (b.workItemId ?? null) &&
@@ -123,14 +130,16 @@ export type BackLabelNames = Partial<Record<(typeof BACK_LABEL_SOURCES)[number],
 const DETAIL_LABEL: {
   [K in keyof Required<PaneSeed>]: (id: string, names: BackLabelNames) => string | undefined
 } = {
+  projectSectionId: (id) => projectSection(id)?.label,
   projectId: (id, n) => n.project?.[id],
+  scheduleSectionId: (id) => scheduleSection(id)?.label,
   scheduleId: (id, n) => n.schedule?.[id],
   // A namespace profile is its own label — the display name IS the page (D21).
   ownerName: (id) => id,
-  // Both are pages NESTED under a project, and `projectId` is reached first
-  // below (it precedes them in PANE_SEED_KEYS), so these are unreachable in
-  // practice — a work item's back reads its project, which is where it lives.
-  // They exist because the map is total, which is the point of the map.
+  // Both are pages nested below a Project section. The section id precedes
+  // them in PANE_SEED_KEYS, so a work/change destination reads “Open work” or
+  // “Changes”; these cases remain total even though the leaf ids have no
+  // standalone name registry.
   workItemId: () => undefined,
   contributionId: () => undefined,
   agentId: (id, n) => n.agent?.[id],

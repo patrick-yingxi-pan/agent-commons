@@ -130,6 +130,12 @@ import { Spinner } from './Spinner'
 import { BackButton, PageBackContext } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
+import {
+  projectSection,
+  scheduleSection,
+  type ProjectSectionId,
+  type ScheduleSectionId,
+} from '../lib/compositeSections'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
 import { useSectionFilter } from '../lib/useSectionFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
@@ -364,7 +370,9 @@ export function SectionView({
   backTo,
   railCollapsed = false,
   focusProjectId = null,
+  focusProjectSectionId = null,
   focusScheduleId = null,
+  focusScheduleSectionId = null,
   focusOwnerName = null,
   focusWorkItemId = null,
   focusContributionId = null,
@@ -407,7 +415,11 @@ export function SectionView({
    *  source of truth for which detail is open — driven by the controller whether
    *  reached by a breadcrumb, a deep-link, or a list-card click. */
   focusProjectId?: string | null
+  /** A dedicated section page inside the open Project. */
+  focusProjectSectionId?: string | null
   focusScheduleId?: string | null
+  /** A dedicated section page inside the open routine. */
+  focusScheduleSectionId?: string | null
   /** A namespace profile open under the COMMONS section (D21, `OWNER_SECTION`)
    *  — the display name. A profile is a social page, so the social section hosts
    *  it; it sat under Agents until 2026-08-09 only because profiles were first
@@ -442,6 +454,7 @@ export function SectionView({
     section === 'projects' ? (
       <ProjectsSection
         projectId={focusProjectId}
+        projectSectionId={focusProjectSectionId}
         workItemId={focusWorkItemId}
         contributionId={focusContributionId}
         onOpenProject={onOpenProject}
@@ -472,6 +485,7 @@ export function SectionView({
     ) : section === 'scheduled' ? (
       <ScheduledSection
         scheduleId={focusScheduleId}
+        scheduleSectionId={focusScheduleSectionId}
         onOpenSchedule={onOpenSchedule}
         onBack={onBack}
         backTo={backTo}
@@ -536,6 +550,7 @@ export function SectionView({
 
 function ProjectsSection({
   projectId,
+  projectSectionId,
   workItemId,
   contributionId,
   onOpenProject,
@@ -547,6 +562,8 @@ function ProjectsSection({
   /** Which project detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   projectId: string | null
+  /** One addressable section inside the Project (null = the overview). */
+  projectSectionId?: string | null
   /** A work item's own page inside that project (null = the project page). */
   workItemId?: string | null
   /** A contribution's own page inside that project (null = the project page). */
@@ -613,6 +630,7 @@ function ProjectsSection({
     return (
       <ProjectDetail
         project={open}
+        sectionId={projectSectionId}
         onBack={onBack}
         backTo={backTo}
         onOpenSession={onOpenSession}
@@ -866,12 +884,14 @@ const CONTEXT_ICON: Record<ProjectContext['kind'], typeof Folder> = {
 
 function ProjectDetail({
   project,
+  sectionId,
   onBack,
   backTo,
   onOpenSession,
   onNewSession,
 }: {
   project: Project
+  sectionId?: string | null
   onBack: () => void
   backTo: NavLocation | null
   onOpenSession: (id: string) => void
@@ -948,6 +968,10 @@ function ProjectDetail({
   // visitor alike — what changes is which affordances exist, never the location.
   // `own !== false` covers seeds/optimistic rows the projection hasn't stamped yet.
   const own = project.own !== false
+  const selectedSection = projectSection(sectionId)
+  const sectionAllowed = selectedSection?.visibility !== 'owner' || own
+  const showProjectSection = (id: ProjectSectionId) =>
+    sectionAllowed && (!selectedSection || selectedSection.id === id)
 
   // The Sharing section's stub reads the SAME roster the section renders
   // (`GrantsPanel` → `useGrants`), not `project.shared`. Those are two different
@@ -1016,6 +1040,9 @@ function ProjectDetail({
           <BackButton to={backTo} onBack={onBack} />
           <div className="min-w-0">
           <h1 className={PAGE_TITLE_CLASS}>{project.name}</h1>
+          {selectedSection && (
+            <p className="mt-0.5 text-[13px] font-medium text-ink-soft">{selectedSection.label}</p>
+          )}
           {(project.shared === true || !own) && (
             <div className="mt-1">
               {/* The owner name is a DOOR to the owner's profile page (D21) —
@@ -1071,18 +1098,25 @@ function ProjectDetail({
           spend that width because neither one was prose; one column cannot —
           About and Discussion are prose, and a 1200px line is unreadable. The
           margin this leaves is the price of the merge, paid deliberately. */}
-      <SectionFoldControls entries={foldEntries} />
+      {!selectedSection && <SectionFoldControls entries={foldEntries} />}
       <FoldScope>
+      <CompositeSectionPageContext.Provider value={selectedSection !== undefined}>
       <div>
+          {!sectionAllowed && selectedSection && (
+            <div className="border-t border-line-strong py-6">
+              <h2 className="text-[15px] font-semibold text-ink">{selectedSection.label}</h2>
+              <p className="mt-1 text-[13px] text-ink-soft">This Project section is private to its owner.</p>
+            </div>
+          )}
           {/* About (D26) — the project's ONE description, read by owner and
               visitor alike; only the owner gets the edit affordance, and it is
               in the page header (capability shapes affordances). */}
-          <ProjectAbout
+          {showProjectSection('about') && <ProjectAbout
             project={project}
             own={own}
             editing={editingAbout}
             onDone={() => setEditingAbout(false)}
-          />
+          />}
           {/* Every section is the same thing now (S17): a bare uppercase heading
               with its content below, folded or not. Three nested wrappers became
               one — the outer was the two-column flex row, the middle was the main
@@ -1125,15 +1159,26 @@ function ProjectDetail({
               Renders only when there is something to say (no empty noise).
               Second only to About: an interrupt that arrives below the fold has
               not interrupted anything. */}
-          <AttentionPanel project={project} />
+          {showProjectSection('attention') && <AttentionPanel project={project} standalone />}
 
           {/* The commons panels live in the MAIN column, not the rail: Contributors
               and Coordination/Open work are the page's PAYLOAD (for a visitor, the
               entire point — the earlier aside squeezed the issues-tray analog to
               288px behind an empty "sessions are private" note), while the rail
               keeps what a rail is for: the owner's configuration. */}
-          <ContributorsPanel project={project} />
-          <CoordinationPanel project={project} />
+          {showProjectSection('contributors') && <ContributorsPanel project={project} />}
+          {showProjectSection('coordination') && <CoordinationPanel project={project} />}
+          {showProjectSection('open-work') && (
+            project.guardianId ? (
+              <OpenWorkList projectId={project.id} shared={project.shared === true} />
+            ) : (
+              <FoldSection title="Open work" summary="Not guarded">
+                <p className="text-[12px] text-ink-faint">
+                  This project isn’t a guarded resource, so it has no coordinated backlog.
+                </p>
+              </FoldSection>
+            )
+          )}
 
           {/* An artifact filed to this project is one of the resources that
               COMPOSES it, not merely a gallery row elsewhere. The project page
@@ -1141,7 +1186,7 @@ function ProjectDetail({
               the project. Its title remains the canonical door to the artifact
               page; this page summarizes the composition, it does not mint a
               second artifact surface. */}
-          <FoldSection
+          {showProjectSection('artifacts') && <FoldSection
             title="Artifacts"
             summary={countOr(artifacts.length, 'artifact', 'artifacts', 'No artifacts')}
           >
@@ -1168,7 +1213,7 @@ function ProjectDetail({
                 ))}
               </CardList>
             )}
-          </FoldSection>
+          </FoldSection>}
 
           {/* ── Band 2 · the OWNER's configuration ────────────────────────────
               Instructions, attached context, sharing, delegation, scheduled runs.
@@ -1181,9 +1226,9 @@ function ProjectDetail({
               who may decide (Delegation) · when it happens (Scheduled). */}
           {own && (
           <>
-          <ProjectInstructions project={project} />
+          {showProjectSection('instructions') && <ProjectInstructions project={project} />}
 
-          <FoldSection
+          {showProjectSection('context') && <FoldSection
             title="Context"
             defaultFolded
             summary={contexts.length === 0 ? 'Nothing attached' : contexts.map((c) => c.label).join(' · ')}
@@ -1207,14 +1252,14 @@ function ProjectDetail({
                 ))}
               </div>
             )}
-          </FoldSection>
+          </FoldSection>}
 
           {/* Sharing — the owner's audience/onboarding CONFIGURATION (S17): it used
               to hide inside the Contributors payload, and configuration is its
               own section (the rule survives the rail it was first written for).
               Seed projects can't toggle share (the server refuses), so the switch
               gates on isCreatedProject; the role pre-selection applies either way. */}
-          <FoldSection
+          {showProjectSection('sharing') && <FoldSection
             title="Sharing"
             defaultFolded
             summary={
@@ -1242,17 +1287,17 @@ function ProjectDetail({
                 everyone-switch. */}
             <GrantsPanel subject={{ kind: 'project', id: project.id }} composing={sharing} />
             <DefaultRolePicker project={project} />
-          </FoldSection>
+          </FoldSection>}
 
           {/* Delegation (CW8, Phase F) — the owner's judgment, handed to their
               own worker Agent under a written policy: band 2 because it is the
               owner's CONFIGURATION (S16's rule), while the delegated acts
               themselves show on each contribution's public timeline. */}
-          <DelegationPanel project={project} />
+          {showProjectSection('delegation') && <DelegationPanel project={project} />}
 
           {/* The whole run is already owner-gated above — these panels don't
               re-check `own` (the inner guards were dead-always-true). */}
-          <FoldSection
+          {showProjectSection('scheduled') && <FoldSection
             title="Scheduled"
             defaultFolded
             summary={
@@ -1302,7 +1347,7 @@ function ProjectDetail({
                 ))}
               </div>
             )}
-          </FoldSection>
+          </FoldSection>}
 
           </>
           )}
@@ -1322,9 +1367,9 @@ function ProjectDetail({
               (S3) are two paths into the same history, so they render as one
               panel over one L# sequence — what's in flight now, then the linear
               history of what landed. Payload for owner and visitor alike. */}
-          <ChangesPanel project={project} own={own} onOpenSession={onOpenSession} />
+          {showProjectSection('changes') && <ChangesPanel project={project} own={own} onOpenSession={onOpenSession} />}
 
-          <FoldSection
+          {showProjectSection('recent-sessions') && <FoldSection
             title="Recent sessions"
             summary={countOr(convs.length, 'session', 'sessions', 'No sessions')}
             actions={
@@ -1373,13 +1418,14 @@ function ProjectDetail({
               ))}
             </CardList>
           )}
-          </FoldSection>
+          </FoldSection>}
 
           {/* The public thread (social S2): the same root discussion the Commons
               card will project under its feed post — one conversation, two
               projections. */}
-          <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />
+          {showProjectSection('discussion') && <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />}
       </div>
+      </CompositeSectionPageContext.Provider>
       </FoldScope>
       </div>
     </Page>
@@ -2454,11 +2500,6 @@ function CoordinationPanel({ project }: { project: Project }) {
       )}
     </FoldSection>
 
-    {/* Open work is its OWN top-level section (S17) — it was a mini-heading buried
-        inside Coordination, one level deeper than its nature (the issues tray, a
-        first-class backlog) warrants. Same guardian gate as before: posting routes
-        through the guardian walls, so an unguarded project has no backlog. */}
-    {guarded && <OpenWorkList projectId={project.id} shared={project.shared === true} />}
     </>
   )
 }
@@ -5855,12 +5896,17 @@ function ContributionPage({
  *  liability vs error-catching), plus the acts ledger and the mechanically
  *  self-proposed optimization. Renders nothing when there's nothing to say —
  *  an interrupt must justify itself, and so must a panel. */
-function AttentionPanel({ project }: { project: Project }) {
+function AttentionPanel({ project, standalone = false }: { project: Project; standalone?: boolean }) {
   const rel = useRelations()
   const ledger = useAttention(project.id).data
-  if (!ledger) return null
+  if (!ledger)
+    return standalone ? (
+      <FoldSection title="Attention" summary="Nothing needs you">
+        <p className="text-[12px] text-ink-faint">Nothing needs you right now.</p>
+      </FoldSection>
+    ) : null
   const total = ledger.humanActs + ledger.delegatedActs + ledger.machineActs + ledger.escalations
-  if (ledger.asks.length === 0 && !ledger.proposal && total === 0) return null
+  if (ledger.asks.length === 0 && !ledger.proposal && total === 0 && !standalone) return null
   const openAsk = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
   return (
     <FoldSection title="Attention" summary={countOr(ledger.asks.length, 'ask', 'asks', 'Nothing needs you')}>
@@ -11544,6 +11590,7 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
  *  control to choose it. */
 function ScheduledSection({
   scheduleId,
+  scheduleSectionId,
   onOpenSchedule,
   onBack,
   backTo,
@@ -11552,6 +11599,7 @@ function ScheduledSection({
   /** Which routine detail to show (null = the list) — the controlled source of
    *  truth, set by the controller however the detail was reached. */
   scheduleId: string | null
+  scheduleSectionId?: string | null
   onOpenSchedule: (id: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -11611,6 +11659,7 @@ function ScheduledSection({
     return (
       <ScheduledDetail
         task={open}
+        sectionId={scheduleSectionId}
         running={running.has(open.id)}
         onBack={onBack}
         backTo={backTo}
@@ -11897,6 +11946,7 @@ function NewScheduleRow({ tpl, onAdd }: { tpl: ScheduleTemplate; onAdd: () => vo
  *  model side panels. */
 function ScheduledDetail({
   task,
+  sectionId,
   running,
   onBack,
   backTo,
@@ -11906,6 +11956,7 @@ function ScheduledDetail({
   onRemove,
 }: {
   task: ScheduledTask
+  sectionId?: string | null
   running: boolean
   onBack: () => void
   backTo: NavLocation | null
@@ -11935,6 +11986,11 @@ function ScheduledDetail({
   // …and its grant composer's disclosure, the same as the project page's.
   const [sharingSchedule, setSharingSchedule] = useState(false)
   const [foldEntries, FoldScope] = useFoldScope()
+  const selectedSection = scheduleSection(sectionId)
+  const own = task.own !== false
+  const sectionAllowed = selectedSection?.visibility !== 'owner' || own
+  const showScheduleSection = (id: ScheduleSectionId) =>
+    sectionAllowed && (!selectedSection || selectedSection.id === id)
 
   return (
     <Page>
@@ -11999,6 +12055,9 @@ function ScheduledDetail({
               )}
             </div>
             <p className="mt-0.5 truncate text-[13px] text-ink-soft">{task.subtitle}</p>
+            {selectedSection && (
+              <p className="mt-0.5 text-[13px] font-medium text-ink-soft">{selectedSection.label}</p>
+            )}
           </div>
         </div>
 
@@ -12024,17 +12083,26 @@ function ScheduledDetail({
         )}
       </header>
 
-      <SectionFoldControls entries={foldEntries} />
+      {!selectedSection && <SectionFoldControls entries={foldEntries} />}
       <FoldScope>
+        <CompositeSectionPageContext.Provider value={selectedSection !== undefined}>
         <div>
-          <PromptCard prompt={task.prompt} onSave={task.own !== false ? (prompt) => void updateSchedule(task.id, { prompt }) : undefined} />
-          <WorkflowCard task={task} run={shownRun} running={running} />
+          {!sectionAllowed && selectedSection && (
+            <div className="border-t border-line-strong py-6">
+              <h2 className="text-[15px] font-semibold text-ink">{selectedSection.label}</h2>
+              <p className="mt-1 text-[13px] text-ink-soft">This routine section is private to its owner.</p>
+            </div>
+          )}
+          {showScheduleSection('instruction') && (
+            <PromptCard prompt={task.prompt} onSave={own ? (prompt) => void updateSchedule(task.id, { prompt }) : undefined} />
+          )}
+          {showScheduleSection('workflow') && <WorkflowCard task={task} run={shownRun} running={running} />}
 
         {/* The bounded definition comes first. The owner's standing
             configuration follows as folded index rows, then the histories that
             can grow forever. This is the exact bounded → configuration → history
             ordering the project page established for composite resources. */}
-        {task.own !== false && (
+        {own && (
         <>
           {/* Sharing — the OWNER's audience configuration, as on a project.
               Without it the routine's social surface was unreachable: it could be
@@ -12049,7 +12117,7 @@ function ScheduledDetail({
               either one and then agree forever, which is a state nobody designed.
               The constraint the key imposes is now a lock —
               `main-column-sections.test.ts`. */}
-          <FoldSection
+          {showScheduleSection('sharing') && <FoldSection
             title="Sharing"
             defaultFolded
             summary={
@@ -12071,25 +12139,28 @@ function ScheduledDetail({
             }
           >
             <GrantsPanel subject={{ kind: 'schedule', id: task.id }} composing={sharingSchedule} />
-          </FoldSection>
+          </FoldSection>}
 
-          <SchedulePanel task={task} />
+          {showScheduleSection('schedule') && <SchedulePanel task={task} />}
 
-          <DeliveryPanel task={task} />
+          {showScheduleSection('delivery') && <DeliveryPanel task={task} />}
 
-          <ContextToolsPanel task={task} />
+          {showScheduleSection('context-tools') && <ContextToolsPanel task={task} />}
 
-          <ModelPanel task={task} />
+          {showScheduleSection('model') && <ModelPanel task={task} />}
         </>
         )}
 
-          <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
+          {showScheduleSection('recent-runs') && (
+            <RunHistoryCard task={task} onOpenRun={(runId) => onOpenSession(runSessionId(task.id, runId))} />
+          )}
           {/* A routine is a social subject like any other: it can be shared,
               discussed, and IMPROVED. Landing a routine change runs the same
               `updateSchedule` the owner's own editor calls. */}
-          <ProposalsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
-          <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={task.own !== false} />
+          {showScheduleSection('improvements') && <ProposalsPanel subject={{ kind: 'schedule', id: task.id }} own={own} />}
+          {showScheduleSection('discussion') && <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={own} />}
         </div>
+        </CompositeSectionPageContext.Provider>
       </FoldScope>
       </div>
     </Page>
@@ -13534,6 +13605,9 @@ function SectionActions({ children }: { children: ReactNode }) {
  *  sections a visitor can see. */
 type FoldEntry = { title: string; defaultFolded: boolean }
 const FoldScopeCtx = createContext<((entry: FoldEntry) => () => void) | null>(null)
+/** A dedicated composite-section page is already the result of disclosure. Its
+ * one section stays open regardless of the overview's persisted fold posture. */
+const CompositeSectionPageContext = createContext(false)
 
 /** The scope a page opens for its sections. Returns what has registered, in
  *  mount order, plus the provider to wrap them in. */
@@ -13677,6 +13751,8 @@ function FoldSection({
   children: ReactNode
 }) {
   const [folded, setFolded] = useSectionFold(title, defaultFolded)
+  const sectionPage = useContext(CompositeSectionPageContext)
+  const effectiveFolded = sectionPage ? false : folded
   // Announce this section to whatever page is offering Fold all. Absent scope =
   // no page-level control (a section rendered inside a panel or a card), and the
   // section works exactly the same — the registry is for the CONTROL's benefit,
@@ -13691,7 +13767,7 @@ function FoldSection({
     // open-canvas — the uppercase label and the column's own gap carry the
     // structure. The box this dropped was the last per-section frame here, and
     // folding is what replaces it as the way to quieten a long page.
-    <section className={`${SECTION_REVEAL_GROUP} ${folded ? SECTION_GAP.folded : SECTION_GAP.open}`}>
+    <section className={`${SECTION_REVEAL_GROUP} ${effectiveFolded ? SECTION_GAP.folded : SECTION_GAP.open}`}>
       {/* The header's bottom margin belongs to the CONTENT under it, so a
           section folded to nothing gives it back. Fold every section on a
           project page and the old spelling left 24px of gap plus 8px of margin
@@ -13716,16 +13792,17 @@ function FoldSection({
           the ramp is the wrong weight for the only thing separating two
           sections. */}
       <div
-        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} ${SECTION_RULE_SPACE.above} ${folded ? '' : SECTION_RULE_SPACE.below}`}
+        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} ${SECTION_RULE_SPACE.above} ${effectiveFolded ? '' : SECTION_RULE_SPACE.below}`}
       >
         <button
-          onClick={() => setFolded(!folded)}
-          aria-expanded={!folded}
+          onClick={() => !sectionPage && setFolded(!effectiveFolded)}
+          aria-expanded={!effectiveFolded}
+          aria-disabled={sectionPage || undefined}
           // Full width while FOLDED, content-width while open. The summary
           // rides inside this button when there is one, so the whole row is the
           // way back into what it stands for — one control, not a title you can
           // press beside a summary you cannot.
-          className={`${FOLD_HEADER_CLASS} min-w-0 ${folded ? 'flex-1' : ''}`}
+          className={`${FOLD_HEADER_CLASS} min-w-0 ${effectiveFolded ? 'flex-1' : ''}`}
         >
           {/* ── The words FIRST, then the chevron ──────────────────────────
               Measured, not preferred: with the chevron leading, every section's
@@ -13773,7 +13850,7 @@ function FoldSection({
           </span>
           <ChevronDown
             size={13}
-            className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
+            className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${effectiveFolded ? '-rotate-90' : ''} ${sectionPage ? 'invisible' : ''}`}
           />
           {/* ── The summary, ON the title's row ────────────────────────────
               (Owner directive 2026-08-13: *"the summary should sit at the same
@@ -13792,7 +13869,7 @@ function FoldSection({
               how you get back to what they stand for, and a summary you could
               not press would be the only inert text on a row that is otherwise
               entirely a disclosure. */}
-          {folded && (
+          {effectiveFolded && (
             <span className="min-w-0 flex-1 truncate text-left text-[12px] font-normal normal-case tracking-normal text-ink-faint">
               {summary}
             </span>
@@ -13805,7 +13882,7 @@ function FoldSection({
           label read as the section's frame and the content reads as being
           inside it. One indent, applied here — see that constant for why the
           rows underneath had to give theirs up. */}
-      {folded ? null : <div className={SECTION_BODY_CLASS}>{children}</div>}
+      {effectiveFolded ? null : <div className={SECTION_BODY_CLASS}>{children}</div>}
     </section>
   )
 }

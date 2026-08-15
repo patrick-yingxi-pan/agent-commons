@@ -127,11 +127,9 @@ test('the project page is one column of foldable sections, configuration folded'
   //  fail against a correct page.
   const seen = (await page.locator(`${HEADERS} [data-section-title]`).allTextContents()).map((t) => t.trim())
   expect(seen.filter((t) => !ORDER.includes(t)), 'every section on the page is one this order accounts for').toEqual([])
-  //  Filtered by what actually rendered, because two sections are conditional:
-  //  Attention renders only when something needs the reader (no empty noise),
-  //  and Open work only on a guarded project. The claim is the ORDER, not the
-  //  roster — CONFIG/CONTENT above are what hold the roster.
-  expect(seen, 'the sections arrive in the declared order').toEqual(ORDER.filter((t) => seen.includes(t)))
+  //  The overview is the complete skeleton the rail discloses: an empty section
+  //  renders an honest empty state instead of disappearing from one projection.
+  expect(seen, 'every registered section arrives in the declared order').toEqual(ORDER)
 
   // ── ONE left edge, all the way down ───────────────────────────────────────
   //  (Owner report 2026-08-13: *"the layout is still visually messy."* It was,
@@ -358,39 +356,63 @@ test('the project page is one column of foldable sections, configuration folded'
   await ada.context.close()
 })
 
-test('composite resources are branches in the rail and honest one-column pages', async ({ browser }) => {
+test('composite resources preserve parent → section → resource in the rail and main pages', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser)
   const page = ada.page
   await page.goto(PROJECT)
   await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
 
-  // The Projects section lists resources; a composite project is another
-  // disclosure level, and its canonical children sit directly underneath it.
-  // The chevron discloses; the name remains the door to the parent.
+  // A Project discloses its page sections first. Resources never flatten
+  // directly under the parent: Artifacts owns artifact rows, Recent sessions
+  // owns session rows, and a section name is itself a canonical page door.
   const sectionsNav = page.getByRole('navigation', { name: 'Sections' })
   const projectToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Insights dashboard$/ })
   await expect(projectToggle).toBeVisible()
   if ((await projectToggle.getAttribute('aria-expanded')) === 'false') await projectToggle.click()
-  await expect(sectionsNav.getByRole('button', { name: 'insights-onepager.md' })).toBeVisible()
-  await expect(sectionsNav.getByText('artifact', { exact: true }).first()).toBeVisible()
-  const showAllChildren = sectionsNav.getByRole('button', { name: /^Show all —/ })
-  if ((await showAllChildren.count()) > 0) await showAllChildren.first().click()
-  await expect(sectionsNav.getByText('session', { exact: true }).first()).toBeVisible()
+  const projectTree = sectionsNav.locator('[data-project-tree="p-insights"]')
+  for (const section of ['About', 'Contributors', 'Open work', 'Artifacts', 'Context', 'Changes', 'Recent sessions', 'Discussion']) {
+    await expect(projectTree.getByRole('button', { name: section, exact: true })).toBeVisible()
+  }
+  const artifactSectionToggle = projectTree.getByRole('button', { name: /^(Expand|Collapse) Artifacts$/ })
+  if ((await artifactSectionToggle.getAttribute('aria-expanded')) === 'false') await artifactSectionToggle.click()
+  await expect(projectTree.getByRole('button', { name: 'insights-onepager.md' })).toBeVisible()
+  await expect(projectTree.getByText('artifact', { exact: true }).first()).toBeVisible()
+
+  await projectTree.getByRole('button', { name: 'Artifacts', exact: true }).click()
+  await expect(page).toHaveURL(/\/projects\/p-insights\/artifacts$/)
+  await expect(header(page, 'Artifacts')).toHaveAttribute('aria-expanded', 'true')
+  await expect(header(page, 'About')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'insights-onepager.md', exact: true })).toBeVisible()
+
+  // The section is a real page, not transient selection state: its canonical
+  // address survives a cold render and still excludes sibling sections.
+  await page.reload()
+  await expect(header(page, 'Artifacts')).toHaveAttribute('aria-expanded', 'true')
+  await expect(header(page, 'About')).toHaveCount(0)
 
   await sectionsNav.getByRole('button', { name: 'Insights dashboard', exact: true }).click()
   await expect(page).toHaveURL(/\/projects\/p-insights$/)
   await expect(header(page, 'Artifacts')).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByRole('button', { name: 'insights-onepager.md', exact: true })).toBeVisible()
 
-  // Scheduled owns its own pane rather than duplicating the list under the
-  // section tree. A routine is still a composite branch: the parent name opens
-  // the routine and the disclosure holds the run sessions.
+  // A routine follows the same hierarchy: section pages sit under the parent,
+  // and run sessions sit under Recent runs rather than under the routine.
   const scheduled = page.locator('[data-rail-pane="scheduled"]')
   const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })
   await expect(routineToggle).toBeVisible()
   if ((await routineToggle.getAttribute('aria-expanded')) === 'false') await routineToggle.click()
-  await expect(scheduled.getByRole('button', { name: 'Labeled 11 issues, drafted 6 replies' })).toBeVisible()
+  const routineTree = scheduled.locator('[data-routine-tree="s-issue-triage"]')
+  await expect(routineTree.getByRole('button', { name: 'Instruction', exact: true })).toBeVisible()
+  await expect(routineTree.getByRole('button', { name: 'Recent runs', exact: true })).toBeVisible()
+  const runsToggle = routineTree.getByRole('button', { name: /^(Expand|Collapse) Recent runs$/ })
+  if ((await runsToggle.getAttribute('aria-expanded')) === 'false') await runsToggle.click()
+  await expect(routineTree.getByRole('button', { name: 'Labeled 11 issues, drafted 6 replies' })).toBeVisible()
+
+  await routineTree.getByRole('button', { name: 'Instruction', exact: true }).click()
+  await expect(page).toHaveURL(/\/scheduled\/s-issue-triage\/instruction$/)
+  await expect(header(page, 'Instruction')).toHaveAttribute('aria-expanded', 'true')
+  await expect(header(page, 'Workflow')).toHaveCount(0)
 
   await scheduled.getByRole('button', { name: 'Triage new GitHub issues', exact: true }).click()
   await expect(page).toHaveURL(/\/scheduled\/s-issue-triage$/)
@@ -401,6 +423,14 @@ test('composite resources are branches in the rail and honest one-column pages',
   await expect(header(page, 'Instruction')).toBeVisible()
   await expect(header(page, 'Workflow')).toBeVisible()
   await expect(header(page, 'Recent runs')).toBeVisible()
+
+  // Sections also remain real pages when their resource capability is absent.
+  // Platform hardening is deliberately unguarded, so Open work owes an honest
+  // empty state instead of disappearing from the overview or section route.
+  await page.goto('/projects/p-infra/open-work')
+  await expect(page).toHaveURL(/\/projects\/p-infra\/open-work$/)
+  await expect(header(page, 'Open work')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByText('This project isn’t a guarded resource, so it has no coordinated backlog.')).toBeVisible()
 
   await ada.context.close()
 })
