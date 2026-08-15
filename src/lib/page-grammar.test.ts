@@ -43,6 +43,22 @@ test('collection roots use FoldSection, never a parallel group-header primitive'
   assert.throws(() => sectionViewComponent('FoldGroupHeader'), /has no top-level component/, 'the parallel hub-group primitive is gone')
 })
 
+test('the Models index uses the Project synopsis-row vocabulary, not provider cards', () => {
+  const models = fn('ModelsSection')
+  assert.match(models, /<CardList\b/, 'providers share the divider-list container used by Projects')
+  assert.match(models, /<ProviderRow\b/, 'each provider has a dedicated index synopsis')
+  assert.doesNotMatch(models, /<ProviderDetailSections\b|<CommonsCard\b/, 'the index never embeds provider detail or card chrome')
+
+  const row = fn('ProviderRow')
+  assert.match(row, /LEDGER_ROW_CLASS/, 'provider rows share the Project row rhythm')
+  assert.match(row, /text-\[13px\] text-ink/, 'provider identity uses the Project title step')
+  assert.match(row, /text-\[12px\] text-ink-soft/, 'the single descriptor uses the Project body step')
+  assert.match(row, /text-\[11px\] text-ink-faint/, 'count or connection state uses the Project metadata step')
+  for (const detail of ['effortLevels', 'authorityLabel', 'providerPlanLabel', 'CardActions', 'onEdit']) {
+    assert.doesNotMatch(row, new RegExp(detail), `${detail} belongs on the provider page, not its index row`)
+  }
+})
+
 test('every instance rail branch resolves to an honest canonical main page', () => {
   // This table is intentionally total over SECTION_INSTANCE_KEY. Adding a new
   // instance branch without naming its detail renderer fails on the key-set
@@ -82,8 +98,8 @@ test('stable multi-group detail pages use the Project section grammar', () => {
     const page = fn(name)
     assert.match(page, /<Page\b/, `${name} uses the shared reading page`)
     if (name === 'ProviderDetailPage') {
-      assert.match(page, /<ProviderCard[\s\S]*?\bdetail\b/, 'the provider page delegates to its detail-section body')
-      assert.match(fn('ProviderCard'), /<FoldSection\b/, 'the provider detail body expresses its groups through FoldSection')
+      assert.match(page, /<ProviderDetailSections\b/, 'the provider page delegates to its detail-section body')
+      assert.match(fn('ProviderDetailSections'), /<FoldSection\b/, 'the provider detail body expresses its groups through FoldSection')
     } else {
       assert.match(page, /<FoldSection\b/, `${name} expresses structural groups through FoldSection`)
     }

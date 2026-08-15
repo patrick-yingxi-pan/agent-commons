@@ -14,7 +14,7 @@
 > declares** its capacity at `start({conversations})` (latched with the binding,
 > like the credentials), and the platform **shows what it observes** —
 > `relay.activity` events keep live `activeConversations`/`conversationWindow`
-> stamps on the provider card ("Answering 2 of 4 conversations"). Admission =
+> stamps on the provider page ("Answering 2 of 4 conversations"). Admission =
 > min(server cap, advertisement). Spec row MODEL-24.
 >
 > **v4 BUILT** (2026-07-18 — the sixth pass, §9.3): **any-agent
@@ -853,7 +853,7 @@ matched to what its party can actually vouch for:
   entry **delivery** and **settle** (tenant-gated like `relay.connected` — how
   busy someone's delegated session is must not leak across the wall), and
   provider reads stamp `activeConversations` + `conversationWindow` (serve-time
-  computed, PATCH-forge-proof like `online`). The Models card renders it —
+  computed, PATCH-forge-proof like `online`). The provider page renders it —
   "Serves up to 4 conversations" / "Answering 2 of 4 conversations" — so the
   negotiated ceiling and the far session's real behavior are visible where the
   relay is managed, per invariant UI-12 (a live datum with a SYNC path).

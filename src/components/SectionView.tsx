@@ -8934,20 +8934,19 @@ function ModelsSection({
         </PrimaryButton>
       </PageHeader>
       <FoldSection title="Providers" summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
-        <div className="space-y-3">
-          {shown.length === 0 ? (
-            <Empty>No providers in this view.</Empty>
-          ) : (
-            shown.map((p) => (
-              <ProviderCard
+        {shown.length === 0 ? (
+          <Empty>No providers in this view.</Empty>
+        ) : (
+          <CardList>
+            {shown.map((p) => (
+              <ProviderRow
                 key={p.id}
                 provider={p}
-                onEdit={() => setEditing(p)}
                 onOpen={() => rel.navigate('models', p.id)}
               />
-            ))
-          )}
-        </div>
+            ))}
+          </CardList>
+        )}
       </FoldSection>
       {editing && (
         <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
@@ -8990,15 +8989,47 @@ function ProviderDetailPage({
           </div>
         </div>
       </header>
-      <ProviderCard provider={provider} onEdit={onEdit} detail onDeleted={onDeleted} />
+      <ProviderDetailSections provider={provider} onEdit={onEdit} onDeleted={onDeleted} />
       {children}
     </Page>
   )
 }
 
+/** One provider in the Models INDEX. Like ProjectRow, this is a synopsis door:
+ * identity first, one quiet descriptor, then one small state/count. Authority,
+ * effort levels, catalog entries and management acts belong to the canonical
+ * provider page — repeating them here made the index a stack of configuration
+ * cards rather than a list someone could scan. */
+function ProviderRow({ provider, onOpen }: { provider: ModelProvider; onOpen: () => void }) {
+  const isSession = provider.kind === 'session'
+  const modelCount = provider.models?.length ?? 0
+  const descriptor = isSession ? 'Session relay' : provider.modelFamily
+  const meta = isSession
+    ? provider.online
+      ? 'connected'
+      : 'offline'
+    : `${modelCount} model${modelCount === 1 ? '' : 's'}`
+
+  return (
+    <div data-provider-row onClick={cardDoorClick(onOpen)} className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS}`}>
+      <button
+        onClick={onOpen}
+        className={`max-w-[45%] shrink-0 truncate text-left text-[13px] text-ink hover:text-co ${DOOR_CLASS}`}
+      >
+        {provider.label}
+      </button>
+      <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">{descriptor}</span>
+      <span className="shrink-0 text-[11px] text-ink-faint">
+        {meta}
+        {provider.isDefault ? ' · default' : ''}
+      </span>
+    </div>
+  )
+}
+
 /** The shared relay badge — a Session provider's transport is *declared, not
  *  discovered* (docs/delegated-cognition-provider.md §4.6), so the same cue rides the
- *  provider card, the create panel, and the secret dialog. Since the v2 framed
+ *  provider page, the create panel, and the secret dialog. Since the v2 framed
  *  mailbox, relayed turns carry the full tool surface: the far session relays tool
  *  calls back unexecuted, and each lands here as the same consent card. */
 function RelayBadge() {
@@ -9012,18 +9043,14 @@ function RelayBadge() {
   )
 }
 
-function ProviderCard({
+function ProviderDetailSections({
   provider,
   onEdit,
-  onOpen,
-  detail = false,
   onDeleted,
 }: {
   provider: ModelProvider
   onEdit: () => void
-  onOpen?: () => void
-  detail?: boolean
-  onDeleted?: () => void
+  onDeleted: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
   // Rotate mints a fresh rendezvous secret (kill switch) — shown once via the panel.
@@ -9130,104 +9157,50 @@ function ProviderCard({
     </>
   ) : null
 
-  if (detail) {
-    return (
-      <>
+  return (
+    <>
+      <FoldSection
+        title="Overview"
+        summary={`${provider.kind === 'session' ? 'Session relay' : provider.modelFamily} · grants ${authorityLabel(provider.authority)}`}
+        actions={
+          <>
+            <SectionAction label="Edit provider" icon={<Pencil size={14} />} onClick={onEdit} />
+            <SectionAction label="Delete provider" icon={<Trash2 size={14} />} onClick={() => void del()} />
+          </>
+        }
+      >
+        {overview}
+      </FoldSection>
+      {!isSession && (
         <FoldSection
-          title="Overview"
-          summary={`${provider.kind === 'session' ? 'Session relay' : provider.modelFamily} · grants ${authorityLabel(provider.authority)}`}
+          title="Models"
+          summary={`${provider.models?.length ?? 0} model${provider.models?.length === 1 ? '' : 's'}`}
           actions={
-            <>
-              <SectionAction label="Edit provider" icon={<Pencil size={14} />} onClick={onEdit} />
-              <SectionAction label="Delete provider" icon={<Trash2 size={14} />} onClick={() => void del()} />
-            </>
+            provider.catalogSource === 'listed' ? (
+              <SectionAction
+                label={refreshing ? 'Refreshing model catalog' : 'Refresh model catalog'}
+                icon={<RefreshCw size={14} />}
+                onClick={() => void refresh()}
+                disabled={refreshing}
+              />
+            ) : undefined
           }
         >
-          {overview}
+          {catalog}
         </FoldSection>
-        {!isSession && (
-          <FoldSection
-            title="Models"
-            summary={`${provider.models?.length ?? 0} model${provider.models?.length === 1 ? '' : 's'}`}
-            actions={
-              provider.catalogSource === 'listed' ? (
-                <SectionAction
-                  label={refreshing ? 'Refreshing model catalog' : 'Refresh model catalog'}
-                  icon={<RefreshCw size={14} />}
-                  onClick={() => void refresh()}
-                  disabled={refreshing}
-                />
-              ) : undefined
-            }
-          >
-            {catalog}
-          </FoldSection>
-        )}
-        {isSession && (
-          <FoldSection
-            title="Relay"
-            summary={provider.online ? 'Session connected' : 'Offline'}
-            actions={
-              <SectionAction label="Rotate relay secret" icon={<RefreshCw size={14} />} onClick={() => void rotate()} />
-            }
-          >
-            {relay}
-          </FoldSection>
-        )}
-      </>
-    )
-  }
-
-  return (
-    <CommonsCard onOpen={onOpen}>
-      <CommonsCardHead
-        icon={<Cpu size={16} />}
-        title={provider.label}
-        onOpen={onOpen}
-        subtitle={isSession ? 'Session · relay' : provider.modelFamily}
-        trailing={
-          <div className="flex items-center gap-1.5">
-            {provider.isDefault && <DefaultBadge />}
-            <CardActions onEdit={onEdit} onDelete={del} />
-          </div>
-        }
-      />
-      <div className="mt-2">{overview}</div>
-      {/* The provider's own model catalog (spec MODEL-16) — what the composer's
-          Model section lists for it. One chip per model (the configured default
-          marked); the source note says how the list was obtained, and a LISTED
-          catalog can be re-fetched from the endpoint it came from. A Session
-          provider has none (its cognition is whatever session drains it). */}
-      {!isSession && <div className="mt-2">{catalog}
-          {provider.catalogSource === 'listed' && (
-              <button
-                onClick={refresh}
-                disabled={refreshing}
-                className="inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-soft transition enabled:hover:border-accent enabled:hover:text-ink disabled:opacity-60"
-                title="Re-fetch the catalog from the provider’s own model-list API. Session model picks the new list no longer carries are cleared."
-              >
-                <RefreshCw size={11} />
-                {refreshing ? 'Refreshing…' : 'Refresh models'}
-              </button>
-          )}
-        </div>}
-      {isSession && (
-        <div className="mt-2 flex items-center gap-2 text-[12px] text-ink-soft">
-          <KeyRound size={12} className="shrink-0 text-ink-faint" />
-          {/* The masked fingerprint — the secret itself was shown once at mint and never again. */}
-          <span className="font-mono">rv_live_••••{provider.secretHint ?? '????'}</span>
-          <button
-            onClick={rotate}
-            className="ml-1 inline-flex items-center gap-1 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-ink-soft transition hover:border-accent hover:text-ink"
-            title="Mint a fresh secret; the old one dies instantly (an in-flight relayed turn falls back)."
-          >
-            <RefreshCw size={11} />
-            Rotate
-          </button>
-        </div>
       )}
-      {rotated?.secret && <RelaySecretPanel provider={rotated} secret={rotated.secret} onClose={() => setRotated(null)} />}
-    </CommonsCard>
+      {isSession && (
+        <FoldSection
+          title="Relay"
+          summary={provider.online ? 'Session connected' : 'Offline'}
+          actions={
+            <SectionAction label="Rotate relay secret" icon={<RefreshCw size={14} />} onClick={() => void rotate()} />
+          }
+        >
+          {relay}
+        </FoldSection>
+      )}
+    </>
   )
 }
 

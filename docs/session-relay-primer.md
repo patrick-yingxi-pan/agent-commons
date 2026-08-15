@@ -138,7 +138,7 @@ turn *waiting* at once, and that is settled by a three-layer handshake:
    because an early live run showed an honest serial model would otherwise
    declare 1 and make the platform refuse all concurrency.
 3. **Observed** (user-facing layer): every delivery and settle emits a
-   `relay.activity` event, and the provider card shows the live truth —
+   `relay.activity` event, and the provider page shows the live truth —
    "Serves up to 8 conversations", "Answering 2 of 8" — computed server-side
    and impossible to forge via the API.
 

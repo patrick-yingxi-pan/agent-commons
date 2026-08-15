@@ -38,7 +38,7 @@ test('both registry dialogs offer the default flag through the one <DefaultToggl
   assert.match(src, /from\s+'\.\/Checkbox'/, 'imports the shared component')
   // ProviderDialog + PromptDialog — one toggle each.
   assert.ok((src.match(/<DefaultToggle\b/g) ?? []).length >= 2, 'both dialogs wear the shared toggle')
-  // The flagged rows wear the shared badge (Models card + prompt card).
+  // The flagged registry surfaces wear the shared badge (provider page + prompt card).
   assert.ok((src.match(/<DefaultBadge\b/g) ?? []).length >= 2, 'both registry rows wear the shared badge')
 })
 

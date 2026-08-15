@@ -79,8 +79,8 @@ export function DefaultToggle({
   )
 }
 
-/** The registry-row chip marking the flagged default entry — one look everywhere
- *  (Models cards, prompt cards), sourced from the same lib literal as the toggle. */
+/** The registry chip marking the flagged default entry — one look everywhere
+ *  (provider pages, prompt cards), sourced from the same lib literal as the toggle. */
 export function DefaultBadge() {
   return <span className={DEFAULT_BADGE_CLASS}>Default</span>
 }

@@ -259,6 +259,15 @@ The index is one column at every pane width, so scanning order cannot change at
 a breakpoint. Locked by `src/lib/artifact-index-preview.test.ts` and the
 artifact walk in `e2e/social-sharing.spec.ts`.
 
+The Project pattern includes the **item projection and information boundary**,
+not only `Page` + `FoldSection` around it (UI-34). A Models provider index entry
+is `ProviderRow`: the Project ledger rhythm and type hierarchy (13px identity,
+12px descriptor, 11px metadata), with no item frame. Effort, authority, plan,
+catalog entries and management acts live on `ProviderDetailPage`; repeating
+them in the index turns navigation into a crowded configuration card. The lock
+in `src/lib/page-grammar.test.ts` checks both the three text steps and the
+absence of those detail fields from the row.
+
 Entity-page configuration is **folded and content open**; a section that opens
 folded owes a `summary` — the thread's stub rule, an index entry and never a gap.
 Posture persists per account keyed by TITLE (`src/lib/sectionFold.ts`), which is

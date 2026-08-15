@@ -24,13 +24,13 @@
  *
  *  Which form fits an item: a scannable ONE-LINER (a context, a project, a run)
  *  is a LEDGER ROW; an item with a rich body — a thumbnail, a thread head, an
- *  in-place management card (a model provider's chips + actions) — is a QUIET
- *  CARD in a stack or grid. Surface follows the entity's nature, applied to
- *  chrome.
+ *  in-place management surface — is a QUIET CARD in a stack or grid. A model
+ *  provider is a synopsis row here; its chips and actions live on its canonical
+ *  page. Surface follows the entity's nature, applied to chrome.
  *
  *  The 2026-07-31 migration converted every collection (Projects, Contexts,
- *  Scheduled, CardList → ledger; Artifacts, Commons, Models cards → quiet
- *  card) and swept every resting shadow. When adding a new collection, take
+ *  Scheduled, CardList → ledger; Artifacts and Commons → quiet card) and swept
+ *  every resting shadow. When adding a new collection, take
  *  the recipe from here — a ledger row inside a card is the box-in-box defect
  *  this module exists to end, and src/lib/ledger.test.ts scans for regressions. */
 
