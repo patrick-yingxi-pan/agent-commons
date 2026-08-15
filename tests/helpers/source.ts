@@ -70,8 +70,7 @@ export function concatSource(dir, exts) {
  *  copy that isn't updated silently returns the WRONG body, and a scan over the
  *  wrong body passes vacuously — the exact failure tests/CLAUDE.md warns about.
  *  Asserts the component exists, so an assertion over it can never read nothing. */
-export function sectionViewComponent(name) {
-  const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+function topLevelComponent(src, owner, name) {
   const bodies = src.split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)
   // Matched with plain string work, NOT `new RegExp(\`…${name}\\b\`)`: inside a
   // template literal `\b` is the BACKSPACE character, so that pattern silently
@@ -85,6 +84,15 @@ export function sectionViewComponent(name) {
       return next === undefined || !/[A-Za-z0-9_$]/.test(next)
     }),
   )
-  if (!hit) throw new Error(`SectionView has no top-level component '${name}' — this scan has no subject`)
+  if (!hit) throw new Error(`${owner} has no top-level component '${name}' — this scan has no subject`)
   return hit
+}
+
+export function sectionViewComponent(name) {
+  return topLevelComponent(read(join(ROOT, 'src', 'components', 'SectionView.tsx')), 'SectionView', name)
+}
+
+/** One named component from the shared atomic/composite main-page templates. */
+export function resourcePageComponent(name) {
+  return topLevelComponent(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')), 'ResourcePage', name)
 }

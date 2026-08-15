@@ -40,7 +40,7 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   // Proposer: Discover → the card door → Propose a change.
   await openApp(proposer.page)
   await proposer.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
-  await proposer.page.getByRole('button', { name: 'Discover' }).click()
+  await proposer.page.getByRole('complementary').getByRole('button', { name: 'Discover', exact: true }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
   // The card's TITLE door — its accessible name is the agent's, so this needs no
   // scoping (the old "View definition" button was shared by every card, hence the

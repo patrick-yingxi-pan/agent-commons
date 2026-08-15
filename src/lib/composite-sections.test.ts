@@ -6,7 +6,7 @@ import {
   SCHEDULE_SECTIONS,
   visibleCompositeSections,
 } from './compositeSections.ts'
-import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, read, resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 
 test('the composite section registries name the complete ordered page skeleton', () => {
   assert.deepEqual(
@@ -65,9 +65,11 @@ test('a composite section destination renders only that section and forces its c
     )
   }
   for (const body of [project, routine]) {
-    assert.match(body, /<CompositeSectionPageContext\.Provider/)
-    assert.match(body, /!selectedSection && <SectionFoldControls/, 'the overview alone offers page-wide fold controls')
+    assert.match(body, /<CompositeResourcePage sectionPage=\{selectedSection !== undefined\}>/)
+    assert.match(body, /!selectedSection && <CompositePageFoldControls/, 'the overview alone offers page-wide fold controls')
   }
-  const fold = stripComments(sectionViewComponent('FoldSection'))
+  const composite = stripComments(resourcePageComponent('CompositeResourcePage'))
+  assert.match(composite, /<CompositeSectionPageContext\.Provider value=\{sectionPage\}>/)
+  const fold = stripComments(resourcePageComponent('ResourcePageSection'))
   assert.match(fold, /const effectiveFolded = sectionPage \? false : folded/)
 })

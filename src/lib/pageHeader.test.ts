@@ -75,9 +75,13 @@ test('the back control is an inline round arrow ON the title line — never a fl
 
 test('the page-header consumers source their styling from the shared module', () => {
   const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  const template = read(join(ROOT, 'src', 'components', 'ResourcePage.tsx'))
   assert.match(src, /from\s+'(\.\.\/)+lib\/pageHeader'/, 'SectionView imports the shared page-header module')
+  assert.match(template, /from\s+'(\.\.\/)+lib\/pageHeader'/, 'the page templates import the shared page-header module')
+  assert.match(template, /function ResourcePageHeader/, 'both templates expose the one standard header')
   for (const symbol of ['PAGE_TITLE_CLASS', 'PAGE_HEADER_CLASS']) {
     assert.ok(src.includes(symbol), `SectionView uses ${symbol}`)
+    assert.ok(template.includes(symbol), `ResourcePageHeader uses ${symbol}`)
   }
   // Every page header consumes the shared container: the hub PageHeader, the
   // detail pages (project / context / schedule / owner profile / agent). A new

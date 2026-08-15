@@ -10,8 +10,8 @@ test('an artifact detail replaces the index with a standard main page', () => {
   const section = stripComments(sectionViewComponent('ArtifactsSection')).replace(/\s+/g, ' ')
   assert.ok(
     section.includes('if (openArtifact) {') &&
-      section.includes('return ( <Page> <ArtifactDetailPage'),
-    'the routed artifact must return through Page instead of layering over the index',
+      section.includes('return ( <AtomicResourcePage> <ArtifactDetailPage'),
+    'the routed artifact must return through AtomicResourcePage instead of layering over the index',
   )
   assert.doesNotMatch(section, /<ArtifactViewer\b/, 'the index no longer mounts an overlay viewer')
 })

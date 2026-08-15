@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
@@ -59,11 +59,8 @@ import {
 } from 'lucide-react'
 import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
 import { SECTION_META } from '../lib/sections'
-import { FOLD_HEADER_CLASS, FOLD_HOVER, SECTION_BODY_CLASS, SECTION_GAP, SECTION_RULE_SPACE } from '../lib/foldHeader'
-import { useSectionFold } from '../lib/useSectionFold'
+import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
-import { isSectionFolded, pageFoldWork, setSectionFolded } from '../lib/sectionFold'
-import { subscribeLayout } from '../lib/uiPrefs'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
@@ -129,6 +126,17 @@ import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
 import { BackButton, PageBackContext } from './BackButton'
 import { PageActionButton } from './PageActionButton'
+import {
+  AtomicResourcePage,
+  CompositePageFoldControls,
+  CompositeResourcePage,
+  FoldPairRow,
+  ResourcePageActions as SectionActions,
+  ResourcePageEmpty as PageEmpty,
+  ResourcePageHeader as PageHeader,
+  ResourcePageList as CardList,
+  ResourcePageSection as FoldSection,
+} from './ResourcePage'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
 import {
@@ -359,16 +367,16 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId, slug } from '../../contract/ids.ts'
-import { HOVER_REVEAL, HOVER_CUE, SECTION_REVEAL, SECTION_REVEAL_GROUP } from '../lib/hoverReveal'
+import { HOVER_REVEAL, HOVER_CUE, SECTION_REVEAL_GROUP } from '../lib/hoverReveal'
 import { SectionAction } from './SectionAction'
 import { TierBadge } from './TierBadge'
 import { TIER_LABELS } from '../lib/tierBadge'
 
-/** The main area when a cross-cutting resource (Projects, Artifacts, …) is open
- *  instead of a conversation. Every rail node uses the same page grammar:
- *  shared title block, one reading column, and the one FoldSection vocabulary.
- *  The content inside a section still follows its resource's nature — a rich
- *  artifact remains a card and a scannable project remains a ledger row. */
+/** The reading-page projections for cross-cutting resources (Projects,
+ *  Artifacts, …). They share a title block, reading column and FoldSection
+ *  vocabulary while their payload keeps its honest form — an artifact detail
+ *  is a document and a scannable project index remains a ledger row. Sessions
+ *  join the same atomic template through ConversationPane's workspace layout. */
 export function SectionView({
   section,
   subview,
@@ -701,7 +709,7 @@ function ProjectsSection({
   )
 
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader title="Projects">
         <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
           New project
@@ -757,7 +765,7 @@ function ProjectsSection({
         </>
       )}
       {creating && <NewProjectDialog orgs={myOrgs} onCreate={createProject} onClose={() => setCreating(false)} />}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -1017,11 +1025,6 @@ function ProjectDetail({
   // design, which is not a bug you would ever see and not one you should ship.
   const grants = useGrants('project', project.id, own).data ?? []
 
-  // Which sections this page actually rendered — see `useFoldScope`. Discovered,
-  // not listed: the titles belong to the child components, and a visitor's page
-  // legitimately has fewer.
-  const [foldEntries, FoldScope] = useFoldScope()
-
   // The About editor's disclosure. It lives up here because its VERB does — the
   // description is what the project is, so editing it is a project-level act,
   // not one of the About section's (owner directive 2026-08-13). The section
@@ -1042,14 +1045,7 @@ function ProjectDetail({
     ) : null
 
   return (
-    <Page>
-      {/* The reading column wraps the HEADER too, so the title, the fold pair
-          and every section share one left edge. Capping only the body left the
-          h1 174px outboard of the words underneath it — two columns could
-          spend the page's full 7xl because neither was prose, and one column
-          reading as an indented block under a wide title is the bill for that
-          width arriving late. */}
-      <div className="mx-auto w-full max-w-3xl">
+    <CompositeResourcePage sectionPage={selectedSection !== undefined}>
       {/* ── The page header IS a section header, one level up ─────────────
           (Owner directive 2026-08-13: *"the reveal action buttons can be placed
           at the same row of the title, effectively becoming project-level
@@ -1121,14 +1117,11 @@ function ProjectDetail({
           than beside it — see `lib/sectionFold.ts` for why folded is what makes
           that bearable.
 
-          Capped at a READING column rather than harvesting the full 7xl the
-          page header still uses (owner decision, 2026-08-12). Two columns could
-          spend that width because neither one was prose; one column cannot —
-          About and Discussion are prose, and a 1200px line is unreadable. The
-          margin this leaves is the price of the merge, paid deliberately. */}
-      {!selectedSection && <SectionFoldControls entries={foldEntries} />}
-      <FoldScope>
-      <CompositeSectionPageContext.Provider value={selectedSection !== undefined}>
+          The resource-page template caps the header and every section at one
+          READING column (owner decision, 2026-08-12). Two columns could spend
+          a wider surface because neither one was prose; one column cannot —
+          About and Discussion are prose, and a 1200px line is unreadable. */}
+      {!selectedSection && <CompositePageFoldControls />}
       <div>
           {!sectionAllowed && selectedSection && (
             <div className="border-t border-line-strong py-6">
@@ -1453,10 +1446,7 @@ function ProjectDetail({
               projections. */}
           {showProjectSection('discussion') && <DiscussionsPanel subject={{ kind: 'project', id: project.id }} own={own} />}
       </div>
-      </CompositeSectionPageContext.Provider>
-      </FoldScope>
-      </div>
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -3030,12 +3020,12 @@ function WorkItemPage({
 
   if (!o) {
     return (
-      <Page>
+      <AtomicResourcePage>
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
         <PageEmpty>This work item no longer exists on “{project.name}”.</PageEmpty>
-      </Page>
+      </AtomicResourcePage>
     )
   }
 
@@ -3088,7 +3078,7 @@ function WorkItemPage({
     )
 
   return (
-    <Page>
+    <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
@@ -3214,7 +3204,7 @@ function WorkItemPage({
         {mention.list}
       </div>
       {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -3396,7 +3386,7 @@ function threadFoldVerbs(fold: ThreadFold): ReactNode[] {
 /** ── The Fold all · Unfold all row, once ─────────────────────────────────────
  *  A right-aligned pair of ghost text buttons over a foldable collection. TWO
  *  scopes render it and they are the same control: a THREAD's roots (here) and
- *  a PAGE's sections (`SectionFoldControls`).
+ *  a PAGE's sections (`CompositePageFoldControls`).
  *
  *  One component because they had been two copies of one recipe — same row
  *  class, same glyphs, same words, same "each button renders only when it has
@@ -3416,29 +3406,6 @@ function threadFoldVerbs(fold: ThreadFold): ReactNode[] {
  *  carries nothing to be confused with, so "Fold all" is already unambiguous
  *  and a redundant label would only make it read differently to a screen reader
  *  than to everyone else. */
-type FoldAct = { act: () => void; title: string; name?: string }
-
-function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct }) {
-  if (!fold && !unfold) return null
-  return (
-    <div className="mb-2 flex items-center justify-end gap-1">
-      {(
-        [
-          ['Fold all', ChevronsUp, fold],
-          ['Unfold all', ChevronsDown, unfold],
-        ] as const
-      ).map(([text, Icon, a]) =>
-        a ? (
-          <button key={text} onClick={a.act} aria-label={a.name} title={a.title} className={INLINE_ACTION_CLASS}>
-            <Icon size={12} className="shrink-0" />
-            {text}
-          </button>
-        ) : null,
-      )}
-    </div>
-  )
-}
-
 /** The thread's pair as that row — for the projections with no section header to
  *  move into (a post's own page, a feed card's opened thread). Not a fallback:
  *  an icon-only control is legible inside a cluster of them, and alone above a
@@ -4558,7 +4525,7 @@ function PostComposer() {
     // field — two frames on one ground, which read as a box inside a box the
     // moment the field grew its own verb. The card carried nothing else, so it
     // went: the field IS the composer, exactly as it is on a feed card below.
-    <div className="mx-auto mb-4 w-full max-w-3xl">
+    <div className="mb-4">
       {/* The submit sits INSIDE the box, on its bottom-right (owner directive
           2026-08-08) — the same shell the thread composer wears, so the square's
           composer and a card's are one shape at two sizes. It wears the soft
@@ -4628,7 +4595,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
   const followed = useFollows(lens === 'following').data ?? []
   const feedTitle = lens ? (LENS_LABEL[lens] ?? lens) : 'Feed'
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
       <FoldSection title={feedTitle} summary={`${list.length} item${list.length === 1 ? '' : 's'}`} persist={false}>
         {/* Compose on the square itself. A LENS is a filtered view of your own
@@ -4688,7 +4655,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
           )}
         </FoldSection>
       )}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -4815,7 +4782,7 @@ function DiscussionPage({
   const decidingPost = !isDm && feed.data === undefined && feed.status !== 'error'
   if (!d || decidingPost) {
     return (
-      <Page>
+      <AtomicResourcePage>
         <header className={PAGE_HEADER_CLASS}>
           <div className="flex min-w-0 items-start gap-3">
             <BackButton to={backTo} onBack={onBack} />
@@ -4823,11 +4790,11 @@ function DiscussionPage({
           </div>
         </header>
         <PageEmpty>{q.error ? 'This discussion isn’t visible from this account (or no longer exists).' : 'Loading…'}</PageEmpty>
-      </Page>
+      </AtomicResourcePage>
     )
   }
   return (
-    <Page>
+    <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
@@ -4899,11 +4866,9 @@ function DiscussionPage({
           projections — no fold (this page IS the conversation) and no door to
           itself. */}
       {post ? (
-        <div className="max-w-3xl">
-          <FeedCard item={post} standalone />
-        </div>
+        <FeedCard item={post} standalone />
       ) : (
-      <div className="max-w-3xl">
+      <>
         <ThreadFoldControls fold={fold} />
         <DiscussionPostList
           fold={fold}
@@ -4951,9 +4916,9 @@ function DiscussionPage({
             />
           </div>
         )}
-      </div>
+      </>
       )}
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -4982,7 +4947,7 @@ function DiscussionsSection({
   // The same list the rail's thread children show (state facet + order).
   const filtered = listDiscussions(list, filter)
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader title="Discussions" />
       <FoldSection
         title="Threads"
@@ -5024,7 +4989,7 @@ function DiscussionsSection({
           </CardList>
         )}
       </FoldSection>
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -5193,7 +5158,7 @@ function NotificationsSection({
   }
 
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader title="Notifications">
         {unread > 0 && (
           <button onClick={() => void markNotificationsRead()} className={INLINE_ACTION_CLASS}>
@@ -5212,7 +5177,7 @@ function NotificationsSection({
           </CardList>
         )}
       </FoldSection>
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -5235,7 +5200,7 @@ function MessagesSection() {
   const rel = useRelations()
   const list = useDirectMessages().data ?? []
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader title="Messages" />
       <FoldSection title="Conversations" summary={`${list.length} message thread${list.length === 1 ? '' : 's'}`} persist={false}>
         {list.length === 0 ? (
@@ -5278,7 +5243,7 @@ function MessagesSection() {
           </CardList>
         )}
       </FoldSection>
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -5580,12 +5545,12 @@ function ContributionPage({
 
   if (!c) {
     return (
-      <Page>
+      <AtomicResourcePage>
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
         <PageEmpty>This contribution no longer exists on “{project.name}”.</PageEmpty>
-      </Page>
+      </AtomicResourcePage>
     )
   }
 
@@ -5693,7 +5658,7 @@ function ContributionPage({
     )
 
   return (
-    <Page>
+    <AtomicResourcePage>
       <div>
         <header className={PAGE_HEADER_CLASS}>
           <div className="flex min-w-0 items-start gap-3">
@@ -5929,7 +5894,7 @@ function ContributionPage({
         </div>
         {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
       </div>
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -6609,7 +6574,7 @@ function ArtifactsSection({
   if (openArtifact) {
     const sourceSessionId = sourceSessionOf(openArtifact)
     return (
-      <Page>
+      <AtomicResourcePage>
         <ArtifactDetailPage
           // Keyed by the artifact so per-page state — an open block editor and
           // its draft — cannot leak to a different artifact at the same pane.
@@ -6624,12 +6589,12 @@ function ArtifactsSection({
           backTo={backTo}
           Section={FoldSection}
         />
-      </Page>
+      </AtomicResourcePage>
     )
   }
 
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader title="Artifacts">
         <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
           New artifact
@@ -6674,7 +6639,7 @@ function ArtifactsSection({
       {creating && (
         <NewArtifactDialog projects={projects} onCreate={createArtifact} onClose={() => setCreating(false)} />
       )}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -7150,7 +7115,7 @@ function ContextsSection({
   })).filter((g) => g.items.length > 0)
 
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader
         title="Contexts"
         subtitle={
@@ -7195,7 +7160,7 @@ function ContextsSection({
       >
         <McpAccessCard />
       </FoldSection>
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -7465,7 +7430,7 @@ function ContextDetail({
   }
 
   return (
-    <Page>
+    <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
           {/* Back follows real history (the detail is now addressable, ADAPT-15 — a
@@ -7548,7 +7513,7 @@ function ContextDetail({
           </FoldSection>
         )}
       </div>
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -7706,7 +7671,7 @@ function AgentCommonsSection({
   const canCreatePrompt = subview === 'building-blocks' || subview === 'prompts'
 
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader
         title={surfaceTitle}
         subtitle={surfaceSummary}
@@ -7759,7 +7724,7 @@ function AgentCommonsSection({
       )}
       {creating === 'agent' && <AgentDialog agent={null} onClose={() => setCreating(null)} />}
       {creating === 'prompt' && <PromptDialog prompt={null} onClose={() => setCreating(null)} />}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -9127,7 +9092,7 @@ function ModelsSection({
       )
     }
     return (
-      <Page>
+      <AtomicResourcePage>
         <header className={PAGE_HEADER_CLASS}>
           <div className="flex min-w-0 items-start gap-1">
             <BackButton to={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }} onBack={onBack} />
@@ -9135,12 +9100,12 @@ function ModelsSection({
           </div>
         </header>
         {providersQ.data && <PageEmpty>This provider no longer exists.</PageEmpty>}
-      </Page>
+      </AtomicResourcePage>
     )
   }
 
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader
         title="Models"
         subtitle="Every model your sessions can run on — built-in, registered endpoint, or delegated AI session."
@@ -9167,7 +9132,7 @@ function ModelsSection({
       {editing && (
         <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -9190,7 +9155,7 @@ function ProviderDetailPage({
   children?: ReactNode
 }) {
   return (
-    <Page>
+    <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-1">
           <BackButton to={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }} onBack={onBack} />
@@ -9207,7 +9172,7 @@ function ProviderDetailPage({
       </header>
       <ProviderDetailSections provider={provider} onEdit={onEdit} onDeleted={onDeleted} />
       {children}
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -9651,15 +9616,21 @@ function A2aCardDialog({
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex justify-center px-4 pt-[10dvh]"
-      onMouseDown={onClose}
+      // Portals keep REACT ancestry: this viewer may be opened from a whole-card
+      // door, so a click inside the dialog must not bubble back through that card
+      // and navigate away. The scrim owns dismissal on mouse-down below.
+      onClick={(event) => event.stopPropagation()}
       role="dialog"
       aria-modal="true"
       aria-label={title}
     >
-      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
+      <div
+        className={`${SCRIM_CLASS} backdrop-blur-[1px]`}
+        aria-hidden
+        onMouseDown={onClose}
+      />
       <div
         ref={dialogRef}
-        onMouseDown={(e) => e.stopPropagation()}
         className={`relative flex max-h-[80dvh] w-[560px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
@@ -10453,7 +10424,7 @@ function OwnerProfilePage({
   const followBandRef = useRef<HTMLDivElement>(null)
   if (!profile) {
     return (
-      <Page>
+      <AtomicResourcePage>
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
@@ -10462,12 +10433,12 @@ function OwnerProfilePage({
           // from one that doesn't exist (existence-hiding, D21).
           <PageEmpty>“{name}” shares nothing publicly — or doesn’t exist.</PageEmpty>
         ) : null}
-      </Page>
+      </AtomicResourcePage>
     )
   }
   const s = profile.stats
   return (
-    <Page>
+    <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3.5">
         <BackButton to={backTo} onBack={onBack} />
@@ -10676,7 +10647,7 @@ function OwnerProfilePage({
         </FoldSection>
       </div>
 
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -10837,15 +10808,15 @@ function PromptDetailPage({
   const [editing, setEditing] = useState(false)
   if (!prompt) {
     return (
-      <Page>
+      <AtomicResourcePage>
         {backTo && <div className="mb-4"><BackButton to={backTo} onBack={onBack} /></div>}
         {loaded && <PageEmpty>This prompt does not exist.</PageEmpty>}
-      </Page>
+      </AtomicResourcePage>
     )
   }
   const warning = promptFitWarning(prompt, defaultFamily)
   return (
-    <Page>
+    <AtomicResourcePage>
       <PageHeader
         title={prompt.label}
         badge={prompt.tenantId
@@ -10866,7 +10837,7 @@ function PromptDetailPage({
         </div>
       </FoldSection>
       {editing && prompt.tenantId && <PromptDialog prompt={prompt} onClose={() => setEditing(false)} />}
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -10885,14 +10856,14 @@ function ToolDetailPage({
 }) {
   if (!tool) {
     return (
-      <Page>
+      <AtomicResourcePage>
         {backTo && <div className="mb-4"><BackButton to={backTo} onBack={onBack} /></div>}
         {loaded && <PageEmpty>The tool “{agentToolLabel(toolId)}” is not available.</PageEmpty>}
-      </Page>
+      </AtomicResourcePage>
     )
   }
   return (
-    <Page>
+    <AtomicResourcePage>
       <PageHeader title={agentToolLabel(tool.name)} subtitle="Tool · Built-in agent material" />
       <FoldSection title="Capability" summary={tool.description}>
         <p className="text-[13px] leading-relaxed text-ink-soft">{tool.description}</p>
@@ -10903,7 +10874,7 @@ function ToolDetailPage({
           <AgentFactRow label="Availability" value="Built in to this workspace" />
         </div>
       </FoldSection>
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -10983,7 +10954,7 @@ function AgentPublicPage({
 
   if (!entry) {
     return (
-      <Page>
+      <AtomicResourcePage>
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
@@ -10992,7 +10963,7 @@ function AgentPublicPage({
           // indistinguishable from one that never existed (existence-hiding, D18).
           <PageEmpty>This definition isn’t in the directory — unpublished, or it never existed.</PageEmpty>
         ) : null}
-      </Page>
+      </AtomicResourcePage>
     )
   }
 
@@ -11023,8 +10994,7 @@ function AgentPublicPage({
   }
 
   return (
-    <Page>
-      <div className="mx-auto w-full max-w-3xl">
+    <AtomicResourcePage>
         <PageHeader
           title={entry.label}
           badge={builtIn
@@ -11154,7 +11124,6 @@ function AgentPublicPage({
             them here too — the same rows their review dialog resolves. */}
         {published && <YourProposals entry={entry} focusProposalId={proposalFocus} />}
         {error && <p className="text-[12px] text-removed">{error}</p>}
-      </div>
       {editing && ownedAgent && <AgentDialog agent={ownedAgent} onClose={() => setEditing(false)} />}
       {showCard && published && (
         <A2aCardDialog
@@ -11164,7 +11133,7 @@ function AgentPublicPage({
         />
       )}
       {proposing && !own && !builtIn && <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={() => setProposing(false)} />}
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -11455,7 +11424,7 @@ function AdminSection({
             ? 'Runtime health and workload'
             : 'Instance accounts and namespaces'
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader title={meta.label} subtitle={meta.subtitle} />
       {!granted ? (
         <PageEmpty>
@@ -11477,7 +11446,7 @@ function AdminSection({
           )}
         </FoldSection>
       )}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -11497,7 +11466,7 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
     if (!out.ok) setError(out.message)
   }
   return (
-    <Page>
+    <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-1">
           {/* Back follows real history (ADAPT-18); the structural fallback is
@@ -11605,7 +11574,7 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
           )}
         </div>
       )}
-    </Page>
+    </AtomicResourcePage>
   )
 }
 
@@ -12033,7 +12002,7 @@ function GenericSection({ section }: { section: SectionId }) {
   const meta = SECTION_META[section]
   const [creating, setCreating] = useState(false)
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader
         title={meta.label}
         badge={
@@ -12059,7 +12028,7 @@ function GenericSection({ section }: { section: SectionId }) {
       )}
       {section === 'customize' && <CustomizeView />}
       {creating && <NewDispatchDialog onClose={() => setCreating(false)} />}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -12286,7 +12255,7 @@ function ScheduledSection({
     }))
 
   return (
-    <Page>
+    <CompositeResourcePage>
       <PageHeader
         title="Routines"
         subtitle="Recurring workflows — Claude runs their steps on a cadence and delivers the result."
@@ -12321,7 +12290,7 @@ function ScheduledSection({
           </FoldSection>
         ))
       )}
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -12574,7 +12543,6 @@ function ScheduledDetail({
   const scheduleGrants = useGrants('schedule', task.id).data ?? []
   // …and its grant composer's disclosure, the same as the project page's.
   const [sharingSchedule, setSharingSchedule] = useState(false)
-  const [foldEntries, FoldScope] = useFoldScope()
   const selectedSection = scheduleSection(sectionId)
   const own = task.own !== false
   const sectionAllowed = selectedSection?.visibility !== 'owner' || own
@@ -12582,13 +12550,11 @@ function ScheduledDetail({
     sectionAllowed && (!selectedSection || selectedSection.id === id)
 
   return (
-    <Page>
+    <CompositeResourcePage sectionPage={selectedSection !== undefined}>
       {/* A routine is a composite resource: instruction + workflow + execution
           history + its standing configuration. ProjectDetail established the
-          page form for that nature, so routines use the same one reading column
-          and the same discoverable fold scope rather than a payload column plus
-          a configuration sidebar. */}
-      <div className="mx-auto w-full max-w-3xl">
+          page form for that nature, so routines use the same discoverable fold
+          scope rather than a payload column plus a configuration sidebar. */}
       <header className={`${PAGE_HEADER_CLASS} ${SECTION_REVEAL_GROUP}`}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
@@ -12672,9 +12638,7 @@ function ScheduledDetail({
         )}
       </header>
 
-      {!selectedSection && <SectionFoldControls entries={foldEntries} />}
-      <FoldScope>
-        <CompositeSectionPageContext.Provider value={selectedSection !== undefined}>
+      {!selectedSection && <CompositePageFoldControls />}
         <div>
           {!sectionAllowed && selectedSection && (
             <div className="border-t border-line-strong py-6">
@@ -12751,10 +12715,7 @@ function ScheduledDetail({
           )}
           {showScheduleSection('discussion') && <DiscussionsPanel subject={{ kind: 'schedule', id: task.id }} own={own} />}
         </div>
-        </CompositeSectionPageContext.Provider>
-      </FoldScope>
-      </div>
-    </Page>
+    </CompositeResourcePage>
   )
 }
 
@@ -14014,57 +13975,6 @@ function SystemPromptCard() {
 
 /* ───────────────────────── shared bits ───────────────────────── */
 
-function Page({ children }: { children: ReactNode }) {
-  return (
-    // A @container: page-INTERNAL layout switches (a detail's side column, a
-    // card grid's column count) gate on THIS element's width — a page renders
-    // full-surface or in a half-width split pane, so a viewport breakpoint
-    // (`lg:`) is the wrong variable (UI-9 generalized: at a 1280px window,
-    // `lg:` held two columns inside a 500px pane and squeezed both).
-    <div className="flex-1 overflow-y-auto @container">
-      {/* Every rail node is a reading page. ProjectDetail established the width
-          for composite resources; collection roots solve the same presentation
-          problem and therefore use the same answer instead of reopening to 7xl. */}
-      <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
-    </div>
-  )
-}
-
-function PageHeader({
-  title,
-  badge,
-  subtitle,
-  children,
-}: {
-  title: string
-  badge?: ReactNode
-  subtitle?: ReactNode
-  children?: ReactNode
-}) {
-  // A hub reached through an in-page door carries the back affordance too
-  // (ADAPT-18) — the identical control the detail pages lead with. Rendered
-  // OUTSIDE the max-sm:hidden title (the NarrowBar carries the title below
-  // sm, but back must stay reachable there).
-  const back = useContext(PageBackContext)
-  return (
-    <header className={PAGE_HEADER_CLASS}>
-      <div className="flex min-w-0 grow basis-64 items-start gap-1">
-        {back && <BackButton to={back.to} onBack={back.onBack} />}
-        <div className="min-w-0">
-          {/* Below sm the shell's NarrowBar already carries the section title —
-              repeating it here would read twice on one screen. */}
-          <div className="flex items-center gap-2 max-sm:hidden">
-            <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
-            {badge}
-          </div>
-          {subtitle && <p className="mt-1 text-[13px] text-ink-soft max-sm:mt-0">{subtitle}</p>}
-        </div>
-      </div>
-      {children && <div className="ml-auto flex min-w-0 shrink-0 flex-wrap items-center gap-2.5">{children}</div>}
-    </header>
-  )
-}
-
 function SearchBox({
   value,
   onChange,
@@ -14090,376 +14000,6 @@ function SearchBox({
 function PanelLabel({ children, flush }: { children: ReactNode; flush?: boolean }) {
   return (
     <div className={`${flush ? '' : 'mb-2 '}text-[11px] font-semibold uppercase tracking-wide text-ink-faint`}>
-      {children}
-    </div>
-  )
-}
-
-/** ── A section header's right-aligned verb cluster ──────────────────────────
- *  Hover-revealed, and **only** hover-revealed (SECTION_REVEAL). Negative block
- *  margin swallows the h-6 buttons' extra height so a header with actions keeps
- *  the exact rhythm of one without.
- *
- *  It took a `revealed` prop until 2026-08-13 — "pin the verbs when the section
- *  is EMPTY", on the argument that an empty section whose only affordance is
- *  invisible is a discoverability dead end. The owner rejected it on sight of
- *  the result: *"there are still section buttons constantly showed, instead of
- *  showed upon hover."* Which is the honest reading of the page — on a fresh
- *  project MOST sections are empty, so the exception was not an exception, it
- *  was the common case, and the pass that was meant to quieten the page left
- *  four glyphs standing on it.
- *
- *  **Deleting the prop cost nothing, and that is worth recording**, because two
- *  of its twelve call sites read `empty || composing` and the second half looked
- *  load-bearing (UI-18: the verb must not fade out from under the pointer while
- *  the form it opened is on screen). It was already covered structurally:
- *  `SectionAction` stamps `data-open` from `expanded`, and `SECTION_REVEAL`
- *  carries `has-[[data-open=true]]:opacity-100`, so the cluster stays lit for as
- *  long as its form is open with no help from the caller. Measured before
- *  removing it — pin stripped, form open ⇒ opacity 1; form closed ⇒ 0 — because
- *  "this other mechanism already handles it" is exactly the claim that should
- *  never be taken on inspection.
- *
- *  What genuinely goes is the empty-section pin. The replacement is the one the
- *  section already had: empty-state COPY that names the act ("Nothing posted.
- *  Post a work item — a standing contributor may take it unprompted"), which
- *  says more than a glyph could and costs the page nothing when it is not
- *  needed. */
-function SectionActions({ children }: { children: ReactNode }) {
-  return <div className={`-my-1.5 flex shrink-0 items-center gap-0.5 ${SECTION_REVEAL}`}>{children}</div>
-}
-
-/** ── The page's sections, discovered rather than listed ─────────────────────
- *  A page-level Fold all needs to know which sections are on the page. The
- *  cheap answer is an array of twelve titles in `ProjectDetail`, and it is the
- *  second hand-kept list the "a registry has ONE home" rule exists to forbid
- *  (`src/lib/CLAUDE.md`): the titles live in the child components — `About` in
- *  `ProjectAbout`, `Coordination` in `CoordinationPanel` — so a restated list
- *  is wrong the first time anyone adds, renames or conditionally hides a
- *  section, and wrong SILENTLY, since Fold all would simply skip it.
- *
- *  So the sections register themselves as they mount, and the controls read
- *  what actually rendered. That also makes the answer correct for free where a
- *  static list would need a second condition: a VISITOR's page has no
- *  configuration run (`{own && …}`), and its Fold all offers exactly the seven
- *  sections a visitor can see. */
-type FoldEntry = { title: string; defaultFolded: boolean }
-const FoldScopeCtx = createContext<((entry: FoldEntry) => () => void) | null>(null)
-/** A dedicated composite-section page is already the result of disclosure. Its
- * one section stays open regardless of the overview's persisted fold posture. */
-const CompositeSectionPageContext = createContext(false)
-
-/** The scope a page opens for its sections. Returns what has registered, in
- *  mount order, plus the provider to wrap them in. */
-function useFoldScope(): readonly [FoldEntry[], (props: { children: ReactNode }) => ReactNode] {
-  const [entries, setEntries] = useState<FoldEntry[]>([])
-  const register = useCallback((entry: FoldEntry) => {
-    setEntries((es) => (es.some((e) => e.title === entry.title) ? es : [...es, entry]))
-    return () => setEntries((es) => es.filter((e) => e.title !== entry.title))
-  }, [])
-  const Provider = useCallback(
-    ({ children }: { children: ReactNode }) => <FoldScopeCtx.Provider value={register}>{children}</FoldScopeCtx.Provider>,
-    [register],
-  )
-  return [entries, Provider] as const
-}
-
-/** Fold all · Unfold all over one page's sections.
- *
- *  TWO buttons and never a toggle, which is SOCIAL-21's rule arrived at the hard
- *  way in the thread and adopted here rather than re-learned: they are not
- *  inverses, so a single `allFolded` control disappears exactly when it is
- *  needed — fold everything, open one section to read it, and the way back has
- *  relabelled itself. Each renders only when it has work.
- *
- *  Simpler than the thread's pair, legitimately: sections do not nest, so Fold
- *  all has no interior to preserve and the two acts are total over a flat set.
- *  That difference is the argument against sharing the thread's machinery — the
- *  rule is worth reusing, the tree is not. */
-function SectionFoldControls({ entries }: { entries: FoldEntry[] }) {
-  const titles = entries.map((e) => e.title)
-  // One subscription for the whole page rather than a hook per section (hooks
-  // cannot be called in a loop): the snapshot is the fold bits as a string, so
-  // `useSyncExternalStore` compares it by value and re-renders only on a change
-  // that this control can see.
-  const read = useCallback(
-    () => entries.map((e) => (isSectionFolded(e.title, e.defaultFolded) ? '1' : '0')).join(''),
-    [entries],
-  )
-  const bits = useSyncExternalStore(subscribeLayout, read, read)
-  const folded = (i: number) => bits[i] === '1'
-  const { foldable, unfoldable } = pageFoldWork(titles, (t) => folded(titles.indexOf(t)))
-  // The row itself is `<FoldPairRow>` — the same component the THREAD's pair
-  // renders through, because they are the same control at two scopes. What is
-  // page-specific is only what is below: which sections have work, and the
-  // names.
-  //
-  // The accessible names carry "sections"; the visible text does not. A page
-  // can hold a SECOND pair with the same words — the Discussion section
-  // contains a thread, and a thread has its own Fold all over its posts — so
-  // two controls at different scopes would otherwise share one accessible name,
-  // which is the ambiguity the DM composer's Post buttons were renamed for.
-  // Both names still CONTAIN their visible text, so "click Fold all" remains a
-  // thing a voice user can say (WCAG 2.5.3).
-  return (
-    <FoldPairRow
-      fold={
-        foldable.length > 0 ?
-          {
-            act: () => foldable.forEach((t) => setSectionFolded(t, true)),
-            name: 'Fold all sections',
-            title: 'Collapse every section on this page to its one-line summary',
-          }
-        : undefined
-      }
-      unfold={
-        unfoldable.length > 0 ?
-          {
-            act: () => unfoldable.forEach((t) => setSectionFolded(t, false)),
-            name: 'Unfold all sections',
-            title: 'Open every section on this page',
-          }
-        : undefined
-      }
-    />
-  )
-}
-
-/** ── The ONE page section ───────────────────────────────────────────────────
- *  A named group of page content with a foldable header. It replaced `SidePanel`
- *  and `MainSection`, which were two names for one thing: by the time the
- *  margin-harvest pass (2026-08-03) took the box off the side column, the pair
- *  differed by an icon and half a rem of margin. Two components differing by a
- *  prop are one component (owner directive 2026-08-12 — *"one solution for many
- *  similar problems with adapted UI styles"*).
- *
- *  The merge kept the icon as that adapted style, and a day later it went too
- *  (owner directive 2026-08-13). Worth recording why the second step is not
- *  merely more of the first: an OPTIONAL decoration on a shared primitive is a
- *  standing invitation to two looks. Twelve sections wore a glyph and the rest
- *  did not, along no rule anyone could state — Sharing had a globe because it
- *  used to live in a rail, Discussion never did because it never had. So the
- *  prop is gone rather than made consistent: there is no version of "which
- *  sections get an icon" that is easier to keep true than "none do".
- *
- *  **Foldable, and that is the point of the merge.** The entity page was two
- *  columns of always-open sections; it is one column now, and a column of twelve
- *  open sections would be a worse page than the two it replaced. Configuration
- *  opens FOLDED (`defaultFolded`) and content opens open, so the page reads as
- *  activity with its settings tucked away — the single biggest win being the
- *  Sharing form, five stacked bordered controls that were the heaviest block on
- *  the page and are touched about once a project.
- *
- *  **A folded section owes a `summary`.** Carried over from the thread's stub,
- *  which is an INDEX ENTRY and not a gap: who, when, the opening words, how much
- *  is hidden. "Sharing · tenant-beta, published" is worth folding to; a bare
- *  chevron is not, and a page of bare chevrons is an index of nothing. It is a
- *  prop rather than something this component derives, because only the caller
- *  holds the data — and it renders ONLY while folded, so it can never disagree
- *  with the content below it.
- *
- *  The header is a real `<button>` with `aria-expanded`, wearing the one
- *  disclosure cue (`FOLD_HEADER_CLASS`) used by every main-page section. The
- *  verbs stay OUTSIDE it: nesting a button in
- *  a button is invalid, and "add a routine" is not "fold this". */
-function FoldSection({
-  title,
-  actions,
-  defaultFolded,
-  persist = true,
-  summary,
-  children,
-}: {
-  title: string
-  /** Header verbs (SectionAction buttons / popover triggers), hover-revealed —
-   *  always, with no pinned case. See `SectionActions` for why the escape hatch
-   *  went and why removing it changed no behaviour but the one asked for. */
-  actions?: ReactNode
-  /** Open folded the first time. A declaration of what the section is FOR
-   *  (configuration vs content), never a stored value — see `sectionFold.ts`. */
-  defaultFolded?: boolean
-  /** Stable entity-page sections persist as a preference. Dynamic collection
-   *  bands (a project name grouping artifacts, for example) keep disclosure
-   *  local so an unbounded resource vocabulary never becomes preference keys. */
-  persist?: boolean
-  /** The one-line index entry shown BESIDE the title while folded.
-   *
-   *  REQUIRED, since 2026-08-13. It was optional, and the result was a folded
-   *  page that looked broken: five sections showed a stub and seven showed a
-   *  bare chevron, along no rule a reader could infer (owner report, on the
-   *  fully-folded page). Optional meant the stub rule — a fold is an INDEX
-   *  ENTRY, never a gap — held for the sections someone had gotten around to
-   *  and quietly lapsed for the rest. A section that cannot say what it holds
-   *  in one line is a section whose folded state is a dead end, so the type
-   *  asks for it rather than the reviewer. */
-  summary: ReactNode
-  children: ReactNode
-}) {
-  // Hooks stay unconditional: the caller chooses which state source applies,
-  // not which hook exists. This keeps a dynamic collection band visually and
-  // behaviorally identical to an entity section without polluting uiPrefs.
-  const [storedFolded, setStoredFolded] = useSectionFold(title, defaultFolded)
-  const [localFolded, setLocalFolded] = useState(defaultFolded === true)
-  const folded = persist ? storedFolded : localFolded
-  const setFolded = persist ? setStoredFolded : setLocalFolded
-  const sectionPage = useContext(CompositeSectionPageContext)
-  const effectiveFolded = sectionPage ? false : folded
-  // Announce this section to whatever page is offering Fold all. Absent scope =
-  // no page-level control (a section rendered inside a panel or a card), and the
-  // section works exactly the same — the registry is for the CONTROL's benefit,
-  // never a precondition of folding.
-  const register = useContext(FoldScopeCtx)
-  useEffect(
-    () => (persist ? register?.({ title, defaultFolded: defaultFolded === true }) : undefined),
-    [register, title, defaultFolded, persist],
-  )
-  return (
-    // Boxless since the margin-harvest pass (2026-08-03): sections read
-    // open-canvas — the uppercase label and the column's own gap carry the
-    // structure. The box this dropped was the last per-section frame here, and
-    // folding is what replaces it as the way to quieten a long page.
-    <section className={`${SECTION_REVEAL_GROUP} ${effectiveFolded ? SECTION_GAP.folded : SECTION_GAP.open}`}>
-      {/* The header's bottom margin belongs to the CONTENT under it, so a
-          section folded to nothing gives it back. Fold every section on a
-          project page and the old spelling left 24px of gap plus 8px of margin
-          between twelve one-line rows — an index that scrolls. Only the
-          summary-less case: a stub with words under it still needs the gap it
-          would have had. */}
-      {/* ── The title IS the boundary now ──────────────────────────────────
-          The collections underneath lost their boxes (owner directive
-          2026-08-12: *"remove boxes for items in sections, they are visual
-          noise … make section titles and boundaries more clear"*), so the
-          structure they were carrying has to be carried here instead — a rule
-          under the heading rather than a frame around each list.
-
-          One stroke per section replaces four per collection, and it is doing
-          the job the box was only half doing: a box says "these rows belong
-          together", which the title already said; a rule says "the section
-          starts HERE", which nothing was saying.
-
-          The label goes with it, from `ink-faint` to `ink-soft`. Faint was
-          calibrated when the box was the structure and the label only named it;
-          with the box gone the label is load-bearing, and the quietest ink in
-          the ramp is the wrong weight for the only thing separating two
-          sections. */}
-      <div
-        className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} ${SECTION_RULE_SPACE.above} ${effectiveFolded ? '' : SECTION_RULE_SPACE.below}`}
-      >
-        <button
-          onClick={() => !sectionPage && setFolded(!effectiveFolded)}
-          aria-expanded={!effectiveFolded}
-          aria-disabled={sectionPage || undefined}
-          // Full width while FOLDED, content-width while open. The summary
-          // rides inside this button when there is one, so the whole row is the
-          // way back into what it stands for — one control, not a title you can
-          // press beside a summary you cannot.
-          className={`${FOLD_HEADER_CLASS} min-w-0 ${effectiveFolded ? 'flex-1' : ''}`}
-        >
-          {/* ── The words FIRST, then the chevron ──────────────────────────
-              Measured, not preferred: with the chevron leading, every section's
-              label sat 19px right of its own rule AND its own content, so a page
-              of twelve sections tracked 0 · 19 · 0 · 19 all the way down. The
-              rule spans the column, the content starts at the column, and the
-              only thing that did not was the word naming them.
-
-              A leading chevron cannot be fixed by hanging it in the margin: at
-              375px the column has 16px of container padding, so a −19px hang
-              puts the glyph 3px outside the viewport — UI-2, no horizontal
-              scroll, ever. Trailing costs nothing and buys one left edge.
-
-              What it costs instead is that the chevrons no longer form a column
-              of their own; they follow words of different lengths. That is the
-              right trade at this ratio — twelve labels are the page's skeleton,
-              twelve 13px glyphs are not.
-
-              The icon slot is gone (owner directive 2026-08-13 — *"remove
-              icons from section titles, unifying the style"*), and with it the
-              last difference `SidePanel` had from `MainSection`. The merge doc
-              above called the icon "the adapted style" that justified one
-              component with a prop; a page where five sections wear a glyph and
-              eight do not is not an adapted style, it is two looks — the very
-              defect the merge was for, surviving inside the survivor.
-
-              12px, up from 11. Faint 11px was calibrated when a box drew the
-              structure and the label only named it. The label IS the structure
-              now — it and the rule under it are the whole of what separates two
-              sections — and it had been carrying that at caption size with a
-              glyph beside it doing the noticing. */}
-          {/* Stamped, because the row now holds TWO texts and every caller that
-              wants "the section called X" has to mean this one. Without it a
-              locator matching the header button's text matches title+summary
-              concatenated, which is how a correct page failed two specs the
-              moment the summary moved onto this row. A `data-*` enumeration
-              handle is the repo's answer to that (`data-popover`,
-              `data-session-title-bar`): one attribute, and the structure stops
-              being something each spec re-derives. */}
-          <span
-            data-section-title
-            className="truncate text-[12px] font-semibold uppercase tracking-wide text-ink-soft"
-          >
-            {title}
-          </span>
-          <ChevronDown
-            size={13}
-            className={`shrink-0 text-ink-faint transition group-hover:text-ink-soft ${effectiveFolded ? '-rotate-90' : ''} ${sectionPage ? 'invisible' : ''}`}
-          />
-          {/* ── The summary, ON the title's row ────────────────────────────
-              (Owner directive 2026-08-13: *"the summary should sit at the same
-              row of section title instead of below it for a more compacted
-              view."*)
-
-              It used to render as its own button under the header, indented to
-              line up with the title. That cost a folded section two rows and a
-              rule between them, so a fully folded page — the exact state the
-              fold is FOR — was taller than an index has any business being.
-              Inline, a folded section is one row: what it is, then what it
-              holds.
-
-              Inside the header button rather than beside it, because two
-              controls that do one thing are one control: pressing the words is
-              how you get back to what they stand for, and a summary you could
-              not press would be the only inert text on a row that is otherwise
-              entirely a disclosure. */}
-          {effectiveFolded && (
-            <span className="min-w-0 flex-1 truncate text-left text-[12px] font-normal normal-case tracking-normal text-ink-faint">
-              {summary}
-            </span>
-          )}
-        </button>
-        {actions && <SectionActions>{actions}</SectionActions>}
-      </div>
-      {/* Nothing under the header while folded — the summary is ON it.
-          Open, the content is INSET (`SECTION_BODY_CLASS`), so the rule and the
-          label read as the section's frame and the content reads as being
-          inside it. One indent, applied here — see that constant for why the
-          rows underneath had to give theirs up. */}
-      {effectiveFolded ? null : <div className={SECTION_BODY_CLASS}>{children}</div>}
-    </section>
-  )
-}
-
-/** The one main-column LIST container: rows divided by hairlines, and NOTHING
- *  around them (owner directive 2026-08-12 — the boxes are visual noise).
- *
- *  Its whole history is one argument, made in three steps and each time by
- *  removing something. It began as a pile of per-item cards; the 2026-07-31 flat
- *  pass replaced that with one bordered container because the card chrome
- *  out-talked its content; and this pass took the container's own frame because
- *  seventeen of them on a page of eight sections was the same defect at lower
- *  volume. What is left is the part that was always doing the work — a hairline
- *  between one item and the next.
- *
- *  The structure it used to carry moved UP to the section title, which now draws
- *  a rule (`LEDGER_RULE_CLASS`). A box under a title said "these belong
- *  together" twice; the rule says "the section starts here", which nothing was
- *  saying. Chrome comes from the shared recipe (lib/ledger) either way. */
-function CardList({ children, className = '' }: { children: ReactNode; className?: string }) {
-  // Stamped so a SECTION can find it: sitting directly under a section's rule,
-  // this list's first row must not repeat the space the section already left
-  // (`SECTION_LIST_UNDOUBLE`, which states the rule and why it lives there
-  // rather than here). The attribute is the enumeration handle, not the rule.
-  return (
-    <div data-card-list className={`${LEDGER_LIST_CLASS} ${className}`}>
       {children}
     </div>
   )
@@ -14501,10 +14041,6 @@ function Empty({ children }: { children: ReactNode }) {
  *  lost the dashed frame — that was the noise, and neither role needs it. What
  *  a page keeps is the space and the centring, which only ever read as
  *  deliberate because something was holding them. */
-function PageEmpty({ children }: { children: ReactNode }) {
-  return <div className="py-16 text-center text-[13px] text-ink-faint">{children}</div>
-}
-
 function DispatchStatus({ status }: { status: DispatchRun['status'] }) {
   if (status === 'running')
     return <Spinner size={17} className="mt-0.5 shrink-0 text-accent" />

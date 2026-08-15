@@ -17,7 +17,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, concatSource, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, read, concatSource, resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 
 test('no page-level layout switch is viewport-gated — pane-hosted pages must gate on the container', () => {
   const components = concatSource('src/components')
@@ -55,9 +55,10 @@ test('list-row metadata is gated on the ROW container, not the viewport', () => 
   }
 })
 
-test('the Page scroller is the @container the page layouts key on', () => {
+test('the resource-page frame is the @container the page layouts key on', () => {
   const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
-  assert.match(src, /flex-1 overflow-y-auto @container/, 'Page carries the @container context')
+  const frame = stripComments(resourcePageComponent('ResourcePageFrame'))
+  assert.match(frame, /flex-1 overflow-y-auto @container/, 'ResourcePageFrame carries the @container context')
   // Context detail deliberately has no switch now: UI-30 gives it the Project
   // reading column. UI-31 removes the Artifact grid entirely; one index cannot
   // promise the same reading order while changing from one to two columns.

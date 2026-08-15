@@ -51,8 +51,9 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   expect(w3, 'the step inverts').toBeLessThanOrEqual(w2 - 12)
 
   // ── Horizontal separator (pane gutter): Up/Down arrows step it, Shift coarse. ──
-  // The gutter rides ABOVE the fixed pane it resizes (Recents — always present;
-  // Sections is the flex pane and has no gutter), so ArrowUp GROWS the pane.
+  // The gutter rides ABOVE the fixed pane it resizes. Recents rests folded to
+  // preserve the resource forest, so this geometry walk explicitly opens it.
+  await page.getByRole('button', { name: 'Expand Recents' }).click()
   const recents = page.locator('[data-rail-pane="recents"]')
   const paneHandle = page.getByRole('separator', { name: 'Resize Recents pane' })
   await expect(paneHandle).toBeVisible()
@@ -85,6 +86,7 @@ test('the overlay panel separator takes RAPID keyboard steps, announces its valu
   await page.goto('/')
 
   // The seeded repo session restores its panel on select (same door responsive.spec uses).
+  await page.getByRole('button', { name: 'Expand Recents' }).click()
   await page.locator('aside').getByText('Refactor auth middleware').first().click()
   const panelHandle = page.getByRole('separator', { name: 'Resize panel' })
   await expect(panelHandle).toBeVisible()

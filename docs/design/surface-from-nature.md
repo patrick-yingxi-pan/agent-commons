@@ -77,13 +77,19 @@ That answer governs two surfaces at once:
   the explanation of how the composite is built.
 - The **main page is the honest projection of the selected node**. An atomic
   resource may use the form its payload names. A composite page enumerates all
-  of its composing resources, then uses the Project page's shared grammar: one
-  `max-w-3xl` reading column, one `FoldSection` vocabulary, bounded definition
-  before folded configuration before growing history, and one page-level fold
-  scope. Collection roots and hubs solve the same grouped-resource presentation
-  problem, so they reuse that page grammar too while keeping the payload form
-  named by their contents: projects scan as rows, artifacts preview as synopsis
-  rows, and messages read as conversations. An artifact's rich document, email,
+  of its composing resources. Both derive from the complementary templates in
+  [`resource-page-templates.md`](resource-page-templates.md): one
+  `max-w-3xl` reading column and one `ResourcePageSection` (`FoldSection` at
+  call sites) vocabulary for reading pages, while only
+  `CompositeResourcePage` opens the structural fold scope. A session uses the
+  atomic template's workspace layout because a scrolling transcript plus fixed
+  composer is genuine behavior, not a second representation. Composite pages
+  order bounded definition before folded configuration before growing history,
+  and one page-level fold scope. Collection roots and hubs solve the same
+  grouped-resource presentation problem, so they reuse that page grammar too
+  while keeping the payload form named by their contents: projects scan as
+  rows, artifacts preview as synopsis rows, and messages read as conversations.
+  An artifact's rich document, email,
   image, slide, or sheet body stays on its canonical page; the index does not
   miniaturize five reading surfaces into five unrelated cards. A visible
   ownership/state/kind band does

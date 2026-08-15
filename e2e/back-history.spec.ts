@@ -32,7 +32,7 @@ test('a session opened from a project page carries a back CHAIN — to the page,
   const main = page.locator('[data-main-pane]')
   await main.getByText('Platform hardening').first().click()
   await expect(page.getByText('The platform team')).toBeVisible()
-  await main.getByText('Refactor auth middleware').first().click()
+  await main.getByRole('button', { name: /^Refactor auth middleware/ }).click()
   await expect(page.locator('[data-conversation-pane="auth-refactor"]')).toBeVisible()
   await expect(page).toHaveURL(/\/s\/auth-refactor$/)
   await clearAutoPanel(page)
@@ -150,7 +150,7 @@ test("browser Back walks the pane's OWN history per page (the pop arm keeps the 
   // list → detail → session: three history entries in one pane.
   await page.getByText('Platform hardening').first().click()
   await expect(page).toHaveURL(/\/projects\/p-infra$/)
-  await page.locator('[data-main-pane]').getByText('Refactor auth middleware').first().click()
+  await page.locator('[data-main-pane]').getByRole('button', { name: /^Refactor auth middleware/ }).click()
   await expect(page.locator('[data-conversation-pane="auth-refactor"]')).toBeVisible()
   await clearAutoPanel(page)
 

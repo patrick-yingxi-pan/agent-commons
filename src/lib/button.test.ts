@@ -11,7 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, filesUnder, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, read, filesUnder, resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 import {
   SOLID_BUTTON_CLASS,
   DANGER_BUTTON_CLASS,
@@ -89,7 +89,7 @@ test('the page action is one complete, palette-driven control role', () => {
     )
   }
 
-  const header = stripComments(sectionViewComponent('PageHeader'))
+  const header = stripComments(resourcePageComponent('ResourcePageHeader'))
   assert.match(header, /min-w-0 grow basis-64 items-start/, 'the identity grows beside the action and wraps before it becomes cramped')
   assert.match(header, /ml-auto flex min-w-0 shrink-0/, 'a wrapped action remains right-aligned')
 

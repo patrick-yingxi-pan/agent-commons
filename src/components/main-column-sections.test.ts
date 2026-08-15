@@ -19,7 +19,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, read, resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 import { SECTION_BODY_CLASS, SECTION_BODY_INSET, SECTION_LIST_UNDOUBLE } from '../lib/foldHeader.ts'
 
 const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
@@ -42,7 +42,16 @@ const code = stripComments(src)
  *  "rounded-xl + shadow" inside `CardList`'s comment — prose describing chrome
  *  that had been removed a year earlier. A source scan that reads comments is
  *  asserting about comments. */
-const fn = (name: string): string => stripComments(sectionViewComponent(name))
+const templateName = {
+  FoldSection: 'ResourcePageSection',
+  SectionActions: 'ResourcePageActions',
+  PageEmpty: 'ResourcePageEmpty',
+  CardList: 'ResourcePageList',
+} as const
+const fn = (name: string): string =>
+  stripComments(name in templateName
+    ? resourcePageComponent(templateName[name as keyof typeof templateName])
+    : sectionViewComponent(name))
 
 /** Every `<FoldSection …>` opening tag's prop text.
  *

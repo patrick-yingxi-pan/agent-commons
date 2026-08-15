@@ -11,6 +11,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { SessionTitleBar } from './SessionTitleBar'
 import { ConversationView } from './ConversationView'
 import { EmptyState } from './EmptyState'
+import { AtomicResourcePage } from './ResourcePage'
 import type { MainPaneNav, PaneBackOut } from './MainSplit'
 import { navLocationOfLoc } from '../lib/paneHistory'
 import { useSessions, useSchedules, useProviders, compactSession, keys, patchSession, peek } from '../api'
@@ -143,7 +144,7 @@ export function ConversationPane({
   )
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-conversation-pane={sessionId}>
+    <AtomicResourcePage layout="workspace" data-conversation-pane={sessionId}>
       {/* The SAME title bar every conversation wears (a run session outside
           the live list falls back to a title-only shell). */}
       <SessionTitleBar
@@ -202,6 +203,6 @@ export function ConversationPane({
           />
         }
       />
-    </div>
+    </AtomicResourcePage>
   )
 }

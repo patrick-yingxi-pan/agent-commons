@@ -151,6 +151,7 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   // Split, then retarget the focused duplicate at a DIFFERENT seeded session
   // via the rail's Recents list.
   await page.locator('[data-split-view="row"]').click()
+  await page.getByRole('button', { name: 'Expand Recents' }).click()
   await page.locator('aside').getByText('Dashboard query performance').first().click()
   const pane = page.locator('[data-conversation-pane="dashboard-perf"]')
   await expect(pane).toBeVisible()
@@ -333,14 +334,10 @@ test('an entity door inside a pane-hosted section page stays IN THE PANE (the na
   // detail on the PRIMARY, the reported bug).
   await paneB.getByRole('button').filter({ hasText: 'GitHub' }).first().click()
   await expect(paneB.getByText('Disconnect').first()).toBeVisible()
-  const atomicAside = paneB.locator('aside')
-  await expect(atomicAside).toHaveCount(1)
-  const atomicStacked = await paneB.evaluate((el) => {
-    const aside = el.querySelector('aside')!
-    const main = aside.parentElement!.firstElementChild!
-    return aside.getBoundingClientRect().top >= main.getBoundingClientRect().bottom - 4
-  })
-  expect(atomicStacked, 'an atomic detail side column yields to the pane container').toBe(true)
+  const atomicPage = paneB.locator('[data-resource-page][data-resource-nature="atomic"]')
+  await expect(atomicPage).toHaveCount(1)
+  await expect(paneB.locator('aside')).toHaveCount(0)
+  expect(await paneB.evaluate((el) => el.scrollWidth <= el.clientWidth), 'the atomic page stays inside its pane').toBe(true)
 
   // The primary is untouched; the address names the focused pane's DEEP page
   // (the connector's detail — the pane reports its live location).
@@ -458,6 +455,7 @@ test("the rail's active highlight tracks the FOCUSED pane (UI-12 — no singleto
   // the shared active cue — the singleton's frozen activeId once left the rail
   // highlighting nothing after the first pane-routed navigation).
   const rail = page.getByRole('complementary')
+  await rail.getByRole('button', { name: 'Expand Recents' }).click()
   const sessionRow = rail.getByRole('button', { name: 'Refactor auth middleware', exact: true })
   await expect(sessionRow).toHaveAttribute('aria-current', 'page')
 
@@ -520,6 +518,7 @@ test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — the layout c
 
   // Delete it from the recents row menu (the row is titled after the first
   // message) — confirm inline.
+  await page.getByRole('button', { name: 'Expand Recents' }).click()
   const row = page.getByRole('button', { name: 'Actions for prune me' })
   await row.click()
   await page.getByRole('menuitem', { name: 'Delete' }).click()

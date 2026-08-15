@@ -84,7 +84,7 @@ test('the page hover cue is defined once — no component re-hardcodes it', () =
 
 test('the fold-header consumers source their styling from the shared module', () => {
   const consumers = {
-    'src/components/SectionView.tsx': 'FOLD_HEADER_CLASS',
+    'src/components/ResourcePage.tsx': 'FOLD_HEADER_CLASS',
     'src/components/panels/ArtifactPanel.tsx': 'FOLD_HOVER',
   }
   for (const [rel, symbol] of Object.entries(consumers)) {
@@ -110,7 +110,7 @@ test('a fold header reads LABEL first, chevron last — one left edge down the p
   // FoldSection itself. The one primitive still needs a source-order lock:
   // `FOLD_HEADER_CLASS` is a string and cannot express child order.
   assert.equal(FOLD_HEADER_ORDER, 'label, then chevron', 'the rule is stated where the cue lives')
-  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))
   for (const [name, marker] of [['FoldSection', 'data-section-title']] as const) {
     const at = src.indexOf(marker)
     assert.ok(at > 0, `${name}'s label is in the source`)

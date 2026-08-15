@@ -1,4 +1,5 @@
-/** Lock: every rail destination uses the Project page's main-page grammar.
+/** Lock: every reading-page rail destination uses the Project page's grammar;
+ *  atomic sessions declare the same resource template with workspace layout.
  *
  * The regression this names was visible on `/projects`: a Project detail was a
  * `max-w-3xl` reading page of FoldSections, while the Projects root reopened to
@@ -10,18 +11,22 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, read, resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 import { SECTION_INSTANCE_KEY } from './subviews.ts'
 
 const fn = (name: string) => stripComments(sectionViewComponent(name))
+const templateFn = (name: string) => stripComments(resourcePageComponent(name))
 
-test('every main page uses the one reading column', () => {
-  const page = fn('Page')
-  assert.match(page, /max-w-3xl/, 'Page owns the Project reading width for every rail destination')
+test('every reading main page uses the one reading column', () => {
+  const page = templateFn('ResourcePageFrame')
+  const consumers = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.match(page, /max-w-3xl/, 'ResourcePageFrame owns the Project reading width for every reading destination')
   assert.doesNotMatch(page, /max-w-7xl/, 'collection roots cannot reopen to a second width')
+  assert.match(page, /data-resource-nature/, 'the template stamps its ontology for browser review')
+  assert.doesNotMatch(consumers, /max-w-3xl/, 'resource pages cannot redraw the template reading column')
 })
 
-test('collection roots use FoldSection, never a parallel group-header primitive', () => {
+test('collection roots derive from the composite template and use one section primitive', () => {
   for (const name of [
     'ProjectsSection',
     'ArtifactsSection',
@@ -36,11 +41,24 @@ test('collection roots use FoldSection, never a parallel group-header primitive'
     'AdminSection',
     'GenericSection',
   ]) {
-    assert.match(fn(name), /<Page\b/, `${name} uses the shared reading-page wrapper`)
+    assert.match(fn(name), /<CompositeResourcePage\b/, `${name} derives from the composite page template`)
     assert.match(fn(name), /<FoldSection\b/, `${name} projects its groups through FoldSection`)
   }
-  assert.doesNotMatch(fn('FoldSection'), /FoldGroupHeader/, 'FoldSection does not delegate to a second look')
+  assert.doesNotMatch(templateFn('ResourcePageSection'), /FoldGroupHeader/, 'FoldSection does not delegate to a second look')
   assert.throws(() => sectionViewComponent('FoldGroupHeader'), /has no top-level component/, 'the parallel hub-group primitive is gone')
+})
+
+test('the atomic and composite templates are semantic specializations of one frame', () => {
+  const composite = templateFn('CompositeResourcePage')
+  const atomic = templateFn('AtomicResourcePage')
+  assert.match(composite, /<ResourcePageFrame nature="composite">/)
+  assert.match(composite, /FoldScopeContext\.Provider/, 'only the composite template opens structural-section scope')
+  assert.match(composite, /CompositeSectionPageContext\.Provider/, 'a selected structural child is forced open')
+  assert.match(atomic, /<ResourcePageFrame nature="atomic" layout=\{layout\}/)
+  assert.doesNotMatch(atomic, /FoldScopeContext|CompositeSectionPageContext/, 'visual regions do not turn an atomic leaf into navigation')
+  const conversation = stripComments(read(join(ROOT, 'src', 'components', 'ConversationPane.tsx')))
+  assert.match(conversation, /<AtomicResourcePage layout="workspace" data-conversation-pane=\{sessionId\}>/,
+    'an atomic session derives from the template without losing its transcript/composer workspace')
 })
 
 test('the Models index uses the Project synopsis-row vocabulary, not provider cards', () => {
@@ -85,9 +103,14 @@ test('every instance rail branch resolves to an honest canonical main page', () 
   assert.match(models, /rel\.navigate\('models', p\.id\)/, 'the Models index and rail share the canonical provider door')
 })
 
-test('stable multi-group detail pages use the Project section grammar', () => {
+test('every detail page derives from the template matching its resource nature', () => {
+  for (const name of ['ProjectDetail', 'ScheduledDetail']) {
+    const page = fn(name)
+    assert.match(page, /<CompositeResourcePage\b/, `${name} derives from the composite template`)
+    assert.match(page, /<CompositePageFoldControls\b/, `${name} offers the template's discovered fold controls`)
+  }
+
   for (const name of [
-    'ProjectDetail',
     'ContextDetail',
     'ProviderDetailPage',
     'OwnerProfilePage',
@@ -95,26 +118,24 @@ test('stable multi-group detail pages use the Project section grammar', () => {
     'PromptDetailPage',
     'ToolDetailPage',
     'AdminUserDetail',
-    'ScheduledDetail',
+    'WorkItemPage',
+    'ContributionPage',
+    'DiscussionPage',
   ]) {
     const page = fn(name)
-    assert.match(page, /<Page\b/, `${name} uses the shared reading page`)
+    assert.match(page, /<AtomicResourcePage\b/, `${name} derives from the atomic page template`)
     if (name === 'ProviderDetailPage') {
       assert.match(page, /<ProviderDetailSections\b/, 'the provider page delegates to its detail-section body')
       assert.match(fn('ProviderDetailSections'), /<FoldSection\b/, 'the provider detail body expresses its groups through FoldSection')
-    } else {
+    } else if (!['WorkItemPage', 'ContributionPage', 'DiscussionPage'].includes(name)) {
       assert.match(page, /<FoldSection\b/, `${name} expresses structural groups through FoldSection`)
     }
     assert.match(page, /PAGE_HEADER_CLASS|<PageHeader\b/, `${name} uses the shared page-header vocabulary`)
   }
 
-  // These are atomic timeline/content pages, not grouped configuration pages;
-  // variation belongs in their payload, while Page + header stay invariant.
-  for (const name of ['WorkItemPage', 'ContributionPage', 'DiscussionPage']) {
-    const page = fn(name)
-    assert.match(page, /<Page\b/, `${name} stays in the shared reading page`)
-    assert.match(page, /PAGE_HEADER_CLASS/, `${name} keeps the shared header vocabulary`)
-  }
+  const artifacts = fn('ArtifactsSection')
+  assert.match(artifacts, /if \(openArtifact\)[\s\S]*?<AtomicResourcePage>/, 'an artifact leaf uses the atomic template')
+  assert.match(artifacts, /<CompositeResourcePage>[\s\S]*?<PageHeader title="Artifacts"/, 'the artifact index uses the composite template')
 })
 
 test('cross-file detail bodies receive the one FoldSection instead of redrawing it', () => {
@@ -136,7 +157,7 @@ test('cross-file detail bodies receive the one FoldSection instead of redrawing 
 })
 
 test('dynamic collection bands reuse the frame without growing uiPrefs', () => {
-  const section = fn('FoldSection')
+  const section = templateFn('ResourcePageSection')
   assert.match(section, /persist = true/, 'stable entity sections persist by default')
   assert.match(section, /const \[localFolded, setLocalFolded\] = useState/, 'dynamic groups have local disclosure state')
   assert.match(section, /persist \? storedFolded : localFolded/, 'one component selects the honest state source')

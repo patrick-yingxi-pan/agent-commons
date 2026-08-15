@@ -307,6 +307,7 @@ test('a shared ARTIFACT: the grant opens it, and the visitor gets no filing cont
   await expect(ada.page.getByRole('dialog', { name: ARTIFACT })).toHaveCount(0)
   await expect(artifactPage.getByRole('button', { name: 'Back to Artifacts' })).toBeVisible()
   await expect(artifactPage.getByTitle('Assign to a project')).toBeVisible()
+  await openShareForm(ada.page)
   await artifactPage.getByLabel('Audience kind').selectOption('org')
   await artifactPage.getByLabel('Audience id').fill('tenant-beta')
   await artifactPage.getByRole('button', { name: 'Share', exact: true }).click()
@@ -357,6 +358,7 @@ test('improve an ARTIFACT: the owner edits in place, a visitor proposes, the own
   await expect(ownerPage.getByText(OWNER_EDIT)).toBeVisible({ timeout: ms(20_000) })
 
   // Share at PROPOSE so the audience may offer a change.
+  await openShareForm(ada.page)
   await ownerPage.getByLabel('Audience kind').selectOption('org')
   await ownerPage.getByLabel('Audience id').fill('tenant-beta')
   await ownerPage.getByLabel('Tier').selectOption({ label: 'Propose' })

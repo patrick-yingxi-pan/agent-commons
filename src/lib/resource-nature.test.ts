@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { COMPOSITE_CHILD_KINDS, ACCOUNT_RESOURCE_NATURE, isCompositeResource } from './resourceNature.ts'
-import { ROOT, read, stripComments, sectionViewComponent } from '../../tests/helpers/source.ts'
+import { ROOT, read, resourcePageComponent, stripComments, sectionViewComponent } from '../../tests/helpers/source.ts'
 
 test('the account-resource ontology is total and only canonical children make a composite', () => {
   assert.deepEqual(
@@ -16,6 +16,8 @@ test('the account-resource ontology is total and only canonical children make a 
   assert.equal(isCompositeResource('session'), false, 'linked provenance does not make a session contain those resources')
   assert.equal(isCompositeResource('project'), true)
   assert.deepEqual(COMPOSITE_CHILD_KINDS.schedule, ['session', 'discussion'], 'a routine composes run sessions and its canonical discussion, not internal steps')
+  const conversation = stripComments(read(join(ROOT, 'src', 'components', 'ConversationPane.tsx')))
+  assert.match(conversation, /<AtomicResourcePage layout="workspace"/, 'a session declares its atomic nature while preserving conversation form')
 })
 
 test('every composite projects its canonical children in the rail', () => {
@@ -32,9 +34,11 @@ test('every composite projects its canonical children in the rail', () => {
 test('composite main pages use the project reading-column form and enumerate the same child kinds', () => {
   const project = stripComments(sectionViewComponent('ProjectDetail'))
   const schedule = stripComments(sectionViewComponent('ScheduledDetail'))
+  const frame = stripComments(resourcePageComponent('ResourcePageFrame'))
+  assert.match(frame, /max-w-3xl/, 'the shared template owns the Project reading column')
   for (const body of [project, schedule]) {
-    assert.match(body, /max-w-3xl/, 'the composite page uses the shared reading column')
-    assert.match(body, /<SectionFoldControls/, 'the composite page offers the shared fold scope')
+    assert.match(body, /<CompositeResourcePage\b/, 'the composite page derives from the composite template')
+    assert.match(body, /<CompositePageFoldControls/, 'the composite page offers the shared fold scope')
     assert.doesNotMatch(body, /<aside\b/, 'a composite never moves part of itself into a second page rail')
   }
   const projectChildren = {

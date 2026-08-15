@@ -173,7 +173,7 @@ test('a proposal.opened bell opens the review dialog directly ON the proposal (R
   // Proposer: Discover → the card door → Propose a change (rings the owner's bell).
   await openApp(proposer.page)
   await gotoSection(proposer.page, 'Agents')
-  await proposer.page.getByRole('button', { name: 'Discover' }).click()
+  await proposer.page.getByRole('complementary').getByRole('button', { name: 'Discover', exact: true }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
   await proposer.page.getByRole('button', { name: AGENT, exact: true }).first().click()
   await proposer.page.getByRole('button', { name: 'Propose a change' }).click()
@@ -224,7 +224,7 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   // Proposer: propose a change against the published definition.
   await openApp(proposer.page)
   await gotoSection(proposer.page, 'Agents')
-  await proposer.page.getByRole('button', { name: 'Discover' }).click()
+  await proposer.page.getByRole('complementary').getByRole('button', { name: 'Discover', exact: true }).click()
   await expect(proposer.page.getByText(AGENT).first()).toBeVisible()
   await proposer.page.getByRole('button', { name: AGENT, exact: true }).first().click()
   await proposer.page.getByRole('button', { name: 'Propose a change' }).click()

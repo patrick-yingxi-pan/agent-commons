@@ -199,7 +199,8 @@ and they are never one toggle, SOCIAL-21. The arithmetic under them is pure and
 therefore lives in `src/lib/replyTree.ts` — `draftLine` / `foldableRoots` /
 `foldAllRoots` / `unfoldBranch`, locked in `src/lib/reply-tree.test.ts`) and
 `src/lib/foldHeader.ts` (every foldable section
-header) and `FoldSection` in `src/components/SectionView.tsx` (every SECTION of
+header) and `ResourcePageSection` in `src/components/ResourcePage.tsx`
+(`FoldSection` at call sites; every SECTION of
 a main page — ONE primitive, merged 2026-08-12 from the
 `MainSection` / `SidePanel` pair that by then differed by an icon and half a
 rem of margin. The icon survived that merge as "the adapted style" and went on
@@ -229,7 +230,11 @@ not read, by `e2e/project-page.spec.ts`: the constant
 states the pair in two different units (a padding under a button carrying its
 own `py-1`, and a straight margin), so a source scan could bless it only by
 re-doing the arithmetic the browser is already doing.
-Every rail destination is one `max-w-3xl` reading column of these. Collection
+Every rail destination derives from the page templates in
+`src/components/ResourcePage.tsx`: `AtomicResourcePage` and
+`CompositeResourcePage` specialize one private `ResourcePageFrame`, which owns
+the `max-w-3xl` reading column, container query, page inset and review stamps.
+This is React composition, not class inheritance or copied markup. Collection
 roots once reopened to `max-w-7xl` and used a parallel `FoldGroupHeader`, so
 Projects → Yours/Shared and Project → About/Discussion solved the same grouped-
 resource problem with two grammars. The root pages now use `FoldSection` too;
@@ -237,14 +242,29 @@ their resource-specific row/card/timeline form stays inside it. Stable schema
 sections persist; data-defined bands pass `persist={false}` so a user-created
 project name never becomes an unbounded preference key.
 
+The template split is ONTOLOGICAL, never a visual-style classification
+(UI-28). A composite contains canonical resources or declared sub-pages, so its
+template alone opens structural-section registration and forces an addressed
+section page open. An atomic leaf may still use `FoldSection` for information
+regions, but those regions do not register as navigation children. A session is
+atomic too: `ConversationPane` derives from `AtomicResourcePage` with its
+`workspace` layout because an independently scrolling transcript plus fixed
+composer is a true feature that the reading slot cannot express. Association
+and provenance remain ref links, not composition. Before adding a template
+feature, apply the equivalence test in
+[`docs/design/resource-page-templates.md`](../docs/design/resource-page-templates.md):
+new information/relation/state/place may extend the vocabulary; the same fact
+regrouped, re-sorted, re-labelled or re-chromed must reuse its existing form.
+
 That closure is **total and transitive**, not a list of root components that
 looked right when the rule was written. Every `SECTION_INSTANCE_KEY` entry must
 name an explicit canonical detail renderer; a detail id may never degrade to
 "the index, scrolled and flashed" (the Models provider leaf was the escape that
 earned this rule). Stable multi-group details — profile, published Agent,
 artifact, provider, routine, context and maintainer account — express their
-groups through the same `FoldSection`; atomic timelines may vary only inside the
-shared `Page` + page-header frame. A detail body split into another module does
+groups through the same `FoldSection`; atomic timelines vary only in the payload
+inside `AtomicResourcePage` + the shared page-header frame, while Project and
+Routine use `CompositeResourcePage`. A detail body split into another module does
 not redraw the primitive or import its parent: `SectionView` injects the one
 `MainPageSectionComponent` into `ArtifactDetailPage` and `ProposalsPanel`, and
 the prop is required. `src/lib/page-grammar.test.ts` derives its detail key set
@@ -260,7 +280,7 @@ a breakpoint. Locked by `src/lib/artifact-index-preview.test.ts` and the
 artifact walk in `e2e/social-sharing.spec.ts`.
 
 The Project pattern includes the **item projection and information boundary**,
-not only `Page` + `FoldSection` around it (UI-34). A Models provider index entry
+not only the resource-page template + `FoldSection` around it (UI-34). A Models provider index entry
 is `ProviderRow`: the Project ledger rhythm and type hierarchy (13px identity,
 12px descriptor, 11px metadata), with no item frame. Effort, authority, plan,
 catalog entries and management acts live on `ProviderDetailPage`; repeating
@@ -576,7 +596,7 @@ the bug it was earned for was a row that lit up wider than it was clickable.
 **An addressable resource renders as a MAIN PAGE, never as a modal over its
 parent list** (UI-29). URL and pane identity are not merely persistence for an
 overlay: once `/artifacts/:id` names an artifact, the index yields to a normal
-`Page` with the shared header/back grammar and natural page scroll. Modals remain
+`AtomicResourcePage` with the shared header/back grammar and natural page scroll. Modals remain
 for transient acts such as creating an artifact; the artifact itself is the
 place. Locked structurally by `src/lib/artifact-page.test.ts` and in the DOM by
 `e2e/social-sharing.spec.ts`.

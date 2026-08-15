@@ -38,6 +38,12 @@ what the document or the sibling component claims.
 - **Form follows function; surface follows the entity.** What an entity IS
   decides its surface (lifecycle → timeline, change → diff, relation →
   ref-link). Method: [`docs/design/surface-from-nature.md`](../../docs/design/surface-from-nature.md).
+- **Every main page declares its resource nature.** Collection/hub/composite
+  pages derive from `CompositeResourcePage`; leaf pages derive from
+  `AtomicResourcePage`. Both compose `ResourcePageFrame`; only the composite
+  template registers structural sections. Sessions select the atomic
+  `workspace` layout for their transcript/fixed-composer behavior. Contract and equivalence test:
+  [`docs/design/resource-page-templates.md`](../../docs/design/resource-page-templates.md).
 - **The entity page is the shared surface** — owner and visitor render the same
   page, differing by the `own` flag, not by two components. Two components is
   how a visitor-only regression hides.
