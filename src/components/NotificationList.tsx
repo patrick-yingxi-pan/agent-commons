@@ -120,7 +120,9 @@ export interface NotificationDoors {
 export function NotificationRow({ row, onOpen }: { row: AppNotification; onOpen: () => void }) {
   const Icon = KIND_ICON[row.kind]
   return (
-    <div onClick={cardDoorClick(onOpen)} className={`flex items-start gap-3 px-4 py-3 ${ROW_DOOR_CLASS}`}>
+    // The hosting FoldSection owns the horizontal inset (UI-30); this row owns
+    // only its vertical rhythm, like every other CardList row under a rule.
+    <div onClick={cardDoorClick(onOpen)} className={`flex items-start gap-3 py-3 ${ROW_DOOR_CLASS}`}>
       <Icon size={15} className={`mt-0.5 shrink-0 ${row.read ? 'text-ink-faint' : 'text-accent-strong'}`} />
       <div className="min-w-0 flex-1">
         <button

@@ -80,7 +80,11 @@ That answer governs two surfaces at once:
   of its composing resources, then uses the Project page's shared grammar: one
   `max-w-3xl` reading column, one `FoldSection` vocabulary, bounded definition
   before folded configuration before growing history, and one page-level fold
-  scope.
+  scope. Collection roots and hubs solve the same grouped-resource presentation
+  problem, so they reuse that page grammar too while keeping the payload form
+  named by their contents: projects scan as rows, artifacts tile as a gallery,
+  and messages read as conversations. A visible ownership/state/kind band does
+  not thereby become a rail place; those partitions remain filters under UI-19.
 
 The dependency-free classification lives in `src/lib/resourceNature.ts`; the
 ordered structural pages live in `src/lib/compositeSections.ts`. Keep the rail,

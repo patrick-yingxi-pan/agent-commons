@@ -106,17 +106,12 @@ test('a fold header reads LABEL first, chevron last — one left edge down the p
   // the container has 16px of padding, so a −19px hang puts the glyph outside
   // the viewport, which is UI-2. Trailing costs nothing and buys one left edge.
   //
-  // Locked on BOTH consumers, because this is an ordering the shared class
-  // cannot express — `FOLD_HEADER_CLASS` is a string, and a string has no
-  // opinion about child order. Two consumers that disagreed about where the
-  // glyph goes would be exactly the drift this module owns one level up, and
-  // nothing else would notice.
+  // The old hub-group consumer was retired when collection roots adopted
+  // FoldSection itself. The one primitive still needs a source-order lock:
+  // `FOLD_HEADER_CLASS` is a string and cannot express child order.
   assert.equal(FOLD_HEADER_ORDER, 'label, then chevron', 'the rule is stated where the cue lives')
   const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
-  for (const [name, marker] of [
-    ['FoldSection', 'data-section-title'],
-    ['the group header', 'text-[13px] font-semibold text-ink">{label}'],
-  ] as const) {
+  for (const [name, marker] of [['FoldSection', 'data-section-title']] as const) {
     const at = src.indexOf(marker)
     assert.ok(at > 0, `${name}'s label is in the source`)
     // The chevron that belongs to THIS header is the first one after its label,

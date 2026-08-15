@@ -79,6 +79,50 @@ const header = (page: import('@playwright/test').Page, title: string) =>
     .locator(HEADERS)
     .filter({ has: page.locator('[data-section-title]', { hasText: new RegExp(`^${title}$`, 'i') }) })
 
+/** The shared `Page` column itself. Detail payloads can legitimately contain a
+ *  nested reading cap, so locating every `.max-w-3xl` ancestor of the heading
+ *  double-counts on a Project detail. The Page column is the direct child of
+ *  the section's scrolling main surface. */
+const mainColumn = (page: import('@playwright/test').Page) =>
+  page.locator('div.flex-1.overflow-y-auto > div.mx-auto.w-full.max-w-3xl')
+
+test('the Projects root reuses the Project main-page grammar', async ({ browser }) => {
+  test.setTimeout(ms(60_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+
+  await page.goto('/projects')
+  const rootHeading = page.getByRole('heading', { name: 'Projects', exact: true })
+  await expect(rootHeading).toBeVisible({ timeout: ms(20_000) })
+  const rootColumn = mainColumn(page).filter({ has: rootHeading })
+  await expect(rootColumn, 'the collection root uses the shared reading column').toHaveCount(1)
+  await expect(header(page, 'Yours'), 'the collection band is a real FoldSection').toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  await expect(header(page, 'Shared with you'), 'the second band uses the same disclosure frame').toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  const rootBox = await rootColumn.boundingBox()
+  if (!rootBox) throw new Error('Projects reading column not laid out')
+  expect(rootBox.width, 'the root does not reopen to the old wide ledger').toBeLessThanOrEqual(768)
+
+  await page.goto(PROJECT)
+  const detailHeading = page.getByRole('heading', { name: 'Insights dashboard' })
+  await expect(detailHeading).toBeVisible({ timeout: ms(20_000) })
+  const detailColumn = mainColumn(page).filter({ has: detailHeading })
+  await expect(detailColumn).toHaveCount(1)
+  const detailBox = await detailColumn.boundingBox()
+  if (!detailBox) throw new Error('Project reading column not laid out')
+  expect(
+    Math.abs(rootBox.width - detailBox.width),
+    'root and detail solve the same hierarchy at the same reading width',
+  ).toBeLessThanOrEqual(1)
+
+  await ada.context.close()
+})
+
 test('the project page is one column of foldable sections, configuration folded', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser)

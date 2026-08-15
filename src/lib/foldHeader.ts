@@ -1,9 +1,10 @@
 /** ── Foldable list-section headers ───────────────────────────────────────────
- *  The disclosure headers that collapse / expand a group of rows *in place* — the
- *  Artifacts / Contexts / Scheduled section headers and a workspace panel's folder
- *  headers. Their styling lives here so the hover cue that tells a user "this
- *  header is click-able" stays identical across them: change it once and every fold
- *  header follows, instead of the cue drifting between copy-pasted copies.
+ *  The disclosure headers that collapse / expand a page section or a workspace
+ *  panel folder *in place*. Collection roots once hand-built a second
+ *  group-header consumer; they now use FoldSection itself. Styling lives here
+ *  so the hover cue that tells a user "this header is click-able" stays
+ *  identical across them: change it once and every fold header follows,
+ *  instead of the cue drifting between copy-pasted copies.
  *
  *  These hovers used to differ from the left rail's on purpose, because the rail
  *  sat a step darker than the page: one tint cannot read on two grounds, so the
@@ -46,10 +47,10 @@ export const FOLD_HOVER = {
 export const FOLD_HEADER_CLASS =
   `group -ml-1.5 flex w-fit items-center gap-1.5 rounded-md py-1 pl-1.5 pr-2.5 text-left ${FOLD_HOVER.page}`
 
-/** ── The child ORDER these headers share: label first, chevron last ──────────
+/** ── The child ORDER: label first, chevron last ─────────────────────────────
  *  Not expressible in the class above — a string has no opinion about child
- *  order — so it is stated here and locked in `foldHeader.test.ts` against both
- *  consumers (`FoldSection` on entity pages, the group header on hub lists).
+ *  order — so it is stated here and locked in `foldHeader.test.ts` against the
+ *  one main-page consumer, `FoldSection`.
  *
  *  Earned by measurement (owner report 2026-08-13: *"the layout is still
  *  visually messy"*). With the chevron leading, a section's LABEL rendered 19px

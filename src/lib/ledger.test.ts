@@ -5,9 +5,9 @@
  *       radius, and NO resting elevation (shadow means floating, lib/popover),
  *    2. no file under src/ re-hardcodes the container spelling — the tree-wide
  *       scan, the shape every one-home lock must have (the UI-16 lesson),
- *    3. the first converted surface (the Projects hub) consumes the primitive:
- *       ledger boxes with heads, rows wearing the shared skeleton + the row
- *       door cue from lib/cardDoor — and the card pile it replaced is gone. */
+ *    3. the first converted surface (the Projects hub) still consumes the row
+ *       and divider vocabulary INSIDE UI-30's shared `FoldSection` frame — and
+ *       the card pile and parallel ledger-head grammar are both gone. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
@@ -58,6 +58,7 @@ test('the ledger recipe is flat AND frameless — dividers only, no box, no rest
   // A row draws NO border of its own — the container's divide-y owns every
   // hairline, so rows can't double-rule against it.
   assert.ok(!LEDGER_ROW_CLASS.includes('border'), 'rows carry no border of their own')
+  assert.doesNotMatch(LEDGER_ROW_CLASS, /\bpx-/, 'the hosting section, not each ledger row, owns the inset')
 })
 
 test('no file under src/ re-hardcodes a bordered divider container', () => {
@@ -113,13 +114,16 @@ test('elevation means floating — resting chrome casts no shadow, tree-wide', (
   }
 })
 
-test('the Projects hub consumes the ledger — and the card pile is gone', () => {
+test('the Projects hub keeps ledger rows inside the shared page-section frame', () => {
   const rel = join('src', 'components', 'SectionView.tsx')
   const src = stripComments(read(join(ROOT, rel)))
   assert.match(src, /from\s+'\.\.\/lib\/ledger'/, 'SectionView imports the shared recipe')
-  for (const symbol of ['LEDGER_LIST_CLASS', 'LEDGER_HEAD_CLASS', 'LEDGER_COUNT_CLASS']) {
+  for (const symbol of ['LEDGER_LIST_CLASS', 'LEDGER_ROW_CLASS']) {
     assert.ok(src.includes(`{${symbol}}`), `SectionView renders with ${symbol}`)
   }
+  assert.ok(!src.includes('{LEDGER_HEAD_CLASS}'), 'the old Projects-only group-head grammar is gone')
+  assert.ok(!src.includes('{LEDGER_COUNT_CLASS}'), 'counts now ride FoldSection summaries')
+  assert.match(src, /function ProjectsSection[\s\S]*?<FoldSection\b/, 'Projects groups are shared main-page sections')
   // The row wears the shared skeleton AND the door cue — one template literal,
   // so the pairing can't drift apart silently.
   assert.ok(

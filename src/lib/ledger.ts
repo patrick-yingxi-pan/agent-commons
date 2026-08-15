@@ -86,10 +86,11 @@ export const LEDGER_HEAD_CLASS =
 export const LEDGER_COUNT_CLASS =
   'rounded-full bg-line px-1.5 py-px text-[10px] font-semibold leading-relaxed text-ink-soft'
 
-/** A ledger row's layout skeleton: baseline-aligned columns. Callers append the
- *  door cue (ROW_DOOR_CLASS) when the row fronts a page, plus their own type
- *  sizes and colors. */
-export const LEDGER_ROW_CLASS = 'flex items-baseline gap-2.5 px-3.5 py-2.5'
+/** A ledger row's layout skeleton: baseline-aligned columns. Its hosting
+ *  FoldSection owns the horizontal inset (UI-30), so the row carries only its
+ *  vertical rhythm. Callers append the door cue (ROW_DOOR_CLASS) when the row
+ *  fronts a page, plus their own type sizes and colors. */
+export const LEDGER_ROW_CLASS = 'flex items-baseline gap-2.5 py-2.5'
 
 /** The QUIET CARD — the flat direction's other item form: a gallery tile or feed
  *  card (Artifacts, the Commons feed, Discover) whose item is visual enough to

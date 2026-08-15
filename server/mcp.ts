@@ -222,7 +222,7 @@ function sendRpc(res: ServerResponse, payload: unknown, status = 200): void {
 export const MCP_UI_COPY = {
   /** The rail section hosting the token panel — a real `SECTION_LABELS` label. */
   section: 'Contexts',
-  /** The panel's own heading, verbatim from `McpAccessCard`. */
+  /** The token section's own heading, verbatim from the Contexts page. */
   tokenPanel: 'This account is an MCP server',
 } as const
 

@@ -249,9 +249,14 @@ test('a PAGE with nothing on it is not a section row — the two empty states st
   const strays: string[] = []
   lines.forEach((line, i) => {
     if (!/<Empty>/.test(line)) return
+    // Collection ROOTS now use the same FoldSection frame as entity pages. An
+    // empty band can therefore sit only a few lines below PageHeader and still
+    // be a section-row empty state. Ask containment, not proximity.
+    const before = lines.slice(0, i).join('\n')
+    const inSection = before.lastIndexOf('<FoldSection') > before.lastIndexOf('</FoldSection>')
     // A page-level position: the six lines above open a page rather than a list.
     const above = lines.slice(Math.max(0, i - 6), i).join('\n')
-    if (/<\/header>|<PageHeader|<BackButton/.test(above)) strays.push(`line ${i + 1}`)
+    if (!inSection && /<\/header>|<PageHeader|<BackButton/.test(above)) strays.push(`line ${i + 1}`)
   })
   assert.deepEqual(strays, [], `these render a section's empty ROW where a page's empty state belongs: ${strays.join(', ')}`)
   // Vacuity guards, both directions: the scan needs real subjects of each kind,
@@ -420,6 +425,14 @@ test('no section holds a standing form — the composer hangs off the header ver
     // standing open beside it is exactly the state this looks for, and a
     // body-wide test would pass straight over it.
     for (const m of body.matchAll(/<(input|select|textarea)\b/g)) {
+      // A search field narrows the section already in view; it is not a form
+      // that creates or mutates a resource, so disclosing it behind an Add/Edit
+      // verb would add a click without removing standing composition.
+      // JSX handlers contain `=>`, so "slice to the next >" cuts the tag at an
+      // arrow. A bounded opening-tag window is the same defensive shape the
+      // GrantsPanel enumeration below uses.
+      const tag = body.slice(m.index, m.index + 600)
+      if (/aria-label="Search\b/.test(tag)) continue
       if (!GATE.test(body.slice(0, m.index))) offenders.push(`${name}: <${m[1]}>`)
     }
   }

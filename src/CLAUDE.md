@@ -200,7 +200,7 @@ therefore lives in `src/lib/replyTree.ts` — `draftLine` / `foldableRoots` /
 `foldAllRoots` / `unfoldBranch`, locked in `src/lib/reply-tree.test.ts`) and
 `src/lib/foldHeader.ts` (every foldable section
 header) and `FoldSection` in `src/components/SectionView.tsx` (every SECTION of
-an entity page — ONE primitive, merged 2026-08-12 from the
+a main page — ONE primitive, merged 2026-08-12 from the
 `MainSection` / `SidePanel` pair that by then differed by an icon and half a
 rem of margin. The icon survived that merge as "the adapted style" and went on
 2026-08-13 (*"remove icons from section titles, unifying the style"*): an
@@ -229,8 +229,14 @@ not read, by `e2e/project-page.spec.ts`: the constant
 states the pair in two different units (a padding under a button carrying its
 own `py-1`, and a straight margin), so a source scan could bless it only by
 re-doing the arithmetic the browser is already doing.
-An entity page is one reading column of these, **configuration
-folded and content open**; a section that opens folded owes a `summary` — the
+Every rail destination is one `max-w-3xl` reading column of these. Collection
+roots once reopened to `max-w-7xl` and used a parallel `FoldGroupHeader`, so
+Projects → Yours/Shared and Project → About/Discussion solved the same grouped-
+resource problem with two grammars. The root pages now use `FoldSection` too;
+their resource-specific row/card/timeline form stays inside it. Stable schema
+sections persist; data-defined bands pass `persist={false}` so a user-created
+project name never becomes an unbounded preference key. Entity-page configuration is
+**folded and content open**; a section that opens folded owes a `summary` — the
 thread's stub rule, an index entry and never a gap. Posture persists per account
 keyed by TITLE (`src/lib/sectionFold.ts`), which is what bounds the key space
 and imposes the one constraint worth knowing: two same-named sections MUST
@@ -243,7 +249,7 @@ how a section behaves after a year of use, not by what it is about: state ·
 configuration · histories. The reasoning, including why Open work is band 1
 (a queue is drained; a ledger only lengthens) and why this reversed the previous
 day's config-at-the-tail decision, is at the render site in `ProjectDetail`.
-Locked by `src/components/main-column-sections.test.ts`,
+Locked by `src/components/main-column-sections.test.ts`, `src/lib/page-grammar.test.ts`,
 `src/lib/section-fold.test.ts` and `e2e/project-page.spec.ts` — the order lives
 in the E2E alone, since a source scan and a rendered walk would be two
 statements of one JSX sequence)

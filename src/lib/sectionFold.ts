@@ -5,8 +5,8 @@
  *  problems with adapted UI styles"*.
  *
  *  **What is reused, and what deliberately is not.** The disclosure CUE is
- *  shared (`lib/foldHeader.ts`, already worn by the Artifacts / Contexts /
- *  Scheduled group headers), and so is the two-independent-buttons rule for
+ *  shared (`lib/foldHeader.ts`, now worn by every main-page `FoldSection`), and
+ *  so is the two-independent-buttons rule for
  *  Fold all · Unfold all (SOCIAL-21 — they are not inverses, so they are never
  *  one toggle). What is NOT reused is `lib/replyTree.ts`: a discussion is a
  *  recursive tree with invertible per-node state, branch counts, a caret centred
@@ -20,16 +20,19 @@
  *  "Sharing · tenant-beta, published" is worth folding to; a bare chevron is
  *  not, and a page of bare chevrons is an index of nothing.
  *
- *  ── Why this persists where `lib/disclosure.ts` refuses to ─────────────────
+ *  ── Why stable sections persist where dynamic collection bands do not ──────
  *
  *  That module states the rule and the reason it did not qualify: an entity
  *  disclosure is *navigation memory*, and its key space is unbounded — one entry
  *  per item ever opened — *"exactly what the small per-account `uiPrefs` blob
- *  must not become"*. Both halves invert here. A section fold is a PREFERENCE
+ *  must not become"*. Both halves invert for a schema section. Its fold is a PREFERENCE
  *  ("I never look at Sharing"), not a reading position, so it should outlive the
  *  tab the way the rail's own pane folds do; and the key space is the set of
  *  section TITLES, which is closed, small (~20) and grows only when someone
- *  writes a new section.
+ *  writes a new section. Collection roots now reuse the SAME FoldSection frame,
+ *  but a band named by live data (for example a user-created Project grouping
+ *  artifacts) passes `persist={false}` and keeps its posture locally. One look
+ *  does not require one dishonest storage lifetime.
  *
  *  **Keyed by title, so the same-named section shares one posture across pages.**
  *  Deliberate, and the reason the space stays bounded: the preference is about a

@@ -91,7 +91,7 @@ import { NotificationRow, type NotificationDoors } from './NotificationList'
 import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
-import { LEDGER_LIST_CLASS, LEDGER_HEAD_CLASS, LEDGER_COUNT_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
+import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
@@ -352,10 +352,11 @@ import { SectionAction } from './SectionAction'
 import { TierBadge } from './TierBadge'
 import { TIER_LABELS } from '../lib/tierBadge'
 
-/** The main area when a cross-cutting tool (Projects, Artifacts, …) is open
- *  instead of a conversation. All content is mock — this is a clickable demo.
- *  Projects and Artifacts get their own desktop-app-style layouts; the simpler
- *  tools share the generic header + body. */
+/** The main area when a cross-cutting resource (Projects, Artifacts, …) is open
+ *  instead of a conversation. Every rail node uses the same page grammar:
+ *  shared title block, one reading column, and the one FoldSection vocabulary.
+ *  The content inside a section still follows its resource's nature — a rich
+ *  artifact remains a card and a scannable project remains a ledger row. */
 export function SectionView({
   section,
   subview,
@@ -664,17 +665,11 @@ function ProjectsSection({
   const mine = sorted.filter((p) => band(p) === 'mine')
   const sharedWithYou = sorted.filter((p) => band(p) === 'shared')
 
-  // A band is ONE ledger (lib/ledger): a bordered container whose head names the
-  // relationship and counts the rows — GitHub's repo-file-list idiom, the flat
-  // direction's first converted surface. The per-item card pile this replaces
-  // stacked a border + radius + shadow around every project; the ledger draws
-  // one frame and lets hairlines divide the rows.
-  const ledger = (items: Project[], head: string) => (
-    <div className={LEDGER_LIST_CLASS}>
-      <div className={LEDGER_HEAD_CLASS}>
-        {head}
-        <span className={LEDGER_COUNT_CLASS}>{items.length}</span>
-      </div>
+  // A collection root is a composite page too. Its relationship bands therefore
+  // use the SAME section frame as one Project's About / Context / Discussion
+  // sections; only the rows inside remain the ledger form their nature calls for.
+  const ledger = (items: Project[]) => (
+    <CardList>
       {items.map((p) => (
         <ProjectRow
           key={p.id}
@@ -683,7 +678,7 @@ function ProjectsSection({
           onOpen={() => onOpenProject(p.id)}
         />
       ))}
-    </div>
+    </CardList>
   )
 
   return (
@@ -709,27 +704,36 @@ function ProjectsSection({
         </Empty>
       ) : (
         <>
-          {/* The ledger head replaces the old floating uppercase band label — the
-              band's name and count ride the container itself; the explanatory
-              paragraph keeps its place above the frame. */}
-          {mine.length > 0 && ledger(mine, 'Yours')}
+          {mine.length > 0 && (
+            <FoldSection title="Yours" summary={`${mine.length} project${mine.length === 1 ? '' : 's'}`} persist={false}>
+              {ledger(mine)}
+            </FoldSection>
+          )}
           {orgRows.length > 0 && (
-            <div className={mine.length > 0 ? 'mt-6' : ''}>
-              <p className="mb-2 text-[12px] text-ink-faint">
+            <FoldSection
+              title="Your organizations"
+              summary={`${orgRows.length} project${orgRows.length === 1 ? '' : 's'}`}
+              persist={false}
+            >
+              <p className="mb-3 text-[12px] text-ink-faint">
                 Projects owned by organizations you belong to — a seat, not a switch (the byline is
                 the org's page).
               </p>
-              {ledger(orgRows, 'Your organizations')}
-            </div>
+              {ledger(orgRows)}
+            </FoldSection>
           )}
           {sharedWithYou.length > 0 && (
-            <div className={mine.length > 0 || orgRows.length > 0 ? 'mt-6' : ''}>
-              <p className="mb-2 text-[12px] text-ink-faint">
+            <FoldSection
+              title="Shared with you"
+              summary={`${sharedWithYou.length} project${sharedWithYou.length === 1 ? '' : 's'}`}
+              persist={false}
+            >
+              <p className="mb-3 text-[12px] text-ink-faint">
                 Projects other people opened to the commons — visit one to commission your agent
                 or take open work.
               </p>
-              {ledger(sharedWithYou, 'Shared with you')}
-            </div>
+              {ledger(sharedWithYou)}
+            </FoldSection>
           )}
         </>
       )}
@@ -4603,37 +4607,39 @@ function CommonsSection({ lens }: { lens: string | null }) {
   // Fetched only on that lens: every other view would pay a request for a
   // sentence it never renders.
   const followed = useFollows(lens === 'following').data ?? []
+  const feedTitle = lens ? (LENS_LABEL[lens] ?? lens) : 'Feed'
   return (
     <Page>
       <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
-      {/* Compose on the square itself. A LENS is a filtered view of your own
-          collections ("things I liked"), and a composer there would write into
-          a place whose filter the new post may not even satisfy. */}
-      {lens === null && <PostComposer />}
-      {list.length === 0 ? (
-        <PageEmpty>
-          {/* A lens names the act that fills it; a facet says what it found
-              nothing of; the bare feed explains what a post even is. */}
-          {lens
-            ? lensEmptyText(lens, followed)
-            : filter.facet !== 'all'
-              ? `No ${filter.facet} in your commons yet.`
-              : 'Nothing here yet — say something above, or share a resource with a note (the note is the post).'}
-        </PageEmpty>
-      ) : (
-        <div className="mx-auto w-full max-w-3xl space-y-4">
-          {list.map((item) => (
-            <FeedCard key={item.id} item={item} />
-          ))}
-        </div>
-      )}
-      {lens === null && filter.facet === 'all' && (
-        // A hairline + air between the feed and the directory: two different
-        // reading modes on one page want a visible seam, not adjacency.
-        <div className="mx-auto mt-10 w-full max-w-3xl border-t border-line pt-8">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-            Browse the commons
+      <FoldSection title={feedTitle} summary={`${list.length} item${list.length === 1 ? '' : 's'}`} persist={false}>
+        {/* Compose on the square itself. A LENS is a filtered view of your own
+            collections ("things I liked"), and a composer there would write into
+            a place whose filter the new post may not even satisfy. */}
+        {lens === null && <PostComposer />}
+        {list.length === 0 ? (
+          <Empty>
+            {/* A lens names the act that fills it; a facet says what it found
+                nothing of; the bare feed explains what a post even is. */}
+            {lens
+              ? lensEmptyText(lens, followed)
+              : filter.facet !== 'all'
+                ? `No ${filter.facet} in your commons yet.`
+                : 'Nothing here yet — say something above, or share a resource with a note (the note is the post).'}
+          </Empty>
+        ) : (
+          <div className="space-y-4">
+            {list.map((item) => (
+              <FeedCard key={item.id} item={item} />
+            ))}
           </div>
+        )}
+      </FoldSection>
+      {lens === null && filter.facet === 'all' && (
+        <FoldSection
+          title="Browse the commons"
+          summary={`${browse.length} shared project${browse.length === 1 ? '' : 's'}`}
+          persist={false}
+        >
           <p className="mb-4 text-[12px] text-ink-faint">
             Every project other people opened to contributors — a searchable directory, not a feed.
           </p>
@@ -4661,7 +4667,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
               ))}
             </div>
           )}
-        </div>
+        </FoldSection>
       )}
     </Page>
   )
@@ -4959,40 +4965,46 @@ function DiscussionsSection({
   return (
     <Page>
       <PageHeader title="Discussions" />
-      {filtered.length === 0 ? (
-        <PageEmpty>
-          {filter.facet !== 'all'
-            ? `No ${filter.facet} discussions you participate in.`
-            : 'No discussions yet — start one from any resource’s Discussion section.'}
-        </PageEmpty>
-      ) : (
-        <CardList>
-          {filtered.map((d) => (
-            <div key={d.id} className="flex items-center gap-3 px-4 py-3">
-              <span className="flex w-4 shrink-0 items-center justify-center">
-                {d.state === 'open' ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Open" />
-                ) : (
-                  <CheckCircle2 size={14} className="text-ink-faint" aria-label="Resolved" />
-                )}
-              </span>
-              <div className="min-w-0 flex-1">
-                {/* Title-as-door: the first post fronts the thread's page. */}
-                <button onClick={() => rel.navigate('discussions', d.id)} className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}>
-                  {discussionTitle(d.posts[0]?.body)}
-                </button>
-                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
-                  <span>
-                    {d.posts.length} {d.posts.length === 1 ? 'post' : 'posts'} · by {d.openedBy}
-                  </span>
-                  <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />
+      <FoldSection
+        title="Threads"
+        summary={`${filtered.length} discussion${filtered.length === 1 ? '' : 's'}`}
+        persist={false}
+      >
+        {filtered.length === 0 ? (
+          <Empty>
+            {filter.facet !== 'all'
+              ? `No ${filter.facet} discussions you participate in.`
+              : 'No discussions yet — start one from any resource’s Discussion section.'}
+          </Empty>
+        ) : (
+          <CardList>
+            {filtered.map((d) => (
+              <div key={d.id} className="flex items-center gap-3 py-3">
+                <span className="flex w-4 shrink-0 items-center justify-center">
+                  {d.state === 'open' ? (
+                    <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Open" />
+                  ) : (
+                    <CheckCircle2 size={14} className="text-ink-faint" aria-label="Resolved" />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  {/* Title-as-door: the first post fronts the thread's page. */}
+                  <button onClick={() => rel.navigate('discussions', d.id)} className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}>
+                    {discussionTitle(d.posts[0]?.body)}
+                  </button>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                    <span>
+                      {d.posts.length} {d.posts.length === 1 ? 'post' : 'posts'} · by {d.openedBy}
+                    </span>
+                    <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />
+                  </div>
                 </div>
+                <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
               </div>
-              <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
-            </div>
-          ))}
-        </CardList>
-      )}
+            ))}
+          </CardList>
+        )}
+      </FoldSection>
     </Page>
   )
 }
@@ -5170,15 +5182,17 @@ function NotificationsSection({
           </button>
         )}
       </PageHeader>
-      {rows.length === 0 ? (
-        <Empty>Nothing yet — watch a project (or share one) and its public acts land here.</Empty>
-      ) : (
-        <CardList>
-          {rows.map((n) => (
-            <NotificationRow key={n.id} row={n} onOpen={() => open(n)} />
-          ))}
-        </CardList>
-      )}
+      <FoldSection title="Inbox" summary={`${rows.length} notification${rows.length === 1 ? '' : 's'}`} persist={false}>
+        {rows.length === 0 ? (
+          <Empty>Nothing yet — watch a project (or share one) and its public acts land here.</Empty>
+        ) : (
+          <CardList>
+            {rows.map((n) => (
+              <NotificationRow key={n.id} row={n} onOpen={() => open(n)} />
+            ))}
+          </CardList>
+        )}
+      </FoldSection>
     </Page>
   )
 }
@@ -5204,17 +5218,18 @@ function MessagesSection() {
   return (
     <Page>
       <PageHeader title="Messages" />
-      {list.length === 0 ? (
-        <PageEmpty>
-          No messages yet — open someone’s profile from the commons and use “Message” to start one.
-        </PageEmpty>
-      ) : (
-        <CardList>
-          {list.map((d) => {
+      <FoldSection title="Conversations" summary={`${list.length} message thread${list.length === 1 ? '' : 's'}`} persist={false}>
+        {list.length === 0 ? (
+          <Empty>
+            No messages yet — open someone’s profile from the commons and use “Message” to start one.
+          </Empty>
+        ) : (
+          <CardList>
+            {list.map((d) => {
             const last = d.posts[d.posts.length - 1]
             const unread = d.unread ?? 0
             return (
-              <div key={d.id} className="flex items-center gap-3 px-4 py-3">
+              <div key={d.id} className="flex items-center gap-3 py-3">
                 <span className="flex w-4 shrink-0 items-center justify-center">
                   {unread > 0 ? (
                     <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-label={`${unread} unread`} />
@@ -5240,9 +5255,10 @@ function MessagesSection() {
                 <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(last?.at ?? d.openedAt)}</span>
               </div>
             )
-          })}
-        </CardList>
-      )}
+            })}
+          </CardList>
+        )}
+      </FoldSection>
     </Page>
   )
 }
@@ -6489,7 +6505,6 @@ function ArtifactsSection({
   onOpenSession: (id: string) => void
 }) {
   const [query, setQuery] = useState('')
-  const [folded, setFolded] = useState<Set<string>>(new Set())
   const [creating, setCreating] = useState(false)
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
@@ -6509,13 +6524,6 @@ function ArtifactsSection({
     a.sourceSessionId && sessions.some((s) => s.id === a.sourceSessionId)
       ? a.sourceSessionId
       : sessionIdByTitle.get(a.source)
-
-  const foldGroup = (id: string) =>
-    setFolded((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
 
   const needle = query.trim().toLowerCase()
   // The SAME list the rail's artifact children show, through the same function
@@ -6610,43 +6618,35 @@ function ArtifactsSection({
       {groups.length === 0 ? (
         <Empty>No artifacts match.</Empty>
       ) : (
-        <div className="space-y-7">
-          {groups.map((g) => {
-            const isFolded = folded.has(g.id)
-            return (
-              <div key={g.id}>
-                <FoldGroupHeader
-                  label={g.name}
-                  count={g.items.length}
-                  folded={isFolded}
-                  onToggle={() => foldGroup(g.id)}
-                />
-                {!isFolded && (
-                  <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2 @4xl:grid-cols-3">
-                    {g.items.map((a) => {
-                      // A just-created artifact carries a temporary optimistic id until the
-                      // server's authoritative `art-live-*` id replaces it on reconcile. Don't
-                      // let it be opened in that window — its id isn't one the server would
-                      // recognize, so opening (then re-filing) it would target a phantom id.
-                      const pending = isOptimisticId(a.id)
-                      return (
-                        <ArtifactCard
-                          key={a.id}
-                          artifact={a}
-                          source={rel.artifactSourceFor(a.id)}
-                          pending={pending}
-                          onOpen={() => {
-                            if (!pending) rel.navigate('artifacts', a.id)
-                          }}
-                        />
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+        groups.map((g) => (
+          <FoldSection
+            key={g.id}
+            title={g.name}
+            summary={`${g.items.length} artifact${g.items.length === 1 ? '' : 's'}`}
+            persist={false}
+          >
+            <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
+              {g.items.map((a) => {
+                // A just-created artifact carries a temporary optimistic id until the
+                // server's authoritative `art-live-*` id replaces it on reconcile. Don't
+                // let it be opened in that window — its id isn't one the server would
+                // recognize, so opening (then re-filing) it would target a phantom id.
+                const pending = isOptimisticId(a.id)
+                return (
+                  <ArtifactCard
+                    key={a.id}
+                    artifact={a}
+                    source={rel.artifactSourceFor(a.id)}
+                    pending={pending}
+                    onOpen={() => {
+                      if (!pending) rel.navigate('artifacts', a.id)
+                    }}
+                  />
+                )
+              })}
+            </div>
+          </FoldSection>
+        ))
       )}
 
       {creating && (
@@ -7081,8 +7081,6 @@ function ContextsSection({
   const items = saved.data?.contexts ?? SAVED_CONTEXTS
   const [query, setQuery] = useState('')
   const [filter] = useSectionFilter('contexts')
-  // Which group headers are folded shut.
-  const [folded, setFolded] = useState<Set<SavedContextKind>>(new Set())
 
   // Add / remove / connect all route through the SERVER (the registry is the
   // system of record — these once lived in component state and silently
@@ -7098,13 +7096,6 @@ function ContextsSection({
   const add = (ctx: SavedContext) => {
     void addSavedContext(ctx)
   }
-  const foldGroup = (kind: SavedContextKind) =>
-    setFolded((prev) => {
-      const next = new Set(prev)
-      next.has(kind) ? next.delete(kind) : next.add(kind)
-      return next
-    })
-
   // Clicking a row drills into the same detail a session shows for that context —
   // through the controller (rel.navigate), so the page has an address and history.
   // A stale id (removed context, dead link) degrades to the list.
@@ -7148,37 +7139,34 @@ function ContextsSection({
       {groups.length === 0 ? (
         <Empty>No contexts match.</Empty>
       ) : (
-        <div className="space-y-7">
-          {groups.map((g) => {
-            const isFolded = folded.has(g.kind)
-            return (
-              <div key={g.kind}>
-                <FoldGroupHeader
-                  label={g.label}
-                  count={g.items.length}
-                  folded={isFolded}
-                  onToggle={() => foldGroup(g.kind)}
+        groups.map((g) => (
+          <FoldSection
+            key={g.kind}
+            title={g.label}
+            summary={`${g.items.length} context${g.items.length === 1 ? '' : 's'}`}
+            persist={false}
+          >
+            <CardList>
+              {g.items.map((c) => (
+                <ContextRow
+                  key={c.id}
+                  ctx={c}
+                  onOpen={() => rel.navigate('contexts', c.id)}
+                  onToggle={() => toggle(c.id)}
+                  onRemove={() => remove(c.id)}
                 />
-                {!isFolded && (
-                  <div className={LEDGER_LIST_CLASS}>
-                    {g.items.map((c) => (
-                      <ContextRow
-                        key={c.id}
-                        ctx={c}
-                        onOpen={() => rel.navigate('contexts', c.id)}
-                        onToggle={() => toggle(c.id)}
-                        onRemove={() => remove(c.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+              ))}
+            </CardList>
+          </FoldSection>
+        ))
       )}
 
-      <McpAccessCard />
+      <FoldSection
+        title="This account is an MCP server"
+        summary="MCP endpoint, toolset, and access tokens"
+      >
+        <McpAccessCard />
+      </FoldSection>
     </Page>
   )
 }
@@ -7228,13 +7216,7 @@ function McpAccessCard() {
     ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${minted.token}` } } } }, null, 2)
     : null
   return (
-    <div className={`mt-8 ${LEDGER_LIST_CLASS}`}>
-      {/* The head's divider comes from the ledger's divide-y — no border-b here. */}
-      <div className="flex items-center gap-2 px-4 py-3">
-        <Server size={15} className="text-ink-soft" />
-        <span className="text-[13px] font-semibold text-ink">This account is an MCP server</span>
-      </div>
-      <div className="space-y-3 px-4 py-3.5 text-[13px] leading-relaxed text-ink-soft">
+    <div className="space-y-3 py-3.5 text-[13px] leading-relaxed text-ink-soft">
         <p>
           Any MCP client — another Claude, an agent, a script — can drive everything this UI can:
           same account, same walls, by construction. Point it at the endpoint and authenticate with
@@ -7322,7 +7304,6 @@ function McpAccessCard() {
             </p>
           </div>
         )}
-      </div>
     </div>
   )
 }
@@ -7357,7 +7338,7 @@ function ContextRow({
           lit the whole row, but only this left region used to be a button, so the
           gap beside the status pill swallowed the click. The trailing controls
           keep their own handlers; the card door steps aside for them. */}
-      <div className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3 py-3">
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
           <Icon size={16} />
         </span>
@@ -7389,7 +7370,7 @@ function ContextRow({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 pr-4">
+      <div className="flex shrink-0 items-center gap-2">
         {/* In a tight row the pill yields its width to the name column — the
             detail view (and the connect/disconnect control itself) carries the
             status. */}
@@ -7502,46 +7483,42 @@ function ContextDetail({
         </div>
       </header>
 
-      <div className="flex flex-col gap-6 @3xl:flex-row">
-        <div className="min-w-0 flex-1">
-          <div className={`border-line ${QUIET_CARD_CLASS} p-4`}>
-            {isRepo ? (
-              <RepoDetailBody ctx={ctx} />
-            ) : (
-              <ConnectorDetailBody connector={asConnector} connected={connected} />
-            )}
-          </div>
-        </div>
-
-        <aside className="w-full shrink-0 space-y-4 @3xl:w-72">
-          <FoldSection
-            title="Usage"
-            summary={`${countLabel(ctx.sessions, 'session')} · ${ctx.lastUsedAt == null ? 'never used' : relativeTime(ctx.lastUsedAt)}`}
-          >
-            <div className="space-y-2 text-[13px] text-ink">
-              <div className="flex items-center justify-between">
-                <span className="text-ink-soft">Sessions</span>
-                <span className="font-medium">{ctx.sessions}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-ink-soft">Last used</span>
-                <span className="font-medium">{ctx.lastUsedAt == null ? 'Never' : relativeTime(ctx.lastUsedAt)}</span>
-              </div>
-            </div>
-          </FoldSection>
-
-          {isRepo && ctx.dependsOnGitHub && (
-            <FoldSection title="Depends on" summary="GitHub connector">
-              <div className="flex items-center gap-2 text-[13px] text-ink">
-                <Github size={15} className="shrink-0 text-ink-soft" />
-                GitHub connector
-              </div>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-                Sessions that attach this repo reuse the GitHub connector — no re-cloning.
-              </p>
-            </FoldSection>
+      <div>
+        <FoldSection title="Details" summary={connected ? 'Connected' : 'Needs authentication'}>
+          {isRepo ? (
+            <RepoDetailBody ctx={ctx} />
+          ) : (
+            <ConnectorDetailBody connector={asConnector} connected={connected} />
           )}
-        </aside>
+        </FoldSection>
+
+        <FoldSection
+          title="Usage"
+          summary={`${countLabel(ctx.sessions, 'session')} · ${ctx.lastUsedAt == null ? 'never used' : relativeTime(ctx.lastUsedAt)}`}
+        >
+          <div className="space-y-2 text-[13px] text-ink">
+            <div className="flex items-center justify-between">
+              <span className="text-ink-soft">Sessions</span>
+              <span className="font-medium">{ctx.sessions}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-ink-soft">Last used</span>
+              <span className="font-medium">{ctx.lastUsedAt == null ? 'Never' : relativeTime(ctx.lastUsedAt)}</span>
+            </div>
+          </div>
+        </FoldSection>
+
+        {isRepo && ctx.dependsOnGitHub && (
+          <FoldSection title="Depends on" summary="GitHub connector">
+            <div className="flex items-center gap-2 text-[13px] text-ink">
+              <Github size={15} className="shrink-0 text-ink-soft" />
+              GitHub connector
+            </div>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
+              Sessions that attach this repo reuse the GitHub connector — no re-cloning.
+            </p>
+          </FoldSection>
+        )}
       </div>
     </Page>
   )
@@ -7668,24 +7645,23 @@ function AgentCommonsSection({
   if (agentId) {
     return <AgentPublicPage agentId={agentId} onOpenAgent={onOpenAgentPage} onBack={onBack} backTo={backTo} />
   }
+  const surfaceTitle = tab === 'agents'
+    ? 'Worker agents'
+    : (SECTION_SUBVIEWS.agents ?? []).find((surface) => surface.id === tab)?.label ?? 'Agents'
   return (
     <Page>
-      <PageHeader title="Agents" />
-      <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
-        Your worker agents and the fabric they run on — the{' '}
-        <span className="font-medium text-ink">prompts</span> they start from and the{' '}
-        <span className="font-medium text-ink">commissions</span> placing them on projects.
-        The models that supply their cognition live in the sidebar’s{' '}
-        <span className="font-medium text-ink">Models</span> section.
-      </p>
-      <div className="mt-1">
+      <PageHeader
+        title="Agents"
+        subtitle="Your worker agents, the prompts they start from, and the commissions placing them on projects."
+      />
+      <FoldSection title={surfaceTitle} summary="Agent resources" persist={false}>
         {tab === 'agents' && <AgentsTab onOpenPage={onOpenAgentPage} />}
         {tab === 'work' && <YourWorkTab onOpenProposal={onOpenProposal} />}
         {tab === 'prompts' && <PromptsTab />}
         {tab === 'commissions' && <CommissionsTab />}
         {tab === 'discover' && <DiscoverTab onOpenAgentPage={onOpenAgentPage} />}
         {tab === 'audit' && <AuditTab />}
-      </div>
+      </FoldSection>
     </Page>
   )
 }
@@ -8914,27 +8890,29 @@ function ModelsSection({ providerId }: { providerId: string | null }) {
         session you already run. All of them appear in the composer’s model selector, so a
         model registered here is immediately usable in any conversation.
       </p>
-      <div className="space-y-3">
-        {shown.length === 0 ? (
-          <Empty>No providers in this view.</Empty>
-        ) : (
-          shown.map((p) => {
-            const isFocus = p.id === providerId
-            return (
-              <div
-                key={p.id}
-                ref={isFocus ? focusRef : undefined}
-                className={`scroll-mt-6 rounded-lg transition-colors ${isFocus ? FOCUS_FLASH_CLASS : ''}`}
-              >
-                <ProviderCard provider={p} onEdit={() => setEditing(p)} />
-              </div>
-            )
-          })
-        )}
-        {editing && (
-          <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
-        )}
-      </div>
+      <FoldSection title="Providers" summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
+        <div className="space-y-3">
+          {shown.length === 0 ? (
+            <Empty>No providers in this view.</Empty>
+          ) : (
+            shown.map((p) => {
+              const isFocus = p.id === providerId
+              return (
+                <div
+                  key={p.id}
+                  ref={isFocus ? focusRef : undefined}
+                  className={`scroll-mt-6 rounded-lg transition-colors ${isFocus ? FOCUS_FLASH_CLASS : ''}`}
+                >
+                  <ProviderCard provider={p} onEdit={() => setEditing(p)} />
+                </div>
+              )
+            })
+          )}
+        </div>
+      </FoldSection>
+      {editing && (
+        <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+      )}
     </Page>
   )
 }
@@ -10874,28 +10852,50 @@ function AdminSection({
   const usersQ = useAdminUsers(granted)
   const openDetail = granted && adminUserId && !(usersQ.data && !usersQ.data.some((u) => u.user.id === adminUserId))
   if (openDetail) return <AdminUserDetail userId={adminUserId} onBack={onBack} backTo={backTo} />
+  const surfaceTitle =
+    subview === 'orgs'
+      ? 'Organizations'
+      : subview === 'credentials'
+        ? 'Credentials'
+        : subview === 'audit'
+          ? 'Audit'
+          : subview === 'ops'
+            ? 'Ops'
+            : 'Accounts'
+  const surfaceSummary =
+    subview === 'orgs'
+      ? 'Organizations and invitations'
+      : subview === 'credentials'
+        ? 'Bearer-token metadata and revocation'
+        : subview === 'audit'
+          ? 'Instance-wide effect trail'
+          : subview === 'ops'
+            ? 'Runtime health and workload'
+            : 'Instance accounts and namespaces'
   return (
-    <div className="flex-1 overflow-y-auto @container">
-      <div className="mx-auto w-full max-w-5xl px-6 py-6">
-        <PageHeader title={meta.label} subtitle={meta.subtitle} />
-        {!granted ? (
-          <PageEmpty>
-            This console is for instance maintainers. Sign in as an account on the server’s
-            MAINTAINERS allowlist to use it.
-          </PageEmpty>
-        ) : subview === 'orgs' ? (
-          <AdminOrgsPanel />
-        ) : subview === 'credentials' ? (
-          <AdminCredentialsPanel />
-        ) : subview === 'audit' ? (
-          <AdminAuditPanel />
-        ) : subview === 'ops' ? (
-          <AdminOpsPanel />
-        ) : (
-          <AdminAccountsPanel />
-        )}
-      </div>
-    </div>
+    <Page>
+      <PageHeader title={meta.label} subtitle={meta.subtitle} />
+      {!granted ? (
+        <PageEmpty>
+          This console is for instance maintainers. Sign in as an account on the server’s
+          MAINTAINERS allowlist to use it.
+        </PageEmpty>
+      ) : (
+        <FoldSection title={surfaceTitle} summary={surfaceSummary}>
+          {subview === 'orgs' ? (
+            <AdminOrgsPanel />
+          ) : subview === 'credentials' ? (
+            <AdminCredentialsPanel />
+          ) : subview === 'audit' ? (
+            <AdminAuditPanel />
+          ) : subview === 'ops' ? (
+            <AdminOpsPanel />
+          ) : (
+            <AdminAccountsPanel />
+          )}
+        </FoldSection>
+      )}
+    </Page>
   )
 }
 
@@ -11446,31 +11446,33 @@ function GenericSection({ section }: { section: SectionId }) {
   const meta = SECTION_META[section]
   const [creating, setCreating] = useState(false)
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-5xl px-6 py-6">
-        <PageHeader
-          title={meta.label}
-          badge={
-            meta.beta ? (
-              <span className="rounded-full bg-accent-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-strong">
-                Beta
-              </span>
-            ) : undefined
-          }
-          subtitle={meta.subtitle}
-        >
-          {section === 'dispatch' && (
-            <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
-              New dispatch
-            </PrimaryButton>
-          )}
-        </PageHeader>
+    <Page>
+      <PageHeader
+        title={meta.label}
+        badge={
+          meta.beta ? (
+            <span className="rounded-full bg-accent-tint px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent-strong">
+              Beta
+            </span>
+          ) : undefined
+        }
+        subtitle={meta.subtitle}
+      >
+        {section === 'dispatch' && (
+          <PrimaryButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+            New dispatch
+          </PrimaryButton>
+        )}
+      </PageHeader>
 
-        {section === 'dispatch' && <DispatchView />}
-        {section === 'customize' && <CustomizeView />}
-      </div>
+      {section === 'dispatch' && (
+        <FoldSection title="Runs" summary="Background dispatch history" persist={false}>
+          <DispatchView />
+        </FoldSection>
+      )}
+      {section === 'customize' && <CustomizeView />}
       {creating && <NewDispatchDialog onClose={() => setCreating(false)} />}
-    </div>
+    </Page>
   )
 }
 
@@ -11623,7 +11625,6 @@ function ScheduledSection({
   // events invalidate the cache, so the list reflects run-now / the daemon live.
   const items = useSchedules().data ?? []
   const [query, setQuery] = useState('')
-  const [folded, setFolded] = useState<Set<'active' | 'paused'>>(new Set())
   // Ids with a "Run now" in flight — drives the button spinner until the run's
   // run.finished event lands (cleared on a timer as a safety net).
   const [running, setRunning] = useState<Set<string>>(new Set())
@@ -11656,13 +11657,6 @@ function ScheduledSection({
     const task = await addScheduleFromSeed(tpl.seed)
     onOpenSchedule(task.id)
   }
-
-  const foldGroup = (g: 'active' | 'paused') =>
-    setFolded((prev) => {
-      const next = new Set(prev)
-      next.has(g) ? next.delete(g) : next.add(g)
-      return next
-    })
 
   // Clicking a row drills into the task's workflow + run history.
   const open = scheduleId ? (items.find((t) => t.id === scheduleId) ?? null) : null
@@ -11711,36 +11705,28 @@ function ScheduledSection({
       {groups.length === 0 ? (
         <Empty>No scheduled tasks match.</Empty>
       ) : (
-        <div className="space-y-7">
-          {groups.map((g) => {
-            const isFolded = folded.has(g.key)
-            return (
-              <div key={g.key}>
-                <FoldGroupHeader
-                  label={g.label}
-                  count={g.items.length}
-                  folded={isFolded}
-                  onToggle={() => foldGroup(g.key)}
+        groups.map((g) => (
+          <FoldSection
+            key={g.key}
+            title={g.label}
+            summary={`${g.items.length} routine${g.items.length === 1 ? '' : 's'}`}
+            persist={false}
+          >
+            <CardList className={g.key === 'paused' ? 'opacity-80' : ''}>
+              {g.items.map((t) => (
+                <ScheduledRow
+                  key={t.id}
+                  task={t}
+                  running={running.has(t.id)}
+                  onOpen={() => onOpenSchedule(t.id)}
+                  onToggle={() => toggleEnabled(t.id)}
+                  onRunNow={() => runNow(t.id)}
+                  onRemove={() => remove(t.id)}
                 />
-                {!isFolded && (
-                  <div className={`${LEDGER_LIST_CLASS} ${g.key === 'paused' ? 'opacity-80' : ''}`}>
-                    {g.items.map((t) => (
-                      <ScheduledRow
-                        key={t.id}
-                        task={t}
-                        running={running.has(t.id)}
-                        onOpen={() => onOpenSchedule(t.id)}
-                        onToggle={() => toggleEnabled(t.id)}
-                        onRunNow={() => runNow(t.id)}
-                        onRemove={() => remove(t.id)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+              ))}
+            </CardList>
+          </FoldSection>
+        ))
       )}
     </Page>
   )
@@ -11782,7 +11768,7 @@ function ScheduledRow({
           wash covered the row while only this region took the click. The trailing
           controls (run, delete, the enabled switch) keep their own handlers.
           Dividers come from the ledger container's divide-y (lib/ledger). */}
-      <div className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3 py-3">
         <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2">
           <ToolGlyph tool={lead} size={16} />
           <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${dot}`} />
@@ -11807,7 +11793,7 @@ function ScheduledRow({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-2 pr-4">
+      <div className="flex shrink-0 items-center gap-2">
         {/* In a tight row the pill yields its width to the name column — the
             icon's status dot already carries ok/failed, the detail the rest. */}
         <span className="hidden @sm:block">
@@ -13175,7 +13161,7 @@ function DispatchView() {
 
 function CustomizeView() {
   return (
-    <div className="space-y-3">
+    <div>
       <AppearanceCard />
       <DefaultModelCard />
       <SystemPromptCard />
@@ -13434,37 +13420,6 @@ function SystemPromptCard() {
 
 /* ───────────────────────── shared bits ───────────────────────── */
 
-/** A foldable section group header — the chevron + label + count disclosure shared
- *  verbatim by the Artifacts, Contexts, and Scheduled lists. Styling (including the
- *  hover cue that signals click-ability) comes from lib/foldHeader, so all three
- *  stay in lockstep instead of drifting between copy-pasted copies. */
-function FoldGroupHeader({
-  label,
-  count,
-  folded,
-  onToggle,
-}: {
-  label: string
-  count: number
-  folded: boolean
-  onToggle: () => void
-}) {
-  return (
-    <button onClick={onToggle} aria-expanded={!folded} className={`${FOLD_HEADER_CLASS} mb-1.5`}>
-      {/* Label first, chevron last — the same order `FoldSection` uses, and for
-          the same reason. Two consumers of one cue that disagreed about where
-          the glyph goes would be the drift `lib/foldHeader` exists to prevent,
-          one level up from the colour it already owns. */}
-      <span className="text-[13px] font-semibold text-ink">{label}</span>
-      <span className="text-[12px] text-ink-faint">{count}</span>
-      <ChevronDown
-        size={15}
-        className={`text-ink-faint transition group-hover:text-ink-soft ${folded ? '-rotate-90' : ''}`}
-      />
-    </button>
-  )
-}
-
 function Page({ children }: { children: ReactNode }) {
   return (
     // A @container: page-INTERNAL layout switches (a detail's side column, a
@@ -13473,10 +13428,10 @@ function Page({ children }: { children: ReactNode }) {
     // (`lg:`) is the wrong variable (UI-9 generalized: at a 1280px window,
     // `lg:` held two columns inside a 500px pane and squeezed both).
     <div className="flex-1 overflow-y-auto @container">
-      {/* max-w-7xl: wide enough that a full-surface pane keeps only modest
-          margins (the harvest-the-margins directive, 2026-08-03); reading
-          columns re-cap themselves inside (feed max-w-3xl, detail 3xl). */}
-      <div className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
+      {/* Every rail node is a reading page. ProjectDetail established the width
+          for composite resources; collection roots solve the same presentation
+          problem and therefore use the same answer instead of reopening to 7xl. */}
+      <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">{children}</div>
     </div>
   )
 }
@@ -13730,13 +13685,14 @@ function SectionFoldControls({ entries }: { entries: FoldEntry[] }) {
  *  with the content below it.
  *
  *  The header is a real `<button>` with `aria-expanded`, wearing the one
- *  disclosure cue (`FOLD_HEADER_CLASS`) that the Artifacts / Contexts /
- *  Scheduled group headers wear. The verbs stay OUTSIDE it: nesting a button in
+ *  disclosure cue (`FOLD_HEADER_CLASS`) used by every main-page section. The
+ *  verbs stay OUTSIDE it: nesting a button in
  *  a button is invalid, and "add a routine" is not "fold this". */
 function FoldSection({
   title,
   actions,
   defaultFolded,
+  persist = true,
   summary,
   children,
 }: {
@@ -13748,6 +13704,10 @@ function FoldSection({
   /** Open folded the first time. A declaration of what the section is FOR
    *  (configuration vs content), never a stored value — see `sectionFold.ts`. */
   defaultFolded?: boolean
+  /** Stable entity-page sections persist as a preference. Dynamic collection
+   *  bands (a project name grouping artifacts, for example) keep disclosure
+   *  local so an unbounded resource vocabulary never becomes preference keys. */
+  persist?: boolean
   /** The one-line index entry shown BESIDE the title while folded.
    *
    *  REQUIRED, since 2026-08-13. It was optional, and the result was a folded
@@ -13761,7 +13721,13 @@ function FoldSection({
   summary: ReactNode
   children: ReactNode
 }) {
-  const [folded, setFolded] = useSectionFold(title, defaultFolded)
+  // Hooks stay unconditional: the caller chooses which state source applies,
+  // not which hook exists. This keeps a dynamic collection band visually and
+  // behaviorally identical to an entity section without polluting uiPrefs.
+  const [storedFolded, setStoredFolded] = useSectionFold(title, defaultFolded)
+  const [localFolded, setLocalFolded] = useState(defaultFolded === true)
+  const folded = persist ? storedFolded : localFolded
+  const setFolded = persist ? setStoredFolded : setLocalFolded
   const sectionPage = useContext(CompositeSectionPageContext)
   const effectiveFolded = sectionPage ? false : folded
   // Announce this section to whatever page is offering Fold all. Absent scope =
@@ -13770,8 +13736,8 @@ function FoldSection({
   // never a precondition of folding.
   const register = useContext(FoldScopeCtx)
   useEffect(
-    () => register?.({ title, defaultFolded: defaultFolded === true }),
-    [register, title, defaultFolded],
+    () => (persist ? register?.({ title, defaultFolded: defaultFolded === true }) : undefined),
+    [register, title, defaultFolded, persist],
   )
   return (
     // Boxless since the margin-harvest pass (2026-08-03): sections read
@@ -13913,13 +13879,13 @@ function FoldSection({
  *  a rule (`LEDGER_RULE_CLASS`). A box under a title said "these belong
  *  together" twice; the rule says "the section starts here", which nothing was
  *  saying. Chrome comes from the shared recipe (lib/ledger) either way. */
-function CardList({ children }: { children: ReactNode }) {
+function CardList({ children, className = '' }: { children: ReactNode; className?: string }) {
   // Stamped so a SECTION can find it: sitting directly under a section's rule,
   // this list's first row must not repeat the space the section already left
   // (`SECTION_LIST_UNDOUBLE`, which states the rule and why it lives there
   // rather than here). The attribute is the enumeration handle, not the rule.
   return (
-    <div data-card-list className={LEDGER_LIST_CLASS}>
+    <div data-card-list className={`${LEDGER_LIST_CLASS} ${className}`}>
       {children}
     </div>
   )
@@ -13996,15 +13962,14 @@ function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void
 
 function Card({ title, desc, children }: { title: string; desc: string; children: ReactNode }) {
   return (
-    <div className={`flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-line ${QUIET_CARD_CLASS} px-4 py-3`}>
-      {/* The label keeps a readable basis; a control that can't fit beside it
-          wraps below instead of squeezing the text one word per line. */}
-      <div className="min-w-0 flex-1 basis-56">
-        <div className="text-[13px] font-medium text-ink">{title}</div>
-        <div className="text-[12px] text-ink-faint">{desc}</div>
+    <FoldSection title={title} summary={desc} persist={false}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        {/* The label keeps a readable basis; a control that can't fit beside it
+            wraps below instead of squeezing the text one word per line. */}
+        <p className="min-w-0 flex-1 basis-56 text-[12px] text-ink-faint">{desc}</p>
+        <div className="shrink-0">{children}</div>
       </div>
-      <div className="shrink-0">{children}</div>
-    </div>
+    </FoldSection>
   )
 }
 
