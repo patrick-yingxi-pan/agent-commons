@@ -7649,6 +7649,8 @@ function AgentCommonsSection({
   backTo: NavLocation | null
 }) {
   const tab = subview as CommonsTab
+  const [creating, setCreating] = useState<'agent' | 'prompt' | null>(null)
+  useEffect(() => setCreating(null), [tab])
   // NB: no "reset the sub-view for an agent door" effect here — the door entry
   // points (openAgent / openProposal in useSessionWorkspace) already land the hub
   // on its default surface in the same update that sets the focus target, and a
@@ -7665,7 +7667,18 @@ function AgentCommonsSection({
       <PageHeader
         title="Agents"
         subtitle="Your worker agents, the prompts they start from, and the commissions placing them on projects."
-      />
+      >
+        {tab === 'agents' && (
+          <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating('agent')}>
+            New agent
+          </PageActionButton>
+        )}
+        {tab === 'prompts' && (
+          <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating('prompt')}>
+            New prompt
+          </PageActionButton>
+        )}
+      </PageHeader>
       <FoldSection title={surfaceTitle} summary="Agent resources" persist={false}>
         {tab === 'agents' && <AgentsTab onOpenPage={onOpenAgentPage} />}
         {tab === 'work' && <YourWorkTab onOpenProposal={onOpenProposal} />}
@@ -7674,6 +7687,8 @@ function AgentCommonsSection({
         {tab === 'discover' && <DiscoverTab onOpenAgentPage={onOpenAgentPage} />}
         {tab === 'audit' && <AuditTab />}
       </FoldSection>
+      {creating === 'agent' && <AgentDialog agent={null} onClose={() => setCreating(null)} />}
+      {creating === 'prompt' && <PromptDialog prompt={null} onClose={() => setCreating(null)} />}
     </Page>
   )
 }
@@ -7748,18 +7763,6 @@ function CommonsCard({
       }`}
     >
       {children}
-    </div>
-  )
-}
-
-/** A right-aligned "New ‹thing›" toolbar above a hub list — the same affordance on
- *  every tab. */
-function TabToolbar({ newLabel, onNew }: { newLabel: string; onNew: () => void }) {
-  return (
-    <div className="flex justify-end">
-      <PageActionButton icon={<Plus size={15} />} onClick={onNew}>
-        {newLabel}
-      </PageActionButton>
     </div>
   )
 }
@@ -8029,10 +8032,9 @@ function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
   // only fork/import stubs (D18/D20 — capability never travels) are unbound, so say
   // that instead of implying a hidden default resolution.
   const providerLabel = (id?: string) => providers.find((p) => p.id === id)?.label ?? 'No provider bound yet'
-  const [editing, setEditing] = useState<Agent | 'new' | null>(null)
+  const [editing, setEditing] = useState<Agent | null>(null)
   return (
     <div className="space-y-3">
-      <TabToolbar newLabel="New agent" onNew={() => setEditing('new')} />
       {agents.length === 0 ? (
         <Empty>No agents yet.</Empty>
       ) : (
@@ -8040,7 +8042,7 @@ function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
           <AgentCard key={a.id} agent={a} providerLabel={providerLabel(a.providerId)} onEdit={() => setEditing(a)} onOpenPage={onOpenPage} />
         ))
       )}
-      {editing && <AgentDialog agent={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && <AgentDialog agent={editing} onClose={() => setEditing(null)} />}
     </div>
   )
 }
@@ -9744,10 +9746,9 @@ function PromptsTab() {
   const prompts = useSystemPrompts().data ?? []
   const providers = useProviders().data ?? []
   const providerFamily = defaultEntry(providers)?.modelFamily ?? 'claude'
-  const [editing, setEditing] = useState<SystemPromptEntry | 'new' | null>(null)
+  const [editing, setEditing] = useState<SystemPromptEntry | null>(null)
   return (
     <div className="space-y-3">
-      <TabToolbar newLabel="New prompt" onNew={() => setEditing('new')} />
       {prompts.length === 0 ? (
         <Empty>No system prompts yet.</Empty>
       ) : (
@@ -9755,7 +9756,7 @@ function PromptsTab() {
           <LibraryPromptCard key={p.id} prompt={p} providerFamily={providerFamily} onEdit={() => setEditing(p)} />
         ))
       )}
-      {editing && <PromptDialog prompt={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && <PromptDialog prompt={editing} onClose={() => setEditing(null)} />}
     </div>
   )
 }

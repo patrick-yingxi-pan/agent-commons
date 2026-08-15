@@ -1713,8 +1713,10 @@ session↔context binding, mediation handle, and single-resource escrow).
   with a per-card re-grant editor bounded by the Project's admitted connectors (the D12
   wall — unchecking narrows a Contributor's reach live) and a global Commissions view
   grouped by Project; delete cascade-releases the Contributor's sub-goals. Shared UI
-  primitives (`FormDialog`, `FormField`, `TabToolbar`, `CardActions`, `CommonsCard`) keep
-  the four tabs one system. typecheck + 341 tests + build green; every path verified live.
+  primitives (`PageHeader` + `PageActionButton`, `FormDialog`, `FormField`,
+  `CardActions`, `CommonsCard`) keep the hub surfaces one system; creation verbs change
+  with the rail subview but stay in the shared page-header slot. typecheck + 341 tests +
+  build green; every path verified live.
 - **Slice 16 — persistence. ✅ Built.** The four registries (providers + their server-only
   `ProviderConfig`, the prompt library, worker agents, commissions) and their id counters
   joined the snapshot (`STORE_VERSION` 3 → 4; every mutator persists on its success path;

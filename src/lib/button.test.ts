@@ -81,7 +81,7 @@ test('the page action is one complete, palette-driven control role', () => {
   const uses = (section.match(/<PageActionButton\b/g) ?? []).length
   assert.ok(uses >= 7, `every page/hub creation door shares the component (found ${uses})`)
   assert.ok(!section.includes('PrimaryButton'), 'the former neutral page-button fork is gone')
-  for (const label of ['New project', 'New artifact', 'Add context', 'New provider', 'New routine', 'New dispatch']) {
+  for (const label of ['New project', 'New artifact', 'Add context', 'New provider', 'New routine', 'New dispatch', 'New agent', 'New prompt']) {
     assert.match(
       section,
       new RegExp(`<PageActionButton[\\s\\S]{0,260}${label}[\\s\\S]{0,80}</PageActionButton>`),
@@ -92,6 +92,12 @@ test('the page action is one complete, palette-driven control role', () => {
   const header = stripComments(sectionViewComponent('PageHeader'))
   assert.match(header, /min-w-0 grow basis-64 items-start/, 'the identity grows beside the action and wraps before it becomes cramped')
   assert.match(header, /ml-auto flex min-w-0 shrink-0/, 'a wrapped action remains right-aligned')
+
+  const agentHub = stripComments(sectionViewComponent('AgentCommonsSection'))
+  assert.match(agentHub, /<PageHeader[\s\S]*New agent[\s\S]*New prompt[\s\S]*<\/PageHeader>/, 'Agent creation actions occupy the shared page header')
+  assert.ok(!agentHub.includes('TabToolbar'), 'the Agent hub has no second, in-section page-action position')
+  assert.ok(!sectionViewComponent('AgentsTab').includes('PageActionButton'), 'the worker list does not repeat its page action')
+  assert.ok(!sectionViewComponent('PromptsTab').includes('PageActionButton'), 'the prompt list does not repeat its page action')
 })
 
 /** The one element allowed to pair `bg-ink` with `text-canvas`: the tooltip's

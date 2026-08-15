@@ -272,12 +272,14 @@ A page or hub has one standing action vocabulary (UI-35). `PageActionButton`
 is the complete 32px role for New/Add verbs: the theme's `accent-tint` /
 `accent-strong` soft face, one icon gap, a quiet theme-colored inset edge and a
 stronger edge on keyboard focus. Projects, Artifacts, Contexts, Models,
-Routines, Dispatch and Agent hub toolbars all use it; popover triggers keep the
+Routines, Dispatch and Agent hub headers all use it; popover triggers keep the
 same face by passing `aria-haspopup` / `aria-expanded` through the component.
 `PageHeader` gives its identity group a growing 16rem basis and the action
 cluster `ml-auto`, so a long subtitle wraps beside the action; a tight pane
 wraps the whole control at the right instead of squeezing either side. Do not
-extend this role to section verbs
+place the same standing action in a fold's body or list toolbar: subview-specific
+actions such as New agent and New prompt still belong to the hub's page header.
+Do not extend this role to section verbs
 (`SectionAction`), row actions, navigation doors, toggles or destructive
 confirms—unification follows function. Locked by `src/lib/button.test.ts`.
 
