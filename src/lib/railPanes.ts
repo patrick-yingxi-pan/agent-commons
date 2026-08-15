@@ -5,8 +5,8 @@
  *  and, when open, holds a **persisted, FIXED** height — except the **top-most
  *  open pane**, which **flexes** to fill whatever height the others leave. The
  *  Sections tree is the pane with the most rows, so it gets every freed pixel:
- *  folding Scheduled or Recents drops their headers toward the bottom of the
- *  rail and hands the space upward (folding never opens a gap). Draggable
+ *  folding Recents drops its header toward the bottom of the rail and hands the
+ *  space upward (folding never opens a gap). Draggable
  *  dividers sit ABOVE each fixed (open, non-flex) pane and resize it; the flex
  *  pane absorbs the difference.
  *
@@ -40,7 +40,7 @@ export type PaneId = 'sections' | 'recents'
 
 export type PaneInput = {
   id: PaneId
-  /** Does this pane exist at all (e.g. Scheduled only when there are routines)? */
+  /** Does this pane exist at all? */
   present: boolean
   /** Is it unfolded (showing its body)? A folded pane is a header strip. */
   open: boolean

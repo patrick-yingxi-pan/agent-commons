@@ -25,7 +25,7 @@ test('the key survives how a title is written, and separates sections that diffe
   assert.equal(sectionFoldKey('Open work'), sectionFoldKey('  open work  '))
   assert.equal(sectionFoldKey('Recent sessions'), sectionFoldKey('Recent  sessions'))
   // …and it is still a key per SECTION: two sections must never share a posture.
-  const distinct = ['About', 'Sharing', 'Scheduled', 'Context', 'Open work'].map(sectionFoldKey)
+  const distinct = ['About', 'Sharing', 'Routines', 'Context', 'Open work'].map(sectionFoldKey)
   assert.equal(new Set(distinct).size, distinct.length, 'every section gets its own entry')
   // Namespaced, so it cannot collide with the rail's own layout keys in the one
   // per-account blob.

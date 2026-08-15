@@ -11,7 +11,7 @@ import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/hel
 test('the composite section registries name the complete ordered page skeleton', () => {
   assert.deepEqual(
     PROJECT_SECTIONS.map((section) => section.label),
-    ['About', 'Attention', 'Contributors', 'Coordination', 'Open work', 'Artifacts', 'Instructions', 'Context', 'Sharing', 'Delegation', 'Scheduled', 'Changes', 'Recent sessions', 'Discussion'],
+    ['About', 'Attention', 'Contributors', 'Coordination', 'Open work', 'Artifacts', 'Instructions', 'Context', 'Sharing', 'Delegation', 'Routines', 'Changes', 'Recent sessions', 'Discussion'],
   )
   assert.deepEqual(
     SCHEDULE_SECTIONS.map((section) => section.label),

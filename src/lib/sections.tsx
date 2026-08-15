@@ -38,8 +38,8 @@ export const SECTION_META: Record<
     Icon: Bot,
   },
   scheduled: {
-    label: 'Scheduled',
-    subtitle: 'Tasks Claude runs for you on a cadence.',
+    label: 'Routines',
+    subtitle: 'Recurring workflows Claude runs for you on a cadence.',
     Icon: Clock,
   },
   discussions: {

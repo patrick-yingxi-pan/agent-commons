@@ -25,10 +25,13 @@ const KEY_COARSE = 4
  *  or not, at the clamp.
  *
  *  One primitive serves the rail width, the panel width AND the rail's pane-height
- *  dividers, so the three never drift (form follows function). */
+ *  dividers, so the three never drift (form follows function). A vertical handle
+ *  owns the one visible edge hairline; its host omits a second border while the
+ *  full eight-pixel hit strip remains available for pointer input. */
 export function ResizeHandle({
   side,
   label,
+  ownsEdge = false,
   value,
   min,
   max,
@@ -43,6 +46,10 @@ export function ResizeHandle({
    *  so focusable separators never share a name (the WCAG 2.5.3 lesson the pane
    *  fold headers already learned). */
   label: string
+  /** True when this handle supplies its host's only visible edge. The hairline
+   * sits on the actual boundary rather than in the center of the hit strip;
+   * other vertical hosts retain their own border and hover-only handle cue. */
+  ownsEdge?: boolean
   /** The size this divider controls, in px, with its current bounds — exposed as
    *  aria-valuenow/-min/-max (REQUIRED for a focusable separator, WCAG 4.1.2): a
    *  screen reader announces each step, and "pinned at the clamp" is audible where
@@ -167,15 +174,16 @@ export function ResizeHandle({
         horizontal ? `inset-x-0 h-2 cursor-row-resize ${edge}` : `inset-y-0 w-2 cursor-col-resize ${edge}`
       }`}
     >
-      {/* A hairline centered in the hit strip. Horizontal (pane) dividers show a
-          persistent line so they're easy to spot; the vertical width handle stays
-          invisible until hover (the rail's own border-r is its at-rest cue). Both
-          brighten to the accent on hover / drag / keyboard focus. */}
+      {/* Horizontal pane gutters keep a centered line. A vertical handle either
+          owns the host edge (one persistent line on the actual boundary) or
+          keeps its centered cue hover-only behind the host's existing border. */}
       <div
         className={`pointer-events-none absolute transition-colors duration-150 ${
           horizontal
             ? 'inset-x-0 top-1/2 h-px -translate-y-1/2 bg-line-strong group-hover:bg-accent group-focus-visible:bg-accent'
-            : 'inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent group-hover:bg-accent/50 group-focus-visible:bg-accent/50'
+            : ownsEdge
+              ? `inset-y-0 ${side === 'left' ? 'left-0' : 'right-0'} w-px bg-line group-hover:bg-accent/50 group-focus-visible:bg-accent/50`
+              : 'inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent group-hover:bg-accent/50 group-focus-visible:bg-accent/50'
         }`}
       />
     </div>

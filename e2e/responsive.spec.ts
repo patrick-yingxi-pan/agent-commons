@@ -145,12 +145,12 @@ test('extreme narrow (320×700): every composer popover stays inside the viewpor
   await page.keyboard.press('Escape')
   await expect(list).toHaveCount(0)
 
-  // Row identity survives 320px (UI-7): the Scheduled rows' trailing controls
+  // Row identity survives 320px (UI-7): the Routines rows' trailing controls
   // must not starve the flex-1 name column — the routine name renders at a
   // readable width, not zero (the invisible-but-space-reserving hover cluster
   // plus the status pill used to squeeze it out entirely).
   await page.getByRole('button', { name: 'Expand sidebar' }).click()
-  await page.getByRole('navigation').getByRole('button', { name: /^Scheduled/ }).click()
+  await page.getByRole('navigation').getByRole('button', { name: /^Routines/ }).click()
   const name = page.locator('main').getByText('Triage new GitHub issues').first()
   await expect(name).toBeVisible()
   const nameBox = (await name.boundingBox())!
@@ -246,10 +246,10 @@ test('tablet (768×1024): the panel overlays the thread behind a scrim; the scri
   await expect(panelClose).not.toBeVisible()
 
   // Row metadata yields by CONTAINER width, not viewport width (UI-9): at a
-  // 768px viewport the rail leaves the Scheduled rows ~450px — `md:`-gated
+  // 768px viewport the rail leaves the Routines rows ~450px — `md:`-gated
   // metadata used to show anyway, collapsing the name column to zero and
   // painting the pipeline glyphs over its neighbors. The name stays readable.
-  await page.getByRole('navigation').getByRole('button', { name: /^Scheduled/ }).click()
+  await page.getByRole('navigation').getByRole('button', { name: /^Routines/ }).click()
   const routineName = page.locator('main').getByText(/Standup digest|Triage new/).first()
   await expect(routineName).toBeVisible()
   const routineBox = (await routineName.boundingBox())!

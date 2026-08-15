@@ -1,5 +1,5 @@
 /** ── Scheduled-routines filter / sort / group ────────────────────────────────
- *  Scheduled is a normal instance branch in the account-resource tree. Its
+ *  Routines is a normal instance branch in the account-resource tree. Its
  *  rail rows and main page therefore read this same live, per-account choice:
  *  the session filter's "Status" becomes routine Active/Paused, and a
  *  routine's "recency" is its freshest run. No React here — just the option
@@ -19,11 +19,13 @@ export interface RoutineFilter {
   sortBy: RoutineSortBy
 }
 
-/** Neutral defaults: every routine, status bands, freshest-run-first. */
+/** Neutral defaults: every routine in one resource list, freshest-run-first.
+ * Status is mutable metadata, not a structural level in the resource tree;
+ * people can still opt into status or project grouping from the shared menu. */
 export const DEFAULT_ROUTINE_FILTER: RoutineFilter = {
   status: 'all',
   projectId: 'all',
-  groupBy: 'status',
+  groupBy: 'none',
   sortBy: 'recency',
 }
 
@@ -31,13 +33,21 @@ export const DEFAULT_ROUTINE_FILTER: RoutineFilter = {
 // One JSON string inside uiPrefs: a filter is rail chrome, so it follows the
 // active account and not the browser. The suffix retires the former browser-
 // wide localStorage blob owned by the separate Scheduled pane.
-const KEY = 'scheduledFilter.v3'
+const KEY = 'scheduledFilter.v4'
+const LEGACY_KEY = 'scheduledFilter.v3'
 
 export function loadRoutineFilter(): RoutineFilter {
   try {
     const raw = getLayout(KEY, '')
-    if (!raw) return DEFAULT_ROUTINE_FILTER
-    return { ...DEFAULT_ROUTINE_FILTER, ...(JSON.parse(raw) as Partial<RoutineFilter>) }
+    if (raw) return { ...DEFAULT_ROUTINE_FILTER, ...(JSON.parse(raw) as Partial<RoutineFilter>) }
+
+    // v3 made status grouping the neutral default. Preserve any real status,
+    // project, sort, or project-group choices while retiring that implicit
+    // Active/Paused hierarchy; an explicit v4 choice can select it again.
+    const legacyRaw = getLayout(LEGACY_KEY, '')
+    if (!legacyRaw) return DEFAULT_ROUTINE_FILTER
+    const legacy = { ...DEFAULT_ROUTINE_FILTER, ...(JSON.parse(legacyRaw) as Partial<RoutineFilter>) }
+    return { ...legacy, groupBy: legacy.groupBy === 'status' ? 'none' : legacy.groupBy }
   } catch {
     return DEFAULT_ROUTINE_FILTER
   }

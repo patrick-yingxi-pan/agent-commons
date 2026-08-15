@@ -467,11 +467,16 @@ export function Sidebar({
   ]
 
   return (
-    <aside className="relative flex h-full w-full shrink-0 flex-col border-r border-line bg-sidebar">
+    <aside
+      className={`relative flex h-full w-full shrink-0 flex-col bg-sidebar ${
+        resizable ? '' : 'border-r border-line'
+      }`}
+    >
       {resizable && (
         <ResizeHandle
           side="right"
           label="Resize sidebar"
+          ownsEdge
           value={railW}
           min={LEFT_MIN}
           max={LEFT_MAX}

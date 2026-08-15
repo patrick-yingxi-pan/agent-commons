@@ -1309,7 +1309,7 @@ function ProjectDetail({
           {/* The whole run is already owner-gated above — these panels don't
               re-check `own` (the inner guards were dead-always-true). */}
           {showProjectSection('scheduled') && <FoldSection
-            title="Scheduled"
+            title="Routines"
             defaultFolded
             summary={
               hasSchedules ?
@@ -1325,7 +1325,7 @@ function ProjectDetail({
             }
           >
             {!hasSchedules ? (
-              <p className="text-[12px] text-ink-faint">No scheduled runs yet.</p>
+              <p className="text-[12px] text-ink-faint">No routines yet.</p>
             ) : (
               <div className="space-y-2.5">
                 {realSchedules.map((t) => (
@@ -1667,7 +1667,7 @@ function ProjectScheduleRow({
   const dot =
     task.lastStatus === 'ok' ? 'bg-ok' : task.lastStatus === 'failed' ? 'bg-danger' : 'bg-line-strong'
   const menu: RowMenuItem[] = [
-    { kind: 'action', key: 'open', label: 'Open in Scheduled', icon: <ChevronRight size={14} />, onSelect: onOpen },
+    { kind: 'action', key: 'open', label: 'Open in Routines', icon: <ChevronRight size={14} />, onSelect: onOpen },
     { kind: 'divider', key: 'd1' },
     { kind: 'action', key: 'unlink', label: 'Remove from project', icon: <MinusCircle size={14} />, onSelect: onUnlink },
     {
@@ -1682,7 +1682,7 @@ function ProjectScheduleRow({
   ]
   return (
     <div className="group flex items-center gap-1">
-      <button onClick={onOpen} className="flex min-w-0 flex-1 items-start gap-2.5 text-left" title="Open in Scheduled">
+      <button onClick={onOpen} className="flex min-w-0 flex-1 items-start gap-2.5 text-left" title="Open in Routines">
         <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${task.enabled ? dot : 'bg-line-strong'}`} />
         <div className="min-w-0">
           <div className="truncate text-[13px] font-medium text-ink transition group-hover:text-accent-strong">
@@ -11600,7 +11600,7 @@ function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral
   return { tone: 'ok', label: last ? `Ran ${relativeTime(last.at)}` : 'Active' }
 }
 
-/** The Scheduled section. Its main page and rail branch read the same live
+/** The Routines section. Its main page and rail branch read the same live
  * routine filter, so the tree's head is an honest projection of this list. */
 function ScheduledSection({
   scheduleId,
@@ -11705,17 +11705,17 @@ function ScheduledSection({
 
   return (
     <Page>
-      <PageHeader title="Scheduled">
+      <PageHeader title="Routines">
         <NewScheduleControl onAdd={addFromTemplate} />
       </PageHeader>
       <p className="-mt-2 mb-4 text-[13px] leading-relaxed text-ink-soft">
         Recurring workflows — Claude runs a sequence of steps on a cadence and delivers the result. Open one to
         see its steps and run history.
       </p>
-      <SearchBox value={query} onChange={setQuery} placeholder="Search scheduled tasks…" />
+      <SearchBox value={query} onChange={setQuery} placeholder="Search routines…" />
 
       {groups.length === 0 ? (
-        <Empty>No scheduled tasks match.</Empty>
+        <Empty>No routines match.</Empty>
       ) : (
         groups.map((g) => (
           <FoldSection
@@ -11824,7 +11824,7 @@ function ScheduledRow({
           </Tooltip>
           <button
             onClick={onRemove}
-            title="Delete schedule"
+            title="Delete routine"
             aria-label={`Delete ${task.name}`}
             className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed"
           >
@@ -11864,7 +11864,7 @@ function MiniPipeline({ task }: { task: ScheduledTask }) {
   )
 }
 
-/** "New schedule" — a template picker cloned from AddContextControl. Picking a
+/** "New routine" — a template picker cloned from AddContextControl. Picking a
  *  template seeds a fully-formed (paused) task into local state and drills straight
  *  into its detail, so the user lands on a populated workflow rather than a form. */
 function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void }) {
@@ -11893,14 +11893,14 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
         className={`flex shrink-0 items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] `}
       >
         <Plus size={15} />
-        New schedule
+        New routine
       </button>
 
       {open && (
         <div
           ref={popRef}
           role="dialog"
-          aria-label="New schedule"
+          aria-label="New routine"
           className={`absolute right-0 z-30 mt-2 w-[340px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           <div className="max-h-[min(60dvh,440px)] overflow-y-auto p-2">

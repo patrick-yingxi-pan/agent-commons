@@ -11,12 +11,29 @@ import { SIDEBAR_ACTIVE, SIDEBAR_BRANCH, SIDEBAR_FOCUS_WITHIN } from './sidebar.
 const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
 const children = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
 
-test('Scheduled is one instance branch in Sections, never a duplicate pane', () => {
+test('Routines is one instance branch in Sections, never a duplicate pane', () => {
   assert.equal(SECTION_INSTANCE_KEY.scheduled, 'scheduleId')
   assert.match(sidebar, /id === 'scheduled' \? \(\s*<ScheduledTreeChildren/)
   assert.match(sidebar, /<ScheduledFilterMenu/)
   assert.doesNotMatch(sidebar, /data-rail-pane="scheduled"|Resize Scheduled pane|railScheduledH|schedOpen/)
   assert.match(sidebar, /getLayout\('railRecentsOpen', false\)/, 'the utility history starts subordinate')
+})
+
+test('the resizable rail has one visible seam, owned by its resize handle', () => {
+  assert.match(sidebar, /resizable \? '' : 'border-r border-line'/, 'a fixed-width drawer keeps its own edge')
+  assert.doesNotMatch(
+    sidebar,
+    /<aside className="[^"]*border-r border-line/,
+    'the resizable desktop rail does not stack a border behind its handle',
+  )
+  assert.match(sidebar, /label="Resize sidebar"\s+ownsEdge/, 'the rail assigns its one edge to the handle')
+  const resizeHandle = stripComments(read(join(ROOT, 'src', 'components', 'ResizeHandle.tsx')))
+  assert.match(
+    resizeHandle,
+    /side === 'left' \? 'left-0' : 'right-0'/,
+    'an edge-owning handle aligns its hairline with the actual panel boundary',
+  )
+  assert.match(resizeHandle, /w-px bg-line group-hover:/, 'the owned edge remains one persistent hairline')
 })
 
 test('every disclosed level composes the same visible branch guide', () => {

@@ -99,7 +99,7 @@ export function ScheduledFilterMenu({
     },
   ]
 
-  return <FilterMenu ariaLabel="Filter & sort scheduled routines" rows={rows} />
+  return <FilterMenu ariaLabel="Filter & sort routines" rows={rows} />
 }
 
 function GROUP_LABEL(g: RoutineFilter['groupBy']): string {

@@ -216,7 +216,7 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   // flow instead of restored as a squeezed side rail.
   await page
     .locator('nav[aria-label="Sections"]')
-    .getByRole('button', { name: 'Scheduled', exact: true })
+    .getByRole('button', { name: 'Routines', exact: true })
     .filter({ has: page.locator('svg') })
     .click()
   await paneB.getByText('Triage new GitHub issues').first().click()
@@ -377,7 +377,7 @@ test('a run session is ONE surface: run history floats as a click-down, never a 
   // focused pane ALONE — no run-switcher pane tiles beside it (the old
   // two-split-windows look this locks out).
   const sectionsNav = page.getByRole('navigation', { name: 'Sections' })
-  const scheduledToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Scheduled$/ })
+  const scheduledToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Routines$/ })
   if ((await scheduledToggle.getAttribute('aria-expanded')) === 'false') await scheduledToggle.click()
   const scheduled = sectionsNav.locator('[data-section-tree="scheduled"]')
   const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })

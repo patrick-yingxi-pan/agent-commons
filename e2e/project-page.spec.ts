@@ -23,7 +23,7 @@ const PROJECT = '/projects/p-insights'
  *  `src/components/main-column-sections.test.ts`, and two independent statements
  *  of one decision is exactly how a decision stops being enforced. Here it is
  *  asserted through what a signed-in reader actually SEES. */
-const CONFIG = ['Instructions', 'Sharing', 'Delegation', 'Scheduled', 'Context']
+const CONFIG = ['Instructions', 'Sharing', 'Delegation', 'Routines', 'Context']
 const CONTENT = ['About', 'Artifacts', 'Recent sessions', 'Changes', 'Discussion', 'Contributors', 'Coordination', 'Open work']
 
 /** The page's section order, top to bottom (owner directive 2026-08-13:
@@ -44,7 +44,7 @@ const CONTENT = ['About', 'Artifacts', 'Recent sessions', 'Changes', 'Discussion
  *  one and additionally proves the conditional sections land in the right place. */
 const ORDER = [
   'About', 'Attention', 'Contributors', 'Coordination', 'Open work', 'Artifacts',
-  'Instructions', 'Context', 'Sharing', 'Delegation', 'Scheduled',
+  'Instructions', 'Context', 'Sharing', 'Delegation', 'Routines',
   'Changes', 'Recent sessions', 'Discussion',
 ]
 
@@ -58,7 +58,7 @@ const HEADERS = 'section.group\\/section > div > button[aria-expanded]'
 /** One section's fold toggle, by its visible name.
  *
  *  Located through `HEADERS` and not by accessible name alone: the RAIL has a
- *  Scheduled resource branch and Project has a Scheduled section, so a
+ *  Routines resource branch and Project has a Routines section, so a
  *  `getByRole` over the document can resolve to chrome instead of page content.
  *  The lesson is the same both times: this app's chrome shares vocabulary with
  *  its content, so a page-level claim needs a page-level scope. */
@@ -443,7 +443,7 @@ test('composite resources preserve parent → section → resource in the rail a
   // and run sessions sit under Recent runs rather than under the routine.
   const projectsToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Projects$/ })
   if ((await projectsToggle.getAttribute('aria-expanded')) === 'true') await projectsToggle.click()
-  const scheduledSectionToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Scheduled$/ })
+  const scheduledSectionToggle = sectionsNav.getByRole('button', { name: /^(Expand|Collapse) Routines$/ })
   if ((await scheduledSectionToggle.getAttribute('aria-expanded')) === 'false') await scheduledSectionToggle.click()
   const scheduled = sectionsNav.locator('[data-section-tree="scheduled"]')
   const routineToggle = scheduled.getByRole('button', { name: /^(Expand|Collapse) Triage new GitHub issues$/ })

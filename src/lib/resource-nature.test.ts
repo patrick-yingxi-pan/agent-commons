@@ -42,7 +42,7 @@ test('composite main pages use the project reading-column form and enumerate the
     agent: /<ContributorsPanel\b/,
     artifact: /title="Artifacts"/,
     context: /title="Context"/,
-    schedule: /title="Scheduled"/,
+    schedule: /title="Routines"/,
     change: /<ChangesPanel\b/,
     session: /title="Recent sessions"/,
     discussion: /<DiscussionsPanel\b/,

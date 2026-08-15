@@ -680,7 +680,7 @@ export function fsContentUrl(source: string, path: string): string {
   return apiUrl(paths.fsContent(source, path))
 }
 
-/** The "New schedule" starter templates. */
+/** The "New routine" starter templates. */
 export function useScheduleTemplates(): QueryState<ScheduleTemplate[]> {
   return useQuery(keys.scheduleTemplates, () => apiGet<ScheduleTemplate[]>(paths.scheduleTemplates))
 }

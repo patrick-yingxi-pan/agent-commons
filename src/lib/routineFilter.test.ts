@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   DEFAULT_ROUTINE_FILTER,
   filterRoutines,
+  loadRoutineFilter,
   routineFilterSnapshot,
   saveRoutineFilter,
   type RoutineFilterContext,
@@ -67,10 +68,19 @@ test('alpha sort orders by name; the status filter narrows to active / paused', 
   assert.equal(active.total, 1)
 })
 
-test('the default keeps the existing Active / Paused page bands', () => {
+test('the default keeps mutable status out of the resource hierarchy', () => {
   const on = task('on', 'On', true, [])
   const off = task('off', 'Off', false, [])
   const groups = filterRoutines([off, on], DEFAULT_ROUTINE_FILTER, ctx).groups
+  assert.equal(DEFAULT_ROUTINE_FILTER.groupBy, 'none')
+  assert.deepEqual(groups.map((group) => group.label), [''])
+  assert.deepEqual(groups.flatMap((group) => group.tasks.map((item) => item.id)), ['off', 'on'])
+})
+
+test('status bands remain available when a person deliberately groups by status', () => {
+  const on = task('on', 'On', true, [])
+  const off = task('off', 'Off', false, [])
+  const groups = filterRoutines([off, on], { ...DEFAULT_ROUTINE_FILTER, groupBy: 'status' }, ctx).groups
   assert.deepEqual(groups.map((group) => group.label), ['Active', 'Paused'])
 })
 
@@ -83,7 +93,21 @@ beforeEach(() => {
   setLayout('__routine_filter_reset__', 0)
 })
 
-test('the Scheduled filter is stable, live, and scoped per account', () => {
+test('v3 preferences keep real filters while retiring the former default status bands', () => {
+  setUiPrefScope('migration')
+  setLayout(
+    'scheduledFilter.v3',
+    JSON.stringify({ status: 'paused', projectId: 'p-1', groupBy: 'status', sortBy: 'alpha' }),
+  )
+  assert.deepEqual(loadRoutineFilter(), {
+    status: 'paused',
+    projectId: 'p-1',
+    groupBy: 'none',
+    sortBy: 'alpha',
+  })
+})
+
+test('the Routines filter is stable, live, and scoped per account', () => {
   setUiPrefScope('ada')
   const initial = routineFilterSnapshot()
   assert.equal(routineFilterSnapshot(), initial, 'useSyncExternalStore receives a stable snapshot')

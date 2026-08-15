@@ -50,7 +50,7 @@ awkward to assert is usually a rule whose logic wants to move.
   2026-08-03 harmonization; canvas and surface share one value — boundaries are
   hairlines and spacing, not fill contrast). Containment is semantic: a COLLECTION renders as
   **hairline-divided rows with NO frame** when its items are one-liners
-  (Projects, Contexts, Scheduled, `CardList` — `LEDGER_LIST_CLASS`), or a
+  (Projects, Contexts, Routines, `CardList` — `LEDGER_LIST_CLASS`), or a
   stack/grid of QUIET CARDS
   when they carry rich bodies (Artifacts, the Commons feed, the Models
   management cards) — both recipes live in `src/lib/ledger.ts`. **The structure
@@ -394,7 +394,7 @@ carry a standing door beside it:
   a lens must never be a client-side guess, and `server/routes/commons-lenses.test.ts`
   fails a lens with no predicate (it would silently show the whole feed).
 - **Instances** — `SECTION_INSTANCE_KEY`: a content section (Projects, Artifacts,
-  Contexts, Models, Scheduled, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the
+  Contexts, Models, Routines, Discussions) expands to the top `RAIL_INSTANCE_CAP` rows of the
   very list its page renders, with a "Show all — N more" tail row that unfolds the
   remaining rows in place ("Show fewer" folds them back — never a page jump).
   The key IS the `PaneSeed` field that opens one, so "the rail lists it" and "a row of
@@ -433,15 +433,18 @@ carry a standing door beside it:
 A partition of a list by a property of its items — kind, state, ownership — is
 **not** a child: it is a filter, and its ONE home is the section row's "Filter &
 sort" menu (`src/lib/sectionFilter.ts` + the shared `FilterMenu`), the same
-primitive Scheduled and Recents use in the same rail. So: no in-page
+primitive Routines and Recents use in the same rail. So: no in-page
 tab/dropdown that re-selects a facet, and no second sort control. The rail and the
 page derive their list with ONE function per section (`src/lib/sectionLists.ts`)
 over ONE live stored choice (`useSectionFilter`, per account through `uiPrefs`) —
 otherwise the rail's eight names are not the page's first eight, which is worse
-than listing none. Scheduled is an instance branch in that same tree; its richer
+than listing none. Routines is an instance branch in that same tree; its richer
 status / project / cadence filter remains a dedicated funnel (`filterRoutines` +
 `useRoutineFilter`), but the branch and the main page consume the SAME live,
-per-account choice. There is no second Scheduled pane. A
+per-account choice. Status is mutable metadata, so the neutral default is one
+flat resource list; explicit Group by Status / Project choices may add page and
+rail bands without turning them into structural tree nodes. There is no second
+Routines pane. A
 section lands on its **default** view (rail sub-view `null`; each hub body maps
 null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
 not a push; the registries disjoint; the shared-funnel pairing scanned both ways;
@@ -449,7 +452,7 @@ no second facet control), `src/lib/section-lists.test.ts`, and
 `src/lib/url-routes.test.ts` (every listed kind round-trips as a URL).
 A **Sections** header carries one **fold/unfold-all** toggle. The
 rail's lower body is an **accordion of foldable, resizable panes** — Sections and
-Recents. Scheduled is a resource branch inside Sections, not a peer utility pane.
+Recents. Routines is a resource branch inside Sections, not a peer utility pane.
 Each pane's header has a **fold caret** (symmetric across both); folding
 collapses it to its header (persisted per pane). Open panes hold a **persisted, FIXED**
 height except the **top-most open one**, which **flexes** to fill — Sections is the pane
@@ -465,9 +468,10 @@ allocation/drag math (`layoutPanes` / `dragPane`) lives in `src/lib/railPanes.ts
 (dependency-free, node-tested); dividers are **in-flow gutters between panes** (never
 overlaying a pane's scroll content/scrollbar), each riding **above** the fixed pane it
 resizes (drag/arrow **up grows** it; the flex pane absorbs), reusing the ONE
-`ResizeHandle` primitive
-(`top`/`bottom` orientation, with a persistent hairline on horizontals — form follows
-function). Every `ResizeHandle` — rail width, panel width, pane gutters — is
+`ResizeHandle` primitive. A resizable rail omits its own right border because the
+vertical handle owns the one boundary-aligned, persistent hairline; the eight-pixel hit
+strip remains unchanged. (`top`/`bottom` pane handles keep the same persistent
+hairline — form follows function.) Every `ResizeHandle` — rail width, panel width, pane gutters — is
 **keyboard-operable** (WCAG 2.1.1, invariant UI-11): a focusable, distinctly named
 separator whose axis arrows run the same start→move→end pipeline as a pointer drag,
 announcing its size + bounds (`aria-valuenow/-min/-max`, WCAG 4.1.2) from the same
@@ -475,7 +479,7 @@ constants the clamp enforces.
 Dividers **drop on the narrow tier** (`resizable` false → panes flow in the
 drawer, ADAPT-11; folding still works). Two **labeled** `<nav>` landmarks keep the rail
 landmark-unique (WCAG) *and* section rows navigation-scoped for e2e — "Create" (New
-session) and "Sections" (the complete resource tree, including Scheduled) — while
+session) and "Sections" (the complete resource tree, including Routines) — while
 Recents stays out of navigation.
 Locked by `src/lib/rail-panes.test.ts` (fold combos + flex promotion, fit-to-avail clamp,
 min floors both drag directions, no clamp-leak into storage) and

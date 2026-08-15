@@ -30,7 +30,7 @@ export const PROJECT_SECTIONS = [
   { id: 'context', label: 'Context', visibility: 'owner', childKinds: ['context'] },
   { id: 'sharing', label: 'Sharing', visibility: 'owner', childKinds: [] },
   { id: 'delegation', label: 'Delegation', visibility: 'owner', childKinds: [] },
-  { id: 'scheduled', label: 'Scheduled', visibility: 'owner', childKinds: ['schedule'] },
+  { id: 'scheduled', label: 'Routines', visibility: 'owner', childKinds: ['schedule'] },
   { id: 'changes', label: 'Changes', visibility: 'all', childKinds: ['change'] },
   { id: 'recent-sessions', label: 'Recent sessions', visibility: 'all', childKinds: ['session'] },
   { id: 'discussion', label: 'Discussion', visibility: 'all', childKinds: ['discussion'] },

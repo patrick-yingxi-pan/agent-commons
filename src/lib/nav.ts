@@ -2,7 +2,7 @@
  *  The app has no URL router, yet a page can be reached more than one way: a
  *  project detail opens from the Projects list, from a session's "In ‹Project›"
  *  breadcrumb, or from a relation deep-link; a routine detail opens from the
- *  Scheduled list, from a run session's breadcrumb, or from a project's routine
+ *  Routines list, from a run session's breadcrumb, or from a project's routine
  *  row. So "back" must follow where you actually came *from* (a dynamic history)
  *  rather than a fixed structural parent (always the section list).
  *
@@ -63,7 +63,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   contexts: 'Contexts',
   models: 'Models',
   agents: 'Agents',
-  scheduled: 'Scheduled',
+  scheduled: 'Routines',
   discussions: 'Discussions',
   messages: 'Messages',
   notifications: 'Notifications',

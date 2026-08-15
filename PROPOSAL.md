@@ -119,7 +119,7 @@ composer** (and the panel they open) show exactly what it carries.
 ### 4.6 Cross-cutting tools, not mode tabs
 A conversation is the unit, but a few functions span all of them: starting a
 **new task**, browsing **Projects**, finding any **Artifact**, managing
-**Scheduled** runs, watching background **Dispatch** jobs, and **Customize**.
+**Routines**, watching background **Dispatch** jobs, and **Customize**.
 The sidebar keeps these as a small nav above the history — they are *tools*,
 not modes. What it deliberately omits is the **Chat / Cowork / Code** tab
 switcher: collapsing those three into one surface is the entire point, so
@@ -177,9 +177,9 @@ schedule's delivery — because they all read one shared relation graph.
 | In-place escalation | Free-type it — “open a workspace…”, then “connect the repo…” — one thread, three beats. |
 | Adaptive panel | The panel morphs from artifacts → code at the repo step. |
 | Unified history | The single sidebar list — one row per conversation; the open conversation's composer chips show what it carries. |
-| Cross-cutting tools, not tabs | The sidebar's **New session** row and the Sections tree — Commons, Projects, Artifacts, Contexts, Models, Agents, Scheduled, Discussions, Messages, Notifications, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
+| Cross-cutting tools, not tabs | The sidebar's **New session** row and the Sections tree — Commons, Projects, Artifacts, Contexts, Models, Agents, Routines, Discussions, Messages, Notifications, Dispatch, Customize — and their section views; no Chat/Cowork/Code switcher. |
 | Share · discuss · improve, on any noun | The same three acts apply to a conversation, a project, an artifact, a routine — a **Sharing** panel wherever the thing lives (the conversation's title bar, a project's or routine's rail, the artifact page), a comment gutter on a single *turn* or a single *run*, and an **Improvements** ledger whose landing runs the real mutator. The mode-free argument again, one level up: you don't pick a "sharing mode" either — the resource you're looking at is the subject. |
-| Relations, edited with consent | Any "file this under…" / "save this as an artifact" message — Claude proposes relation edits as inline cards; confirming one updates the Projects / Artifacts / Scheduled views. A standing card ("approve for all runs") shows the advance-approval model for schedules. |
+| Relations, edited with consent | Any "file this under…" / "save this as an artifact" message — Claude proposes relation edits as inline cards; confirming one updates the Projects / Artifacts / Routines views. A standing card ("approve for all runs") shows the advance-approval model for routines. |
 
 ## 6. Design principles (carry beyond this one screen)
 
