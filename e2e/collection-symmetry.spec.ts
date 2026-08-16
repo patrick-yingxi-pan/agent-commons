@@ -106,6 +106,74 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
   await ada.context.close()
 })
 
+test('either rail split pane can close while the chosen survivor keeps its reading position', async ({ browser }) => {
+  test.setTimeout(ms(90_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/sessions')
+  await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible({ timeout: ms(20_000) })
+
+  const separator = page.getByRole('separator', { name: 'Resize lower rail pane' })
+  const upperScroll = page.locator('[data-rail-scroll-pane="upper"]')
+  await expect(separator).toBeVisible()
+  await runRailForestCommand(page, 'Unfold all')
+  await upperScroll.evaluate((node) => {
+    node.scrollTop = 64
+  })
+  const upperOffset = await upperScroll.evaluate((node) => node.scrollTop)
+  expect(upperOffset).toBeGreaterThan(0)
+
+  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Close lower pane', exact: true }).click()
+  await expect(separator).toHaveCount(0)
+  await expect(page.locator('[data-rail-pane="lower"]')).toHaveCount(0)
+  await expect.poll(() => upperScroll.evaluate((node) => node.scrollTop)).toBe(upperOffset)
+  await expect(upperScroll.locator('[data-section-root="sessions"]')).toBeAttached()
+
+  // The close is durable layout state, not a transient fold.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  await expect(separator).toHaveCount(0)
+
+  // Recreate the split at a boundary with content below its first root, scroll
+  // that lower projection, then keep its exact local reading position by
+  // closing the upper projection instead.
+  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Lower pane', exact: true }).hover()
+  await page.getByRole('menuitemradio', { name: 'Start at Models', exact: true }).click()
+  await expect(separator).toBeVisible()
+  await runRailForestCommand(page, 'Unfold all')
+  const lowerScroll = page.locator('[data-rail-scroll-pane="lower"]')
+  await lowerScroll.evaluate((node) => {
+    node.scrollTop = 48
+  })
+  const lowerOffset = await lowerScroll.evaluate((node) => node.scrollTop)
+  expect(lowerOffset).toBeGreaterThan(0)
+
+  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Close upper pane', exact: true }).click()
+  await expect(separator).toHaveCount(0)
+  await expect(page.locator('[data-rail-pane="lower"]')).toHaveCount(0)
+  await expect(upperScroll.locator('[data-section-root="models"]')).toBeAttached()
+  await expect
+    .poll(() =>
+      upperScroll.evaluate((node, offset) => {
+        const anchor = node.querySelector<HTMLElement>('[data-section-root="models"]')
+        if (!anchor) return Number.POSITIVE_INFINITY
+        return Math.abs(anchor.getBoundingClientRect().top - node.getBoundingClientRect().top + offset)
+      }, lowerOffset),
+    )
+    .toBeLessThanOrEqual(1)
+
+  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
+  const menu = page.getByRole('menu', { name: 'Rail view options' })
+  await expect(menu.getByRole('menuitem', { name: 'Close upper pane', exact: true })).toHaveCount(0)
+  await expect(menu.getByRole('menuitem', { name: 'Close lower pane', exact: true })).toHaveCount(0)
+
+  await ada.context.close()
+})
+
 test('composite page controls mirror rail filters and fold dynamic bands', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)

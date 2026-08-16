@@ -20,6 +20,15 @@ export const NO_RAIL_SPLIT = 'none'
 
 export type PaneId = 'upper' | 'lower'
 
+export type RailPaneClosePlan<T> = {
+  /** Closing a projection merges the complete forest back into one pane. */
+  sections: readonly T[]
+  /** Which pane supplies the reading position for the merged result. */
+  survivor: PaneId
+  /** First section in that survivor; the DOM uses it as the scroll anchor. */
+  anchor: T | null
+}
+
 export type PaneInput = {
   id: PaneId
   present: boolean
@@ -45,6 +54,23 @@ export function splitRailSections<T extends string>(
 ): readonly [readonly T[]] | readonly [readonly T[], readonly T[]] {
   const index = splitStart === NO_RAIL_SPLIT ? -1 : sections.indexOf(splitStart as T)
   return index > 0 ? [sections.slice(0, index), sections.slice(index)] : [sections]
+}
+
+/** Close one side of a two-pane projection without hiding any resources. The
+ * opposite pane survives conceptually and supplies the merged pane's reading
+ * position. A one-pane forest has nothing to close. */
+export function planRailPaneClose<T>(
+  groups: readonly [readonly T[]] | readonly [readonly T[], readonly T[]],
+  closing: PaneId,
+): RailPaneClosePlan<T> | null {
+  if (groups.length !== 2) return null
+  const survivor: PaneId = closing === 'upper' ? 'lower' : 'upper'
+  const survivorIndex = survivor === 'upper' ? 0 : 1
+  return {
+    sections: [...groups[0], ...groups[1]],
+    survivor,
+    anchor: groups[survivorIndex][0] ?? null,
+  }
 }
 
 /** Resolve the one- or two-pane layout for the available height. */

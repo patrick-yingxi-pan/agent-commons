@@ -7,6 +7,7 @@ import {
   dragPane,
   layoutPanes,
   paneMax,
+  planRailPaneClose,
   RAIL_GUTTER,
   RAIL_PANE_MIN,
   splitRailSections,
@@ -77,4 +78,22 @@ test('a split isolates an ordered suffix without creating another hierarchy', ()
   assert.deepEqual(splitRailSections(sections, 'none'), [sections])
   assert.deepEqual(splitRailSections(sections, 'missing'), [sections])
   assert.deepEqual(splitRailSections(sections, 'projects'), [sections])
+})
+
+test('closing either split pane merges the full forest and preserves the chosen survivor', () => {
+  const groups = [
+    ['projects', 'artifacts'],
+    ['contexts', 'sessions'],
+  ] as const
+  assert.deepEqual(planRailPaneClose(groups, 'upper'), {
+    sections: ['projects', 'artifacts', 'contexts', 'sessions'],
+    survivor: 'lower',
+    anchor: 'contexts',
+  })
+  assert.deepEqual(planRailPaneClose(groups, 'lower'), {
+    sections: ['projects', 'artifacts', 'contexts', 'sessions'],
+    survivor: 'upper',
+    anchor: 'projects',
+  })
+  assert.equal(planRailPaneClose([groups[0]], 'upper'), null)
 })

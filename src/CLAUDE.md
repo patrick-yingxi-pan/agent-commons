@@ -554,6 +554,13 @@ default starts at Sessions, preserving quick conversation access without the
 former Recents utility chrome. “One pane” removes the boundary. No split adds a label,
 duplicates a row, changes the order, or changes a URL.
 
+While a split exists, that same menu offers **Close upper pane** and **Close
+lower pane**. Closing merges the complete forest back into one pane; it never
+hides or deletes the closed projection's roots. The pane not named by the
+command is the conceptual survivor, so the merged pane restores its scroll
+position (anchored to the former lower pane's first root when the upper pane
+closes). The resulting one-pane choice persists per account.
+
 The lower pane holds a **persisted, FIXED** height and the upper pane **flexes** to
 fill. A divider moves only on drag; content changes never move it (**fixed unless
 manually adjusted**). Heights **clamp at render, never in storage** (the rule the

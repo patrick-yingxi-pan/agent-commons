@@ -81,6 +81,7 @@ import {
   dragPane,
   layoutPanes,
   paneMax,
+  planRailPaneClose,
   NO_RAIL_SPLIT,
   RAIL_PANE_MIN,
   RAIL_SPLIT_DEFAULT,
@@ -370,6 +371,14 @@ export function Sidebar({
   }
   const stackRef = useRef<HTMLDivElement>(null)
   const lowerPaneRef = useRef<HTMLDivElement>(null)
+  const upperScrollRef = useRef<HTMLDivElement>(null)
+  const lowerScrollRef = useRef<HTMLDivElement>(null)
+  const pendingPaneCloseRef = useRef<{
+    survivor: PaneId
+    anchor: SectionId | null
+    upperOffset: number
+    lowerOffset: number
+  } | null>(null)
   const dragBottomRef = useRef(0)
   const [avail, setAvail] = useState(0)
   // Measure the stack synchronously before paint (no first-frame flash), then track
@@ -425,6 +434,46 @@ export function Sidebar({
     setLowerH(h)
   }
   const persistLowerH = () => setLayout('railSplitH', lowerHRef.current)
+
+  // Apply a pane-close restoration only after React has committed the merged
+  // forest. Doing this in the click handler's next animation frame races a
+  // concurrent render and can still observe the old split DOM.
+  useLayoutEffect(() => {
+    const pending = pendingPaneCloseRef.current
+    const body = upperScrollRef.current
+    if (!pending || sectionGroups.length !== 1 || !body) return
+    pendingPaneCloseRef.current = null
+    if (pending.survivor === 'upper') {
+      body.scrollTop = pending.upperOffset
+      return
+    }
+    const anchor = pending.anchor
+      ? body.querySelector<HTMLElement>(`[data-section-root="${pending.anchor}"]`)
+      : null
+    if (!anchor) {
+      body.scrollTop = pending.lowerOffset
+      return
+    }
+    const bodyTop = body.getBoundingClientRect().top
+    const anchorTop = anchor.getBoundingClientRect().top
+    body.scrollTop += anchorTop - bodyTop + pending.lowerOffset
+  }, [splitStart])
+
+  // Closing either half removes only the presentation split. The complete
+  // forest returns in one pane, positioned where the pane the user kept was
+  // being read: a direct scroll offset for the upper pane, or the lower pane's
+  // first section plus its local offset when the upper pane is closed.
+  const closeRailPane = (closing: PaneId) => {
+    const plan = planRailPaneClose(sectionGroups, closing)
+    if (!plan) return
+    pendingPaneCloseRef.current = {
+      survivor: plan.survivor,
+      anchor: plan.anchor,
+      upperOffset: upperScrollRef.current?.scrollTop ?? 0,
+      lowerOffset: lowerScrollRef.current?.scrollTop ?? 0,
+    }
+    updateSplitStart(NO_RAIL_SPLIT)
+  }
 
   // The project-membership menu items, shared by sessions and routines, built from
   // the relation op each entity files under.
@@ -522,6 +571,59 @@ export function Sidebar({
     },
   ]
 
+  const railViewItems: RowMenuItem[] = [
+    {
+      kind: 'action',
+      key: 'fold-all',
+      label: 'Fold all',
+      icon: <ChevronsUp size={15} />,
+      onSelect: () => requestRailFold(false),
+    },
+    {
+      kind: 'action',
+      key: 'unfold-all',
+      label: 'Unfold all',
+      icon: <ChevronsDown size={15} />,
+      onSelect: () => requestRailFold(true),
+    },
+    { kind: 'divider', key: 'layout-divider' },
+    {
+      kind: 'choice',
+      key: 'lower-pane',
+      label: 'Lower pane',
+      icon: <Rows2 size={15} />,
+      currentId:
+        sectionGroups.length === 2 ? (sectionGroups[1][0] ?? NO_RAIL_SPLIT) : NO_RAIL_SPLIT,
+      options: [
+        { id: NO_RAIL_SPLIT, label: 'One pane' },
+        ...visibleSections.slice(1).map((id) => ({
+          id,
+          label: `Start at ${SECTION_META[id].label}`,
+        })),
+      ],
+      onPick: updateSplitStart,
+    },
+  ]
+  if (splitActive) {
+    railViewItems.push(
+      { kind: 'divider', key: 'close-divider' },
+      {
+        kind: 'action',
+        key: 'close-upper',
+        label: 'Close upper pane',
+        icon: <X size={15} />,
+        onSelect: () => closeRailPane('upper'),
+      },
+      {
+        kind: 'action',
+        key: 'close-lower',
+        label: 'Close lower pane',
+        icon: <X size={15} />,
+        onSelect: () => closeRailPane('lower'),
+      },
+    )
+  }
+
   return (
     <aside
       className={`relative flex h-full w-full shrink-0 flex-col bg-sidebar ${
@@ -569,39 +671,7 @@ export function Sidebar({
             ariaLabel="Rail view options"
             triggerIcon={<Rows2 size={18} />}
             triggerClassName={SIDEBAR_ICON_BUTTON}
-            items={[
-              {
-                kind: 'action',
-                key: 'fold-all',
-                label: 'Fold all',
-                icon: <ChevronsUp size={15} />,
-                onSelect: () => requestRailFold(false),
-              },
-              {
-                kind: 'action',
-                key: 'unfold-all',
-                label: 'Unfold all',
-                icon: <ChevronsDown size={15} />,
-                onSelect: () => requestRailFold(true),
-              },
-              { kind: 'divider', key: 'layout-divider' },
-              {
-                kind: 'choice',
-                key: 'lower-pane',
-                label: 'Lower pane',
-                icon: <Rows2 size={15} />,
-                currentId:
-                  sectionGroups.length === 2 ? (sectionGroups[1][0] ?? NO_RAIL_SPLIT) : NO_RAIL_SPLIT,
-                options: [
-                  { id: NO_RAIL_SPLIT, label: 'One pane' },
-                  ...visibleSections.slice(1).map((id) => ({
-                    id,
-                    label: `Start at ${SECTION_META[id].label}`,
-                  })),
-                ],
-                onPick: updateSplitStart,
-              },
-            ]}
+            items={railViewItems}
           />
         </div>
         {(onSplitRow || onSplitCol || onCloseView) && (
@@ -676,7 +746,11 @@ export function Sidebar({
                 style={paneStyle(paneIndex === 0 ? 'upper' : 'lower')}
                 className={paneClass(paneIndex === 0 ? 'upper' : 'lower')}
               >
-                <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}>
+                <div
+                  ref={paneIndex === 0 ? upperScrollRef : lowerScrollRef}
+                  data-rail-scroll-pane={paneIndex === 0 ? 'upper' : 'lower'}
+                  className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}
+                >
         {sectionIds.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const surfaces = SECTION_SUBVIEWS[id]
@@ -700,6 +774,7 @@ export function Sidebar({
           return (
             <Fragment key={id}>
               <SectionTreeRow
+                sectionId={id}
                 icon={<Icon size={16} />}
                 label={label}
                 beta={beta}
@@ -1029,6 +1104,7 @@ function NavRow({
  *  The chevron toggles WITHOUT navigating; the row body navigates — VSCode-explorer
  *  behaviour, so you can peek at a section's children without leaving where you are. */
 function SectionTreeRow({
+  sectionId,
   icon,
   label,
   beta,
@@ -1039,6 +1115,7 @@ function SectionTreeRow({
   onOpen,
   trailing,
 }: {
+  sectionId: SectionId
   icon: ReactNode
   label: string
   beta?: boolean
@@ -1054,6 +1131,7 @@ function SectionTreeRow({
 }) {
   return (
     <div
+      data-section-root={sectionId}
       className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${SIDEBAR_FOCUS_WITHIN} ${
         active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
       }`}

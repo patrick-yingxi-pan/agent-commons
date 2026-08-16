@@ -111,8 +111,11 @@ operation is reachable in both projections, while density may adapt the control:
 a full page button may become a rail menu row; a rail's capped disclosure and a
 page's complete list are two ways to reach the same full set. Layout capabilities
 are symmetric too: the main area and rail both support split, resize, fold and
-scroll, but each uses geometry appropriate to its surface rather than duplicating
-the other's pixels.
+scroll, and each split lets the user choose which pane to close. In the rail,
+closing a pane merges the one complete forest and keeps the opposite pane's
+reading position; it cannot hide the roots projected by the closed side. Each
+surface uses geometry appropriate to its shape rather than duplicating the
+other's pixels.
 
 ## Atomic resource page
 
