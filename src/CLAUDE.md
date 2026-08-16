@@ -460,7 +460,12 @@ carry a standing door beside it:
   remaining rows in place ("Show fewer" folds them back — never a page jump).
   The key IS the `PaneSeed` field that opens one, so "the rail lists it" and "a row of
   it is addressable" are one fact — `/artifacts/:id` and `/models/:id` exist because
-  of this rule.
+  of this rule. When the collection's main page places those instances inside
+  named sections, the rail preserves that level too: `collectionSections.ts`
+  drives **Artifacts → project → artifact**, **Contexts → family → context**
+  (plus the account-MCP section), and **Models → Providers → provider** in both
+  projections. Each intermediate place has `/:section/groups/:id`; it is not a
+  second filter control, and the existing filter still owns which rows qualify.
 - **Composite instances** — `src/lib/resourceNature.ts` classifies the account
   ontology independently of its renderers, while
   `src/lib/compositeSections.ts` declares each composite's ordered PAGE

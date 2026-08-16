@@ -27,7 +27,11 @@ import { concatSource } from '../tests/helpers/source.ts'
 import { SECTION_LABELS } from '../src/lib/nav.ts'
 
 test('every UI string the MCP door quotes still exists in the UI', () => {
-  const ui = concatSource('src/components') // comment-stripped: prose can't satisfy it
+  // UI copy may live in a shared structural registry and be rendered by a
+  // component (collectionSections is now the one home for this heading). Scan
+  // the shipped UI layer, not only component literals; comments and suites are
+  // still stripped/excluded by the shared helper, so prose cannot satisfy it.
+  const ui = concatSource('src')
   assert.ok(
     ui.includes(MCP_UI_COPY.tokenPanel),
     `the MCP instructions send callers to "${MCP_UI_COPY.tokenPanel}", which no component renders`,

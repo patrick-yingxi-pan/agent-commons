@@ -168,6 +168,7 @@ export function SectionPane({
         onOpenProposal={nav.onOpenProposal}
         onBack={onBack}
         backTo={backTo}
+        focusCollectionSectionId={focus.collectionSectionId}
         focusProjectId={focus.projectId}
         focusProjectSectionId={focus.projectSectionId}
         focusScheduleId={focus.scheduleId}

@@ -97,6 +97,7 @@ test('EVERY detail kind names itself — a back label never says the section for
   // kind fails here until it is given a name (the compiler already forces a
   // DETAIL_LABEL entry; this forces the entry to be a decision, not a stub).
   const NAMED: Partial<Record<(typeof PANE_SEED_KEYS)[number], { section: SectionId; names: BackLabelNames; want: string; id?: string }>> = {
+    collectionSectionId: { section: 'artifacts', names: { project: { x: 'Insights dashboard' } }, want: 'Insights dashboard' },
     projectSectionId: { section: 'projects', names: {}, want: 'About', id: 'about' },
     projectId: { section: 'projects', names: { project: { x: 'Q4 launch planning' } }, want: 'Q4 launch planning' },
     scheduleSectionId: { section: 'scheduled', names: {}, want: 'Workflow', id: 'workflow' },

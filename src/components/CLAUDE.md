@@ -44,6 +44,12 @@ what the document or the sibling component claims.
   template registers structural sections. Sessions select the atomic
   `workspace` layout for their transcript/fixed-composer behavior. Contract and equivalence test:
   [`docs/design/resource-page-templates.md`](../../docs/design/resource-page-templates.md).
+- **A collection heading is a rail place when it structures the main page.**
+  Artifacts, Contexts, and Models route their intermediate collection sections
+  through `collectionSectionId`; both projections consume
+  `lib/collectionSections.ts`, and each child keeps its canonical leaf page.
+  Rail Fold all / Unfold all is the same shared button pair as the main page and
+  propagates through nested branches rather than stopping at the first level.
 - **The entity page is the shared surface** — owner and visitor render the same
   page, differing by the `own` flag, not by two components. Two components is
   how a visitor-only regression hides.

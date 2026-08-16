@@ -24,10 +24,12 @@ export type SubView = { id: string; label: string }
  *     feed's content. The section row itself is each hub's default surface, so
  *     that surface is never re-listed as a child.
  *  2. **Instances** — NOT here, because they are live data, not a registry: a
- *     content section (Projects, Artifacts, Contexts, Models, Discussions)
- *     expands to the top rows of the very list its page renders, ordered by
- *     that section's stored filter, with a tail row for the rest. The rail and
- *     the page compute that list with ONE function (`./sectionLists.ts`).
+ *     content section expands to the rows of the very list its page renders,
+ *     ordered by that section's stored filter, with a tail row for the rest.
+ *     A collection whose main page gives those rows structural headings keeps
+ *     that intermediate level through `./collectionSections.ts`; this registry
+ *     still names the canonical leaf key. The rail and page compute both the
+ *     list and any grouping through ONE function each.
  *  3. **Standing doors** — also not here, and there is exactly one:
  *     the Commons' **Your profile** (`OwnerProfileChild`, 2026-08-09). Both
  *     kinds above address a place INSIDE the section's URL grammar

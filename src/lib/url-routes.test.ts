@@ -74,6 +74,24 @@ test('every composite section is a canonical page between its parent and resourc
   }
 })
 
+test('collection section pages round-trip between the root and canonical rows', async () => {
+  const { COLLECTION_SECTION_HOSTS } = await import('./collectionSections.ts')
+  for (const host of COLLECTION_SECTION_HOSTS) {
+    const loc = section({ section: host, collectionSectionId: 'section one/two' })
+    const path = `/${host}/groups/section%20one%2Ftwo`
+    assert.equal(pathForView(loc, null), path)
+    assert.deepEqual(viewForPath(path), { loc, subview: null })
+  }
+  assert.equal(viewForPath('/projects/groups/x'), null, 'only declared collection roots own this grammar')
+})
+
+test('a collection-section seed cannot mint a group URL under an unrelated host', () => {
+  assert.equal(
+    pathForView(section({ section: 'projects', collectionSectionId: 'providers' }), null),
+    '/projects',
+  )
+})
+
 test('every kind the rail LISTS is addressable — a rail child is a place (UI-19)', () => {
   // The rail expands a content section to its rows, so each row must have an
   // address to open. Derived from the registry: adding a section to the rail's

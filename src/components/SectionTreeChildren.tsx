@@ -61,6 +61,17 @@ import {
   type ProjectSectionId,
 } from '../lib/compositeSections'
 import { AGENT_SECTIONS, agentSectionForSubview, agentToolLabel } from '../lib/agentStructure'
+import {
+  ACCOUNT_MCP_SECTION,
+  artifactCollectionSections,
+  contextCollectionSections,
+  modelCollectionSections,
+  type CollectionSection,
+} from '../lib/collectionSections'
+
+/** A rail-wide Fold all / Unfold all request. The revision makes two presses of
+ * the same action observable; nested branches apply it when they mount. */
+export type RailFoldSignal = { revision: number; expanded: boolean }
 
 /** One structural guide. Nest it once per disclosed level; every row can then
  *  use the same local inset instead of calculating an absolute depth. */
@@ -170,11 +181,13 @@ export function AgentTreeChildren({
   activeSeed,
   onOpenSubview,
   onOpenDetail,
+  foldSignal,
 }: {
   activeSubview: string | null
   activeSeed?: PaneSeed | null
   onOpenSubview: (id: string) => void
   onOpenDetail: InstanceChildProps['onOpenDetail']
+  foldSignal?: RailFoldSignal | null
 }) {
   const agents = useAgents().data ?? []
   const prompts = useSystemPrompts().data ?? []
@@ -206,6 +219,13 @@ export function AgentTreeChildren({
       return changed ? next : current
     })
   }, [activeTop, activeSubview, activeSeed?.promptId, activeSeed?.toolId])
+  useEffect(() => {
+    if (!foldSignal) return
+    const all = foldSignal.expanded
+      ? AGENT_SECTIONS.flatMap((section) => [section.id, ...section.children.map((child) => child.id)])
+      : []
+    setOpen(new Set(all))
+  }, [foldSignal?.revision])
   const toggle = (id: string) => setOpen((current) => {
     const next = new Set(current)
     next.has(id) ? next.delete(id) : next.add(id)
@@ -437,20 +457,23 @@ export interface InstanceChildProps {
   onOpenSession?: (sessionId: string) => void
 }
 
-/** The instance children of whichever content section this is. A section absent
- *  from `SECTION_INSTANCE_KEY` renders nothing (it has declared surfaces, or no
- *  children at all). */
-export function SectionInstanceChildren({ section, ...props }: { section: SectionId } & InstanceChildProps) {
+/** The instance projection of a content section. Collection roots may preserve
+ * an intermediate structural section before these canonical rows. */
+export function SectionInstanceChildren({
+  section,
+  foldSignal,
+  ...props
+}: { section: SectionId; foldSignal?: RailFoldSignal | null } & InstanceChildProps) {
   if (!SECTION_INSTANCE_KEY[section]) return null
   switch (section) {
     case 'projects':
-      return <ProjectChildren {...props} />
+      return <ProjectChildren foldSignal={foldSignal} {...props} />
     case 'artifacts':
-      return <ArtifactChildren {...props} />
+      return <ArtifactChildren foldSignal={foldSignal} {...props} />
     case 'contexts':
-      return <ContextChildren {...props} />
+      return <ContextChildren foldSignal={foldSignal} {...props} />
     case 'models':
-      return <ProviderChildren {...props} />
+      return <ProviderChildren foldSignal={foldSignal} {...props} />
     case 'discussions':
       return <DiscussionChildren {...props} />
     default:
@@ -500,7 +523,7 @@ function InstanceRows({
   )
 }
 
-function ProjectChildren(props: InstanceChildProps) {
+function ProjectChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
   const [filter] = useSectionFilter('projects')
   const rel = useRelations()
   const myOrgIds = new Set((useMyOrgs().data ?? []).map((o) => o.tenant.id))
@@ -510,7 +533,7 @@ function ProjectChildren(props: InstanceChildProps) {
   const head = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
   return (
     <>
-      {head.map((project) => <ProjectBranch key={project.id} project={project} {...props} />)}
+      {head.map((project) => <ProjectBranch key={project.id} project={project} foldSignal={foldSignal} {...props} />)}
       {rows.length > RAIL_INSTANCE_CAP && (
         <ShowAllRow
           hidden={rows.length - RAIL_INSTANCE_CAP}
@@ -531,7 +554,8 @@ function ProjectBranch({
   activeSessionId,
   onOpenDetail,
   onOpenSession,
-}: { project: Project } & InstanceChildProps) {
+  foldSignal,
+}: { project: Project; foldSignal?: RailFoldSignal | null } & InstanceChildProps) {
   const branchActive = activeSeed?.projectId === project.id
   const rootActive =
     branchActive && !activeSeed?.projectSectionId && !activeSeed?.workItemId && !activeSeed?.contributionId
@@ -539,6 +563,9 @@ function ProjectBranch({
   useEffect(() => {
     if (branchActive) setExpanded(true)
   }, [branchActive])
+  useEffect(() => {
+    if (foldSignal) setExpanded(foldSignal.expanded)
+  }, [foldSignal?.revision])
   return (
     <>
       <div
@@ -575,6 +602,7 @@ function ProjectBranch({
             activeSessionId={activeSessionId}
             onOpenDetail={onOpenDetail}
             onOpenSession={onOpenSession}
+            foldSignal={foldSignal}
           />
         </RailTreeBranch>
       )}
@@ -596,12 +624,14 @@ function ProjectResourceChildren({
   activeSessionId,
   onOpenDetail,
   onOpenSession,
+  foldSignal,
 }: {
   project: Project
   activeSeed?: PaneSeed | null
   activeSessionId?: string | null
   onOpenDetail: InstanceChildProps['onOpenDetail']
   onOpenSession?: InstanceChildProps['onOpenSession']
+  foldSignal?: RailFoldSignal | null
 }) {
   const rel = useRelations()
   const saved = useSavedContexts().data?.contexts ?? []
@@ -709,6 +739,7 @@ function ProjectResourceChildren({
           rows={resources[section.id] ?? []}
           activeSeed={activeSeed}
           onOpenDetail={onOpenDetail}
+          foldSignal={foldSignal}
         />
       ))}
     </>
@@ -721,12 +752,14 @@ function ProjectSectionBranch({
   rows,
   activeSeed,
   onOpenDetail,
+  foldSignal,
 }: {
   projectId: string
   section: (typeof PROJECT_SECTIONS)[number]
   rows: ProjectResourceRow[]
   activeSeed?: PaneSeed | null
   onOpenDetail: InstanceChildProps['onOpenDetail']
+  foldSignal?: RailFoldSignal | null
 }) {
   const sectionActive =
     activeSeed?.projectId === projectId && activeSeed.projectSectionId === section.id
@@ -736,6 +769,9 @@ function ProjectSectionBranch({
   useEffect(() => {
     if (sectionActive) setExpanded(true)
   }, [sectionActive])
+  useEffect(() => {
+    if (foldSignal) setExpanded(foldSignal.expanded)
+  }, [foldSignal?.revision])
   const hasResources = rows.length > 0
   const visible = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
   return (
@@ -793,41 +829,186 @@ function ProjectSectionBranch({
   )
 }
 
-function ArtifactChildren(props: InstanceChildProps) {
+type CollectionRailItem = { id: string; label: string; seed: PaneSeed }
+
+/** Collection roots preserve the same intermediate section level their main
+ * pages draw. The section row is itself a canonical page; its resources sit
+ * one guide deeper and keep their existing canonical leaf pages. */
+function CollectionSectionRows({
+  section,
+  groups,
+  empty,
+  activeId,
+  activeSeed,
+  onOpenDetail,
+  foldSignal,
+}: {
+  section: SectionId
+  groups: CollectionSection<CollectionRailItem>[]
+  empty: string
+  foldSignal?: RailFoldSignal | null
+} & InstanceChildProps) {
+  if (groups.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
+  return (
+    <>
+      {groups.map((group) => (
+        <CollectionSectionBranch
+          key={group.id}
+          section={section}
+          group={group}
+          activeId={activeId}
+          activeSeed={activeSeed}
+          onOpenDetail={onOpenDetail}
+          foldSignal={foldSignal}
+        />
+      ))}
+    </>
+  )
+}
+
+function CollectionSectionBranch({
+  section,
+  group,
+  activeId,
+  activeSeed,
+  onOpenDetail,
+  foldSignal,
+}: {
+  section: SectionId
+  group: CollectionSection<CollectionRailItem>
+  foldSignal?: RailFoldSignal | null
+} & Pick<InstanceChildProps, 'activeId' | 'activeSeed' | 'onOpenDetail'>) {
+  const sectionActive = activeSeed?.collectionSectionId === group.id
+  const containsActiveLeaf = group.items.some((item) => item.id === activeId)
+  const [expanded, setExpanded] = useState(sectionActive || containsActiveLeaf)
+  const [showAll, setShowAll] = useState(false)
+  useEffect(() => {
+    if (sectionActive || containsActiveLeaf) setExpanded(true)
+  }, [sectionActive, containsActiveLeaf])
+  useEffect(() => {
+    if (foldSignal) setExpanded(foldSignal.expanded)
+  }, [foldSignal?.revision])
+  const hasResources = group.items.length > 0
+  const visible = showAll ? group.items : group.items.slice(0, RAIL_INSTANCE_CAP)
+  return (
+    <>
+      <div
+        data-collection-section={group.id}
+        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
+          sectionActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        }`}
+      >
+        {hasResources ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.label}`}
+            aria-expanded={expanded}
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
+          >
+            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          </button>
+        ) : (
+          <span className="h-5 w-5 shrink-0" aria-hidden />
+        )}
+        <button
+          onClick={() => onOpenDetail(section, { collectionSectionId: group.id })}
+          aria-current={sectionActive ? 'page' : undefined}
+          className="min-w-0 flex-1 truncate text-left"
+        >
+          {group.label}
+        </button>
+        {hasResources && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{group.items.length}</span>}
+      </div>
+      {hasResources && expanded && (
+        <RailTreeBranch data-collection-section-resources={group.id}>
+          {visible.map((item) => (
+            <SubNavRow
+              key={item.id}
+              label={item.label}
+              title={item.label}
+              active={activeId === item.id}
+              onClick={() => onOpenDetail(section, item.seed)}
+            />
+          ))}
+          {group.items.length > RAIL_INSTANCE_CAP && (
+            <ShowAllRow
+              hidden={group.items.length - RAIL_INSTANCE_CAP}
+              open={showAll}
+              onToggle={() => setShowAll((value) => !value)}
+            />
+          )}
+        </RailTreeBranch>
+      )}
+    </>
+  )
+}
+
+function ArtifactChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
   const rows = listArtifacts(rel.allArtifacts(), filter)
+  const allGroups = artifactCollectionSections(rel.allArtifacts(), rel.allProjects(), rel.artifactProjectId)
+  const groups = artifactCollectionSections(rows, rel.allProjects(), rel.artifactProjectId)
+  const activeGroup = props.activeSeed?.collectionSectionId
+    ? allGroups.find((group) => group.id === props.activeSeed?.collectionSectionId)
+    : undefined
+  // A standing facet may hide every leaf in the selected structural section.
+  // Keep its section row mounted anyway: the main page preserves the same
+  // empty selected section, and navigation structure must not disappear merely
+  // because a filter currently leaves it with zero visible resources.
+  const visibleGroups = activeGroup && !groups.some((group) => group.id === activeGroup.id)
+    ? [...groups, { ...activeGroup, items: [] }]
+    : groups
   return (
-    <InstanceRows
+    <CollectionSectionRows
       section="artifacts"
-      rows={rows.map((a) => ({ id: a.id, label: a.name }))}
+      groups={visibleGroups.map((group) => ({
+        ...group,
+        items: group.items.map((artifact) => ({ id: artifact.id, label: artifact.name, seed: { artifactId: artifact.id } })),
+      }))}
       empty="No artifacts here yet."
+      foldSignal={foldSignal}
       {...props}
     />
   )
 }
 
-function ContextChildren(props: InstanceChildProps) {
+function ContextChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
   const [filter] = useSectionFilter('contexts')
   const rows = listContexts(useSavedContexts().data?.contexts ?? [], filter)
+  const activeGroupId = props.activeSeed?.collectionSectionId
+  const groups = [
+    ...contextCollectionSections(rows).filter((group) => group.items.length > 0 || group.id === activeGroupId).map((group) => ({
+      ...group,
+      items: group.items.map((context) => ({ id: context.id, label: context.label, seed: { contextId: context.id } })),
+    })),
+    { ...ACCOUNT_MCP_SECTION, items: [] },
+  ]
   return (
-    <InstanceRows
+    <CollectionSectionRows
       section="contexts"
-      rows={rows.map((c) => ({ id: c.id, label: c.label }))}
+      groups={groups}
       empty="No contexts here yet."
+      foldSignal={foldSignal}
       {...props}
     />
   )
 }
 
-function ProviderChildren(props: InstanceChildProps) {
+function ProviderChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
   const [filter] = useSectionFilter('models')
   const rows = listProviders(useProviders().data ?? [], filter)
+  const groups = modelCollectionSections(rows).map((group) => ({
+    ...group,
+    items: group.items.map((provider) => ({ id: provider.id, label: provider.label, seed: { providerId: provider.id } })),
+  }))
   return (
-    <InstanceRows
+    <CollectionSectionRows
       section="models"
-      rows={rows.map((p) => ({ id: p.id, label: p.label }))}
+      groups={groups}
       empty="No providers here yet."
+      foldSignal={foldSignal}
       {...props}
     />
   )

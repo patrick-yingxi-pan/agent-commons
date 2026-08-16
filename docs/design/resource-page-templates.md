@@ -52,7 +52,19 @@ The rail projection is **parent → section → canonical resource**. The main-p
 projection is the parent overview with every visible section, or one selected
 section, or the child resource’s own page. Hubs and collection roots use the
 same template because their declared surfaces or instance rows are real child
-places.
+places. A collection root must not flatten headings its main page makes
+structural: Artifacts projects the project filing section before each artifact;
+Contexts projects Connectors / MCP servers / Repositories / account MCP access;
+Models projects Providers. Those intermediate nodes use the canonical
+`/:section/groups/:id` grammar, and the shared grouping functions feed both
+surfaces. A filter may still choose which rows are visible, but it cannot erase
+the section level that organizes those rows on the page.
+
+Fold scope is symmetric too. The main page discovers its rendered sections;
+the rail exposes the same explicit Fold all / Unfold all pair and propagates a
+single revisioned request through every nested branch. A top-level expansion
+that mounts deeper children carries the request with it, so “all” never means
+only the first visible depth.
 
 ## Atomic resource page
 

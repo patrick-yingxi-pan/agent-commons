@@ -182,17 +182,20 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
   assert.match(sidebar, /!!SECTION_SUBVIEWS\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/)
 })
 
-test('the rail has one fold/unfold-all control that toggles the whole tree', () => {
+test('the rail has explicit fold/unfold-all controls that reach the whole tree', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  // A single toggle whose label reflects the action either way.
-  assert.match(sidebar, /aria-label=\{allExpanded \? 'Collapse all sections' : 'Expand all sections'\}/)
-  assert.match(sidebar, /toggleAll/, 'a fold/unfold-all handler exists')
-  // "All expanded" is measured over the VISIBLE sections that actually HAVE children
-  // (the maintainer console's row is chrome-gated on the grant), and the toggle sets
-  // the whole set to none or all — not a per-section op.
+  assert.match(sidebar, /<FoldPairButtons/, 'the rail and page share the same two acts')
+  assert.match(sidebar, /name: 'Fold all rail sections'/)
+  assert.match(sidebar, /name: 'Unfold all rail sections'/)
+  assert.match(sidebar, /requestRailFold/, 'one handler drives both directions')
+  // The visible top level changes at once, while a revisioned signal reaches
+  // branches that are already mounted or mount because Unfold all opened them.
   assert.match(sidebar, /expandableIds\s*=\s*useMemo\(\(\)\s*=>\s*visibleSections\.filter/)
   assert.match(sidebar, /SECTION_ORDER\.filter\(\(id\) => id !== 'admin' \|\| instanceAdmin\)/)
-  assert.match(sidebar, /setExpanded\(allExpanded \? new Set\(\) : new Set\(expandableIds\)\)/)
+  assert.match(sidebar, /setExpanded\(open \? new Set\(expandableIds\) : new Set\(\)\)/)
+  assert.match(sidebar, /revision: \(current\?\.revision \?\? 0\) \+ 1/)
+  const children = read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx'))
+  assert.match(children, /if \(foldSignal\) setExpanded\(foldSignal\.expanded\)/, 'nested branches consume the same request')
 })
 
 test('the rail body gives the canonical tree priority over the foldable Recents utility', () => {

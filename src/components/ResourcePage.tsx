@@ -170,11 +170,12 @@ export function ResourcePageActions({ children }: { children: ReactNode }) {
 
 export type FoldAct = { act: () => void; title: string; name?: string }
 
-/** One Fold all · Unfold all projection, reused by pages and discussions. */
-export function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct }) {
+/** The one Fold all · Unfold all button pair. Pages, discussions, and the rail
+ * place the same controls in different flow wrappers without redrawing them. */
+export function FoldPairButtons({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct }) {
   if (!fold && !unfold) return null
   return (
-    <div className="mb-2 flex items-center justify-end gap-1">
+    <>
       {(
         [
           ['Fold all', ChevronsUp, fold],
@@ -194,6 +195,16 @@ export function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct
           </button>
         ) : null,
       )}
+    </>
+  )
+}
+
+/** The main-page row placement for the shared pair. */
+export function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct }) {
+  if (!fold && !unfold) return null
+  return (
+    <div className="mb-2 flex items-center justify-end gap-1">
+      <FoldPairButtons fold={fold} unfold={unfold} />
     </div>
   )
 }

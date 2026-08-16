@@ -158,6 +158,13 @@ import { useSectionFilter } from '../lib/useSectionFilter'
 import { useRoutineFilter } from '../lib/useRoutineFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
 import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders, projectFacet } from '../lib/sectionLists'
+import {
+  ACCOUNT_MCP_SECTION,
+  artifactCollectionSections,
+  collectionSectionLabel,
+  contextCollectionSections,
+  modelCollectionSections,
+} from '../lib/collectionSections'
 import { clampRoutineFilter, filterRoutines } from '../lib/routineFilter'
 import { relativeTime, shortRelativeTime } from '../lib/relativeTime'
 import { countLabel, countOr } from '../lib/countLabel'
@@ -390,6 +397,7 @@ export function SectionView({
   onBack,
   backTo,
   railCollapsed = false,
+  focusCollectionSectionId = null,
   focusProjectId = null,
   focusProjectSectionId = null,
   focusScheduleId = null,
@@ -434,6 +442,8 @@ export function SectionView({
    *  top-left of this panel; inset the content so it clears that button rather
    *  than rendering underneath it. */
   railCollapsed?: boolean
+  /** One structural section inside an Artifacts, Contexts, or Models root. */
+  focusCollectionSectionId?: string | null
   /** The project / routine detail to show (null = the section list). The single
    *  source of truth for which detail is open — driven by the controller whether
    *  reached by a breadcrumb, a deep-link, or a list-card click. */
@@ -492,15 +502,16 @@ export function SectionView({
       />
     ) : section === 'artifacts' ? (
       <ArtifactsSection
+        collectionSectionId={focusCollectionSectionId}
         artifactId={focusArtifactId}
         onBack={onBack}
         backTo={backTo}
         onOpenSession={onOpenSession}
       />
     ) : section === 'contexts' ? (
-      <ContextsSection contextId={focusContextId} onBack={onBack} backTo={backTo} />
+      <ContextsSection collectionSectionId={focusCollectionSectionId} contextId={focusContextId} onBack={onBack} backTo={backTo} />
     ) : section === 'models' ? (
-      <ModelsSection providerId={focusProviderId} onBack={onBack} backTo={backTo} />
+      <ModelsSection collectionSectionId={focusCollectionSectionId} providerId={focusProviderId} onBack={onBack} backTo={backTo} />
     ) : section === 'agents' ? (
       // Agents is a composite: null is its honest overview, sub-views are its
       // structural section/resource pages, and focus ids are canonical leaves.
@@ -6473,18 +6484,20 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
 
 /** The Artifacts index. Its kind facet is chosen in the rail row's "Filter &
  *  sort" (UI-19 — the facet ids ARE the ArtifactKind values), never an in-page
- *  bar; the rail's children are the artifacts themselves.
+ *  bar; the rail preserves the same project section before each artifact.
  *
  *  The open artifact is a PLACE (`/artifacts/:id`): its surface used to be local
  *  state with no address, so it could be reached but never linked, restored, or
  *  highlighted in the rail. It is now the pane's standard detail page, like a
  *  saved context — opened and left through the pane nav bridge, never a popup. */
 function ArtifactsSection({
+  collectionSectionId,
   artifactId,
   onBack,
   backTo,
   onOpenSession,
 }: {
+  collectionSectionId: string | null
   artifactId: string | null
   onBack: () => void
   backTo: NavLocation | null
@@ -6522,16 +6535,18 @@ function ArtifactsSection({
       a.source.toLowerCase().includes(needle),
   )
 
-  // Sorted by project by default — group in PROJECTS order, drop empty groups.
-  // Membership comes from the relation graph, so an AI "move to project" /
-  // "save as artifact under …" edit re-groups the index live. A trailing
-  // "Unfiled" bucket catches artifacts not under any project (e.g. a draft
-  // saved with no project), so nothing a user confirmed can vanish from view.
-  const knownProjectId = new Set(projects.map((p) => p.id))
-  const groups = [
-    ...projects.map((p) => ({ id: p.id, name: p.name, items: matches.filter((a) => rel.artifactProjectId(a) === p.id) })),
-    { id: '__unfiled', name: 'Unfiled', items: matches.filter((a) => !knownProjectId.has(rel.artifactProjectId(a))) },
-  ].filter((g) => g.items.length > 0)
+  // The grouping is shared with the rail: project section → artifact. The
+  // unfiltered registry resolves a selected section even if a transient search
+  // currently leaves it empty; the visible list supplies that section's rows.
+  const allGroups = artifactCollectionSections(rel.allArtifacts(), projects, rel.artifactProjectId)
+  const groups = artifactCollectionSections(matches, projects, rel.artifactProjectId)
+  const selectedMeta = collectionSectionId
+    ? allGroups.find((group) => group.id === collectionSectionId) ?? null
+    : null
+  const selectedGroup = selectedMeta
+    ? groups.find((group) => group.id === selectedMeta.id) ?? { ...selectedMeta, items: [] }
+    : null
+  const shownGroups = selectedGroup ? [selectedGroup] : groups
 
   // An id the registry doesn't know (a stale link, a deleted artifact) degrades
   // to the plain index — the same graceful read every detail page gives.
@@ -6594,21 +6609,21 @@ function ArtifactsSection({
   }
 
   return (
-    <CompositeResourcePage>
-      <PageHeader title="Artifacts">
+    <CompositeResourcePage sectionPage={selectedGroup !== null}>
+      <PageHeader title="Artifacts" subtitle={selectedGroup?.label}>
         <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
           New artifact
         </PageActionButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" />
 
-      {groups.length === 0 ? (
+      {shownGroups.length === 0 ? (
         <Empty>No artifacts match.</Empty>
       ) : (
-        groups.map((g) => (
+        shownGroups.map((g) => (
           <FoldSection
             key={g.id}
-            title={g.name}
+            title={g.label}
             summary={`${g.items.length} artifact${g.items.length === 1 ? '' : 's'}`}
             persist={false}
           >
@@ -6868,13 +6883,6 @@ function ArtifactPreviewRow({
 
 /* ─────────────────────────── Contexts ─────────────────────────── */
 
-const CONTEXT_GROUPS: { kind: SavedContextKind; label: string }[] = [
-  { kind: 'connector', label: 'Connectors' },
-  { kind: 'mcp', label: 'MCP servers' },
-  { kind: 'repo', label: 'Repositories' },
-]
-
-
 /** The reusable context the account already knows about — connectors and MCP
  *  servers (set up / authenticated once) plus the repos you've attached before.
  *  Manage them here once; any session reuses them from Add-context. Statuses and
@@ -7049,13 +7057,15 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
 }
 
 /** The Contexts list. Its kind facet lives in the rail row's "Filter & sort"
- *  (UI-19 — the facet ids ARE the SavedContextKind values); the rail's children
- *  are the saved contexts themselves. */
+ *  (UI-19); the named families remain structural page/rail sections rather than
+ *  being flattened away. */
 function ContextsSection({
+  collectionSectionId,
   contextId,
   onBack,
   backTo,
 }: {
+  collectionSectionId: string | null
   /** The open detail (null = the list) — nav-owned (ADAPT-15: the detail was once
    *  component state with no address; now it's a page at /contexts/:id). */
   contextId: string | null
@@ -7109,32 +7119,38 @@ function ContextsSection({
   const visible = listContexts(items, filter).filter(
     (c) => needle === '' || c.label.toLowerCase().includes(needle) || c.detail.toLowerCase().includes(needle),
   )
-  const groups = CONTEXT_GROUPS.map((g) => ({
-    ...g,
-    items: visible.filter((c) => c.kind === g.kind),
-  })).filter((g) => g.items.length > 0)
+  const groups = contextCollectionSections(visible).filter((group) => group.items.length > 0)
+  const selectedLabel = collectionSectionId
+    ? collectionSectionLabel('contexts', collectionSectionId)
+    : undefined
+  const selectedResourceGroup = collectionSectionId
+    ? contextCollectionSections(visible).find((group) => group.id === collectionSectionId) ?? null
+    : null
+  const accountMcpSelected = collectionSectionId === ACCOUNT_MCP_SECTION.id
+  const sectionSelected = selectedLabel !== undefined
+  const shownGroups = selectedResourceGroup ? [selectedResourceGroup] : accountMcpSelected ? [] : groups
 
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage sectionPage={sectionSelected}>
       <PageHeader
         title="Contexts"
-        subtitle={
+        subtitle={selectedLabel ?? (
           <>
             Accounts, servers, and repos you’ve set up once. Any session can reuse them from Add context — no
             re-authenticating, no re-cloning.
           </>
-        }
+        )}
       >
         <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" />
 
-      {groups.length === 0 ? (
+      {!accountMcpSelected && shownGroups.length === 0 ? (
         <Empty>No contexts match.</Empty>
       ) : (
-        groups.map((g) => (
+        shownGroups.map((g) => (
           <FoldSection
-            key={g.kind}
+            key={g.id}
             title={g.label}
             summary={`${g.items.length} context${g.items.length === 1 ? '' : 's'}`}
             persist={false}
@@ -7154,12 +7170,14 @@ function ContextsSection({
         ))
       )}
 
-      <FoldSection
-        title="This account is an MCP server"
-        summary="MCP endpoint, toolset, and access tokens"
-      >
-        <McpAccessCard />
-      </FoldSection>
+      {(!sectionSelected || accountMcpSelected) && (
+        <FoldSection
+          title={ACCOUNT_MCP_SECTION.label}
+          summary="MCP endpoint, toolset, and access tokens"
+        >
+          <McpAccessCard />
+        </FoldSection>
+      )}
     </CompositeResourcePage>
   )
 }
@@ -9052,10 +9070,12 @@ function ProbeResultCard({ probe }: { probe: PromptProbeResult }) {
  *  (the selector reads this same registry), so registering a provider and using
  *  it are two views of one concept: models are first-class citizens. */
 function ModelsSection({
+  collectionSectionId,
   providerId,
   onBack,
   backTo,
 }: {
+  collectionSectionId: string | null
   providerId: string | null
   onBack: () => void
   backTo: NavLocation | null
@@ -9069,6 +9089,8 @@ function ModelsSection({
   // The same list the rail's provider children show — kind facet (the shared
   // built-ins, the endpoints you registered, delegated Sessions) + order.
   const shown = listProviders(providers, filter)
+  const [providersGroup] = modelCollectionSections(shown)
+  const providersSelected = collectionSectionId === providersGroup.id
   const openProvider = providerId ? providers.find((provider) => provider.id === providerId) ?? null : null
 
   // A provider is a rail LEAF with a canonical URL, so it gets an honest page;
@@ -9105,16 +9127,16 @@ function ModelsSection({
   }
 
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage sectionPage={providersSelected}>
       <PageHeader
         title="Models"
-        subtitle="Every model your sessions can run on — built-in, registered endpoint, or delegated AI session."
+        subtitle={providersSelected ? providersGroup.label : 'Every model your sessions can run on — built-in, registered endpoint, or delegated AI session.'}
       >
         <PageActionButton icon={<Plus size={15} />} onClick={() => setEditing('new')}>
           New provider
         </PageActionButton>
       </PageHeader>
-      <FoldSection title="Providers" summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
+      <FoldSection title={providersGroup.label} summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
         {shown.length === 0 ? (
           <Empty>No providers in this view.</Empty>
         ) : (

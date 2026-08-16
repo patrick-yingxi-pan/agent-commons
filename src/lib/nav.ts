@@ -14,6 +14,7 @@
 import type { SectionId } from '../types'
 import { PANE_SEED_KEYS, type PaneSeed } from './paneNav.ts'
 import { projectSection, scheduleSection } from './compositeSections.ts'
+import { collectionSectionLabel } from './collectionSections.ts'
 
 export type NavLocation =
   | { kind: 'session'; sessionId: string; title: string }
@@ -22,6 +23,8 @@ export type NavLocation =
       section: SectionId
       projectId: string | null
       scheduleId: string | null
+      /** A structural section inside a collection root (`/:section/groups/:id`). */
+      collectionSectionId?: string | null
       /** A section page inside a composite Project (`/projects/:id/:section`). */
       projectSectionId?: string | null
       /** A section page inside a composite routine (`/scheduled/:id/:section`). */
@@ -84,6 +87,7 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
   if (a.kind === 'section' && b.kind === 'section')
     return (
       a.section === b.section &&
+      (a.collectionSectionId ?? null) === (b.collectionSectionId ?? null) &&
       (a.projectSectionId ?? null) === (b.projectSectionId ?? null) &&
       a.projectId === b.projectId &&
       (a.scheduleSectionId ?? null) === (b.scheduleSectionId ?? null) &&
@@ -134,8 +138,9 @@ export type BackLabelNames = Partial<Record<(typeof BACK_LABEL_SOURCES)[number],
  *  specific thread. Returning `undefined` is the honest "no name to give",
  *  and the caller degrades to the section label. */
 const DETAIL_LABEL: {
-  [K in keyof Required<PaneSeed>]: (id: string, names: BackLabelNames) => string | undefined
+  [K in keyof Required<PaneSeed>]: (id: string, names: BackLabelNames, section: SectionId) => string | undefined
 } = {
+  collectionSectionId: (id, names, section) => collectionSectionLabel(section, id, names.project),
   projectSectionId: (id) => projectSection(id)?.label,
   projectId: (id, n) => n.project?.[id],
   scheduleSectionId: (id) => scheduleSection(id)?.label,
@@ -175,7 +180,7 @@ export function resolveBackLabel(to: NavLocation | null, names: BackLabelNames =
   for (const key of PANE_SEED_KEYS) {
     const id = to[key]
     if (!id) continue
-    return DETAIL_LABEL[key](id, names) ?? SECTION_LABELS[to.section]
+    return DETAIL_LABEL[key](id, names, to.section) ?? SECTION_LABELS[to.section]
   }
   return SECTION_LABELS[to.section]
 }

@@ -135,7 +135,7 @@ test('every detail page derives from the template matching its resource nature',
 
   const artifacts = fn('ArtifactsSection')
   assert.match(artifacts, /if \(openArtifact\)[\s\S]*?<AtomicResourcePage>/, 'an artifact leaf uses the atomic template')
-  assert.match(artifacts, /<CompositeResourcePage>[\s\S]*?<PageHeader title="Artifacts"/, 'the artifact index uses the composite template')
+  assert.match(artifacts, /<CompositeResourcePage\b[\s\S]*?<PageHeader title="Artifacts"/, 'the artifact index uses the composite template')
 })
 
 test('cross-file detail bodies receive the one FoldSection instead of redrawing it', () => {

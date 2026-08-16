@@ -30,6 +30,9 @@ import type { SectionId } from '../types'
 
 /** The pane's detail-focus shape (MainSplit's PaneFocusState, structurally). */
 export interface PaneSeed {
+  /** An addressable structural section inside a collection root (Artifacts,
+   * Contexts, Models). The host section supplies the section-id namespace. */
+  collectionSectionId?: string
   /** An addressable section inside a composite Project. Meaningful only with
    * `projectId`; the parent overview omits it. */
   projectSectionId?: string
@@ -56,9 +59,7 @@ export interface PaneSeed {
    *  has to be a PLACE — its viewer used to be component state with no address,
    *  the same gap `contextId` closed for saved contexts). */
   artifactId?: string
-  /** A model provider focused in the Models list (UI-19). A provider has no page
-   *  of its own — the address opens the list with that row expanded, which is
-   *  what "its page" means for an entity whose whole face fits in a card. */
+  /** A model provider's canonical detail page (UI-19/UI-33). */
   providerId?: string
 }
 
@@ -67,7 +68,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
+export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.

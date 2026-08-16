@@ -22,6 +22,8 @@
  *    /:section/:subview     a section focused on a rail-tree child (ADAPT-13);
  *                           subview ids win over detail ids (reserved words,
  *                           the GitHub rule)
+ *    /:section/groups/:id   a structural section inside an Artifacts, Contexts,
+ *                           or Models collection root
  *    /projects/:projectId   a project detail page
  *    /projects/:projectId/:sectionId
  *                           one Project section page
@@ -31,7 +33,7 @@
  *    /contexts/:contextId   a saved context's detail page
  *    /artifacts/:artifactId an artifact open in the gallery (UI-19 — the rail
  *                           lists artifacts, so one has to be addressable)
- *    /models/:providerId    the Models list with that provider expanded
+ *    /models/:providerId    a model provider's canonical detail page
  *    /agents/prompts/:id    one reusable system-prompt material
  *    /agents/tools/:id      one callable tool material
  *    /admin/users/:userId   an account's detail page in the maintainer console
@@ -47,6 +49,7 @@ import { SECTION_LABELS, type NavLocation } from './nav.ts'
 import { OWNER_SECTION } from './paneNav.ts'
 import { SECTION_SUBVIEWS } from './subviews.ts'
 import { isProjectSectionId, isScheduleSectionId } from './compositeSections.ts'
+import { isCollectionSectionHost } from './collectionSections.ts'
 
 /** A parsed address: the page plus the section sub-view (which nav history
  *  ignores but the address must carry — GitHub's tabs are URLs). */
@@ -71,6 +74,11 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.promptId) return `/agents/prompts/${encodeURIComponent(loc.promptId)}`
   if (loc.toolId) return `/agents/tools/${encodeURIComponent(loc.toolId)}`
   if (loc.agentId) return `/agents/${encodeURIComponent(loc.agentId)}`
+  // PaneSeed is deliberately shared, so stale persisted state can carry a
+  // field its host does not understand. Do not manufacture group URLs outside
+  // the collection roots that declare this grammar.
+  if (loc.collectionSectionId && isCollectionSectionHost(loc.section))
+    return `/${loc.section}/groups/${encodeURIComponent(loc.collectionSectionId)}`
   if (loc.projectId && loc.workItemId)
     return `/projects/${encodeURIComponent(loc.projectId)}/work/${encodeURIComponent(loc.workItemId)}`
   if (loc.projectId && loc.contributionId)
@@ -145,6 +153,9 @@ export function viewForPath(pathname: string): RoutedView | null {
   // subview ids (orgs / credentials / audit / ops).
   if (section === 'admin' && segs.length === 3 && segs[1] === 'users' && segs[2]) {
     return { loc: { ...base, adminUserId: segs[2] }, subview: null }
+  }
+  if (isCollectionSectionHost(section) && segs.length === 3 && segs[1] === 'groups' && segs[2]) {
+    return { loc: { ...base, collectionSectionId: segs[2] }, subview: null }
   }
   if (segs.length !== 2) return null
   const second = segs[1]

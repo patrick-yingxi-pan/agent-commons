@@ -12,8 +12,6 @@ import {
   ArchiveRestore,
   ChevronDown,
   ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
   Columns2,
   Rows2,
   FolderInput,
@@ -48,7 +46,9 @@ import {
   SectionInstanceChildren,
   ShowAllRow,
   SubNavRow,
+  type RailFoldSignal,
 } from './SectionTreeChildren'
+import { FoldPairButtons } from './ResourcePage'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import {
   SIDEBAR_ACTIVE,
@@ -257,14 +257,15 @@ export function Sidebar({
     () => SECTION_ORDER.filter((id) => id !== 'admin' || instanceAdmin),
     [instanceAdmin],
   )
-  // Fold / unfold all — one toggle over the whole tree. "All expanded" means every
-  // section that HAS children is open; the control then collapses everything (VSCode's
-  // "Collapse All"); otherwise it expands every expandable section at once.
+  // Fold / unfold all — two explicit acts, matching the composite page. The
+  // signal reaches every mounted nested branch; expanding top-level rows mounts
+  // the rest with the same request, so this controls the whole visible forest.
   const expandableIds = useMemo(() => visibleSections.filter(hasChildren), [visibleSections])
-  const allExpanded = expandableIds.every((id) => expanded.has(id))
-  const toggleAll = () => {
-    for (const id of expandableIds) setLayout(`treeOpen.${id}`, !allExpanded)
-    setExpanded(allExpanded ? new Set() : new Set(expandableIds))
+  const [railFoldSignal, setRailFoldSignal] = useState<RailFoldSignal | null>(null)
+  const requestRailFold = (open: boolean) => {
+    for (const id of expandableIds) setLayout(`treeOpen.${id}`, open)
+    setExpanded(open ? new Set(expandableIds) : new Set())
+    setRailFoldSignal((current) => ({ revision: (current?.revision ?? 0) + 1, expanded: open }))
   }
 
   // Clicking a section row: open its page, and — if it has children — expand it in place
@@ -578,14 +579,20 @@ export function Sidebar({
           className={paneClass('sections')}
         >
           <PaneFoldHeader label="Sections" open={sectionsOpen} onToggle={toggleSectionsOpen}>
-            <button
-              onClick={toggleAll}
-              title={allExpanded ? 'Collapse all' : 'Expand all'}
-              aria-label={allExpanded ? 'Collapse all sections' : 'Expand all sections'}
-              className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
-            >
-              {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
-            </button>
+            <div data-rail-fold-controls className="flex items-center gap-1">
+              <FoldPairButtons
+                fold={{
+                  act: () => requestRailFold(false),
+                  name: 'Fold all rail sections',
+                  title: 'Collapse every visible structural branch in the resource forest',
+                }}
+                unfold={{
+                  act: () => requestRailFold(true),
+                  name: 'Unfold all rail sections',
+                  title: 'Open every visible structural branch in the resource forest',
+                }}
+              />
+            </div>
           </PaneFoldHeader>
           {sectionsOpen && (
           <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}>
@@ -601,13 +608,14 @@ export function Sidebar({
           // additionally hosts namespace PROFILES, whose detail key is
           // `ownerName` (OWNER_SECTION) — without this the section row would
           // claim to be on its feed while a profile filled the pane.
-          const activeDetailId = instanceKey
+          const activeLeafId = instanceKey
             ? (activeSeed?.[instanceKey] ?? null)
             : id === 'agents'
               ? (activeSeed?.agentId ?? activeSeed?.promptId ?? activeSeed?.toolId ?? null)
             : id === OWNER_SECTION
               ? (activeSeed?.ownerName ?? null)
               : null
+          const activeDetailId = activeSeed?.collectionSectionId ?? activeLeafId
           return (
             <Fragment key={id}>
               <SectionTreeRow
@@ -659,6 +667,7 @@ export function Sidebar({
                         onOpenDetail(section, seed)
                         onLeafNavigate?.()
                       }}
+                      foldSignal={railFoldSignal}
                     />
                   ) : id === 'scheduled' ? (
                     <ScheduledTreeChildren
@@ -700,6 +709,7 @@ export function Sidebar({
                             onLeafNavigate?.()
                           }}
                           menuItems={routineMenuItems(t)}
+                          foldSignal={railFoldSignal}
                         />
                       )}
                     />
@@ -715,7 +725,7 @@ export function Sidebar({
                   ) : instanceKey ? (
                     <SectionInstanceChildren
                       section={id}
-                      activeId={activeDetailId}
+                      activeId={activeLeafId}
                       activeSeed={activeSeed}
                       activeSessionId={inSession ? activeId : null}
                       onOpenDetail={(section, seed) => {
@@ -726,6 +736,7 @@ export function Sidebar({
                         onSelect(sessionId)
                         onLeafNavigate?.()
                       }}
+                      foldSignal={railFoldSignal}
                     />
                   ) : null}
                 </RailTreeBranch>
@@ -1203,6 +1214,7 @@ function RoutineRow({
   onOpenRun,
   onOpenDiscussion,
   menuItems,
+  foldSignal,
 }: {
   task: ScheduledTask
   activeRunId: string | null
@@ -1213,6 +1225,7 @@ function RoutineRow({
   onOpenRun: (runId: string) => void
   onOpenDiscussion: (discussionId: string) => void
   menuItems: RowMenuItem[]
+  foldSignal?: RailFoldSignal | null
 }) {
   // A routine is the composite; a run is one of its children. The old row
   // skipped the parent whenever a run existed and opened the latest child,
@@ -1223,6 +1236,9 @@ function RoutineRow({
   useEffect(() => {
     if (pageActive || activeSectionId !== null || activeRunId !== null) setExpanded(true)
   }, [pageActive, activeSectionId, activeRunId])
+  useEffect(() => {
+    if (foldSignal) setExpanded(foldSignal.expanded)
+  }, [foldSignal?.revision])
   return (
     <>
       <div
@@ -1259,6 +1275,7 @@ function RoutineRow({
             onOpenSection={onOpenSection}
             onOpenRun={onOpenRun}
             onOpenDiscussion={onOpenDiscussion}
+            foldSignal={foldSignal}
           />
         </RailTreeBranch>
       )}
@@ -1273,6 +1290,7 @@ function RoutineSectionRows({
   onOpenSection,
   onOpenRun,
   onOpenDiscussion,
+  foldSignal,
 }: {
   task: ScheduledTask
   activeSectionId: ScheduleSectionId | null
@@ -1280,6 +1298,7 @@ function RoutineSectionRows({
   onOpenSection: (sectionId: ScheduleSectionId) => void
   onOpenRun: (runId: string) => void
   onOpenDiscussion: (discussionId: string) => void
+  foldSignal?: RailFoldSignal | null
 }) {
   const [runsExpanded, setRunsExpanded] = useState(activeSectionId === 'recent-runs' || activeRunId !== null)
   const [discussionExpanded, setDiscussionExpanded] = useState(false)
@@ -1288,6 +1307,11 @@ function RoutineSectionRows({
   useEffect(() => {
     if (activeSectionId === 'recent-runs' || activeRunId !== null) setRunsExpanded(true)
   }, [activeSectionId, activeRunId])
+  useEffect(() => {
+    if (!foldSignal) return
+    setRunsExpanded(foldSignal.expanded)
+    setDiscussionExpanded(foldSignal.expanded)
+  }, [foldSignal?.revision])
   const sections = visibleCompositeSections(SCHEDULE_SECTIONS, task.own !== false)
   return (
     <div>
