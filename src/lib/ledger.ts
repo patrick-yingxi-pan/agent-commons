@@ -1,6 +1,6 @@
 /** ── The ledger ───────────────────────────────────────────────────────────────
  *  The flat-collection recipe (owner directive 2026-07-31): a collection of
- *  entities renders as ONE bordered container with hairline-divided rows — the
+ *  entities renders as ONE hairline-divided list with no surrounding frame — the
  *  GitHub repo-file-list idiom — never as a pile of per-item cards. Chosen over
  *  the card grid because the card chrome (16px radius + shadow + surface fill on
  *  the two-tone ground) out-talked the content it carried; the diagnosis and the
@@ -11,22 +11,23 @@
  *  that fronts entities is one role, so the container chrome is defined once
  *  here and consumed everywhere. `divide-y` draws the head→row and row→row
  *  hairlines from the container, so a row carries no border of its own — which
- *  is exactly what ROW_DOOR_CLASS (lib/cardDoor) expects a row inside a bordered
+ *  is exactly what ROW_DOOR_CLASS (lib/cardDoor) expects a row inside a divider
  *  list container to look like; append it at the call site for rows that front a
  *  page, along with the row's own sizes and colors.
  *
  *  Plain strings (no JSX) so the DOM-less test runner can import and scan —
  *  src/lib/ledger.test.ts locks the recipe and forbids hand-rolled copies.
  *
- *  The flat radius scale (one decision, stated once): collections (ledger
- *  boxes) 6px · items (quiet cards) 8px · standalone interactive objects (the
- *  composer, dialogs) 12px. Nothing at rest casts a shadow at any tier.
+ *  The flat radius scale (one decision, stated once): controls 6px · items whose
+ *  independent payload earns containment (quiet cards) 8px · standalone
+ *  interactive objects (the composer, dialogs) 12px. Nothing at rest casts a
+ *  shadow at any tier.
  *
- *  Which form fits an item: a scannable ONE-LINER (a context, a project, a run)
- *  is a LEDGER ROW; an item with a rich body — a thumbnail, a thread head, an
- *  in-place management surface — is a QUIET CARD in a stack or grid. A model
- *  provider is a synopsis row here; its chips and actions live on its canonical
- *  page. Surface follows the entity's nature, applied to chrome.
+ *  Which form fits an item: an addressable index synopsis (a context, project,
+ *  agent, model or run) is a LEDGER ROW; an item with a rich or independent
+ *  functional body — a feed post, editor, diff, form or metric tile — may be a
+ *  QUIET CARD. More metadata does not earn a frame: it belongs on the canonical
+ *  detail page. Surface follows the entity's nature, applied to chrome.
  *
  *  The 2026-07-31 migration converted every collection (Projects, Contexts,
  *  Scheduled, CardList → ledger; Artifacts and Commons → quiet card) and swept
@@ -92,9 +93,9 @@ export const LEDGER_COUNT_CLASS =
  *  fronts a page, plus their own type sizes and colors. */
 export const LEDGER_ROW_CLASS = 'flex items-baseline gap-2.5 py-2.5'
 
-/** The QUIET CARD — the flat direction's other item form: a gallery tile or feed
- *  card (Artifacts, the Commons feed, Discover) whose item is visual enough to
- *  earn its own frame. Hairline border, 8px radius, NO resting shadow — hover is
+/** The QUIET CARD — the flat direction's other item form: a rich feed body or an
+ *  independently comparable/operable object whose boundary conveys meaning.
+ *  Hairline border, 8px radius, NO resting shadow — hover is
  *  the border waking up (lib/cardDoor's CARD_DOOR_CLASS). Deliberately carries
  *  no border COLOR: a card wearing a transient border (the focus flash) must
  *  choose its color in one place at the call site (two `border-*` colors in one

@@ -1,6 +1,6 @@
 /** ── The public-face byline (shared-surface UI model) ────────────────────────
  *  One source for the owner label every cross-tenant surface shows — "by Ada
- *  Lovelace (you)" — so the directory cards, the project page, and the agent
+ *  Lovelace (you)" — so the directory rows, the project page, and the agent
  *  detail can't drift apart (form follows function; locked by
  *  src/lib/public-face.test.ts, which fails if a component hand-rolls the label).
  *  The model this cue serves: **the entity page is the shared surface —

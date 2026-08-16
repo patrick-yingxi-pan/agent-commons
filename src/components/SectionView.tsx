@@ -87,7 +87,7 @@ import { useDisclosure } from '../lib/useDisclosure'
 import { NotificationRow, type NotificationDoors } from './NotificationList'
 import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
-import { CARD_DOOR_CLASS, ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
+import { ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
 import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
@@ -136,6 +136,7 @@ import {
   ResourcePageHeader as PageHeader,
   ResourcePageList as CardList,
   ResourcePageSection as FoldSection,
+  ResourcePageSynopsisRow as SynopsisRow,
 } from './ResourcePage'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
@@ -896,29 +897,17 @@ function ProjectRow({
   onOpen: () => void
 }) {
   return (
-    // A ledger row (lib/ledger): the row is the mouse target, its TITLE the
-    // named keyboard door (UI-17) — the same door model the card form carried,
-    // in a divider-row container instead of a per-item box.
-    <div onClick={cardDoorClick(onOpen)} className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS}`}>
-      {/* The door owns the weight (UI-16); the caller owns color, size, layout. */}
-      <button
-        onClick={onOpen}
-        className={`max-w-[55%] shrink-0 truncate text-left text-[13px] text-ink hover:text-co ${DOOR_CLASS}`}
-      >
-        {project.name}
-      </button>
-      {project.own === false && (
-        <span className="shrink-0">
-          <Byline ownerName={project.ownerName} own={false} />
-        </span>
-      )}
-      <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">
-        {project.description}
-      </span>
-      <span className="shrink-0 text-[11px] text-ink-faint">
-        {shortRelativeTime(project.updatedAt)} · {sessionCount} session{sessionCount === 1 ? '' : 's'}
-      </span>
-    </div>
+    <SynopsisRow
+      title={project.name}
+      description={
+        <>
+          {project.own === false && <><Byline ownerName={project.ownerName} own={false} /> · </>}
+          {project.description}
+        </>
+      }
+      meta={`${shortRelativeTime(project.updatedAt)} · ${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
+      onOpen={onOpen}
+    />
   )
 }
 
@@ -4653,16 +4642,16 @@ function CommonsSection({ lens }: { lens: string | null }) {
           {browse.length === 0 ? (
             <Empty>No shared projects{q.trim() ? ' match' : ' yet — share one from its project page'}.</Empty>
           ) : (
-            <div className="space-y-3">
+            <CardList>
               {browse.map((p) => (
-                <SharedProjectCard
+                <SharedProjectRow
                   key={p.id}
                   entry={p}
                   onOpen={() => rel.navigate('projects', p.id)}
                   onOwnerClick={() => rel.openOwner(p.owner)}
                 />
               ))}
-            </div>
+            </CardList>
           )}
         </FoldSection>
       )}
@@ -7797,14 +7786,11 @@ function AgentNestedGroup({
 }) {
   return (
     <div>
-      <div className={`flex items-end justify-between gap-3 pb-2 ${LEDGER_RULE_CLASS}`}>
-        <div className="min-w-0">
-          <button onClick={onOpen} className={`text-[13px] font-semibold text-ink ${DOOR_CLASS}`}>
-            {title}
-          </button>
-          <p className="mt-0.5 text-[11px] text-ink-faint">{summary}</p>
-        </div>
-        <button onClick={onOpen} className={INLINE_ACTION_CLASS}>Open page</button>
+      <div className={`min-w-0 pb-2 ${LEDGER_RULE_CLASS}`}>
+        <button onClick={onOpen} className={`text-[13px] font-semibold text-ink ${DOOR_CLASS}`}>
+          {title}
+        </button>
+        <p className="mt-0.5 text-[11px] text-ink-faint">{summary}</p>
       </div>
       <div className="pt-2">{children}</div>
     </div>
@@ -7908,43 +7894,15 @@ function SubTabs<T extends string>({
   )
 }
 
-/** The shared card shell + head for the Agents-hub lists — one icon-tile + title +
- *  subtitle row (with optional trailing slot), so the four tabs read as one system
- *  (form follows function). The body below the head is each card's own children. */
-function CommonsCard({
-  children,
-  cardRef,
-  flash = false,
-  onOpen,
-}: {
-  children: ReactNode
-  /** Set by a notification-door target (R6) so the card can scroll itself into view. */
-  cardRef?: RefObject<HTMLDivElement | null>
-  /** Lit briefly when a door lands on this card (the shared focus-flash cue). */
-  flash?: boolean
-  /** When the card fronts a page, the WHOLE surface opens it (lib/cardDoor, UI-17)
-   *  — pass the same handler as `CommonsCardHead`'s `onOpen`, which stays the
-   *  keyboard door. Absent = a management card that only edits in place. */
-  onOpen?: () => void
-}) {
-  return (
-    <div
-      ref={cardRef}
-      onClick={onOpen ? cardDoorClick(onOpen) : undefined}
-      className={`group scroll-mt-6 ${QUIET_CARD_CLASS} p-4 transition ${
-        // The flash owns the border while it lasts: `hover:border-line-strong`
-        // out-specifies `border-accent`, so wearing both would blank the arrival
-        // cue on hover (two border colors, no defined winner — lib/textDoor).
-        flash ? `border-co ${FOCUS_FLASH_CLASS}` : `border-line ${onOpen ? CARD_DOOR_CLASS : ''}`
-      }`}
-    >
-      {children}
-    </div>
-  )
+/** Containment for an independent metric tile. Ordinary resource summaries use
+ *  SynopsisRow instead; a box is reserved for a payload whose boundary conveys
+ *  meaning, such as one independently comparable health measurement. */
+function MetricTile({ children }: { children: ReactNode }) {
+  return <div className={`${QUIET_CARD_CLASS} border-line p-4`}>{children}</div>
 }
 
-/** Hover-revealed edit / delete actions on a management card — the same idiom as the
- *  Contexts rows. Shared so every hub card exposes the same cue. */
+/** Hover-revealed edit / delete actions on a management row — the same idiom as the
+ *  Contexts rows. Shared so every hub row exposes the same cue. */
 function CardActions({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () => void }) {
   return (
     <div className={`flex shrink-0 items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
@@ -8073,45 +8031,6 @@ function FormDialog({
   )
 }
 
-function CommonsCardHead({
-  icon,
-  title,
-  subtitle,
-  trailing,
-  onOpen,
-}: {
-  icon: ReactNode
-  title: string
-  subtitle: ReactNode
-  trailing?: ReactNode
-  /** When the card fronts a page / detail, the TITLE is the door (GitHub's
-   *  title-as-link) — the same handler as the card's explicit open affordance,
-   *  so every way in shares one destination. Absent = a non-navigating head. */
-  onOpen?: () => void
-}) {
-  return (
-    <div className="flex items-center gap-2.5">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        {onOpen ? (
-          <button
-            onClick={onOpen}
-            className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
-          >
-            {title}
-          </button>
-        ) : (
-          <div className="truncate text-[13px] font-medium text-ink">{title}</div>
-        )}
-        <div className="truncate text-[12px] text-ink-faint">{subtitle}</div>
-      </div>
-      {trailing}
-    </div>
-  )
-}
-
 /** "Your work" (COMMONS-25) — the caller's coordination dashboard, the GitHub
  *  "your issues / your pull requests" analog: everything they're waiting on or
  *  following to a verdict. Two bands, both the caller's OWN acts (`GET /me/work`
@@ -8136,33 +8055,23 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
         {work.posted.length === 0 ? (
           <Empty>Nothing posted yet — post a work item on a shared project and follow it here.</Empty>
         ) : (
-          <div className="space-y-1.5">
+          <CardList>
             {work.posted.map((o) => (
-              <div key={o.id} className="flex items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2">
-                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(o.status)}`} />
-                <div className="min-w-0 flex-1">
-                  <button
-                    onClick={() => rel.navigate('projects', o.projectId, o.id)}
-                    className={`block max-w-full truncate text-left text-[13px] ${DOOR_CLASS} ${
-                      o.status === 'retracted' ? 'text-ink-faint line-through' : 'text-ink'
-                    }`}
-                  >
-                    {o.subGoal}
-                  </button>
-                  <div className="text-[11px] text-ink-faint">
-                    in{' '}
-                    <button onClick={() => rel.navigate('projects', o.projectId)} className={`text-ink-soft ${DOOR_CLASS}`}>
-                      {o.projectName}
-                    </button>{' '}
-                    · {o.status === 'open' ? 'awaiting a taker' : o.status} · {relativeTime(o.postedAt)}
-                    {(o.comments?.length ?? 0) > 0
-                      ? ` · ${o.comments!.length} comment${o.comments!.length === 1 ? '' : 's'}`
-                      : ''}
-                  </div>
-                </div>
-              </div>
+              <SynopsisRow
+                key={o.id}
+                prefix={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(o.status)}`} />}
+                title={o.subGoal}
+                titleClassName={o.status === 'retracted' ? 'text-ink-faint line-through' : undefined}
+                description={<>in <button onClick={() => rel.navigate('projects', o.projectId)} className={`text-ink-soft ${DOOR_CLASS}`}>{o.projectName}</button></>}
+                meta={`${o.status === 'open' ? 'awaiting a taker' : o.status} · ${relativeTime(o.postedAt)}${
+                  (o.comments?.length ?? 0) > 0
+                    ? ` · ${o.comments!.length} comment${o.comments!.length === 1 ? '' : 's'}`
+                    : ''
+                }`}
+                onOpen={() => rel.navigate('projects', o.projectId, o.id)}
+              />
             ))}
-          </div>
+          </CardList>
         )}
       </section>
       <section>
@@ -8172,35 +8081,27 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
         {work.proposals.length === 0 ? (
           <Empty>No change proposals yet — propose a change from a published definition in Discover.</Empty>
         ) : (
-          <div className="space-y-1.5">
+          <CardList>
             {work.proposals.map((p) => (
-              <div key={p.id} className="flex items-start gap-2.5 rounded-lg border border-line bg-surface px-3 py-2">
-                <span className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(p.status)}`} />
-                <div className="min-w-0 flex-1">
-                  <button
-                    onClick={() => onOpenProposal(p.agentId, p.id, p.agentOwner === myName ? null : p.agentOwner)}
-                    className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
-                  >
-                    {p.note.trim() || `Change to ${p.agentLabel}`}
-                  </button>
-                  <div className="text-[11px] text-ink-faint">
-                    on {p.agentLabel} · by{' '}
-                    <OwnerLink bare ownerName={p.agentOwner} onClick={() => rel.openOwner(p.agentOwner)} /> ·{' '}
-                    {p.status} · {relativeTime(p.at)}
-                  </div>
-                </div>
-              </div>
+              <SynopsisRow
+                key={p.id}
+                prefix={<span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDot(p.status)}`} />}
+                title={p.note.trim() || `Change to ${p.agentLabel}`}
+                description={<>on {p.agentLabel} · by <OwnerLink bare ownerName={p.agentOwner} onClick={() => rel.openOwner(p.agentOwner)} /></>}
+                meta={`${p.status} · ${relativeTime(p.at)}`}
+                onOpen={() => onOpenProposal(p.agentId, p.id, p.agentOwner === myName ? null : p.agentOwner)}
+              />
             ))}
-          </div>
+          </CardList>
         )}
       </section>
     </div>
   )
 }
 
-/** Worker Agents (D6) — label, the provider it runs on, its tool count, and its
- *  authority grant ceiling (D8). Read-only here; create / edit / delete land in a
- *  later slice. */
+/** Worker Agents (D6) — a scan-friendly index of label, provider, tool count and
+ *  distribution state. Full runtime authority and lifecycle controls live on the
+ *  canonical Agent page; edit/delete stay as compact row-local management acts. */
 function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
@@ -8210,27 +8111,29 @@ function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
   const providerLabel = (id?: string) => providers.find((p) => p.id === id)?.label ?? 'No provider bound yet'
   const [editing, setEditing] = useState<Agent | null>(null)
   return (
-    <div className="space-y-3">
+    <>
       {agents.length === 0 ? (
         <Empty>No agents yet.</Empty>
       ) : (
-        agents.map((a) => (
-          <AgentCard
-            key={a.id}
-            agent={a}
-            providerLabel={providerLabel(a.providerId)}
-            manageable={a.tenantId !== undefined}
-            onEdit={() => setEditing(a)}
-            onOpenPage={onOpenPage}
-          />
-        ))
+        <CardList>
+          {agents.map((a) => (
+            <AgentRow
+              key={a.id}
+              agent={a}
+              providerLabel={providerLabel(a.providerId)}
+              manageable={a.tenantId !== undefined}
+              onEdit={() => setEditing(a)}
+              onOpenPage={onOpenPage}
+            />
+          ))}
+        </CardList>
       )}
       {editing && <AgentDialog agent={editing} onClose={() => setEditing(null)} />}
-    </div>
+    </>
   )
 }
 
-function AgentCard({
+function AgentRow({
   agent,
   providerLabel,
   manageable,
@@ -8249,21 +8152,11 @@ function AgentCard({
   onOpenPage: (agentId: string) => void
 }) {
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
   // D25 — the owner's review queue: fetched only for published definitions (the
   // only ones that can receive proposals).
   const proposals = useAgentProposals(agent.id, manageable && agent.published === true).data ?? []
   const openProposals = proposals.filter((p) => p.status === 'open')
   const [reviewing, setReviewing] = useState(false)
-  // S4 — the version-history timeline the owner (who authored every version) could see
-  // only as a bare badge. Shown regardless of publish state: the badge is
-  // published-only, but the changelog persists after an unpublish.
-  const changelog = agent.changelog ?? []
-  const [showHistory, setShowHistory] = useState(false)
-  // The A2A-card viewer, driven by WHICH card was asked for — this definition's own
-  // published card and (if present) its imported-from lineage card are distinct URLs
-  // that can both exist on one agent, so a single boolean would be ambiguous.
-  const [cardModal, setCardModal] = useState<{ url: string; title: string } | null>(null)
   // Notification door (R5): a proposal.* bell whose recipient OWNS this agent opens
   // the review dialog ON its proposal. Consumed once.
   const { pending, consume } = usePendingFocus()
@@ -8276,11 +8169,11 @@ function AgentCard({
     consume()
   }, [proposalFocus, consume])
   // Notification door (R6): an agent.forked bell targets the SOURCE agent (which the
-  // recipient owns) with no proposalId — scroll this card into view + flash it. The
+  // recipient owns) with no proposalId — scroll this row into view + flash it. The
   // shared hook consumes the pending target so it fires once.
-  const cardRef = useRef<HTMLDivElement>(null)
+  const rowRef = useRef<HTMLDivElement>(null)
   const agentFocus = pending?.agentId === agent.id && !pending?.proposalId
-  const flash = useFocusFlash(agentFocus, cardRef)
+  const flash = useFocusFlash(agentFocus, rowRef)
   const del = async () => {
     setError(null)
     try {
@@ -8289,156 +8182,39 @@ function AgentCard({
       setError(e instanceof Error ? e.message : 'Could not delete this agent.')
     }
   }
-  // The D18 publish/unpublish act — an explicit toggle (a definition is published
-  // deliberately, never as a side-effect of an edit).
-  const togglePublish = async () => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await updateAgent(agent.id, { published: !agent.published })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not change publishing.')
-    } finally {
-      setBusy(false)
-    }
-  }
+  const status = agent.published ? `Published · v${agent.version ?? 1}` : manageable ? 'Private' : 'Built in'
   return (
-    <CommonsCard cardRef={cardRef} flash={flash} onOpen={() => onOpenPage(agent.id)}>
-      <CommonsCardHead
-        icon={<Bot size={16} />}
+    <>
+      <SynopsisRow
+        ref={rowRef}
         title={agent.label}
-        subtitle={`Runs on ${providerLabel} · ${agent.tools.length} tool${agent.tools.length === 1 ? '' : 's'}`}
+        description={`Runs on ${providerLabel} · ${agent.tools.length} tool${agent.tools.length === 1 ? '' : 's'}`}
+        meta={status}
         onOpen={() => onOpenPage(agent.id)}
         trailing={
-          <div className="flex shrink-0 items-center gap-1.5">
-            {agent.published && (
-              <span
-                title="Published to the directory — any account may fork this definition"
-                className="rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
-              >
-                Published · v{agent.version ?? 1}
-              </span>
-            )}
-            {manageable ? (
+          manageable ? (
+            <div className="flex shrink-0 items-center gap-1.5">
+              {agent.published && proposals.length > 0 && (
+                <button
+                  onClick={() => setReviewing(true)}
+                  className={INLINE_ACTION_CLASS}
+                  aria-label={openProposals.length > 0
+                    ? `Review ${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
+                    : 'Review proposal history'}
+                  title="Review change proposals against this published definition"
+                >
+                  {openProposals.length > 0
+                    ? `${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
+                    : 'Proposal history'}
+                </button>
+              )}
               <CardActions onEdit={onEdit} onDelete={del} />
-            ) : (
-              <StatusPill tone="neutral" label="Built in" />
-            )}
-          </div>
+            </div>
+          ) : undefined
         }
+        className={flash ? FOCUS_FLASH_CLASS : ''}
       />
-      <p className="mt-2 text-[12px] text-ink-soft">Authority: {authorityLabel(agent.authority)}</p>
-      {agent.forkedFrom && (
-        <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-ink-faint">
-          {/* S7 — the label is a VERBATIM provenance snapshot (kept as text, never a
-              live deep link that 404s on unpublish); the pinned VERSION is the baseline
-              a "am I behind the source?" check measures against — revealed, not dropped. */}
-          <GitFork size={12} /> Forked from {agent.forkedFrom.label}
-          {agent.forkedFrom.version ? ` · v${agent.forkedFrom.version}` : ''}
-        </p>
-      )}
-      {agent.importedFrom && (
-        <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-ink-faint">
-          {/* S7 — a cross-instance provenance relation is a ref link, not a dead label
-              with the URL buried in a hover title: the source card is one click away. */}
-          <Globe size={12} /> Imported from{' '}
-          <button
-            onClick={() =>
-              setCardModal({ url: agent.importedFrom!.url, title: `Imported card — ${agent.importedFrom!.name}` })
-            }
-            title={agent.importedFrom.url}
-            className="underline decoration-dotted underline-offset-2 transition hover:text-ink"
-          >
-            {agent.importedFrom.name}
-          </button>{' '}
-          (A2A card)
-        </p>
-      )}
-      {agent.contributions ? (
-        // S18 — the count is a door to its lineage where one exists: the public page's
-        // resolved-work list (published only; unpublished agents have no public page,
-        // so the count stays honest text).
-        agent.published ? (
-          <button
-            onClick={() => onOpenPage(agent.id)}
-            title="Open this agent's page — the resolved work behind this count"
-            className="mt-1 inline-flex items-center gap-1 text-[12px] text-ok-text underline underline-offset-2 transition hover:text-ok-text"
-          >
-            <Award size={12} /> {agent.contributions} commissioned contribution
-            {agent.contributions === 1 ? '' : 's'} on the Commons
-          </button>
-        ) : (
-          <p className="mt-1 inline-flex items-center gap-1 text-[12px] text-ok-text">
-            <Award size={12} /> {agent.contributions} commissioned contribution
-            {agent.contributions === 1 ? '' : 's'} on the Commons
-          </p>
-        )
-      ) : null}
-      {(manageable || agent.published || (agent.forks ?? 0) > 0 || changelog.length > 0) && (
-        <div className="mt-2 flex items-center gap-3">
-          {manageable && (
-            <button
-              onClick={togglePublish}
-              disabled={busy}
-              className={INLINE_ACTION_CLASS}
-              title={
-                agent.published
-                  ? 'Remove this agent from the directory (copies already forked stay with their owners)'
-                  : 'Share this agent’s definition (prompt · tools · instructions) in the directory — your model, authority, and budget are never shared'
-              }
-            >
-              {agent.published ? 'Unpublish' : 'Publish to directory'}
-            </button>
-          )}
-          {agent.published && (
-            <button
-              onClick={() => setCardModal({ url: a2aAgentCardUrl(agent.id), title: `A2A card — ${agent.label}` })}
-              className={INLINE_ACTION_CLASS}
-              title="The machine-readable A2A Agent Card for this published definition — hand this URL to a foreign agent framework"
-            >
-              A2A card
-            </button>
-          )}
-          {(agent.forks ?? 0) > 0 && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-ink-faint">
-              <GitFork size={11} /> forked {agent.forks} time{agent.forks === 1 ? '' : 's'}
-            </span>
-          )}
-          {/* S4 — the owner reaches their own version-history timeline, not just a badge. */}
-          {changelog.length > 0 && (
-            <button
-              onClick={() => setShowHistory((v) => !v)}
-              className={INLINE_ACTION_CLASS}
-              aria-expanded={showHistory}
-              title="This definition’s version history — who authored each version and why"
-            >
-              <History size={12} /> {showHistory ? 'Hide history' : `History (${changelog.length})`}
-            </button>
-          )}
-          {/* D25 — the review queue: proposals sent back by forkers/visitors. */}
-          {manageable && agent.published && proposals.length > 0 && (
-            <button
-              onClick={() => setReviewing(true)}
-              className={INLINE_ACTION_CLASS}
-              title="Review change proposals against this published definition"
-            >
-              {openProposals.length > 0
-                ? `Review ${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
-                : 'Proposal history'}
-            </button>
-          )}
-        </div>
-      )}
-      {showHistory && changelog.length > 0 && (
-        <div className="mt-2">
-          <ChangelogList changelog={changelog} />
-        </div>
-      )}
-      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
-      {cardModal && (
-        <A2aCardDialog url={cardModal.url} title={cardModal.title} onClose={() => setCardModal(null)} />
-      )}
+      {error && <p className="py-1 text-[12px] text-removed">{error}</p>}
       {manageable && reviewing && (
         <ProposalsReviewDialog
           agent={agent}
@@ -8450,7 +8226,7 @@ function AgentCard({
           }}
         />
       )}
-    </CommonsCard>
+    </>
   )
 }
 
@@ -9214,19 +8990,12 @@ function ProviderRow({ provider, onOpen }: { provider: ModelProvider; onOpen: ()
     : `${modelCount} model${modelCount === 1 ? '' : 's'}`
 
   return (
-    <div data-provider-row onClick={cardDoorClick(onOpen)} className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS}`}>
-      <button
-        onClick={onOpen}
-        className={`max-w-[45%] shrink-0 truncate text-left text-[13px] text-ink hover:text-co ${DOOR_CLASS}`}
-      >
-        {provider.label}
-      </button>
-      <span className="min-w-0 flex-1 truncate text-[12px] text-ink-soft">{descriptor}</span>
-      <span className="shrink-0 text-[11px] text-ink-faint">
-        {meta}
-        {provider.isDefault ? ' · default' : ''}
-      </span>
-    </div>
+    <SynopsisRow
+      title={provider.label}
+      description={descriptor}
+      meta={`${meta}${provider.isDefault ? ' · default' : ''}`}
+      onOpen={onOpen}
+    />
   )
 }
 
@@ -10193,7 +9962,7 @@ function ProjectCommissionGroup({
   const resolvedHere = resolvedByCommission(useOpenSubGoals(projectId).data ?? [])
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className={`flex items-center justify-between gap-2 pb-2 ${LEDGER_RULE_CLASS}`}>
         <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{title}</span>
         {cap !== undefined && (
           <span
@@ -10206,19 +9975,18 @@ function ProjectCommissionGroup({
           </span>
         )}
       </div>
-      <CommonsCard>
-        <div className="space-y-2.5">
-          {list.map((c) => (
+      <CardList>
+        {list.map((c) => (
+          <div key={c.id} className="py-3">
             <ContributorRow
-              key={c.id}
               commission={c}
               agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
               contributions={agentsById.get(c.agentId)?.contributions}
               resolvedHere={c.standing ? resolvedHere.get(c.id) ?? { count: 0, lastAt: 0 } : undefined}
             />
-          ))}
-        </div>
-      </CommonsCard>
+          </div>
+        ))}
+      </CardList>
     </div>
   )
 }
@@ -10257,16 +10025,16 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
         {agents.length === 0 ? (
           <Empty>No published agents{query ? ' match' : ' yet — publish one from the Agents tab'}.</Empty>
         ) : (
-          <div className="space-y-3">
+          <CardList>
             {agents.map((a) => (
-              <PublishedAgentCard
+              <PublishedAgentRow
                 key={a.id}
                 entry={a}
                 onView={() => onOpenAgentPage(a.id)}
                 onOwnerClick={() => rel.openOwner(a.owner)}
               />
             ))}
-          </div>
+          </CardList>
         )}
       </div>
 
@@ -10275,11 +10043,11 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
   )
 }
 
-/** One shared Project in the commons — the D17 directory face. Rendered identically
- *  on the Discover tab and a namespace profile (form follows function: same role,
- *  one card). The card is a DOOR: the shared project page (one page, owner and
- *  visitor alike) is where joining happens; the byline is a door to the owner. */
-function SharedProjectCard({
+/** One shared Project in the Commons — the same synopsis row used in Browse and
+ *  on a namespace profile. The project page owns the full description, roster,
+ *  coordination state, and open-work detail; this directory face only helps the
+ *  reader choose a destination. */
+function SharedProjectRow({
   entry: p,
   onOpen,
   onOwnerClick,
@@ -10289,41 +10057,21 @@ function SharedProjectCard({
   onOwnerClick: () => void
 }) {
   return (
-    <CommonsCard onOpen={onOpen}>
-      <CommonsCardHead
-        icon={<SquareKanban size={16} />}
-        title={p.name}
-        onOpen={onOpen}
-        subtitle={
-          <>
-            <OwnerLink ownerName={p.owner} own={p.own} onClick={onOwnerClick} />
-            {` · updated ${relativeTime(p.updatedAt)}`}
-          </>
-        }
-        trailing={
-          p.openWorkCount > 0 ? (
-            <span
-              title={`${p.openWorkCount} open work item${p.openWorkCount === 1 ? '' : 's'} awaiting a taker`}
-              className="shrink-0 rounded-full bg-warn/10 px-2 py-px text-[11px] font-medium text-warn-text"
-            >
-              {p.openWorkCount} open
-            </span>
-          ) : undefined
-        }
-      />
-      {p.description && <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">{p.description}</p>}
-      {/* No "Open project" button: the CARD is the door (UI-17) and the title is
-          its keyboard half — a third control restating the same destination was
-          the affordance-noise this funnel removed. The meta line never counts to
-          zero — "0 contributors" on every card was the directory's loudest fact;
-          an empty roster reads as the invitation it is. */}
-      <p className="mt-2 text-[11px] text-ink-faint">
-        {p.contributorCount > 0
+    <SynopsisRow
+      title={p.name}
+      description={
+        <>
+          <OwnerLink ownerName={p.owner} own={p.own} onClick={onOwnerClick} />
+          {p.description ? ` · ${p.description}` : ''}
+        </>
+      }
+      meta={`${p.openWorkCount > 0 ? `${p.openWorkCount} open · ` : ''}${
+        p.contributorCount > 0
           ? `${p.contributorCount} contributor${p.contributorCount === 1 ? '' : 's'}`
-          : 'Open to contributors'}
-        {p.guarded ? ' · coordinated (guardian)' : ''}
-      </p>
-    </CommonsCard>
+          : 'Open to contributors'
+      }${p.guarded ? ' · coordinated' : ''} · ${shortRelativeTime(p.updatedAt)}`}
+      onOpen={onOpen}
+    />
   )
 }
 
@@ -10332,7 +10080,7 @@ function SharedProjectCard({
  *  owner shares (projects, agents), their public track record, and their recent
  *  public acts. Served viewer-independent except the own-marker cue (minted by
  *  profileTitle, never inline): the owner sees this page exactly as visitors do,
- *  which is the point. Reached from any owner byline (directory cards, a shared
+ *  which is the point. Reached from any owner byline (directory rows, a shared
  *  project's header, a search hit). */
 /** FWD-6 O3 — the org page's MEMBER panel: visible only to seats (the profile's
  *  viewer-relative `org` field). Everyone inside sees the roster; the OWNER also
@@ -10564,16 +10312,16 @@ function OwnerProfilePage({
           {profile.projects.length === 0 ? (
             <Empty>No shared projects.</Empty>
           ) : (
-            <div className="space-y-3">
+            <CardList>
               {profile.projects.map((p) => (
-                <SharedProjectCard
+                <SharedProjectRow
                   key={p.id}
                   entry={p}
                   onOpen={() => onOpenProject(p.id)}
                   onOwnerClick={() => rel.openOwner(p.owner)}
                 />
               ))}
-            </div>
+            </CardList>
           )}
         </FoldSection>
 
@@ -10591,16 +10339,16 @@ function OwnerProfilePage({
             {profile.agents.length === 0 ? (
               <Empty>No published agents.</Empty>
             ) : (
-              <div className="space-y-3">
+              <CardList>
                 {profile.agents.map((a) => (
-                  <PublishedAgentCard
+                  <PublishedAgentRow
                     key={a.id}
                     entry={a}
                     onView={() => onOpenAgentPage(a.id)}
                     onOwnerClick={() => rel.openOwner(a.owner)}
                   />
                 ))}
-              </div>
+              </CardList>
             )}
           </FoldSection>
         </div>
@@ -10733,11 +10481,10 @@ function ImportAgentCardForm() {
   )
 }
 
-/** One published Agent in the directory — the D18 public face: the definition (prompt /
- *  tools / instructions) and the public track record, with the FORK act inline. What is
- *  deliberately absent is any capability: authority, budget, and provider binding never
- *  ride a directory entry, so there is nothing here to leak. */
-function PublishedAgentCard({
+/** One published Agent in the directory. The canonical page owns its definition,
+ *  track record and Fork act; this row keeps the public prompt synopsis and the
+ *  smallest useful lineage counts without compressing that page into a card. */
+function PublishedAgentRow({
   entry,
   onView,
   onOwnerClick,
@@ -10746,58 +10493,20 @@ function PublishedAgentCard({
   onView: () => void
   onOwnerClick: () => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [forked, setForked] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const fork = async () => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await forkAgent(entry.id)
-      setForked(true)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not fork this agent.')
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
-    <CommonsCard onOpen={onView}>
-      <CommonsCardHead
-        icon={<Bot size={16} />}
-        title={entry.label}
-        onOpen={onView}
-        subtitle={
-          <>
-            <OwnerLink ownerName={entry.owner} own={entry.own} onClick={onOwnerClick} />
-            {` · ${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'}`}
-          </>
-        }
-        trailing={
-          <button
-            onClick={fork}
-            disabled={busy || forked}
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium transition ${
-              forked ? 'text-ok-text' : 'text-ink-soft hover:border-line-strong hover:text-ink'
-            } disabled:cursor-default`}
-          >
-            <GitFork size={13} /> {forked ? 'Forked ✓' : 'Fork'}
-          </button>
-        }
-      />
-      <p className="mt-2 line-clamp-2 text-[12px] text-ink-soft" title={entry.systemPrompt}>
-        {entry.systemPrompt}
-      </p>
-      <p className="mt-1.5 flex items-center gap-3 text-[11px] text-ink-faint">
-        {/* On a card the counts are doors to the PAGE (where their lineage sections
-            live) — the "42 stars → stargazers" shape, one hop shallower. The card
-            itself is the door to the definition (UI-17); the "View definition"
-            button that used to sit here restated it a third time. */}
-        <CreditLine contributions={entry.contributions} forks={entry.forks} onContributions={onView} onForks={onView} />
-      </p>
-      {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
-    </CommonsCard>
+    <SynopsisRow
+      title={entry.label}
+      description={
+        <>
+          <OwnerLink ownerName={entry.owner} own={entry.own} onClick={onOwnerClick} />
+          {` · ${entry.systemPrompt}`}
+        </>
+      }
+      meta={`${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'} · ${
+        entry.contributions
+      } contribution${entry.contributions === 1 ? '' : 's'} · ${entry.forks} fork${entry.forks === 1 ? '' : 's'}`}
+      onOpen={onView}
+    />
   )
 }
 
@@ -10912,7 +10621,7 @@ function AgentPublicPage({
 }: {
   agentId: string
   /** Door to ANOTHER definition's page (a public fork row) — the same opener the
-   *  directory cards use, so lineage hops stay on canonical pages. */
+   *  directory rows use, so lineage hops stay on canonical pages. */
   onOpenAgent: (agentId: string) => void
   onBack: () => void
   backTo: NavLocation | null
@@ -10963,7 +10672,7 @@ function AgentPublicPage({
   const [forked, setForked] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [proposing, setProposing] = useState(false)
-  const [showCard, setShowCard] = useState(false)
+  const [cardModal, setCardModal] = useState<{ url: string; title: string } | null>(null)
   const [editing, setEditing] = useState(false)
   // R5b — a proposal bell landed here: focus that proposal in "Your proposals".
   const [proposalFocus, setProposalFocus] = useState<string | null>(null)
@@ -11052,7 +10761,13 @@ function AgentPublicPage({
           summary={`${entry.tools.length} tool${entry.tools.length === 1 ? '' : 's'} · version ${entry.version}`}
           actions={
             <>
-              {published && <SectionAction label="Open A2A card" icon={<ExternalLink size={14} />} onClick={() => setShowCard(true)} />}
+              {published && (
+                <SectionAction
+                  label="Open A2A card"
+                  icon={<ExternalLink size={14} />}
+                  onClick={() => setCardModal({ url: a2aAgentCardUrl(entry.id), title: `A2A card — ${entry.label}` })}
+                />
+              )}
               {!own && !builtIn && <SectionAction label="Propose a change" icon={<GitPullRequest size={14} />} onClick={() => setProposing(true)} expanded={proposing} />}
             </>
           }
@@ -11098,6 +10813,24 @@ function AgentPublicPage({
                     ? registryAgent.budget.windows.map((window) => `${window.ceiling.toLocaleString()} tokens / ${window.label}`).join(' · ')
                     : 'Inherited from provider'}
                 />
+                {registryAgent.forkedFrom && (
+                  <AgentFactRow
+                    label="Lineage"
+                    value={`Forked from ${registryAgent.forkedFrom.label}${
+                      registryAgent.forkedFrom.version ? ` · v${registryAgent.forkedFrom.version}` : ''
+                    }`}
+                  />
+                )}
+                {registryAgent.importedFrom && (
+                  <AgentFactRow
+                    label="Origin"
+                    value={`Imported from ${registryAgent.importedFrom.name} (A2A card)`}
+                    onOpen={() => setCardModal({
+                      url: registryAgent.importedFrom!.url,
+                      title: `Imported card — ${registryAgent.importedFrom!.name}`,
+                    })}
+                  />
+                )}
               </div>
             </FoldSection>
             {ownedAgent && (
@@ -11147,11 +10880,11 @@ function AgentPublicPage({
         {published && <YourProposals entry={entry} focusProposalId={proposalFocus} />}
         {error && <p className="text-[12px] text-removed">{error}</p>}
       {editing && ownedAgent && <AgentDialog agent={ownedAgent} onClose={() => setEditing(false)} />}
-      {showCard && published && (
+      {cardModal && (
         <A2aCardDialog
-          url={a2aAgentCardUrl(entry.id)}
-          title={`A2A card — ${entry.label}`}
-          onClose={() => setShowCard(false)}
+          url={cardModal.url}
+          title={cardModal.title}
+          onClose={() => setCardModal(null)}
         />
       )}
       {proposing && !own && !builtIn && <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={() => setProposing(false)} />}
@@ -11357,13 +11090,11 @@ function AuditTab() {
           {shown.length === 0 ? (
             <Empty>No denied effects — every recorded effect was allowed.</Empty>
           ) : (
-            <CommonsCard>
-              <div className="divide-y divide-ink/5">
-                {shown.map((e) => (
-                  <AuditEntryRow key={e.id} entry={e} actor={labelFor(e.actorAgentId) ?? e.commissionId} />
-                ))}
-              </div>
-            </CommonsCard>
+            <CardList>
+              {shown.map((e) => (
+                <AuditEntryRow key={e.id} entry={e} actor={labelFor(e.actorAgentId) ?? e.commissionId} />
+              ))}
+            </CardList>
           )}
         </>
       )}
@@ -11374,7 +11105,7 @@ function AuditTab() {
 function AuditEntryRow({ entry, actor }: { entry: AuditEntry; actor?: string }) {
   const denied = entry.outcome === 'denied'
   return (
-    <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+    <div className="flex items-center gap-2.5 py-2.5">
       <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${denied ? 'bg-removed' : 'bg-ok'}`} />
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
@@ -11518,17 +11249,17 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
             title="Namespace"
             summary={row.homeTenant ? `${row.homeTenant.name} · ${row.homeTenant.kind}` : 'No home namespace'}
           >
-            <CommonsCard>
+            <CardList>
               {row.homeTenant ? (
-                <div className="flex items-center gap-2.5">
+                <div className={`${LEDGER_ROW_CLASS} items-center`}>
                   <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{row.homeTenant.name}</span>
                   <AdminBadge>{row.homeTenant.kind}</AdminBadge>
                   <span className="shrink-0 font-mono text-[11px] text-ink-faint">{row.homeTenant.id}</span>
                 </div>
               ) : (
-                <p className="text-[13px] text-ink-faint">No home namespace (a dangling membership).</p>
+                <p className={`${LEDGER_ROW_CLASS} text-[13px] text-ink-faint`}>No home namespace (a dangling membership).</p>
               )}
-            </CommonsCard>
+            </CardList>
           </FoldSection>
           <FoldSection
             title="Organization seats"
@@ -11537,17 +11268,15 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
             {row.orgSeats.length === 0 ? (
               <Empty>No org seats beyond the home namespace.</Empty>
             ) : (
-              <CommonsCard>
-                <div className="divide-y divide-ink/5">
-                  {row.orgSeats.map((s) => (
-                    <div key={s.tenant.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-                      <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{s.tenant.name}</span>
-                      <AdminBadge>{s.role}</AdminBadge>
-                      <span className="shrink-0 font-mono text-[11px] text-ink-faint">{s.tenant.id}</span>
-                    </div>
-                  ))}
-                </div>
-              </CommonsCard>
+              <CardList>
+                {row.orgSeats.map((s) => (
+                  <div key={s.tenant.id} className="flex items-center gap-2.5 py-2.5">
+                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{s.tenant.name}</span>
+                    <AdminBadge>{s.role}</AdminBadge>
+                    <span className="shrink-0 font-mono text-[11px] text-ink-faint">{s.tenant.id}</span>
+                  </div>
+                ))}
+              </CardList>
             )}
           </FoldSection>
           <FoldSection
@@ -11557,41 +11286,37 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
             {tokens.length === 0 ? (
               <Empty>No bearer tokens on this account.</Empty>
             ) : (
-              <CommonsCard>
-                <div className="divide-y divide-ink/5">
-                  {tokens.map((t) => (
-                    <div key={t.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
-                        <div className="truncate text-[11px] text-ink-faint">
-                          minted {relativeTime(t.createdAt)} · <span className="font-mono">{t.id}</span>
-                        </div>
+              <CardList>
+                {tokens.map((t) => (
+                  <div key={t.id} className="flex items-center gap-2.5 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
+                      <div className="truncate text-[11px] text-ink-faint">
+                        minted {relativeTime(t.createdAt)} · <span className="font-mono">{t.id}</span>
                       </div>
-                      <AdminConfirmAction
-                        label="Revoke"
-                        confirmLabel="Revoke token"
-                        onConfirm={() => void act(() => adminRevokeToken(userId, t.id))}
-                      />
                     </div>
-                  ))}
-                </div>
-              </CommonsCard>
+                    <AdminConfirmAction
+                      label="Revoke"
+                      confirmLabel="Revoke token"
+                      onConfirm={() => void act(() => adminRevokeToken(userId, t.id))}
+                    />
+                  </div>
+                ))}
+              </CardList>
             )}
           </FoldSection>
           {!row.seeded && !row.deactivated && (
             <FoldSection title="Danger zone" summary="Deactivate this account" defaultFolded>
-              <CommonsCard>
-                <div className="flex items-center gap-2.5">
-                  <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-ink-soft">
-                    Deactivating disables sign-in and revokes every bearer token. No data is deleted.
-                  </p>
-                  <AdminConfirmAction
-                    label="Deactivate"
-                    confirmLabel="Deactivate account"
-                    onConfirm={() => void act(() => adminDeactivateUser(userId))}
-                  />
-                </div>
-              </CommonsCard>
+              <div className="flex items-center gap-2.5 py-2.5">
+                <p className="min-w-0 flex-1 text-[12px] leading-relaxed text-ink-soft">
+                  Deactivating disables sign-in and revokes every bearer token. No data is deleted.
+                </p>
+                <AdminConfirmAction
+                  label="Deactivate"
+                  confirmLabel="Deactivate account"
+                  onConfirm={() => void act(() => adminDeactivateUser(userId))}
+                />
+              </div>
             </FoldSection>
           )}
         </div>
@@ -11671,23 +11396,19 @@ function AdminAccountsPanel() {
       {users.length === 0 ? (
         <Empty>{usersQ.error ? 'The accounts read failed — are you still on the maintainer allowlist?' : 'Loading accounts…'}</Empty>
       ) : (
-        <CommonsCard>
-          <div className="divide-y divide-ink/5">
-            {users.map((u) => (
-              <AdminUserRowView key={u.user.id} row={u} onOpen={() => rel.navigate('admin', u.user.id)} />
-            ))}
-          </div>
-        </CommonsCard>
+        <CardList>
+          {users.map((u) => (
+            <AdminUserRowView key={u.user.id} row={u} onOpen={() => rel.navigate('admin', u.user.id)} />
+          ))}
+        </CardList>
       )}
       <div>
         <h2 className="mb-2 text-[13px] font-semibold text-ink">Tenants</h2>
-        <CommonsCard>
-          <div className="divide-y divide-ink/5">
-            {tenants.map((t) => (
-              <AdminTenantRowView key={t.tenant.id} row={t} users={users} />
-            ))}
-          </div>
-        </CommonsCard>
+        <CardList>
+          {tenants.map((t) => (
+            <AdminTenantRowView key={t.tenant.id} row={t} users={users} />
+          ))}
+        </CardList>
       </div>
     </div>
   )
@@ -11697,12 +11418,9 @@ function AdminUserRowView({ row, onOpen }: { row: AdminUserRow; onOpen: () => vo
   return (
     // The whole row opens the account (UI-17); the chevron that used to be a
     // second button to the same place is now the drill-in HINT it always read as.
-    // Negative margin so the hover wash clears the text inside CommonsCard's p-4,
-    // and even padding so every row's hit target is the same size (this dropped
-    // `first:pt-0 last:pb-0`, which was rhythm for text, not for a target).
     <div
       onClick={cardDoorClick(onOpen)}
-      className={`-mx-2 flex items-center gap-2.5 rounded-md px-2 py-2 ${ROW_DOOR_CLASS}`}
+      className={`${LEDGER_ROW_CLASS} items-center ${ROW_DOOR_CLASS}`}
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
@@ -11725,11 +11443,8 @@ function AdminUserRowView({ row, onOpen }: { row: AdminUserRow; onOpen: () => vo
       <span className="shrink-0 text-[11px] text-ink-faint">
         {row.tokenCount} {row.tokenCount === 1 ? 'token' : 'tokens'}
       </span>
-      {/* Static, not HOVER_CUE: this row sits inside CommonsCard, which is itself
-          a `group`, and Tailwind's `group-hover:` matches ANY hovered `.group`
-          ancestor — hovering the card would light every row's chevron at once
-          (the drift SECTION_REVEAL_GROUP's named group exists to prevent). It
-          still yields its width below `sm`, like the cue it replaced. */}
+      {/* Static, not HOVER_CUE: the chevron is a drill-in hint, not a second
+          destination. It still yields its width below `sm`. */}
       <ChevronRight size={14} className="shrink-0 text-ink-faint max-sm:hidden" />
     </div>
   )
@@ -11745,7 +11460,7 @@ function AdminTenantRowView({ row, users }: { row: AdminTenantRow; users: AdminU
       ...u.orgSeats.filter((s) => s.tenant.id === row.tenant.id).map((s) => ({ user: u.user, role: s.role as string })),
     ])
   return (
-    <div className="py-2 first:pt-0 last:pb-0">
+    <div className="py-2.5">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-2.5 text-left">
         <span className="flex h-4 w-4 shrink-0 items-center justify-center text-ink-faint">
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -11806,16 +11521,14 @@ function AdminOrgsPanel() {
         orgs.map((o) => (
           <div key={o.tenant.id}>
             <h2 className="mb-2 text-[13px] font-semibold text-ink">{o.tenant.name}</h2>
-            <CommonsCard>
-              <div className="divide-y divide-ink/5">
-                {membersOf(o.tenant.id).map((m) => (
-                  <div key={m.user.id} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{m.user.name}</span>
-                    <AdminBadge>{m.role}</AdminBadge>
-                  </div>
-                ))}
-              </div>
-            </CommonsCard>
+            <CardList>
+              {membersOf(o.tenant.id).map((m) => (
+                <div key={m.user.id} className="flex items-center gap-2.5 py-2.5">
+                  <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{m.user.name}</span>
+                  <AdminBadge>{m.role}</AdminBadge>
+                </div>
+              ))}
+            </CardList>
           </div>
         ))
       )}
@@ -11824,13 +11537,11 @@ function AdminOrgsPanel() {
         {invites.length === 0 ? (
           <Empty>No invitations yet.</Empty>
         ) : (
-          <CommonsCard>
-            <div className="divide-y divide-ink/5">
-              {invites.map((i) => (
-                <AdminInviteRowView key={i.id} row={i} onRevoke={() => revoke(i.id)} />
-              ))}
-            </div>
-          </CommonsCard>
+          <CardList>
+            {invites.map((i) => (
+              <AdminInviteRowView key={i.id} row={i} onRevoke={() => revoke(i.id)} />
+            ))}
+          </CardList>
         )}
       </div>
     </div>
@@ -11839,7 +11550,7 @@ function AdminOrgsPanel() {
 
 function AdminInviteRowView({ row, onRevoke }: { row: AdminInviteRow; onRevoke: () => void }) {
   return (
-    <div className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
+    <div className="flex items-center gap-2.5 py-2.5">
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] text-ink">
           {row.email} <span className="text-ink-faint">→ {row.orgName}</span>
@@ -11877,21 +11588,19 @@ function AdminCredentialsPanel() {
       {tokens.length === 0 ? (
         <Empty>No bearer tokens minted on this instance.</Empty>
       ) : (
-        <CommonsCard>
-          <div className="divide-y divide-ink/5">
-            {tokens.map((t) => (
-              <div key={`${t.userId}:${t.id}`} className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
-                  <div className="truncate text-[11px] text-ink-faint">
-                    {t.userName} · minted {relativeTime(t.createdAt)}
-                  </div>
+        <CardList>
+          {tokens.map((t) => (
+            <div key={`${t.userId}:${t.id}`} className="flex items-center gap-2.5 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
+                <div className="truncate text-[11px] text-ink-faint">
+                  {t.userName} · minted {relativeTime(t.createdAt)}
                 </div>
-                <AdminConfirmAction label="Revoke" confirmLabel="Revoke token" onConfirm={() => revoke(t)} />
               </div>
-            ))}
-          </div>
-        </CommonsCard>
+              <AdminConfirmAction label="Revoke" confirmLabel="Revoke token" onConfirm={() => revoke(t)} />
+            </div>
+          ))}
+        </CardList>
       )}
     </div>
   )
@@ -11910,13 +11619,11 @@ function AdminAuditPanel() {
       {entries.length === 0 ? (
         <Empty>No cross-user effects recorded yet.</Empty>
       ) : (
-        <CommonsCard>
-          <div className="divide-y divide-ink/5">
-            {entries.map((e) => (
-              <AdminAuditRowView key={e.id} entry={e} />
-            ))}
-          </div>
-        </CommonsCard>
+        <CardList>
+          {entries.map((e) => (
+            <AdminAuditRowView key={e.id} entry={e} />
+          ))}
+        </CardList>
       )}
     </div>
   )
@@ -11939,11 +11646,9 @@ function AdminAuditRowView({ entry }: { entry: AuditEntry }) {
     ['At', new Date(entry.at).toLocaleString()],
   ]
   return (
-    // The divide-y list rhythm lives HERE: the embedded AuditEntryRow is this
-    // wrapper's sole child, so its own `py-2 first:pt-0 last:pb-0` rhythm
-    // self-neutralizes (both variants match) — without the wrapper's padding
-    // every row would sit flush against the hairlines.
-    <div className="py-2 first:pt-0 last:pb-0">
+    // The divider list rhythm lives here; AuditEntryRow remains the semantic
+    // content while this wrapper owns disclosure and its hit target.
+    <div className="py-2.5">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center gap-1 text-left">
         <span className="flex h-4 w-4 shrink-0 items-center justify-center text-ink-faint">
           {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -12010,10 +11715,10 @@ function AdminOpsPanel() {
       </div>
       <div className="grid grid-cols-1 gap-3 @2xl:grid-cols-2">
         {tiles.map((t) => (
-          <CommonsCard key={t.label}>
+          <MetricTile key={t.label}>
             <div className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">{t.label}</div>
             <div className="mt-1 text-[13px] font-medium text-ink">{t.value}</div>
-          </CommonsCard>
+          </MetricTile>
         ))}
       </div>
     </div>
@@ -13436,7 +13141,7 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
                 ) : (
                   // Matches the door's weight: whether a tool resolves in your
                   // registry decides if the name is CLICKABLE, and must not also
-                  // restyle it (the CommonsCardHead pair is the precedent).
+                  // restyle it (the synopsis-row title pair is the precedent).
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{t.label}</span>
                 )}
                 <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
@@ -13714,25 +13419,17 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
 function DispatchView() {
   const runs = useDispatchRuns().data ?? []
   return (
-    <div className="space-y-2.5">
+    <CardList>
       {runs.map((r) => (
-        <div
+        <SynopsisRow
           key={r.id}
-          className={`flex items-start gap-3 border-line ${QUIET_CARD_CLASS} px-4 py-3`}
-        >
-          <DispatchStatus status={r.status} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="truncate text-[13px] font-medium text-ink">{r.title}</span>
-              <span className="shrink-0 text-[11px] text-ink-faint">
-                {r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
-              </span>
-            </div>
-            <p className="mt-0.5 text-[12px] leading-snug text-ink-soft">{r.detail}</p>
-          </div>
-        </div>
+          prefix={<DispatchStatus status={r.status} />}
+          title={r.title}
+          description={r.detail}
+          meta={r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
+        />
       ))}
-    </div>
+    </CardList>
   )
 }
 

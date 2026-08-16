@@ -758,7 +758,7 @@ export async function runEnvelopeEffect(projectId: string, cid: string, lineId: 
 
 /** Retract a work item (D23) — poster or project owner, open items only (the
  *  server enforces; a 403/409 surfaces as the thrown error). Open-work counts
- *  ride directory cards and profiles, so refresh those families too. */
+ *  ride directory rows and profiles, so refresh those families too. */
 export async function retractWorkItem(projectId: string, itemId: string): Promise<OpenSubGoal> {
   const item = await apiPost<OpenSubGoal>(paths.openSubGoalRetract(projectId, itemId), {})
   invalidate(keys.openSubGoals(projectId))

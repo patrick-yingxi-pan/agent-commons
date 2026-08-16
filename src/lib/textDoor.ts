@@ -21,9 +21,9 @@
  *  Callers append COLOR, SIZE and LAYOUT, and must, because both genuinely vary
  *  by container and neither is what drifts:
  *    • size — a door has to match the type scale of its own non-door sibling. In
- *      CommonsCardHead the title is 14px whether or not it opens anything
- *      (SectionView.tsx, the `onOpen ? <button …> : <div …>` pair); a compact
- *      list row's is 13px. Baking one size in would break the pair.
+ *      ResourcePageSynopsisRow the title is 13px whether or not it opens
+ *      anything (the `onOpen ? <button …> : <span …>` pair); a metadata-line
+ *      door may inherit 12px. Baking one size in would break those pairs.
  *    • color — nine title doors are `text-ink`, but a RETRACTED work item's door
  *      is `text-ink-faint line-through`. Two conflicting `text-*` utilities in
  *      one class attribute have no defined winner (the cascade orders by the

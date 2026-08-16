@@ -65,13 +65,16 @@ test('the Models index uses the Project synopsis-row vocabulary, not provider ca
   const models = fn('ModelsSection')
   assert.match(models, /<CardList\b/, 'providers share the divider-list container used by Projects')
   assert.match(models, /<ProviderRow\b/, 'each provider has a dedicated index synopsis')
-  assert.doesNotMatch(models, /<ProviderDetailSections\b|<CommonsCard\b/, 'the index never embeds provider detail or card chrome')
+  assert.doesNotMatch(models, /<ProviderDetailSections\b|<MetricTile\b|QUIET_CARD_CLASS/, 'the index never embeds provider detail or card chrome')
 
   const row = fn('ProviderRow')
-  assert.match(row, /LEDGER_ROW_CLASS/, 'provider rows share the Project row rhythm')
-  assert.match(row, /text-\[13px\] text-ink/, 'provider identity uses the Project title step')
-  assert.match(row, /text-\[12px\] text-ink-soft/, 'the single descriptor uses the Project body step')
-  assert.match(row, /text-\[11px\] text-ink-faint/, 'count or connection state uses the Project metadata step')
+  assert.match(row, /<SynopsisRow\b/, 'provider rows consume the Project synopsis funnel')
+  const synopsis = templateFn('ResourcePageSynopsisRow')
+  assert.match(synopsis, /LEDGER_ROW_CLASS/, 'the synopsis funnel owns Project row rhythm')
+  assert.match(synopsis, /text-\[13px\]/, 'resource identity uses the Project title size')
+  assert.match(synopsis, /titleClassName = 'text-ink'/, 'resource identity defaults to the Project title color')
+  assert.match(synopsis, /text-\[12px\] text-ink-soft/, 'the single descriptor uses the Project body step')
+  assert.match(synopsis, /text-\[11px\] text-ink-faint/, 'count or state uses the Project metadata step')
   for (const detail of ['effortLevels', 'authorityLabel', 'providerPlanLabel', 'CardActions', 'onEdit']) {
     assert.doesNotMatch(row, new RegExp(detail), `${detail} belongs on the provider page, not its index row`)
   }
@@ -168,6 +171,7 @@ test('dynamic collection bands reuse the frame without growing uiPrefs', () => {
 })
 
 test('a FoldSection owns its list inset exactly once', () => {
+  assert.match(templateFn('ResourcePageSection'), /data-resource-section=\{title\}/, 'browser checks can address a structural section without guessing DOM depth')
   for (const name of ['ContextRow', 'ScheduledRow']) {
     const row = fn(name)
     assert.match(row, /flex min-w-0 flex-1 items-center gap-3 py-3/, `${name}'s payload starts at the section inset`)

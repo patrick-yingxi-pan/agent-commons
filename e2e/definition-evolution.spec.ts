@@ -78,15 +78,18 @@ test('propose → review side-by-side → merge: the definition evolves and cred
     owner.page.locator('div').filter({ hasText: AGENT }).getByText('Published · v2').last(),
   ).toBeVisible()
 
-  // Surface-audit S4: the owner reaches their own version-history timeline FROM THE
-  // CARD — the merge authored a changelog entry, so a "History (N)" reveal appears and
-  // opens the same list the visitor sees (not just the bare v2 badge).
-  const ownerCard = owner.page.locator('div').filter({ hasText: AGENT })
-  await ownerCard.getByRole('button', { name: /History \(\d+\)/ }).last().click()
+  // Surface-audit S4: the owner reaches version history on the canonical Agent
+  // page. The index remains a synopsis rather than duplicating that timeline.
+  await owner.page
+    .locator('[data-resource-section="Ready agents"] [data-resource-synopsis-row]')
+    .filter({ hasText: AGENT })
+    .getByRole('button', { name: AGENT, exact: true })
+    .click()
+  await expect(owner.page.getByRole('heading', { name: AGENT, exact: true })).toBeVisible()
   await expect(owner.page.getByText(NOTE).last()).toBeVisible() // the merged entry's note
   // Surface-audit S12: the changelog AUTHOR is a workspace door like every other byline
   // — clicking it opens that workspace's profile (the proposer authored v2).
-  await ownerCard.getByRole('button', { name: /^by / }).last().click()
+  await owner.page.getByRole('main').getByRole('button', { name: /^by / }).last().click()
   await expect(owner.page.getByText('Recent public activity')).toBeVisible() // a profile-page section
   await expect(proposer.page.getByTestId('notification-bell')).toHaveAttribute('aria-label', /\(\d+ unread\)/, { timeout: ms(10_000) })
   await proposer.page.getByTestId('notification-bell').click()

@@ -1,6 +1,6 @@
 /** The ledger (src/lib/ledger.ts) — the flat-collection recipe (owner directive
- *  2026-07-31): a collection renders as ONE bordered container with hairline-
- *  divided rows, never a pile of per-item cards. These lock that:
+ *  2026-07-31, refined 2026-08-12): a collection renders as ONE frameless list
+ *  of hairline-divided rows, never a pile of per-item cards. These lock that:
  *    1. the recipe carries the flat constraints — hairline dividers, small
  *       radius, and NO resting elevation (shadow means floating, lib/popover),
  *    2. no file under src/ re-hardcodes the container spelling — the tree-wide
@@ -124,21 +124,15 @@ test('the Projects hub keeps ledger rows inside the shared page-section frame', 
   assert.ok(!src.includes('{LEDGER_HEAD_CLASS}'), 'the old Projects-only group-head grammar is gone')
   assert.ok(!src.includes('{LEDGER_COUNT_CLASS}'), 'counts now ride FoldSection summaries')
   assert.match(src, /function ProjectsSection[\s\S]*?<FoldSection\b/, 'Projects groups are shared main-page sections')
-  // The row wears the shared skeleton AND the door cue — one template literal,
-  // so the pairing can't drift apart silently.
-  assert.ok(
-    src.includes('${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS}'),
-    'the project row pairs the ledger skeleton with the row door cue',
-  )
+  // The page-template synopsis row owns the skeleton + door pairing; Projects
+  // consumes that one funnel instead of restating either class locally.
+  assert.match(src, /function ProjectRow[\s\S]*?<SynopsisRow\b/, 'the Project row consumes the shared synopsis funnel')
   // The converted surface left no residue: the per-item card component is gone
-  // (\b keeps SharedProjectCard — Discover's card, a later conversion — out of
-  // this assertion's reach).
+  // (\b keeps similarly named resource-row helpers out of this assertion).
   assert.ok(!/\bProjectCard\b/.test(src), 'the ProjectCard card pile is fully replaced')
-  // The remaining quiet-card consumers — the Commons card funnel and context
-  // detail frame — take the frame from the module. The Artifact tile was the
-  // third until UI-31 deliberately made the index a row; that replacement is
-  // enumerated by artifact-index-preview.test.ts rather than kept alive here to
-  // satisfy an obsolete subject floor.
+  // Quiet cards now survive only where containment communicates an independent
+  // functional payload (today, the Ops metric-tile funnel). Synopsis lists are
+  // enumerated by index-synopsis.test.ts instead of kept boxed to satisfy a floor.
   const quietUses = (src.match(/\$\{QUIET_CARD_CLASS\}/g) ?? []).length
-  assert.ok(quietUses >= 2, `SectionView wears QUIET_CARD_CLASS at 2+ frames (found ${quietUses})`)
+  assert.ok(quietUses >= 1, `SectionView keeps QUIET_CARD_CLASS for a real contained payload (found ${quietUses})`)
 })

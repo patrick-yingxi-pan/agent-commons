@@ -43,7 +43,7 @@ test('the card cues are hover cues, and the two containers stay distinct', () =>
     assert.ok(cue.includes('transition'), `"${cue}" eases rather than snaps`)
     assert.ok(/\bhover:/.test(cue), `"${cue}" carries an actual hover cue`)
   }
-  // A bordered CARD sharpens its border and tints; a ROW inside a bordered list
+  // A bordered CARD sharpens its border and tints; a ROW inside a divider list
   // has no border of its own to sharpen, so it only washes. Same role, different
   // container — if these ever converge, one of them is styling the wrong thing.
   // Neither cue may LIFT: elevation means floating (lib/ledger's flat direction),

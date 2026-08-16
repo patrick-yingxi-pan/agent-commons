@@ -2,9 +2,9 @@
  *  A card or list ROW that fronts a page opens it from anywhere on its surface,
  *  and says so on hover. The companion to lib/textDoor: that module owns "this
  *  WORD opens a page", this one owns "this whole CARD does". Same rule (form
- *  follows function) — a project card in Discover, a project card under Projects,
- *  an artifact tile, a Contexts row and a Scheduled row are one role, so they get
- *  one behaviour and one cue.
+ *  follows function) — a rich card that fronts a resource and a synopsis row in
+ *  an index are one navigation role, so they get one behaviour and a
+ *  container-appropriate cue.
  *
  *  Before this funnel the eight surfaces that front a page used three idioms and
  *  two of them were lies:
@@ -14,7 +14,7 @@
  *      staged sends…"), and the cue was hand-rolled identically in both.
  *    • ContextRow / ScheduledRow — the row lit up on hover but only its left ~⅔
  *      was clickable; the gap beside the status pill swallowed the click.
- *    • SharedProjectCard / PublishedAgentCard / AdminUserRowView — nothing but
+ *    • the former SharedProjectCard / PublishedAgentCard / AdminUserRowView — nothing but
  *      the title responded, no hover cue at all, and a redundant "Open project" /
  *      "View definition" / chevron button restated the door the title already was.
  *  (docs/ui-invariants.md UI-17.)
@@ -35,7 +35,7 @@
  *  still need its own tab stop — add one deliberately, don't assume this model. */
 import type { MouseEvent } from 'react'
 
-/** A standalone bordered CARD (Artifacts, the Commons directory cards): the
+/** A standalone bordered CARD whose rich body still earns containment: the
  *  border sharpens and the surface tints — no lift, because the flat direction
  *  (lib/ledger) reserves elevation for things that FLOAT (lib/popover); a
  *  resting card gaining a shadow on hover was the old card language's cue.
@@ -45,7 +45,7 @@ import type { MouseEvent } from 'react'
  *  lesson in lib/textDoor). */
 export const CARD_DOOR_CLASS = 'cursor-pointer transition hover:border-line-strong hover:bg-panel/40'
 
-/** A ROW inside a bordered list container (Contexts, Scheduled, runs, admin
+/** A ROW inside a frameless divider list (Contexts, Scheduled, runs, admin
  *  users): it has no border of its own to sharpen, so the surface washes instead.
  *  Same role, different container — the two cues are one decision, made once. */
 export const ROW_DOOR_CLASS = 'cursor-pointer transition hover:bg-panel-2/50'

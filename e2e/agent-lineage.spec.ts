@@ -4,8 +4,8 @@ import { ms } from './budget.ts'
 
 /** Surface-audit S7 — a fork is a lineage relationship (this definition descends from
  *  that one, at version N), not a bare label. Locks, through the rendered UI, that a
- *  forked agent's card reveals the PINNED source version (the "am I behind?" baseline),
- *  which was dropped entirely before. */
+ *  forked agent's canonical page reveals the PINNED source version (the "am I
+ *  behind?" baseline), while its hub entry stays a synopsis (UI-36). */
 
 const STAMP = Date.now().toString(36)
 
@@ -33,10 +33,17 @@ test('a forked agent reveals the pinned source version on its lineage line (S7)'
   // Forker (another tenant): fork the definition → a copy with forkedFrom {label, version:1}.
   const forked = await forker.page.request.post(`/api/v1/agents/${agentId}/fork`)
   expect(forked.ok()).toBeTruthy()
+  const fork = (await forked.json()) as { id: string; label: string }
 
-  // The forker's hub shows the fork's card with the pinned version on its lineage line.
+  // The hub identifies the fork; lineage begins on its canonical page.
   await openApp(forker.page)
   await forker.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
+  await forker.page
+    .locator('[data-resource-section="Ready agents"] [data-resource-synopsis-row]')
+    .filter({ hasText: fork.label })
+    .getByRole('button', { name: fork.label, exact: true })
+    .click()
+  await expect(forker.page).toHaveURL(new RegExp(`/agents/${encodeURIComponent(fork.id)}$`))
   await expect(forker.page.getByText(new RegExp(`Forked from ${AGENT} · v1`))).toBeVisible()
 
   await owner.context.close()

@@ -43,6 +43,20 @@ test('Agents preserves section structure and gives ready agents, prompts, and to
     'Audit',
   ])
 
+  // UI-36: the index is a synopsis ledger, not the Agent detail page compressed
+  // into a bordered card. The DOM handle comes from the shared page template;
+  // computed edges are the browser half of the source-level chrome lock.
+  const readySynopsis = page.locator('[data-resource-synopsis-row]').filter({ hasText: builtInAgent.label }).first()
+  await expect(readySynopsis).toBeVisible()
+  const synopsisEdges = await readySynopsis.evaluate((node) => {
+    const style = getComputedStyle(node)
+    return [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth]
+  })
+  expect(synopsisEdges.filter((width) => width !== '0px').length, 'at most one divider edge, never a box').toBeLessThanOrEqual(1)
+  expect(synopsisEdges[1], 'no right frame').toBe('0px')
+  expect(synopsisEdges[3], 'no left frame').toBe('0px')
+  await expect(readySynopsis.getByText(/^Authority:/)).toHaveCount(0)
+
   const nav = page.getByRole('navigation', { name: 'Sections' })
   await expand(nav, 'Agents')
   for (const label of ['Ready agents', 'Building blocks', 'Coordination', 'Discover', 'Audit']) {

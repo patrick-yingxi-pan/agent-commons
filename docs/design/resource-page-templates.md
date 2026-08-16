@@ -23,6 +23,9 @@ Both templates inherit the parts whose role never changes:
 - reading pages add the shared page-title, action, section, list and empty-state
   vocabulary; the workspace layout keeps the session title bar and composer its
   behavior requires;
+- ordinary collection entries share `ResourcePageSynopsisRow`: identity,
+  one distinguishing descriptor and one small state/count field, with a
+  responsive information hierarchy and no item frame;
 - canonical back-history, semantic headings, keyboard-operable controls and
   token-driven styling (including honest `aria-expanded` where disclosure
   exists);
@@ -91,6 +94,26 @@ Association is not composition. A session may bind contexts; an artifact may
 name a producing session; an agent may use tools. Those relations deserve live
 doors where canonical targets exist, but they do not make the host a branch.
 
+## Complementary item projection
+
+The page frame and the item projection solve different halves of the same
+consistency problem. `ResourcePageList` supplies frameless hairline separation;
+`ResourcePageSynopsisRow` supplies the Project main-page hierarchy: 13px
+identity, one 12px descriptor and one 11px metadata field. Identity and state
+survive a narrow split pane; the descriptor yields first. A whole-row pointer
+door shares its destination with the title's keyboard door, while nested
+row-local controls keep their own click.
+
+This row is for choosing an addressable resource, not administering it. A
+provider's authority, an agent's full definition, publication history, audit
+details and primary lifecycle acts begin on their canonical pages. Keeping that
+boundary is what makes an index visually simple without making it dishonest.
+
+Containment remains available when it adds semantic information: a rich feed
+post, diff, editor, form or independently comparable metric tile is a bounded
+object. A box around an ordinary synopsis merely repeats the section boundary
+and is not a template feature.
+
 ## The equivalence test before adding a template feature
 
 Augment a template only when a resource needs a capability that the existing
@@ -121,8 +144,8 @@ in a new order without revealing a new resource truth.
 - Atomic workspace page: sessions (and their provisional draft surface) through
   `ConversationPane`.
 - Shared vocabulary: `ResourcePageHeader`, `ResourcePageSection`,
-  `ResourcePageList`, `ResourcePageActions`, `ResourcePageEmpty`, and
-  `CompositePageFoldControls`.
+  `ResourcePageList`, `ResourcePageSynopsisRow`, `ResourcePageActions`,
+  `ResourcePageEmpty`, and `CompositePageFoldControls`.
 
 The source lock in `src/lib/page-grammar.test.ts` enumerates the current page
 families and fails if one falls back to a bespoke frame. The ontology lock in

@@ -50,6 +50,12 @@ what the document or the sibling component claims.
   `lib/collectionSections.ts`, and each child keeps its canonical leaf page.
   Rail Fold all / Unfold all is the same shared button pair as the main page and
   propagates through nested branches rather than stopping at the first level.
+- **An index entry is a synopsis, not a compressed detail page.** Ordinary
+  addressable rows consume `ResourcePageSynopsisRow`: 13px identity, one 12px
+  descriptor and one 11px state/count field in a frameless divider ledger.
+  Configuration, history and primary lifecycle acts begin on the canonical
+  page. Keep a box only when containment communicates a real independent body
+  or function (post, editor, diff, form, metric tile), not merely more metadata.
 - **The entity page is the shared surface** — owner and visitor render the same
   page, differing by the `own` flag, not by two components. Two components is
   how a visitor-only regression hides.

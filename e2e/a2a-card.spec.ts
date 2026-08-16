@@ -5,8 +5,8 @@ import { ms } from './budget.ts'
 /** The A2A Agent Card is a machine-readable document, not a page to navigate to.
  *  Clicking "A2A card" used to open the raw JSON endpoint in a new browser tab; it
  *  now opens a presented, in-app viewer (the card laid out + Copy affordances). This
- *  locks, through the rendered UI, that on BOTH native surfaces — the owner's Agents
- *  hub card and the Discover detail — the trigger:
+ *  locks, through the rendered UI, that on the canonical Agent page — reached
+ *  from either an owner synopsis or Discover — the trigger:
  *    1. opens NO new browser tab (the reported raw-JSON jump is gone), and
  *    2. mounts a dialog presenting the endpoint URL, a Copy control, and the card's
  *       fielded sections (Skills, Authentication, Raw card). */
@@ -27,11 +27,17 @@ test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', asyn
 
   await page.goto('/')
 
-  // ── Site 1: the owner's Agents-hub card ────────────────────────────────────
+  // The index remains a synopsis (UI-36): A2A presentation begins only after
+  // opening the canonical Agent page.
   await page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
-  const hubCard = page.locator('div').filter({ hasText: AGENT })
+  await page
+    .locator('[data-resource-section="Ready agents"] [data-resource-synopsis-row]')
+    .filter({ hasText: AGENT })
+    .getByRole('button', { name: AGENT, exact: true })
+    .click()
+  await expect(page.getByRole('heading', { name: AGENT, exact: true })).toBeVisible()
   const pagesBefore = context.pages().length
-  await hubCard.getByRole('button', { name: 'A2A card' }).last().click()
+  await page.getByRole('button', { name: 'Open A2A card' }).click()
 
   const dialog = page.getByRole('dialog', { name: new RegExp(`A2A card — ${AGENT}`) })
   await expect(dialog).toBeVisible()
@@ -49,16 +55,4 @@ test('the "A2A card" trigger opens a presented viewer, not a raw-JSON tab', asyn
   await expect(dialog.getByRole('button', { name: 'Copy card URL' })).toHaveText('Copied')
   await dialog.getByRole('button', { name: 'Done' }).click()
   await expect(dialog).toBeHidden()
-
-  // ── Site 2: the definition's own PAGE (COMMONS-26 — the visitor-facing surface) ─
-  await page.getByRole('complementary').getByRole('button', { name: 'Discover', exact: true }).click()
-  await expect(page.getByText(AGENT).first()).toBeVisible()
-  await page.getByRole('button', { name: AGENT, exact: true }).first().click() // the card title door (UI-17: the card body opens it too)
-  await expect(page.getByRole('heading', { name: AGENT })).toBeVisible()
-  const pagesBefore2 = context.pages().length
-  await page.getByRole('button', { name: 'A2A card' }).click()
-  const cardDialog = page.getByRole('dialog', { name: new RegExp(`A2A card — ${AGENT}`) })
-  await expect(cardDialog).toBeVisible()
-  expect(context.pages().length).toBe(pagesBefore2)
-  await expect(cardDialog.getByRole('button', { name: 'Copy card URL' })).toBeVisible()
 })

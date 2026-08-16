@@ -1,5 +1,6 @@
 import {
   createContext,
+  forwardRef,
   useCallback,
   useContext,
   useEffect,
@@ -10,12 +11,14 @@ import {
 } from 'react'
 import { ChevronDown, ChevronsDown, ChevronsUp } from 'lucide-react'
 import { BackButton, PageBackContext } from './BackButton'
+import { ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 import { FOLD_HEADER_CLASS, SECTION_BODY_CLASS, SECTION_GAP, SECTION_RULE_SPACE } from '../lib/foldHeader'
 import { SECTION_REVEAL, SECTION_REVEAL_GROUP } from '../lib/hoverReveal'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
-import { LEDGER_LIST_CLASS, LEDGER_RULE_CLASS } from '../lib/ledger'
+import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS } from '../lib/ledger'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { isSectionFolded, pageFoldWork, setSectionFolded } from '../lib/sectionFold'
+import { DOOR_CLASS } from '../lib/textDoor'
 import { subscribeLayout } from '../lib/uiPrefs'
 import { useSectionFold } from '../lib/useSectionFold'
 
@@ -281,6 +284,7 @@ export function ResourcePageSection({
   return (
     <section
       data-resource-page-section
+      data-resource-section={title}
       className={`${SECTION_REVEAL_GROUP} ${effectiveFolded ? SECTION_GAP.folded : SECTION_GAP.open}`}
     >
       <div
@@ -328,3 +332,58 @@ export function ResourcePageList({ children, className = '' }: { children: React
     </div>
   )
 }
+
+/** The one synopsis-row projection for collection indexes.
+ *
+ * A row answers only three scan questions: what is it, what distinguishes it,
+ * and what small state/count helps me choose it. Everything configuration-like
+ * starts on the canonical resource page. The page template owns this vocabulary
+ * because Projects, Agents, Models, directory entries, work queues, and run
+ * ledgers are the same navigation problem even when their resource types differ.
+ *
+ * `description` yields before identity or metadata in a narrow pane. `trailing`
+ * is reserved for row-local controls (edit/delete/review), whose own click is
+ * spared by the shared card-door guard.
+ */
+export const ResourcePageSynopsisRow = forwardRef<
+  HTMLDivElement,
+  {
+    title: ReactNode
+    description?: ReactNode
+    meta?: ReactNode
+    prefix?: ReactNode
+    trailing?: ReactNode
+    onOpen?: () => void
+    className?: string
+    titleClassName?: string
+  }
+>(function ResourcePageSynopsisRow(
+  { title, description, meta, prefix, trailing, onOpen, className = '', titleClassName = 'text-ink' },
+  ref,
+) {
+  const titleClass = `min-w-0 flex-1 truncate text-left text-[13px] @lg:max-w-[55%] @lg:flex-none ${
+    onOpen ? `hover:text-co ${DOOR_CLASS}` : 'font-medium'
+  } ${titleClassName}`
+  return (
+    <div
+      ref={ref}
+      data-resource-synopsis-row
+      onClick={onOpen ? cardDoorClick(onOpen) : undefined}
+      className={`${LEDGER_ROW_CLASS} group min-w-0 @container ${onOpen ? ROW_DOOR_CLASS : ''} ${className}`}
+    >
+      {prefix}
+      {onOpen ? (
+        <button onClick={onOpen} className={titleClass}>{title}</button>
+      ) : (
+        <span className={titleClass}>{title}</span>
+      )}
+      {description !== undefined && (
+        <span className="hidden min-w-0 flex-1 truncate text-[12px] text-ink-soft @lg:block">{description}</span>
+      )}
+      {meta !== undefined && (
+        <span className="ml-auto max-w-[38%] shrink-0 truncate text-right text-[11px] text-ink-faint">{meta}</span>
+      )}
+      {trailing}
+    </div>
+  )
+})

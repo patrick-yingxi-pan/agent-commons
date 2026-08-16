@@ -103,7 +103,7 @@ lived in a sidebar column. Two refinements closed the worst of it:
 - **Every page has a canonical URL** (ADAPT-15) — GitHub's deepest navigation property
   (the link as coordination primitive: shareable, bookmarkable, browser Back/Forward).
   `src/lib/urlRoutes.ts` + History sync in the controller; a pasted address wins over
-  view memory. **Titles are doors** rode along (`CommonsCardHead.onOpen` — GitHub's
+  view memory. **Titles are doors** rode along (`ResourcePageSynopsisRow` — GitHub's
   title-as-link), and product copy dropped its design-doc numbers.
 - **The work item got its own page** (COMMONS-24, surface-audit S14) —
   `/projects/:id/work/:item`: status badge, provenance, and a full **timeline** (post →

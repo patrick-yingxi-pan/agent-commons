@@ -49,11 +49,14 @@ awkward to assert is usually a rule whose logic wants to move.
   rose-cast linen neutrals — every neutral biased toward the accent's hue, the
   2026-08-03 harmonization; canvas and surface share one value — boundaries are
   hairlines and spacing, not fill contrast). Containment is semantic: a COLLECTION renders as
-  **hairline-divided rows with NO frame** when its items are one-liners
-  (Projects, Contexts, Routines, `CardList` — `LEDGER_LIST_CLASS`), or a
-  stack/grid of QUIET CARDS
-  when they carry rich bodies (Artifacts, the Commons feed, the Models
-  management cards) — both recipes live in `src/lib/ledger.ts`. **The structure
+  **hairline-divided rows with NO frame** when its items are navigation
+  synopses (Projects, Agents, Models, directories, work queues, runs and
+  `CardList` — `ResourcePageSynopsisRow` + `LEDGER_LIST_CLASS`), or a stack/grid
+  of QUIET CARDS when each item carries a rich or independently functional body
+  (a feed post, editor, diff or metric tile) — both recipes live in
+  `src/lib/ledger.ts`. A compact detail page is not a rich body: configuration,
+  history and primary lifecycle acts begin on the canonical resource page.
+  **The structure
   a collection used to draw around itself lives on its SECTION TITLE now**
   (owner directive 2026-08-12: *"remove boxes for items in sections, they are
   visual noise; make section titles and boundaries more clear"*) — one rule
@@ -280,13 +283,16 @@ a breakpoint. Locked by `src/lib/artifact-index-preview.test.ts` and the
 artifact walk in `e2e/social-sharing.spec.ts`.
 
 The Project pattern includes the **item projection and information boundary**,
-not only the resource-page template + `FoldSection` around it (UI-34). A Models provider index entry
-is `ProviderRow`: the Project ledger rhythm and type hierarchy (13px identity,
-12px descriptor, 11px metadata), with no item frame. Effort, authority, plan,
-catalog entries and management acts live on `ProviderDetailPage`; repeating
-them in the index turns navigation into a crowded configuration card. The lock
-in `src/lib/page-grammar.test.ts` checks both the three text steps and the
-absence of those detail fields from the row.
+not only the resource-page template + `FoldSection` around it (UI-34/UI-36).
+`ResourcePageSynopsisRow` owns the Project ledger rhythm and type hierarchy
+(13px identity, one 12px descriptor, one 11px metadata field), with no item
+frame. Projects, Agents, Models, public directories, Your work, Dispatch and
+administrative ledgers consume it or its frameless `ResourcePageList`
+container. Effort, authority, full instructions, history and primary lifecycle
+acts live on canonical detail pages; repeating them in an index turns
+navigation into a crowded configuration card. `src/lib/index-synopsis.test.ts`
+enumerates the adopters and locks both the three text steps and the Agents
+detail-field boundary.
 
 A page or hub has one standing action vocabulary (UI-35). `PageActionButton`
 is the complete 32px role for New/Add verbs: the theme's `accent-tint` /
@@ -577,8 +583,8 @@ stays out of the URL. When adding a page kind, extend the mapping + its
 round-trip test — never parse or mint a path anywhere else. Locked by
 `src/lib/url-routes.test.ts`; spec row ADAPT-15. Companion rule — **titles are
 doors**: a card / list row fronting a page makes its TITLE the primary click
-target (GitHub's title-as-link), wired to the same handler as the explicit open
-affordance (`CommonsCardHead`'s `onOpen`; the work-item title opens its thread).
+target (GitHub's title-as-link), wired to the same handler as its containing
+row's mouse door (`ResourcePageSynopsisRow`; the work-item title opens its thread).
 Every such door — a title, a name inside a metadata line, a standing owner /
 source byline — wears the one cue in `src/lib/textDoor.ts` (`DOOR_CLASS` /
 `STANDING_DOOR_CLASS`); callers append only color, size and layout, for the
