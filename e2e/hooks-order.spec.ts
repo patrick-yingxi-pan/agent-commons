@@ -56,7 +56,7 @@ test('the Workspace shell keeps a stable hook order across focus / panel / split
 
   // Switch to a different thread and back — the singleton controller re-renders
   // with a different `focus` each time.
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await page.locator('aside').getByText('Dashboard query performance').first().click()
   await expect(page.getByText('token refresh logic')).toHaveCount(0)
   await page.locator('aside').getByText('Refactor auth middleware').first().click()

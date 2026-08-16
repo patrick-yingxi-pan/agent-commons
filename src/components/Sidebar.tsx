@@ -10,6 +10,8 @@ import {
 import {
   Archive,
   ArchiveRestore,
+  ChevronsDown,
+  ChevronsUp,
   ChevronDown,
   ChevronRight,
   Columns2,
@@ -48,7 +50,6 @@ import {
   type RailFoldSignal,
 } from './SectionTreeChildren'
 import { SectionFilterMenu } from './SectionFilterMenu'
-import { FoldPairButtons } from './ResourcePage'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import {
   SIDEBAR_ACTIVE,
@@ -80,19 +81,16 @@ import {
   dragPane,
   layoutPanes,
   paneMax,
+  NO_RAIL_SPLIT,
   RAIL_PANE_MIN,
-  RAIL_RECENTS_DEFAULT,
+  RAIL_SPLIT_DEFAULT,
+  splitRailSections,
   type PaneId,
   type PaneInput,
 } from '../lib/railPanes'
 import { LEFT_MIN, LEFT_MAX } from '../controller/useLayout'
-import {
-  clampSessionFilter,
-  filterSessions,
-  loadSessionFilter,
-  saveSessionFilter,
-  type SessionFilter,
-} from '../lib/sessionFilter'
+import { clampSessionFilter, filterSessions, type SessionFilter, type SessionGroup } from '../lib/sessionFilter'
+import { useSessionFilter } from '../lib/useSessionFilter'
 import {
   clampRoutineFilter,
   filterRoutines,
@@ -105,15 +103,16 @@ import type { CompositeCommandKind, CompositeFoldSignal } from '../lib/composite
 import { useCompositeFoldSignal } from '../lib/useCompositeFeatures'
 
 
-/** Does this section's row expand? Both LIST kinds count (UI-19) — a declared
- *  surface list, or its own rows. The third kind, a standing door, deliberately
+/** Does this section's row expand? Every LIST kind counts (UI-19) — a declared
+ *  surface list, its section-detail rows, or Sessions' canonical `/s/:id` rows.
+ *  A standing door deliberately
  *  does NOT: it is one fixed row, so a section whose only child was a door would
  *  be a chevron hiding a single link. It rides a section that already expands
  *  (`src/lib/owner-door.test.ts` asserts that pairing, since losing it would make
  *  the door vanish with nothing failing). Module-level so the state initializer
  *  can call it before the component body runs. */
 function hasChildren(id: SectionId): boolean {
-  return !!SECTION_SUBVIEWS[id] || !!SECTION_INSTANCE_KEY[id]
+  return id === 'sessions' || !!SECTION_SUBVIEWS[id] || !!SECTION_INSTANCE_KEY[id]
 }
 
 export function Sidebar({
@@ -217,10 +216,10 @@ export function Sidebar({
   // push, no back button, siblings stay visible. Several sections can be open at once.
   // An effect expands the active section, so a deep-link into it reveals its children.
   //
-  // A section has children two ways (UI-19, src/lib/subviews.ts): declared
+  // A section has children through the honest list cases (UI-19, src/lib/subviews.ts): declared
   // SURFACES (the Agents hub, the maintainer console, the Commons' lenses) or
   // live INSTANCES (its own rows — Projects, Artifacts, Contexts, Models,
-  // Discussions). One predicate, so every expand/fold mechanism below treats
+  // Discussions), plus Sessions' `/s/:id` rows. One predicate, so every expand/fold mechanism below treats
   // both kinds identically.
   // The expansion set persists PER ACCOUNT through the scoped layout store
   // (one boolean per section — uiPrefs.ts), so a switch-back or reload finds
@@ -324,18 +323,16 @@ export function Sidebar({
   const projects = useMemo(() => allProjects(), [allProjects])
   const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
 
-  // Recents "Filter & sort": the persisted choice, plus the project membership /
+  // Sessions "Filter & sort": one live choice shared with the main page, plus
+  // the project membership /
   // names it needs to filter and group by project (read from the relations graph).
   // The stored blob is browser-wide while its projectId is tenant-scoped, so the
   // choice CLAMPS at render (never in storage): a dangling id — another account's
   // project, or a deleted one — reads as 'all' instead of hiding every row.
-  const [rawFilter, setFilter] = useState<SessionFilter>(loadSessionFilter)
+  const [rawFilter, setFilter] = useSessionFilter()
   const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
   const filter = clampSessionFilter(rawFilter, projectIds)
-  const updateFilter = (next: SessionFilter) => {
-    setFilter(next)
-    saveSessionFilter(next)
-  }
+  const updateFilter = (next: SessionFilter) => setFilter(next)
   const { groups, total } = useMemo(() => {
     return filterSessions(sessions, filter, {
       projectIdOf: projectIdForSession,
@@ -359,27 +356,20 @@ export function Sidebar({
     })
   }, [routines, routineFilter, scheduleProjectId, projects])
 
-  // ── Resizable, foldable rail body panes (ADAPT-13) ──────────────────────────
-  // The rail body is an accordion: each pane (Sections / Recents) folds
-  // to its header, and open panes hold a persisted FIXED height except the TOP-most
-  // open one, which flexes to fill — Sections is the pane with the most rows, so it
-  // gets the spare height, and folding Recents drops its header toward the
-  // bottom, handing the space upward. A divider moves only on drag — folding or
-  // new content never does; heights clamp at render (layoutPanes), never in storage.
-  // The whole mechanism is gated on `resizable` (dropped on the narrow tier, ADAPT-11).
-  const [sectionsOpen, setSectionsOpen] = useState<boolean>(() => getLayout('railSectionsOpen', true))
-  const [recentsOpen, setRecentsOpen] = useState<boolean>(() => getLayout('railRecentsOpen', false))
-  const toggleSectionsOpen = () => {
-    setLayout('railSectionsOpen', !sectionsOpen)
-    setSectionsOpen(!sectionsOpen)
+  // ── Generic split of ONE ordered resource forest (ADAPT-13) ────────────────
+  // The split point is layout metadata, not a content container: the lower pane
+  // begins at any ordinary top-level section and contains that ordered suffix.
+  // Sessions is the default boundary, preserving quick access to conversation
+  // history without giving it a second ontology or a special header.
+  const [splitStart, setSplitStart] = useState<string>(() => getLayout('railSplitStart', 'sessions'))
+  const sectionGroups = splitRailSections(visibleSections, splitStart)
+  const splitActive = resizable && sectionGroups.length === 2
+  const updateSplitStart = (next: string) => {
+    setLayout('railSplitStart', next)
+    setSplitStart(next)
   }
-  const toggleRecentsOpen = () => {
-    setLayout('railRecentsOpen', !recentsOpen)
-    setRecentsOpen(!recentsOpen)
-  }
-
   const stackRef = useRef<HTMLDivElement>(null)
-  const recentsPaneRef = useRef<HTMLDivElement>(null)
+  const lowerPaneRef = useRef<HTMLDivElement>(null)
   const dragBottomRef = useRef(0)
   const [avail, setAvail] = useState(0)
   // Measure the stack synchronously before paint (no first-frame flash), then track
@@ -393,13 +383,15 @@ export function Sidebar({
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const [recentsH, setRecentsH] = useState<number>(() => getLayout('railRecentsH', RAIL_RECENTS_DEFAULT))
-  const recentsHRef = useRef(recentsH)
-  recentsHRef.current = recentsH
+  const [lowerH, setLowerH] = useState<number>(() =>
+    getLayout('railSplitH', getLayout('railRecentsH', RAIL_SPLIT_DEFAULT)),
+  )
+  const lowerHRef = useRef(lowerH)
+  lowerHRef.current = lowerH
 
   const paneInputs: PaneInput[] = [
-    { id: 'sections', present: true, open: sectionsOpen, height: 0 },
-    { id: 'recents', present: true, open: recentsOpen, height: recentsH },
+    { id: 'upper', present: true, height: 0 },
+    { id: 'lower', present: splitActive, height: lowerH },
   ]
   const layout = layoutPanes(paneInputs, avail)
   const paneOf = (id: PaneId) => layout.find((p) => p.id === id)
@@ -407,7 +399,7 @@ export function Sidebar({
   // flex-1; a folded pane collapses to its (auto-height) header.
   const paneStyle = (id: PaneId) => {
     const l = paneOf(id)
-    return resizable && l && l.open && !l.flex ? { height: l.height } : undefined
+    return resizable && l && !l.flex ? { height: l.height } : undefined
   }
   const paneClass = (id: PaneId) => {
     const l = paneOf(id)
@@ -421,18 +413,18 @@ export function Sidebar({
   // above absorbs). The pane's bottom edge stays put (everything below it is fixed),
   // so the drag anchors on it: height = bottom − cursor. Anchored on the effective
   // layout, so the clamp can't leak into storage.
-  const startRecentsDrag = () => {
-    dragBottomRef.current = recentsPaneRef.current?.getBoundingClientRect().bottom ?? 0
+  const startLowerDrag = () => {
+    dragBottomRef.current = lowerPaneRef.current?.getBoundingClientRect().bottom ?? 0
   }
   // The move handlers refresh the persist ref THEMSELVES (not just at render): a
   // keyboard gesture runs move → end in one tick, before React re-renders, so an
   // at-render-only ref would persist one step stale (a reload snapped the pane back).
-  const moveRecentsDrag = (clientY: number) => {
-    const h = dragPane('recents', dragBottomRef.current - clientY, paneInputs, avail)
-    recentsHRef.current = h
-    setRecentsH(h)
+  const moveLowerDrag = (clientY: number) => {
+    const h = dragPane('lower', dragBottomRef.current - clientY, paneInputs, avail)
+    lowerHRef.current = h
+    setLowerH(h)
   }
-  const persistRecentsH = () => setLayout('railRecentsH', recentsHRef.current)
+  const persistLowerH = () => setLayout('railSplitH', lowerHRef.current)
 
   // The project-membership menu items, shared by sessions and routines, built from
   // the relation op each entity files under.
@@ -450,6 +442,41 @@ export function Sidebar({
         }),
       { add: <FolderInput size={15} />, remove: <FolderMinus size={15} /> },
     )
+
+  const sessionMenuItems = (session: Session): RowMenuItem[] => [
+    {
+      kind: 'action',
+      key: 'pin',
+      label: session.pinned ? 'Unpin' : 'Pin',
+      icon: session.pinned ? <PinOff size={15} /> : <Pin size={15} />,
+      onSelect: () => onPinSession(session.id, !session.pinned),
+    },
+    {
+      kind: 'action',
+      key: 'rename',
+      label: 'Rename',
+      icon: <Pencil size={15} />,
+      onSelect: () => {}, // SessionRow replaces this with its inline editor.
+    },
+    ...sessionProjectItems(session),
+    { kind: 'divider', key: 'd1' },
+    {
+      kind: 'action',
+      key: 'archive',
+      label: session.status === 'archived' ? 'Unarchive' : 'Archive',
+      icon: session.status === 'archived' ? <ArchiveRestore size={15} /> : <Archive size={15} />,
+      onSelect: () => onArchiveSession(session.id, session.status !== 'archived'),
+    },
+    {
+      kind: 'action',
+      key: 'delete',
+      label: 'Delete',
+      icon: <Trash2 size={15} />,
+      danger: true,
+      confirm: `Delete “${session.title}”? A server restart restores the seed.`,
+      onSelect: () => onDeleteSession(session.id),
+    },
+  ]
 
   const routineProjectItems = (t: ScheduledTask): RowMenuItem[] =>
     projectMenuItems(
@@ -538,6 +565,44 @@ export function Sidebar({
           {/* The bell (D24) — the inbox of public acts on what you watch, own,
               or posted. The badge is live via notification.changed. */}
           <NotificationBell onClick={onOpenNotifications} />
+          <RowMenu
+            ariaLabel="Rail view options"
+            triggerIcon={<Rows2 size={18} />}
+            triggerClassName={SIDEBAR_ICON_BUTTON}
+            items={[
+              {
+                kind: 'action',
+                key: 'fold-all',
+                label: 'Fold all',
+                icon: <ChevronsUp size={15} />,
+                onSelect: () => requestRailFold(false),
+              },
+              {
+                kind: 'action',
+                key: 'unfold-all',
+                label: 'Unfold all',
+                icon: <ChevronsDown size={15} />,
+                onSelect: () => requestRailFold(true),
+              },
+              { kind: 'divider', key: 'layout-divider' },
+              {
+                kind: 'choice',
+                key: 'lower-pane',
+                label: 'Lower pane',
+                icon: <Rows2 size={15} />,
+                currentId:
+                  sectionGroups.length === 2 ? (sectionGroups[1][0] ?? NO_RAIL_SPLIT) : NO_RAIL_SPLIT,
+                options: [
+                  { id: NO_RAIL_SPLIT, label: 'One pane' },
+                  ...visibleSections.slice(1).map((id) => ({
+                    id,
+                    label: `Start at ${SECTION_META[id].label}`,
+                  })),
+                ],
+                onPick: updateSplitStart,
+              },
+            ]}
+          />
         </div>
         {(onSplitRow || onSplitCol || onCloseView) && (
           <div
@@ -580,15 +645,10 @@ export function Sidebar({
         </button>
       </nav>
 
-      {/* Rail body: an accordion of foldable, resizable panes — the canonical
-          Sections tree and the Recents utility (ADAPT-13). Each folds to its
-          header; open panes hold a persisted FIXED
-          height except the top-most open one, which flexes to fill — Sections has the
-          most rows, so folding Recents drops its header downward and hands the
-          space to it. A divider moves only on drag (folding / new content never
-          does); heights clamp at render, never in storage. On the narrow tier
-          (`resizable` false) the dividers drop and the panes flow inside the scrolling
-          drawer. */}
+      {/* One resource forest, optionally projected into two independently
+          scrolling panes. A split point only divides the ordered top-level
+          rows; it adds no headers, containers, or hierarchy. On the narrow tier
+          the divider drops and every row flows in one drawer. */}
       <div
         ref={stackRef}
         className={
@@ -597,33 +657,27 @@ export function Sidebar({
             : 'min-h-0 flex-1 overflow-y-auto'
         }
       >
-        {/* ── Sections pane ── the disclosure tree. A labeled <nav> so the section rows
-            carry the navigation role (e2e scopes to it). */}
-        <nav
-          aria-label="Sections"
-          data-rail-pane="sections"
-          style={paneStyle('sections')}
-          className={paneClass('sections')}
-        >
-          <PaneFoldHeader label="Sections" open={sectionsOpen} onToggle={toggleSectionsOpen}>
-            <div data-rail-fold-controls className="flex items-center gap-1">
-              <FoldPairButtons
-                fold={{
-                  act: () => requestRailFold(false),
-                  name: 'Fold all rail sections',
-                  title: 'Collapse every visible structural branch in the resource forest',
-                }}
-                unfold={{
-                  act: () => requestRailFold(true),
-                  name: 'Unfold all rail sections',
-                  title: 'Open every visible structural branch in the resource forest',
-                }}
-              />
-            </div>
-          </PaneFoldHeader>
-          {sectionsOpen && (
-          <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}>
-        {visibleSections.map((id) => {
+        <nav aria-label="Sections" className="contents">
+          {sectionGroups.map((sectionIds, paneIndex) => (
+            <Fragment key={paneIndex === 0 ? 'upper' : `lower-${sectionIds[0]}`}>
+              {paneIndex === 1 && splitActive && paneOf('lower')?.divider && (
+                <PaneDivider
+                  label="Resize lower rail pane"
+                  value={paneOf('lower')!.height}
+                  max={paneMax('lower', paneInputs, avail)}
+                  onStart={startLowerDrag}
+                  onMove={moveLowerDrag}
+                  onEnd={persistLowerH}
+                />
+              )}
+              <div
+                ref={paneIndex === 1 ? lowerPaneRef : undefined}
+                data-rail-pane={paneIndex === 0 ? 'upper' : 'lower'}
+                style={paneStyle(paneIndex === 0 ? 'upper' : 'lower')}
+                className={paneClass(paneIndex === 0 ? 'upper' : 'lower')}
+              >
+                <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}>
+        {sectionIds.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const surfaces = SECTION_SUBVIEWS[id]
           const instanceKey = SECTION_INSTANCE_KEY[id]
@@ -662,7 +716,9 @@ export function Sidebar({
                 // children are surfaces or rows; the page mirrors this control.
                 trailing={
                   <div className="flex shrink-0 items-center gap-0.5">
-                    {id === 'scheduled' ? (
+                    {id === 'sessions' ? (
+                      <SessionFilterMenu filter={filter} onChange={updateFilter} projects={projects} />
+                    ) : id === 'scheduled' ? (
                       <ScheduledFilterMenu
                         filter={routineFilter}
                         onChange={updateRoutineFilter}
@@ -691,7 +747,25 @@ export function Sidebar({
                       onOpenOwner={onOpenOwner}
                     />
                   )}
-                  {id === 'agents' ? (
+                  {id === 'sessions' ? (
+                    <SessionTreeChildren
+                      groups={groups}
+                      total={total}
+                      renderSession={(session) => (
+                        <SessionRow
+                          key={session.id}
+                          session={session}
+                          active={inSession && session.id === activeId}
+                          onSelect={() => {
+                            onSelect(session.id)
+                            onLeafNavigate?.()
+                          }}
+                          onRename={(title) => onRenameSession(session.id, title)}
+                          menuItems={sessionMenuItems(session)}
+                        />
+                      )}
+                    />
+                  ) : id === 'agents' ? (
                     <AgentTreeChildren
                       activeSubview={activeSection === id ? activeSubview : null}
                       activeSeed={activeSection === id ? activeSeed : null}
@@ -777,82 +851,11 @@ export function Sidebar({
             </Fragment>
           )
         })}
-          </div>
-          )}
+                </div>
+              </div>
+            </Fragment>
+          ))}
         </nav>
-        {/* ── Recents pane ── one compact line per conversation. Folds to its header;
-            a fixed-height utility pane at the bottom, its divider above it. */}
-        {resizable && paneOf('recents')?.divider && (
-          <PaneDivider
-            label="Resize Recents pane"
-            value={paneOf('recents')!.height}
-            max={paneMax('recents', paneInputs, avail)}
-            onStart={startRecentsDrag}
-            onMove={moveRecentsDrag}
-            onEnd={persistRecentsH}
-          />
-        )}
-        <div ref={recentsPaneRef} data-rail-pane="recents" className={paneClass('recents')} style={paneStyle('recents')}>
-          <PaneFoldHeader label="Recents" open={recentsOpen} onToggle={toggleRecentsOpen}>
-            <SessionFilterMenu filter={filter} onChange={updateFilter} projects={projects} />
-          </PaneFoldHeader>
-          {recentsOpen && (
-          <div className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-3' : 'px-2 pb-3'}>
-
-        {groups.map((g) => (
-          <Fragment key={g.key}>
-            {g.label && <GroupHeader>{g.label}</GroupHeader>}
-            {g.sessions.map((c) => (
-              <SessionRow
-                key={c.id}
-                session={c}
-                active={inSession && c.id === activeId}
-                onSelect={() => onSelect(c.id)}
-                onRename={(title) => onRenameSession(c.id, title)}
-                menuItems={[
-                  {
-                    kind: 'action',
-                    key: 'pin',
-                    label: c.pinned ? 'Unpin' : 'Pin',
-                    icon: c.pinned ? <PinOff size={15} /> : <Pin size={15} />,
-                    onSelect: () => onPinSession(c.id, !c.pinned),
-                  },
-                  {
-                    kind: 'action',
-                    key: 'rename',
-                    label: 'Rename',
-                    icon: <Pencil size={15} />,
-                    onSelect: () => {}, // wired to the row's inline editor below
-                  },
-                  ...sessionProjectItems(c),
-                  { kind: 'divider', key: 'd1' },
-                  {
-                    kind: 'action',
-                    key: 'archive',
-                    label: c.status === 'archived' ? 'Unarchive' : 'Archive',
-                    icon: c.status === 'archived' ? <ArchiveRestore size={15} /> : <Archive size={15} />,
-                    onSelect: () => onArchiveSession(c.id, c.status !== 'archived'),
-                  },
-                  {
-                    kind: 'action',
-                    key: 'delete',
-                    label: 'Delete',
-                    icon: <Trash2 size={15} />,
-                    danger: true,
-                    confirm: `Delete “${c.title}”? A server restart restores the seed.`,
-                    onSelect: () => onDeleteSession(c.id),
-                  },
-                ]}
-              />
-            ))}
-          </Fragment>
-        ))}
-          {total === 0 && (
-            <p className="px-2 py-3 text-[12px] text-ink-faint">No sessions match these filters.</p>
-          )}
-          </div>
-          )}
-        </div>
       </div>
 
       <AccountChip onOpenOwner={onOpenOwner} />
@@ -863,9 +866,6 @@ export function Sidebar({
 // The account/tenant chip + switcher/onboarding menu moved to ./AccountMenu.tsx
 // (multi-account P7 — it grew the sign-in / create-account / workspace flows).
 
-/** A pane's foldable header (ADAPT-13): the uppercase label doubles as a fold toggle
- *  with a rotating caret — the same affordance on every rail pane — and its right-side
- *  control (a filter menu, or the Sections fold-all button) shows only when open. */
 /** The focused-pane action cluster — split right / split down / close — ONE
  *  component for every host: the rail's header trio row and the shell's
  *  collapsed mini-rail (App.tsx). The parent passes each handler only when the
@@ -954,38 +954,11 @@ export function NotificationBell({ onClick }: { onClick: () => void }) {
   )
 }
 
-function PaneFoldHeader({
-  label,
-  open,
-  onToggle,
-  children,
-}: {
-  label: string
-  open: boolean
-  onToggle: () => void
-  children?: ReactNode
-}) {
-  return (
-    <div className="flex shrink-0 items-center justify-between pr-1 pt-2">
-      <button
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-label={`${open ? 'Collapse' : 'Expand'} ${label}`}
-        className={`flex flex-1 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
-      >
-        {label}
-        <ChevronRight size={12} className={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
-      </button>
-      {open && children}
-    </div>
-  )
-}
-
 /** A pane divider: an in-flow gutter carrying the shared horizontal ResizeHandle, so it
  *  sits BETWEEN two panes — not overlaying either pane's scroll content or scrollbar —
  *  with a persistent, easy-to-spot hairline centered in it. It rides ABOVE the pane it
- *  resizes (side="top": dragging / arrowing up grows that pane; the flex pane above —
- *  normally Sections — absorbs). */
+ *  resizes (side="top": dragging / arrowing up grows the lower pane while the
+ *  upper pane absorbs the difference). */
 function PaneDivider({
   label,
   value,
@@ -994,7 +967,7 @@ function PaneDivider({
   onMove,
   onEnd,
 }: {
-  /** Distinct accessible name per divider ("Resize Sections pane", …) — see ResizeHandle. */
+  /** Distinct accessible name for the lower-pane divider — see ResizeHandle. */
   label: string
   /** The pane's EFFECTIVE (on-screen) height and its current ceiling (`paneMax`) —
    *  the handle's aria-valuenow/-max; the floor is always RAIL_PANE_MIN. */
@@ -1075,7 +1048,7 @@ function SectionTreeRow({
   onToggle: () => void
   onOpen: () => void
   /** The row's own control — the section's "Filter & sort" menu. Outside the
-   *  opening button (like the Recents rows' "⋮"), so choosing a facet doesn't
+   *  opening button (like the Sessions rows' "⋮"), so choosing a facet doesn't
    *  also navigate. */
   trailing?: ReactNode
 }) {
@@ -1113,7 +1086,7 @@ function SectionTreeRow({
   )
 }
 
-/** One Recents row — a leading dot (or pin), the title, and a hover "⋮" menu.
+/** One Sessions row — a leading dot (or pin), the title, and a hover "⋮" menu.
  *  "Rename" flips the title into an inline editor; the rest go through the menu's
  *  own handlers. The main region selects the session; the menu sits outside that
  *  button so its clicks don't also open the thread. */
@@ -1192,6 +1165,46 @@ function SessionRow({
 /** A group divider label shown above each bucket when Group by ≠ None. */
 function GroupHeader({ children }: { children: ReactNode }) {
   return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
+}
+
+/** The Sessions section's live instance children. Group labels are view
+ * partitions selected by its filter, not structural navigation nodes. */
+function SessionTreeChildren({
+  groups,
+  total,
+  renderSession,
+}: {
+  groups: SessionGroup[]
+  total: number
+  renderSession: (session: Session) => ReactNode
+}) {
+  const [showAll, setShowAll] = useState(false)
+  if (total === 0) return <NoRowsRow>No sessions match these filters.</NoRowsRow>
+  let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
+  const visibleGroups = groups
+    .map((group) => {
+      const sessions = group.sessions.slice(0, Math.max(0, remaining))
+      remaining -= sessions.length
+      return { ...group, sessions }
+    })
+    .filter((group) => group.sessions.length > 0)
+  return (
+    <>
+      {visibleGroups.map((group) => (
+        <Fragment key={group.key}>
+          {group.label && <GroupHeader>{group.label}</GroupHeader>}
+          {group.sessions.map(renderSession)}
+        </Fragment>
+      ))}
+      {total > RAIL_INSTANCE_CAP && (
+        <ShowAllRow
+          hidden={total - RAIL_INSTANCE_CAP}
+          open={showAll}
+          onToggle={() => setShowAll((value) => !value)}
+        />
+      )}
+    </>
+  )
 }
 
 /** The Scheduled section's instance head. It keeps the shared eight-row cap

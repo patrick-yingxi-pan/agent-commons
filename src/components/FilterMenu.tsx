@@ -6,7 +6,7 @@ import { POPOVER_MARGIN, POPOVER_SURFACE, clampLeft } from '../lib/popover'
 import { FlyoutPanel, useFlyout } from './RecentOverflowList'
 
 /** ── A generic "Filter & sort" menu — the sliders button + its popover ────────
- *  The shell behind both the Recents (session) and Scheduled (run) filters: one
+ *  The shell behind both the Sessions and Routines filters: one
  *  popover of rows, each opening a submenu to the right. The popover and its
  *  submenus are portaled to <body> so the sidebar's scroll container can't clip
  *  them (same reason RecentOverflowList portals its flyout). Selecting an option

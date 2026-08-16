@@ -149,9 +149,9 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   await clearAutoPanel(page)
 
   // Split, then retarget the focused duplicate at a DIFFERENT seeded session
-  // via the rail's Recents list.
+  // via the rail's Sessions branch.
   await page.locator('[data-split-view="row"]').click()
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await page.locator('aside').getByText('Dashboard query performance').first().click()
   const pane = page.locator('[data-conversation-pane="dashboard-perf"]')
   await expect(pane).toBeVisible()
@@ -451,11 +451,11 @@ test("the rail's active highlight tracks the FOCUSED pane (UI-12 — no singleto
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
   await clearAutoPanel(page)
 
-  // The open conversation's Recents row is marked current (aria-current rides
+  // The open conversation's Sessions row is marked current (aria-current rides
   // the shared active cue — the singleton's frozen activeId once left the rail
   // highlighting nothing after the first pane-routed navigation).
   const rail = page.getByRole('complementary')
-  await rail.getByRole('button', { name: 'Expand Recents' }).click()
+  await rail.getByRole('button', { name: 'Expand Sessions' }).click()
   const sessionRow = rail.getByRole('button', { name: 'Refactor auth middleware', exact: true })
   await expect(sessionRow).toHaveAttribute('aria-current', 'page')
 
@@ -506,7 +506,7 @@ test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — the layout c
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
 
-  // Materialize a fresh session from the draft (its recents row is the newest).
+  // Materialize a fresh session from the draft (its Sessions row is the newest).
   await page.getByPlaceholder('Reply to Claude…').fill('prune me')
   await page.keyboard.press('Enter')
   await expect(page).toHaveURL(/\/s\/(?!draft)[\w-]+$/)
@@ -516,9 +516,9 @@ test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — the layout c
   await page.locator('[data-split-view="row"]').click()
   await expect(page.locator('[data-main-pane]')).toHaveCount(2)
 
-  // Delete it from the recents row menu (the row is titled after the first
+  // Delete it from the Sessions row menu (the row is titled after the first
   // message) — confirm inline.
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   const row = page.getByRole('button', { name: 'Actions for prune me' })
   await row.click()
   await page.getByRole('menuitem', { name: 'Delete' }).click()

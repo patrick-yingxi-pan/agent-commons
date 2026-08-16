@@ -28,8 +28,8 @@ async function settled(page: Page, target: Locator, dim: 'width' | 'height'): Pr
 }
 
 test('arrow keys resize the rail and a rail pane through the focused separator, and the result persists', async ({ page }) => {
-  // Tall enough that the pane accordion has headroom above its clamp — a short rail
-  // would pin the Recents pane's ceiling near its default and the coarse step would
+  // Tall enough that the split rail has headroom above its clamp — a short rail
+  // would pin the lower pane's ceiling near its default and the coarse step would
   // read as "keyboard broken" when it's the clamp.
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
@@ -51,16 +51,14 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   expect(w3, 'the step inverts').toBeLessThanOrEqual(w2 - 12)
 
   // ── Horizontal separator (pane gutter): Up/Down arrows step it, Shift coarse. ──
-  // The gutter rides ABOVE the fixed pane it resizes. Recents rests folded to
-  // preserve the resource forest, so this geometry walk explicitly opens it.
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
-  const recents = page.locator('[data-rail-pane="recents"]')
-  const paneHandle = page.getByRole('separator', { name: 'Resize Recents pane' })
+  // The gutter rides ABOVE the fixed lower pane it resizes.
+  const lower = page.locator('[data-rail-pane="lower"]')
+  const paneHandle = page.getByRole('separator', { name: 'Resize lower rail pane' })
   await expect(paneHandle).toBeVisible()
-  const h0 = await settled(page, recents, 'height')
+  const h0 = await settled(page, lower, 'height')
   await paneHandle.focus()
   await page.keyboard.press('Shift+ArrowUp')
-  const h1 = await settled(page, recents, 'height')
+  const h1 = await settled(page, lower, 'height')
   expect(h1, 'Shift steps coarse (64px ± the half-gutter bias)').toBeGreaterThanOrEqual(h0 + 48)
 
   // ── The keyboard gesture persisted what it rendered (not one step stale). ──
@@ -69,11 +67,11 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   const stored = await page.evaluate(async () => {
     const me = (await (await fetch('/api/v1/me')).json()) as { user: { id: string } }
     const raw = localStorage.getItem(`claude-ui.layout.v1.${me.user.id}`)
-    const layout = raw ? (JSON.parse(raw) as { leftW?: number; railRecentsH?: number }) : {}
-    return { leftW: layout.leftW, railRecentsH: layout.railRecentsH }
+    const layout = raw ? (JSON.parse(raw) as { leftW?: number; railSplitH?: number }) : {}
+    return { leftW: layout.leftW, railSplitH: layout.railSplitH }
   })
   expect(Math.abs((stored.leftW ?? 0) - w3), 'stored rail width matches the rendered one').toBeLessThanOrEqual(1)
-  expect(Math.abs((stored.railRecentsH ?? 0) - h1), 'stored pane height matches the rendered one').toBeLessThanOrEqual(1)
+  expect(Math.abs((stored.railSplitH ?? 0) - h1), 'stored pane height matches the rendered one').toBeLessThanOrEqual(1)
 })
 
 test('the overlay panel separator takes RAPID keyboard steps, announces its value, and persists', async ({ page }) => {
@@ -86,7 +84,7 @@ test('the overlay panel separator takes RAPID keyboard steps, announces its valu
   await page.goto('/')
 
   // The seeded repo session restores its panel on select (same door responsive.spec uses).
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await page.locator('aside').getByText('Refactor auth middleware').first().click()
   const panelHandle = page.getByRole('separator', { name: 'Resize panel' })
   await expect(panelHandle).toBeVisible()

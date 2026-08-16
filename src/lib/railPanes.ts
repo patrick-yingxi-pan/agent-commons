@@ -1,129 +1,80 @@
-/** ── Resizable, foldable rail body panes (ADAPT-13) ───────────────────────────
- *  The rail's lower body is a small **accordion** of stacked panes — the account
- *  resource tree (Sections) and the utility history (Recents). Each pane can be
- *  **folded** (collapsed to just its header)
- *  and, when open, holds a **persisted, FIXED** height — except the **top-most
- *  open pane**, which **flexes** to fill whatever height the others leave. The
- *  Sections tree is the pane with the most rows, so it gets every freed pixel:
- *  folding Recents drops its header toward the bottom of the rail and hands the
- *  space upward (folding never opens a gap). Draggable
- *  dividers sit ABOVE each fixed (open, non-flex) pane and resize it; the flex
- *  pane absorbs the difference.
+/** ── Generic split layout for the account-resource rail (ADAPT-13) ───────────
  *
- *  This module is the pure math (no React, no DOM), so `tests/` can lock it. Two
- *  invariants it guarantees:
- *   - **fixed unless manually adjusted** — `layoutPanes` clamps stored heights to
- *     fit the CURRENT available height without ever mutating them (the clamp lives
- *     at render, never in storage — the rail-width rule).
- *   - **the clamp never leaks into storage** — `dragPane` returns a new height for
- *     ONLY the pane being dragged, computed against the OTHER panes' EFFECTIVE
- *     (clamped, on-screen) heights, so a drag maps 1:1 to the cursor and can't
- *     rewrite an untouched pane's stored value. */
+ * The rail contains ONE ordered resource forest. A split is presentation-only:
+ * it places an ordered suffix of ordinary top-level sections in an independently
+ * scrolling lower pane. It never names a second hierarchy and never changes
+ * which section owns a resource.
+ *
+ * The upper pane flexes; the lower pane keeps a persisted height and is resized
+ * from the divider above it. Stored height is clamped only at render, never
+ * rewritten by a resize of the host. The pure helpers make both the hierarchy
+ * boundary and the layout math testable without React or the DOM.
+ */
 
-/** Kept dependency-free (no imports) so the DOM-less Node test runner can import the
- *  math directly — hence a local `clamp` rather than uiPrefs's (same one-liner). */
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
 
-/** A pane's minimum height: its header + ~2 rows. No open pane shrinks below this. */
 export const RAIL_PANE_MIN = 96
-/** Default fixed heights on first run (px) — clamped at render like any stored value.
- *  Deliberately lean: the flex Sections pane keeps the lion's share of a typical rail
- *  (it's the pane with the most rows); the fixed panes start just big enough to show a
- *  few entries and are a drag away from more. */
-export const RAIL_RECENTS_DEFAULT = 176
-/** A folded pane collapses to just its header — this strip's approximate height. */
-export const RAIL_PANE_HEADER = 32
-/** The in-flow gutter each divider occupies between two panes. */
+export const RAIL_SPLIT_DEFAULT = 176
 export const RAIL_GUTTER = 8
+export const NO_RAIL_SPLIT = 'none'
 
-export type PaneId = 'sections' | 'recents'
+export type PaneId = 'upper' | 'lower'
 
 export type PaneInput = {
   id: PaneId
-  /** Does this pane exist at all? */
   present: boolean
-  /** Is it unfolded (showing its body)? A folded pane is a header strip. */
-  open: boolean
-  /** Stored fixed height (used only when the pane is open AND not the flex pane). */
+  /** Stored height. Used by the lower fixed pane; the upper pane flexes. */
   height: number
 }
 
 export type PaneLayout = {
   id: PaneId
-  open: boolean
-  /** Rendered height in px (folded → header strip; flex → the computed remainder). */
   height: number
-  /** The top-most open pane, which fills the remainder. */
   flex: boolean
-  /** Folded to just its header. */
-  folded: boolean
-  /** A draggable divider sits ABOVE this pane (true only for open, non-flex panes). */
+  /** A draggable divider sits above this pane. */
   divider: boolean
 }
 
-type Opts = { min?: number; header?: number; gutter?: number }
+type Opts = { min?: number; gutter?: number }
 
-/** Resolve every present pane to a rendered height for the current `avail`. Folded
- *  panes take a header strip; open non-flex panes take their clamped stored height
- *  (each clamped so the panes after it keep their minimum); the top-most open pane
- *  flexes to fill the remainder. Never mutates the inputs. */
+/** Split an ordered section list before `splitStart`. Missing, `none`, and the
+ * first item all mean one pane. No item is duplicated or reordered. */
+export function splitRailSections<T extends string>(
+  sections: readonly T[],
+  splitStart: string,
+): readonly [readonly T[]] | readonly [readonly T[], readonly T[]] {
+  const index = splitStart === NO_RAIL_SPLIT ? -1 : sections.indexOf(splitStart as T)
+  return index > 0 ? [sections.slice(0, index), sections.slice(index)] : [sections]
+}
+
+/** Resolve the one- or two-pane layout for the available height. */
 export function layoutPanes(panes: PaneInput[], avail: number, opts: Opts = {}): PaneLayout[] {
   const min = opts.min ?? RAIL_PANE_MIN
-  const header = opts.header ?? RAIL_PANE_HEADER
   const gutter = opts.gutter ?? RAIL_GUTTER
+  const present = panes.filter((pane) => pane.present)
+  if (present.length === 0) return []
+  if (present.length === 1)
+    return [{ id: present[0].id, height: Math.max(min, avail), flex: true, divider: false }]
 
-  const present = panes.filter((p) => p.present)
-  const open = present.filter((p) => p.open)
-  const flexId = open.length ? open[0].id : null // top-most open pane
-  const numDividers = Math.max(0, open.length - 1) // one above each open pane except the flex
-  const availForPanes = Math.max(0, Math.max(0, avail) - numDividers * gutter)
-  const stripsTotal = present.filter((p) => !p.open).length * header
-  const fixed = open.filter((p) => p.id !== flexId) // open, non-flex → resizable fixed height
-
-  // Assign fixed heights left→right, each clamped to leave every later pane its min.
-  const heights = new Map<PaneId, number>()
-  let used = 0
-  fixed.forEach((p, i) => {
-    const reserveAfter = (fixed.length - 1 - i) * min + min // later fixed panes + the flex pane's min
-    const maxThis = availForPanes - stripsTotal - used - reserveAfter
-    const h = clamp(p.height, min, Math.max(min, maxThis))
-    heights.set(p.id, h)
-    used += h
-  })
-  const flexHeight = flexId ? Math.max(min, availForPanes - stripsTotal - used) : 0
-
-  return present.map((p) => {
-    const folded = !p.open
-    const flex = p.id === flexId
-    const height = folded ? header : flex ? flexHeight : (heights.get(p.id) ?? min)
-    return { id: p.id, open: p.open, height, flex, folded, divider: p.open && !flex }
-  })
+  const upper = present[0]
+  const lower = present[1]
+  const usable = Math.max(min * 2, Math.max(0, avail) - gutter)
+  const lowerHeight = clamp(lower.height, min, Math.max(min, usable - min))
+  return [
+    { id: upper.id, height: Math.max(min, usable - lowerHeight), flex: true, divider: false },
+    { id: lower.id, height: lowerHeight, flex: false, divider: true },
+  ]
 }
 
-/** The ceiling open, non-flex pane `id` can grow to right now: the space left after
- *  the folded strips, the OTHER fixed panes' EFFECTIVE heights, and the flex pane's
- *  reserved minimum. Never below `min` (a degenerate short rail pins the range to
- *  [min, min]). Shared by `dragPane`'s clamp and the divider's `aria-valuemax`, so
- *  the announced range can't drift from the enforced one. */
+/** The lower pane's current ceiling, reserving the upper pane's minimum. */
 export function paneMax(id: PaneId, panes: PaneInput[], avail: number, opts: Opts = {}): number {
   const min = opts.min ?? RAIL_PANE_MIN
-  const header = opts.header ?? RAIL_PANE_HEADER
   const gutter = opts.gutter ?? RAIL_GUTTER
-
-  const layout = layoutPanes(panes, avail, opts)
-  const numDividers = layout.filter((p) => p.divider).length
-  const availForPanes = Math.max(0, Math.max(0, avail) - numDividers * gutter)
-  const stripsTotal = layout.filter((p) => p.folded).length * header
-  const otherFixed = layout
-    .filter((p) => p.open && !p.flex && p.id !== id)
-    .reduce((sum, p) => sum + p.height, 0)
-  return Math.max(min, availForPanes - stripsTotal - otherFixed - min) // reserve the flex pane's min
+  if (id !== 'lower' || panes.filter((pane) => pane.present).length < 2) return min
+  return Math.max(min, Math.max(0, avail) - gutter - min)
 }
 
-/** New stored height for open, non-flex pane `id` whose top edge is dragged to
- *  `target` px above the pane's bottom. Clamped so the flex pane keeps its minimum; the
- *  clamp is computed from the OTHER panes' EFFECTIVE heights (`paneMax`), so the
- *  returned value maps 1:1 to the cursor and only this pane's stored height changes. */
+/** New stored height for the lower pane after dragging its top edge. */
 export function dragPane(
   id: PaneId,
   target: number,

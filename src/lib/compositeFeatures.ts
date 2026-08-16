@@ -33,6 +33,7 @@ export const COMPOSITE_FEATURES: Record<SectionId, CompositeFeatureSpec> = {
   discussions: { fold: true },
   messages: { fold: true },
   notifications: { fold: true },
+  sessions: { primaryAction: 'New session' },
   dispatch: { primaryAction: 'New dispatch', fold: true },
   customize: {},
   admin: { fold: true },

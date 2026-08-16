@@ -54,7 +54,7 @@ test('create account via the wizard → own world → reload stays signed in →
   // ── Reload: the cookie is the persistence — still the new account ──
   await page.reload()
   await expect(page.getByTestId('account-chip')).toContainText(NAME)
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await expect(page.locator('aside').getByText(new RegExp(MESSAGE.slice(0, 20))).first()).toBeVisible({ timeout: ms(5_000) })
 
   // ── Isolation: a fresh context (the seeded default) sees none of it ──

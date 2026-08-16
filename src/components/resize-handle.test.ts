@@ -77,7 +77,7 @@ test('every call site names its divider, and no two names collide', () => {
   // (two separators reading the same) fails loudly.
   const labels = [...components.matchAll(/label="(Resize [^"]+)"/g)].map((m) => m[1])
   assert.deepEqual(labels.sort(), [
-    'Resize Recents pane',
+    'Resize lower rail pane',
     'Resize panel',
     'Resize sidebar',
   ])
@@ -104,8 +104,8 @@ test('a gesture persists the value it just produced — the move handler refresh
   // AND its onEnd must persist THE REF, not the render-stale state closure (an
   // innocuous-looking "read state instead of ref" cleanup reintroduces the bug).
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
-  assert.match(sidebar, /recentsHRef\.current = h\s*\n\s*setRecentsH\(h\)/)
-  assert.match(sidebar, /setLayout\('railRecentsH', recentsHRef\.current\)/)
+  assert.match(sidebar, /lowerHRef\.current = h\s*\n\s*setLowerH\(h\)/)
+  assert.match(sidebar, /setLayout\('railSplitH', lowerHRef\.current\)/)
   const layoutHook = stripComments(read(join(ROOT, 'src', 'controller', 'useLayout.ts')))
   assert.match(layoutHook, /leftWRef\.current = w\s*\n\s*setLeftW\(w\)/)
   assert.match(layoutHook, /setLayout\('leftW', leftWRef\.current\)/)
@@ -120,7 +120,7 @@ test('each divider announces the same range its clamp enforces (no drifting boun
   // EFFECTIVE height + the same paneMax ceiling dragPane clamps to.
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
   assert.match(sidebar, /value=\{railW\}\s*\n\s*min=\{LEFT_MIN\}\s*\n\s*max=\{LEFT_MAX\}/)
-  assert.match(sidebar, /value=\{paneOf\('recents'\)!\.height\}\s*\n\s*max=\{paneMax\('recents', paneInputs, avail\)\}/)
+  assert.match(sidebar, /value=\{paneOf\('lower'\)!\.height\}\s*\n\s*max=\{paneMax\('lower', paneInputs, avail\)\}/)
   assert.match(sidebar, /min=\{RAIL_PANE_MIN\}/, 'the gutter floor is the pane min')
   const panel = stripComments(read(join(ROOT, 'src', 'components', 'PanelShell.tsx')))
   assert.match(panel, /value=\{width\}\s*\n\s*min=\{PANEL_MIN\}\s*\n\s*max=\{PANEL_MAX\}/)

@@ -2,7 +2,7 @@
  *  The rail tree used to BE the facet control: a section's children were its
  *  partitions (Projects → Yours / Shared, Artifacts → Documents / Images / …),
  *  and clicking one focused the page on that slice. Two rail panes right below
- *  it already did the opposite — Scheduled and Recents list the THINGS and put
+ *  it already did the opposite — Routines and Sessions list the THINGS and put
  *  the partition behind a "Filter & sort" button — so the same rail carried two
  *  models, and the tree's model was the one that couldn't answer "which
  *  projects do I have?" without opening a page.

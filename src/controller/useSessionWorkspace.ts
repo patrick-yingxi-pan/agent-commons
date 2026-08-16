@@ -338,7 +338,7 @@ export function useSessionWorkspace(split?: {
    *  a new locus kind reaches the same pipeline for free. */
   const focusHere = useCallback((target: FocusTarget) => setPendingFocus(target), [])
 
-  // ── Recents row-menu edits (pin / rename / archive / delete) ──────────────
+  // ── Sessions row-menu edits (pin / rename / archive / delete) ─────────────
   // List-level mutations; the sidebar reflects them through the live session
   // feed. Delete's pane eviction (a pane hosting the removed session) is the
   // caller's concern — the tree is the split controller's.

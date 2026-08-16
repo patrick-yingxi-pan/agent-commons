@@ -11,9 +11,9 @@ export type SubView = { id: string; label: string }
  *  YOUR standing collections. A partition of a section's list by a property of
  *  its items — kind, state, ownership — is a **filter**, and a filter's one
  *  home is the section row's "Filter & sort" menu (`./sectionFilter.ts`), the
- *  same primitive the Scheduled tree row and Recents pane use.
+ *  same primitive the Routines and Sessions tree rows use.
  *
- *  So the rail has exactly two kinds of child, and this registry holds only the
+ *  So the rail has the following kinds of child, and this registry holds only the
  *  first:
  *
  *  1. **Declared surfaces** — this file. A hub whose children are genuinely
@@ -30,6 +30,10 @@ export type SubView = { id: string; label: string }
  *     that intermediate level through `./collectionSections.ts`; this registry
  *     still names the canonical leaf key. The rail and page compute both the
  *     list and any grouping through ONE function each.
+ *     Sessions is the same instance case with a different address kind:
+ *     `/s/:id` is a `NavLocation.kind === 'session'`, not a `PaneSeed` detail,
+ *     so Sidebar renders it through the same filtered-list discipline without
+ *     lying that it has a section-detail key.
  *  3. **Standing doors** — also not here, and there is exactly one:
  *     the Commons' **Your profile** (`OwnerProfileChild`, 2026-08-09). Both
  *     kinds above address a place INSIDE the section's URL grammar

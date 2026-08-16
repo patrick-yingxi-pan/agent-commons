@@ -43,7 +43,7 @@ export const WS_ID = 'ws-active'
 
 /** A brand-new, unsent session. "New session" opens this — an empty thread with
  *  the composer ready. Nothing is saved until you send, so it isn't in the
- *  recents list; the controller's activeSession falls back to it. */
+ *  Sessions list; the controller's activeSession falls back to it. */
 export const DRAFT_ID = 'draft'
 export const DRAFT_SESSION: Session = {
   id: DRAFT_ID,

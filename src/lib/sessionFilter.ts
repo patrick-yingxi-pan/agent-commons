@@ -1,4 +1,4 @@
-/** ── Recents filter / sort / group — the pure model behind the sidebar's
+/** ── Sessions filter / sort / group — the pure model behind both projections'
  *  "Filter & sort" menu (mirrors the Claude desktop app's Code tab). No React:
  *  just the option vocabulary, the persisted preference blob, and one function
  *  that turns a session list + a filter into ordered, optionally-grouped rows.
@@ -41,7 +41,7 @@ export const DEFAULT_SESSION_FILTER: SessionFilter = {
 // the values are string enums, not numbers/booleans.
 const KEY = 'claude-ui.recents-filter.v1'
 
-export function loadSessionFilter(): SessionFilter {
+function readSessionFilter(): SessionFilter {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return DEFAULT_SESSION_FILTER
@@ -52,12 +52,32 @@ export function loadSessionFilter(): SessionFilter {
   }
 }
 
+let currentFilter: SessionFilter | null = null
+const filterListeners = new Set<() => void>()
+
+/** Stable external-store snapshot shared by the Sessions rail branch and page. */
+export function sessionFilterSnapshot(): SessionFilter {
+  return (currentFilter ??= readSessionFilter())
+}
+
+/** Back-compatible read name for existing non-React callers and tests. */
+export function loadSessionFilter(): SessionFilter {
+  return sessionFilterSnapshot()
+}
+
+export function subscribeSessionFilter(listener: () => void): () => void {
+  filterListeners.add(listener)
+  return () => filterListeners.delete(listener)
+}
+
 export function saveSessionFilter(f: SessionFilter) {
+  currentFilter = { ...f }
   try {
     localStorage.setItem(KEY, JSON.stringify(f))
   } catch {
     /* ignore quota / privacy-mode errors */
   }
+  for (const listener of [...filterListeners]) listener()
 }
 
 /** Clamp a persisted filter at RENDER, never in storage (the layout-height rule).
@@ -82,7 +102,7 @@ const ACTIVITY_DAYS: Record<Exclude<ActivityFilter, 'all'>, number> = {
 const ENV_LABEL: Record<string, string> = { local: 'Local', cloud: 'Cloud', remote: 'Remote Control' }
 const ENV_ORDER: Record<string, number> = { local: 0, cloud: 1, remote: 2 }
 
-/** One rendered section of the Recents list. For `groupBy: 'none'` there is a
+/** One rendered section of the Sessions list. For `groupBy: 'none'` there is a
  *  single group with an empty label (the Sidebar draws it header-less). */
 export interface SessionGroup {
   key: string

@@ -74,6 +74,7 @@ export const SECTION_LABELS: Record<SectionId, string> = {
   discussions: 'Discussions',
   messages: 'Messages',
   notifications: 'Notifications',
+  sessions: 'Sessions',
   dispatch: 'Dispatch',
   customize: 'Customize',
   admin: 'Maintain',

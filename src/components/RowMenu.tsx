@@ -9,8 +9,8 @@ import { FlyoutPanel, useFlyout } from './RecentOverflowList'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 
 /** ── A sidebar row's overflow ("⋮") menu ──────────────────────────────────────
- *  The small action menu hung off every Recents session and Scheduled routine
- *  row, mirroring the desktop app's row menu. The item set is described by the
+ *  The small action menu hung off every Sessions and Routines row, mirroring
+ *  the desktop app's row menu. The item set is described by the
  *  caller (it differs per entity, and shifts when the row is in a project — Add →
  *  Change + Remove), so this component only owns the chrome: the trigger, the
  *  body-portaled popover (so the rail's scroll container can't clip it), a
@@ -40,12 +40,31 @@ export type RowMenuItem =
       currentId: string | null
       onPick: (projectId: string) => void
     }
+  | {
+      kind: 'choice'
+      key: string
+      label: string
+      icon: ReactNode
+      options: { id: string; label: string }[]
+      currentId: string
+      onPick: (id: string) => void
+    }
   | { kind: 'divider'; key: string }
 
 const POPOVER_WIDTH = 208
 const POPOVER_EST_HEIGHT = 240
 
-export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMenuItem[] }) {
+export function RowMenu({
+  ariaLabel,
+  items,
+  triggerIcon,
+  triggerClassName,
+}: {
+  ariaLabel: string
+  items: RowMenuItem[]
+  triggerIcon?: ReactNode
+  triggerClassName?: string
+}) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   // A destructive item awaiting its second click (the inline confirm view).
@@ -102,9 +121,12 @@ export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMen
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus:opacity-100 focus:outline-none data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[open=true]:opacity-100 ${HOVER_REVEAL}`}
+        className={
+          triggerClassName ??
+          `flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus:opacity-100 focus:outline-none data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[open=true]:opacity-100 ${HOVER_REVEAL}`
+        }
       >
-        <MoreVertical size={15} />
+        {triggerIcon ?? <MoreVertical size={15} />}
       </button>
 
       {open &&
@@ -138,6 +160,17 @@ export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMen
                       onPick={(pid) => run(() => item.onPick(pid))}
                     />
                   )
+                if (item.kind === 'choice')
+                  return (
+                    <ChoiceRow
+                      key={item.key}
+                      label={item.label}
+                      icon={item.icon}
+                      options={item.options}
+                      currentId={item.currentId}
+                      onPick={(id) => run(() => item.onPick(id))}
+                    />
+                  )
                 return (
                   <ActionRow
                     key={item.key}
@@ -156,6 +189,62 @@ export function RowMenu({ ariaLabel, items }: { ariaLabel: string; items: RowMen
           </div>,
           document.body,
         )}
+    </>
+  )
+}
+
+/** A generic single-choice submenu used when a toolbar preference belongs in
+ * the same compact action menu as commands (for example the rail split point). */
+function ChoiceRow({
+  label,
+  icon,
+  options,
+  currentId,
+  onPick,
+}: {
+  label: string
+  icon: ReactNode
+  options: { id: string; label: string }[]
+  currentId: string
+  onPick: (id: string) => void
+}) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const { open, openNow, closeSoon } = useFlyout()
+  return (
+    <>
+      <button
+        ref={ref}
+        type="button"
+        role="menuitem"
+        onMouseEnter={openNow}
+        onMouseLeave={closeSoon}
+        onFocus={openNow}
+        onBlur={closeSoon}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-ink transition hover:bg-panel-2 ${open ? 'bg-panel-2' : ''}`}
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>
+        <span className="flex-1">{label}</span>
+        <ChevronRight size={14} className="shrink-0 text-ink-faint" />
+      </button>
+      {open && (
+        <FlyoutPanel anchor={ref.current} width={208} onEnter={openNow} onLeave={closeSoon}>
+          {options.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={currentId === option.id}
+              onClick={() => onPick(option.id)}
+              className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-[13px] text-ink transition hover:bg-panel-2"
+            >
+              <span className="min-w-0 truncate">{option.label}</span>
+              {currentId === option.id && <Check size={14} className="shrink-0 text-accent" />}
+            </button>
+          ))}
+        </FlyoutPanel>
+      )}
     </>
   )
 }

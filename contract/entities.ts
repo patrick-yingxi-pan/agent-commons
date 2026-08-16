@@ -26,6 +26,7 @@ export type SectionId =
   | 'discussions'
   | 'messages'
   | 'notifications'
+  | 'sessions'
   | 'dispatch'
   | 'customize'
   | 'admin'
@@ -379,13 +380,13 @@ export interface Session {
    *  agent sessions surface through the Scheduled rail / `/runs/recent` instead
    *  of the sessions list — a view rule, not a separate code path. */
   scheduledRunOf?: { taskId: string; taskName: string }
-  /** ── Sidebar filter / sort backing (the Recents "Filter & sort" menu) ──
+  /** ── Sessions filter / sort backing (shared by rail and main page) ───────
    *  All optional so a client-only draft need not set them; the filter treats a
    *  missing value as the neutral default (active, local, epoch 0). */
-  /** Archival status. The Recents filter defaults to showing only `active`;
+  /** Archival status. The Sessions filter defaults to showing only `active`;
    *  `archived` sessions are hidden until the Status filter is widened. */
   status?: 'active' | 'archived'
-  /** Pinned to the top of the Recents list (the row menu's "Pin"). Sorts ahead
+  /** Pinned to the top of the Sessions list (the row menu's "Pin"). Sorts ahead
    *  of everything else regardless of the active sort; unset = not pinned. */
   pinned?: boolean
   /** Where the session's compute runs. Only `local` is wired today; `cloud` and

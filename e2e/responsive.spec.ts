@@ -70,7 +70,7 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   // A context panel on narrow is a TAKEOVER: the seeded repo session restores
   // its repo focus on open, so the panel appears on select.
   await reopen.click()
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await page.locator('aside').getByText('Refactor auth middleware').first().click()
   const panelClose = page.getByRole('button', { name: 'Close', exact: true }).first()
   await expect(panelClose).toBeVisible()
@@ -230,7 +230,7 @@ test('tablet (768×1024): the panel overlays the thread behind a scrim; the scri
   await page.goto('/')
 
   // The seeded repo session restores its repo focus on open — panel + scrim.
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await page.locator('aside').getByText('Refactor auth middleware').first().click()
   const panelClose = page.getByRole('button', { name: 'Close', exact: true }).first()
   await expect(panelClose).toBeVisible()

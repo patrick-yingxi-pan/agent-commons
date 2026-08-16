@@ -23,6 +23,7 @@ test('the composite capability catalog is total and names the standing page feat
     'discussions',
     'messages',
     'notifications',
+    'sessions',
     'dispatch',
     'customize',
     'admin',
@@ -31,6 +32,7 @@ test('the composite capability catalog is total and names the standing page feat
   assert.equal(COMPOSITE_FEATURES.artifacts.search, 'Search artifacts')
   assert.equal(COMPOSITE_FEATURES.models.search, undefined)
   assert.equal(COMPOSITE_FEATURES.customize.fold, undefined)
+  assert.equal(COMPOSITE_FEATURES.sessions.primaryAction, 'New session')
 })
 
 test('a rail command stays pending until the focused matching page consumes it', () => {

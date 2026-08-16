@@ -187,9 +187,9 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
 
 test('the rail has explicit fold/unfold-all controls that reach the whole tree', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  assert.match(sidebar, /<FoldPairButtons/, 'the rail and page share the same two acts')
-  assert.match(sidebar, /name: 'Fold all rail sections'/)
-  assert.match(sidebar, /name: 'Unfold all rail sections'/)
+  assert.match(sidebar, /ariaLabel="Rail view options"/, 'the compact toolbar menu owns forest-wide acts')
+  assert.match(sidebar, /label: 'Fold all'/)
+  assert.match(sidebar, /label: 'Unfold all'/)
   assert.match(sidebar, /requestRailFold/, 'one handler drives both directions')
   // The visible top level changes at once, while a revisioned signal reaches
   // branches that are already mounted or mount because Unfold all opened them.
@@ -201,35 +201,34 @@ test('the rail has explicit fold/unfold-all controls that reach the whole tree',
   assert.match(children, /if \(foldSignal\) setExpanded\(foldSignal\.expanded\)/, 'nested branches consume the same request')
 })
 
-test('the rail body gives the canonical tree priority over the foldable Recents utility', () => {
+test('the rail is one forest whose generic split can isolate any ordered suffix', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
   // Two landmark-unique rail navs (WCAG): New session ("Create") and the Sections tree.
   assert.match(sidebar, /<nav aria-label="Create" className="mt-3 shrink-0 px-2">/)
-  assert.match(sidebar, /aria-label="Sections"/, 'the Sections pane nav is labeled')
+  assert.match(sidebar, /aria-label="Sections"/, 'the one resource nav is labeled')
   assert.match(sidebar, /ref=\{stackRef\}/, 'the pane stack is a measured region')
-  // The resource tree and the remaining utility both fold; Scheduled is a tree
-  // row now, never a second pane.
-  for (const label of ['Sections', 'Recents'])
-    assert.match(sidebar, new RegExp(`PaneFoldHeader label="${label}"`), `${label} pane folds`)
-  assert.match(sidebar, /setLayout\('railSectionsOpen'/)
-  assert.match(sidebar, /setLayout\('railRecentsOpen'/)
+  assert.match(sidebar, /splitRailSections\(visibleSections, splitStart\)/)
+  assert.match(sidebar, /label: 'Lower pane'/)
+  assert.match(sidebar, /label: `Start at \$\{SECTION_META\[id\]\.label\}`/)
+  assert.doesNotMatch(sidebar, /PaneFoldHeader|railSectionsOpen|railRecentsOpen/)
+  assert.match(sidebar, /id === 'sessions' \? \(\s*<SessionTreeChildren/)
   assert.doesNotMatch(sidebar, /data-rail-pane="scheduled"|railScheduledH|schedOpen/)
   // Dividers are in-flow gutters (PaneDivider) riding ABOVE the pane they resize, gated
   // on the pane's own layout.divider so a folded/flex pane has none; dropped entirely on
   // the narrow tier (ADAPT-11). Sections is the flex pane (top-most open), so it carries
   // no stored height and no divider of its own.
   assert.match(sidebar, /<PaneDivider/, 'dividers are the in-flow gutter primitive')
-  assert.match(sidebar, /paneOf\('recents'\)\?\.divider/)
-  // Heights come from the accordion reducer; fixed heights persist only on drag.
-  assert.match(sidebar, /layoutPanes/, 'pane heights come from the accordion reducer')
-  assert.match(sidebar, /setLayout\('railRecentsH'/)
+  assert.match(sidebar, /paneOf\('lower'\)\?\.divider/)
+  assert.match(sidebar, /layoutPanes/, 'pane heights come from the split-layout reducer')
+  assert.match(sidebar, /setLayout\('railSplitH'/)
   // A too-short rail scrolls instead of spilling over the account chip: the resizable
   // stack keeps an overflow fallback and the flex pane floors at a pane-min (can't be
   // squeezed to 0px).
   assert.match(sidebar, /flex min-h-0 flex-1 flex-col overflow-y-auto/)
   assert.match(sidebar, /min-h-\[6rem\] flex-1 flex-col/, 'the flex pane floors at a pane-min')
-  assert.match(sidebar, /getLayout\('railRecentsOpen', false\)/, 'Recents starts subordinate and folded')
-  // The old fixed 2-divider model + auto-sizing/floor are gone.
+  assert.match(sidebar, /getLayout\('railSplitStart', 'sessions'\)/, 'Sessions is the default lower-pane boundary')
+  // The old duplicate-container accordion is gone.
+  assert.doesNotMatch(sidebar, />Sections<|>Recents</)
   assert.doesNotMatch(sidebar, /railPaneHeights/)
   assert.doesNotMatch(sidebar, /flex-auto overflow-y-auto/)
   assert.doesNotMatch(sidebar, /min-h-\[9rem\]/)

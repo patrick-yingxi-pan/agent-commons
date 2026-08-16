@@ -57,7 +57,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId } from '../types'
+import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId, Session } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
@@ -140,6 +140,7 @@ import {
 } from './ResourcePage'
 import { SectionFilterMenu } from './SectionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
+import { SessionFilterMenu } from './SessionFilterMenu'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
 import {
@@ -159,6 +160,7 @@ import {
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
 import { useSectionFilter } from '../lib/useSectionFilter'
 import { useRoutineFilter } from '../lib/useRoutineFilter'
+import { useSessionFilter } from '../lib/useSessionFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
 import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders, projectFacet } from '../lib/sectionLists'
 import {
@@ -169,6 +171,7 @@ import {
   modelCollectionSections,
 } from '../lib/collectionSections'
 import { clampRoutineFilter, filterRoutines } from '../lib/routineFilter'
+import { clampSessionFilter, filterSessions } from '../lib/sessionFilter'
 import { relativeTime, shortRelativeTime } from '../lib/relativeTime'
 import { countLabel, countOr } from '../lib/countLabel'
 import { Chip } from './Chip'
@@ -543,6 +546,8 @@ export function SectionView({
         backTo={backTo}
         onOpenSession={onOpenSession}
       />
+    ) : section === 'sessions' ? (
+      <SessionsSection onOpenSession={onOpenSession} onNewSession={onNewSession} />
     ) : section === 'commons' ? (
       // The Commons hosts two pages: its feed (with the rail's lenses as
       // sub-views) and a NAMESPACE PROFILE — the public face of one owner,
@@ -601,6 +606,75 @@ export function SectionView({
  * the same control for a session opened from a page, so it left this file. */
 
 /* ─────────────────────────── Projects ─────────────────────────── */
+
+function SessionsSection({
+  onOpenSession,
+  onNewSession,
+}: {
+  onOpenSession: (id: string) => void
+  onNewSession: () => void
+}) {
+  const sessions = useSessions().data ?? []
+  const relations = useRelations()
+  const projects = relations.allProjects()
+  const projectIds = new Set(projects.map((project) => project.id))
+  const [rawFilter, setFilter] = useSessionFilter()
+  const filter = clampSessionFilter(rawFilter, projectIds)
+  const projectName = (projectId: string) =>
+    projects.find((project) => project.id === projectId)?.name ?? 'Project'
+  const { groups, total } = filterSessions(sessions, filter, {
+    projectIdOf: relations.projectIdForSession,
+    projectName,
+    now: Date.now(),
+  })
+
+  const rows = (items: Session[]) => (
+    <CardList>
+      {items.map((session) => (
+        <SynopsisRow
+          key={session.id}
+          title={session.title}
+          description={session.preview}
+          meta={`${session.pinned ? 'Pinned · ' : ''}${relativeTime(session.updatedAt ?? session.createdAt)}`}
+          onOpen={() => onOpenSession(session.id)}
+        />
+      ))}
+    </CardList>
+  )
+
+  return (
+    <CompositeResourcePage>
+      <PageHeader title="Sessions" subtitle={SECTION_META.sessions.subtitle}>
+        <PageActionButton
+          icon={<Plus size={15} />}
+          onClick={onNewSession}
+          mirrorsRailFor="sessions"
+          onRailInvoke={onNewSession}
+        >
+          New session
+        </PageActionButton>
+      </PageHeader>
+      <CompositePageControls
+        section="sessions"
+        filter={<SessionFilterMenu filter={filter} onChange={setFilter} projects={projects} />}
+      />
+      {total === 0 ? (
+        <PageEmpty>No sessions match these filters.</PageEmpty>
+      ) : (
+        groups.map((group) => (
+          <section key={group.key} className={group.label ? 'mt-7 first:mt-0' : ''}>
+            {group.label && (
+              <h2 className={`mb-1.5 pb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-soft ${LEDGER_RULE_CLASS}`}>
+                {group.label}
+              </h2>
+            )}
+            {rows(group.sessions)}
+          </section>
+        ))
+      )}
+    </CompositeResourcePage>
+  )
+}
 
 function ProjectsSection({
   projectId,
@@ -4452,7 +4526,7 @@ function lensEmptyText(lens: string, followed: string[]): string {
  *  effect keyed on (kind, id), not on every render.
  *
  *  Deliberately NOT wired to conversations: a session you are inside is your
- *  own namespace, not something you browsed, and the rail's Recents pane is
+ *  own namespace, not something you browsed, and the Sessions resource is
  *  already that history. The lens complements it rather than repeating it. */
 function useRecordView(kind: SocialEntityRef['kind'], id: string | undefined): void {
   useEffect(() => {

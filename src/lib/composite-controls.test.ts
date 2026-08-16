@@ -54,6 +54,10 @@ test('every filtered composite page mirrors the rail control over the same live 
   assert.match(routines, /<CompositePageControls[\s\S]{0,220}?<ScheduledFilterMenu\b/)
   assert.match(routines, /onChange=\{updateRoutineFilter\}/, 'the page writes the same live routine filter as the rail')
 
+  const sessions = fn('SessionsSection')
+  assert.match(sessions, /<CompositePageControls[\s\S]{0,240}?<SessionFilterMenu\b/)
+  assert.match(sessions, /useSessionFilter\(\)/, 'the page subscribes to the live Sessions filter')
+
   const shared = stripComments(read(join(ROOT, 'src', 'components', 'SectionFilterMenu.tsx')))
   assert.match(shared, /useSectionFilter\(section\)/, 'both projections subscribe to one stored section choice')
   assert.match(shared, /<FilterMenu\b/, 'both projections share the same rendered menu primitive')
@@ -61,6 +65,9 @@ test('every filtered composite page mirrors the rail control over the same live 
   const scheduled = stripComments(read(join(ROOT, 'src', 'components', 'ScheduledFilterMenu.tsx')))
   assert.match(scheduled, /placement = 'rail'/, 'the richer routine filter supports the same two placements')
   assert.match(scheduled, /data-filter-projection=\{placement\}/, 'routine controls identify their projection too')
+
+  const sessionStore = stripComments(read(join(ROOT, 'src', 'lib', 'useSessionFilter.ts')))
+  assert.match(sessionStore, /useSyncExternalStore/, 'Sessions rail and page are two views of one external-store value')
 
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
   const sectionView = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))

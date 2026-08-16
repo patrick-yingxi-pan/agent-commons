@@ -89,6 +89,15 @@ Filter options remain properties of the view and therefore never become tree
 children; structural section nodes remain places and are never flattened by a
 filter.
 
+Sessions demonstrates the distinction between a composite collection and an
+atomic child. `/sessions` is a `CompositeResourcePage`: the complete filtered
+collection, its New session capability, and its synopsis doors. Each `/s/:id`
+conversation remains an `AtomicResourcePage` with the workspace layout its
+transcript and composer require. The rail's Sessions row projects the composite;
+its session children door to the same atomic pages. One `useSessionFilter` store
+feeds the rail and collection page, so “Sessions” is a resource name rather than
+the former utility-container label “Recents.”
+
 Primary actions and local search follow the same rule without pretending their
 layouts are identical. The page keeps the full `PageActionButton` and field in
 the reading flow; the rail exposes their labels as compact menu rows. Choosing
@@ -97,10 +106,13 @@ opens the dialog or focuses its own field. The command remains pending across
 that route and only the focused pane may consume it, so a split view showing a
 second copy cannot steal or duplicate the action.
 
-This is feature symmetry, not pixel symmetry. A rail chevron, Show all / Show
-fewer cap, pane resize handle and the page's natural scroll are mechanics of a
-projection's density. They do not expose resource information or an operation
-on the resource, so the opposite projection must not invent a decorative twin.
+This is feature symmetry, not pixel symmetry. Every resource fact and standing
+operation is reachable in both projections, while density may adapt the control:
+a full page button may become a rail menu row; a rail's capped disclosure and a
+page's complete list are two ways to reach the same full set. Layout capabilities
+are symmetric too: the main area and rail both support split, resize, fold and
+scroll, but each uses geometry appropriate to its surface rather than duplicating
+the other's pixels.
 
 ## Atomic resource page
 
@@ -169,8 +181,8 @@ in a new order without revealing a new resource truth.
 
 ## Adoption map
 
-- Composite: collection roots and declared hubs; Project and Routine overviews
-  and section pages.
+- Composite: collection roots (including Sessions) and declared hubs; Project
+  and Routine overviews and section pages.
 - Atomic reading pages: work items, contributions, discussions, artifacts,
   contexts, model providers, profiles, published agents, prompts, tools and
   maintainer accounts.

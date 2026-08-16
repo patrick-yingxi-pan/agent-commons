@@ -16,7 +16,8 @@ test('Routines is one instance branch in Sections, never a duplicate pane', () =
   assert.match(sidebar, /id === 'scheduled' \? \(\s*<ScheduledTreeChildren/)
   assert.match(sidebar, /<ScheduledFilterMenu/)
   assert.doesNotMatch(sidebar, /data-rail-pane="scheduled"|Resize Scheduled pane|railScheduledH|schedOpen/)
-  assert.match(sidebar, /getLayout\('railRecentsOpen', false\)/, 'the utility history starts subordinate')
+  assert.match(sidebar, /id === 'sessions' \? \(\s*<SessionTreeChildren/, 'Sessions is a peer resource branch')
+  assert.doesNotMatch(sidebar, /PaneFoldHeader|Expand Recents|Collapse Recents/)
 })
 
 test('the resizable rail has one visible seam, owned by its resize handle', () => {

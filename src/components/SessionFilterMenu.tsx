@@ -2,7 +2,7 @@ import type { Project } from '../types'
 import { FilterMenu, type FilterRowSpec } from './FilterMenu'
 import type { ActivityFilter, SessionFilter, SortBy, StatusFilter } from '../lib/sessionFilter'
 
-/** ── Recents "Filter & sort" — the session-flavoured menu ─────────────────────
+/** ── Sessions "Filter & sort" — the session-flavoured menu ────────────────────
  *  A faithful take on the Claude desktop Code tab's session filter: Status /
  *  Project / Environment / Last activity / Group by / Sort by. It just maps the
  *  current SessionFilter into FilterMenu row specs; the popover/flyout mechanics

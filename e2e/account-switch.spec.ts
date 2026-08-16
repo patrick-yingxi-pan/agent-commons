@@ -77,7 +77,7 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
   await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
   // The draft materialized into a real, persisted session (server-minted id,
   // titled from the message) — visible in Ada's sidebar before we switch away.
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await expect(page.locator('aside').getByText(new RegExp(PACED_MESSAGE.slice(0, 20))).first()).toBeVisible({
     timeout: ms(10_000),
   })
@@ -168,7 +168,7 @@ test('per-account view memory: each account is restored to where it was left —
   // ── Switch to Ada; she has no memory yet → the fresh draft; open a THREAD ──
   await switchTo(page, 'Ada Lovelace', 'Ada Lovelace')
   await expect(page.getByText('What should we work on?')).toBeVisible({ timeout: ms(5_000) })
-  await page.getByRole('button', { name: 'Expand Recents' }).click()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await page.getByRole('button', { name: 'Refactor auth middleware' }).first().click()
   await expect(page.getByText('What should we work on?')).toHaveCount(0)
 

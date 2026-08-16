@@ -10,7 +10,7 @@ import {
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 
 /** ── Scheduled "Filter & sort" — the routine-flavoured menu ───────────────────
- *  The same control as Recents, retuned for the rail's routine list: the session
+ *  The same control as Sessions, retuned for the rail's routine list: the session
  *  filter's Status becomes Active / Paused, Project carries over, and Group by
  *  offers Project / Status. There's no Environment, Outcome, or Last-activity row
  *  (those were run concepts) and no Created-time sort. */

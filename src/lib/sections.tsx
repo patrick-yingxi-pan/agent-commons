@@ -1,4 +1,4 @@
-import { Bell, Bot, Box, Briefcase, Cable, Clock, Cpu, Mail, MessagesSquare, Newspaper, SendHorizontal, Shapes, Wrench } from 'lucide-react'
+import { Bell, Bot, Box, Briefcase, Cable, Clock, Cpu, Mail, MessageSquareText, MessagesSquare, Newspaper, SendHorizontal, Shapes, Wrench } from 'lucide-react'
 import type { SectionId } from '../types'
 
 /** The cross-cutting tools in the sidebar nav. One source of truth for the
@@ -66,6 +66,11 @@ export const SECTION_META: Record<
     subtitle: 'What happened to what you own, watch, or posted — while you weren’t looking.',
     Icon: Bell,
   },
+  sessions: {
+    label: 'Sessions',
+    subtitle: 'Your conversations with Claude, ready to resume or organize.',
+    Icon: MessageSquareText,
+  },
   dispatch: {
     label: 'Dispatch',
     subtitle: 'Send Claude off to run tasks in the background.',
@@ -101,6 +106,10 @@ export const SECTION_ORDER: SectionId[] = [
   'dispatch',
   'customize',
   'admin',
+  // Sessions is an ordinary resource root. It is last so the default generic
+  // rail split can isolate it in the lower pane without inventing a second
+  // hierarchy or a special-purpose utility container.
+  'sessions',
 ]
 
 // The section sub-view registry lives in the pure `./subviews` module (no lucide

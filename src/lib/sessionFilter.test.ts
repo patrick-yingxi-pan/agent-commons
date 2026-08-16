@@ -1,4 +1,4 @@
-/** The Recents "Date" grouping buckets by CALENDAR day, not fixed 24h windows —
+/** The Sessions "Date" grouping buckets by CALENDAR day, not fixed 24h windows —
  *  so a DST-transition day (23 or 25 wall-clock hours) can't misfile a session
  *  into the wrong band (yesterday-00:30 fell into "Previous 7 days" the day after
  *  fall-back under the old `startOfToday − N*24h` math). These lock the calendar
@@ -6,7 +6,13 @@
  *  stepping, correct in every zone including across a transition. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { filterSessions, DEFAULT_SESSION_FILTER } from './sessionFilter.ts'
+import {
+  filterSessions,
+  DEFAULT_SESSION_FILTER,
+  saveSessionFilter,
+  sessionFilterSnapshot,
+  subscribeSessionFilter,
+} from './sessionFilter.ts'
 import type { Session } from '../types.ts'
 
 /** Local midnight `n` calendar days before `now` (the boundary the buckets use). */
@@ -37,4 +43,18 @@ test('date buckets follow calendar days (DST-safe boundaries)', () => {
   assert.equal(bucketOf(startNDaysAgo(now, 6), now), 'Previous 7 days')
   assert.equal(bucketOf(startNDaysAgo(now, 8), now), 'Previous 30 days')
   assert.equal(bucketOf(startNDaysAgo(now, 40), now), 'Older')
+})
+
+test('the rail and main page subscribe to one live Sessions filter value', () => {
+  let notifications = 0
+  const unsubscribe = subscribeSessionFilter(() => notifications++)
+  const next = { ...DEFAULT_SESSION_FILTER, groupBy: 'project' as const, sortBy: 'alpha' as const }
+
+  saveSessionFilter(next)
+  assert.deepEqual(sessionFilterSnapshot(), next)
+  assert.equal(notifications, 1)
+
+  unsubscribe()
+  saveSessionFilter(DEFAULT_SESSION_FILTER)
+  assert.equal(notifications, 1, 'an unmounted projection stops receiving updates')
 })

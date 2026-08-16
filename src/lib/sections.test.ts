@@ -60,3 +60,17 @@ test('providers left the Agents hub for the Models section (no duplicate registr
   const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   assert.ok(!/id:\s*'providers'/.test(src), 'the Agents hub sub-tabs no longer include Providers')
 })
+
+// ── Sessions as an ordinary account-resource root (ADAPT-13 / UI-39) ─────────
+
+test('Sessions is registered from the contract through navigation and its main page', () => {
+  assert.equal(SECTION_LABELS.sessions, 'Sessions')
+  const contract = stripComments(read(join(ROOT, 'contract', 'entities.ts')))
+  const registry = stripComments(read(join(ROOT, 'src', 'lib', 'sections.tsx')))
+  const page = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.match(contract, /SectionId =[\s\S]*?'sessions'/)
+  assert.match(registry, /\bsessions:\s*\{/)
+  assert.match(registry, /SECTION_ORDER[\s\S]*?'sessions'/)
+  assert.match(page, /section === 'sessions'/)
+  assert.match(page, /<SessionsSection\b/)
+})

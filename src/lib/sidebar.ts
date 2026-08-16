@@ -1,6 +1,6 @@
 /** ── Left-panel (sidebar) interaction styling ─────────────────────────────────
  *  Every clickable element in the left rail — the header icon buttons, the nav
- *  rows, the Recents and Scheduled rows, and the Scheduled fold header — shares
+ *  rows, the Sessions and Routines rows, and every branch control — shares
  *  one hover cue, so the whole panel reads as a single, consistent surface. It
  *  lives here as one string so it can't drift between those elements; locked by
  *  src/lib/sidebar.test.ts.
@@ -48,7 +48,7 @@ export const SIDEBAR_HOVER = 'hover:bg-panel-2/70'
  *  line the duet was reaching for: co marks a transient answer, weight and fill
  *  mark a standing state.
  *
- *  One constant for the section pill AND the session/recents rows, which had
+ *  One constant for the section pill AND the session rows, which had
  *  drifted into two different active looks (a tinted pill vs a ringed fill) in
  *  one panel — same role, same look. */
 export const SIDEBAR_ACTIVE =

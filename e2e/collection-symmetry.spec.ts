@@ -4,6 +4,17 @@ import { newUser } from './social-helpers.ts'
 
 const sectionsNav = (page: import('@playwright/test').Page) => page.locator('nav[aria-label="Sections"]')
 
+async function runRailForestCommand(
+  page: import('@playwright/test').Page,
+  command: 'Fold all' | 'Unfold all',
+) {
+  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
+  await page
+    .getByRole('menu', { name: 'Rail view options' })
+    .getByRole('menuitem', { name: command, exact: true })
+    .click()
+}
+
 test('collection roots preserve main-page sections in the rail and canonical URL', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
@@ -48,13 +59,49 @@ test('rail Fold all and Unfold all reach nested collection branches', async ({ b
   await page.goto('/artifacts')
   const rail = sectionsNav(page)
 
-  await rail.getByRole('button', { name: 'Fold all rail sections', exact: true }).click()
+  await runRailForestCommand(page, 'Fold all')
   await expect(rail.getByRole('button', { name: 'Expand Artifacts', exact: true })).toBeVisible()
   await expect(rail.locator('[data-collection-section-resources]')).toHaveCount(0)
 
-  await rail.getByRole('button', { name: 'Unfold all rail sections', exact: true }).click()
+  await runRailForestCommand(page, 'Unfold all')
   await expect(rail.locator('[data-section-tree="artifacts"]')).toBeAttached()
   await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
+
+  await ada.context.close()
+})
+
+test('Sessions is an ordinary root with one live filter across rail and page', async ({ browser }) => {
+  test.setTimeout(ms(90_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  await page.goto('/sessions')
+
+  const rail = sectionsNav(page)
+  const main = page.locator('main')
+  await expect(main.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  await expect(rail.getByRole('button', { name: 'Sessions', exact: true })).toBeVisible()
+  await expect(page.locator('aside').getByText('SECTIONS', { exact: true })).toHaveCount(0)
+  await expect(page.locator('aside').getByText('RECENTS', { exact: true })).toHaveCount(0)
+
+  const railFilter = rail.getByRole('button', { name: 'Filter & sort sessions', exact: true })
+  const pageFilter = main.getByRole('button', { name: 'Filter & sort sessions', exact: true })
+  await pageFilter.click()
+  const filterMenu = page.getByRole('menu', { name: 'Filter & sort sessions' })
+  await filterMenu.getByRole('menuitem', { name: /^Status/ }).hover()
+  await page.getByRole('menuitemradio', { name: 'Archived', exact: true }).click()
+  await expect(main.getByText('No sessions match these filters.', { exact: true })).toBeVisible()
+  await expect(rail.getByText('No sessions match these filters.', { exact: true })).toBeVisible()
+
+  await filterMenu.getByRole('menuitem', { name: /^Status/ }).hover()
+  await page.getByRole('menuitemradio', { name: 'Active', exact: true }).click()
+  await expect(main.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
+  await expect(rail.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  await expect(page.getByRole('separator', { name: 'Resize lower rail pane' })).toBeVisible()
+  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Lower pane', exact: true }).hover()
+  await expect(page.getByRole('menuitemradio', { name: 'Start at Sessions', exact: true })).toBeChecked()
 
   await ada.context.close()
 })
@@ -158,7 +205,7 @@ test('rail composite controls invoke the same page action, search, and bulk disc
 
   // A later forest-wide command supersedes the branch-local posture; the
   // resource-specific signal must not remain cached as a permanent override.
-  await rail.getByRole('button', { name: 'Unfold all rail sections', exact: true }).click()
+  await runRailForestCommand(page, 'Unfold all')
   await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
 
   await artifactsRow.hover()

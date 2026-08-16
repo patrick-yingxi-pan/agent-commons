@@ -58,7 +58,7 @@ test('the rail marks WHERE YOU ARE without hue — one active look, no co-color'
   for (const banned of ['co-tint', 'text-co-strong']) {
     assert.ok(!src.includes(banned), `no rail element hardcodes ${banned} — standing location is neutral`)
   }
-  // ONE active look across row kinds: the section pill and the session/recents
+  // ONE active look across row kinds: the section pill and the Sessions
   // rows had drifted into two (a tinted pill vs a ringed fill) in one panel.
   assert.ok(!src.includes("'bg-panel-2 ring-1 ring-line-strong'"), 'the ringed active fill folded into SIDEBAR_ACTIVE')
   assert.ok(src.includes('SIDEBAR_ACTIVE'), 'Sidebar.tsx applies the shared active cue')
