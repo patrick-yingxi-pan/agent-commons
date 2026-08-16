@@ -187,9 +187,9 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
 
 test('the rail has explicit fold/unfold-all controls that reach the whole tree', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  assert.match(sidebar, /ariaLabel="Rail view options"/, 'the compact toolbar menu owns forest-wide acts')
-  assert.match(sidebar, /label: 'Fold all'/)
-  assert.match(sidebar, /label: 'Unfold all'/)
+  assert.match(sidebar, /aria-label="Fold all"/, 'forest-wide acts are direct controls beside shared pane acts')
+  assert.match(sidebar, /aria-label="Unfold all"/)
+  assert.doesNotMatch(sidebar, /ariaLabel="Rail view options"/, 'folding is not disguised as a second split button')
   assert.match(sidebar, /requestRailFold/, 'one handler drives both directions')
   // The visible top level changes at once, while a revisioned signal reaches
   // branches that are already mounted or mount because Unfold all opened them.
@@ -201,7 +201,7 @@ test('the rail has explicit fold/unfold-all controls that reach the whole tree',
   assert.match(children, /if \(foldSignal\) setExpanded\(foldSignal\.expanded\)/, 'nested branches consume the same request')
 })
 
-test('the rail is one forest whose vertical split can anchor any selected entry', () => {
+test('the rail is one canonical tree whose vertical split can root at any selected entry', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
   const railSplit = read(join(ROOT, 'src', 'components', 'RailSplit.tsx'))
   const railController = read(join(ROOT, 'src', 'controller', 'useRailSplit.ts'))
@@ -209,14 +209,18 @@ test('the rail is one forest whose vertical split can anchor any selected entry'
   assert.match(sidebar, /<nav aria-label="Create" className="mt-3 shrink-0 px-2">/)
   assert.match(sidebar, /aria-label="Sections"/, 'the one resource nav is labeled')
   assert.match(sidebar, /<RailSplit/)
-  assert.match(sidebar, /visibleSections\.map\(\(id\) =>/, 'each split leaf projects the complete forest')
+  assert.match(sidebar, /visibleSections\.map\(\(id\) =>/, 'every projection derives from the same canonical tree')
+  assert.match(sidebar, /data-rail-forest/, 'the complete forest is an explicit projection root')
+  assert.match(sidebar, /data-rail-node-key=\{sectionNodeKey\}/, 'every top-level branch has stable identity')
   assert.match(sidebar, /data-rail-entry/, 'top-level resources can become a split anchor')
-  assert.match(railSplit, /querySelectorAll<HTMLElement>\('\[data-rail-entry\]'\)/)
+  assert.match(railSplit, /querySelectorAll<HTMLElement>\('\[data-rail-node-key\]'\)/)
   assert.match(railSplit, /data-rail-scroll-pane=\{path \|\| 'root'\}/, 'each view scrolls independently')
   assert.match(railSplit, /label=\{`Resize sidebar views \(\$\{path \|\| 'root'\}\)`\}/)
-  assert.match(railController, /path: string\s+index: number\s+label: string/)
-  assert.match(railController, /splitRailView\(tree, path, selection\.index, selection\.label, nextRailViewId\(\)\)/)
-  assert.match(railSplit, /sameLabel\.find/, 'a remounted/capped tree recovers the selected semantic row')
+  assert.match(railController, /path: string; root: RailViewRoot/)
+  assert.match(railController, /splitRailView\(tree, path, selection\.root, nextRailViewId\(\)\)/)
+  assert.match(railSplit, /ancestors\.unshift/, 'selection records its canonical ancestor path')
+  assert.match(railSplit, /data-rail-root-hidden/, 'outside ancestors and siblings leave layout and accessibility')
+  assert.match(railSplit, /data-rail-root-target/, 'the selected node is marked as the visible root')
   assert.doesNotMatch(sidebar, /PaneFoldHeader|railSectionsOpen|railRecentsOpen/)
   assert.match(sidebar, /id === 'sessions' \? \(\s*<SessionTreeChildren/)
   assert.doesNotMatch(sidebar, /data-rail-pane="scheduled"|railScheduledH|schedOpen/)

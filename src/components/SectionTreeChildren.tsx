@@ -15,7 +15,15 @@
  *
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
-import { Fragment, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
+import {
+  Fragment,
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
   useAgents,
@@ -63,21 +71,72 @@ import {
  * nested branches also apply the current object when they mount. */
 export type RailFoldSignal = { revision: number; expanded: boolean }
 
+/** Stable, path-shaped identity for one canonical rail node. A split stores
+ * this key rather than a row ordinal, so filtering, capping, and async arrival
+ * cannot silently retarget a rooted view. */
+export const railNodeKey = (...parts: string[]): string =>
+  parts.map((part) => encodeURIComponent(part)).join('/')
+
+type RailRootPath = {
+  ancestors: ReadonlySet<string>
+  all: ReadonlySet<string>
+}
+const EMPTY_RAIL_ROOT_PATH: RailRootPath = { ancestors: new Set(), all: new Set() }
+const RailRootPathContext = createContext<RailRootPath>(EMPTY_RAIL_ROOT_PATH)
+
+/** A rooted rail view still renders the canonical tree, but hidden ancestors
+ * must stay disclosed long enough for their selected descendant to exist. */
+export function RailRootScope({
+  ancestorKeys,
+  rootKey,
+  children,
+}: {
+  ancestorKeys: string[]
+  rootKey?: string
+  children: ReactNode
+}) {
+  const ancestors = new Set(ancestorKeys)
+  const all = new Set(rootKey ? [...ancestorKeys, rootKey] : ancestorKeys)
+  return (
+    <RailRootPathContext.Provider value={{ ancestors, all }}>
+      {children}
+    </RailRootPathContext.Provider>
+  )
+}
+
+export function useRailRootAncestorKeys(): ReadonlySet<string> {
+  return useContext(RailRootPathContext).ancestors
+}
+
+export function useRailRootPathKeys(): ReadonlySet<string> {
+  return useContext(RailRootPathContext).all
+}
+
+function useForcedRailAncestor(key: string): boolean {
+  return useRailRootAncestorKeys().has(key)
+}
+
+function RailTreeNode({ nodeKey, children }: { nodeKey: string; children: ReactNode }) {
+  return <div data-rail-node-key={nodeKey}>{children}</div>
+}
+
 /** One structural guide. Nest it once per disclosed level; every row can then
  *  use the same local inset instead of calculating an absolute depth. */
 export function RailTreeBranch({ className = '', ...props }: ComponentProps<'div'>) {
-  return <div {...props} className={`${SIDEBAR_BRANCH} ${className}`} />
+  return <div {...props} data-rail-node-children className={`${SIDEBAR_BRANCH} ${className}`} />
 }
 
 /** One resource leaf under an expanded branch. The parent section already
  * names the resource kind, so repeating "artifact" / "session" beside every
  * row would spend the leaf's scarce width on tautology. */
 export function SubNavRow({
+  nodeKey,
   label,
   title,
   active,
   onClick,
 }: {
+  nodeKey: string
   label: string
   /** The row's full text when the label truncates (an artifact name, a thread's
    *  opening post) — the rail is narrow and these are real entity names. */
@@ -86,20 +145,23 @@ export function SubNavRow({
   onClick: () => void
 }) {
   return (
-    <button
-      data-rail-entry
-      onClick={onClick}
-      title={title}
-      aria-current={active ? 'page' : undefined}
-      className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-2 text-[13px] transition ${
-        active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-      }`}
-    >
-      <span
-        className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
-      />
-      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
-    </button>
+    <RailTreeNode nodeKey={nodeKey}>
+      <button
+        data-rail-node-row
+        data-rail-entry
+        onClick={onClick}
+        title={title}
+        aria-current={active ? 'page' : undefined}
+        className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-2 text-[13px] transition ${
+          active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+        }`}
+      >
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
+        />
+        <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      </button>
+    </RailTreeNode>
   )
 }
 
@@ -138,6 +200,7 @@ export function OwnerProfileChild({
   if (!tenantName) return null
   return (
     <SubNavRow
+      nodeKey={railNodeKey('section', 'commons', 'owner', tenantName)}
       label="Your profile"
       title={`Your public profile — everything ${tenantName} shares`}
       active={activeOwner === tenantName}
@@ -211,6 +274,7 @@ export function AgentTreeChildren({
     return open
   })
   const [open, setOpen] = useState<Set<string>>(() => new Set(initiallyOpen))
+  const forcedAncestors = useRailRootAncestorKeys()
   useEffect(() => {
     setOpen((current) => {
       const next = new Set(current)
@@ -249,9 +313,10 @@ export function AgentTreeChildren({
         const pageActive =
           (activeSubview === section.id && !activeSeed?.agentId && !activeSeed?.promptId && !activeSeed?.toolId) ||
           (section.id === 'discover' && !!activeSeed?.agentId && !ownsOpenAgent)
-        const expanded = open.has(section.id)
+        const sectionKey = railNodeKey('section', 'agents', 'section', section.id)
+        const expanded = open.has(section.id) || forcedAncestors.has(sectionKey)
         return (
-          <Fragment key={section.id}>
+          <RailTreeNode key={section.id} nodeKey={sectionKey}>
             <AgentStructureRow
               label={section.label}
               count={count}
@@ -265,6 +330,7 @@ export function AgentTreeChildren({
               <RailTreeBranch data-agent-section={section.id}>
                 {section.id === 'ready-agents' ? (
                   <AgentLeafList
+                    nodeKeyFor={(id) => railNodeKey('section', 'agents', 'section', section.id, 'item', id)}
                     rows={agents.map((agent) => ({ id: agent.id, label: agent.label }))}
                     empty="No ready agents yet."
                     activeId={activeSeed?.agentId ?? null}
@@ -273,15 +339,20 @@ export function AgentTreeChildren({
                 ) : section.id === 'building-blocks' ? (
                   <>
                     <AgentMaterialBranch
+                      nodeKey={railNodeKey('section', 'agents', 'section', section.id, 'material', 'prompts')}
                       id="prompts"
                       label="Prompts"
                       count={prompts.length}
                       active={activeSubview === 'prompts' && !activeSeed?.promptId}
-                      expanded={open.has('prompts')}
+                      expanded={
+                        open.has('prompts') ||
+                        forcedAncestors.has(railNodeKey('section', 'agents', 'section', section.id, 'material', 'prompts'))
+                      }
                       onToggle={() => toggle('prompts')}
                       onOpen={() => onOpenSubview('prompts')}
                     >
                       <AgentLeafList
+                        nodeKeyFor={(id) => railNodeKey('section', 'agents', 'section', section.id, 'material', 'prompts', 'item', id)}
                         rows={prompts.map((prompt) => ({ id: prompt.id, label: prompt.label }))}
                         empty="No prompts yet."
                         activeId={activeSeed?.promptId ?? null}
@@ -289,15 +360,20 @@ export function AgentTreeChildren({
                       />
                     </AgentMaterialBranch>
                     <AgentMaterialBranch
+                      nodeKey={railNodeKey('section', 'agents', 'section', section.id, 'material', 'tools')}
                       id="tools"
                       label="Tools"
                       count={tools.length}
                       active={activeSubview === 'tools' && !activeSeed?.toolId}
-                      expanded={open.has('tools')}
+                      expanded={
+                        open.has('tools') ||
+                        forcedAncestors.has(railNodeKey('section', 'agents', 'section', section.id, 'material', 'tools'))
+                      }
                       onToggle={() => toggle('tools')}
                       onOpen={() => onOpenSubview('tools')}
                     >
                       <AgentLeafList
+                        nodeKeyFor={(id) => railNodeKey('section', 'agents', 'section', section.id, 'material', 'tools', 'item', id)}
                         rows={tools.map((tool) => ({ id: tool.name, label: agentToolLabel(tool.name) }))}
                         empty="No tools available."
                         activeId={activeSeed?.toolId ?? null}
@@ -309,6 +385,7 @@ export function AgentTreeChildren({
                   section.children.map((child) => (
                     <SubNavRow
                       key={child.id}
+                      nodeKey={railNodeKey('section', 'agents', 'section', section.id, 'subview', child.id)}
                       label={child.label}
                       active={activeSubview === child.id}
                       onClick={() => onOpenSubview(child.id)}
@@ -317,7 +394,7 @@ export function AgentTreeChildren({
                 ) : null}
               </RailTreeBranch>
             )}
-          </Fragment>
+          </RailTreeNode>
         )
       })}
     </>
@@ -342,7 +419,7 @@ function AgentStructureRow({
   onOpen: () => void
 }) {
   return (
-    <div className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`}`}>
+    <div data-rail-node-row className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`}`}>
       {hasChildren ? (
         <button type="button" onClick={onToggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`} aria-expanded={expanded} className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}>
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -354,7 +431,8 @@ function AgentStructureRow({
   )
 }
 
-function AgentMaterialBranch({ id, label, count, active, expanded, onToggle, onOpen, children }: {
+function AgentMaterialBranch({ nodeKey, id, label, count, active, expanded, onToggle, onOpen, children }: {
+  nodeKey: string
   id: string
   label: string
   count: number
@@ -365,27 +443,33 @@ function AgentMaterialBranch({ id, label, count, active, expanded, onToggle, onO
   children: ReactNode
 }) {
   return (
-    <>
+    <RailTreeNode nodeKey={nodeKey}>
       <AgentStructureRow label={label} count={count} active={active} expanded={expanded} hasChildren={count > 0} onToggle={onToggle} onOpen={onOpen} />
       {count > 0 && expanded && <RailTreeBranch data-agent-material={id}>{children}</RailTreeBranch>}
-    </>
+    </RailTreeNode>
   )
 }
 
-function AgentLeafList({ rows, empty, activeId, onOpen }: {
+function AgentLeafList({ rows, empty, activeId, onOpen, nodeKeyFor }: {
   rows: { id: string; label: string }[]
   empty: string
   activeId: string | null
   onOpen: (id: string) => void
+  nodeKeyFor: (id: string) => string
 }) {
   const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
   if (rows.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
-  const visible = cappedWithActive(rows, showAll, (row) => row.id === activeId)
+  const visible = cappedWithActive(
+    rows,
+    showAll,
+    (row) => row.id === activeId || rootPath.has(nodeKeyFor(row.id)),
+  )
   const hidden = rows.length - visible.length
   return (
     <>
       {visible.map((row) => (
-        <SubNavRow key={row.id} label={row.label} title={row.label} active={activeId === row.id} onClick={() => onOpen(row.id)} />
+        <SubNavRow nodeKey={nodeKeyFor(row.id)} key={row.id} label={row.label} title={row.label} active={activeId === row.id} onClick={() => onOpen(row.id)} />
       ))}
       {(showAll || hidden > 0) && <ShowAllRow hidden={hidden} open={showAll} onToggle={() => setShowAll((value) => !value)} />}
     </>
@@ -454,14 +538,20 @@ function InstanceRows({
   // Unfolded-ness is VIEW state, not a preference: it resets when the section
   // row folds (these children unmount while collapsed), the tree's own idiom.
   const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
   if (rows.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
-  const head = cappedWithActive(rows, showAll, (row) => row.id === activeId)
+  const head = cappedWithActive(
+    rows,
+    showAll,
+    (row) => row.id === activeId || rootPath.has(railNodeKey('section', section, 'item', row.id)),
+  )
   const hidden = rows.length - head.length
   return (
     <>
       {head.map((r) => (
         <SubNavRow
           key={r.id}
+          nodeKey={railNodeKey('section', section, 'item', r.id)}
           label={r.label}
           title={r.label}
           active={activeId === r.id}
@@ -485,8 +575,15 @@ function ProjectChildren({ foldSignal, ...props }: InstanceChildProps & { foldSi
   const myOrgIds = new Set((useMyOrgs().data ?? []).map((o) => o.tenant.id))
   const rows = listProjects(rel.allProjects(), filter, myOrgIds)
   const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
   if (rows.length === 0) return <NoRowsRow>No projects here yet.</NoRowsRow>
-  const head = cappedWithActive(rows, showAll, (project) => project.id === props.activeSeed?.projectId)
+  const head = cappedWithActive(
+    rows,
+    showAll,
+    (project) =>
+      project.id === props.activeSeed?.projectId ||
+      rootPath.has(railNodeKey('section', 'projects', 'item', project.id)),
+  )
   const hidden = rows.length - head.length
   return (
     <>
@@ -514,6 +611,8 @@ function ProjectBranch({
   foldSignal,
 }: { project: Project; foldSignal?: RailFoldSignal | null } & InstanceChildProps) {
   const branchActive = activeSeed?.projectId === project.id
+  const nodeKey = railNodeKey('section', 'projects', 'item', project.id)
+  const forcedOpen = useForcedRailAncestor(nodeKey)
   const rootActive =
     branchActive && !activeSeed?.projectSectionId && !activeSeed?.workItemId && !activeSeed?.contributionId
   const [expanded, setExpanded] = useState(branchActive)
@@ -523,9 +622,11 @@ function ProjectBranch({
   useEffect(() => {
     if (foldSignal) setExpanded(foldSignal.expanded)
   }, [foldSignal])
+  const disclosed = expanded || forcedOpen
   return (
-    <>
+    <RailTreeNode nodeKey={nodeKey}>
       <div
+        data-rail-node-row
         className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[13px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
           rootActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
         }`}
@@ -533,11 +634,11 @@ function ProjectBranch({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${project.name}`}
-          aria-expanded={expanded}
+          aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${project.name}`}
+          aria-expanded={disclosed}
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
         >
-          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
         <span
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${rootActive ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
@@ -552,7 +653,7 @@ function ProjectBranch({
           {project.name}
         </button>
       </div>
-      {expanded && (
+      {disclosed && (
         <RailTreeBranch data-project-tree={project.id}>
           <ProjectResourceChildren
             project={project}
@@ -564,7 +665,7 @@ function ProjectBranch({
           />
         </RailTreeBranch>
       )}
-    </>
+    </RailTreeNode>
   )
 }
 
@@ -721,9 +822,12 @@ function ProjectSectionBranch({
 }) {
   const sectionActive =
     activeSeed?.projectId === projectId && activeSeed.projectSectionId === section.id
+  const nodeKey = railNodeKey('section', 'projects', 'item', projectId, 'section', section.id)
+  const forcedOpen = useForcedRailAncestor(nodeKey)
   const pageActive = sectionActive && !activeSeed?.workItemId && !activeSeed?.contributionId
   const [expanded, setExpanded] = useState(sectionActive)
   const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
   useEffect(() => {
     if (sectionActive) setExpanded(true)
   }, [sectionActive])
@@ -731,11 +835,19 @@ function ProjectSectionBranch({
     if (foldSignal) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   const hasResources = rows.length > 0
-  const visible = cappedWithActive(rows, showAll, (row) => row.active)
+  const visible = cappedWithActive(
+    rows,
+    showAll,
+    (row) =>
+      row.active ||
+      rootPath.has(railNodeKey('section', 'projects', 'item', projectId, 'section', section.id, 'item', row.key)),
+  )
   const hidden = rows.length - visible.length
+  const disclosed = expanded || forcedOpen
   return (
-    <>
+    <RailTreeNode nodeKey={nodeKey}>
       <div
+        data-rail-node-row
         className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
           pageActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
         }`}
@@ -744,11 +856,11 @@ function ProjectSectionBranch({
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${section.label}`}
-            aria-expanded={expanded}
+            aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${section.label}`}
+            aria-expanded={disclosed}
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
           >
-            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           </button>
         ) : (
           <span className="h-5 w-5 shrink-0" aria-hidden />
@@ -763,11 +875,12 @@ function ProjectSectionBranch({
         </button>
         {hasResources && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{rows.length}</span>}
       </div>
-      {hasResources && expanded && (
+      {hasResources && disclosed && (
         <RailTreeBranch data-project-section-resources={section.id}>
           {visible.map((row) => (
             <SubNavRow
               key={row.key}
+              nodeKey={railNodeKey('section', 'projects', 'item', projectId, 'section', section.id, 'item', row.key)}
               label={row.label}
               title={`${row.label} · ${row.kind}`}
               active={row.active}
@@ -785,7 +898,7 @@ function ProjectSectionBranch({
           )}
         </RailTreeBranch>
       )}
-    </>
+    </RailTreeNode>
   )
 }
 
@@ -839,9 +952,12 @@ function CollectionSectionBranch({
   foldSignal?: RailFoldSignal | null
 } & Pick<InstanceChildProps, 'activeId' | 'activeSeed' | 'onOpenDetail'>) {
   const sectionActive = activeSeed?.collectionSectionId === group.id
+  const nodeKey = railNodeKey('section', section, 'collection', group.id)
+  const forcedOpen = useForcedRailAncestor(nodeKey)
   const containsActiveLeaf = group.items.some((item) => item.id === activeId)
   const [expanded, setExpanded] = useState(sectionActive || containsActiveLeaf)
   const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
   useEffect(() => {
     if (sectionActive || containsActiveLeaf) setExpanded(true)
   }, [sectionActive, containsActiveLeaf])
@@ -849,11 +965,19 @@ function CollectionSectionBranch({
     if (foldSignal) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   const hasResources = group.items.length > 0
-  const visible = cappedWithActive(group.items, showAll, (item) => item.id === activeId)
+  const visible = cappedWithActive(
+    group.items,
+    showAll,
+    (item) =>
+      item.id === activeId ||
+      rootPath.has(railNodeKey('section', section, 'collection', group.id, 'item', item.id)),
+  )
   const hidden = group.items.length - visible.length
+  const disclosed = expanded || forcedOpen
   return (
-    <>
+    <RailTreeNode nodeKey={nodeKey}>
       <div
+        data-rail-node-row
         data-collection-section={group.id}
         className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
           sectionActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
@@ -863,11 +987,11 @@ function CollectionSectionBranch({
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.label}`}
-            aria-expanded={expanded}
+            aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${group.label}`}
+            aria-expanded={disclosed}
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
           >
-            {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           </button>
         ) : (
           <span className="h-5 w-5 shrink-0" aria-hidden />
@@ -882,11 +1006,12 @@ function CollectionSectionBranch({
         </button>
         {hasResources && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{group.items.length}</span>}
       </div>
-      {hasResources && expanded && (
+      {hasResources && disclosed && (
         <RailTreeBranch data-collection-section-resources={group.id}>
           {visible.map((item) => (
             <SubNavRow
               key={item.id}
+              nodeKey={railNodeKey('section', section, 'collection', group.id, 'item', item.id)}
               label={item.label}
               title={item.label}
               active={activeId === item.id}
@@ -902,7 +1027,7 @@ function CollectionSectionBranch({
           )}
         </RailTreeBranch>
       )}
-    </>
+    </RailTreeNode>
   )
 }
 

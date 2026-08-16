@@ -51,7 +51,7 @@ test('arrow keys resize the rail and a focused rail split through shared separat
   expect(w3, 'the step inverts').toBeLessThanOrEqual(w2 - 12)
 
   // ── Focus-aware rail split: pick any navigation entry, then the shared Split
-  // down action creates a lower view anchored to it. Its generic split-tree
+  // down action creates a lower view rooted at it. Its generic split-tree
   // separator uses the same Up/Down keyboard pipeline.
   await page.locator('[data-rail-pane="root"]').getByRole('button', { name: 'Projects', exact: true }).click()
   await page.getByRole('button', { name: 'Split down', exact: true }).click()

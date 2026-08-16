@@ -1,10 +1,10 @@
 /** The account-resource rail's split renderer. It uses the same SplitNode /
  * ResizeHandle grammar as the main workspace, restricted to a vertical tree.
- * Every leaf renders the complete forest; a new leaf receives a persistent
- * entry locator and begins at that row without reparenting it. */
+ * Every leaf renders the canonical resource tree; a rooted leaf projects only
+ * the selected node and its descendants, without changing canonical identity. */
 import { useLayoutEffect, useRef, type FocusEvent, type PointerEvent, type ReactNode } from 'react'
 import { clampRatio } from '../lib/splitFrame'
-import type { RailPaneContent, RailSplitNode } from '../lib/railSplit'
+import type { RailPaneContent, RailSplitNode, RailViewRoot } from '../lib/railSplit'
 import { ResizeHandle } from './ResizeHandle'
 
 const RAIL_VIEW_MIN = 96
@@ -20,9 +20,9 @@ export function RailSplit({
   tree: RailSplitNode
   focusedPane: string
   onFocusPane: (path: string) => void
-  onSelectEntry: (path: string, index: number, label: string) => void
+  onSelectEntry: (path: string, root: RailViewRoot) => void
   onRatio: (path: string, ratio: number) => void
-  renderPane: (path: string) => ReactNode
+  renderPane: (path: string, content: RailPaneContent) => ReactNode
 }) {
   const scrollPositions = useRef(new Map<string, number>())
   return (
@@ -47,9 +47,9 @@ type BranchProps = {
   focusedPane: string
   scrollPositions: Map<string, number>
   onFocusPane: (path: string) => void
-  onSelectEntry: (path: string, index: number, label: string) => void
+  onSelectEntry: (path: string, root: RailViewRoot) => void
   onRatio: (path: string, ratio: number) => void
-  renderPane: (path: string) => ReactNode
+  renderPane: (path: string, content: RailPaneContent) => ReactNode
 }
 
 function RailBranch(props: BranchProps) {
@@ -105,42 +105,74 @@ function RailLeaf({
     const body = scrollRef.current
     if (!body) return
     const remembered = scrollPositions.get(content.id)
-    if (remembered !== undefined) {
-      body.scrollTop = remembered
+    let positioned = false
+    const clearProjection = () => {
+      body.removeAttribute('data-rail-rooted')
+      body.removeAttribute('data-rail-root-pending')
+      body.querySelectorAll<HTMLElement>('[data-rail-root-hidden]').forEach((element) => {
+        element.removeAttribute('data-rail-root-hidden')
+      })
+      body.querySelectorAll<HTMLElement>('[data-rail-root-ancestor]').forEach((element) => {
+        element.removeAttribute('data-rail-root-ancestor')
+      })
+      body.querySelectorAll<HTMLElement>('[data-rail-root-target]').forEach((element) => {
+        element.removeAttribute('data-rail-root-target')
+      })
+    }
+    const position = () => {
+      if (positioned) return
+      body.scrollTop = remembered ?? 0
+      positioned = true
+    }
+    const root = content.root
+    if (!root) {
+      clearProjection()
+      position()
       return
     }
-    body.scrollTop = 0
-    if (content.anchorIndex === undefined) return
-    const anchorIndex = content.anchorIndex
-    // A split remounts local disclosure state. Prefer the selected row's label
-    // (and its canonical active projection) before its former ordinal so a
-    // capped or multiply-nested entry still becomes the new view's visual top.
-    // Data-backed rows may arrive after this layout pass; observe until the
-    // semantic row appears, then replace any provisional ordinal alignment.
-    const alignAnchor = (): boolean => {
-      const entries = Array.from(body.querySelectorAll<HTMLElement>('[data-rail-entry]'))
-      const sameLabel = content.anchorLabel
-        ? entries.filter((entry) => railEntryLabel(entry) === content.anchorLabel)
-        : []
-      const exact =
-        sameLabel.find((entry) => entry.getAttribute('aria-current') === 'page') ?? sameLabel[0]
-      const target =
-        exact ??
-        entries.find((entry) => entry.getAttribute('aria-current') === 'page') ??
-        entries[anchorIndex]
-      if (target) {
-        body.scrollTop += target.getBoundingClientRect().top - body.getBoundingClientRect().top
-        scrollPositions.set(content.id, body.scrollTop)
+    body.setAttribute('data-rail-root-pending', '')
+    const applyRootProjection = (): boolean => {
+      clearProjection()
+      body.setAttribute('data-rail-root-pending', '')
+      const forest = body.querySelector<HTMLElement>('[data-rail-forest]')
+      const nodes = Array.from(body.querySelectorAll<HTMLElement>('[data-rail-node-key]'))
+      const findNode = (key: string) => nodes.find((node) => node.dataset.railNodeKey === key)
+      const target = findNode(root.key)
+      const ancestors = root.ancestors.map(findNode)
+      if (!forest || !target || ancestors.some((node) => !node)) return false
+      const chain = [...(ancestors as HTMLElement[]), target]
+      const hide = (element: Element) => element.setAttribute('data-rail-root-hidden', '')
+      const keepOnly = (container: HTMLElement, kept: HTMLElement) => {
+        Array.from(container.children).forEach((child) => {
+          if (child !== kept) hide(child)
+        })
       }
-      return !!exact
+      keepOnly(forest, chain[0])
+      for (let index = 0; index < ancestors.length; index += 1) {
+        const ancestor = ancestors[index] as HTMLElement
+        const row = Array.from(ancestor.children).find((child) => child.hasAttribute('data-rail-node-row'))
+        const children = Array.from(ancestor.children).find((child) => child.hasAttribute('data-rail-node-children'))
+        if (!(children instanceof HTMLElement)) return false
+        if (row) hide(row)
+        ancestor.setAttribute('data-rail-root-ancestor', '')
+        keepOnly(children, chain[index + 1])
+      }
+      target.setAttribute('data-rail-root-target', '')
+      body.removeAttribute('data-rail-root-pending')
+      body.setAttribute('data-rail-rooted', '')
+      position()
+      return true
     }
-    if (alignAnchor()) return
+    applyRootProjection()
     const observer = new MutationObserver(() => {
-      if (alignAnchor()) observer.disconnect()
+      applyRootProjection()
     })
     observer.observe(body, { childList: true, subtree: true })
-    return () => observer.disconnect()
-  }, [content.id, content.anchorIndex, content.anchorLabel, path, scrollPositions])
+    return () => {
+      observer.disconnect()
+      clearProjection()
+    }
+  }, [content.id, content.root, path, scrollPositions])
 
   const selectFrom = (target: EventTarget | null) => {
     const body = scrollRef.current
@@ -149,8 +181,22 @@ function RailLeaf({
       onFocusPane(path)
       return
     }
-    const index = Array.from(body.querySelectorAll<HTMLElement>('[data-rail-entry]')).indexOf(element)
-    if (index >= 0) onSelectEntry(path, index, railEntryLabel(element))
+    const node = element.closest<HTMLElement>('[data-rail-node-key]')
+    if (!node || !body.contains(node) || !node.dataset.railNodeKey) {
+      onFocusPane(path)
+      return
+    }
+    const ancestors: string[] = []
+    let parent = node.parentElement?.closest<HTMLElement>('[data-rail-node-key]') ?? null
+    while (parent && body.contains(parent)) {
+      if (parent.dataset.railNodeKey) ancestors.unshift(parent.dataset.railNodeKey)
+      parent = parent.parentElement?.closest<HTMLElement>('[data-rail-node-key]') ?? null
+    }
+    onSelectEntry(path, {
+      key: node.dataset.railNodeKey,
+      label: railEntryLabel(element),
+      ancestors,
+    })
   }
 
   return (
@@ -160,6 +206,7 @@ function RailLeaf({
       }`}
       data-rail-pane={path || 'root'}
       data-rail-view-id={content.id}
+      data-rail-view-root={content.root?.key}
       data-focused={focusedPane === path || undefined}
       onPointerDownCapture={(event: PointerEvent<HTMLDivElement>) => selectFrom(event.target)}
       onFocusCapture={(event: FocusEvent<HTMLDivElement>) => selectFrom(event.target)}
@@ -170,7 +217,7 @@ function RailLeaf({
         className="min-h-0 flex-1 overflow-y-auto px-2 pb-1"
         onScroll={(event) => scrollPositions.set(content.id, event.currentTarget.scrollTop)}
       >
-        {renderPane(path)}
+        {renderPane(path, content)}
       </div>
     </div>
   )

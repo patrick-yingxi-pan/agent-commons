@@ -551,17 +551,21 @@ ontology. Rail views use the same generic `SplitNode` grammar and the same
 `PaneActionButtons` as the main workspace, restricted to vertical (`col`)
 splits. Focus chooses the command target: focus in main restores Split right /
 Split down / Close pane; selecting any navigable rail entry hides Split right,
-enables Split down, and anchors a new lower view with that selected entry at its
-visual top. Each leaf still renders the complete honest forest, so the anchor
-does not reparent a resource, mint a URL, or invent another hierarchy.
+enables Split down, and makes that canonical node the visible root of the new
+lower view. Its descendants remain; its ancestors and every sibling branch
+outside the selected subtree are absent. This is a rooted VIEW of the same
+tree—not ontology reparenting—so canonical identity, URL and ancestry do not
+change merely because the viewport begins deeper in the forest.
 
 The focused rail view is the close target. Close pane deletes that leaf and
 promotes its sibling through the same binary-tree rule as main; the last rail
 view cannot close because an open rail must retain navigation. Views nest
 arbitrarily, scroll independently, retain scroll memory by stable view id, and
-persist their ratios/tree per account in `claude-ui.railsplit.v1`. The compact
-Rail view options menu now owns only forest-wide Fold all / Unfold all—split and
-close have one shared command home.
+persist their ratios/tree plus stable root-key/ancestor paths per account in
+`claude-ui.railsplit.v1`. Forest-wide Fold all and Unfold all are direct rail
+buttons, visually outside the focus-aware pane-action group; the `Rows2` glyph
+therefore means Split down only. Split and close retain one shared command home
+for both main and rail focus.
 
 `src/lib/railSplit.ts` owns the pure vertical-only model,
 `src/controller/useRailSplit.ts` owns focus/selection/tree edits, and

@@ -115,13 +115,15 @@ Layout capabilities are symmetric through one focus-aware command surface too.
 The shared `PaneActionButtons` target the area that most recently received
 pointer or keyboard focus. Main focus preserves Split right / Split down / Close
 pane. Selecting any navigable entry in any rail view changes that same cluster
-to rail semantics: only vertical Split down is available, the new view places
-the selected entry at its visual top, and Close pane deletes the focused rail
-view. Both surfaces reuse `SplitNode`, sibling promotion and `ResizeHandle`; the
-rail restricts direction because its geometry is already a narrow column. A
-rail split remains a projection of the complete forest rather than a new
-content hierarchy, and the last view cannot close because navigation must
-remain present.
+to rail semantics: only vertical Split down is available, the new view makes
+the selected canonical node its visible root, and Close pane deletes the
+focused rail view. The node's descendants remain; its ancestors and siblings
+outside that subtree are absent. Both surfaces reuse `SplitNode`, sibling
+promotion and `ResizeHandle`; the rail restricts direction because its geometry
+is already a narrow column. This rooted projection does not change ontology,
+identity or URL, and the last view cannot close because navigation must remain
+present. Fold all / Unfold all are direct rail controls outside the shared pane
+cluster so disclosure and splitting keep distinct shapes.
 
 ## Atomic resource page
 

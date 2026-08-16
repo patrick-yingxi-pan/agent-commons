@@ -356,8 +356,16 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // which is the state this whole section exists to reach. It cost a debugging
   // pass; the same trap waits for anyone naming a control X and its companion
   // "un-X".
-  const foldAll = ada.page.getByRole('button', { name: 'Fold all', exact: true })
-  const unfoldAll = ada.page.getByRole('button', { name: 'Unfold all', exact: true })
+  const foldAll = ada.page.getByRole('button', {
+    name: 'Fold all',
+    exact: true,
+    description: 'Collapse every thread to one line, keeping what you have opened inside them',
+  })
+  const unfoldAll = ada.page.getByRole('button', {
+    name: 'Unfold all',
+    exact: true,
+    description: 'Open every post in this thread, at every depth',
+  })
   await foldAll.click()
   for (const body of [ANSWER, SECOND, ASIDE]) {
     await expect(ada.page.locator('p', { hasText: body })).toHaveCount(0)
@@ -712,13 +720,13 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   await answerRow.getByRole('button', { name: /^Reply to .+’s post$/ }).first().click()
   const guarded = ada.page.getByRole('textbox', { name: 'Reply to this post' })
   await guarded.fill(`Half-written ${STAMP}`)
-  await ada.page.getByRole('button', { name: 'Fold all', exact: true }).click()
+  await foldAll.click()
   await expect(guarded).toBeVisible()
   await expect(guarded).toHaveValue(`Half-written ${STAMP}`)
   // The rest of the thread did fold around it — the guard is narrow, not a
   // blanket veto on the act.
   await expect(ada.page.locator('p', { hasText: ASIDE })).toHaveCount(0)
-  await ada.page.getByRole('button', { name: 'Unfold all', exact: true }).click()
+  await unfoldAll.click()
   // Folding it YOURSELF is a different act and CLOSES the composer rather than
   // hiding it — including from an ancestor, which conceals it just as
   // completely (Grace's caret is that ancestor). The claim is about the state,

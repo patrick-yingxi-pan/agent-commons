@@ -144,17 +144,18 @@ The rail reuses the same binary split grammar and the same command buttons,
 with one geometrical restriction: rail splits are vertical only. Command scope
 is focus-derived rather than assigned to separate toolbars. Focus in a main
 pane targets the main tree; selecting any `[data-rail-entry]` in any rail leaf
-targets the rail tree, exposes Split down, and records that arbitrary entry as
-the new lower view's visual anchor. Close pane removes the focused leaf and
-promotes its sibling. The final rail leaf is protected.
+targets the rail tree, exposes Split down, and records that arbitrary canonical
+node plus its ancestor path as the new lower view's root. Close pane removes the
+focused leaf and promotes its sibling. The final rail leaf is protected.
 
-Every rail leaf remains an independently scrolling projection of the complete
-account-resource forest. Anchoring a nested selected entry at the top of a new
-view is layout, not ontology: it does not reparent the resource, change its
-canonical URL, or mint a utility header. `railSplit.ts` specializes the generic
-`SplitNode` to `col`, `useRailSplit` owns focus/selection edits, and `RailSplit`
-renders the shared `ResizeHandle`. The tree and ratios persist per account under
-`claude-ui.railsplit.v1`.
+Every rail leaf remains an independently scrolling projection of the same
+account-resource tree. The default root is the complete forest; a split root is
+the selected node with its descendants, while its visible ancestors and outside
+siblings are removed. Rooting a view deeper is layout, not ontology: it does not
+reparent the resource, change its canonical URL, or mint a utility header.
+`railSplit.ts` specializes the generic `SplitNode` to `col`, `useRailSplit` owns
+focus/selection edits, and `RailSplit` renders the shared `ResizeHandle`. The
+tree, roots and ratios persist per account under `claude-ui.railsplit.v1`.
 
 ## 3. Phases (each lands green, with tests)
 

@@ -562,6 +562,22 @@ body {
   font-family: var(--font-serif);
 }
 
+/* A split rail view is a rooted projection of the canonical resource tree.
+   React keeps the hidden ancestor path mounted so async descendants and local
+   disclosure state stay honest; these attributes remove that scaffolding from
+   both layout and accessibility, then erase its indentation so the selected
+   node is visually top-level. */
+[data-rail-root-hidden],
+[data-rail-root-pending] [data-rail-forest] {
+  display: none !important;
+}
+
+[data-rail-root-ancestor] > [data-rail-node-children] {
+  margin-left: 0 !important;
+  border-left-width: 0 !important;
+  padding-left: 0 !important;
+}
+
 /* Panel morph: plays when the adaptive panel swaps between workspace and repo
    views. Resting state is fully visible, so it can never get stuck hidden. */
 @keyframes panel-morph-in {

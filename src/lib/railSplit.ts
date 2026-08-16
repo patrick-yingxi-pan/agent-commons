@@ -1,42 +1,49 @@
 /** ── Focused split views for the account-resource rail (UI-39) ──────────────
  *
  * The rail and main workspace share the same binary split vocabulary. A rail
- * split is deliberately narrower: it is always vertical (`col`) and every
- * leaf projects the same complete resource forest. The persisted anchor locator
- * identifies the entry a restored view begins at; it never reparents that entry
- * or changes the resource ontology.
+ * split is deliberately narrower: it is always vertical (`col`). Its leaves
+ * are rooted projections of the ONE account-resource tree: the default root is
+ * the whole forest; splitting an arbitrary entry makes that canonical node the
+ * visible root of the new view, with its descendants intact and its ancestors
+ * and outside siblings absent. This changes viewport scope, never ontology.
  */
 import { closePane, pane, panes, splitPane, type SplitNode } from './splitFrame.ts'
+
+export type RailViewRoot = {
+  /** Stable path identity stamped on the canonical rail-tree node. */
+  key: string
+  /** Human-readable identity for inspection and persistence diagnostics. */
+  label: string
+  /** Canonical ancestor node keys, ordered forest-root to immediate parent. */
+  ancestors: string[]
+}
 
 export type RailPaneContent = {
   kind: 'rail-view'
   /** Stable identity keeps an existing view's scroll memory through tree edits. */
   id: string
-  /** Index among `[data-rail-entry]` rows where this view begins on restore. */
-  anchorIndex?: number
-  /** Human-visible identity used when disclosure/capping changes the row index. */
-  anchorLabel?: string
+  /** Absent means the complete forest; present means this canonical subtree. */
+  root?: RailViewRoot
 }
 
 export type RailSplitNode = SplitNode<RailPaneContent>
 
 export const initialRailSplit = (): RailSplitNode => pane({ kind: 'rail-view', id: 'rail-root' })
 
-/** Split one rail view downward and put the selected entry at the top of the
- * new lower view. The existing view remains the first child, matching the main
- * workspace's focused-pane split rule. */
+/** Split one rail view downward and make the selected canonical node the root
+ * of the new lower view. The existing view remains the first child, matching
+ * the main workspace's focused-pane split rule. */
 export function splitRailView(
   tree: RailSplitNode,
   path: string,
-  anchorIndex: number,
-  anchorLabel: string,
+  root: RailViewRoot,
   id: string,
 ): RailSplitNode {
-  return splitPane(tree, path, 'col', { kind: 'rail-view', id, anchorIndex, anchorLabel })
+  return splitPane(tree, path, 'col', { kind: 'rail-view', id, root })
 }
 
-/** Delete one focused rail view. The last complete-forest view is retained so
- * navigation can never disappear from an open rail. */
+/** Delete one focused rail view. The last view is retained so navigation can
+ * never disappear from an open rail. */
 export function closeRailView(tree: RailSplitNode, path: string): RailSplitNode {
   if (panes(tree).length <= 1) return tree
   return closePane(tree, path) ?? tree
@@ -57,13 +64,20 @@ function validNode(value: unknown): value is RailSplitNode {
   const node = value as Record<string, unknown>
   if (node.kind === 'pane') {
     const content = node.content as Record<string, unknown> | undefined
+    const root = content?.root as Record<string, unknown> | undefined
+    const validRoot =
+      root === undefined ||
+      (typeof root.key === 'string' &&
+        typeof root.label === 'string' &&
+        Array.isArray(root.ancestors) &&
+        root.ancestors.every((ancestor) => typeof ancestor === 'string'))
     return (
       !!content &&
       content.kind === 'rail-view' &&
       typeof content.id === 'string' &&
-      (content.anchorIndex === undefined ||
-        (typeof content.anchorIndex === 'number' && Number.isInteger(content.anchorIndex) && content.anchorIndex >= 0)) &&
-      (content.anchorLabel === undefined || typeof content.anchorLabel === 'string')
+      !('anchorIndex' in content) &&
+      !('anchorLabel' in content) &&
+      validRoot
     )
   }
   return (

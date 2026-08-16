@@ -41,10 +41,14 @@ import {
   NoRowsRow,
   AgentTreeChildren,
   OwnerProfileChild,
+  RailRootScope,
   RailTreeBranch,
   SectionInstanceChildren,
   ShowAllRow,
   SubNavRow,
+  railNodeKey,
+  useRailRootAncestorKeys,
+  useRailRootPathKeys,
   type RailFoldSignal,
 } from './SectionTreeChildren'
 import { SectionFilterMenu } from './SectionFilterMenu'
@@ -89,7 +93,7 @@ import { CompositeRailControls } from './CompositeRailControls'
 import type { CompositeCommandKind, CompositeFoldSignal } from '../lib/compositeFeatures'
 import { useCompositeFoldSignal } from '../lib/useCompositeFeatures'
 import { RailSplit } from './RailSplit'
-import type { RailSplitNode } from '../lib/railSplit'
+import type { RailSplitNode, RailViewRoot } from '../lib/railSplit'
 
 
 /** Does this section's row expand? Every LIST kind counts (UI-19) — a declared
@@ -193,12 +197,12 @@ export function Sidebar({
   onCloseView?: () => void
   /** Which focused area currently owns the shared split/close controls. */
   paneActionTarget: 'main' | 'rail'
-  /** Vertical-only split tree for independently scrolling copies of the one
-   *  honest account-resource forest. */
+  /** Vertical-only split tree for independently scrolling rooted projections
+   *  of the one honest account-resource tree. */
   railTree: RailSplitNode
   focusedRailPane: string
   onFocusRailPane: (path: string) => void
-  onSelectRailEntry: (path: string, index: number, label: string) => void
+  onSelectRailEntry: (path: string, root: RailViewRoot) => void
   onRailRatio: (path: string, ratio: number) => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
@@ -451,23 +455,6 @@ export function Sidebar({
     },
   ]
 
-  const railViewItems: RowMenuItem[] = [
-    {
-      kind: 'action',
-      key: 'fold-all',
-      label: 'Fold all',
-      icon: <ChevronsUp size={15} />,
-      onSelect: () => requestRailFold(false),
-    },
-    {
-      kind: 'action',
-      key: 'unfold-all',
-      label: 'Unfold all',
-      icon: <ChevronsDown size={15} />,
-      onSelect: () => requestRailFold(true),
-    },
-  ]
-
   return (
     <aside
       className={`relative flex h-full w-full shrink-0 flex-col bg-sidebar ${
@@ -511,12 +498,22 @@ export function Sidebar({
           {/* The bell (D24) — the inbox of public acts on what you watch, own,
               or posted. The badge is live via notification.changed. */}
           <NotificationBell onClick={onOpenNotifications} />
-          <RowMenu
-            ariaLabel="Rail view options"
-            triggerIcon={<Rows2 size={18} />}
-            triggerClassName={SIDEBAR_ICON_BUTTON}
-            items={railViewItems}
-          />
+          <button
+            onClick={() => requestRailFold(false)}
+            title="Fold all"
+            aria-label="Fold all"
+            className={SIDEBAR_ICON_BUTTON}
+          >
+            <ChevronsUp size={18} />
+          </button>
+          <button
+            onClick={() => requestRailFold(true)}
+            title="Unfold all"
+            aria-label="Unfold all"
+            className={SIDEBAR_ICON_BUTTON}
+          >
+            <ChevronsDown size={18} />
+          </button>
         </div>
         {(onSplitRow || onSplitCol || onCloseView) && (
           <div
@@ -560,10 +557,9 @@ export function Sidebar({
         </button>
       </nav>
 
-      {/* One honest account-resource forest, projected into one or more
-          independently scrolling rail views. Splitting never creates a second
-          ontology: every leaf renders this same forest and merely scrolls the
-          selected arbitrary entry to its visual top. */}
+      {/* One honest account-resource tree, projected into one or more
+          independently scrolling rail views. The default root is the complete
+          forest; a split can scope a view to any selected canonical subtree. */}
       <nav aria-label="Sections" className="contents">
         <RailSplit
           tree={railTree}
@@ -571,13 +567,15 @@ export function Sidebar({
           onFocusPane={onFocusRailPane}
           onSelectEntry={onSelectRailEntry}
           onRatio={onRailRatio}
-          renderPane={() => (
-            <>
+          renderPane={(_path, content) => (
+            <RailRootScope ancestorKeys={content.root?.ancestors ?? []} rootKey={content.root?.key}>
+            <div data-rail-forest>
               {visibleSections.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const surfaces = SECTION_SUBVIEWS[id]
           const instanceKey = SECTION_INSTANCE_KEY[id]
-          const isExpanded = expanded.has(id)
+          const sectionNodeKey = railNodeKey('section', id)
+          const isExpanded = expanded.has(id) || !!content.root?.ancestors.includes(sectionNodeKey)
           // Which DETAIL page of this section the focused pane is showing (null
           // = the section's own default view) — the id a child highlights on.
           // Read from the pane's LIVE detail, so opening a project from anywhere
@@ -594,7 +592,7 @@ export function Sidebar({
               : null
           const activeDetailId = activeSeed?.collectionSectionId ?? activeLeafId
           return (
-            <Fragment key={id}>
+            <div key={id} data-rail-node-key={sectionNodeKey}>
               <SectionTreeRow
                 sectionId={id}
                 icon={<Icon size={16} />}
@@ -651,6 +649,7 @@ export function Sidebar({
                       renderSession={(session) => (
                         <SessionRow
                           key={session.id}
+                          nodeKey={railNodeKey('section', 'sessions', 'item', session.id)}
                           session={session}
                           active={inSession && session.id === activeId}
                           onSelect={() => {
@@ -721,6 +720,7 @@ export function Sidebar({
                     surfaces.map((sv) => (
                       <SubNavRow
                         key={sv.id}
+                        nodeKey={railNodeKey('section', id, 'subview', sv.id)}
                         label={sv.label}
                         active={activeSection === id && activeSubview === sv.id}
                         onClick={() => onChildClick(id, sv.id)}
@@ -745,10 +745,11 @@ export function Sidebar({
                   ) : null}
                 </RailTreeBranch>
               )}
-            </Fragment>
+            </div>
           )
               })}
-            </>
+            </div>
+            </RailRootScope>
           )}
         />
       </nav>
@@ -908,6 +909,7 @@ function SectionTreeRow({
 }) {
   return (
     <div
+      data-rail-node-row
       data-section-root={sectionId}
       className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${SIDEBAR_FOCUS_WITHIN} ${
         active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
@@ -947,12 +949,14 @@ function SectionTreeRow({
  *  own handlers. The main region selects the session; the menu sits outside that
  *  button so its clicks don't also open the thread. */
 function SessionRow({
+  nodeKey,
   session,
   active,
   onSelect,
   onRename,
   menuItems,
 }: {
+  nodeKey: string
   session: Session
   active: boolean
   onSelect: () => void
@@ -978,6 +982,8 @@ function SessionRow({
 
   return (
     <div
+      data-rail-node-key={nodeKey}
+      data-rail-node-row
       className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${SIDEBAR_FOCUS_WITHIN} ${
         active ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
       }`}
@@ -1036,15 +1042,28 @@ function SessionTreeChildren({
   renderSession: (session: Session) => ReactNode
 }) {
   const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
   if (total === 0) return <NoRowsRow>No sessions match these filters.</NoRowsRow>
   let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
-  const visibleGroups = groups
+  const cappedGroups = groups
     .map((group) => {
       const sessions = group.sessions.slice(0, Math.max(0, remaining))
       remaining -= sessions.length
       return { ...group, sessions }
     })
     .filter((group) => group.sessions.length > 0)
+  const visibleGroups = groups
+    .map((group) => {
+      const capped = cappedGroups.find((candidate) => candidate.key === group.key)?.sessions ?? []
+      const required = group.sessions.filter(
+        (session) =>
+          rootPath.has(railNodeKey('section', 'sessions', 'item', session.id)) &&
+          !capped.some((visible) => visible.id === session.id),
+      )
+      return { ...group, sessions: [...capped, ...required] }
+    })
+    .filter((group) => group.sessions.length > 0)
+  const hidden = Math.max(0, total - visibleGroups.reduce((count, group) => count + group.sessions.length, 0))
   return (
     <>
       {visibleGroups.map((group) => (
@@ -1053,9 +1072,9 @@ function SessionTreeChildren({
           {group.sessions.map(renderSession)}
         </Fragment>
       ))}
-      {total > RAIL_INSTANCE_CAP && (
+      {(showAll || hidden > 0) && (
         <ShowAllRow
-          hidden={total - RAIL_INSTANCE_CAP}
+          hidden={hidden}
           open={showAll}
           onToggle={() => setShowAll((value) => !value)}
         />
@@ -1076,15 +1095,28 @@ function ScheduledTreeChildren({
   renderRoutine: (task: ScheduledTask) => ReactNode
 }) {
   const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
   if (total === 0) return <NoRowsRow>No routines match these filters.</NoRowsRow>
   let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
-  const visibleGroups = groups
+  const cappedGroups = groups
     .map((group) => {
       const tasks = group.tasks.slice(0, Math.max(0, remaining))
       remaining -= tasks.length
       return { ...group, tasks }
     })
     .filter((group) => group.tasks.length > 0)
+  const visibleGroups = groups
+    .map((group) => {
+      const capped = cappedGroups.find((candidate) => candidate.key === group.key)?.tasks ?? []
+      const required = group.tasks.filter(
+        (task) =>
+          rootPath.has(railNodeKey('section', 'scheduled', 'item', task.id)) &&
+          !capped.some((visible) => visible.id === task.id),
+      )
+      return { ...group, tasks: [...capped, ...required] }
+    })
+    .filter((group) => group.tasks.length > 0)
+  const hidden = Math.max(0, total - visibleGroups.reduce((count, group) => count + group.tasks.length, 0))
   return (
     <>
       {visibleGroups.map((group) => (
@@ -1093,9 +1125,9 @@ function ScheduledTreeChildren({
           {group.tasks.map(renderRoutine)}
         </Fragment>
       ))}
-      {total > RAIL_INSTANCE_CAP && (
+      {(showAll || hidden > 0) && (
         <ShowAllRow
-          hidden={total - RAIL_INSTANCE_CAP}
+          hidden={hidden}
           open={showAll}
           onToggle={() => setShowAll((value) => !value)}
         />
@@ -1136,6 +1168,8 @@ function RoutineRow({
   // Expansion is local disclosure state; an active parent or run opens its
   // branch so the current place is always visible.
   const [expanded, setExpanded] = useState(pageActive || activeSectionId !== null || activeRunId !== null)
+  const nodeKey = railNodeKey('section', 'scheduled', 'item', task.id)
+  const disclosed = expanded || useRailRootAncestorKeys().has(nodeKey)
   useEffect(() => {
     if (pageActive || activeSectionId !== null || activeRunId !== null) setExpanded(true)
   }, [pageActive, activeSectionId, activeRunId])
@@ -1143,8 +1177,9 @@ function RoutineRow({
     if (foldSignal) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   return (
-    <>
+    <div data-rail-node-key={nodeKey}>
       <div
+        data-rail-node-row
         className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[13px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
           pageActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
         }`}
@@ -1152,11 +1187,11 @@ function RoutineRow({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${task.name}`}
-          aria-expanded={expanded}
+          aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${task.name}`}
+          aria-expanded={disclosed}
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink"
         >
-          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+          {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
         <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />
         <button
@@ -1170,7 +1205,7 @@ function RoutineRow({
         </button>
         <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} />
       </div>
-      {expanded && (
+      {disclosed && (
         <RailTreeBranch data-routine-tree={task.id}>
           <RoutineSectionRows
             task={task}
@@ -1183,7 +1218,7 @@ function RoutineRow({
           />
         </RailTreeBranch>
       )}
-    </>
+    </div>
   )
 }
 
@@ -1207,6 +1242,7 @@ function RoutineSectionRows({
   const [runsExpanded, setRunsExpanded] = useState(activeSectionId === 'recent-runs' || activeRunId !== null)
   const [discussionExpanded, setDiscussionExpanded] = useState(false)
   const discussions = useDiscussions('schedule', task.id).data ?? []
+  const forcedAncestors = useRailRootAncestorKeys()
   const rootDiscussion = discussions.find((discussion) => discussion.anchor.locus === undefined) ?? null
   useEffect(() => {
     if (activeSectionId === 'recent-runs' || activeRunId !== null) setRunsExpanded(true)
@@ -1218,15 +1254,21 @@ function RoutineSectionRows({
   }, [foldSignal])
   const sections = visibleCompositeSections(SCHEDULE_SECTIONS, task.own !== false)
   return (
-    <div>
+    <>
       {sections.map((section) => {
         const runs = section.id === 'recent-runs'
         const discussion = section.id === 'discussion'
         const hasResources = runs ? task.runs.length > 0 : discussion ? rootDiscussion !== null : false
         const sectionExpanded = runs ? runsExpanded : discussionExpanded
+        const nodeKey = railNodeKey('section', 'scheduled', 'item', task.id, 'section', section.id)
+        const disclosed = sectionExpanded || forcedAncestors.has(nodeKey)
         return (
-          <div key={section.id}>
+          <div
+            key={section.id}
+            data-rail-node-key={nodeKey}
+          >
             <div
+              data-rail-node-row
               className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
                 activeSectionId === section.id
                   ? SIDEBAR_ACTIVE
@@ -1239,11 +1281,11 @@ function RoutineSectionRows({
                   onClick={() => runs
                     ? setRunsExpanded((value) => !value)
                     : setDiscussionExpanded((value) => !value)}
-                  aria-label={`${sectionExpanded ? 'Collapse' : 'Expand'} ${section.label}`}
-                  aria-expanded={sectionExpanded}
+                  aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${section.label}`}
+                  aria-expanded={disclosed}
                   className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
                 >
-                  {sectionExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                  {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                 </button>
               ) : (
                 <span className="h-5 w-5 shrink-0" aria-hidden />
@@ -1262,11 +1304,12 @@ function RoutineSectionRows({
                 </span>
               )}
             </div>
-            {runs && runsExpanded && (
+            {runs && disclosed && (
               <RailTreeBranch data-routine-section-resources={section.id}>
                 {task.runs.map((run) => (
                   <SubNavRow
                     key={run.id}
+                    nodeKey={railNodeKey('section', 'scheduled', 'item', task.id, 'section', section.id, 'run', run.id)}
                     label={run.summary}
                     title={`${run.summary} · ${run.duration}`}
                     active={activeRunId === run.id}
@@ -1275,9 +1318,10 @@ function RoutineSectionRows({
                 ))}
               </RailTreeBranch>
             )}
-            {discussion && discussionExpanded && rootDiscussion && (
+            {discussion && disclosed && rootDiscussion && (
               <RailTreeBranch data-routine-section-resources={section.id}>
                 <SubNavRow
+                  nodeKey={railNodeKey('section', 'scheduled', 'item', task.id, 'section', section.id, 'discussion', rootDiscussion.id)}
                   label={discussionTitle(rootDiscussion.posts[0]?.body, 60)}
                   title="Routine discussion"
                   active={false}
@@ -1288,7 +1332,7 @@ function RoutineSectionRows({
           </div>
         )
       })}
-    </div>
+    </>
   )
 }
 

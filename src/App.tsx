@@ -14,7 +14,7 @@ import { useMainSplit } from './controller/useMainSplit'
 import { useRailSplit } from './controller/useRailSplit'
 import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
-import { setRailSplitScope } from './lib/railSplit'
+import { setRailSplitScope, type RailViewRoot } from './lib/railSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { keys, onSessionRemoved, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
@@ -164,9 +164,9 @@ function Workspace() {
     [focusRailPane],
   )
   const selectRailAreaEntry = useCallback(
-    (path: string, index: number, label: string) => {
+    (path: string, root: RailViewRoot) => {
       setFocusedArea('rail')
-      selectRailEntry(path, index, label)
+      selectRailEntry(path, root)
     },
     [selectRailEntry],
   )

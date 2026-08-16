@@ -62,9 +62,12 @@ what the document or the sibling component claims.
 - **Split/close is one focus-aware command surface.** `PaneActionButtons` is
   reused for main and rail. Main focus offers its existing row/column split;
   selecting any `[data-rail-entry]` changes the same cluster to vertical-only
-  rail split, and Close pane deletes the focused rail view. `RailSplit` renders
+  rail split, and Close pane deletes the focused rail view. The selected node
+  becomes the new view root: keep its descendants, remove visible ancestors and
+  outside siblings, and preserve canonical identity/URL. `RailSplit` renders
   the generic binary tree; do not add rail-only split menus or per-pane close
-  buttons.
+  buttons. Fold all / Unfold all stay as direct rail controls outside this
+  cluster so their chevrons cannot masquerade as a second split button.
 - **An index entry is a synopsis, not a compressed detail page.** Ordinary
   addressable rows consume `ResourcePageSynopsisRow`: 13px identity, one 12px
   descriptor and one 11px state/count field in a frameless divider ledger.

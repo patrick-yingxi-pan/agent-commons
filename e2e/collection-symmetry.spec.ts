@@ -8,11 +8,7 @@ async function runRailForestCommand(
   page: import('@playwright/test').Page,
   command: 'Fold all' | 'Unfold all',
 ) {
-  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
-  await page
-    .getByRole('menu', { name: 'Rail view options' })
-    .getByRole('menuitem', { name: command, exact: true })
-    .click()
+  await page.getByRole('button', { name: command, exact: true }).click()
 }
 
 test('collection roots preserve main-page sections in the rail and canonical URL', async ({ browser }) => {
@@ -98,10 +94,9 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
   await expect(rail.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
-  const railMenu = page.getByRole('menu', { name: 'Rail view options' })
-  await expect(railMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toBeVisible()
-  await expect(railMenu.getByText('Lower pane', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Fold all', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Unfold all', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Rail view options', exact: true })).toHaveCount(0)
 
   await ada.context.close()
 })
@@ -111,8 +106,8 @@ test('the shared pane buttons follow focus and split or close the selected rail 
   const ada = await newUser(browser)
   const page = ada.page
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/artifacts')
-  await expect(page.getByRole('heading', { name: 'Artifacts', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  await page.goto('/projects/p-insights')
+  await expect(page.getByRole('heading', { name: 'Insights dashboard', exact: true })).toBeVisible({ timeout: ms(20_000) })
 
   const toolbar = page.locator('[data-rail-toolbar-group="view"]')
   await expect(toolbar).toHaveAttribute('data-pane-action-target', 'main')
@@ -135,9 +130,15 @@ test('the shared pane buttons follow focus and split or close the selected rail 
   await expect(page.locator('[data-rail-pane]')).toHaveCount(2)
   await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toBeVisible()
 
-  // The selected nested entry is the new view's visual root.
+  // The selected project is the new view's actual root — its canonical
+  // descendants remain, while its Projects parent and every outside sibling
+  // branch are absent rather than merely scrolled above the viewport.
   const lowerScroll = lower.locator('[data-rail-scroll-pane="b"]')
   const lowerAnchor = lower.getByRole('button', { name: 'Insights dashboard', exact: true })
+  await expect(lower).toHaveAttribute('data-rail-view-root', 'section/projects/item/p-insights')
+  await expect(lower.getByRole('button', { name: 'Projects', exact: true })).toHaveCount(0)
+  await expect(lower.getByRole('button', { name: 'Commons', exact: true })).toHaveCount(0)
+  await expect(lower.getByRole('button', { name: 'About', exact: true })).toBeVisible()
   await expect
     .poll(async () => {
       const [body, anchor] = await Promise.all([lowerScroll.boundingBox(), lowerAnchor.boundingBox()])
