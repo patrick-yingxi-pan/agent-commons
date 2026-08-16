@@ -58,3 +58,63 @@ test('rail Fold all and Unfold all reach nested collection branches', async ({ b
 
   await ada.context.close()
 })
+
+test('composite page controls mirror rail filters and fold dynamic bands', async ({ browser }) => {
+  test.setTimeout(ms(90_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  await page.goto('/artifacts')
+  await expect(page.getByRole('heading', { name: 'Artifacts', exact: true })).toBeVisible({ timeout: ms(20_000) })
+
+  const rail = sectionsNav(page)
+  const main = page.locator('main')
+  const railFilter = rail.getByRole('button', { name: 'Filter & sort artifacts', exact: true })
+  const pageFilter = main.getByRole('button', { name: 'Filter & sort artifacts', exact: true })
+  const railProjection = railFilter.locator('..')
+  const pageProjection = pageFilter.locator('..')
+  await expect(railFilter).toBeAttached()
+  await expect(pageFilter).toBeVisible()
+
+  // Choose a facet from the PAGE projection. Both control copies and both list
+  // projections read one live value, so the rail head and page change together.
+  await pageFilter.click()
+  await page.getByRole('menu', { name: 'Filter & sort artifacts' }).getByRole('menuitem', { name: /^Type/ }).hover()
+  await page.getByRole('menuitemradio', { name: 'Images', exact: true }).click()
+  await expect(pageProjection).toHaveAttribute('data-filter-active', 'true')
+  await expect(railProjection).toHaveAttribute('data-filter-active', 'true')
+  await expect(main.getByText('insights-hero.png', { exact: true })).toBeVisible()
+  await expect(main.getByText('insights-onepager.md', { exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  const insightsRailGroup = rail.locator('[data-collection-section="p-insights"]')
+  await insightsRailGroup.getByRole('button', { name: 'Expand Insights dashboard', exact: true }).click()
+  const insightsRailResources = rail.locator('[data-collection-section-resources="p-insights"]')
+  await expect(insightsRailResources.getByText('insights-hero.png', { exact: true })).toBeVisible()
+  await expect(insightsRailResources.getByText('insights-onepager.md', { exact: true })).toHaveCount(0)
+
+  // Change it back from the RAIL projection; the page control and page list
+  // update without remounting or maintaining a private copy.
+  await railFilter.click()
+  await page.getByRole('menu', { name: 'Filter & sort artifacts' }).getByRole('menuitem', { name: /^Type/ }).hover()
+  await page.getByRole('menuitemradio', { name: 'All types', exact: true }).click()
+  await expect(pageProjection).not.toHaveAttribute('data-filter-active', 'true')
+  await expect(railProjection).not.toHaveAttribute('data-filter-active', 'true')
+  await expect(main.getByText('insights-onepager.md', { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(insightsRailResources.getByText('insights-onepager.md', { exact: true })).toBeVisible()
+
+  // Artifact project bands use persist={false}; they still participate in the
+  // in-memory composite fold registry, which was the missing template feature.
+  const foldAll = main.getByRole('button', { name: 'Fold all sections', exact: true })
+  await expect(foldAll).toBeVisible()
+  await foldAll.click()
+  const headers = main.locator('[data-resource-page-section] > div > button[aria-expanded]')
+  await expect(headers).not.toHaveCount(0)
+  for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'false')
+
+  const unfoldAll = main.getByRole('button', { name: 'Unfold all sections', exact: true })
+  await expect(unfoldAll).toBeVisible()
+  await unfoldAll.click()
+  for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'true')
+
+  await ada.context.close()
+})

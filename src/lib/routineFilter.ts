@@ -30,8 +30,8 @@ export const DEFAULT_ROUTINE_FILTER: RoutineFilter = {
 }
 
 // ── Persistence ──────────────────────────────────────────────────────────────
-// One JSON string inside uiPrefs: a filter is rail chrome, so it follows the
-// active account and not the browser. The suffix retires the former browser-
+// One JSON string inside uiPrefs: this standing view choice follows the active
+// account, whichever projection changes it. The suffix retires the former browser-
 // wide localStorage blob owned by the separate Scheduled pane.
 const KEY = 'scheduledFilter.v4'
 const LEGACY_KEY = 'scheduledFilter.v3'

@@ -38,7 +38,7 @@ test('composite main pages use the project reading-column form and enumerate the
   assert.match(frame, /max-w-3xl/, 'the shared template owns the Project reading column')
   for (const body of [project, schedule]) {
     assert.match(body, /<CompositeResourcePage\b/, 'the composite page derives from the composite template')
-    assert.match(body, /<CompositePageFoldControls/, 'the composite page offers the shared fold scope')
+    assert.match(body, /<CompositePageControls/, 'the composite page offers the shared fold scope')
     assert.doesNotMatch(body, /<aside\b/, 'a composite never moves part of itself into a second page rail')
   }
   const projectChildren = {

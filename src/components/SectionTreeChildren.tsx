@@ -4,8 +4,8 @@
  *  canonical address is its own (`OwnerProfileChild`, below — the only one).
  *  This module renders the latter two. The instance kind is the
  *  top rows of the very list the section page shows, in the same order, sliced
- *  by `RAIL_INSTANCE_CAP` with a tail row that UNFOLDS the rest in place — plus
- *  the control that chooses that order: the section row's "Filter & sort" menu.
+ *  by `RAIL_INSTANCE_CAP` with a tail row that UNFOLDS the rest in place. The
+ *  section row mirrors the page's Filter & sort control over the same state.
  *
  *  The rail and the page compute the list with ONE function per section
  *  (`src/lib/sectionLists.ts`) over ONE stored choice (`useSectionFilter`), so
@@ -42,19 +42,9 @@ import {
   SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
 } from '../lib/sidebar'
-import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
-import { FilterMenu, type FilterRowSpec } from './FilterMenu'
-import {
-  ALL_FACET,
-  SECTION_FILTERS,
-  facetLabel,
-  isSectionFilterActive,
-  sortLabel,
-} from '../lib/sectionFilter'
 import { useSectionFilter } from '../lib/useSectionFilter'
 import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
-import { SECTION_META } from '../lib/sections'
 import {
   PROJECT_SECTIONS,
   visibleCompositeSections,
@@ -390,57 +380,6 @@ function AgentLeafList({ rows, empty, activeId, onOpen }: {
  *  here" and there are none, which is worth a word rather than a blank gap. */
 export function NoRowsRow({ children }: { children: ReactNode }) {
   return <p className="py-1.5 pl-2 pr-2 text-[12px] text-ink-faint">{children}</p>
-}
-
-/** The section row's "Filter & sort" — the facet's ONE home (UI-19). Reveals on
- *  row hover like every other row affordance (UI-7), and PINS visible whenever
- *  the filter is doing something: a narrowed list whose control is invisible
- *  reads as a broken list. */
-export function SectionFilterMenu({ section }: { section: SectionId }) {
-  const spec = SECTION_FILTERS[section]
-  const [filter, setFilter] = useSectionFilter(section)
-  if (!spec) return null
-  const active = isSectionFilterActive(section, filter)
-  const rows: FilterRowSpec[] = [
-    {
-      key: 'facet',
-      label: spec.facetLabel,
-      value: facetLabel(section, filter.facet),
-      accent: filter.facet !== ALL_FACET,
-      width: 224,
-      options: [
-        ...spec.facets.map((f) => ({
-          label: f.label,
-          selected: filter.facet === f.id,
-          onSelect: () => setFilter({ ...filter, facet: f.id }),
-        })),
-        {
-          label: spec.allLabel,
-          dividerBefore: true,
-          selected: filter.facet === ALL_FACET,
-          onSelect: () => setFilter({ ...filter, facet: ALL_FACET }),
-        },
-      ],
-    },
-    {
-      key: 'sort',
-      label: 'Sort by',
-      value: sortLabel(section, filter.sortBy),
-      accent: filter.sortBy !== spec.defaultSort,
-      width: 184,
-      dividerBefore: true,
-      options: spec.sorts.map((s) => ({
-        label: s.label,
-        selected: filter.sortBy === s.id,
-        onSelect: () => setFilter({ ...filter, sortBy: s.id }),
-      })),
-    },
-  ]
-  return (
-    <span className={`${active ? '' : HOVER_REVEAL} has-[[data-open=true]]:opacity-100 focus-within:opacity-100`}>
-      <FilterMenu ariaLabel={`Filter & sort ${SECTION_META[section].label.toLowerCase()}`} rows={rows} />
-    </span>
-  )
 }
 
 export interface InstanceChildProps {

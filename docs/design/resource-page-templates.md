@@ -42,7 +42,7 @@ Use `CompositeResourcePage` only when the selected node **contains canonical
 resources or declared sub-pages**. Its sections are structural places, not
 decorative group labels.
 
-The template adds three capabilities to the common frame:
+The template adds four capabilities to the common frame:
 
 1. rendered structural sections register themselves, so Fold all / Unfold all
    sees the exact viewer-relative page rather than a second title list;
@@ -50,6 +50,9 @@ The template adds three capabilities to the common frame:
    navigation already performed the disclosure;
 3. the parent overview, section page and canonical child pages can project the
    same registry without flattening the section level.
+4. one `CompositePageControls` toolbar projects the page's complete Fold all /
+   Unfold all work and, where the resource has a filter, mirrors the rail-row
+   control over the same live per-account value.
 
 The rail projection is **parent → section → canonical resource**. The main-page
 projection is the parent overview with every visible section, or one selected
@@ -67,7 +70,18 @@ Fold scope is symmetric too. The main page discovers its rendered sections;
 the rail exposes the same explicit Fold all / Unfold all pair and propagates a
 single revisioned request through every nested branch. A top-level expansion
 that mounts deeper children carries the request with it, so “all” never means
-only the first visible depth.
+only the first visible depth. Main-page discovery includes data-defined bands:
+they join the in-memory fold scope while retaining `persist={false}`, so a
+user-created title never grows `uiPrefs` merely to participate in Fold all.
+
+Filter scope follows the same symmetry without confusing representation with
+state. The rail row and main-page toolbar both render `SectionFilterMenu` (or
+the routine-flavoured shared menu) and subscribe through one live per-account
+hook. A choice made in either place updates both controls, the rail's ordered
+head, and the page list. This is two projections of one state—not two filters.
+Filter options remain properties of the view and therefore never become tree
+children; structural section nodes remain places and are never flattened by a
+filter.
 
 ## Atomic resource page
 
@@ -125,8 +139,8 @@ slots cannot express. Ask, in order:
    ref-link express it without losing meaning?
 3. Is this merely the same information regrouped, re-sorted, re-labelled or
    wrapped in another piece of chrome?
-4. Would adding it create a second control for state already owned by the rail
-   filter, page header, section header or canonical detail page?
+4. Would adding it create a second state or visual grammar instead of another
+   synchronized projection of the existing rail/page control?
 
 If the answer to 3 or 4 is yes, reuse the existing representation. A second
 visualization of the same fact is not a “flexible template”; it is a second
@@ -145,7 +159,7 @@ in a new order without revealing a new resource truth.
   `ConversationPane`.
 - Shared vocabulary: `ResourcePageHeader`, `ResourcePageSection`,
   `ResourcePageList`, `ResourcePageSynopsisRow`, `ResourcePageActions`,
-  `ResourcePageEmpty`, and `CompositePageFoldControls`.
+  `ResourcePageEmpty`, `CompositePageControls`, and `SectionFilterMenu`.
 
 The source lock in `src/lib/page-grammar.test.ts` enumerates the current page
 families and fails if one falls back to a bespoke frame. The ontology lock in

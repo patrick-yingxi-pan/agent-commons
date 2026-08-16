@@ -43,6 +43,7 @@ test('collection roots derive from the composite template and use one section pr
   ]) {
     assert.match(fn(name), /<CompositeResourcePage\b/, `${name} derives from the composite page template`)
     assert.match(fn(name), /<FoldSection\b/, `${name} projects its groups through FoldSection`)
+    assert.match(fn(name), /<CompositePageControls\b/, `${name} exposes the composite view-control toolbar`)
   }
   assert.doesNotMatch(templateFn('ResourcePageSection'), /FoldGroupHeader/, 'FoldSection does not delegate to a second look')
   assert.throws(() => sectionViewComponent('FoldGroupHeader'), /has no top-level component/, 'the parallel hub-group primitive is gone')
@@ -110,7 +111,7 @@ test('every detail page derives from the template matching its resource nature',
   for (const name of ['ProjectDetail', 'ScheduledDetail']) {
     const page = fn(name)
     assert.match(page, /<CompositeResourcePage\b/, `${name} derives from the composite template`)
-    assert.match(page, /<CompositePageFoldControls\b/, `${name} offers the template's discovered fold controls`)
+    assert.match(page, /<CompositePageControls\b/, `${name} offers the template's discovered fold controls`)
   }
 
   for (const name of [
@@ -164,7 +165,8 @@ test('dynamic collection bands reuse the frame without growing uiPrefs', () => {
   assert.match(section, /persist = true/, 'stable entity sections persist by default')
   assert.match(section, /const \[localFolded, setLocalFolded\] = useState/, 'dynamic groups have local disclosure state')
   assert.match(section, /persist \? storedFolded : localFolded/, 'one component selects the honest state source')
-  assert.match(section, /persist \? register/, 'local bands do not join a persisted Fold-all registry')
+  assert.match(section, /register\?\.register/, 'local and stored bands both join the in-memory page fold scope')
+  assert.doesNotMatch(section, /persist \? register/, 'joining Fold all does not make a dynamic band persistent')
   for (const name of ['ProjectsSection', 'ArtifactsSection', 'ContextsSection', 'ScheduledSection']) {
     assert.match(fn(name), /persist=\{false\}/, `${name}'s data-defined bands stay out of bounded preferences`)
   }

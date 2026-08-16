@@ -59,9 +59,15 @@ function shutdown(code) {
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
 
-// 36 = cyan (backend), 35 = magenta (ui). The server gets PORT pinned so it
-// binds the mock port regardless of any inherited PORT (which targets the UI).
-run('server', 'node', ['--watch', 'server/index.ts'], '36', { PORT: MOCK_PORT })
+// 36 = cyan (backend), 35 = magenta (ui). Interactive development watches the
+// backend by default. Owned verification stacks are immutable for their whole
+// run and explicitly opt out: one recursive watcher per Playwright shard can
+// otherwise exhaust the host's file-descriptor limit before a browser starts.
+const SERVER_ARGS =
+  process.env.SERVER_WATCH === 'off' ? ['server/index.ts'] : ['--watch', 'server/index.ts']
+// The server gets PORT pinned so it binds the mock port regardless of any
+// inherited PORT (which targets the UI).
+run('server', 'node', SERVER_ARGS, '36', { PORT: MOCK_PORT })
 // Pass MOCK_PORT through so the UI's Vite proxy (vite.config.ts) targets the same
 // backend port the server just bound — including the derived one above.
 run('ui', 'node', [VITE_BIN], '35', { MOCK_PORT })

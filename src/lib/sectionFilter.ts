@@ -1,4 +1,4 @@
-/** ── A content section's "Filter & sort" — where a facet lives now ───────────
+/** ── A content section's "Filter & sort" — one value, two projections ────────
  *  The rail tree used to BE the facet control: a section's children were its
  *  partitions (Projects → Yours / Shared, Artifacts → Documents / Images / …),
  *  and clicking one focused the page on that slice. Two rail panes right below
@@ -11,8 +11,9 @@
  *
  *    A rail child is a PLACE — a specific entity with its own page, or one of
  *    your standing collections. A partition of the list by a property of its
- *    items (kind, state, ownership) is a FILTER, and a filter's one home is the
- *    section row's "Filter & sort" menu.
+ *    items (kind, state, ownership) is a FILTER. The rail row and the composite
+ *    main page mirror one Filter & sort control over one live stored value;
+ *    neither turns an option into a navigation child or mints private state.
  *
  *  This module is that menu's vocabulary and its persistence. The facet ids are
  *  deliberately the SAME ids the rail tree used to carry, so the section bodies
@@ -52,7 +53,8 @@ export interface SectionFilterSpec {
 export const ALL_FACET = 'all'
 
 /** The ONE catalog. A section listed here has a "Filter & sort" button on its
- *  rail row and its list is driven by the stored choice; a section absent here
+ *  rail row and composite main page, and its list is driven by the stored
+ *  choice; a section absent here
  *  has no partition to choose (Dispatch's flat feed, Customize's settings
  *  stack, and the hub sections whose children are genuinely distinct SURFACES
  *  rather than slices — see `./subviews.ts`). */

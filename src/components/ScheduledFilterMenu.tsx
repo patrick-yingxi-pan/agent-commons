@@ -2,10 +2,12 @@ import type { Project } from '../types'
 import { FilterMenu, type FilterRowSpec } from './FilterMenu'
 import {
   DEFAULT_ROUTINE_FILTER,
+  isRoutineFilterActive,
   type RoutineFilter,
   type RoutineSortBy,
   type RoutineStatusFilter,
 } from '../lib/routineFilter'
+import { HOVER_REVEAL } from '../lib/hoverReveal'
 
 /** ── Scheduled "Filter & sort" — the routine-flavoured menu ───────────────────
  *  The same control as Recents, retuned for the rail's routine list: the session
@@ -34,12 +36,15 @@ export function ScheduledFilterMenu({
   filter,
   onChange,
   projects,
+  placement = 'rail',
 }: {
   filter: RoutineFilter
   onChange: (next: RoutineFilter) => void
   projects: Project[]
+  placement?: 'rail' | 'page'
 }) {
   const set = (patch: Partial<RoutineFilter>) => onChange({ ...filter, ...patch })
+  const active = isRoutineFilterActive(filter)
 
   const rows: FilterRowSpec[] = [
     {
@@ -99,7 +104,16 @@ export function ScheduledFilterMenu({
     },
   ]
 
-  return <FilterMenu ariaLabel="Filter & sort routines" rows={rows} />
+  const railReveal = placement === 'rail' && !active ? HOVER_REVEAL : ''
+  return (
+    <span
+      data-filter-projection={placement}
+      data-filter-active={active || undefined}
+      className={`${railReveal} has-[[data-open=true]]:opacity-100 focus-within:opacity-100`}
+    >
+      <FilterMenu ariaLabel="Filter & sort routines" rows={rows} />
+    </span>
+  )
 }
 
 function GROUP_LABEL(g: RoutineFilter['groupBy']): string {

@@ -243,7 +243,9 @@ Projects → Yours/Shared and Project → About/Discussion solved the same group
 resource problem with two grammars. The root pages now use `FoldSection` too;
 their resource-specific row/card/timeline form stays inside it. Stable schema
 sections persist; data-defined bands pass `persist={false}` so a user-created
-project name never becomes an unbounded preference key.
+project name never becomes an unbounded preference key. Both still register in
+the composite page's in-memory fold scope, so Fold all / Unfold all is complete
+without making a dynamic title durable chrome.
 
 The template split is ONTOLOGICAL, never a visual-style classification
 (UI-28). A composite contains canonical resources or declared sub-pages, so its
@@ -503,12 +505,14 @@ carry a standing door beside it:
   a profile. Locked by `src/lib/owner-door.test.ts` + `e2e/own-profile.spec.ts`.
 
 A partition of a list by a property of its items — kind, state, ownership — is
-**not** a child: it is a filter, and its ONE home is the section row's "Filter &
-sort" menu (`src/lib/sectionFilter.ts` + the shared `FilterMenu`), the same
-primitive Routines and Recents use in the same rail. So: no in-page
-tab/dropdown that re-selects a facet, and no second sort control. The rail and the
-page derive their list with ONE function per section (`src/lib/sectionLists.ts`)
-over ONE live stored choice (`useSectionFilter`, per account through `uiPrefs`) —
+**not** a child: it is a filter. Its STATE has one home
+(`src/lib/sectionFilter.ts` + `useSectionFilter`, per account through `uiPrefs`)
+and its CONTROL has two symmetric projections: the section row and the selected
+composite main page both render `SectionFilterMenu` / the shared `FilterMenu`.
+So: no in-page tab/dropdown that invents another grammar, no second sort state,
+and no filter option masquerading as a rail child. The rail and page derive their
+list with ONE function per section (`src/lib/sectionLists.ts`) over that ONE live
+stored choice —
 otherwise the rail's eight names are not the page's first eight, which is worse
 than listing none. Routines is an instance branch in that same tree; its richer
 status / project / cadence filter remains a dedicated funnel (`filterRoutines` +
@@ -520,7 +524,8 @@ Routines pane. A
 section lands on its **default** view (rail sub-view `null`; each hub body maps
 null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
 not a push; the registries disjoint; the shared-funnel pairing scanned both ways;
-no second facet control), `src/lib/section-lists.test.ts`, and
+no bespoke second facet grammar), `src/lib/composite-controls.test.ts`,
+`src/lib/section-lists.test.ts`, and
 `src/lib/url-routes.test.ts` (every listed kind round-trips as a URL).
 A **Sections** header carries one **fold/unfold-all** toggle. The
 rail's lower body is an **accordion of foldable, resizable panes** — Sections and

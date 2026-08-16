@@ -4,8 +4,9 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
+  useMemo,
   useState,
-  useSyncExternalStore,
   type HTMLAttributes,
   type ReactNode,
 } from 'react'
@@ -17,9 +18,7 @@ import { SECTION_REVEAL, SECTION_REVEAL_GROUP } from '../lib/hoverReveal'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS } from '../lib/ledger'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
-import { isSectionFolded, pageFoldWork, setSectionFolded } from '../lib/sectionFold'
 import { DOOR_CLASS } from '../lib/textDoor'
-import { subscribeLayout } from '../lib/uiPrefs'
 import { useSectionFold } from '../lib/useSectionFold'
 
 /** The two main-page templates are semantic specializations of this one frame.
@@ -69,10 +68,18 @@ function ResourcePageFrame({
   )
 }
 
-type FoldEntry = { title: string; defaultFolded: boolean }
-type FoldRegister = (entry: FoldEntry) => () => void
+type FoldEntry = {
+  id: string
+  title: string
+  folded: boolean
+  setFolded: (next: boolean) => void
+}
+type FoldRegistry = {
+  register: (entry: FoldEntry) => () => void
+  update: (id: string, folded: boolean) => void
+}
 
-const FoldScopeContext = createContext<FoldRegister | null>(null)
+const FoldScopeContext = createContext<FoldRegistry | null>(null)
 const FoldEntriesContext = createContext<readonly FoldEntry[]>([])
 const CompositeSectionPageContext = createContext(false)
 
@@ -92,17 +99,25 @@ export function CompositeResourcePage({
   sectionPage?: boolean
 }) {
   const [entries, setEntries] = useState<FoldEntry[]>([])
-  const register = useCallback<FoldRegister>((entry) => {
+  const register = useCallback<FoldRegistry['register']>((entry) => {
     setEntries((current) =>
-      current.some((candidate) => candidate.title === entry.title) ? current : [...current, entry],
+      current.some((candidate) => candidate.id === entry.id) ? current : [...current, entry],
     )
-    return () => setEntries((current) => current.filter((candidate) => candidate.title !== entry.title))
+    return () => setEntries((current) => current.filter((candidate) => candidate.id !== entry.id))
   }, [])
+  const update = useCallback<FoldRegistry['update']>((id, folded) => {
+    setEntries((current) => {
+      const held = current.find((entry) => entry.id === id)
+      if (!held || held.folded === folded) return current
+      return current.map((entry) => entry.id === id ? { ...entry, folded } : entry)
+    })
+  }, [])
+  const registry = useMemo(() => ({ register, update }), [register, update])
 
   return (
     <ResourcePageFrame nature="composite">
       <FoldEntriesContext.Provider value={entries}>
-        <FoldScopeContext.Provider value={register}>
+        <FoldScopeContext.Provider value={registry}>
           <CompositeSectionPageContext.Provider value={sectionPage}>
             {children}
           </CompositeSectionPageContext.Provider>
@@ -212,38 +227,43 @@ export function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct
   )
 }
 
-/** Overview controls for the structural sections that actually rendered. */
-export function CompositePageFoldControls() {
+/** The main-page projection of a composite resource's standing view controls.
+ *
+ * `filter` is the same live control rendered on the rail row. Fold work is
+ * discovered from every rendered section, including local data-defined bands;
+ * local bands still avoid uiPrefs, they simply join the page's in-memory scope.
+ */
+export function CompositePageControls({ filter }: { filter?: ReactNode }) {
   const entries = useContext(FoldEntriesContext)
-  const read = useCallback(
-    () => entries.map((entry) => (isSectionFolded(entry.title, entry.defaultFolded) ? '1' : '0')).join(''),
-    [entries],
-  )
-  const bits = useSyncExternalStore(subscribeLayout, read, read)
-  const titles = entries.map((entry) => entry.title)
-  const { foldable, unfoldable } = pageFoldWork(titles, (title) => bits[titles.indexOf(title)] === '1')
+  const sectionPage = useContext(CompositeSectionPageContext)
+  const foldable = sectionPage ? [] : entries.filter((entry) => !entry.folded)
+  const unfoldable = sectionPage ? [] : entries.filter((entry) => entry.folded)
+  if (!filter && foldable.length === 0 && unfoldable.length === 0) return null
 
   return (
-    <FoldPairRow
-      fold={
-        foldable.length > 0
-          ? {
-              act: () => foldable.forEach((title) => setSectionFolded(title, true)),
-              name: 'Fold all sections',
-              title: 'Collapse every section on this page to its one-line summary',
-            }
-          : undefined
-      }
-      unfold={
-        unfoldable.length > 0
-          ? {
-              act: () => unfoldable.forEach((title) => setSectionFolded(title, false)),
-              name: 'Unfold all sections',
-              title: 'Open every section on this page',
-            }
-          : undefined
-      }
-    />
+    <div data-composite-page-controls className="mb-2 flex min-h-5 items-center justify-end gap-1">
+      {filter}
+      <FoldPairButtons
+        fold={
+          foldable.length > 0
+            ? {
+                act: () => foldable.forEach((entry) => entry.setFolded(true)),
+                name: 'Fold all sections',
+                title: 'Collapse every section on this page to its one-line summary',
+              }
+            : undefined
+        }
+        unfold={
+          unfoldable.length > 0
+            ? {
+                act: () => unfoldable.forEach((entry) => entry.setFolded(false)),
+                name: 'Unfold all sections',
+                title: 'Open every section on this page',
+              }
+            : undefined
+        }
+      />
+    </div>
   )
 }
 
@@ -275,11 +295,13 @@ export function ResourcePageSection({
   const sectionPage = useContext(CompositeSectionPageContext)
   const effectiveFolded = sectionPage ? false : folded
   const register = useContext(FoldScopeContext)
+  const foldId = useId()
 
   useEffect(
-    () => (persist ? register?.({ title, defaultFolded: defaultFolded === true }) : undefined),
-    [register, title, defaultFolded, persist],
+    () => register?.register({ id: foldId, title, folded, setFolded }),
+    [register, foldId, title, setFolded],
   )
+  useEffect(() => register?.update(foldId, folded), [register, foldId, folded])
 
   return (
     <section

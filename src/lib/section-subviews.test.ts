@@ -7,9 +7,9 @@
  *  Agents hub's Prompts / Commissions / …; the maintainer console's panels) or
  *  one INSTANCE of the section's own list (a project, an artifact, a saved
  *  context, a provider, a thread). What a child is NOT is a partition of that
- *  list — kind, state, ownership — which is a FILTER, and a filter's one home
- *  is the section row's "Filter & sort" menu, the same primitive Scheduled now
- *  uses on its tree row and Recents uses in its utility pane.
+ *  list — kind, state, ownership — which is a FILTER. The rail row and the main
+ *  page mirror the same Filter & sort control over one live, per-account value;
+ *  neither projection turns a filter option into a navigation child.
  *
  *  These lock that shape: the two registries stay disjoint and derived, every
  *  listed kind is addressable (a place has an address — the URL half is locked
@@ -151,7 +151,7 @@ test('the instance tail row unfolds in place — never a jump to the section pag
   assert.ok(!rail.includes('onOpenSection'), 'no instance child treats the section page as its tail act')
 })
 
-test('a facet has ONE control — the rail row’s menu, never a second one in the page', () => {
+test('a facet has one live value and no bespoke second filter grammar', () => {
   const components = concatSource('src/components') // comment-stripped
   assert.doesNotMatch(components, /_FILTER_TABS/, 'no per-section in-page filter option arrays')
   assert.doesNotMatch(components, /label="Show"/, 'no Contexts/Scheduled "Show" dropdown')
@@ -166,6 +166,9 @@ test('a facet has ONE control — the rail row’s menu, never a second one in t
   const page = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   assert.ok(page.includes('useSectionFilter('), 'section bodies read the live value')
   assert.ok(!page.includes('loadSectionFilter('), 'and never a private snapshot of it')
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'SectionFilterMenu.tsx')))
+  assert.match(menu, /useSectionFilter\(section\)/, 'both projections subscribe through the same hook')
+  assert.match(menu, /placement\?: 'rail' \| 'page'/, 'one rendered control adapts only its disclosure posture')
 })
 
 test('the rail is an inline disclosure tree, not a drill-in push', () => {

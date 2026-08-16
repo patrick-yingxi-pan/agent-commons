@@ -128,7 +128,7 @@ import { BackButton, PageBackContext } from './BackButton'
 import { PageActionButton } from './PageActionButton'
 import {
   AtomicResourcePage,
-  CompositePageFoldControls,
+  CompositePageControls,
   CompositeResourcePage,
   FoldPairRow,
   ResourcePageActions as SectionActions,
@@ -138,6 +138,8 @@ import {
   ResourcePageSection as FoldSection,
   ResourcePageSynopsisRow as SynopsisRow,
 } from './ResourcePage'
+import { SectionFilterMenu } from './SectionFilterMenu'
+import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import type { NavLocation } from '../lib/nav'
 import { SECTION_SUBVIEWS } from '../lib/subviews'
 import {
@@ -620,9 +622,9 @@ function ProjectsSection({
   onNewSession: () => void
 }) {
   const [query, setQuery] = useState('')
-  // Ownership band + order come from the rail row's "Filter & sort" (UI-19) —
-  // the page had its own Sort dropdown and the rail had the yours/shared facet,
-  // which was one list with two controls in two places.
+  // Ownership band + order come from one live Filter & sort value (UI-19/UI-37),
+  // projected in both the rail row and this composite page. The controls are
+  // synchronized views, never the old independent page-sort / rail-facet split.
   const [filter] = useSectionFilter('projects')
   const [creating, setCreating] = useState(false)
   const rel = useRelations()
@@ -728,6 +730,9 @@ function ProjectsSection({
         </PageActionButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
+      <CompositePageControls
+        filter={<SectionFilterMenu section="projects" placement="page" />}
+      />
       {/* The three relationships stay BANDED whatever the facet — picking one in
           the rail's menu simply leaves that band standing alone (with its header,
           so the page always says which relationship you're reading). */}
@@ -1121,7 +1126,7 @@ function ProjectDetail({
           READING column (owner decision, 2026-08-12). Two columns could spend
           a wider surface because neither one was prose; one column cannot —
           About and Discussion are prose, and a 1200px line is unreadable. */}
-      {!selectedSection && <CompositePageFoldControls />}
+      {!selectedSection && <CompositePageControls />}
       <div>
           {!sectionAllowed && selectedSection && (
             <div className="border-t border-line-strong py-6">
@@ -3386,7 +3391,7 @@ function threadFoldVerbs(fold: ThreadFold): ReactNode[] {
 /** ── The Fold all · Unfold all row, once ─────────────────────────────────────
  *  A right-aligned pair of ghost text buttons over a foldable collection. TWO
  *  scopes render it and they are the same control: a THREAD's roots (here) and
- *  a PAGE's sections (`CompositePageFoldControls`).
+ *  a PAGE's sections (`CompositePageControls`).
  *
  *  One component because they had been two copies of one recipe — same row
  *  class, same glyphs, same words, same "each button renders only when it has
@@ -4559,8 +4564,8 @@ function PostComposer() {
 
 /** The Commons feed — what the caller's world shares. One chronological
  *  column; the deliberate note is the publish act (silent grants stay out).
- *  The kind facet (shares / landings) lives in the rail row's "Filter & sort"
- *  (UI-19) — the feed has no per-row page of its own, so the rail's children
+ *  The kind facet (shares / landings) is one live value mirrored in both
+ *  Filter & sort controls (UI-19/UI-37) — the feed has no per-row page of its own, so the rail's children
  *  are the viewer's standing LENSES: watched / liked / posted / recently
  *  viewed, each the viewer's own relationship to an item rather than a slice of
  *  the items themselves. */
@@ -4597,6 +4602,9 @@ function CommonsSection({ lens }: { lens: string | null }) {
   return (
     <CompositeResourcePage>
       <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
+      <CompositePageControls
+        filter={<SectionFilterMenu section="commons" placement="page" />}
+      />
       <FoldSection title={feedTitle} summary={`${list.length} item${list.length === 1 ? '' : 's'}`} persist={false}>
         {/* Compose on the square itself. A LENS is a filtered view of your own
             collections ("things I liked"), and a composer there would write into
@@ -4923,7 +4931,7 @@ function DiscussionPage({
 }
 
 /** The Discussions hub — the caller's participating threads, narrowed by the
- *  rail row's STATE facet (UI-19; the rail's children are the threads). Titles
+ *  shared STATE facet (UI-19/UI-37; the rail's children are the threads). Titles
  *  are doors. */
 function DiscussionsSection({
   discussionId,
@@ -4949,6 +4957,9 @@ function DiscussionsSection({
   return (
     <CompositeResourcePage>
       <PageHeader title="Discussions" />
+      <CompositePageControls
+        filter={<SectionFilterMenu section="discussions" placement="page" />}
+      />
       <FoldSection
         title="Threads"
         summary={`${filtered.length} discussion${filtered.length === 1 ? '' : 's'}`}
@@ -5166,6 +5177,7 @@ function NotificationsSection({
           </button>
         )}
       </PageHeader>
+      <CompositePageControls />
       <FoldSection title="Inbox" summary={`${rows.length} notification${rows.length === 1 ? '' : 's'}`} persist={false}>
         {rows.length === 0 ? (
           <Empty>Nothing yet — watch a project (or share one) and its public acts land here.</Empty>
@@ -5202,6 +5214,7 @@ function MessagesSection() {
   return (
     <CompositeResourcePage>
       <PageHeader title="Messages" />
+      <CompositePageControls />
       <FoldSection title="Conversations" summary={`${list.length} message thread${list.length === 1 ? '' : 's'}`} persist={false}>
         {list.length === 0 ? (
           <Empty>
@@ -6471,9 +6484,9 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
 /* ─────────────────────────── Artifacts ─────────────────────────── */
 
 
-/** The Artifacts index. Its kind facet is chosen in the rail row's "Filter &
- *  sort" (UI-19 — the facet ids ARE the ArtifactKind values), never an in-page
- *  bar; the rail preserves the same project section before each artifact.
+/** The Artifacts index. Its kind facet is chosen through the mirrored Filter &
+ *  sort control (UI-19/UI-37 — the facet ids ARE the ArtifactKind values), never a second in-page
+ *  grammar; the rail preserves the same project section before each artifact.
  *
  *  The open artifact is a PLACE (`/artifacts/:id`): its surface used to be local
  *  state with no address, so it could be reached but never linked, restored, or
@@ -6605,6 +6618,9 @@ function ArtifactsSection({
         </PageActionButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" />
+      <CompositePageControls
+        filter={<SectionFilterMenu section="artifacts" placement="page" />}
+      />
 
       {shownGroups.length === 0 ? (
         <Empty>No artifacts match.</Empty>
@@ -7045,8 +7061,8 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
   )
 }
 
-/** The Contexts list. Its kind facet lives in the rail row's "Filter & sort"
- *  (UI-19); the named families remain structural page/rail sections rather than
+/** The Contexts list. Its kind facet is one live choice mirrored in rail and
+ *  main-page Filter & sort controls (UI-19/UI-37); the named families remain structural page/rail sections rather than
  *  being flattened away. */
 function ContextsSection({
   collectionSectionId,
@@ -7133,6 +7149,9 @@ function ContextsSection({
         <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" />
+      <CompositePageControls
+        filter={<SectionFilterMenu section="contexts" placement="page" />}
+      />
 
       {!accountMcpSelected && shownGroups.length === 0 ? (
         <Empty>No contexts match.</Empty>
@@ -7694,6 +7713,7 @@ function AgentCommonsSection({
           </PageActionButton>
         )}
       </PageHeader>
+      <CompositePageControls />
       {subview === null ? (
         AGENT_SECTIONS.map((section) => {
           const action = (
@@ -8912,6 +8932,9 @@ function ModelsSection({
           New provider
         </PageActionButton>
       </PageHeader>
+      <CompositePageControls
+        filter={<SectionFilterMenu section="models" placement="page" />}
+      />
       <FoldSection title={providersGroup.label} summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
         {shown.length === 0 ? (
           <Empty>No providers in this view.</Empty>
@@ -11179,6 +11202,7 @@ function AdminSection({
   return (
     <CompositeResourcePage>
       <PageHeader title={meta.label} subtitle={meta.subtitle} />
+      <CompositePageControls />
       {!granted ? (
         <PageEmpty>
           This console is for instance maintainers. Sign in as an account on the server’s
@@ -11747,6 +11771,7 @@ function GenericSection({ section }: { section: SectionId }) {
           </PageActionButton>
         )}
       </PageHeader>
+      <CompositePageControls />
 
       {section === 'dispatch' && (
         <FoldSection title="Runs" summary="Background dispatch history" persist={false}>
@@ -11905,7 +11930,7 @@ function ScheduledSection({
   const rel = useRelations()
   const projects = rel.allProjects()
   const projectIds = new Set(projects.map((project) => project.id))
-  const [rawRoutineFilter] = useRoutineFilter()
+  const [rawRoutineFilter, updateRoutineFilter] = useRoutineFilter()
   const routineFilter = clampRoutineFilter(rawRoutineFilter, projectIds)
   const [query, setQuery] = useState('')
   // Ids with a "Run now" in flight — drives the button spinner until the run's
@@ -11990,6 +12015,16 @@ function ScheduledSection({
         <NewScheduleControl onAdd={addFromTemplate} />
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search routines…" />
+      <CompositePageControls
+        filter={
+          <ScheduledFilterMenu
+            filter={routineFilter}
+            onChange={updateRoutineFilter}
+            projects={projects}
+            placement="page"
+          />
+        }
+      />
 
       {groups.length === 0 ? (
         <Empty>No routines match.</Empty>
@@ -12365,7 +12400,7 @@ function ScheduledDetail({
         )}
       </header>
 
-      {!selectedSection && <CompositePageFoldControls />}
+      {!selectedSection && <CompositePageControls />}
         <div>
           {!sectionAllowed && selectedSection && (
             <div className="border-t border-line-strong py-6">

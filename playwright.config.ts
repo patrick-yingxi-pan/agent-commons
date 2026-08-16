@@ -103,6 +103,9 @@ export default defineConfig({
       // drive the sign-in flow explicitly where they test it; the gate's WALL
       // (401s + the anonymous principal) is locked by tests/auth-gate.test.ts.
       AUTH_GATE: 'off',
+      // This stack is immutable for the run. Avoid one recursive backend watcher
+      // per shard: they add no reload value here and can exhaust host file handles.
+      SERVER_WATCH: 'off',
       // The maintainer console (FWD-7): Ada is the allowlisted maintainer so
       // e2e/admin.spec.ts can drive the grant-gated Maintain section. The grant
       // lands only on VERIFIED resolutions, so the default (headerless) boot

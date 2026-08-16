@@ -42,12 +42,12 @@ import {
   AgentTreeChildren,
   OwnerProfileChild,
   RailTreeBranch,
-  SectionFilterMenu,
   SectionInstanceChildren,
   ShowAllRow,
   SubNavRow,
   type RailFoldSignal,
 } from './SectionTreeChildren'
+import { SectionFilterMenu } from './SectionFilterMenu'
 import { FoldPairButtons } from './ResourcePage'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import {
@@ -56,7 +56,6 @@ import {
   SIDEBAR_HOVER,
   SIDEBAR_ICON_BUTTON,
 } from '../lib/sidebar'
-import { HOVER_REVEAL } from '../lib/hoverReveal'
 import {
   removeSchedule,
   runScheduleNow,
@@ -97,7 +96,6 @@ import {
 import {
   clampRoutineFilter,
   filterRoutines,
-  isRoutineFilterActive,
   type RoutineGroup,
   type RoutineFilter,
 } from '../lib/routineFilter'
@@ -630,19 +628,16 @@ export function Sidebar({
                 active={activeSection === id && activeSubview == null && activeDetailId === null}
                 onToggle={() => toggleExpand(id)}
                 onOpen={() => onSectionClick(id)}
-                // The facet's one home (UI-19). Rendered for every section that
-                // HAS a partition, whether its children are surfaces or rows.
+                // The rail projection of the section's live filter (UI-19/UI-37).
+                // Rendered for every section that has a partition, whether its
+                // children are surfaces or rows; the page mirrors this control.
                 trailing={
                   id === 'scheduled' ? (
-                    <span
-                      className={`${isRoutineFilterActive(routineFilter) ? '' : HOVER_REVEAL} has-[[data-open=true]]:opacity-100 focus-within:opacity-100`}
-                    >
-                      <ScheduledFilterMenu
-                        filter={routineFilter}
-                        onChange={updateRoutineFilter}
-                        projects={projects}
-                      />
-                    </span>
+                    <ScheduledFilterMenu
+                      filter={routineFilter}
+                      onChange={updateRoutineFilter}
+                      projects={projects}
+                    />
                   ) : SECTION_FILTERS[id] ? (
                     <SectionFilterMenu section={id} />
                   ) : undefined

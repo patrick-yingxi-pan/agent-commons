@@ -54,7 +54,7 @@ export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: Filte
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
 
   // Anchor the popover to the sliders button: right edge aligned to the button
-  // (so it opens leftward into the rail), and below it — but flipped above when
+  // (so it opens leftward into the available rail or page space), and below it — but flipped above when
   // there isn't room below (a rail header can sit low), so the menu never runs
   // off the viewport bottom.
   useLayoutEffect(() => {

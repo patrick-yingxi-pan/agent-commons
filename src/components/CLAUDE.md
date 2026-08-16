@@ -50,6 +50,11 @@ what the document or the sibling component claims.
   `lib/collectionSections.ts`, and each child keeps its canonical leaf page.
   Rail Fold all / Unfold all is the same shared button pair as the main page and
   propagates through nested branches rather than stopping at the first level.
+- **Composite view controls are mirrored, not duplicated.** A filtered root
+  renders `SectionFilterMenu` in its rail row and `CompositePageControls` on its
+  main page; both subscribe to one `useSectionFilter` value. Every composite
+  page uses that toolbar for its discovered fold work, including local dynamic
+  bands, while `persist={false}` still keeps their titles out of `uiPrefs`.
 - **An index entry is a synopsis, not a compressed detail page.** Ordinary
   addressable rows consume `ResourcePageSynopsisRow`: 13px identity, one 12px
   descriptor and one 11px state/count field in a frameless divider ledger.

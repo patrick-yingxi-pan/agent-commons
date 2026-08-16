@@ -2,7 +2,7 @@
  *
  *  A facet used to be URL state, so the rail and the page read it from the same
  *  place by construction. Now it is a stored preference read by two trees at
- *  once — the rail row's menu + its instance children, and the section page —
+ *  at once — the rail-row menu, main-page menu, rail children, and page body —
  *  so it has to be one live value: a `useState(load…)` per consumer would let
  *  the page keep showing "Documents" after the rail switched to "Images". This
  *  subscribes every reader to the prefs store, so they re-render together.

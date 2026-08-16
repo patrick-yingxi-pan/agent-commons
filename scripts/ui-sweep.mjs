@@ -194,6 +194,10 @@ async function bootStack() {
       // value, an ambient `off` included, means OFF, so this can be neither
       // inherited nor spelled loosely.
       AUTH_GATE: 'require',
+      // The owned sweep stack never edits source while it runs. Keep the
+      // interactive dev launcher's hot reload, but do not spend file handles on
+      // a recursive backend watcher here.
+      SERVER_WATCH: 'off',
     },
   })
   let log = ''
