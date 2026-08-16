@@ -40,6 +40,7 @@ export function SectionPane({
   onRetarget,
   onAt,
   backOut,
+  focused,
 }: {
   section: SectionId
   initialSub?: string | null
@@ -63,6 +64,8 @@ export function SectionPane({
   /** The CARRIED back stack's top (the page before this section) — the back
    *  affordance continues into it once the local stack is spent. */
   backOut?: PaneBackOut
+  /** Whether this is the one pane the rail currently controls. */
+  focused: boolean
 }) {
   // Seeded from the routed content (a rail facet click carries its facet in,
   // a cross-section door carries its detail), pane-local after that (the
@@ -184,6 +187,7 @@ export function SectionPane({
         focusDiscussionId={focus.discussionId}
         focusArtifactId={focus.artifactId}
         focusProviderId={focus.providerId}
+        railProjectionActive={focused}
         onOpenAgentPage={(id) =>
           section === 'agents' ? navigate({ agentId: id }) : onRetarget({ kind: 'msection', id: 'agents', seed: { agentId: id } })
         }

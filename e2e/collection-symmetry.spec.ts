@@ -118,3 +118,54 @@ test('composite page controls mirror rail filters and fold dynamic bands', async
 
   await ada.context.close()
 })
+
+test('rail composite controls invoke the same page action, search, and bulk disclosure', async ({ browser }) => {
+  test.setTimeout(ms(90_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  await page.goto('/artifacts')
+  await expect(page.getByRole('heading', { name: 'Artifacts', exact: true })).toBeVisible({ timeout: ms(20_000) })
+
+  const rail = sectionsNav(page)
+  const main = page.locator('main')
+  const controls = rail.getByRole('button', { name: 'Controls for Artifacts', exact: true })
+  const artifactsRow = controls.locator('xpath=ancestor::div[contains(@class, "group")][1]')
+
+  // The compact rail projection is hover-revealed on desktop, like other row
+  // verbs. It routes the focused pane and lands in the page's own search field.
+  await artifactsRow.hover()
+  await controls.click()
+  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'Search artifacts', exact: true }).click()
+  await expect(main.getByPlaceholder('Search artifacts…')).toBeFocused()
+
+  // The primary action is the same dialog-opening callback as the page header,
+  // not a second creation flow owned by the rail.
+  await artifactsRow.hover()
+  await controls.click()
+  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'New artifact', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'New artifact' })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // One fold request reaches both projections: dynamic page bands collapse and
+  // the rail's nested collection branches collapse without hiding Artifacts.
+  await artifactsRow.hover()
+  await controls.click()
+  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'Fold all', exact: true }).click()
+  const headers = main.locator('[data-resource-page-section] > div > button[aria-expanded]')
+  for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'false')
+  await expect(rail.locator('[data-section-tree="artifacts"]')).toBeAttached()
+  await expect(rail.locator('[data-collection-section-resources]')).toHaveCount(0)
+
+  // A later forest-wide command supersedes the branch-local posture; the
+  // resource-specific signal must not remain cached as a permanent override.
+  await rail.getByRole('button', { name: 'Unfold all rail sections', exact: true }).click()
+  await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
+
+  await artifactsRow.hover()
+  await controls.click()
+  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'Unfold all', exact: true }).click()
+  for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'true')
+  await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
+
+  await ada.context.close()
+})

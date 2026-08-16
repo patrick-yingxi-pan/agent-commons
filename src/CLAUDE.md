@@ -527,6 +527,20 @@ not a push; the registries disjoint; the shared-funnel pairing scanned both ways
 no bespoke second facet grammar), `src/lib/composite-controls.test.ts`,
 `src/lib/section-lists.test.ts`, and
 `src/lib/url-routes.test.ts` (every listed kind round-trips as a URL).
+
+**Control symmetry is capability-total, not filter-specific** (owner
+clarification 2026-08-16). Every RESOURCE-SCOPED standing capability of a
+composite root is available from both projections: its primary New/Add action,
+local search, Filter & sort, and Fold all / Unfold all. The one complete catalog
+is `src/lib/compositeFeatures.ts`; the main page's real button/field/fold scope
+answers the focused-pane command while `CompositeRailControls` is its compact
+rail projection. Bulk disclosure publishes one revisioned request consumed by
+both the active page registry and the matching nested rail branch. This does
+not make projection mechanics into fake resource features: a rail chevron, its
+eight-row Show all cap, pane resize and main-page scrolling exist because of
+the projection's shape and have no second state for the other side to mimic.
+Locked by `src/lib/composite-features.test.ts`,
+`src/lib/composite-controls.test.ts`, and `e2e/collection-symmetry.spec.ts`.
 A **Sections** header carries one **fold/unfold-all** toggle. The
 rail's lower body is an **accordion of foldable, resizable panes** — Sections and
 Recents. Routines is a resource branch inside Sections, not a peer utility pane.

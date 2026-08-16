@@ -100,6 +100,9 @@ import {
   type RoutineFilter,
 } from '../lib/routineFilter'
 import { useRoutineFilter } from '../lib/useRoutineFilter'
+import { CompositeRailControls } from './CompositeRailControls'
+import type { CompositeCommandKind, CompositeFoldSignal } from '../lib/compositeFeatures'
+import { useCompositeFoldSignal } from '../lib/useCompositeFeatures'
 
 
 /** Does this section's row expand? Both LIST kinds count (UI-19) — a declared
@@ -124,6 +127,7 @@ export function Sidebar({
   onOpenSection,
   onOpenSubview,
   onOpenDetail,
+  onCompositeCommand,
   onLeafNavigate,
   onOpenSchedule,
   onPinSession,
@@ -164,6 +168,8 @@ export function Sidebar({
   /** Open ONE row of a content section — the section, seeded with the detail id
    *  (UI-19: a rail instance child is a place, so it opens that place). */
   onOpenDetail: (section: SectionId, seed: PaneSeed) => void
+  /** Invoke the focused main page's matching resource capability. */
+  onCompositeCommand: (section: SectionId, kind: CompositeCommandKind) => void
   /** Dismiss the narrow-tier rail drawer after a *leaf* navigation (a sub-view, or a
    *  section with no sub-views). Undefined off the narrow tier. Drilling into a
    *  section's sub-menu deliberately does NOT call this — the menu must stay visible. */
@@ -260,11 +266,34 @@ export function Sidebar({
   // the rest with the same request, so this controls the whole visible forest.
   const expandableIds = useMemo(() => visibleSections.filter(hasChildren), [visibleSections])
   const [railFoldSignal, setRailFoldSignal] = useState<RailFoldSignal | null>(null)
+  const [branchFoldSignals, setBranchFoldSignals] = useState<Partial<Record<SectionId, CompositeFoldSignal>>>({})
+  const compositeFold = useCompositeFoldSignal()
   const requestRailFold = (open: boolean) => {
     for (const id of expandableIds) setLayout(`treeOpen.${id}`, open)
     setExpanded(open ? new Set(expandableIds) : new Set())
+    // A newer forest-wide posture supersedes older resource-local requests.
+    // Otherwise a cached branch signal would keep winning through `??` below
+    // and a later global Unfold all could leave that one branch collapsed.
+    setBranchFoldSignals({})
     setRailFoldSignal((current) => ({ revision: (current?.revision ?? 0) + 1, expanded: open }))
   }
+  // The selected composite's page and rail branch consume one bulk-disclosure
+  // request. Keep the parent row visible — folding a resource collapses its
+  // interiors, not the resource out of the forest altogether.
+  useEffect(() => {
+    if (!compositeFold) return
+    if (hasChildren(compositeFold.section)) {
+      setExpanded((current) =>
+        current.has(compositeFold.section)
+          ? current
+          : new Set(current).add(compositeFold.section),
+      )
+    }
+    setBranchFoldSignals((current) => ({
+      ...current,
+      [compositeFold.section]: compositeFold,
+    }))
+  }, [compositeFold?.revision])
 
   // Clicking a section row: open its page, and — if it has children — expand it in place
   // (keeping the narrow drawer open so the children show, so you can pick one). A childless
@@ -632,15 +661,24 @@ export function Sidebar({
                 // Rendered for every section that has a partition, whether its
                 // children are surfaces or rows; the page mirrors this control.
                 trailing={
-                  id === 'scheduled' ? (
-                    <ScheduledFilterMenu
-                      filter={routineFilter}
-                      onChange={updateRoutineFilter}
-                      projects={projects}
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    {id === 'scheduled' ? (
+                      <ScheduledFilterMenu
+                        filter={routineFilter}
+                        onChange={updateRoutineFilter}
+                        projects={projects}
+                      />
+                    ) : SECTION_FILTERS[id] ? (
+                      <SectionFilterMenu section={id} />
+                    ) : null}
+                    <CompositeRailControls
+                      section={id}
+                      onCommand={(kind) => {
+                        onCompositeCommand(id, kind)
+                        onLeafNavigate?.()
+                      }}
                     />
-                  ) : SECTION_FILTERS[id] ? (
-                    <SectionFilterMenu section={id} />
-                  ) : undefined
+                  </div>
                 }
               />
               {isExpanded && (
@@ -662,7 +700,7 @@ export function Sidebar({
                         onOpenDetail(section, seed)
                         onLeafNavigate?.()
                       }}
-                      foldSignal={railFoldSignal}
+                      foldSignal={branchFoldSignals[id] ?? railFoldSignal}
                     />
                   ) : id === 'scheduled' ? (
                     <ScheduledTreeChildren
@@ -704,7 +742,7 @@ export function Sidebar({
                             onLeafNavigate?.()
                           }}
                           menuItems={routineMenuItems(t)}
-                          foldSignal={railFoldSignal}
+                          foldSignal={branchFoldSignals[id] ?? railFoldSignal}
                         />
                       )}
                     />
@@ -731,7 +769,7 @@ export function Sidebar({
                         onSelect(sessionId)
                         onLeafNavigate?.()
                       }}
-                      foldSignal={railFoldSignal}
+                      foldSignal={branchFoldSignals[id] ?? railFoldSignal}
                     />
                   ) : null}
                 </RailTreeBranch>
@@ -1233,7 +1271,7 @@ function RoutineRow({
   }, [pageActive, activeSectionId, activeRunId])
   useEffect(() => {
     if (foldSignal) setExpanded(foldSignal.expanded)
-  }, [foldSignal?.revision])
+  }, [foldSignal])
   return (
     <>
       <div
@@ -1306,7 +1344,7 @@ function RoutineSectionRows({
     if (!foldSignal) return
     setRunsExpanded(foldSignal.expanded)
     setDiscussionExpanded(foldSignal.expanded)
-  }, [foldSignal?.revision])
+  }, [foldSignal])
   const sections = visibleCompositeSections(SCHEDULE_SECTIONS, task.own !== false)
   return (
     <div>

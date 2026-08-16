@@ -42,7 +42,7 @@ Use `CompositeResourcePage` only when the selected node **contains canonical
 resources or declared sub-pages**. Its sections are structural places, not
 decorative group labels.
 
-The template adds four capabilities to the common frame:
+The template adds five capabilities to the common frame:
 
 1. rendered structural sections register themselves, so Fold all / Unfold all
    sees the exact viewer-relative page rather than a second title list;
@@ -53,6 +53,11 @@ The template adds four capabilities to the common frame:
 4. one `CompositePageControls` toolbar projects the page's complete Fold all /
    Unfold all work and, where the resource has a filter, mirrors the rail-row
    control over the same live per-account value.
+5. `compositeFeatures.ts` closes the resource-scoped capability set: primary
+   New/Add action, local search, Filter & sort, and bulk disclosure must each be
+   reachable from the rail and the main page. The rail uses a compact overflow
+   projection; it invokes the page's real callback/field in the focused pane,
+   never a second creation flow or search state.
 
 The rail projection is **parent → section → canonical resource**. The main-page
 projection is the parent overview with every visible section, or one selected
@@ -67,8 +72,9 @@ surfaces. A filter may still choose which rows are visible, but it cannot erase
 the section level that organizes those rows on the page.
 
 Fold scope is symmetric too. The main page discovers its rendered sections;
-the rail exposes the same explicit Fold all / Unfold all pair and propagates a
-single revisioned request through every nested branch. A top-level expansion
+the rail exposes the same explicit Fold all / Unfold all pair, and either
+projection publishes one revisioned request through the page registry and
+every nested rail branch. A top-level expansion
 that mounts deeper children carries the request with it, so “all” never means
 only the first visible depth. Main-page discovery includes data-defined bands:
 they join the in-memory fold scope while retaining `persist={false}`, so a
@@ -82,6 +88,19 @@ head, and the page list. This is two projections of one state—not two filters.
 Filter options remain properties of the view and therefore never become tree
 children; structural section nodes remain places and are never flattened by a
 filter.
+
+Primary actions and local search follow the same rule without pretending their
+layouts are identical. The page keeps the full `PageActionButton` and field in
+the reading flow; the rail exposes their labels as compact menu rows. Choosing
+one routes the focused pane to the composite root, then the page's own handler
+opens the dialog or focuses its own field. The command remains pending across
+that route and only the focused pane may consume it, so a split view showing a
+second copy cannot steal or duplicate the action.
+
+This is feature symmetry, not pixel symmetry. A rail chevron, Show all / Show
+fewer cap, pane resize handle and the page's natural scroll are mechanics of a
+projection's density. They do not expose resource information or an operation
+on the resource, so the opposite projection must not invent a decorative twin.
 
 ## Atomic resource page
 

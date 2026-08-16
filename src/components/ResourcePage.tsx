@@ -20,6 +20,9 @@ import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS } from '../lib/l
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { DOOR_CLASS } from '../lib/textDoor'
 import { useSectionFold } from '../lib/useSectionFold'
+import type { SectionId } from '../types'
+import { requestCompositeFold } from '../lib/compositeFeatures'
+import { useFocusedCompositeFold } from '../lib/useCompositeFeatures'
 
 /** The two main-page templates are semantic specializations of this one frame.
  *
@@ -233,11 +236,22 @@ export function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct
  * discovered from every rendered section, including local data-defined bands;
  * local bands still avoid uiPrefs, they simply join the page's in-memory scope.
  */
-export function CompositePageControls({ filter }: { filter?: ReactNode }) {
+export function CompositePageControls({
+  section,
+  filter,
+}: {
+  section: SectionId
+  filter?: ReactNode
+}) {
   const entries = useContext(FoldEntriesContext)
   const sectionPage = useContext(CompositeSectionPageContext)
   const foldable = sectionPage ? [] : entries.filter((entry) => !entry.folded)
   const unfoldable = sectionPage ? [] : entries.filter((entry) => entry.folded)
+  useFocusedCompositeFold(
+    section,
+    (expanded) => entries.forEach((entry) => entry.setFolded(!expanded)),
+    !sectionPage && entries.length > 0,
+  )
   if (!filter && foldable.length === 0 && unfoldable.length === 0) return null
 
   return (
@@ -247,7 +261,7 @@ export function CompositePageControls({ filter }: { filter?: ReactNode }) {
         fold={
           foldable.length > 0
             ? {
-                act: () => foldable.forEach((entry) => entry.setFolded(true)),
+                act: () => requestCompositeFold(section, false),
                 name: 'Fold all sections',
                 title: 'Collapse every section on this page to its one-line summary',
               }
@@ -256,7 +270,7 @@ export function CompositePageControls({ filter }: { filter?: ReactNode }) {
         unfold={
           unfoldable.length > 0
             ? {
-                act: () => unfoldable.forEach((entry) => entry.setFolded(false)),
+                act: () => requestCompositeFold(section, true),
                 name: 'Unfold all sections',
                 title: 'Open every section on this page',
               }

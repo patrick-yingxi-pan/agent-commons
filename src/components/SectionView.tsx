@@ -381,6 +381,7 @@ import { HOVER_REVEAL, HOVER_CUE, SECTION_REVEAL_GROUP } from '../lib/hoverRevea
 import { SectionAction } from './SectionAction'
 import { TierBadge } from './TierBadge'
 import { TIER_LABELS } from '../lib/tierBadge'
+import { CompositeProjectionScope, useCompositeCommand } from '../lib/useCompositeFeatures'
 
 /** The reading-page projections for cross-cutting resources (Projects,
  *  Artifacts, …). They share a title block, reading column and FoldSection
@@ -416,6 +417,7 @@ export function SectionView({
   focusDiscussionId = null,
   focusArtifactId = null,
   focusProviderId = null,
+  railProjectionActive = false,
   onOpenAgentPage,
 }: {
   section: SectionId
@@ -487,6 +489,9 @@ export function SectionView({
   focusArtifactId?: string | null
   /** A provider expanded in the Models list (UI-19); null = the plain list. */
   focusProviderId?: string | null
+  /** True only for the focused split pane. Rail commands must never be
+   * consumed by a second pane that happens to show the same section. */
+  railProjectionActive?: boolean
   /** Open a published definition's page — the one door every card routes through. */
   onOpenAgentPage: (agentId: string) => void
 }) {
@@ -583,7 +588,9 @@ export function SectionView({
     // the shared PageHeader leads with the one back control. Detail pages
     // render BackButton from their props directly.
     <PageBackContext.Provider value={backTo ? { to: backTo, onBack } : null}>
-      <div className={`flex min-h-0 flex-1 flex-col ${railCollapsed ? 'pl-8' : ''}`}>{body}</div>
+      <CompositeProjectionScope active={railProjectionActive}>
+        <div className={`flex min-h-0 flex-1 flex-col ${railCollapsed ? 'pl-8' : ''}`}>{body}</div>
+      </CompositeProjectionScope>
     </PageBackContext.Provider>
   )
 }
@@ -725,12 +732,18 @@ function ProjectsSection({
   return (
     <CompositeResourcePage>
       <PageHeader title="Projects">
-        <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+        <PageActionButton
+          icon={<Plus size={15} />}
+          onClick={() => setCreating(true)}
+          mirrorsRailFor="projects"
+          onRailInvoke={() => setCreating(true)}
+        >
           New project
         </PageActionButton>
       </PageHeader>
-      <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" />
+      <SearchBox value={query} onChange={setQuery} placeholder="Search projects…" mirrorsRailFor="projects" />
       <CompositePageControls
+        section="projects"
         filter={<SectionFilterMenu section="projects" placement="page" />}
       />
       {/* The three relationships stay BANDED whatever the facet — picking one in
@@ -1126,7 +1139,7 @@ function ProjectDetail({
           READING column (owner decision, 2026-08-12). Two columns could spend
           a wider surface because neither one was prose; one column cannot —
           About and Discussion are prose, and a 1200px line is unreadable. */}
-      {!selectedSection && <CompositePageControls />}
+      {!selectedSection && <CompositePageControls section="projects" />}
       <div>
           {!sectionAllowed && selectedSection && (
             <div className="border-t border-line-strong py-6">
@@ -4603,6 +4616,7 @@ function CommonsSection({ lens }: { lens: string | null }) {
     <CompositeResourcePage>
       <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
       <CompositePageControls
+        section="commons"
         filter={<SectionFilterMenu section="commons" placement="page" />}
       />
       <FoldSection title={feedTitle} summary={`${list.length} item${list.length === 1 ? '' : 's'}`} persist={false}>
@@ -4958,6 +4972,7 @@ function DiscussionsSection({
     <CompositeResourcePage>
       <PageHeader title="Discussions" />
       <CompositePageControls
+        section="discussions"
         filter={<SectionFilterMenu section="discussions" placement="page" />}
       />
       <FoldSection
@@ -5177,7 +5192,7 @@ function NotificationsSection({
           </button>
         )}
       </PageHeader>
-      <CompositePageControls />
+      <CompositePageControls section="notifications" />
       <FoldSection title="Inbox" summary={`${rows.length} notification${rows.length === 1 ? '' : 's'}`} persist={false}>
         {rows.length === 0 ? (
           <Empty>Nothing yet — watch a project (or share one) and its public acts land here.</Empty>
@@ -5214,7 +5229,7 @@ function MessagesSection() {
   return (
     <CompositeResourcePage>
       <PageHeader title="Messages" />
-      <CompositePageControls />
+      <CompositePageControls section="messages" />
       <FoldSection title="Conversations" summary={`${list.length} message thread${list.length === 1 ? '' : 's'}`} persist={false}>
         {list.length === 0 ? (
           <Empty>
@@ -6613,12 +6628,18 @@ function ArtifactsSection({
   return (
     <CompositeResourcePage sectionPage={selectedGroup !== null}>
       <PageHeader title="Artifacts" subtitle={selectedGroup?.label}>
-        <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+        <PageActionButton
+          icon={<Plus size={15} />}
+          onClick={() => setCreating(true)}
+          mirrorsRailFor="artifacts"
+          onRailInvoke={() => setCreating(true)}
+        >
           New artifact
         </PageActionButton>
       </PageHeader>
-      <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" />
+      <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" mirrorsRailFor="artifacts" />
       <CompositePageControls
+        section="artifacts"
         filter={<SectionFilterMenu section="artifacts" placement="page" />}
       />
 
@@ -7003,6 +7024,8 @@ function AddContextControl({
       <PageActionButton
         icon={<Plus size={15} />}
         onClick={() => setOpen((o) => !o)}
+        mirrorsRailFor="contexts"
+        onRailInvoke={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
@@ -7148,8 +7171,9 @@ function ContextsSection({
       >
         <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
       </PageHeader>
-      <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" />
+      <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" mirrorsRailFor="contexts" />
       <CompositePageControls
+        section="contexts"
         filter={<SectionFilterMenu section="contexts" placement="page" />}
       />
 
@@ -7703,17 +7727,27 @@ function AgentCommonsSection({
         subtitle={surfaceSummary}
       >
         {canCreateAgent && (
-          <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating('agent')}>
+          <PageActionButton
+            icon={<Plus size={15} />}
+            onClick={() => setCreating('agent')}
+            mirrorsRailFor="agents"
+            onRailInvoke={() => setCreating('agent')}
+          >
             New agent
           </PageActionButton>
         )}
         {canCreatePrompt && (
-          <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating('prompt')}>
+          <PageActionButton
+            icon={<Plus size={15} />}
+            onClick={() => setCreating('prompt')}
+            mirrorsRailFor="agents"
+            onRailInvoke={() => setCreating('prompt')}
+          >
             New prompt
           </PageActionButton>
         )}
       </PageHeader>
-      <CompositePageControls />
+      <CompositePageControls section="agents" />
       {subview === null ? (
         AGENT_SECTIONS.map((section) => {
           const action = (
@@ -8928,11 +8962,17 @@ function ModelsSection({
         title="Models"
         subtitle={providersSelected ? providersGroup.label : 'Every model your sessions can run on — built-in, registered endpoint, or delegated AI session.'}
       >
-        <PageActionButton icon={<Plus size={15} />} onClick={() => setEditing('new')}>
+        <PageActionButton
+          icon={<Plus size={15} />}
+          onClick={() => setEditing('new')}
+          mirrorsRailFor="models"
+          onRailInvoke={() => setEditing('new')}
+        >
           New provider
         </PageActionButton>
       </PageHeader>
       <CompositePageControls
+        section="models"
         filter={<SectionFilterMenu section="models" placement="page" />}
       />
       <FoldSection title={providersGroup.label} summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
@@ -11202,7 +11242,7 @@ function AdminSection({
   return (
     <CompositeResourcePage>
       <PageHeader title={meta.label} subtitle={meta.subtitle} />
-      <CompositePageControls />
+      <CompositePageControls section="admin" />
       {!granted ? (
         <PageEmpty>
           This console is for instance maintainers. Sign in as an account on the server’s
@@ -11766,12 +11806,17 @@ function GenericSection({ section }: { section: SectionId }) {
         subtitle={meta.subtitle}
       >
         {section === 'dispatch' && (
-          <PageActionButton icon={<Plus size={15} />} onClick={() => setCreating(true)}>
+          <PageActionButton
+            icon={<Plus size={15} />}
+            onClick={() => setCreating(true)}
+            mirrorsRailFor="dispatch"
+            onRailInvoke={() => setCreating(true)}
+          >
             New dispatch
           </PageActionButton>
         )}
       </PageHeader>
-      <CompositePageControls />
+      <CompositePageControls section={section} />
 
       {section === 'dispatch' && (
         <FoldSection title="Runs" summary="Background dispatch history" persist={false}>
@@ -12014,8 +12059,9 @@ function ScheduledSection({
       >
         <NewScheduleControl onAdd={addFromTemplate} />
       </PageHeader>
-      <SearchBox value={query} onChange={setQuery} placeholder="Search routines…" />
+      <SearchBox value={query} onChange={setQuery} placeholder="Search routines…" mirrorsRailFor="scheduled" />
       <CompositePageControls
+        section="scheduled"
         filter={
           <ScheduledFilterMenu
             filter={routineFilter}
@@ -12201,6 +12247,8 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
       <PageActionButton
         icon={<Plus size={15} />}
         onClick={() => setOpen((o) => !o)}
+        mirrorsRailFor="scheduled"
+        onRailInvoke={() => setOpen(true)}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
@@ -12400,7 +12448,7 @@ function ScheduledDetail({
         )}
       </header>
 
-      {!selectedSection && <CompositePageControls />}
+      {!selectedSection && <CompositePageControls section="scheduled" />}
         <div>
           {!sectionAllowed && selectedSection && (
             <div className="border-t border-line-strong py-6">
@@ -13733,15 +13781,20 @@ function SearchBox({
   value,
   onChange,
   placeholder,
+  mirrorsRailFor,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder: string
+  mirrorsRailFor?: SectionId
 }) {
+  const input = useRef<HTMLInputElement>(null)
+  useCompositeCommand(mirrorsRailFor, 'focus-search', () => input.current?.focus())
   return (
     <div className="mb-5 flex items-center gap-2.5 rounded-md border border-line bg-surface px-3.5 py-2.5 transition focus-within:border-co">
       <Search size={17} className="shrink-0 text-ink-faint" />
       <input
+        ref={input}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}

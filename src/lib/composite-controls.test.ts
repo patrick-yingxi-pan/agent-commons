@@ -13,6 +13,7 @@ import {
   sectionViewComponent,
   stripComments,
 } from '../../tests/helpers/source.ts'
+import { COMPOSITE_FEATURES } from './compositeFeatures.ts'
 
 const fn = (name: string) => stripComments(sectionViewComponent(name))
 const templateFn = (name: string) => stripComments(resourcePageComponent(name))
@@ -22,6 +23,8 @@ test('the composite template owns one toolbar for filters and discovered fold wo
   assert.match(controls, /data-composite-page-controls/)
   assert.match(controls, /<FoldPairButtons\b/, 'page and rail share the exact fold pair')
   assert.match(controls, /\{filter\}/, 'the filter occupies the same template toolbar')
+  assert.match(controls, /requestCompositeFold\(section, false\)/, 'page fold publishes the shared two-projection request')
+  assert.match(controls, /useFocusedCompositeFold/, 'the focused page consumes that request')
 
   const section = templateFn('ResourcePageSection')
   assert.match(section, /register\?\.register/, 'every rendered structural section joins the page fold scope')
@@ -77,4 +80,45 @@ test('composite pages without facets still expose discovered fold controls', () 
   ]) {
     assert.match(fn(name), /<CompositePageControls\b/, `${name} uses the composite toolbar`)
   }
+})
+
+test('primary actions and local search are catalogued and projected from both surfaces', () => {
+  const sectionView = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
+  const rail = stripComments(read(join(ROOT, 'src', 'components', 'CompositeRailControls.tsx')))
+  const action = stripComments(read(join(ROOT, 'src', 'components', 'PageActionButton.tsx')))
+
+  assert.match(sidebar, /<CompositeRailControls\b/, 'every rail root projects the shared feature catalog')
+  assert.match(rail, /COMPOSITE_FEATURES\[section\]/, 'the compact projection is driven by the one catalog')
+  assert.match(action, /useCompositeCommand\(mirrorsRailFor, 'primary-action'/, 'page actions answer the rail command through one primitive')
+
+  for (const [section, features] of Object.entries(COMPOSITE_FEATURES)) {
+    if (features.primaryAction) {
+      assert.match(
+        sectionView,
+        new RegExp(`mirrorsRailFor="${section}"`),
+        `${section}'s main action registers the rail projection`,
+      )
+    }
+    if (features.search) {
+      assert.match(
+        sectionView,
+        new RegExp(`<SearchBox[^>]+mirrorsRailFor="${section}"`),
+        `${section}'s local search answers the rail projection`,
+      )
+    }
+  }
+})
+
+test('rail commands target only the focused pane and bulk fold reaches its rail branch', () => {
+  const mainSplit = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
+  const sectionPane = stripComments(read(join(ROOT, 'src', 'components', 'SectionPane.tsx')))
+  const sectionView = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
+
+  assert.match(mainSplit, /focused=\{focused\}/, 'the split leaf reports which pane the rail controls')
+  assert.match(sectionPane, /railProjectionActive=\{focused\}/, 'the section pane carries focus to the page')
+  assert.match(sectionView, /<CompositeProjectionScope active=\{railProjectionActive\}>/)
+  assert.match(sidebar, /useCompositeFoldSignal\(\)/, 'the rail branch consumes the same fold signal as the page')
+  assert.match(sidebar, /branchFoldSignals\[id\] \?\? railFoldSignal/, 'resource fold propagates through nested rail children')
 })

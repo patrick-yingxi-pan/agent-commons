@@ -59,8 +59,8 @@ import {
   type CollectionSection,
 } from '../lib/collectionSections'
 
-/** A rail-wide Fold all / Unfold all request. The revision makes two presses of
- * the same action observable; nested branches apply it when they mount. */
+/** A rail-wide Fold all / Unfold all request. Each request is a fresh object;
+ * nested branches also apply the current object when they mount. */
 export type RailFoldSignal = { revision: number; expanded: boolean }
 
 /** One structural guide. Nest it once per disclosed level; every row can then
@@ -215,7 +215,7 @@ export function AgentTreeChildren({
       ? AGENT_SECTIONS.flatMap((section) => [section.id, ...section.children.map((child) => child.id)])
       : []
     setOpen(new Set(all))
-  }, [foldSignal?.revision])
+  }, [foldSignal])
   const toggle = (id: string) => setOpen((current) => {
     const next = new Set(current)
     next.has(id) ? next.delete(id) : next.add(id)
@@ -504,7 +504,7 @@ function ProjectBranch({
   }, [branchActive])
   useEffect(() => {
     if (foldSignal) setExpanded(foldSignal.expanded)
-  }, [foldSignal?.revision])
+  }, [foldSignal])
   return (
     <>
       <div
@@ -710,7 +710,7 @@ function ProjectSectionBranch({
   }, [sectionActive])
   useEffect(() => {
     if (foldSignal) setExpanded(foldSignal.expanded)
-  }, [foldSignal?.revision])
+  }, [foldSignal])
   const hasResources = rows.length > 0
   const visible = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
   return (
@@ -826,7 +826,7 @@ function CollectionSectionBranch({
   }, [sectionActive, containsActiveLeaf])
   useEffect(() => {
     if (foldSignal) setExpanded(foldSignal.expanded)
-  }, [foldSignal?.revision])
+  }, [foldSignal])
   const hasResources = group.items.length > 0
   const visible = showAll ? group.items : group.items.slice(0, RAIL_INSTANCE_CAP)
   return (

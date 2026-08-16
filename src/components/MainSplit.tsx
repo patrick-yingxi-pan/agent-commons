@@ -125,7 +125,7 @@ export function MainSplitGate({
     if (!leaf) return <Background />
     return (
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas" data-main-pane={leaf.path || 'root'} data-focused>
-        <PaneBody content={leaf.content} path={leaf.path} rev={leaf.rev} nav={nav} onFillPane={onFillPane} onReportAt={onReportAt} />
+        <PaneBody content={leaf.content} path={leaf.path} rev={leaf.rev} focused nav={nav} onFillPane={onFillPane} onReportAt={onReportAt} />
       </div>
     )
   }
@@ -203,6 +203,7 @@ function PaneBody({
   nav,
   onFillPane,
   onReportAt,
+  focused,
 }: {
   content: MainPaneContent
   path: string
@@ -212,6 +213,7 @@ function PaneBody({
   nav: MainPaneNav
   onFillPane: (path: string, content: MainPaneContent) => void
   onReportAt: (path: string, at: PaneAt, hist: PaneSeed[], rev: number) => void
+  focused: boolean
 }) {
   const fillWith = useCallback(
     (target: MainPaneContent) => onFillPane(path, withBackPush(c, target, nav.sessionLabel)),
@@ -272,6 +274,7 @@ function PaneBody({
       // that already replaced the leaf (reportPaneAt drops mismatches).
       onAt={(at, hist) => onReportAt(path, at, hist, rev ?? 0)}
       backOut={backOut}
+      focused={focused}
     />
   ) : c.kind === 'msession' ? (
     <ConversationPane sessionId={c.id} nav={paneNav} backOut={backOut} />
@@ -332,7 +335,15 @@ function Branch(props: BranchProps) {
         data-focused={focused || undefined}
         onPointerDownCapture={() => onFocusPane(path)}
       >
-        <PaneBody content={c} path={path} rev={node.rev} nav={props.nav} onFillPane={props.onFillPane} onReportAt={props.onReportAt} />
+        <PaneBody
+          content={c}
+          path={path}
+          rev={node.rev}
+          focused={focused}
+          nav={props.nav}
+          onFillPane={props.onFillPane}
+          onReportAt={props.onReportAt}
+        />
       </div>
     )
   }

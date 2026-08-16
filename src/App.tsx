@@ -29,6 +29,7 @@ import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
 import { redeemShareLink } from './api'
 import type { RoutedView } from './lib/urlRoutes'
+import { requestCompositeCommand } from './lib/compositeFeatures'
 
 /** S6 — a share-link boot (`/shared/:token`), captured at module scope BEFORE
  *  the router consumes the boot address (viewForPath treats the shape as
@@ -496,6 +497,13 @@ function Workspace() {
                 // An instance child (UI-19): the section, with that row open —
                 // the same door a notification or a link uses.
                 onOpenDetail={openDetail}
+                onCompositeCommand={(section, kind) => {
+                  // Route the FOCUSED pane to the composite root first. The
+                  // command remains pending across that remount and only the
+                  // focused matching page may consume it.
+                  openSection(section)
+                  requestCompositeCommand(section, kind)
+                }}
                 onLeafNavigate={railOverlay ? closeLeft : undefined}
                 onOpenSchedule={withRailClose(openSchedule)}
                 onPinSession={pinSession}
