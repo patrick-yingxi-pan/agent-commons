@@ -87,6 +87,7 @@ export function SubNavRow({
 }) {
   return (
     <button
+      data-rail-entry
       onClick={onClick}
       title={title}
       aria-current={active ? 'page' : undefined}
@@ -161,6 +162,20 @@ export function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: b
       {open ? 'Show fewer' : `Show all — ${hidden} more`}
     </button>
   )
+}
+
+/** Keep the canonical head compact without making the currently addressed
+ * resource disappear. This matters when a new split remounts a branch whose
+ * source view had temporarily unfolded its tail. */
+function cappedWithActive<T>(
+  rows: T[],
+  showAll: boolean,
+  active: (row: T) => boolean,
+): T[] {
+  if (showAll || rows.length <= RAIL_INSTANCE_CAP) return rows
+  const visible = rows.slice(0, RAIL_INSTANCE_CAP)
+  const current = rows.find(active)
+  return current && !visible.includes(current) ? [...visible, current] : visible
 }
 
 /** Agents is a composite rather than a flat surface switcher. The same
@@ -333,7 +348,7 @@ function AgentStructureRow({
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
       ) : <span className="h-5 w-5 shrink-0" aria-hidden />}
-      <button onClick={onOpen} aria-current={active ? 'page' : undefined} className="min-w-0 flex-1 truncate text-left">{label}</button>
+      <button data-rail-entry onClick={onOpen} aria-current={active ? 'page' : undefined} className="min-w-0 flex-1 truncate text-left">{label}</button>
       {count !== undefined && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{count}</span>}
     </div>
   )
@@ -365,13 +380,14 @@ function AgentLeafList({ rows, empty, activeId, onOpen }: {
 }) {
   const [showAll, setShowAll] = useState(false)
   if (rows.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
-  const visible = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
+  const visible = cappedWithActive(rows, showAll, (row) => row.id === activeId)
+  const hidden = rows.length - visible.length
   return (
     <>
       {visible.map((row) => (
         <SubNavRow key={row.id} label={row.label} title={row.label} active={activeId === row.id} onClick={() => onOpen(row.id)} />
       ))}
-      {rows.length > RAIL_INSTANCE_CAP && <ShowAllRow hidden={rows.length - RAIL_INSTANCE_CAP} open={showAll} onToggle={() => setShowAll((value) => !value)} />}
+      {(showAll || hidden > 0) && <ShowAllRow hidden={hidden} open={showAll} onToggle={() => setShowAll((value) => !value)} />}
     </>
   )
 }
@@ -439,7 +455,8 @@ function InstanceRows({
   // row folds (these children unmount while collapsed), the tree's own idiom.
   const [showAll, setShowAll] = useState(false)
   if (rows.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
-  const head = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
+  const head = cappedWithActive(rows, showAll, (row) => row.id === activeId)
+  const hidden = rows.length - head.length
   return (
     <>
       {head.map((r) => (
@@ -451,9 +468,9 @@ function InstanceRows({
           onClick={() => onOpenDetail(section, key ? { [key]: r.id } : {})}
         />
       ))}
-      {rows.length > RAIL_INSTANCE_CAP && (
+      {(showAll || hidden > 0) && (
         <ShowAllRow
-          hidden={rows.length - RAIL_INSTANCE_CAP}
+          hidden={hidden}
           open={showAll}
           onToggle={() => setShowAll((v) => !v)}
         />
@@ -469,13 +486,14 @@ function ProjectChildren({ foldSignal, ...props }: InstanceChildProps & { foldSi
   const rows = listProjects(rel.allProjects(), filter, myOrgIds)
   const [showAll, setShowAll] = useState(false)
   if (rows.length === 0) return <NoRowsRow>No projects here yet.</NoRowsRow>
-  const head = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
+  const head = cappedWithActive(rows, showAll, (project) => project.id === props.activeSeed?.projectId)
+  const hidden = rows.length - head.length
   return (
     <>
       {head.map((project) => <ProjectBranch key={project.id} project={project} foldSignal={foldSignal} {...props} />)}
-      {rows.length > RAIL_INSTANCE_CAP && (
+      {(showAll || hidden > 0) && (
         <ShowAllRow
-          hidden={rows.length - RAIL_INSTANCE_CAP}
+          hidden={hidden}
           open={showAll}
           onToggle={() => setShowAll((v) => !v)}
         />
@@ -525,6 +543,7 @@ function ProjectBranch({
           className={`h-1.5 w-1.5 shrink-0 rounded-full ${rootActive ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
         />
         <button
+          data-rail-entry
           onClick={() => onOpenDetail('projects', { projectId: project.id })}
           title={project.name}
           aria-current={rootActive ? 'page' : undefined}
@@ -712,7 +731,8 @@ function ProjectSectionBranch({
     if (foldSignal) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   const hasResources = rows.length > 0
-  const visible = showAll ? rows : rows.slice(0, RAIL_INSTANCE_CAP)
+  const visible = cappedWithActive(rows, showAll, (row) => row.active)
+  const hidden = rows.length - visible.length
   return (
     <>
       <div
@@ -734,6 +754,7 @@ function ProjectSectionBranch({
           <span className="h-5 w-5 shrink-0" aria-hidden />
         )}
         <button
+          data-rail-entry
           onClick={() => onOpenDetail('projects', { projectId, projectSectionId: section.id })}
           aria-current={pageActive ? 'page' : undefined}
           className="min-w-0 flex-1 truncate text-left"
@@ -753,13 +774,13 @@ function ProjectSectionBranch({
               onClick={row.open}
             />
           ))}
-          {rows.length > RAIL_INSTANCE_CAP && (
+          {(showAll || hidden > 0) && (
             <button
               onClick={() => setShowAll((value) => !value)}
               aria-expanded={showAll}
               className={`flex w-full items-center rounded-lg py-1.5 pl-2 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
             >
-              {showAll ? 'Show fewer' : `Show all — ${rows.length - RAIL_INSTANCE_CAP} more`}
+              {showAll ? 'Show fewer' : `Show all — ${hidden} more`}
             </button>
           )}
         </RailTreeBranch>
@@ -828,7 +849,8 @@ function CollectionSectionBranch({
     if (foldSignal) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   const hasResources = group.items.length > 0
-  const visible = showAll ? group.items : group.items.slice(0, RAIL_INSTANCE_CAP)
+  const visible = cappedWithActive(group.items, showAll, (item) => item.id === activeId)
+  const hidden = group.items.length - visible.length
   return (
     <>
       <div
@@ -851,6 +873,7 @@ function CollectionSectionBranch({
           <span className="h-5 w-5 shrink-0" aria-hidden />
         )}
         <button
+          data-rail-entry
           onClick={() => onOpenDetail(section, { collectionSectionId: group.id })}
           aria-current={sectionActive ? 'page' : undefined}
           className="min-w-0 flex-1 truncate text-left"
@@ -870,9 +893,9 @@ function CollectionSectionBranch({
               onClick={() => onOpenDetail(section, item.seed)}
             />
           ))}
-          {group.items.length > RAIL_INSTANCE_CAP && (
+          {(showAll || hidden > 0) && (
             <ShowAllRow
-              hidden={group.items.length - RAIL_INSTANCE_CAP}
+              hidden={hidden}
               open={showAll}
               onToggle={() => setShowAll((value) => !value)}
             />

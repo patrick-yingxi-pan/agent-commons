@@ -1,6 +1,6 @@
 /** Locking tests: the split frame's pure tree math (src/lib/splitFrame.ts, spec
  *  ADAPT-16) — the general tiling model for the right panel area. Dependency-free
- *  math, node-tested like railPanes. */
+ *  math, node-tested like railSplit. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {

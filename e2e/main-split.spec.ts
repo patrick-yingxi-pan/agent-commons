@@ -461,7 +461,9 @@ test("the rail's active highlight tracks the FOCUSED pane (UI-12 — no singleto
 
   // Split; retarget the focused duplicate at Projects — the SECTION row takes
   // the highlight and the conversation row drops it (the focused pane is now a
-  // section page).
+  // section page). Expanding Sessions focused the rail, so focus main before
+  // asking the shared command cluster for the main-only Split right action.
+  await page.locator('main').dispatchEvent('pointerdown')
   await page.locator('[data-split-view="row"]').click()
   await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
   const sectionRow = rail.locator('nav[aria-label="Sections"]').getByRole('button', { name: 'Projects', exact: true })

@@ -74,7 +74,7 @@ test('the always-loaded files stay small, and the moved bodies stay out', () => 
   assert.ok(lines(claude) <= 45, `CLAUDE.md is ${lines(claude)} lines — the budget is 45`)
   // Markers of the bodies that moved out — their reappearance means a decision
   // body was pasted back into the map instead of its scoped home.
-  for (const marker of ['layoutPanes', 'src/lib/railPanes.ts', 'planPop', 'ValidationError', 'src/lib/urlRoutes.ts']) {
+  for (const marker of ['layoutPanes', 'src/lib/railSplit.ts', 'planPop', 'ValidationError', 'src/lib/urlRoutes.ts']) {
     assert.ok(!agents.includes(marker), `AGENTS.md mentions ${marker} — that body lives in a scoped CLAUDE.md now; keep the map a map`)
   }
 })

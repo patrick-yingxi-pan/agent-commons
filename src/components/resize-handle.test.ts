@@ -1,6 +1,6 @@
 /** The ONE resize primitive is keyboard-operable (WCAG 2.1.1, invariant UI-11,
  *  docs/ui-invariants.md): every drag-resizable divider — rail width, panel width,
- *  the rail's pane-height gutters — is a focusable `role="separator"` that axis
+ *  the rail's split-view gutters — is a focusable `role="separator"` that axis
  *  arrow keys step through the SAME start → move → end pipeline a pointer drag
  *  runs, wearing a distinct accessible name. Because every divider routes through
  *  `ResizeHandle`, locking the funnel + enumerating its call sites covers the
@@ -77,16 +77,10 @@ test('every call site names its divider, and no two names collide', () => {
   // (two separators reading the same) fails loudly.
   const labels = [...components.matchAll(/label="(Resize [^"]+)"/g)].map((m) => m[1])
   assert.deepEqual(labels.sort(), [
-    'Resize lower rail pane',
     'Resize panel',
     'Resize sidebar',
   ])
   assert.equal(new Set(labels).size, labels.length, 'separator names are pairwise distinct')
-  // The pane gutter forwards its label into the shared handle rather than
-  // hardcoding one (the funnel stays the single naming door). side="top": the gutter
-  // rides ABOVE the pane it resizes, so dragging / arrowing up grows that pane.
-  const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  assert.match(sidebar, /<ResizeHandle\s+side="top"\s+label=\{label\}/)
   // The universal split's pane dividers name themselves per split-node PATH (a
   // template label) — pairwise distinct by construction, so they satisfy the same
   // no-collision rule the static names above pin. (The old right-frame's "Resize
@@ -94,6 +88,8 @@ test('every call site names its divider, and no two names collide', () => {
   // context panels included.)
   const mainSplit = read(join(ROOT, 'src', 'components', 'MainSplit.tsx'))
   assert.match(mainSplit, /label=\{`Resize view panes \(\$\{path \|\| 'root'\}\)`\}/)
+  const railSplit = read(join(ROOT, 'src', 'components', 'RailSplit.tsx'))
+  assert.match(railSplit, /label=\{`Resize sidebar views \(\$\{path \|\| 'root'\}\)`\}/)
 })
 
 test('a gesture persists the value it just produced — the move handler refreshes the ref, and onEnd reads it', () => {
@@ -103,9 +99,9 @@ test('a gesture persists the value it just produced — the move handler refresh
   // resize owner must write its ref where the value is born, not just at render —
   // AND its onEnd must persist THE REF, not the render-stale state closure (an
   // innocuous-looking "read state instead of ref" cleanup reintroduces the bug).
-  const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
-  assert.match(sidebar, /lowerHRef\.current = h\s*\n\s*setLowerH\(h\)/)
-  assert.match(sidebar, /setLayout\('railSplitH', lowerHRef\.current\)/)
+  const railController = stripComments(read(join(ROOT, 'src', 'controller', 'useRailSplit.ts')))
+  assert.match(railController, /commit\(setRatio\(treeRef\.current, path, ratio\)\)/)
+  assert.match(railController, /setRailSplitPref\(next\)/, 'every ratio commit persists the resulting tree')
   const layoutHook = stripComments(read(join(ROOT, 'src', 'controller', 'useLayout.ts')))
   assert.match(layoutHook, /leftWRef\.current = w\s*\n\s*setLeftW\(w\)/)
   assert.match(layoutHook, /setLayout\('leftW', leftWRef\.current\)/)
@@ -116,12 +112,13 @@ test('a gesture persists the value it just produced — the move handler refresh
 
 test('each divider announces the same range its clamp enforces (no drifting bounds)', () => {
   // The value/min/max wiring per call site: the rail reads useLayout's exported
-  // LEFT_MIN/LEFT_MAX, the panel its PANEL_MIN/PANEL_MAX, and each pane gutter the
-  // EFFECTIVE height + the same paneMax ceiling dragPane clamps to.
+  // LEFT_MIN/LEFT_MAX, the panel its PANEL_MIN/PANEL_MAX, and each split gutter
+  // the same percentage bounds enforced by splitFrame's clampRatio.
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
   assert.match(sidebar, /value=\{railW\}\s*\n\s*min=\{LEFT_MIN\}\s*\n\s*max=\{LEFT_MAX\}/)
-  assert.match(sidebar, /value=\{paneOf\('lower'\)!\.height\}\s*\n\s*max=\{paneMax\('lower', paneInputs, avail\)\}/)
-  assert.match(sidebar, /min=\{RAIL_PANE_MIN\}/, 'the gutter floor is the pane min')
+  const railSplit = stripComments(read(join(ROOT, 'src', 'components', 'RailSplit.tsx')))
+  assert.match(railSplit, /value=\{Math\.round\(\(1 - ratio\) \* 100\)\}\s*\n\s*min=\{15\}\s*\n\s*max=\{85\}/)
+  assert.match(railSplit, /onRatio\(path, \(clientY - rect\.top\) \/ Math\.max\(1, rect\.height\)\)/)
   const panel = stripComments(read(join(ROOT, 'src', 'components', 'PanelShell.tsx')))
   assert.match(panel, /value=\{width\}\s*\n\s*min=\{PANEL_MIN\}\s*\n\s*max=\{PANEL_MAX\}/)
 })

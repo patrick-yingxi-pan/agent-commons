@@ -58,8 +58,13 @@ what the document or the sibling component claims.
   field and `CompositePageControls` answer the command. Fold all / Unfold all
   publishes one signal consumed by both rendered structures, including local
   dynamic bands; `persist={false}` still keeps their titles out of `uiPrefs`.
-  Rail caps/chevrons and page scroll are projection mechanics, not second
-  resource features.
+  Density may adapt, but a standing capability cannot disappear.
+- **Split/close is one focus-aware command surface.** `PaneActionButtons` is
+  reused for main and rail. Main focus offers its existing row/column split;
+  selecting any `[data-rail-entry]` changes the same cluster to vertical-only
+  rail split, and Close pane deletes the focused rail view. `RailSplit` renders
+  the generic binary tree; do not add rail-only split menus or per-pane close
+  buttons.
 - **An index entry is a synopsis, not a compressed detail page.** Ordinary
   addressable rows consume `ResourcePageSynopsisRow`: 13px identity, one 12px
   descriptor and one 11px state/count field in a frameless divider ledger.

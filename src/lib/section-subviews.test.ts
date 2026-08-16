@@ -201,43 +201,28 @@ test('the rail has explicit fold/unfold-all controls that reach the whole tree',
   assert.match(children, /if \(foldSignal\) setExpanded\(foldSignal\.expanded\)/, 'nested branches consume the same request')
 })
 
-test('the rail is one forest whose generic split can isolate any ordered suffix', () => {
+test('the rail is one forest whose vertical split can anchor any selected entry', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
+  const railSplit = read(join(ROOT, 'src', 'components', 'RailSplit.tsx'))
+  const railController = read(join(ROOT, 'src', 'controller', 'useRailSplit.ts'))
   // Two landmark-unique rail navs (WCAG): New session ("Create") and the Sections tree.
   assert.match(sidebar, /<nav aria-label="Create" className="mt-3 shrink-0 px-2">/)
   assert.match(sidebar, /aria-label="Sections"/, 'the one resource nav is labeled')
-  assert.match(sidebar, /ref=\{stackRef\}/, 'the pane stack is a measured region')
-  assert.match(sidebar, /splitRailSections\(visibleSections, splitStart\)/)
-  assert.match(sidebar, /label: 'Lower pane'/)
-  assert.match(sidebar, /label: `Start at \$\{SECTION_META\[id\]\.label\}`/)
-  assert.match(sidebar, /label: 'Close upper pane'/)
-  assert.match(sidebar, /label: 'Close lower pane'/)
-  assert.match(sidebar, /planRailPaneClose\(sectionGroups, closing\)/)
-  assert.match(sidebar, /useLayoutEffect\(\(\) => \{\s*const pending = pendingPaneCloseRef\.current/)
-  assert.match(sidebar, /data-rail-scroll-pane=/, 'each projection has an independent scroll anchor')
-  assert.match(sidebar, /data-section-root=\{sectionId\}/, 'the surviving lower pane can anchor its first root')
+  assert.match(sidebar, /<RailSplit/)
+  assert.match(sidebar, /visibleSections\.map\(\(id\) =>/, 'each split leaf projects the complete forest')
+  assert.match(sidebar, /data-rail-entry/, 'top-level resources can become a split anchor')
+  assert.match(railSplit, /querySelectorAll<HTMLElement>\('\[data-rail-entry\]'\)/)
+  assert.match(railSplit, /data-rail-scroll-pane=\{path \|\| 'root'\}/, 'each view scrolls independently')
+  assert.match(railSplit, /label=\{`Resize sidebar views \(\$\{path \|\| 'root'\}\)`\}/)
+  assert.match(railController, /path: string\s+index: number\s+label: string/)
+  assert.match(railController, /splitRailView\(tree, path, selection\.index, selection\.label, nextRailViewId\(\)\)/)
+  assert.match(railSplit, /sameLabel\.find/, 'a remounted/capped tree recovers the selected semantic row')
   assert.doesNotMatch(sidebar, /PaneFoldHeader|railSectionsOpen|railRecentsOpen/)
   assert.match(sidebar, /id === 'sessions' \? \(\s*<SessionTreeChildren/)
   assert.doesNotMatch(sidebar, /data-rail-pane="scheduled"|railScheduledH|schedOpen/)
-  // Dividers are in-flow gutters (PaneDivider) riding ABOVE the pane they resize, gated
-  // on the pane's own layout.divider so a folded/flex pane has none; dropped entirely on
-  // the narrow tier (ADAPT-11). Sections is the flex pane (top-most open), so it carries
-  // no stored height and no divider of its own.
-  assert.match(sidebar, /<PaneDivider/, 'dividers are the in-flow gutter primitive')
-  assert.match(sidebar, /paneOf\('lower'\)\?\.divider/)
-  assert.match(sidebar, /layoutPanes/, 'pane heights come from the split-layout reducer')
-  assert.match(sidebar, /setLayout\('railSplitH'/)
-  // A too-short rail scrolls instead of spilling over the account chip: the resizable
-  // stack keeps an overflow fallback and the flex pane floors at a pane-min (can't be
-  // squeezed to 0px).
-  assert.match(sidebar, /flex min-h-0 flex-1 flex-col overflow-y-auto/)
-  assert.match(sidebar, /min-h-\[6rem\] flex-1 flex-col/, 'the flex pane floors at a pane-min')
-  assert.match(sidebar, /getLayout\('railSplitStart', 'sessions'\)/, 'Sessions is the default lower-pane boundary')
+  assert.doesNotMatch(sidebar, /Lower pane|Close upper pane|Close lower pane|railSplitStart|railSplitH/)
   // The old duplicate-container accordion is gone.
   assert.doesNotMatch(sidebar, />Sections<|>Recents</)
-  assert.doesNotMatch(sidebar, /railPaneHeights/)
-  assert.doesNotMatch(sidebar, /flex-auto overflow-y-auto/)
-  assert.doesNotMatch(sidebar, /min-h-\[9rem\]/)
 })
 
 test('the section body + controller route through the registry; a section lands on its default', () => {

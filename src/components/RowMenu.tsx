@@ -194,7 +194,7 @@ export function RowMenu({
 }
 
 /** A generic single-choice submenu used when a toolbar preference belongs in
- * the same compact action menu as commands (for example the rail split point). */
+ * the same compact action menu as commands (for example grouping or sorting). */
 function ChoiceRow({
   label,
   icon,

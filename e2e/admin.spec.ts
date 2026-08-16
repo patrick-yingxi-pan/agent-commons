@@ -54,7 +54,7 @@ test('the console: hidden unsigned, full for the maintainer, absent for everyone
   await expect(page.getByRole('heading', { name: 'Grace Hopper' })).toBeVisible()
   await expect(page).toHaveURL(/\/admin\/users\/user-grace$/)
   await expect(page.getByText('Organization seats')).toBeVisible()
-  await expect(page.getByText('Bearer tokens')).toBeVisible()
+  await expect(page.getByText('Bearer tokens', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: /^Back/ }).click()
   await expect(page.getByRole('heading', { name: 'Maintain' })).toBeVisible()
 

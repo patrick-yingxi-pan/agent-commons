@@ -1,7 +1,7 @@
 /** Keyboard operability of the ONE resize primitive (WCAG 2.1.1, invariant UI-11,
  *  docs/ui-invariants.md): every drag divider is a focusable separator that axis
  *  arrow keys step and that announces its value (aria-valuenow, WCAG 4.1.2). Wired
- *  proofs: the vertical rail-width handle, a horizontal pane gutter, and the panel
+ *  proofs: the vertical rail-width handle, a horizontal rail-view split, and the panel
  *  handle — the one strip that rides a width-ANIMATED container, where rapid
  *  presses once swallowed steps; the source lock (src/components/resize-handle.test.ts)
  *  enumerates the one remaining call site through the same funnel. Also locks that
@@ -27,7 +27,7 @@ async function settled(page: Page, target: Locator, dim: 'width' | 'height'): Pr
   return prev
 }
 
-test('arrow keys resize the rail and a rail pane through the focused separator, and the result persists', async ({ page }) => {
+test('arrow keys resize the rail and a focused rail split through shared separators, and the result persists', async ({ page }) => {
   // Tall enough that the split rail has headroom above its clamp — a short rail
   // would pin the lower pane's ceiling near its default and the coarse step would
   // read as "keyboard broken" when it's the clamp.
@@ -50,10 +50,13 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   const w3 = await settled(page, rail, 'width')
   expect(w3, 'the step inverts').toBeLessThanOrEqual(w2 - 12)
 
-  // ── Horizontal separator (pane gutter): Up/Down arrows step it, Shift coarse. ──
-  // The gutter rides ABOVE the fixed lower pane it resizes.
-  const lower = page.locator('[data-rail-pane="lower"]')
-  const paneHandle = page.getByRole('separator', { name: 'Resize lower rail pane' })
+  // ── Focus-aware rail split: pick any navigation entry, then the shared Split
+  // down action creates a lower view anchored to it. Its generic split-tree
+  // separator uses the same Up/Down keyboard pipeline.
+  await page.locator('[data-rail-pane="root"]').getByRole('button', { name: 'Projects', exact: true }).click()
+  await page.getByRole('button', { name: 'Split down', exact: true }).click()
+  const lower = page.locator('[data-rail-pane="b"]')
+  const paneHandle = page.getByRole('separator', { name: 'Resize sidebar views (root)' })
   await expect(paneHandle).toBeVisible()
   const h0 = await settled(page, lower, 'height')
   await paneHandle.focus()
@@ -62,16 +65,22 @@ test('arrow keys resize the rail and a rail pane through the focused separator, 
   expect(h1, 'Shift steps coarse (64px ± the half-gutter bias)').toBeGreaterThanOrEqual(h0 + 48)
 
   // ── The keyboard gesture persisted what it rendered (not one step stale). ──
-  // The layout blob is scoped PER ACCOUNT (src/lib/uiPrefs.ts) — resolve the
-  // active account's key the way App.tsx does (the resolved /me user).
+  // Both preference stores are scoped PER ACCOUNT — resolve the active account
+  // the way App.tsx does.
   const stored = await page.evaluate(async () => {
     const me = (await (await fetch('/api/v1/me')).json()) as { user: { id: string } }
-    const raw = localStorage.getItem(`claude-ui.layout.v1.${me.user.id}`)
-    const layout = raw ? (JSON.parse(raw) as { leftW?: number; railSplitH?: number }) : {}
-    return { leftW: layout.leftW, railSplitH: layout.railSplitH }
+    const layoutRaw = localStorage.getItem(`claude-ui.layout.v1.${me.user.id}`)
+    const railRaw = localStorage.getItem(`claude-ui.railsplit.v1.${me.user.id}`)
+    const layout = layoutRaw ? (JSON.parse(layoutRaw) as { leftW?: number }) : {}
+    const railTree = railRaw ? (JSON.parse(railRaw) as { kind?: string; ratio?: number }) : {}
+    return { leftW: layout.leftW, railRatio: railTree.ratio }
   })
   expect(Math.abs((stored.leftW ?? 0) - w3), 'stored rail width matches the rendered one').toBeLessThanOrEqual(1)
-  expect(Math.abs((stored.railSplitH ?? 0) - h1), 'stored pane height matches the rendered one').toBeLessThanOrEqual(1)
+  expect(stored.railRatio).toBeDefined()
+  expect(
+    Math.abs((1 - (stored.railRatio ?? 0)) * 100 - Number(await paneHandle.getAttribute('aria-valuenow'))),
+    'stored rail ratio matches the separator value',
+  ).toBeLessThanOrEqual(1)
 })
 
 test('the overlay panel separator takes RAPID keyboard steps, announces its value, and persists', async ({ page }) => {

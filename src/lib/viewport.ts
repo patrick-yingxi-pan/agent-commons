@@ -63,6 +63,12 @@ export function canSplitCol(tier: ViewportTier, height: number): boolean {
   return tier === 'wide' && height >= SPLIT_COL_MIN_H
 }
 
+/** Rail views are already a narrow vertical column, so their only split uses
+ * height independently of the main workspace's wide-tier tiling rule. */
+export function canSplitRailCol(height: number): boolean {
+  return height >= SPLIT_COL_MIN_H
+}
+
 /** The width the right panel actually renders at: full takeover on narrow;
  *  otherwise the user's preferred width clamped so the thread keeps its gutter. */
 export function panelWidthFor(tier: ViewportTier, vw: number, preferred: number): number {
@@ -80,7 +86,12 @@ export function railWidthCss(tier: ViewportTier, preferred: number): string {
   return `${preferred}px`
 }
 
-export type Viewport = { tier: ViewportTier; short: boolean; stackable: boolean }
+export type Viewport = {
+  tier: ViewportTier
+  short: boolean
+  stackable: boolean
+  railStackable: boolean
+}
 
 const measure = (): Viewport => {
   const tier = tierFor(window.innerWidth)
@@ -88,6 +99,7 @@ const measure = (): Viewport => {
     tier,
     short: isShort(window.innerHeight),
     stackable: canSplitCol(tier, window.innerHeight),
+    railStackable: canSplitRailCol(window.innerHeight),
   }
 }
 
@@ -96,15 +108,20 @@ const measure = (): Viewport => {
  *  (assumes a wide, tall window when there's no window). */
 export function useViewport(): Viewport {
   const [viewport, setViewport] = useState<Viewport>(() =>
-    typeof window === 'undefined' ? { tier: 'wide', short: false, stackable: true } : measure(),
+    typeof window === 'undefined'
+      ? { tier: 'wide', short: false, stackable: true, railStackable: true }
+      : measure(),
   )
   useEffect(() => {
     const onResize = () =>
       setViewport((v) => {
         const next = measure()
-        return next.tier === v.tier && next.short === v.short && next.stackable === v.stackable
-          ? v
-          : next
+        const unchanged =
+          next.tier === v.tier &&
+          next.short === v.short &&
+          next.stackable === v.stackable &&
+          next.railStackable === v.railStackable
+        return unchanged ? v : next
       })
     onResize()
     window.addEventListener('resize', onResize)

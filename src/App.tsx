@@ -11,8 +11,10 @@ import { seedFor } from './lib/paneNav'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
 import { OverlayPanelDock } from './components/OverlayPanelDock'
 import { useMainSplit } from './controller/useMainSplit'
+import { useRailSplit } from './controller/useRailSplit'
 import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
+import { setRailSplitScope } from './lib/railSplit'
 import { SearchPanel } from './components/SearchPanel'
 import { keys, onSessionRemoved, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
@@ -88,6 +90,7 @@ export default function App() {
   // resolves — the old account's instance never renders as the new one.
   setUiPrefScope(ident.user.id)
   setMainSplitScope(ident.user.id) // the main split tree is per account, like the layout blob
+  setRailSplitScope(ident.user.id)
   return <Workspace key={ident.user.id} />
 }
 
@@ -138,6 +141,35 @@ function Workspace() {
     closeFocused,
     setMainRatio,
   } = useMainSplit({ sessionTitle: sessionLabel })
+
+  // ── The RAIL split: the same focused-leaf interaction as main, deliberately
+  // restricted to vertical views of the one account-resource forest.
+  const {
+    railTree,
+    focusedRailPane,
+    railCanSplit,
+    railCanClose,
+    focusRailPane,
+    selectRailEntry,
+    splitFocusedRail,
+    closeFocusedRail,
+    setRailRatio,
+  } = useRailSplit()
+  const [focusedArea, setFocusedArea] = useState<'main' | 'rail'>('main')
+  const focusRailArea = useCallback(
+    (path: string) => {
+      setFocusedArea('rail')
+      focusRailPane(path)
+    },
+    [focusRailPane],
+  )
+  const selectRailAreaEntry = useCallback(
+    (path: string, index: number, label: string) => {
+      setFocusedArea('rail')
+      selectRailEntry(path, index, label)
+    },
+    [selectRailEntry],
+  )
 
   // Mirror for stable callbacks (mainPaneNav must not rebuild per focus hop).
   const focusedContentRef = useRef(focusedContent)
@@ -237,7 +269,7 @@ function Workspace() {
   // would crush the conversation column, so it overlays as a drawer (with a scrim)
   // instead of sitting side-by-side; on narrow (a phone) the left rail becomes an
   // off-canvas drawer too and the right panel takes over the whole viewport.
-  const { tier, stackable } = useViewport()
+  const { tier, stackable, railStackable } = useViewport()
   const panelOverlay = tier !== 'wide'
   const railOverlay = tier === 'narrow'
 
@@ -426,16 +458,14 @@ function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-once by design
   }, [])
 
-  // The focused-pane acts, gated ONCE by the responsive rules and handed to
-  // every host alike (the expanded rail's header and the collapsed MiniRail),
-  // each split direction on ITS OWN viewport axis (canSplitRow: width — the
-  // wide tier; canSplitCol: height on top of it), close iff either split is
-  // offered AND a closable pane exists. Hoisted so the two hosts can't drift
-  // in when they offer them.
-  const paneSplitRowAct = canSplitRow(tier) ? () => splitView('row') : undefined
-  const paneSplitColAct = stackable ? () => splitView('col') : undefined
-  const paneCloseAct =
-    (paneSplitRowAct || paneSplitColAct) && focusedClosable
+  // The original main-pane acts, gated once by their respective viewport axes.
+  // The expanded rail switches this shared cluster by focus below; the
+  // collapsed MiniRail can only address main panes because no rail view is
+  // available to focus while the rail is closed.
+  const mainSplitRowAct = canSplitRow(tier) ? () => splitView('row') : undefined
+  const mainSplitColAct = stackable ? () => splitView('col') : undefined
+  const mainCloseAct =
+    (mainSplitRowAct || mainSplitColAct) && focusedClosable
       ? () =>
           closeFocused(() => {
             // The focus-driven context panel: clear its OWNING session's STORE
@@ -449,6 +479,23 @@ function Workspace() {
             }
           })
       : undefined
+  // One command cluster, two focused surfaces. Main keeps both original split
+  // directions; the rail exposes only Split down, and only after an arbitrary
+  // navigation entry in its focused view has been selected. Close deletes the
+  // focused view in either surface, with the last rail view protected.
+  const paneSplitRowAct = focusedArea === 'main' ? mainSplitRowAct : undefined
+  const paneSplitColAct =
+    focusedArea === 'rail'
+      ? railStackable && railCanSplit
+        ? splitFocusedRail
+        : undefined
+      : mainSplitColAct
+  const paneCloseAct =
+    focusedArea === 'rail'
+      ? railCanClose
+        ? closeFocusedRail
+        : undefined
+      : mainCloseAct
 
   return (
     <RelationsProvider navigate={navigateToSection}>
@@ -517,6 +564,12 @@ function Workspace() {
                 onSplitRow={paneSplitRowAct}
                 onSplitCol={paneSplitColAct}
                 onCloseView={paneCloseAct}
+                paneActionTarget={focusedArea}
+                railTree={railTree}
+                focusedRailPane={focusedRailPane}
+                onFocusRailPane={focusRailArea}
+                onSelectRailEntry={selectRailAreaEntry}
+                onRailRatio={setRailRatio}
                 resizable={!railOverlay}
                 railW={leftW}
                 onResizeStart={startResize}
@@ -544,9 +597,9 @@ function Workspace() {
               onExpand={openLeft}
               onOpenSearch={() => setSearchOpen(true)}
               onOpenNotifications={() => openSection('notifications')}
-              onSplitRow={paneSplitRowAct}
-              onSplitCol={paneSplitColAct}
-              onCloseView={paneCloseAct}
+              onSplitRow={mainSplitRowAct}
+              onSplitCol={mainSplitColAct}
+              onCloseView={mainCloseAct}
             />
           )}
 
@@ -555,6 +608,8 @@ function Workspace() {
             // leaves the tab order / accessibility tree (UI-8) — the drawer and
             // its scrim are siblings, so one attribute covers thread + panel.
             inert={railOverlay && leftOpen}
+            onPointerDownCapture={() => setFocusedArea('main')}
+            onFocusCapture={() => setFocusedArea('main')}
             className="flex min-w-0 flex-1 flex-col"
           >
             {/* Narrow tier: every focused surface WITHOUT its own title bar

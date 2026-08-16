@@ -1,7 +1,7 @@
 /** ── @-mention segmentation (social S8) ──────────────────────────────────────
  *  Split a post body into plain runs and mention runs, given the names the
  *  SERVER resolved. Pure and dependency-free so `node --test` can hold it (the
- *  `railPanes.ts` / `proposalForm.ts` pattern) — the segmentation is the part
+ *  `railSplit.ts` / `proposalForm.ts` pattern) — the segmentation is the part
  *  that can silently go wrong, and it is invisible in a screenshot.
  *
  *  The names are an input, never derived here. A display name in this product

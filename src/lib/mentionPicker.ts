@@ -11,7 +11,7 @@
  *  one thing a composer can do about that is offer it.
  *
  *  Pure and dependency-free (types are erased) so `node --test` can hold it, the
- *  `mentions.ts` / `railPanes.ts` pattern: the query extraction and the ranking
+ *  `mentions.ts` / `railSplit.ts` pattern: the query extraction and the ranking
  *  are exactly the parts that go wrong silently and are invisible in a
  *  screenshot.
  *

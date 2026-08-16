@@ -5,7 +5,7 @@
  *  KEYED BY SESSION ID, so any number of panes can host conversations (each
  *  fully interactive, Phase 3) and two panes on one session share one state.
  *
- *  Pure and dependency-injected on purpose (the railPanes/splitFrame pattern):
+ *  Pure and dependency-injected on purpose (the railSplit/splitFrame pattern):
  *  the transport (send / reattach / cancel — the src/api commands in the real
  *  wiring, a fake in node tests) is passed into the factory, so
  *  src/controller/conversation-store.test.ts locks the keyed isolation, the epoch

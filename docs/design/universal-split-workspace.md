@@ -138,6 +138,24 @@ One per-account layout blob (`claude-ui.workspace-split.v1`, scoped like
 the focused path. Restore prunes against what exists (a deleted session's pane
 collapses); prune at render, never in storage.
 
+### 2.7 The rail as a symmetric, restricted split surface
+
+The rail reuses the same binary split grammar and the same command buttons,
+with one geometrical restriction: rail splits are vertical only. Command scope
+is focus-derived rather than assigned to separate toolbars. Focus in a main
+pane targets the main tree; selecting any `[data-rail-entry]` in any rail leaf
+targets the rail tree, exposes Split down, and records that arbitrary entry as
+the new lower view's visual anchor. Close pane removes the focused leaf and
+promotes its sibling. The final rail leaf is protected.
+
+Every rail leaf remains an independently scrolling projection of the complete
+account-resource forest. Anchoring a nested selected entry at the top of a new
+view is layout, not ontology: it does not reparent the resource, change its
+canonical URL, or mint a utility header. `railSplit.ts` specializes the generic
+`SplitNode` to `col`, `useRailSplit` owns focus/selection edits, and `RailSplit`
+renders the shared `ResizeHandle`. The tree and ratios persist per account under
+`claude-ui.railsplit.v1`.
+
 ## 3. Phases (each lands green, with tests)
 
 1. **Conversation store extraction** — ✅ **LANDED 2026-07-15**: the

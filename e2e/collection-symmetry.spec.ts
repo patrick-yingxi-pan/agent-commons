@@ -98,78 +98,70 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
   await expect(rail.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await expect(page.getByRole('separator', { name: 'Resize lower rail pane' })).toBeVisible()
   await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Lower pane', exact: true }).hover()
-  await expect(page.getByRole('menuitemradio', { name: 'Start at Sessions', exact: true })).toBeChecked()
+  const railMenu = page.getByRole('menu', { name: 'Rail view options' })
+  await expect(railMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toBeVisible()
+  await expect(railMenu.getByText('Lower pane', { exact: true })).toHaveCount(0)
 
   await ada.context.close()
 })
 
-test('either rail split pane can close while the chosen survivor keeps its reading position', async ({ browser }) => {
+test('the shared pane buttons follow focus and split or close the selected rail view', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
   const page = ada.page
   await page.setViewportSize({ width: 1280, height: 800 })
-  await page.goto('/sessions')
-  await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  await page.goto('/artifacts')
+  await expect(page.getByRole('heading', { name: 'Artifacts', exact: true })).toBeVisible({ timeout: ms(20_000) })
 
-  const separator = page.getByRole('separator', { name: 'Resize lower rail pane' })
-  const upperScroll = page.locator('[data-rail-scroll-pane="upper"]')
+  const toolbar = page.locator('[data-rail-toolbar-group="view"]')
+  await expect(toolbar).toHaveAttribute('data-pane-action-target', 'main')
+  await expect(toolbar.getByRole('button', { name: 'Split right', exact: true })).toBeVisible()
+
+  // An arbitrary nested rail entry owns focus after selection. The reused
+  // cluster becomes rail-specific: vertical split only, with no close while
+  // this is still the sole view.
+  const first = page.locator('[data-rail-pane="root"]')
+  await first.getByRole('button', { name: 'Insights dashboard', exact: true }).click()
+  await expect(toolbar).toHaveAttribute('data-pane-action-target', 'rail')
+  await expect(toolbar.getByRole('button', { name: 'Split right', exact: true })).toHaveCount(0)
+  await expect(toolbar.getByRole('button', { name: 'Split down', exact: true })).toBeVisible()
+  await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toHaveCount(0)
+
+  await toolbar.getByRole('button', { name: 'Split down', exact: true }).click()
+  const separator = page.getByRole('separator', { name: 'Resize sidebar views (root)' })
+  const lower = page.locator('[data-rail-pane="b"]')
   await expect(separator).toBeVisible()
-  await runRailForestCommand(page, 'Unfold all')
-  await upperScroll.evaluate((node) => {
-    node.scrollTop = 64
-  })
-  const upperOffset = await upperScroll.evaluate((node) => node.scrollTop)
-  expect(upperOffset).toBeGreaterThan(0)
+  await expect(page.locator('[data-rail-pane]')).toHaveCount(2)
+  await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Close lower pane', exact: true }).click()
-  await expect(separator).toHaveCount(0)
-  await expect(page.locator('[data-rail-pane="lower"]')).toHaveCount(0)
-  await expect.poll(() => upperScroll.evaluate((node) => node.scrollTop)).toBe(upperOffset)
-  await expect(upperScroll.locator('[data-section-root="sessions"]')).toBeAttached()
-
-  // The close is durable layout state, not a transient fold.
-  await page.reload()
-  await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible({ timeout: ms(20_000) })
-  await expect(separator).toHaveCount(0)
-
-  // Recreate the split at a boundary with content below its first root, scroll
-  // that lower projection, then keep its exact local reading position by
-  // closing the upper projection instead.
-  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Lower pane', exact: true }).hover()
-  await page.getByRole('menuitemradio', { name: 'Start at Models', exact: true }).click()
-  await expect(separator).toBeVisible()
-  await runRailForestCommand(page, 'Unfold all')
-  const lowerScroll = page.locator('[data-rail-scroll-pane="lower"]')
-  await lowerScroll.evaluate((node) => {
-    node.scrollTop = 48
-  })
-  const lowerOffset = await lowerScroll.evaluate((node) => node.scrollTop)
-  expect(lowerOffset).toBeGreaterThan(0)
-
-  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
-  await page.getByRole('menuitem', { name: 'Close upper pane', exact: true }).click()
-  await expect(separator).toHaveCount(0)
-  await expect(page.locator('[data-rail-pane="lower"]')).toHaveCount(0)
-  await expect(upperScroll.locator('[data-section-root="models"]')).toBeAttached()
+  // The selected nested entry is the new view's visual root.
+  const lowerScroll = lower.locator('[data-rail-scroll-pane="b"]')
+  const lowerAnchor = lower.getByRole('button', { name: 'Insights dashboard', exact: true })
   await expect
-    .poll(() =>
-      upperScroll.evaluate((node, offset) => {
-        const anchor = node.querySelector<HTMLElement>('[data-section-root="models"]')
-        if (!anchor) return Number.POSITIVE_INFINITY
-        return Math.abs(anchor.getBoundingClientRect().top - node.getBoundingClientRect().top + offset)
-      }, lowerOffset),
-    )
-    .toBeLessThanOrEqual(1)
+    .poll(async () => {
+      const [body, anchor] = await Promise.all([lowerScroll.boundingBox(), lowerAnchor.boundingBox()])
+      return body && anchor ? Math.abs(anchor.y - body.y) : Number.POSITIVE_INFINITY
+    })
+    .toBeLessThanOrEqual(8)
 
-  await page.getByRole('button', { name: 'Rail view options', exact: true }).click()
-  const menu = page.getByRole('menu', { name: 'Rail view options' })
-  await expect(menu.getByRole('menuitem', { name: 'Close upper pane', exact: true })).toHaveCount(0)
-  await expect(menu.getByRole('menuitem', { name: 'Close lower pane', exact: true })).toHaveCount(0)
+  // Focus an entry in the other view and reuse Close pane: that exact view is
+  // deleted and its sibling promotes, just like the main split tree.
+  await page.locator('[data-rail-pane="a"]').getByRole('button', { name: 'Commons', exact: true }).click()
+  await toolbar.getByRole('button', { name: 'Close pane', exact: true }).click()
+  await expect(separator).toHaveCount(0)
+  await expect(page.locator('[data-rail-pane]')).toHaveCount(1)
+  await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toHaveCount(0)
+
+  // Main focus restores the original two-direction command set.
+  await page.locator('main').getByRole('heading', { name: 'Commons', exact: true }).click()
+  await expect(toolbar).toHaveAttribute('data-pane-action-target', 'main')
+  await expect(toolbar.getByRole('button', { name: 'Split right', exact: true })).toBeVisible()
+
+  // The promoted one-view tree is durable.
+  await page.reload()
+  await expect(page.locator('[data-rail-pane]')).toHaveCount(1)
+  await expect(page.getByRole('separator', { name: 'Resize sidebar views (root)' })).toHaveCount(0)
 
   await ada.context.close()
 })

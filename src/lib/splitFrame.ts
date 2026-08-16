@@ -11,7 +11,7 @@
  *  vocabulary (src/lib/mainSplit.ts). Content only needs `kind` + `id` — the
  *  identity `findPane` matches on.
  *
- *  Dependency-free on purpose (the railPanes.ts pattern): the components render
+ *  Dependency-free on purpose (the railSplit.ts pattern): the components render
  *  whatever this module computes, and src/lib/split-frame.test.ts locks the math
  *  without a DOM. Paths address nodes as strings of 'a'/'b' steps from the root
  *  ('' = root), so the tree round-trips JSON for persistence. Ratios are

@@ -1,6 +1,6 @@
 /** ── The offer form's pure logic (social S3) ─────────────────────────────────
  *  What a proposal offer FORM's raw inputs mean, as dependency-free functions —
- *  the `railPanes.ts` pattern: pure math out of the component so `node --test`
+ *  the `railSplit.ts` pattern: pure math out of the component so `node --test`
  *  can exercise it without a DOM.
  *
  *  The governing rule: a form must never be able to offer what the server would

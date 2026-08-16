@@ -1,9 +1,7 @@
 import {
   Fragment,
   useEffect,
-  useLayoutEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -77,18 +75,6 @@ import {
   type ScheduleSectionId,
 } from '../lib/compositeSections'
 import { getLayout, setLayout } from '../lib/uiPrefs'
-import {
-  dragPane,
-  layoutPanes,
-  paneMax,
-  planRailPaneClose,
-  NO_RAIL_SPLIT,
-  RAIL_PANE_MIN,
-  RAIL_SPLIT_DEFAULT,
-  splitRailSections,
-  type PaneId,
-  type PaneInput,
-} from '../lib/railPanes'
 import { LEFT_MIN, LEFT_MAX } from '../controller/useLayout'
 import { clampSessionFilter, filterSessions, type SessionFilter, type SessionGroup } from '../lib/sessionFilter'
 import { useSessionFilter } from '../lib/useSessionFilter'
@@ -102,6 +88,8 @@ import { useRoutineFilter } from '../lib/useRoutineFilter'
 import { CompositeRailControls } from './CompositeRailControls'
 import type { CompositeCommandKind, CompositeFoldSignal } from '../lib/compositeFeatures'
 import { useCompositeFoldSignal } from '../lib/useCompositeFeatures'
+import { RailSplit } from './RailSplit'
+import type { RailSplitNode } from '../lib/railSplit'
 
 
 /** Does this section's row expand? Every LIST kind counts (UI-19) — a declared
@@ -141,6 +129,12 @@ export function Sidebar({
   onSplitRow,
   onSplitCol,
   onCloseView,
+  paneActionTarget,
+  railTree,
+  focusedRailPane,
+  onFocusRailPane,
+  onSelectRailEntry,
+  onRailRatio,
   resizable = true,
   railW,
   onResizeStart,
@@ -190,18 +184,22 @@ export function Sidebar({
   onOpenNotifications: () => void
   /** Door to a namespace page (FWD-6 — the chip menu's Organizations rows). */
   onOpenOwner?: (name: string) => void
-  /** Split the main view into panes (universal split) — each direction passed
-   *  only when ITS viewport axis has room (row: width / the wide tier; col:
-   *  height — canSplitRow/canSplitCol, src/lib/viewport.ts). Acts on the
-   *  focused pane, duplicating its content beside (row) or below (col) it. */
+  /** Contextual shared split actions. Main focus may offer both directions;
+   *  rail focus offers only Split down after a navigation entry is selected. */
   onSplitRow?: () => void
   onSplitCol?: () => void
-  /** Close the FOCUSED pane — offered iff either split is (the cluster shows
-   *  and hides as one) and a closable pane exists. Homogeneous: a secondary
-   *  pane collapses; closing the primary tile relocates the primary role into
-   *  the surviving pane (its content promotes into the controller, so the URL
-   *  follows). */
+  /** Close the focused main pane or focused rail view. The relevant controller
+   *  protects its own non-closable last view. */
   onCloseView?: () => void
+  /** Which focused area currently owns the shared split/close controls. */
+  paneActionTarget: 'main' | 'rail'
+  /** Vertical-only split tree for independently scrolling copies of the one
+   *  honest account-resource forest. */
+  railTree: RailSplitNode
+  focusedRailPane: string
+  onFocusRailPane: (path: string) => void
+  onSelectRailEntry: (path: string, index: number, label: string) => void
+  onRailRatio: (path: string, ratio: number) => void
   /** Drag-to-resize wiring; the parent owns the width and clamps it. On the
    *  narrow tier the rail is a fixed-width drawer, so the handle is dropped. */
   resizable?: boolean
@@ -357,124 +355,6 @@ export function Sidebar({
     })
   }, [routines, routineFilter, scheduleProjectId, projects])
 
-  // ── Generic split of ONE ordered resource forest (ADAPT-13) ────────────────
-  // The split point is layout metadata, not a content container: the lower pane
-  // begins at any ordinary top-level section and contains that ordered suffix.
-  // Sessions is the default boundary, preserving quick access to conversation
-  // history without giving it a second ontology or a special header.
-  const [splitStart, setSplitStart] = useState<string>(() => getLayout('railSplitStart', 'sessions'))
-  const sectionGroups = splitRailSections(visibleSections, splitStart)
-  const splitActive = resizable && sectionGroups.length === 2
-  const updateSplitStart = (next: string) => {
-    setLayout('railSplitStart', next)
-    setSplitStart(next)
-  }
-  const stackRef = useRef<HTMLDivElement>(null)
-  const lowerPaneRef = useRef<HTMLDivElement>(null)
-  const upperScrollRef = useRef<HTMLDivElement>(null)
-  const lowerScrollRef = useRef<HTMLDivElement>(null)
-  const pendingPaneCloseRef = useRef<{
-    survivor: PaneId
-    anchor: SectionId | null
-    upperOffset: number
-    lowerOffset: number
-  } | null>(null)
-  const dragBottomRef = useRef(0)
-  const [avail, setAvail] = useState(0)
-  // Measure the stack synchronously before paint (no first-frame flash), then track
-  // it live so window resize re-flows the flex pane while fixed panes stay put.
-  useLayoutEffect(() => {
-    const el = stackRef.current
-    if (!el) return
-    const update = () => setAvail(el.clientHeight)
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [])
-  const [lowerH, setLowerH] = useState<number>(() =>
-    getLayout('railSplitH', getLayout('railRecentsH', RAIL_SPLIT_DEFAULT)),
-  )
-  const lowerHRef = useRef(lowerH)
-  lowerHRef.current = lowerH
-
-  const paneInputs: PaneInput[] = [
-    { id: 'upper', present: true, height: 0 },
-    { id: 'lower', present: splitActive, height: lowerH },
-  ]
-  const layout = layoutPanes(paneInputs, avail)
-  const paneOf = (id: PaneId) => layout.find((p) => p.id === id)
-  // A fixed (open, non-flex) pane gets an explicit height; the flex pane fills via
-  // flex-1; a folded pane collapses to its (auto-height) header.
-  const paneStyle = (id: PaneId) => {
-    const l = paneOf(id)
-    return resizable && l && !l.flex ? { height: l.height } : undefined
-  }
-  const paneClass = (id: PaneId) => {
-    const l = paneOf(id)
-    if (!resizable) return 'shrink-0'
-    // The flex pane floors at a pane-min so a too-short rail can't squeeze it to 0px
-    // (the stack scrolls instead — see the stack's overflow-y-auto below).
-    return l?.flex ? 'relative flex min-h-[6rem] flex-1 flex-col' : 'relative flex min-h-0 shrink-0 flex-col'
-  }
-
-  // Drag a pane's TOP divider → a new FIXED height for THAT pane only (the flex pane
-  // above absorbs). The pane's bottom edge stays put (everything below it is fixed),
-  // so the drag anchors on it: height = bottom − cursor. Anchored on the effective
-  // layout, so the clamp can't leak into storage.
-  const startLowerDrag = () => {
-    dragBottomRef.current = lowerPaneRef.current?.getBoundingClientRect().bottom ?? 0
-  }
-  // The move handlers refresh the persist ref THEMSELVES (not just at render): a
-  // keyboard gesture runs move → end in one tick, before React re-renders, so an
-  // at-render-only ref would persist one step stale (a reload snapped the pane back).
-  const moveLowerDrag = (clientY: number) => {
-    const h = dragPane('lower', dragBottomRef.current - clientY, paneInputs, avail)
-    lowerHRef.current = h
-    setLowerH(h)
-  }
-  const persistLowerH = () => setLayout('railSplitH', lowerHRef.current)
-
-  // Apply a pane-close restoration only after React has committed the merged
-  // forest. Doing this in the click handler's next animation frame races a
-  // concurrent render and can still observe the old split DOM.
-  useLayoutEffect(() => {
-    const pending = pendingPaneCloseRef.current
-    const body = upperScrollRef.current
-    if (!pending || sectionGroups.length !== 1 || !body) return
-    pendingPaneCloseRef.current = null
-    if (pending.survivor === 'upper') {
-      body.scrollTop = pending.upperOffset
-      return
-    }
-    const anchor = pending.anchor
-      ? body.querySelector<HTMLElement>(`[data-section-root="${pending.anchor}"]`)
-      : null
-    if (!anchor) {
-      body.scrollTop = pending.lowerOffset
-      return
-    }
-    const bodyTop = body.getBoundingClientRect().top
-    const anchorTop = anchor.getBoundingClientRect().top
-    body.scrollTop += anchorTop - bodyTop + pending.lowerOffset
-  }, [splitStart])
-
-  // Closing either half removes only the presentation split. The complete
-  // forest returns in one pane, positioned where the pane the user kept was
-  // being read: a direct scroll offset for the upper pane, or the lower pane's
-  // first section plus its local offset when the upper pane is closed.
-  const closeRailPane = (closing: PaneId) => {
-    const plan = planRailPaneClose(sectionGroups, closing)
-    if (!plan) return
-    pendingPaneCloseRef.current = {
-      survivor: plan.survivor,
-      anchor: plan.anchor,
-      upperOffset: upperScrollRef.current?.scrollTop ?? 0,
-      lowerOffset: lowerScrollRef.current?.scrollTop ?? 0,
-    }
-    updateSplitStart(NO_RAIL_SPLIT)
-  }
-
   // The project-membership menu items, shared by sessions and routines, built from
   // the relation op each entity files under.
   const sessionProjectItems = (s: Session): RowMenuItem[] =>
@@ -586,43 +466,7 @@ export function Sidebar({
       icon: <ChevronsDown size={15} />,
       onSelect: () => requestRailFold(true),
     },
-    { kind: 'divider', key: 'layout-divider' },
-    {
-      kind: 'choice',
-      key: 'lower-pane',
-      label: 'Lower pane',
-      icon: <Rows2 size={15} />,
-      currentId:
-        sectionGroups.length === 2 ? (sectionGroups[1][0] ?? NO_RAIL_SPLIT) : NO_RAIL_SPLIT,
-      options: [
-        { id: NO_RAIL_SPLIT, label: 'One pane' },
-        ...visibleSections.slice(1).map((id) => ({
-          id,
-          label: `Start at ${SECTION_META[id].label}`,
-        })),
-      ],
-      onPick: updateSplitStart,
-    },
   ]
-  if (splitActive) {
-    railViewItems.push(
-      { kind: 'divider', key: 'close-divider' },
-      {
-        kind: 'action',
-        key: 'close-upper',
-        label: 'Close upper pane',
-        icon: <X size={15} />,
-        onSelect: () => closeRailPane('upper'),
-      },
-      {
-        kind: 'action',
-        key: 'close-lower',
-        label: 'Close lower pane',
-        icon: <X size={15} />,
-        onSelect: () => closeRailPane('lower'),
-      },
-    )
-  }
 
   return (
     <aside
@@ -677,6 +521,7 @@ export function Sidebar({
         {(onSplitRow || onSplitCol || onCloseView) && (
           <div
             data-rail-toolbar-group="view"
+            data-pane-action-target={paneActionTarget}
             className="ml-auto flex items-center gap-1 border-l border-line pl-1.5"
           >
             <PaneActionButtons
@@ -715,43 +560,20 @@ export function Sidebar({
         </button>
       </nav>
 
-      {/* One resource forest, optionally projected into two independently
-          scrolling panes. A split point only divides the ordered top-level
-          rows; it adds no headers, containers, or hierarchy. On the narrow tier
-          the divider drops and every row flows in one drawer. */}
-      <div
-        ref={stackRef}
-        className={
-          resizable
-            ? 'relative flex min-h-0 flex-1 flex-col overflow-y-auto'
-            : 'min-h-0 flex-1 overflow-y-auto'
-        }
-      >
-        <nav aria-label="Sections" className="contents">
-          {sectionGroups.map((sectionIds, paneIndex) => (
-            <Fragment key={paneIndex === 0 ? 'upper' : `lower-${sectionIds[0]}`}>
-              {paneIndex === 1 && splitActive && paneOf('lower')?.divider && (
-                <PaneDivider
-                  label="Resize lower rail pane"
-                  value={paneOf('lower')!.height}
-                  max={paneMax('lower', paneInputs, avail)}
-                  onStart={startLowerDrag}
-                  onMove={moveLowerDrag}
-                  onEnd={persistLowerH}
-                />
-              )}
-              <div
-                ref={paneIndex === 1 ? lowerPaneRef : undefined}
-                data-rail-pane={paneIndex === 0 ? 'upper' : 'lower'}
-                style={paneStyle(paneIndex === 0 ? 'upper' : 'lower')}
-                className={paneClass(paneIndex === 0 ? 'upper' : 'lower')}
-              >
-                <div
-                  ref={paneIndex === 0 ? upperScrollRef : lowerScrollRef}
-                  data-rail-scroll-pane={paneIndex === 0 ? 'upper' : 'lower'}
-                  className={resizable ? 'min-h-0 flex-1 overflow-y-auto px-2 pb-1' : 'px-2 pb-1'}
-                >
-        {sectionIds.map((id) => {
+      {/* One honest account-resource forest, projected into one or more
+          independently scrolling rail views. Splitting never creates a second
+          ontology: every leaf renders this same forest and merely scrolls the
+          selected arbitrary entry to its visual top. */}
+      <nav aria-label="Sections" className="contents">
+        <RailSplit
+          tree={railTree}
+          focusedPane={focusedRailPane}
+          onFocusPane={onFocusRailPane}
+          onSelectEntry={onSelectRailEntry}
+          onRatio={onRailRatio}
+          renderPane={() => (
+            <>
+              {visibleSections.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
           const surfaces = SECTION_SUBVIEWS[id]
           const instanceKey = SECTION_INSTANCE_KEY[id]
@@ -925,13 +747,11 @@ export function Sidebar({
               )}
             </Fragment>
           )
-        })}
-                </div>
-              </div>
-            </Fragment>
-          ))}
-        </nav>
-      </div>
+              })}
+            </>
+          )}
+        />
+      </nav>
 
       <AccountChip onOpenOwner={onOpenOwner} />
     </aside>
@@ -941,15 +761,11 @@ export function Sidebar({
 // The account/tenant chip + switcher/onboarding menu moved to ./AccountMenu.tsx
 // (multi-account P7 — it grew the sign-in / create-account / workspace flows).
 
-/** The focused-pane action cluster — split right / split down / close — ONE
- *  component for every host: the rail's header trio row and the shell's
- *  collapsed mini-rail (App.tsx). The parent passes each handler only when the
- *  act is available, and each split direction is gated on ITS OWN viewport
- *  axis (canSplitRow: width; canSplitCol: height — src/lib/viewport.ts);
- *  close is offered iff either split is (plus a closable pane to aim at), so
- *  both hosts follow the SAME responsive rules by construction. Both split
- *  directions act on the FOCUSED pane, duplicating its content; panes are
- *  homogeneous, so the primary's tile closes too (useMainSplit). */
+/** One focus-aware split/close cluster for both navigation and content. Main
+ * focus supplies the original Split right / Split down / Close pane handlers;
+ * rail focus supplies vertical Split down and, for a multi-view rail, Close
+ * pane. Keeping one renderer makes icon, tooltip, keyboard, and responsive
+ * behavior identical while the focused controller determines semantics. */
 export function PaneActionButtons({
   onSplitRow,
   onSplitCol,
@@ -1026,45 +842,6 @@ export function NotificationBell({ onClick }: { onClick: () => void }) {
         </span>
       )}
     </button>
-  )
-}
-
-/** A pane divider: an in-flow gutter carrying the shared horizontal ResizeHandle, so it
- *  sits BETWEEN two panes — not overlaying either pane's scroll content or scrollbar —
- *  with a persistent, easy-to-spot hairline centered in it. It rides ABOVE the pane it
- *  resizes (side="top": dragging / arrowing up grows the lower pane while the
- *  upper pane absorbs the difference). */
-function PaneDivider({
-  label,
-  value,
-  max,
-  onStart,
-  onMove,
-  onEnd,
-}: {
-  /** Distinct accessible name for the lower-pane divider — see ResizeHandle. */
-  label: string
-  /** The pane's EFFECTIVE (on-screen) height and its current ceiling (`paneMax`) —
-   *  the handle's aria-valuenow/-max; the floor is always RAIL_PANE_MIN. */
-  value: number
-  max: number
-  onStart: () => void
-  onMove: (clientY: number) => void
-  onEnd: () => void
-}) {
-  return (
-    <div className="relative h-2 shrink-0">
-      <ResizeHandle
-        side="top"
-        label={label}
-        value={value}
-        min={RAIL_PANE_MIN}
-        max={max}
-        onStart={onStart}
-        onMove={onMove}
-        onEnd={onEnd}
-      />
-    </div>
   )
 }
 
@@ -1149,6 +926,7 @@ function SectionTreeRow({
         <span className="w-5 shrink-0" aria-hidden />
       )}
       <button
+        data-rail-entry
         onClick={onOpen}
         aria-current={active ? 'page' : undefined}
         className="flex min-w-0 flex-1 items-center gap-2.5 py-1.5 text-left"
@@ -1227,6 +1005,7 @@ function SessionRow({
         />
       ) : (
         <button
+          data-rail-entry
           onClick={onSelect}
           title={session.preview}
           aria-current={active ? 'page' : undefined}
@@ -1381,6 +1160,7 @@ function RoutineRow({
         </button>
         <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />
         <button
+          data-rail-entry
           onClick={onOpenPage}
           title={`${task.cadence} · ${task.subtitle}`}
           aria-current={pageActive ? 'page' : undefined}
@@ -1469,6 +1249,7 @@ function RoutineSectionRows({
                 <span className="h-5 w-5 shrink-0" aria-hidden />
               )}
               <button
+                data-rail-entry
                 onClick={() => onOpenSection(section.id)}
                 aria-current={activeSectionId === section.id ? 'page' : undefined}
                 className="min-w-0 flex-1 truncate text-left"

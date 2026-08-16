@@ -64,7 +64,10 @@ test('the Workspace shell keeps a stable hook order across focus / panel / split
 
   // Split the focused (now lone-primary) pane — the main split tree changes
   // shape: another whole family of re-renders driven by useMainSplit state. The
-  // duplicate 'b' pane appears (paths a | b), as in main-split.spec.
+  // duplicate 'b' pane appears (paths a | b), as in main-split.spec. The last
+  // click was rail navigation, so explicitly return focus to main: the shared
+  // command cluster must follow focus rather than remember an old target.
+  await page.locator('main').dispatchEvent('pointerdown')
   await page.locator('[data-split-view="row"]').click()
   await expect(page.locator('[data-main-split]')).toBeVisible()
   await expect(page.locator('[data-main-pane="b"]')).toBeVisible()

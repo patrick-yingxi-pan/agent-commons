@@ -106,9 +106,9 @@ export const SECTION_ORDER: SectionId[] = [
   'dispatch',
   'customize',
   'admin',
-  // Sessions is an ordinary resource root. It is last so the default generic
-  // rail split can isolate it in the lower pane without inventing a second
-  // hierarchy or a special-purpose utility container.
+  // Sessions is an ordinary resource root. It stays last in the account forest
+  // so transient conversation history follows durable and operational roots
+  // without inventing a utility container or a second hierarchy.
   'sessions',
 ]
 

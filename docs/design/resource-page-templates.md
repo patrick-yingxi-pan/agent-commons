@@ -109,13 +109,19 @@ second copy cannot steal or duplicate the action.
 This is feature symmetry, not pixel symmetry. Every resource fact and standing
 operation is reachable in both projections, while density may adapt the control:
 a full page button may become a rail menu row; a rail's capped disclosure and a
-page's complete list are two ways to reach the same full set. Layout capabilities
-are symmetric too: the main area and rail both support split, resize, fold and
-scroll, and each split lets the user choose which pane to close. In the rail,
-closing a pane merges the one complete forest and keeps the opposite pane's
-reading position; it cannot hide the roots projected by the closed side. Each
-surface uses geometry appropriate to its shape rather than duplicating the
-other's pixels.
+page's complete list are two ways to reach the same full set.
+
+Layout capabilities are symmetric through one focus-aware command surface too.
+The shared `PaneActionButtons` target the area that most recently received
+pointer or keyboard focus. Main focus preserves Split right / Split down / Close
+pane. Selecting any navigable entry in any rail view changes that same cluster
+to rail semantics: only vertical Split down is available, the new view places
+the selected entry at its visual top, and Close pane deletes the focused rail
+view. Both surfaces reuse `SplitNode`, sibling promotion and `ResizeHandle`; the
+rail restricts direction because its geometry is already a narrow column. A
+rail split remains a projection of the complete forest rather than a new
+content hierarchy, and the last view cannot close because navigation must
+remain present.
 
 ## Atomic resource page
 

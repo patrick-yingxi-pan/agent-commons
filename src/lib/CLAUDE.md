@@ -8,7 +8,7 @@ The layer's rules are [`src/CLAUDE.md`](../CLAUDE.md); the always-on map is
 The UI's shared vocabulary — the pure, framework-light half of `src/`: the
 visual primitives every surface composes (`button`, `checkbox`, `popover`,
 `scrim`, `spinner`, `formInput`, `pageHeader`, …), the **registries** that are
-each a single source of truth (`sections.tsx`, `railPanes.ts`, `theme.ts`,
+each a single source of truth (`sections.tsx`, `railSplit.ts`, `theme.ts`,
 `urlRoutes.ts`), and the pure functions surfaces derive state from
 (`splitFrame`, `mainSplit`, `paneHistory`, `replyTree`, `anchorLocus`).
 

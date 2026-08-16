@@ -12,6 +12,7 @@ import {
   isShort,
   canSplitRow,
   canSplitCol,
+  canSplitRailCol,
   panelWidthFor,
   railWidthCss,
   WIDE_MIN,
@@ -53,6 +54,10 @@ test('split offers gate per axis: row on width (the wide tier), col on height on
   assert.equal(canSplitCol('wide', SPLIT_COL_MIN_H - 1), false, 'one short of the floor is not')
   assert.equal(canSplitCol('medium', 2000), false, 'height alone never unlocks stacking below wide')
   assert.equal(canSplitCol('narrow', 2000), false)
+  // The rail is already a narrow column: its one available direction consumes
+  // height only, even when the main workspace is in overlay mode.
+  assert.equal(canSplitRailCol(SPLIT_COL_MIN_H), true)
+  assert.equal(canSplitRailCol(SPLIT_COL_MIN_H - 1), false)
 })
 
 test('panelWidthFor: full takeover on narrow, gutter-clamped elsewhere', () => {

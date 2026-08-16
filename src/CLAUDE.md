@@ -535,10 +535,10 @@ local search, Filter & sort, and Fold all / Unfold all. The one complete catalog
 is `src/lib/compositeFeatures.ts`; the main page's real button/field/fold scope
 answers the focused-pane command while `CompositeRailControls` is its compact
 rail projection. Bulk disclosure publishes one revisioned request consumed by
-both the active page registry and the matching nested rail branch. This does
-not make projection mechanics into fake resource features: a rail chevron, its
-eight-row Show all cap, pane resize and main-page scrolling exist because of
-the projection's shape and have no second state for the other side to mimic.
+both the active page registry and the matching nested rail branch. The rendered
+form may adapt to density, but capability may not: split, close, resize, fold,
+filter, search and scroll remain available on both sides through one state or
+one shared primitive.
 Locked by `src/lib/composite-features.test.ts`,
 `src/lib/composite-controls.test.ts`, and `e2e/collection-symmetry.spec.ts`.
 There are no content-container headers called **Sections** or **Recents**.
@@ -547,43 +547,38 @@ same filtered session rows its `/sessions` main page renders, and both projectio
 subscribe to one `useSessionFilter` value. The rail remains one ordered forest.
 
 Independent scrolling is a layout projection over that forest, not another
-ontology. The compact **Rail view options** menu offers Fold all / Unfold all and
-a generic **Lower pane** boundary. The boundary may start at any top-level
-section; that section and the ordered suffix after it occupy the lower pane. The
-default starts at Sessions, preserving quick conversation access without the
-former Recents utility chrome. “One pane” removes the boundary. No split adds a label,
-duplicates a row, changes the order, or changes a URL.
+ontology. Rail views use the same generic `SplitNode` grammar and the same
+`PaneActionButtons` as the main workspace, restricted to vertical (`col`)
+splits. Focus chooses the command target: focus in main restores Split right /
+Split down / Close pane; selecting any navigable rail entry hides Split right,
+enables Split down, and anchors a new lower view with that selected entry at its
+visual top. Each leaf still renders the complete honest forest, so the anchor
+does not reparent a resource, mint a URL, or invent another hierarchy.
 
-While a split exists, that same menu offers **Close upper pane** and **Close
-lower pane**. Closing merges the complete forest back into one pane; it never
-hides or deletes the closed projection's roots. The pane not named by the
-command is the conceptual survivor, so the merged pane restores its scroll
-position (anchored to the former lower pane's first root when the upper pane
-closes). The resulting one-pane choice persists per account.
+The focused rail view is the close target. Close pane deletes that leaf and
+promotes its sibling through the same binary-tree rule as main; the last rail
+view cannot close because an open rail must retain navigation. Views nest
+arbitrarily, scroll independently, retain scroll memory by stable view id, and
+persist their ratios/tree per account in `claude-ui.railsplit.v1`. The compact
+Rail view options menu now owns only forest-wide Fold all / Unfold all—split and
+close have one shared command home.
 
-The lower pane holds a **persisted, FIXED** height and the upper pane **flexes** to
-fill. A divider moves only on drag; content changes never move it (**fixed unless
-manually adjusted**). Heights **clamp at render, never in storage** (the rule the
-rail width follows, `useLayout`). A drag rewrites only `railSplitH`; the legacy
-`railRecentsH` is read once as a migration fallback and is never written. The
-pure boundary/allocation/drag model (`splitRailSections` / `layoutPanes` /
-`dragPane`) lives in `src/lib/railPanes.ts` (dependency-free, node-tested);
-the divider is an **in-flow gutter between panes** (never overlaying scroll
-content), riding above the fixed lower pane (drag/arrow **up grows** it).
+`src/lib/railSplit.ts` owns the pure vertical-only model,
+`src/controller/useRailSplit.ts` owns focus/selection/tree edits, and
+`src/components/RailSplit.tsx` renders it through the shared `ResizeHandle`.
 A resizable rail omits its own right border because the
 vertical handle owns the one boundary-aligned, persistent hairline; the eight-pixel hit
 strip remains unchanged. (`top`/`bottom` pane handles keep the same persistent
-hairline — form follows function.) Every `ResizeHandle` — rail width, panel width, pane gutters — is
+hairline — form follows function.) Every `ResizeHandle` — rail width, panel width, split gutters — is
 **keyboard-operable** (WCAG 2.1.1, invariant UI-11): a focusable, distinctly named
 separator whose axis arrows run the same start→move→end pipeline as a pointer drag,
 announcing its size + bounds (`aria-valuenow/-min/-max`, WCAG 4.1.2) from the same
 constants the clamp enforces.
-Dividers **drop on the narrow tier** (`resizable` false → rows flow in the
-drawer, ADAPT-11). Two **labeled** `<nav>` landmarks keep the rail
+Two **labeled** `<nav>` landmarks keep the rail
 landmark-unique (WCAG) *and* section rows navigation-scoped for e2e — "Create" (New
 session) and "Sections" (the complete resource tree, including Sessions).
-Locked by `src/lib/rail-panes.test.ts` (ordered-suffix split, fit-to-avail clamp,
-min floors and no clamp-leak into storage) and
+Locked by `src/lib/rail-split.test.ts` (vertical split, nesting, sibling
+promotion and last-view guard) and
 `src/components/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
 
 The tree communicates depth without spending identity width: every expanded branch
