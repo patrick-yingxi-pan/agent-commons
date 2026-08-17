@@ -562,10 +562,11 @@ promotes its sibling through the same binary-tree rule as main; the last rail
 view cannot close because an open rail must retain navigation. Views nest
 arbitrarily, scroll independently, retain scroll memory by stable view id, and
 persist their ratios/tree plus stable root-key/ancestor paths per account in
-`claude-ui.railsplit.v1`. Forest-wide Fold all and Unfold all are direct rail
-buttons, visually outside the focus-aware pane-action group; the `Rows2` glyph
-therefore means Split down only. Split and close retain one shared command home
-for both main and rail focus.
+`claude-ui.railsplit.v1`. Forest-wide Fold all and Unfold all share one labeled
+rail menu outside the focus-aware pane-action group. In the expanded rail, the
+two main split directions likewise share one labeled menu while Close pane stays
+direct and terminal; the unconstrained MiniRail keeps direct split buttons.
+Split and close retain one shared command home for both main and rail focus.
 
 `src/lib/railSplit.ts` owns the pure vertical-only model,
 `src/controller/useRailSplit.ts` owns focus/selection/tree edits, and
@@ -590,9 +591,12 @@ uses the ONE `RailTreeBranch` guide, homogeneous leaves show their name rather t
 repeated kind word, and composite parents / structural sections / leaves step down in
 type weight. A neutral left marker means **current location**; the softer
 `focus-within` wash means keyboard focus only, so tabbing never impersonates
-navigation. The rail toolbar is two spatial groups — global rail acts, then the main
-view's split/close acts behind a divider. These are behavioral cues, not decoration;
-`src/lib/rail-refinement.test.ts` locks their shared funnels and hierarchy coverage.
+navigation. The rail toolbar is two spatial groups — global rail acts, then the
+focused view's pane acts behind a divider. At the 208px rail minimum, paired
+commands collapse into labeled menus, toolbar buttons use the shared 28px
+funnel, and Close pane remains direct at the terminal edge. These are behavioral
+cues, not decoration; `src/lib/rail-refinement.test.ts` and the rendered geometry
+lock in `e2e/collection-symmetry.spec.ts` cover the grouping and fit.
 
 ## Every page has a canonical URL — the address bar projects the nav model
 

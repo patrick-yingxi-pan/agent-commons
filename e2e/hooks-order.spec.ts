@@ -20,6 +20,7 @@
  *  warns only ONCE per component per page load, so the listener is armed before
  *  the very first navigation. Selectors mirror e2e/main-split.spec.ts. */
 import { test, expect, type ConsoleMessage } from '@playwright/test'
+import { splitPane } from './pane-actions.ts'
 
 /** React's dev warning for a reordered hook list, plus the hard errors a count
  *  change throws in React 19 — any of these means a Rules-of-Hooks violation. */
@@ -68,7 +69,7 @@ test('the Workspace shell keeps a stable hook order across focus / panel / split
   // click was rail navigation, so explicitly return focus to main: the shared
   // command cluster must follow focus rather than remember an old target.
   await page.locator('main').dispatchEvent('pointerdown')
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await expect(page.locator('[data-main-split]')).toBeVisible()
   await expect(page.locator('[data-main-pane="b"]')).toBeVisible()
 

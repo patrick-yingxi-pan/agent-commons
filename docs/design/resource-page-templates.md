@@ -122,8 +122,10 @@ outside that subtree are absent. Both surfaces reuse `SplitNode`, sibling
 promotion and `ResizeHandle`; the rail restricts direction because its geometry
 is already a narrow column. This rooted projection does not change ontology,
 identity or URL, and the last view cannot close because navigation must remain
-present. Fold all / Unfold all are direct rail controls outside the shared pane
-cluster so disclosure and splitting keep distinct shapes.
+present. Fold all / Unfold all share a labeled rail menu outside the focused
+pane cluster, while the expanded rail groups split directions separately and
+keeps Close pane direct; disclosure, splitting and closing retain distinct
+command shapes without overflowing the constrained header.
 
 ## Atomic resource page
 

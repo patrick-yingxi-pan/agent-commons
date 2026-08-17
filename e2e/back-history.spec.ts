@@ -6,6 +6,7 @@
  *  a pane with a duplicate). The model is locked by src/lib/pane-history.test.ts;
  *  this locks the wiring end to end. */
 import { test, expect, type Page } from '@playwright/test'
+import { splitPane } from './pane-actions.ts'
 
 /** Close the auto-tiled context panel so scenarios start from one clean pane
  *  (same helper as main-split.spec.ts). */
@@ -116,7 +117,7 @@ test('browser Back after a FOCUS HOP refocuses the pane that projected the addre
 
   // Two panes: the conversation (a) and Projects (b, focused). Hop a → b so
   // the history holds both panes' addresses as focus-hop entries.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
   const paneA = page.locator('[data-main-pane="a"]')
   const paneB = page.locator('[data-main-pane="b"]')

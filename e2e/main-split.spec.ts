@@ -10,6 +10,7 @@
  *  locked by src/lib/main-split.test.ts; this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
 import { ms } from './budget.ts'
+import { openSplitPaneMenu, splitPane } from './pane-actions.ts'
 
 /** A repo / workspace session auto-tiles its context PANEL as a pane in the
  *  universal tree on the wide tier (ADAPT-16 folded into ADAPT-17). Close it so
@@ -30,9 +31,13 @@ test('split duplicates the focused conversation; the rail retargets the focused 
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
   await clearAutoPanel(page)
 
-  // The rail offers BOTH directions on the wide tier, next to the bell.
-  await expect(page.locator('[data-split-view="col"]')).toBeVisible()
-  await page.locator('[data-split-view="row"]').click()
+  // The rail offers BOTH directions on the wide tier in one compact split
+  // menu, leaving the focused pane's Close action directly visible.
+  const splitMenu = await openSplitPaneMenu(page)
+  await expect(splitMenu.getByRole('menuitem', { name: 'Split right', exact: true })).toBeVisible()
+  await expect(splitMenu.getByRole('menuitem', { name: 'Split down', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await splitPane(page, 'right')
 
   // The frame is up: pane a is the primary; pane b is a DUPLICATE of the same
   // conversation (no picker step), and it took focus.
@@ -90,7 +95,7 @@ test('ONE close rule for every page; closing the LAST page leaves the BACKGROUND
   await clearAutoPanel(page)
 
   // Split (duplicate takes focus), retarget the duplicate at Projects.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
@@ -126,7 +131,7 @@ test('focus moves on pointer-down, and the split buttons act on the focused pane
   await clearAutoPanel(page)
 
   // Split down: the duplicate below takes focus.
-  await page.locator('[data-split-view="col"]').click()
+  await splitPane(page, 'down')
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB).toHaveAttribute('data-focused', 'true')
 
@@ -136,7 +141,7 @@ test('focus moves on pointer-down, and the split buttons act on the focused pane
 
   // …so the next split acts on the PRIMARY pane: its slot subdivides (paths aa/ab)
   // while pane b stays put.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await expect(page.locator('[data-main-pane="aa"]')).toBeVisible()
   await expect(page.locator('[data-main-pane="ab"]')).toBeVisible()
   await expect(page.locator('[data-main-pane="b"]')).toBeVisible()
@@ -150,7 +155,7 @@ test('a duplicated conversation pane is fully independent: its own composer stre
 
   // Split, then retarget the focused duplicate at a DIFFERENT seeded session
   // via the rail's Sessions branch.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.getByRole('button', { name: 'Expand Sessions' }).click()
   await page.locator('aside').getByText('Dashboard query performance').first().click()
   const pane = page.locator('[data-conversation-pane="dashboard-perf"]')
@@ -185,7 +190,7 @@ test('a section page + its detail render correctly in a HALF-WIDTH pane — no h
   // Split, then retarget the focused pane at a content-dense section page — the
   // SAME SectionView the primary mounts (single-column on every tier, no
   // viewport-width assumption), now in a pane ~half the viewport wide.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
@@ -237,7 +242,7 @@ test('New session lands in the FOCUSED pane and materializes in place — the pr
   // Split (the duplicate takes focus), then New session: the FOCUSED pane
   // hosts the fresh draft — the primary conversation stays put (it used to
   // always snap the draft onto the primary, regardless of focus).
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.getByRole('button', { name: 'New session' }).click()
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB.locator('[data-conversation-pane="draft"]')).toBeVisible()
@@ -302,7 +307,7 @@ test('the fresh draft is an EQUAL page: a lone draft splits, and every view of i
   // A lone fresh draft SPLITS like any page (it used to be the one view that
   // couldn't — "no duplicable identity"): the duplicate is a second view of
   // the same draft entry.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await expect(page.locator('[data-main-pane]')).toHaveCount(2)
 
   // Homogeneous: BOTH views wear the SessionTitleBar ("New session") and the
@@ -323,7 +328,7 @@ test('an entity door inside a pane-hosted section page stays IN THE PANE (the na
   await clearAutoPanel(page)
 
   // Split, retarget the focused pane at Contexts.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.locator('nav[aria-label="Sections"]').getByText('Contexts', { exact: true }).click()
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB.getByPlaceholder(/Search contexts/)).toBeVisible()
@@ -352,7 +357,7 @@ test('an entity DOOR (the ⌘K palette) lands in the FOCUSED pane, detail open �
   await clearAutoPanel(page)
 
   // Split; the focused duplicate is where doors land now.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB).toHaveAttribute('data-focused', 'true')
 
@@ -464,7 +469,7 @@ test("the rail's active highlight tracks the FOCUSED pane (UI-12 — no singleto
   // section page). Expanding Sessions focused the rail, so focus main before
   // asking the shared command cluster for the main-only Split right action.
   await page.locator('main').dispatchEvent('pointerdown')
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
   const sectionRow = rail.locator('nav[aria-label="Sections"]').getByRole('button', { name: 'Projects', exact: true })
   await expect(sectionRow).toHaveAttribute('aria-current', 'page')
@@ -487,7 +492,7 @@ test('reload of a MULTI-pane layout keeps every pane: the boot address FOCUSES t
   // ADDRESS names the SECOND pane — the reload crux: the focus cursor is not
   // persisted (boots at the first pane), so a blind boot route would clobber
   // pane A with a copy of pane B's content and destroy the layout.
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await page.locator('nav[aria-label="Sections"]').getByText('Projects', { exact: true }).click()
   const paneB = page.locator('[data-main-pane="b"]')
   await expect(paneB.getByText('Platform hardening').first()).toBeVisible()
@@ -515,7 +520,7 @@ test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — the layout c
   const sessionPath = new URL(page.url()).pathname
 
   // Split: two panes on the SAME session (the duplicate keeps the id).
-  await page.locator('[data-split-view="row"]').click()
+  await splitPane(page, 'right')
   await expect(page.locator('[data-main-pane]')).toHaveCount(2)
 
   // Delete it from the Sessions row menu (the row is titled after the first

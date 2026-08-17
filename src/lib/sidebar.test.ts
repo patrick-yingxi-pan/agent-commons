@@ -17,6 +17,7 @@ import {
   SIDEBAR_CREATE_BUTTON,
   SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
+  SIDEBAR_TOOLBAR_BUTTON,
   sidebarEntryClass,
 } from './sidebar.ts'
 
@@ -24,6 +25,14 @@ const sidebarSrc = () => stripComments(read(join(ROOT, 'src', 'components', 'Sid
 
 test('the sidebar hover token is a real hover-background utility', () => {
   assert.match(SIDEBAR_HOVER, /\bhover:bg-/, 'SIDEBAR_HOVER highlights the background on hover')
+})
+
+test('the expanded rail toolbar has one compact, keyboard-visible button funnel', () => {
+  assert.match(SIDEBAR_TOOLBAR_BUTTON, /\bh-7\b/, 'the constrained header uses a 28px rhythm')
+  assert.match(SIDEBAR_TOOLBAR_BUTTON, /\bw-7\b/, 'each control has one fixed compact width')
+  assert.match(SIDEBAR_TOOLBAR_BUTTON, /\bshrink-0\b/, 'icons never compress into misaligned shapes')
+  assert.match(SIDEBAR_TOOLBAR_BUTTON, /focus-visible:ring-2/, 'keyboard focus remains visible')
+  assert.match(SIDEBAR_TOOLBAR_BUTTON, /data-\[open=true\]:bg-/, 'an open grouped menu retains its cue')
 })
 
 test('the left panel sources its hover from the shared token — no element re-hardcodes it', () => {

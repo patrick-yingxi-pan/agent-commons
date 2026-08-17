@@ -103,7 +103,12 @@ export function sidebarEntryClass(kind: SidebarEntryKind, active: boolean): stri
  *  depth grammar; rows no longer hand-calculate four unrelated left paddings. */
 export const SIDEBAR_BRANCH = 'ml-2.5 border-l border-line pl-1.5'
 
-/** The rail's h-8 ghost icon button — the header trio (collapse / search /
- *  bell), the split-view controls, AND the collapsed mini-rail's vertical
- *  column in the shell (the same controls, rotated): one role, one look. */
+/** The expanded rail header uses a denser 28px control rhythm. Its standing
+ * utilities must coexist with the focused-pane actions at LEFT_MIN without
+ * clipping the terminal Close action; open menus keep the same hover face and
+ * add a persistent state cue while their portaled body is active. */
+export const SIDEBAR_TOOLBAR_BUTTON = `flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-co/35 data-[open=true]:bg-panel-2/70 data-[open=true]:text-ink`
+
+/** The rail's h-8 ghost icon button — the collapsed mini-rail's vertical
+ * column and any unconstrained icon-action host: one role, one look. */
 export const SIDEBAR_ICON_BUTTON = `flex h-8 w-8 items-center justify-center rounded-lg text-ink-soft transition ${SIDEBAR_HOVER} hover:text-ink`

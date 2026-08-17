@@ -118,6 +118,7 @@ export function RowMenu({
           setOpen((o) => !o)
         }}
         aria-label={ariaLabel}
+        title={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}

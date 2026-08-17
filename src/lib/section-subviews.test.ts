@@ -185,10 +185,11 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
   assert.match(sidebar, /!!SECTION_SUBVIEWS\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/)
 })
 
-test('the rail has explicit fold/unfold-all controls that reach the whole tree', () => {
+test('the rail has one explicit fold/unfold menu that reaches the whole tree', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  assert.match(sidebar, /aria-label="Fold all"/, 'forest-wide acts are direct controls beside shared pane acts')
-  assert.match(sidebar, /aria-label="Unfold all"/)
+  assert.match(sidebar, /ariaLabel="Organize sidebar"/, 'forest-wide acts share one labeled compact menu')
+  assert.match(sidebar, /label: 'Fold all'/)
+  assert.match(sidebar, /label: 'Unfold all'/)
   assert.doesNotMatch(sidebar, /ariaLabel="Rail view options"/, 'folding is not disguised as a second split button')
   assert.match(sidebar, /requestRailFold/, 'one handler drives both directions')
   // The visible top level changes at once, while a revisioned signal reaches

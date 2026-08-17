@@ -8,6 +8,7 @@
  *  a keyboard gesture PERSISTS the size it produced (move → end runs in one tick;
  *  an at-render-only ref stored the previous size, so a reload snapped it back). */
 import { test, expect, type Locator, type Page } from '@playwright/test'
+import { splitPane } from './pane-actions.ts'
 
 /** The rail width animates (200ms transition), so measure only once the box has
  *  stopped moving — two consecutive samples within half a pixel. */
@@ -76,7 +77,7 @@ test('arrow keys resize the rail and a focused rail split through shared separat
   // down action creates a lower view rooted at it. Its generic split-tree
   // separator uses the same Up/Down keyboard pipeline.
   await page.locator('[data-rail-pane="root"]').getByRole('button', { name: 'Projects', exact: true }).click()
-  await page.getByRole('button', { name: 'Split down', exact: true }).click()
+  await splitPane(page, 'down')
   const lower = page.locator('[data-rail-pane="b"]')
   const paneHandle = page.getByRole('separator', { name: 'Resize sidebar views (root)' })
   await expect(paneHandle).toBeVisible()

@@ -148,6 +148,11 @@ targets the rail tree, exposes Split down, and records that arbitrary canonical
 node plus its ancestor path as the new lower view's root. Close pane removes the
 focused leaf and promotes its sibling. The final rail leaf is protected.
 
+The expanded rail adapts this command surface to its constrained width: split
+directions live in one labeled menu and Close pane stays a direct terminal
+button, so the target action cannot be clipped at the 208px minimum. The
+unconstrained MiniRail keeps the same commands as direct vertical buttons.
+
 Every rail leaf remains an independently scrolling projection of the same
 account-resource tree. The default root is the complete forest; a split root is
 the selected node with its descendants, while its visible ancestors and outside

@@ -47,6 +47,18 @@ test('the split/close cluster has one home — both rail hosts render PaneAction
   assert.ok(!app.includes('data-close-view'), 'App.tsx does not re-hardcode a close button')
 })
 
+test('the expanded rail groups split directions but keeps Close pane direct', () => {
+  const sidebar = read('src/components/Sidebar.tsx')
+  assert.match(sidebar, /<PaneActionButtons[\s\S]*?compact/, 'the width-constrained host requests compact form')
+  assert.match(sidebar, /ariaLabel="Split pane"[\s\S]*?items=\{splitItems\}/, 'directions share one menu')
+  const compactStart = sidebar.indexOf('if (compact)')
+  const directStart = sidebar.indexOf('return (', compactStart)
+  const directEnd = sidebar.indexOf('\n  return (', directStart + 1)
+  const compactBody = sidebar.slice(compactStart, directEnd)
+  assert.match(compactBody, /aria-label="Close pane"/, 'Close remains directly discoverable')
+  assert.match(compactBody, /data-close-view/, 'the direct Close action keeps its shared behavior stamp')
+})
+
 test('no surface indents for floating chrome — the pl-14 convention stays dead', async () => {
   // The old exemption: a title indented `pl-14` so a floating control could sit
   // in the gap. Reservation now lives in the shell's gutter column; any pl-14

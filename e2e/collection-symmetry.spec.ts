@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers.ts'
+import { openSplitPaneMenu, splitPane } from './pane-actions.ts'
 
 const sectionsNav = (page: import('@playwright/test').Page) => page.locator('nav[aria-label="Sections"]')
 
@@ -8,7 +9,10 @@ async function runRailForestCommand(
   page: import('@playwright/test').Page,
   command: 'Fold all' | 'Unfold all',
 ) {
-  await page.getByRole('button', { name: command, exact: true }).click()
+  await page.getByRole('button', { name: 'Organize sidebar', exact: true }).click()
+  await page.getByRole('menu', { name: 'Organize sidebar', exact: true })
+    .getByRole('menuitem', { name: command, exact: true })
+    .click()
 }
 
 test('collection roots preserve main-page sections in the rail and canonical URL', async ({ browser }) => {
@@ -94,8 +98,11 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
   await expect(rail.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await expect(page.getByRole('button', { name: 'Fold all', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Unfold all', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Organize sidebar', exact: true }).click()
+  const organizeMenu = page.getByRole('menu', { name: 'Organize sidebar', exact: true })
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toBeVisible()
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Unfold all', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Rail view options', exact: true })).toHaveCount(0)
 
   await ada.context.close()
@@ -111,7 +118,10 @@ test('the shared pane buttons follow focus and split or close the selected rail 
 
   const toolbar = page.locator('[data-rail-toolbar-group="view"]')
   await expect(toolbar).toHaveAttribute('data-pane-action-target', 'main')
-  await expect(toolbar.getByRole('button', { name: 'Split right', exact: true })).toBeVisible()
+  let splitMenu = await openSplitPaneMenu(page)
+  await expect(splitMenu.getByRole('menuitem', { name: 'Split right', exact: true })).toBeVisible()
+  await expect(splitMenu.getByRole('menuitem', { name: 'Split down', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
 
   // An arbitrary nested rail entry owns focus after selection. The reused
   // cluster becomes rail-specific: vertical split only, with no close while
@@ -119,11 +129,11 @@ test('the shared pane buttons follow focus and split or close the selected rail 
   const first = page.locator('[data-rail-pane="root"]')
   await first.getByRole('button', { name: 'Insights dashboard', exact: true }).click()
   await expect(toolbar).toHaveAttribute('data-pane-action-target', 'rail')
-  await expect(toolbar.getByRole('button', { name: 'Split right', exact: true })).toHaveCount(0)
-  await expect(toolbar.getByRole('button', { name: 'Split down', exact: true })).toBeVisible()
   await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toHaveCount(0)
-
-  await toolbar.getByRole('button', { name: 'Split down', exact: true }).click()
+  splitMenu = await openSplitPaneMenu(page)
+  await expect(splitMenu.getByRole('menuitem', { name: 'Split right', exact: true })).toHaveCount(0)
+  await expect(splitMenu.getByRole('menuitem', { name: 'Split down', exact: true })).toBeVisible()
+  await splitMenu.getByRole('menuitem', { name: 'Split down', exact: true }).click()
   const separator = page.getByRole('separator', { name: 'Resize sidebar views (root)' })
   const lower = page.locator('[data-rail-pane="b"]')
   await expect(separator).toBeVisible()
@@ -157,7 +167,35 @@ test('the shared pane buttons follow focus and split or close the selected rail 
   // Main focus restores the original two-direction command set.
   await page.locator('main').getByRole('heading', { name: 'Commons', exact: true }).click()
   await expect(toolbar).toHaveAttribute('data-pane-action-target', 'main')
-  await expect(toolbar.getByRole('button', { name: 'Split right', exact: true })).toBeVisible()
+  splitMenu = await openSplitPaneMenu(page)
+  await expect(splitMenu.getByRole('menuitem', { name: 'Split right', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+
+  // A focused main split exposes Close directly, even when the rail is at its
+  // 208px minimum. The toolbar must fit rather than clip its terminal action.
+  await splitPane(page, 'right')
+  const closePane = toolbar.getByRole('button', { name: 'Close pane', exact: true })
+  await expect(closePane).toBeVisible()
+  const railHandle = page.getByRole('separator', { name: 'Resize sidebar', exact: true })
+  for (let i = 0; i < 6; i += 1) await railHandle.press('ArrowLeft')
+  const toolbarGeometry = await page.locator('[data-rail-toolbar]').evaluate((element) => {
+    const rail = element.closest('aside')
+    const close = element.querySelector('[data-close-view]')
+    if (!(rail instanceof HTMLElement) || !(close instanceof HTMLElement)) throw new Error('rail toolbar anatomy missing')
+    const railBox = rail.getBoundingClientRect()
+    const closeBox = close.getBoundingClientRect()
+    return {
+      railWidth: railBox.width,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+      closeRight: closeBox.right,
+      railRight: railBox.right,
+    }
+  })
+  expect(toolbarGeometry.railWidth).toBe(208)
+  expect(toolbarGeometry.scrollWidth).toBeLessThanOrEqual(toolbarGeometry.clientWidth)
+  expect(toolbarGeometry.closeRight).toBeLessThanOrEqual(toolbarGeometry.railRight)
+  await closePane.click()
 
   // The promoted one-view tree is durable.
   await page.reload()

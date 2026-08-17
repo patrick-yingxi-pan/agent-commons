@@ -13,10 +13,12 @@ import {
   ChevronDown,
   ChevronRight,
   Columns2,
+  ChevronsUpDown,
   Rows2,
   FolderInput,
   FolderMinus,
   PanelLeftClose,
+  PanelsTopLeft,
   PauseCircle,
   Pencil,
   Pin,
@@ -58,6 +60,7 @@ import {
   SIDEBAR_CREATE_BUTTON,
   SIDEBAR_HOVER,
   SIDEBAR_ICON_BUTTON,
+  SIDEBAR_TOOLBAR_BUTTON,
   sidebarEntryClass,
 } from '../lib/sidebar'
 import {
@@ -479,53 +482,59 @@ export function Sidebar({
           icon beside it; both on one line (no separate product top bar). Search
           opens a floating palette rather than filtering inline. */}
       <div data-rail-toolbar className="flex items-center px-2 pt-2.5">
-        <div data-rail-toolbar-group="global" className="flex items-center gap-1">
+        <div data-rail-toolbar-group="global" className="flex items-center gap-0.5">
           <button
             onClick={onToggleCollapse}
             title="Collapse sidebar"
             aria-label="Collapse sidebar"
-            className={SIDEBAR_ICON_BUTTON}
+            className={SIDEBAR_TOOLBAR_BUTTON}
           >
-            <PanelLeftClose size={18} />
+            <PanelLeftClose size={17} />
           </button>
           <button
             onClick={onOpenSearch}
             title="Search  (⌘K)"
             aria-label="Search"
-            className={SIDEBAR_ICON_BUTTON}
+            className={SIDEBAR_TOOLBAR_BUTTON}
           >
-            <Search size={18} />
+            <Search size={17} />
           </button>
           {/* The bell (D24) — the inbox of public acts on what you watch, own,
               or posted. The badge is live via notification.changed. */}
-          <NotificationBell onClick={onOpenNotifications} />
-          <button
-            onClick={() => requestRailFold(false)}
-            title="Fold all"
-            aria-label="Fold all"
-            className={SIDEBAR_ICON_BUTTON}
-          >
-            <ChevronsUp size={18} />
-          </button>
-          <button
-            onClick={() => requestRailFold(true)}
-            title="Unfold all"
-            aria-label="Unfold all"
-            className={SIDEBAR_ICON_BUTTON}
-          >
-            <ChevronsDown size={18} />
-          </button>
+          <NotificationBell onClick={onOpenNotifications} compact />
+          <RowMenu
+            ariaLabel="Organize sidebar"
+            triggerIcon={<ChevronsUpDown size={17} />}
+            triggerClassName={SIDEBAR_TOOLBAR_BUTTON}
+            items={[
+              {
+                kind: 'action',
+                key: 'fold-all',
+                label: 'Fold all',
+                icon: <ChevronsUp size={15} />,
+                onSelect: () => requestRailFold(false),
+              },
+              {
+                kind: 'action',
+                key: 'unfold-all',
+                label: 'Unfold all',
+                icon: <ChevronsDown size={15} />,
+                onSelect: () => requestRailFold(true),
+              },
+            ]}
+          />
         </div>
         {(onSplitRow || onSplitCol || onCloseView) && (
           <div
             data-rail-toolbar-group="view"
             data-pane-action-target={paneActionTarget}
-            className="ml-auto flex items-center gap-1 border-l border-line pl-1.5"
+            className="ml-auto flex items-center gap-0.5 border-l border-line pl-1.5"
           >
             <PaneActionButtons
               onSplitRow={onSplitRow}
               onSplitCol={onSplitCol}
               onCloseView={onCloseView}
+              compact
             />
           </div>
         )}
@@ -771,11 +780,59 @@ export function PaneActionButtons({
   onSplitRow,
   onSplitCol,
   onCloseView,
+  compact = false,
 }: {
   onSplitRow?: () => void
   onSplitCol?: () => void
   onCloseView?: () => void
+  compact?: boolean
 }) {
+  if (compact) {
+    const splitItems: RowMenuItem[] = []
+    if (onSplitRow) {
+      splitItems.push({
+        kind: 'action',
+        key: 'split-right',
+        label: 'Split right',
+        icon: <Columns2 size={15} />,
+        onSelect: onSplitRow,
+      })
+    }
+    if (onSplitCol) {
+      splitItems.push({
+        kind: 'action',
+        key: 'split-down',
+        label: 'Split down',
+        icon: <Rows2 size={15} />,
+        onSelect: onSplitCol,
+      })
+    }
+
+    return (
+      <>
+        {splitItems.length > 0 && (
+          <RowMenu
+            ariaLabel="Split pane"
+            triggerIcon={<PanelsTopLeft size={17} />}
+            triggerClassName={SIDEBAR_TOOLBAR_BUTTON}
+            items={splitItems}
+          />
+        )}
+        {onCloseView && (
+          <button
+            onClick={onCloseView}
+            title="Close pane"
+            aria-label="Close pane"
+            data-close-view
+            className={SIDEBAR_TOOLBAR_BUTTON}
+          >
+            <X size={17} />
+          </button>
+        )}
+      </>
+    )
+  }
+
   return (
     <>
       {onSplitRow && (
@@ -826,7 +883,13 @@ export function PaneActionButtons({
  *  visible and carries the count. They therefore share an accessible name, so
  *  the bell carries a testid — the rail row is reachable through the Sections
  *  nav landmark, and this one is not in any nav. */
-export function NotificationBell({ onClick }: { onClick: () => void }) {
+export function NotificationBell({
+  onClick,
+  compact = false,
+}: {
+  onClick: () => void
+  compact?: boolean
+}) {
   const unreadCount = (useNotifications().data ?? []).filter((r) => !r.read).length
   return (
     <button
@@ -834,9 +897,9 @@ export function NotificationBell({ onClick }: { onClick: () => void }) {
       data-testid="notification-bell"
       title="Notifications"
       aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : 'Notifications'}
-      className={`relative ${SIDEBAR_ICON_BUTTON}`}
+      className={`relative ${compact ? SIDEBAR_TOOLBAR_BUTTON : SIDEBAR_ICON_BUTTON}`}
     >
-      <Bell size={18} />
+      <Bell size={compact ? 17 : 18} />
       {unreadCount > 0 && (
         <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-accent-solid px-1 text-[10px] font-semibold leading-none text-on-solid">
           {unreadCount > 99 ? '99+' : unreadCount}

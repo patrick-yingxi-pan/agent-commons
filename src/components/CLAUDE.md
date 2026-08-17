@@ -66,8 +66,11 @@ what the document or the sibling component claims.
   becomes the new view root: keep its descendants, remove visible ancestors and
   outside siblings, and preserve canonical identity/URL. `RailSplit` renders
   the generic binary tree; do not add rail-only split menus or per-pane close
-  buttons. Fold all / Unfold all stay as direct rail controls outside this
-  cluster so their chevrons cannot masquerade as a second split button.
+  buttons. Presentation adapts to its host: the expanded rail groups the two
+  split directions in one labeled menu so Close can remain the terminal direct
+  action at the 208px minimum, while the unconstrained vertical MiniRail keeps
+  the direct buttons. Fold all / Unfold all likewise share one labeled forest
+  menu outside the focus-aware cluster.
 - **An index entry is a synopsis, not a compressed detail page.** Ordinary
   addressable rows consume `ResourcePageSynopsisRow`: 13px identity, one 12px
   descriptor and one 11px state/count field in a frameless divider ledger.
