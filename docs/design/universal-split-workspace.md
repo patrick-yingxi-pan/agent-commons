@@ -145,8 +145,11 @@ with one geometrical restriction: rail splits are vertical only. Command scope
 is focus-derived rather than assigned to separate toolbars. Focus in a main
 pane targets the main tree; selecting any `[data-rail-entry]` in any rail leaf
 targets the rail tree, exposes Split down, and records that arbitrary canonical
-node plus its ancestor path as the new lower view's root. Close pane removes the
-focused leaf and promotes its sibling. The final rail leaf is protected.
+node plus its ancestor path as the new lower view's root. Close pane removes a
+focused rooted secondary leaf and promotes its sibling. The complete forest is
+the permanent recovery anchor: it cannot close even when siblings exist, and a
+legacy persisted tree missing it is repaired by prepending it while retaining
+the surviving rooted projections.
 
 The expanded rail adapts this command surface to its constrained width: split
 directions live in one labeled menu and Close pane stays a direct terminal

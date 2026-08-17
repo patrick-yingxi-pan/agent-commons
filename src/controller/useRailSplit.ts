@@ -1,10 +1,12 @@
 /** Focus + edits for the rail's vertical-only split tree. The interaction
- * mirrors useMainSplit: one focused leaf, split that leaf, close that leaf,
- * persist the tree. Selection is transient and names the canonical node that a
- * newly split view should use as its visible root. */
+ * mirrors useMainSplit for focus/split/persistence, while close deliberately
+ * applies only to rooted secondary leaves: the complete forest is the recovery
+ * anchor. Selection is transient and names the canonical node that a newly
+ * split view should use as its visible root. */
 import { useCallback, useRef, useState } from 'react'
 import { nodeAt, panes, setRatio } from '../lib/splitFrame'
 import {
+  canCloseRailView,
   closeRailView,
   getRailSplitPref,
   setRailSplitPref,
@@ -75,7 +77,7 @@ export function useRailSplit() {
 
   const closeFocusedRail = useCallback(() => {
     const tree = treeRef.current
-    if (panes(tree).length <= 1) return
+    if (!canCloseRailView(tree, focusedRef.current)) return
     commit(closeRailView(tree, focusedRef.current))
     selectedRef.current = null
     setSelectedEntry(null)
@@ -90,7 +92,7 @@ export function useRailSplit() {
     railTree,
     focusedRailPane,
     railCanSplit: selectedEntry?.path === focusedRailPane,
-    railCanClose: panes(railTree).length > 1,
+    railCanClose: canCloseRailView(railTree, focusedRailPane),
     focusRailPane,
     selectRailEntry,
     splitFocusedRail,

@@ -557,12 +557,14 @@ outside the selected subtree are absent. This is a rooted VIEW of the same
 tree—not ontology reparenting—so canonical identity, URL and ancestry do not
 change merely because the viewport begins deeper in the forest.
 
-The focused rail view is the close target. Close pane deletes that leaf and
-promotes its sibling through the same binary-tree rule as main; the last rail
-view cannot close because an open rail must retain navigation. Views nest
-arbitrarily, scroll independently, retain scroll memory by stable view id, and
-persist their ratios/tree plus stable root-key/ancestor paths per account in
-`claude-ui.railsplit.v1`. Forest-wide Fold all and Unfold all share one labeled
+Only a focused rooted secondary rail view is a close target. Close pane deletes
+that leaf and promotes its sibling through the same binary-tree rule as main;
+the complete forest is a permanent recovery anchor even when siblings exist,
+so it never offers or accepts Close. Restore repairs a legacy tree that lost the
+forest by prepending it without discarding the surviving rooted projections.
+Views nest arbitrarily, scroll independently, retain scroll memory by stable
+view id, and persist their ratios/tree plus stable root-key/ancestor paths per
+account in `claude-ui.railsplit.v1`. Forest-wide Fold all and Unfold all share one labeled
 rail menu outside the focus-aware pane-action group. In the expanded rail, the
 two main split directions likewise share one labeled menu while Close pane stays
 direct and terminal; the unconstrained MiniRail keeps direct split buttons.
@@ -582,8 +584,8 @@ constants the clamp enforces.
 Two **labeled** `<nav>` landmarks keep the rail
 landmark-unique (WCAG) *and* section rows navigation-scoped for e2e — "Create" (New
 session) and "Sections" (the complete resource tree, including Sessions).
-Locked by `src/lib/rail-split.test.ts` (vertical split, nesting, sibling
-promotion and last-view guard) and
+Locked by `src/lib/rail-split.test.ts` (vertical split, nesting, rooted-sibling
+promotion, protected forest and legacy repair) and
 `src/components/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
 
 The tree communicates depth without spending identity width: every expanded branch

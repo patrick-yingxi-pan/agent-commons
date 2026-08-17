@@ -7,7 +7,7 @@
  * visible root of the new view, with its descendants intact and its ancestors
  * and outside siblings absent. This changes viewport scope, never ontology.
  */
-import { closePane, pane, panes, splitPane, type SplitNode } from './splitFrame.ts'
+import { closePane, nodeAt, pane, panes, RATIO_DEFAULT, splitPane, type SplitNode } from './splitFrame.ts'
 
 export type RailViewRoot = {
   /** Stable path identity stamped on the canonical rail-tree node. */
@@ -30,6 +30,20 @@ export type RailSplitNode = SplitNode<RailPaneContent>
 
 export const initialRailSplit = (): RailSplitNode => pane({ kind: 'rail-view', id: 'rail-root' })
 
+/** The complete forest is the rail's recovery anchor, not an ordinary leaf.
+ * A valid live or restored tree always retains one unrooted projection so a
+ * user can get back from any narrowly rooted view without resetting storage. */
+export function ensureCompleteRailView(tree: RailSplitNode): RailSplitNode {
+  if (panes(tree).some(({ content }) => content.root === undefined)) return tree
+  return {
+    kind: 'split',
+    dir: 'col',
+    ratio: RATIO_DEFAULT,
+    a: initialRailSplit(),
+    b: tree,
+  }
+}
+
 /** Split one rail view downward and make the selected canonical node the root
  * of the new lower view. The existing view remains the first child, matching
  * the main workspace's focused-pane split rule. */
@@ -42,10 +56,15 @@ export function splitRailView(
   return splitPane(tree, path, 'col', { kind: 'rail-view', id, root })
 }
 
-/** Delete one focused rail view. The last view is retained so navigation can
- * never disappear from an open rail. */
+/** Only a rooted secondary projection can close. The complete forest remains
+ * the permanent recovery anchor even when other rail views exist. */
+export function canCloseRailView(tree: RailSplitNode, path: string): boolean {
+  const node = nodeAt(tree, path)
+  return node?.kind === 'pane' && node.content.root !== undefined && panes(tree).length > 1
+}
+
 export function closeRailView(tree: RailSplitNode, path: string): RailSplitNode {
-  if (panes(tree).length <= 1) return tree
+  if (!canCloseRailView(tree, path)) return tree
   return closePane(tree, path) ?? tree
 }
 
@@ -94,7 +113,10 @@ export function getRailSplitPref(): RailSplitNode {
     const raw = localStorage.getItem(key())
     if (!raw) return initialRailSplit()
     const parsed: unknown = JSON.parse(raw)
-    return validNode(parsed) ? parsed : initialRailSplit()
+    if (!validNode(parsed)) return initialRailSplit()
+    const repaired = ensureCompleteRailView(parsed)
+    if (repaired !== parsed) setRailSplitPref(repaired)
+    return repaired
   } catch {
     return initialRailSplit()
   }

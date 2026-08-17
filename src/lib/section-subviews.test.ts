@@ -219,6 +219,11 @@ test('the rail is one canonical tree whose vertical split can root at any select
   assert.match(railSplit, /label=\{`Resize sidebar views \(\$\{path \|\| 'root'\}\)`\}/)
   assert.match(railController, /path: string; root: RailViewRoot/)
   assert.match(railController, /splitRailView\(tree, path, selection\.root, nextRailViewId\(\)\)/)
+  assert.match(
+    railController,
+    /railCanClose: canCloseRailView\(railTree, focusedRailPane\)/,
+    'the toolbar delegates closeability to the protected-forest model',
+  )
   assert.match(railSplit, /ancestors\.unshift/, 'selection records its canonical ancestor path')
   assert.match(railSplit, /data-rail-root-hidden/, 'outside ancestors and siblings leave layout and accessibility')
   assert.match(railSplit, /data-rail-root-target/, 'the selected node is marked as the visible root')

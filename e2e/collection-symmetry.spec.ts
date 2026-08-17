@@ -156,16 +156,26 @@ test('the shared pane buttons follow focus and split or close the selected rail 
     })
     .toBeLessThanOrEqual(8)
 
-  // Focus an entry in the other view and reuse Close pane: that exact view is
-  // deleted and its sibling promotes, just like the main split tree.
+  // The complete forest is the recovery anchor even with a sibling: focusing
+  // it removes Close rather than letting the original navigation disappear.
   await page.locator('[data-rail-pane="a"]').getByRole('button', { name: 'Commons', exact: true }).click()
+  await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-rail-pane]')).toHaveCount(2)
+
+  // A rooted secondary view remains an ordinary close target. Closing it
+  // promotes the protected complete forest and keeps every top-level root.
+  await lowerAnchor.click()
+  await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toBeVisible()
   await toolbar.getByRole('button', { name: 'Close pane', exact: true }).click()
   await expect(separator).toHaveCount(0)
   await expect(page.locator('[data-rail-pane]')).toHaveCount(1)
+  await expect(page.locator('[data-rail-pane="root"]')).not.toHaveAttribute('data-rail-view-root')
+  await expect(page.locator('[data-rail-pane="root"]').getByRole('button', { name: 'Commons', exact: true })).toBeVisible()
+  await expect(page.locator('[data-rail-pane="root"]').getByRole('button', { name: 'Projects', exact: true })).toBeVisible()
   await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toHaveCount(0)
 
   // Main focus restores the original two-direction command set.
-  await page.locator('main').getByRole('heading', { name: 'Commons', exact: true }).click()
+  await page.locator('main').getByRole('heading', { name: 'Insights dashboard', exact: true }).click()
   await expect(toolbar).toHaveAttribute('data-pane-action-target', 'main')
   splitMenu = await openSplitPaneMenu(page)
   await expect(splitMenu.getByRole('menuitem', { name: 'Split right', exact: true })).toBeVisible()
@@ -197,9 +207,11 @@ test('the shared pane buttons follow focus and split or close the selected rail 
   expect(toolbarGeometry.closeRight).toBeLessThanOrEqual(toolbarGeometry.railRight)
   await closePane.click()
 
-  // The promoted one-view tree is durable.
+  // The protected complete-forest tree is durable.
   await page.reload()
   await expect(page.locator('[data-rail-pane]')).toHaveCount(1)
+  await expect(page.locator('[data-rail-pane="root"]')).not.toHaveAttribute('data-rail-view-root')
+  await expect(page.locator('[data-rail-pane="root"]').getByRole('button', { name: 'Commons', exact: true })).toBeVisible()
   await expect(page.getByRole('separator', { name: 'Resize sidebar views (root)' })).toHaveCount(0)
 
   await ada.context.close()

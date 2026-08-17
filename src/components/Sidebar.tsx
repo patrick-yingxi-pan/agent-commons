@@ -196,8 +196,8 @@ export function Sidebar({
    *  rail focus offers only Split down after a navigation entry is selected. */
   onSplitRow?: () => void
   onSplitCol?: () => void
-  /** Close the focused main pane or focused rail view. The relevant controller
-   *  protects its own non-closable last view. */
+  /** Close the focused main pane or a rooted secondary rail view. The rail's
+   *  complete resource forest is a permanent recovery anchor. */
   onCloseView?: () => void
   /** Which focused area currently owns the shared split/close controls. */
   paneActionTarget: 'main' | 'rail'
@@ -773,8 +773,8 @@ export function Sidebar({
 
 /** One focus-aware split/close cluster for both navigation and content. Main
  * focus supplies the original Split right / Split down / Close pane handlers;
- * rail focus supplies vertical Split down and, for a multi-view rail, Close
- * pane. Keeping one renderer makes icon, tooltip, keyboard, and responsive
+ * rail focus supplies vertical Split down and, for a rooted secondary view,
+ * Close pane. Keeping one renderer makes icon, tooltip, keyboard, and responsive
  * behavior identical while the focused controller determines semantics. */
 export function PaneActionButtons({
   onSplitRow,

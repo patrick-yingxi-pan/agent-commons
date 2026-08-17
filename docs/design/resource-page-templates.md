@@ -116,13 +116,14 @@ The shared `PaneActionButtons` target the area that most recently received
 pointer or keyboard focus. Main focus preserves Split right / Split down / Close
 pane. Selecting any navigable entry in any rail view changes that same cluster
 to rail semantics: only vertical Split down is available, the new view makes
-the selected canonical node its visible root, and Close pane deletes the
-focused rail view. The node's descendants remain; its ancestors and siblings
+the selected canonical node its visible root, and Close pane deletes only a
+focused rooted secondary view. The complete forest never closes and remains the
+recovery path from every rooted projection. The node's descendants remain; its ancestors and siblings
 outside that subtree are absent. Both surfaces reuse `SplitNode`, sibling
 promotion and `ResizeHandle`; the rail restricts direction because its geometry
 is already a narrow column. This rooted projection does not change ontology,
-identity or URL, and the last view cannot close because navigation must remain
-present. Fold all / Unfold all share a labeled rail menu outside the focused
+identity or URL; restore prepends the complete forest when a legacy persisted
+layout is missing it. Fold all / Unfold all share a labeled rail menu outside the focused
 pane cluster, while the expanded rail groups split directions separately and
 keeps Close pane direct; disclosure, splitting and closing retain distinct
 command shapes without overflowing the constrained header.

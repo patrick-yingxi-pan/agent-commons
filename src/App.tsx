@@ -481,8 +481,9 @@ function Workspace() {
       : undefined
   // One command cluster, two focused surfaces. Main keeps both original split
   // directions; the rail exposes only Split down, and only after an arbitrary
-  // navigation entry in its focused view has been selected. Close deletes the
-  // focused view in either surface, with the last rail view protected.
+  // navigation entry in its focused view has been selected. Main panes all
+  // close; in the rail only rooted secondary views close, so the complete
+  // resource forest remains the permanent recovery anchor.
   const paneSplitRowAct = focusedArea === 'main' ? mainSplitRowAct : undefined
   const paneSplitColAct =
     focusedArea === 'rail'

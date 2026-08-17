@@ -62,9 +62,12 @@ what the document or the sibling component claims.
 - **Split/close is one focus-aware command surface.** `PaneActionButtons` is
   reused for main and rail. Main focus offers its existing row/column split;
   selecting any `[data-rail-entry]` changes the same cluster to vertical-only
-  rail split, and Close pane deletes the focused rail view. The selected node
-  becomes the new view root: keep its descendants, remove visible ancestors and
-  outside siblings, and preserve canonical identity/URL. `RailSplit` renders
+  rail split. Close pane deletes only a rooted secondary rail view; the complete
+  forest is a permanent recovery anchor and never exposes or accepts Close.
+  Restoring a legacy tree that lost it prepends the complete forest without
+  discarding the surviving projection. The selected node becomes the new view
+  root: keep its descendants, remove visible ancestors and outside siblings,
+  and preserve canonical identity/URL. `RailSplit` renders
   the generic binary tree; do not add rail-only split menus or per-pane close
   buttons. Presentation adapts to its host: the expanded rail groups the two
   split directions in one labeled menu so Close can remain the terminal direct
