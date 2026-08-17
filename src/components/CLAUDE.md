@@ -48,18 +48,18 @@ what the document or the sibling component claims.
   Artifacts, Contexts, and Models route their intermediate collection sections
   through `collectionSectionId`; both projections consume
   `lib/collectionSections.ts`, and each child keeps its canonical leaf page.
-  Rail Fold all / Unfold all is the same shared button pair as the main page and
-  propagates through nested branches rather than stopping at the first level.
+  The shell's Organize pane menu targets the main registry or strict descendants
+  of the selected rail entry according to focus; collection rows do not redraw it.
 - **Composite capabilities are mirrored, not duplicated.** The one
   `lib/compositeFeatures.ts` catalog declares each root's standing primary
   action, local search and bulk disclosure; applicable Filter & sort remains
   the shared live component. `CompositeRailControls` adapts the capabilities to
   one compact row menu, while the focused page's real `PageActionButton`, search
-  field and `CompositePageControls` answer the command. Fold all / Unfold all
-  publishes one signal consumed by both rendered structures, including local
-  dynamic bands; `persist={false}` still keeps their titles out of `uiPrefs`.
+  field and `CompositePageControls` answer the command. The page reports its
+  live fold work to shell chrome, including local dynamic bands;
+  `persist={false}` still keeps their titles out of `uiPrefs`.
   Density may adapt, but a standing capability cannot disappear.
-- **Split/close is one focus-aware command surface.** `PaneActionButtons` is
+- **Organize/split/close is one focus-aware command surface.** `PaneActionButtons` is
   reused for main and rail. Main focus offers its existing row/column split;
   selecting any `[data-rail-entry]` changes the same cluster to vertical-only
   rail split. Close pane deletes only a rooted secondary rail view; the complete
@@ -72,8 +72,8 @@ what the document or the sibling component claims.
   buttons. Presentation adapts to its host: the expanded rail groups the two
   split directions in one labeled menu so Close can remain the terminal direct
   action at the 208px minimum, while the unconstrained vertical MiniRail keeps
-  the direct buttons. Fold all / Unfold all likewise share one labeled forest
-  menu outside the focus-aware cluster.
+  the direct buttons. Fold all / Unfold all share one labeled Organize pane menu
+  inside the cluster and act only on the focused main page or selected rail subtree.
 - **An index entry is a synopsis, not a compressed detail page.** Ordinary
   addressable rows consume `ResourcePageSynopsisRow`: 13px identity, one 12px
   descriptor and one 11px state/count field in a frameless divider ledger.

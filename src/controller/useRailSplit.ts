@@ -19,6 +19,8 @@ const firstPanePath = (tree: RailSplitNode): string => panes(tree)[0]?.path ?? '
 let railViewSequence = 0
 const nextRailViewId = (): string => `rail-view-${Date.now().toString(36)}-${++railViewSequence}`
 
+export type RailSelection = { path: string; root: RailViewRoot }
+
 export function useRailSplit() {
   const [railTree, setRailTreeState] = useState<RailSplitNode>(() => getRailSplitPref())
   const treeRef = useRef(railTree)
@@ -28,7 +30,7 @@ export function useRailSplit() {
   const focusedRef = useRef(focusedRailPane)
   focusedRef.current = focusedRailPane
 
-  const [selectedEntry, setSelectedEntry] = useState<{ path: string; root: RailViewRoot } | null>(null)
+  const [selectedEntry, setSelectedEntry] = useState<RailSelection | null>(null)
   const selectedRef = useRef(selectedEntry)
   selectedRef.current = selectedEntry
 
@@ -91,6 +93,7 @@ export function useRailSplit() {
   return {
     railTree,
     focusedRailPane,
+    selectedRailEntry: selectedEntry,
     railCanSplit: selectedEntry?.path === focusedRailPane,
     railCanClose: canCloseRailView(railTree, focusedRailPane),
     focusRailPane,

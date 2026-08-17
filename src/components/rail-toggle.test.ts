@@ -32,7 +32,7 @@ test('the collapsed-rail reopen control occupies layout — never absolutely pos
   }
 })
 
-test('the split/close cluster has one home — both rail hosts render PaneActionButtons', () => {
+test('the organize/split/close cluster has one home — both rail hosts render PaneActionButtons', () => {
   // The expanded rail's header and the collapsed MiniRail offer the focused-
   // pane acts through ONE shared component, gated by the SAME hoisted handlers
   // (split: wide tier; close: split panes exist) — so the two hosts can't
@@ -45,6 +45,8 @@ test('the split/close cluster has one home — both rail hosts render PaneAction
   // it) — App.tsx re-hardcoding a split/close button would carry them here.
   assert.ok(!app.includes('data-split-view'), 'App.tsx does not re-hardcode a split button')
   assert.ok(!app.includes('data-close-view'), 'App.tsx does not re-hardcode a close button')
+  assert.match(sidebar, /ariaLabel="Organize pane"[\s\S]*?items=\{organizeItems\}/)
+  assert.doesNotMatch(app, /ariaLabel="Organize pane"/, 'App does not redraw the shared menu')
 })
 
 test('the expanded rail groups split directions but keeps Close pane direct', () => {

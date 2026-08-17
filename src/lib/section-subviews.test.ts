@@ -185,21 +185,19 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
   assert.match(sidebar, /!!SECTION_SUBVIEWS\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/)
 })
 
-test('the rail has one explicit fold/unfold menu that reaches the whole tree', () => {
+test('the rail shares one focus-aware fold menu that reaches strict descendants of its selected entry', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  assert.match(sidebar, /ariaLabel="Organize sidebar"/, 'forest-wide acts share one labeled compact menu')
+  assert.match(sidebar, /ariaLabel="Organize pane"/, 'focused acts share one labeled compact menu')
   assert.match(sidebar, /label: 'Fold all'/)
   assert.match(sidebar, /label: 'Unfold all'/)
   assert.doesNotMatch(sidebar, /ariaLabel="Rail view options"/, 'folding is not disguised as a second split button')
   assert.match(sidebar, /requestRailFold/, 'one handler drives both directions')
-  // The visible top level changes at once, while a revisioned signal reaches
-  // branches that are already mounted or mount because Unfold all opened them.
-  assert.match(sidebar, /expandableIds\s*=\s*useMemo\(\(\)\s*=>\s*visibleSections\.filter/)
-  assert.match(sidebar, /SECTION_ORDER\.filter\(\(id\) => id !== 'admin' \|\| instanceAdmin\)/)
-  assert.match(sidebar, /setExpanded\(open \? new Set\(expandableIds\) : new Set\(\)\)/)
+  assert.match(sidebar, /targetKey: selectedRailEntry\.root\.key/, 'the selected entry is the disclosure scope')
+  assert.match(sidebar, /panePath: selectedRailEntry\.path/, 'the request cannot spill into another rail pane')
   assert.match(sidebar, /revision: \(current\?\.revision \?\? 0\) \+ 1/)
-  const children = read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx'))
-  assert.match(children, /if \(foldSignal\) setExpanded\(foldSignal\.expanded\)/, 'nested branches consume the same request')
+  const railSplit = read(join(ROOT, 'src', 'lib', 'railSplit.ts'))
+  assert.match(railSplit, /nodeKey\.startsWith\(`\$\{signal\.targetKey\}\/`\)/, 'path identity selects strict descendants')
+  assert.doesNotMatch(sidebar, /setExpanded\(open \? new Set/, 'the complete forest posture is never overwritten')
 })
 
 test('the rail is one canonical tree whose vertical split can root at any selected entry', () => {

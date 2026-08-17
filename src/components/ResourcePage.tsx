@@ -21,8 +21,7 @@ import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { DOOR_CLASS } from '../lib/textDoor'
 import { useSectionFold } from '../lib/useSectionFold'
 import type { SectionId } from '../types'
-import { requestCompositeFold } from '../lib/compositeFeatures'
-import { useFocusedCompositeFold } from '../lib/useCompositeFeatures'
+import { useFocusedCompositeFold, usePublishFocusedCompositeFold } from '../lib/useCompositeFeatures'
 import type { NavLocation } from '../lib/nav'
 
 /** The two main-page templates are semantic specializations of this one frame.
@@ -253,7 +252,7 @@ export function FoldPairButtons({ fold, unfold }: { fold?: FoldAct; unfold?: Fol
   )
 }
 
-/** The main-page row placement for the shared pair. */
+/** Text-row placement for a thread whose host has no section-action cluster. */
 export function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct }) {
   if (!fold && !unfold) return null
   return (
@@ -263,11 +262,12 @@ export function FoldPairRow({ fold, unfold }: { fold?: FoldAct; unfold?: FoldAct
   )
 }
 
-/** The main-page projection of a composite resource's standing view controls.
+/** The main-page projection of controls that naturally live with page content.
  *
- * `filter` is the same live control rendered on the rail row. Fold work is
- * discovered from every rendered section, including local data-defined bands;
- * local bands still avoid uiPrefs, they simply join the page's in-memory scope.
+ * `filter` is the same live control rendered on the rail row. Bulk disclosure
+ * has moved to the shell's focus-aware Organize pane menu; this component still
+ * discovers every rendered section (including local data-defined bands) and
+ * publishes truthful availability from the page's one fold registry.
  */
 export function CompositePageControls({
   section,
@@ -285,31 +285,17 @@ export function CompositePageControls({
     (expanded) => entries.forEach((entry) => entry.setFolded(!expanded)),
     !sectionPage && entries.length > 0,
   )
-  if (!filter && foldable.length === 0 && unfoldable.length === 0) return null
+  usePublishFocusedCompositeFold(
+    section,
+    foldable.length > 0,
+    unfoldable.length > 0,
+    !sectionPage && entries.length > 0,
+  )
+  if (!filter) return null
 
   return (
     <div data-composite-page-controls className="mb-2 flex min-h-5 items-center justify-end gap-1">
       {filter}
-      <FoldPairButtons
-        fold={
-          foldable.length > 0
-            ? {
-                act: () => requestCompositeFold(section, false),
-                name: 'Fold all sections',
-                title: 'Collapse every section on this page to its one-line summary',
-              }
-            : undefined
-        }
-        unfold={
-          unfoldable.length > 0
-            ? {
-                act: () => requestCompositeFold(section, true),
-                name: 'Unfold all sections',
-                title: 'Open every section on this page',
-              }
-            : undefined
-        }
-      />
     </div>
   )
 }

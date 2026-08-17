@@ -31,7 +31,8 @@ import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
 import { redeemShareLink } from './api'
 import type { RoutedView } from './lib/urlRoutes'
-import { requestCompositeCommand } from './lib/compositeFeatures'
+import { requestCompositeCommand, requestCompositeFold } from './lib/compositeFeatures'
+import { useFocusedCompositeFoldAvailability } from './lib/useCompositeFeatures'
 
 /** S6 — a share-link boot (`/shared/:token`), captured at module scope BEFORE
  *  the router consumes the boot address (viewForPath treats the shape as
@@ -149,12 +150,14 @@ function Workspace() {
     focusedRailPane,
     railCanSplit,
     railCanClose,
+    selectedRailEntry,
     focusRailPane,
     selectRailEntry,
     splitFocusedRail,
     closeFocusedRail,
     setRailRatio,
   } = useRailSplit()
+  const focusedFoldAvailability = useFocusedCompositeFoldAvailability()
   const [focusedArea, setFocusedArea] = useState<'main' | 'rail'>('main')
   const focusRailArea = useCallback(
     (path: string) => {
@@ -479,6 +482,16 @@ function Workspace() {
             }
           })
       : undefined
+  const focusedMainFold =
+    focusedContent?.kind === 'msection' && focusedFoldAvailability?.section === focusedContent.id
+      ? focusedFoldAvailability
+      : null
+  const mainFoldAllAct = focusedMainFold?.canFold
+    ? () => requestCompositeFold(focusedMainFold.section, false)
+    : undefined
+  const mainUnfoldAllAct = focusedMainFold?.canUnfold
+    ? () => requestCompositeFold(focusedMainFold.section, true)
+    : undefined
   // One command cluster, two focused surfaces. Main keeps both original split
   // directions; the rail exposes only Split down, and only after an arbitrary
   // navigation entry in its focused view has been selected. Main panes all
@@ -565,9 +578,12 @@ function Workspace() {
                 onSplitRow={paneSplitRowAct}
                 onSplitCol={paneSplitColAct}
                 onCloseView={paneCloseAct}
+                onFoldAll={focusedArea === 'main' ? mainFoldAllAct : undefined}
+                onUnfoldAll={focusedArea === 'main' ? mainUnfoldAllAct : undefined}
                 paneActionTarget={focusedArea}
                 railTree={railTree}
                 focusedRailPane={focusedRailPane}
+                selectedRailEntry={selectedRailEntry}
                 onFocusRailPane={focusRailArea}
                 onSelectRailEntry={selectRailAreaEntry}
                 onRailRatio={setRailRatio}
@@ -601,6 +617,8 @@ function Workspace() {
               onSplitRow={mainSplitRowAct}
               onSplitCol={mainSplitColAct}
               onCloseView={mainCloseAct}
+              onFoldAll={mainFoldAllAct}
+              onUnfoldAll={mainUnfoldAllAct}
             />
           )}
 
@@ -697,6 +715,8 @@ function MiniRail({
   onSplitRow,
   onSplitCol,
   onCloseView,
+  onFoldAll,
+  onUnfoldAll,
 }: {
   onExpand: () => void
   onOpenSearch: () => void
@@ -704,6 +724,8 @@ function MiniRail({
   onSplitRow?: () => void
   onSplitCol?: () => void
   onCloseView?: () => void
+  onFoldAll?: () => void
+  onUnfoldAll?: () => void
 }) {
   return (
     <div
@@ -717,7 +739,13 @@ function MiniRail({
         <Search size={18} />
       </button>
       <NotificationBell onClick={onOpenNotifications} />
-      <PaneActionButtons onSplitRow={onSplitRow} onSplitCol={onSplitCol} onCloseView={onCloseView} />
+      <PaneActionButtons
+        onFoldAll={onFoldAll}
+        onUnfoldAll={onUnfoldAll}
+        onSplitRow={onSplitRow}
+        onSplitCol={onSplitCol}
+        onCloseView={onCloseView}
+      />
     </div>
   )
 }

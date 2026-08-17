@@ -79,8 +79,8 @@ export function setSectionFolded(title: string, folded: boolean): void {
   setLayout(sectionFoldKey(title), folded)
 }
 
-/** What a page-level Fold all / Unfold all has left to do, over the sections a
- *  page declares.
+/** What the shell's focused page Fold all / Unfold all has left to do, over the
+ *  sections a page declares.
  *
  *  The same asymmetry SOCIAL-21 settled for the thread, and it is settled here
  *  for the same reason rather than by analogy: the two acts are not inverses of

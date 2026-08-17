@@ -5,10 +5,13 @@ import {
   compositeCommandSnapshot,
   compositeFoldSnapshot,
   consumeCompositeCommand,
+  focusedCompositeFoldSnapshot,
+  publishFocusedCompositeFold,
   requestCompositeCommand,
   requestCompositeFold,
   subscribeCompositeCommand,
   subscribeCompositeFold,
+  subscribeFocusedCompositeFold,
 } from './compositeFeatures.ts'
 
 test('the composite capability catalog is total and names the standing page features', () => {
@@ -54,7 +57,7 @@ test('a rail command stays pending until the focused matching page consumes it',
   unsubscribe()
 })
 
-test('bulk disclosure publishes one revisioned signal to both projections', () => {
+test('main bulk disclosure publishes one revisioned signal to the focused page', () => {
   let notifications = 0
   const unsubscribe = subscribeCompositeFold(() => notifications++)
   requestCompositeFold('projects', false)
@@ -68,5 +71,25 @@ test('bulk disclosure publishes one revisioned signal to both projections', () =
   assert.equal(unfolded?.expanded, true)
   assert.ok((unfolded?.revision ?? 0) > (folded?.revision ?? 0))
   assert.equal(notifications, 2)
+  unsubscribe()
+})
+
+test('focused fold availability is owner-safe when split projections exchange focus', () => {
+  let notifications = 0
+  const unsubscribe = subscribeFocusedCompositeFold(() => notifications++)
+  const oldPane = Symbol('old-pane')
+  const newPane = Symbol('new-pane')
+  publishFocusedCompositeFold(oldPane, { section: 'projects', canFold: true, canUnfold: false })
+  assert.deepEqual(focusedCompositeFoldSnapshot(), {
+    section: 'projects',
+    canFold: true,
+    canUnfold: false,
+  })
+  publishFocusedCompositeFold(newPane, { section: 'scheduled', canFold: false, canUnfold: true })
+  publishFocusedCompositeFold(oldPane, null)
+  assert.equal(focusedCompositeFoldSnapshot()?.section, 'scheduled', 'an old cleanup cannot erase the new focus')
+  publishFocusedCompositeFold(newPane, null)
+  assert.equal(focusedCompositeFoldSnapshot(), null)
+  assert.equal(notifications, 3)
   unsubscribe()
 })

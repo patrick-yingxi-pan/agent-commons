@@ -9,9 +9,29 @@ import {
   closeRailView,
   getRailSplitPref,
   initialRailSplit,
+  railFoldAffects,
   setRailSplitScope,
   splitRailView,
 } from './railSplit.ts'
+
+test('a rail organize request affects strict descendants, never its selected root or siblings', () => {
+  const signal = {
+    revision: 1,
+    expanded: false,
+    targetKey: 'section/projects/item/p-insights',
+  }
+  assert.equal(railFoldAffects(signal, signal.targetKey), false, 'the selected entry remains visible')
+  assert.equal(
+    railFoldAffects(signal, `${signal.targetKey}/section/artifacts`),
+    true,
+    'a descendant answers the request',
+  )
+  assert.equal(
+    railFoldAffects(signal, 'section/projects/item/p-platform/section/artifacts'),
+    false,
+    'a sibling subtree keeps its posture',
+  )
+})
 
 let storage: Map<string, string>
 beforeEach(() => {

@@ -66,10 +66,7 @@ import {
   modelCollectionSections,
   type CollectionSection,
 } from '../lib/collectionSections'
-
-/** A rail-wide Fold all / Unfold all request. Each request is a fresh object;
- * nested branches also apply the current object when they mount. */
-export type RailFoldSignal = { revision: number; expanded: boolean }
+import { railFoldAffects, type RailFoldSignal } from '../lib/railSplit'
 
 /** Stable, path-shaped identity for one canonical rail node. A split stores
  * this key rather than a row ordinal, so filtering, capping, and async arrival
@@ -292,10 +289,28 @@ export function AgentTreeChildren({
   }, [activeTop, activeSubview, activeSeed?.promptId, activeSeed?.toolId])
   useEffect(() => {
     if (!foldSignal) return
-    const all = foldSignal.expanded
-      ? AGENT_SECTIONS.flatMap((section) => [section.id, ...section.children.map((child) => child.id)])
-      : []
-    setOpen(new Set(all))
+    const nodes = [
+      ...AGENT_SECTIONS.map((section) => ({
+        id: section.id,
+        key: railNodeKey('section', 'agents', 'section', section.id),
+      })),
+      {
+        id: 'prompts',
+        key: railNodeKey('section', 'agents', 'section', 'building-blocks', 'material', 'prompts'),
+      },
+      {
+        id: 'tools',
+        key: railNodeKey('section', 'agents', 'section', 'building-blocks', 'material', 'tools'),
+      },
+    ]
+    setOpen((current) => {
+      const next = new Set(current)
+      for (const node of nodes) {
+        if (!railFoldAffects(foldSignal, node.key)) continue
+        foldSignal.expanded ? next.add(node.id) : next.delete(node.id)
+      }
+      return next
+    })
   }, [foldSignal])
   const toggle = (id: string) => setOpen((current) => {
     const next = new Set(current)
@@ -623,7 +638,7 @@ function ProjectBranch({
     if (branchActive) setExpanded(true)
   }, [branchActive])
   useEffect(() => {
-    if (foldSignal) setExpanded(foldSignal.expanded)
+    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   const disclosed = expanded || forcedOpen
   return (
@@ -831,7 +846,7 @@ function ProjectSectionBranch({
     if (sectionActive) setExpanded(true)
   }, [sectionActive])
   useEffect(() => {
-    if (foldSignal) setExpanded(foldSignal.expanded)
+    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   const hasResources = rows.length > 0
   const visible = cappedWithActive(
@@ -960,7 +975,7 @@ function CollectionSectionBranch({
     if (sectionActive || containsActiveLeaf) setExpanded(true)
   }, [sectionActive, containsActiveLeaf])
   useEffect(() => {
-    if (foldSignal) setExpanded(foldSignal.expanded)
+    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   const hasResources = group.items.length > 0
   const visible = cappedWithActive(

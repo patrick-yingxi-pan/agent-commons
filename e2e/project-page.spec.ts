@@ -12,6 +12,7 @@
 import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers.ts'
+import { openOrganizePaneMenu, organizePane } from './pane-actions.ts'
 
 /** A project with everything on it: sessions, a discussion, a live grant, two
  *  routines, four contexts. A quiet project would let a half-rendered page pass. */
@@ -395,9 +396,10 @@ test('the project page is one column of foldable sections, configuration folded'
       { message: 'no section shows its verbs until you hover it' },
     )
     .toEqual([])
-  //  …and it is the THREAD's control, distinct from the page's — two Fold alls
-  //  at two scopes, which is why the accessible names carry their nouns.
-  await expect(page.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(1)
+  // The thread keeps its section-local acts; page-wide disclosure has one home
+  // in shell chrome rather than another pair above the page.
+  await expect(page.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Organize pane', exact: true })).toBeVisible()
 
   const OPENING = 'Read through the Q3 baseline'
   await expect(page.locator('p', { hasText: OPENING })).toHaveCount(1)
@@ -498,28 +500,22 @@ test('composite resources preserve parent → section → resource in the rail a
   await ada.context.close()
 })
 
-test('Fold all · Unfold all act on the whole page, and the posture survives a reload', async ({ browser }) => {
+test('Organize pane folds the focused page, and the posture survives a reload', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser)
   const page = ada.page
   await page.goto(PROJECT)
   await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
 
-  // `exact` names, and they carry the word "sections": the Discussion section
-  // holds a THREAD, and a thread has its own Fold all over its posts. Two
-  // controls at different scopes must not share one accessible name — and
-  // Playwright matches by substring, so "Unfold all" contains "Fold all" here
-  // exactly as it did in the thread.
-  const foldAll = page.getByRole('button', { name: 'Fold all sections', exact: true })
-  const unfoldAll = page.getByRole('button', { name: 'Unfold all sections', exact: true })
   const expanded = () => page.locator(`${HEADERS}[aria-expanded="true"]`)
 
-  // Both live at rest: configuration is folded (Unfold all has work) and content
-  // is open (Fold all has work). That is the state a single `allFolded` toggle
-  // cannot represent, which is why this is two buttons — SOCIAL-21's rule,
-  // adopted here rather than re-learned.
-  await expect(foldAll).toBeVisible()
-  await expect(unfoldAll).toBeVisible()
+  // Both independent acts live inside one focused menu at rest: configuration
+  // is folded (Unfold all has work) and content is open (Fold all has work).
+  let organizeMenu = await openOrganizePaneMenu(page)
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toBeVisible()
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Unfold all', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(0)
 
   // ── The rhythm, before and after ──────────────────────────────────────────
   //  (Owner question 2026-08-13: *"how about giving more vertical space between
@@ -541,14 +537,16 @@ test('Fold all · Unfold all act on the whole page, and the posture survives a r
   //  against a perfectly correct page; the mixed state is the resting state.)
   expect(await sectionGaps(page), 'the resting page carries both rhythms').toHaveLength(2)
 
-  await foldAll.click()
+  await organizePane(page, 'Fold all')
   await expect(expanded()).toHaveCount(0)
   const foldedGaps = await sectionGaps(page)
   expect(foldedGaps, 'all folded ⇒ one rhythm').toHaveLength(1)
   // …and Fold all now has nothing to do, so it is GONE rather than sitting inert
   // beside the one control that means something.
-  await expect(foldAll).toHaveCount(0)
-  await expect(unfoldAll).toBeVisible()
+  organizeMenu = await openOrganizePaneMenu(page)
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toHaveCount(0)
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Unfold all', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
 
   // ── The posture is a PREFERENCE, so it survives the trip ──────────────────
   //  This is the half `node --test` cannot see: `uiPrefs` guards its own
@@ -558,14 +556,16 @@ test('Fold all · Unfold all act on the whole page, and the posture survives a r
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
   await expect(expanded()).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Unfold all sections', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Organize pane', exact: true })).toBeVisible()
 
   // Unfold all is the way back out of the state Fold all put the page in — the
   // dead end that forced the thread's pair apart, checked here on the page.
-  await page.getByRole('button', { name: 'Unfold all sections', exact: true }).click()
+  await organizePane(page, 'Unfold all')
   const count = await page.locator(HEADERS).count()
   await expect(expanded()).toHaveCount(count)
-  await expect(page.getByRole('button', { name: 'Unfold all sections', exact: true })).toHaveCount(0)
+  organizeMenu = await openOrganizePaneMenu(page)
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Unfold all', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   //  …and now every section is open, so the other rhythm is uniform — and it is
   //  the LARGER one. That comparison is the claim; either number alone is just a
@@ -644,8 +644,10 @@ test('a section rule sits in equal space, and the space is the same in every sec
   // the resting page happens to show. Conditional rather than a swallowed click:
   // the control is ABSENT once nothing is folded (it is never an inert button),
   // and a `.catch(() => {})` would hide a real failure to press it as well.
-  const unfoldAll = page.getByRole('button', { name: 'Unfold all sections', exact: true })
+  const organizeMenu = await openOrganizePaneMenu(page)
+  const unfoldAll = organizeMenu.getByRole('menuitem', { name: 'Unfold all', exact: true })
   if ((await unfoldAll.count()) > 0) await unfoldAll.click()
+  else await page.keyboard.press('Escape')
   await expect(page.locator(HEADERS + '[aria-expanded="false"]')).toHaveCount(0)
 
   // ── Equal above and below (owner directive 2026-08-13) ────────────────────

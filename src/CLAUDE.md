@@ -533,12 +533,12 @@ clarification 2026-08-16). Every RESOURCE-SCOPED standing capability of a
 composite root is available from both projections: its primary New/Add action,
 local search, Filter & sort, and Fold all / Unfold all. The one complete catalog
 is `src/lib/compositeFeatures.ts`; the main page's real button/field/fold scope
-answers the focused-pane command while `CompositeRailControls` is its compact
-rail projection. Bulk disclosure publishes one revisioned request consumed by
-both the active page registry and the matching nested rail branch. The rendered
-form may adapt to density, but capability may not: split, close, resize, fold,
-filter, search and scroll remain available on both sides through one state or
-one shared primitive.
+answers the focused-pane command while `CompositeRailControls` is the compact
+projection for resource-local actions and search. Bulk disclosure has one shell
+home: `PaneActionButtons`. Main focus consumes the live page registry; rail
+focus targets strict descendants of the selected canonical entry in that rail
+pane. The rendered form may adapt to density, but capability may not: split,
+close, resize, fold, filter, search and scroll remain available on both sides.
 Locked by `src/lib/composite-features.test.ts`,
 `src/lib/composite-controls.test.ts`, and `e2e/collection-symmetry.spec.ts`.
 There are no content-container headers called **Sections** or **Recents**.
@@ -564,11 +564,11 @@ so it never offers or accepts Close. Restore repairs a legacy tree that lost the
 forest by prepending it without discarding the surviving rooted projections.
 Views nest arbitrarily, scroll independently, retain scroll memory by stable
 view id, and persist their ratios/tree plus stable root-key/ancestor paths per
-account in `claude-ui.railsplit.v1`. Forest-wide Fold all and Unfold all share one labeled
-rail menu outside the focus-aware pane-action group. In the expanded rail, the
-two main split directions likewise share one labeled menu while Close pane stays
-direct and terminal; the unconstrained MiniRail keeps direct split buttons.
-Split and close retain one shared command home for both main and rail focus.
+account in `claude-ui.railsplit.v1`. Organize pane shares the focus-aware
+`PaneActionButtons` cluster with Split pane and direct terminal Close. In rail
+focus it never rewrites the complete forest: only strict descendants of the
+selected entry answer, in the selected view alone. The selected entry and
+sibling branches keep their posture.
 
 `src/lib/railSplit.ts` owns the pure vertical-only model,
 `src/controller/useRailSplit.ts` owns focus/selection/tree edits, and

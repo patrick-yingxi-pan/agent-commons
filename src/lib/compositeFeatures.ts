@@ -97,3 +97,50 @@ export function requestCompositeFold(section: SectionId, expanded: boolean): voi
   foldSignal = { revision: ++foldRevision, section, expanded }
   for (const listener of [...foldListeners]) listener()
 }
+
+/** The bulk-disclosure work currently offered by the focused MAIN projection.
+ *
+ * The shell owns the one visible Organize pane control, while the rendered
+ * page owns the actual fold registry. This tiny external store lets the page
+ * advertise truthful actions without lifting its data-defined sections into
+ * App or recreating a second fold model there. Ownership makes an unmounting
+ * background pane unable to clear a newer focused pane's report. */
+export interface CompositeFoldAvailability {
+  section: SectionId
+  canFold: boolean
+  canUnfold: boolean
+}
+
+let focusedFoldAvailability: CompositeFoldAvailability | null = null
+let focusedFoldOwner: symbol | null = null
+const focusedFoldListeners = new Set<() => void>()
+
+export function focusedCompositeFoldSnapshot(): CompositeFoldAvailability | null {
+  return focusedFoldAvailability
+}
+
+export function subscribeFocusedCompositeFold(listener: () => void): () => void {
+  focusedFoldListeners.add(listener)
+  return () => focusedFoldListeners.delete(listener)
+}
+
+export function publishFocusedCompositeFold(
+  owner: symbol,
+  availability: CompositeFoldAvailability | null,
+): void {
+  if (availability === null) {
+    if (focusedFoldOwner !== owner) return
+    focusedFoldOwner = null
+    focusedFoldAvailability = null
+  } else {
+    const unchanged =
+      focusedFoldOwner === owner &&
+      focusedFoldAvailability?.section === availability.section &&
+      focusedFoldAvailability.canFold === availability.canFold &&
+      focusedFoldAvailability.canUnfold === availability.canUnfold
+    if (unchanged) return
+    focusedFoldOwner = owner
+    focusedFoldAvailability = availability
+  }
+  for (const listener of [...focusedFoldListeners]) listener()
+}

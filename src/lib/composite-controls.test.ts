@@ -1,8 +1,5 @@
-/** Lock: a composite resource exposes the same view controls in both of its
- * projections. The rail and main page render two controls over one live filter
- * value; they do not mint two filter states. Fold all / Unfold all likewise
- * uses the one shared pair, while each projection folds its own rendered tree.
- */
+/** Lock: filter state remains symmetric between a composite resource's two
+ * projections, while bulk disclosure has one focus-aware shell home. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
@@ -18,13 +15,14 @@ import { COMPOSITE_FEATURES } from './compositeFeatures.ts'
 const fn = (name: string) => stripComments(sectionViewComponent(name))
 const templateFn = (name: string) => stripComments(resourcePageComponent(name))
 
-test('the composite template owns one toolbar for filters and discovered fold work', () => {
+test('the composite template keeps filters in-page and reports discovered fold work to shell chrome', () => {
   const controls = templateFn('CompositePageControls')
   assert.match(controls, /data-composite-page-controls/)
-  assert.match(controls, /<FoldPairButtons\b/, 'page and rail share the exact fold pair')
   assert.match(controls, /\{filter\}/, 'the filter occupies the same template toolbar')
-  assert.match(controls, /requestCompositeFold\(section, false\)/, 'page fold publishes the shared two-projection request')
   assert.match(controls, /useFocusedCompositeFold/, 'the focused page consumes that request')
+  assert.match(controls, /usePublishFocusedCompositeFold/, 'the focused page reports truthful work to shell chrome')
+  assert.doesNotMatch(controls, /<FoldPairButtons\b/, 'the page no longer redraws the shell fold menu')
+  assert.doesNotMatch(controls, /Fold all sections/, 'the redundant page-top act stays absent')
 
   const section = templateFn('ResourcePageSection')
   assert.match(section, /register\?\.register/, 'every rendered structural section joins the page fold scope')
@@ -97,6 +95,7 @@ test('primary actions and local search are catalogued and projected from both su
 
   assert.match(sidebar, /<CompositeRailControls\b/, 'every rail root projects the shared feature catalog')
   assert.match(rail, /COMPOSITE_FEATURES\[section\]/, 'the compact projection is driven by the one catalog')
+  assert.doesNotMatch(rail, /requestCompositeFold|label: 'Fold all'/, 'resource overflow does not duplicate Organize pane')
   assert.match(action, /useCompositeCommand\(mirrorsRailFor, 'primary-action'/, 'page actions answer the rail command through one primitive')
 
   for (const [section, features] of Object.entries(COMPOSITE_FEATURES)) {
@@ -117,15 +116,22 @@ test('primary actions and local search are catalogued and projected from both su
   }
 })
 
-test('rail commands target only the focused pane and bulk fold reaches its rail branch', () => {
+test('Organize pane targets the focused projection through one shared shell control', () => {
   const mainSplit = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
   const sectionPane = stripComments(read(join(ROOT, 'src', 'components', 'SectionPane.tsx')))
   const sectionView = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
+  const app = stripComments(read(join(ROOT, 'src', 'App.tsx')))
+  const controls = templateFn('CompositePageControls')
 
   assert.match(mainSplit, /focused=\{focused\}/, 'the split leaf reports which pane the rail controls')
   assert.match(sectionPane, /railProjectionActive=\{focused\}/, 'the section pane carries focus to the page')
   assert.match(sectionView, /<CompositeProjectionScope active=\{railProjectionActive\}>/)
-  assert.match(sidebar, /useCompositeFoldSignal\(\)/, 'the rail branch consumes the same fold signal as the page')
-  assert.match(sidebar, /branchFoldSignals\[id\] \?\? railFoldSignal/, 'resource fold propagates through nested rail children')
+  assert.match(controls, /usePublishFocusedCompositeFold/, 'main reports its live fold registry')
+  assert.match(app, /useFocusedCompositeFoldAvailability\(\)/, 'shell consumes only the focused main report')
+  assert.match(app, /requestCompositeFold\(focusedMainFold\.section, false\)/)
+  assert.match(sidebar, /ariaLabel="Organize pane"/, 'rail and main share one labeled control')
+  assert.match(sidebar, /selectedRailEntry\.root\.key/, 'rail focus scopes the request to its selected entry')
+  assert.match(sidebar, /railFoldSignal\?\.panePath === path/, 'only the selected rail pane receives the request')
+  assert.doesNotMatch(sidebar, /useCompositeFoldSignal|branchFoldSignals/, 'main fold requests no longer leak into the rail')
 })

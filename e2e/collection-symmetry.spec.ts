@@ -1,19 +1,9 @@
 import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers.ts'
-import { openSplitPaneMenu, splitPane } from './pane-actions.ts'
+import { openOrganizePaneMenu, openSplitPaneMenu, organizePane, splitPane } from './pane-actions.ts'
 
 const sectionsNav = (page: import('@playwright/test').Page) => page.locator('nav[aria-label="Sections"]')
-
-async function runRailForestCommand(
-  page: import('@playwright/test').Page,
-  command: 'Fold all' | 'Unfold all',
-) {
-  await page.getByRole('button', { name: 'Organize sidebar', exact: true }).click()
-  await page.getByRole('menu', { name: 'Organize sidebar', exact: true })
-    .getByRole('menuitem', { name: command, exact: true })
-    .click()
-}
 
 test('collection roots preserve main-page sections in the rail and canonical URL', async ({ browser }) => {
   test.setTimeout(ms(90_000))
@@ -52,18 +42,31 @@ test('collection roots preserve main-page sections in the rail and canonical URL
   await ada.context.close()
 })
 
-test('rail Fold all and Unfold all reach nested collection branches', async ({ browser }) => {
+test('rail Organize pane reaches only strict descendants of the selected entry', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
   const page = ada.page
   await page.goto('/artifacts')
+  await expect(page.getByRole('heading', { name: 'Artifacts', exact: true })).toBeVisible({ timeout: ms(20_000) })
   const rail = sectionsNav(page)
 
-  await runRailForestCommand(page, 'Fold all')
-  await expect(rail.getByRole('button', { name: 'Expand Artifacts', exact: true })).toBeVisible()
-  await expect(rail.locator('[data-collection-section-resources]')).toHaveCount(0)
+  const models = rail.locator('[data-section-tree="models"]').first()
+  const modelsToggle = rail.getByRole('button', { name: /^(Expand|Collapse) Models$/ }).first()
+  await expect(modelsToggle).toBeVisible()
+  if ((await modelsToggle.getAttribute('aria-expanded')) === 'false') await modelsToggle.click()
+  const providersToggle = rail.getByRole('button', { name: /^(Expand|Collapse) Providers$/ }).first()
+  await expect(providersToggle).toBeVisible()
+  if ((await providersToggle.getAttribute('aria-expanded')) === 'false') await providersToggle.click()
+  await expect(models.locator('[data-collection-section-resources="providers"]')).toBeAttached()
 
-  await runRailForestCommand(page, 'Unfold all')
+  const artifacts = rail.locator('[data-rail-node-key="section/artifacts"]').first()
+  await artifacts.getByRole('button', { name: 'Artifacts', exact: true }).click()
+  await organizePane(page, 'Fold all')
+  await expect(rail.getByRole('button', { name: 'Collapse Artifacts', exact: true })).toBeVisible()
+  await expect(artifacts.locator('[data-collection-section-resources]')).toHaveCount(0)
+  await expect(models.locator('[data-collection-section-resources="providers"]')).toBeAttached()
+
+  await organizePane(page, 'Unfold all')
   await expect(rail.locator('[data-section-tree="artifacts"]')).toBeAttached()
   await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
 
@@ -98,11 +101,7 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
   await expect(rail.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: 'Organize sidebar', exact: true }).click()
-  const organizeMenu = page.getByRole('menu', { name: 'Organize sidebar', exact: true })
-  await expect(organizeMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toBeVisible()
-  await expect(organizeMenu.getByRole('menuitem', { name: 'Unfold all', exact: true })).toBeVisible()
-  await page.keyboard.press('Escape')
+  await expect(main.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Rail view options', exact: true })).toHaveCount(0)
 
   await ada.context.close()
@@ -129,6 +128,10 @@ test('the shared pane buttons follow focus and split or close the selected rail 
   const first = page.locator('[data-rail-pane="root"]')
   await first.getByRole('button', { name: 'Insights dashboard', exact: true }).click()
   await expect(toolbar).toHaveAttribute('data-pane-action-target', 'rail')
+  const organizeMenu = await openOrganizePaneMenu(page)
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toBeVisible()
+  await expect(organizeMenu.getByRole('menuitem', { name: 'Unfold all', exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(toolbar.getByRole('button', { name: 'Close pane', exact: true })).toHaveCount(0)
   splitMenu = await openSplitPaneMenu(page)
   await expect(splitMenu.getByRole('menuitem', { name: 'Split right', exact: true })).toHaveCount(0)
@@ -261,17 +264,15 @@ test('composite page controls mirror rail filters and fold dynamic bands', async
   await expect(insightsRailResources.getByText('insights-onepager.md', { exact: true })).toBeVisible()
 
   // Artifact project bands use persist={false}; they still participate in the
-  // in-memory composite fold registry, which was the missing template feature.
-  const foldAll = main.getByRole('button', { name: 'Fold all sections', exact: true })
-  await expect(foldAll).toBeVisible()
-  await foldAll.click()
+  // in-memory composite fold registry reported to the shared shell control.
+  await main.getByRole('heading', { name: 'Artifacts', exact: true }).click()
+  await expect(main.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(0)
+  await organizePane(page, 'Fold all')
   const headers = main.locator('[data-resource-page-section] > div > button[aria-expanded]')
   await expect(headers).not.toHaveCount(0)
   for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'false')
 
-  const unfoldAll = main.getByRole('button', { name: 'Unfold all sections', exact: true })
-  await expect(unfoldAll).toBeVisible()
-  await unfoldAll.click()
+  await organizePane(page, 'Unfold all')
   for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'true')
 
   // Routine health is a named list partition in BOTH projections. The labels
@@ -289,7 +290,7 @@ test('composite page controls mirror rail filters and fold dynamic bands', async
   await ada.context.close()
 })
 
-test('rail composite controls invoke the same page action, search, and bulk disclosure', async ({ browser }) => {
+test('rail composite controls invoke the same page action and search without duplicating disclosure', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
   const page = ada.page
@@ -305,37 +306,21 @@ test('rail composite controls invoke the same page action, search, and bulk disc
   // verbs. It routes the focused pane and lands in the page's own search field.
   await artifactsRow.hover()
   await controls.click()
-  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'Search artifacts', exact: true }).click()
+  let controlsMenu = page.getByRole('menu', { name: 'Controls for Artifacts' })
+  await expect(controlsMenu.getByRole('menuitem', { name: 'Fold all', exact: true })).toHaveCount(0)
+  await controlsMenu.getByRole('menuitem', { name: 'Search artifacts', exact: true }).click()
   await expect(main.getByPlaceholder('Search artifacts…')).toBeFocused()
 
   // The primary action is the same dialog-opening callback as the page header,
   // not a second creation flow owned by the rail.
   await artifactsRow.hover()
   await controls.click()
-  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'New artifact', exact: true }).click()
+  controlsMenu = page.getByRole('menu', { name: 'Controls for Artifacts' })
+  await controlsMenu.getByRole('menuitem', { name: 'New artifact', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'New artifact' })).toBeVisible()
   await page.keyboard.press('Escape')
 
-  // One fold request reaches both projections: dynamic page bands collapse and
-  // the rail's nested collection branches collapse without hiding Artifacts.
-  await artifactsRow.hover()
-  await controls.click()
-  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'Fold all', exact: true }).click()
-  const headers = main.locator('[data-resource-page-section] > div > button[aria-expanded]')
-  for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'false')
-  await expect(rail.locator('[data-section-tree="artifacts"]')).toBeAttached()
-  await expect(rail.locator('[data-collection-section-resources]')).toHaveCount(0)
-
-  // A later forest-wide command supersedes the branch-local posture; the
-  // resource-specific signal must not remain cached as a permanent override.
-  await runRailForestCommand(page, 'Unfold all')
-  await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
-
-  await artifactsRow.hover()
-  await controls.click()
-  await page.getByRole('menu', { name: 'Controls for Artifacts' }).getByRole('menuitem', { name: 'Unfold all', exact: true }).click()
-  for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'true')
-  await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
+  await expect(page.getByRole('button', { name: 'Organize pane', exact: true })).toBeVisible()
 
   await ada.context.close()
 })

@@ -50,9 +50,9 @@ The template adds five capabilities to the common frame:
    navigation already performed the disclosure;
 3. the parent overview, section page and canonical child pages can project the
    same registry without flattening the section level.
-4. one `CompositePageControls` toolbar projects the page's complete Fold all /
-   Unfold all work and, where the resource has a filter, mirrors the rail-row
-   control over the same live per-account value.
+4. `CompositePageControls` keeps an applicable filter in page flow and reports
+   the page's complete Fold all / Unfold all work to the shell's focused
+   `PaneActionButtons`; it never redraws a second page-top fold pair.
 5. `compositeFeatures.ts` closes the resource-scoped capability set: primary
    New/Add action, local search, Filter & sort, and bulk disclosure must each be
    reachable from the rail and the main page. The rail uses a compact overflow
@@ -71,14 +71,13 @@ Models projects Providers. Those intermediate nodes use the canonical
 surfaces. A filter may still choose which rows are visible, but it cannot erase
 the section level that organizes those rows on the page.
 
-Fold scope is symmetric too. The main page discovers its rendered sections;
-the rail exposes the same explicit Fold all / Unfold all pair, and either
-projection publishes one revisioned request through the page registry and
-every nested rail branch. A top-level expansion
-that mounts deeper children carries the request with it, so “all” never means
-only the first visible depth. Main-page discovery includes data-defined bands:
-they join the in-memory fold scope while retaining `persist={false}`, so a
-user-created title never grows `uiPrefs` merely to participate in Fold all.
+Fold scope is focus-relative. The one `Organize pane` menu sits with Split and
+Close in shell chrome. Main focus uses the rendered page's live registry;
+main-page discovery includes data-defined bands, which join the in-memory fold
+scope while retaining `persist={false}`. Rail focus instead scopes the request
+to canonical nodes strictly below the selected entry in that one rail pane.
+The selected entry stays open and visible, sibling branches retain their
+posture, and a user-created title never grows `uiPrefs` merely to participate.
 
 Filter scope follows the same symmetry without confusing representation with
 state. The rail row and main-page toolbar both render `SectionFilterMenu` (or
@@ -123,10 +122,9 @@ outside that subtree are absent. Both surfaces reuse `SplitNode`, sibling
 promotion and `ResizeHandle`; the rail restricts direction because its geometry
 is already a narrow column. This rooted projection does not change ontology,
 identity or URL; restore prepends the complete forest when a legacy persisted
-layout is missing it. Fold all / Unfold all share a labeled rail menu outside the focused
-pane cluster, while the expanded rail groups split directions separately and
-keeps Close pane direct; disclosure, splitting and closing retain distinct
-command shapes without overflowing the constrained header.
+layout is missing it. `Organize pane` and `Split pane` are grouped controls in
+the same focus-aware cluster; Close remains direct and terminal, so the
+constrained header has one disclosure home without losing command distinction.
 
 ## Atomic resource page
 

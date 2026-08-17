@@ -11,8 +11,11 @@ import {
   compositeCommandSnapshot,
   compositeFoldSnapshot,
   consumeCompositeCommand,
+  focusedCompositeFoldSnapshot,
+  publishFocusedCompositeFold,
   subscribeCompositeCommand,
   subscribeCompositeFold,
+  subscribeFocusedCompositeFold,
   type CompositeCommandKind,
 } from './compositeFeatures'
 
@@ -76,4 +79,34 @@ export function useFocusedCompositeFold(section: SectionId, onFold: (expanded: b
     handled.current = signal.revision
     handler.current(signal.expanded)
   }, [focused, ready, section, signal?.revision])
+}
+
+/** Report the focused main page's real, current disclosure work to shell
+ * chrome. The same scope that prevents duplicate command consumption also
+ * guarantees that only one split pane can own Organize pane at a time. */
+export function usePublishFocusedCompositeFold(
+  section: SectionId,
+  canFold: boolean,
+  canUnfold: boolean,
+  ready = true,
+): void {
+  const focused = useContext(FocusedCompositeProjection)
+  const owner = useRef(Symbol('focused-composite-fold')).current
+
+  useEffect(() => {
+    if (!focused || !ready) {
+      publishFocusedCompositeFold(owner, null)
+      return
+    }
+    publishFocusedCompositeFold(owner, { section, canFold, canUnfold })
+    return () => publishFocusedCompositeFold(owner, null)
+  }, [focused, ready, section, canFold, canUnfold, owner])
+}
+
+export function useFocusedCompositeFoldAvailability() {
+  return useSyncExternalStore(
+    subscribeFocusedCompositeFold,
+    focusedCompositeFoldSnapshot,
+    focusedCompositeFoldSnapshot,
+  )
 }

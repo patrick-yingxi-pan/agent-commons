@@ -104,7 +104,7 @@ test('standing location, keyboard focus, and toolbar roles have distinct cues', 
   assert.match(sidebar, /data-rail-toolbar-group="global"/)
   assert.match(sidebar, /data-rail-toolbar-group="view"/)
   assert.match(sidebar, /border-l border-line/, 'pane actions have a visible group boundary')
-  assert.match(sidebar, /ariaLabel="Organize sidebar"/, 'paired forest commands share one labeled menu')
+  assert.match(sidebar, /ariaLabel="Organize pane"/, 'paired disclosure commands share one focused menu')
   assert.match(sidebar, /ariaLabel="Split pane"/, 'paired split directions share one labeled menu')
   assert.match(sidebar, /<PaneActionButtons[\s\S]*?compact/, 'the constrained header selects the compact projection')
 })

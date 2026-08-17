@@ -51,7 +51,6 @@ import {
   railNodeKey,
   useRailRootAncestorKeys,
   useRailRootPathKeys,
-  type RailFoldSignal,
 } from './SectionTreeChildren'
 import { SectionFilterMenu } from './SectionFilterMenu'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
@@ -94,10 +93,15 @@ import {
 } from '../lib/routineFilter'
 import { useRoutineFilter } from '../lib/useRoutineFilter'
 import { CompositeRailControls } from './CompositeRailControls'
-import type { CompositeCommandKind, CompositeFoldSignal } from '../lib/compositeFeatures'
-import { useCompositeFoldSignal } from '../lib/useCompositeFeatures'
+import type { CompositeCommandKind } from '../lib/compositeFeatures'
 import { RailSplit } from './RailSplit'
-import type { RailSplitNode, RailViewRoot } from '../lib/railSplit'
+import {
+  railFoldAffects,
+  type RailFoldSignal,
+  type RailSplitNode,
+  type RailViewRoot,
+} from '../lib/railSplit'
+import type { RailSelection } from '../controller/useRailSplit'
 
 
 /** Does this section's row expand? Every LIST kind counts (UI-19) — a declared
@@ -140,6 +144,9 @@ export function Sidebar({
   paneActionTarget,
   railTree,
   focusedRailPane,
+  selectedRailEntry,
+  onFoldAll,
+  onUnfoldAll,
   onFocusRailPane,
   onSelectRailEntry,
   onRailRatio,
@@ -199,12 +206,16 @@ export function Sidebar({
   /** Close the focused main pane or a rooted secondary rail view. The rail's
    *  complete resource forest is a permanent recovery anchor. */
   onCloseView?: () => void
+  /** Main-page disclosure acts reported by the focused composite projection. */
+  onFoldAll?: () => void
+  onUnfoldAll?: () => void
   /** Which focused area currently owns the shared split/close controls. */
   paneActionTarget: 'main' | 'rail'
   /** Vertical-only split tree for independently scrolling rooted projections
    *  of the one honest account-resource tree. */
   railTree: RailSplitNode
   focusedRailPane: string
+  selectedRailEntry: RailSelection | null
   onFocusRailPane: (path: string) => void
   onSelectRailEntry: (path: string, root: RailViewRoot) => void
   onRailRatio: (path: string, ratio: number) => void
@@ -267,39 +278,22 @@ export function Sidebar({
     () => SECTION_ORDER.filter((id) => id !== 'admin' || instanceAdmin),
     [instanceAdmin],
   )
-  // Fold / unfold all — two explicit acts, matching the composite page. The
-  // signal reaches every mounted nested branch; expanding top-level rows mounts
-  // the rest with the same request, so this controls the whole visible forest.
-  const expandableIds = useMemo(() => visibleSections.filter(hasChildren), [visibleSections])
-  const [railFoldSignal, setRailFoldSignal] = useState<RailFoldSignal | null>(null)
-  const [branchFoldSignals, setBranchFoldSignals] = useState<Partial<Record<SectionId, CompositeFoldSignal>>>({})
-  const compositeFold = useCompositeFoldSignal()
+  // Organize pane follows the same focus target as split/close. In the rail it
+  // acts only on canonical nodes STRICTLY below the selected entry in that one
+  // pane. The selected entry stays open and remains the visible scope anchor.
+  const [railFoldSignal, setRailFoldSignal] = useState<(RailFoldSignal & { panePath: string }) | null>(null)
   const requestRailFold = (open: boolean) => {
-    for (const id of expandableIds) setLayout(`treeOpen.${id}`, open)
-    setExpanded(open ? new Set(expandableIds) : new Set())
-    // A newer forest-wide posture supersedes older resource-local requests.
-    // Otherwise a cached branch signal would keep winning through `??` below
-    // and a later global Unfold all could leave that one branch collapsed.
-    setBranchFoldSignals({})
-    setRailFoldSignal((current) => ({ revision: (current?.revision ?? 0) + 1, expanded: open }))
-  }
-  // The selected composite's page and rail branch consume one bulk-disclosure
-  // request. Keep the parent row visible — folding a resource collapses its
-  // interiors, not the resource out of the forest altogether.
-  useEffect(() => {
-    if (!compositeFold) return
-    if (hasChildren(compositeFold.section)) {
-      setExpanded((current) =>
-        current.has(compositeFold.section)
-          ? current
-          : new Set(current).add(compositeFold.section),
-      )
-    }
-    setBranchFoldSignals((current) => ({
-      ...current,
-      [compositeFold.section]: compositeFold,
+    if (!selectedRailEntry || selectedRailEntry.path !== focusedRailPane) return
+    setRailFoldSignal((current) => ({
+      revision: (current?.revision ?? 0) + 1,
+      expanded: open,
+      targetKey: selectedRailEntry.root.key,
+      panePath: selectedRailEntry.path,
     }))
-  }, [compositeFold?.revision])
+  }
+  const railOwnsOrganize = paneActionTarget === 'rail' && selectedRailEntry?.path === focusedRailPane
+  const paneFoldAll = railOwnsOrganize ? () => requestRailFold(false) : onFoldAll
+  const paneUnfoldAll = railOwnsOrganize ? () => requestRailFold(true) : onUnfoldAll
 
   // Clicking a section row: open its page, and — if it has children — expand it in place
   // (keeping the narrow drawer open so the children show, so you can pick one). A childless
@@ -502,35 +496,16 @@ export function Sidebar({
           {/* The bell (D24) — the inbox of public acts on what you watch, own,
               or posted. The badge is live via notification.changed. */}
           <NotificationBell onClick={onOpenNotifications} compact />
-          <RowMenu
-            ariaLabel="Organize sidebar"
-            triggerIcon={<ChevronsUpDown size={17} />}
-            triggerClassName={SIDEBAR_TOOLBAR_BUTTON}
-            items={[
-              {
-                kind: 'action',
-                key: 'fold-all',
-                label: 'Fold all',
-                icon: <ChevronsUp size={15} />,
-                onSelect: () => requestRailFold(false),
-              },
-              {
-                kind: 'action',
-                key: 'unfold-all',
-                label: 'Unfold all',
-                icon: <ChevronsDown size={15} />,
-                onSelect: () => requestRailFold(true),
-              },
-            ]}
-          />
         </div>
-        {(onSplitRow || onSplitCol || onCloseView) && (
+        {(paneFoldAll || paneUnfoldAll || onSplitRow || onSplitCol || onCloseView) && (
           <div
             data-rail-toolbar-group="view"
             data-pane-action-target={paneActionTarget}
             className="ml-auto flex items-center gap-0.5 border-l border-line pl-1.5"
           >
             <PaneActionButtons
+              onFoldAll={paneFoldAll}
+              onUnfoldAll={paneUnfoldAll}
               onSplitRow={onSplitRow}
               onSplitCol={onSplitCol}
               onCloseView={onCloseView}
@@ -575,7 +550,7 @@ export function Sidebar({
           onFocusPane={onFocusRailPane}
           onSelectEntry={onSelectRailEntry}
           onRatio={onRailRatio}
-          renderPane={(_path, content) => (
+          renderPane={(path, content) => (
             <RailRootScope ancestorKeys={content.root?.ancestors ?? []} rootKey={content.root?.key}>
             <div data-rail-forest>
               {visibleSections.map((id) => {
@@ -678,7 +653,7 @@ export function Sidebar({
                         onOpenDetail(section, seed)
                         onLeafNavigate?.()
                       }}
-                      foldSignal={branchFoldSignals[id] ?? railFoldSignal}
+                      foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
                     />
                   ) : id === 'scheduled' ? (
                     <ScheduledTreeChildren
@@ -720,7 +695,7 @@ export function Sidebar({
                             onLeafNavigate?.()
                           }}
                           menuItems={routineMenuItems(t)}
-                          foldSignal={branchFoldSignals[id] ?? railFoldSignal}
+                          foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
                         />
                       )}
                     />
@@ -749,7 +724,7 @@ export function Sidebar({
                         onSelect(sessionId)
                         onLeafNavigate?.()
                       }}
-                      foldSignal={branchFoldSignals[id] ?? railFoldSignal}
+                      foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
                     />
                   ) : null}
                 </RailTreeBranch>
@@ -771,22 +746,53 @@ export function Sidebar({
 // The account/tenant chip + switcher/onboarding menu moved to ./AccountMenu.tsx
 // (multi-account P7 — it grew the sign-in / create-account / workspace flows).
 
-/** One focus-aware split/close cluster for both navigation and content. Main
- * focus supplies the original Split right / Split down / Close pane handlers;
- * rail focus supplies vertical Split down and, for a rooted secondary view,
- * Close pane. Keeping one renderer makes icon, tooltip, keyboard, and responsive
- * behavior identical while the focused controller determines semantics. */
+/** One focus-aware organize/split/close cluster for both navigation and
+ * content. Main reports real page fold work; rail focus scopes the same menu to
+ * the selected entry's descendants. Keeping one renderer makes icon, tooltip,
+ * keyboard, and responsive behavior identical while focus supplies semantics. */
 export function PaneActionButtons({
+  onFoldAll,
+  onUnfoldAll,
   onSplitRow,
   onSplitCol,
   onCloseView,
   compact = false,
 }: {
+  onFoldAll?: () => void
+  onUnfoldAll?: () => void
   onSplitRow?: () => void
   onSplitCol?: () => void
   onCloseView?: () => void
   compact?: boolean
 }) {
+  const organizeItems: RowMenuItem[] = []
+  if (onFoldAll) {
+    organizeItems.push({
+      kind: 'action',
+      key: 'fold-all',
+      label: 'Fold all',
+      icon: <ChevronsUp size={15} />,
+      onSelect: onFoldAll,
+    })
+  }
+  if (onUnfoldAll) {
+    organizeItems.push({
+      kind: 'action',
+      key: 'unfold-all',
+      label: 'Unfold all',
+      icon: <ChevronsDown size={15} />,
+      onSelect: onUnfoldAll,
+    })
+  }
+  const organizeControl = organizeItems.length > 0 ? (
+    <RowMenu
+      ariaLabel="Organize pane"
+      triggerIcon={<ChevronsUpDown size={17} />}
+      triggerClassName={compact ? SIDEBAR_TOOLBAR_BUTTON : SIDEBAR_ICON_BUTTON}
+      items={organizeItems}
+    />
+  ) : null
+
   if (compact) {
     const splitItems: RowMenuItem[] = []
     if (onSplitRow) {
@@ -810,6 +816,7 @@ export function PaneActionButtons({
 
     return (
       <>
+        {organizeControl}
         {splitItems.length > 0 && (
           <RowMenu
             ariaLabel="Split pane"
@@ -835,6 +842,7 @@ export function PaneActionButtons({
 
   return (
     <>
+      {organizeControl}
       {onSplitRow && (
         <button
           onClick={onSplitRow}
@@ -1240,7 +1248,7 @@ function RoutineRow({
     if (pageActive || activeSectionId !== null || activeRunId !== null) setExpanded(true)
   }, [pageActive, activeSectionId, activeRunId])
   useEffect(() => {
-    if (foldSignal) setExpanded(foldSignal.expanded)
+    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
   }, [foldSignal])
   return (
     <div data-rail-node-key={nodeKey}>
@@ -1314,8 +1322,10 @@ function RoutineSectionRows({
   }, [activeSectionId, activeRunId])
   useEffect(() => {
     if (!foldSignal) return
-    setRunsExpanded(foldSignal.expanded)
-    setDiscussionExpanded(foldSignal.expanded)
+    const runsKey = railNodeKey('section', 'scheduled', 'item', task.id, 'section', 'recent-runs')
+    const discussionKey = railNodeKey('section', 'scheduled', 'item', task.id, 'section', 'discussion')
+    if (railFoldAffects(foldSignal, runsKey)) setRunsExpanded(foldSignal.expanded)
+    if (railFoldAffects(foldSignal, discussionKey)) setDiscussionExpanded(foldSignal.expanded)
   }, [foldSignal])
   const sections = visibleCompositeSections(SCHEDULE_SECTIONS, task.own !== false)
   return (
