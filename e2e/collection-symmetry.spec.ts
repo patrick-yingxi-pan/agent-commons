@@ -42,7 +42,7 @@ test('collection roots preserve main-page sections in the rail and canonical URL
   await ada.context.close()
 })
 
-test('every rail entry keeps one lead column and list partitions visibly contain their items', async ({ browser }) => {
+test('every same-depth rail entry shares one anatomy and list partitions visibly contain their items', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
   const page = ada.page
@@ -61,6 +61,40 @@ test('every rail entry keeps one lead column and list partitions visibly contain
         .map((row) => row.textContent?.trim()))
     expect(missing, 'every visible non-root row has exactly one direct lead seat').toEqual([])
   }
+  const expectSameDepthAnatomy = async () => {
+    const rows = await rail.locator('[data-rail-entry-lead]').evaluateAll((leads) => {
+      const uniqueRows = Array.from(new Set(leads.map((lead) => lead.parentElement).filter(Boolean))) as HTMLElement[]
+      return uniqueRows.flatMap((row) => {
+        const rect = row.getBoundingClientRect()
+        const lead = Array.from(row.children).find((child) => child.hasAttribute('data-rail-entry-lead')) as HTMLElement | undefined
+        const identity = lead?.nextElementSibling as HTMLElement | null
+        if (!lead || !identity || rect.width === 0 || rect.height === 0) return []
+        const style = getComputedStyle(row)
+        let depth = 0
+        for (let parent = row.parentElement; parent; parent = parent.parentElement) {
+          if (parent.hasAttribute('data-rail-node-children')) depth += 1
+        }
+        return [{
+          text: identity.textContent?.trim(),
+          depth,
+          identityX: identity.getBoundingClientRect().x,
+          height: rect.height,
+          fontSize: style.fontSize,
+          fontWeight: style.fontWeight,
+          paddingLeft: style.paddingLeft,
+          gap: style.gap,
+          borderRadius: style.borderRadius,
+        }]
+      })
+    })
+    const signatures = new Set(rows.map((row) => `${row.height}|${row.fontSize}|${row.fontWeight}|${row.paddingLeft}|${row.gap}|${row.borderRadius}`))
+    expect([...signatures], 'every nested entry shares one height, type scale, resting weight, inset, lead gap, and radius').toEqual(['32|13px|400|8px|8px|8px'])
+    for (const depth of new Set(rows.map((row) => row.depth))) {
+      const level = rows.filter((row) => row.depth === depth)
+      const xs = level.map((row) => row.identityX)
+      expect(Math.max(...xs) - Math.min(...xs), `all entries at depth ${depth} align across parent branches`).toBeLessThanOrEqual(1)
+    }
+  }
 
   await page.goto('/agents/agent-default')
   await expect(page.getByRole('heading', { name: 'Default agent', exact: true })).toBeVisible({ timeout: ms(20_000) })
@@ -71,6 +105,7 @@ test('every rail entry keeps one lead column and list partitions visibly contain
   expect(agentX - readyX, 'an agent leaf steps right of Ready agents').toBeGreaterThanOrEqual(16)
   expect(agentX - readyX, 'an agent leaf advances by one branch step, not two').toBeLessThanOrEqual(20)
   await expectCompleteLeadColumn()
+  await expectSameDepthAnatomy()
 
   await page.goto('/projects/p-insights/contributors')
   await expect(page.getByRole('heading', { name: 'Insights dashboard', exact: true })).toBeVisible({ timeout: ms(20_000) })
@@ -81,6 +116,7 @@ test('every rail entry keeps one lead column and list partitions visibly contain
   expect(contributorX - contributorsX, 'a project resource steps right of its section').toBeGreaterThanOrEqual(16)
   expect(contributorX - contributorsX, 'a project resource advances by one branch step, not two').toBeLessThanOrEqual(20)
   await expectCompleteLeadColumn()
+  await expectSameDepthAnatomy()
 
   await page.goto('/scheduled')
   await expect(page.getByRole('heading', { name: 'Routines', exact: true })).toBeVisible({ timeout: ms(20_000) })
@@ -91,11 +127,13 @@ test('every rail entry keeps one lead column and list partitions visibly contain
   expect(activeRoutineX - activeHeadingX, 'a routine is visibly nested in its state list').toBeGreaterThanOrEqual(16)
   expect(activeRoutineX - activeHeadingX, 'a state list adds one branch step, not two').toBeLessThanOrEqual(20)
   await expectCompleteLeadColumn()
+  await expectSameDepthAnatomy()
 
   await page.goto('/sessions')
   await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible({ timeout: ms(20_000) })
   await expect(rail.getByRole('list', { name: 'Sessions', exact: true }).getByRole('listitem')).not.toHaveCount(0)
   await expectCompleteLeadColumn()
+  await expectSameDepthAnatomy()
 
   await ada.context.close()
 })

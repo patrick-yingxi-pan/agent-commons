@@ -11,6 +11,7 @@ import {
   SIDEBAR_BRANCH,
   SIDEBAR_ENTRY_LEAD,
   SIDEBAR_FOCUS_WITHIN,
+  SIDEBAR_NESTED_ENTRY_LAYOUT,
   sidebarEntryClass,
   type SidebarEntryKind,
 } from './sidebar.ts'
@@ -82,6 +83,8 @@ test('every leaf-like rail row keeps the lead column and partitions remain neste
   assert.ok(partitionStart >= 0 && partitionEnd > partitionStart, 'RailListPartition has an enumerable source body')
   const partition = sidebar.slice(partitionStart, partitionEnd)
   assert.match(partition, /<h3[\s\S]*data-rail-list-heading/, 'a partition is introduced by an ordinary heading')
+  assert.match(partition, /data-rail-node-row[\s\S]*data-rail-entry-kind="group"/, 'a list heading declares the shared row role')
+  assert.match(partition, /SIDEBAR_NESTED_ENTRY_LAYOUT/, 'a list heading cannot invent its own same-depth style')
   assert.match(partition, /<RailEntryLead\s*\/>/, 'the heading keeps the shared lead column')
   assert.match(
     partition,
@@ -91,7 +94,7 @@ test('every leaf-like rail row keeps the lead column and partitions remain neste
   assert.doesNotMatch(sidebar, /function GroupHeader/, 'state labels do not use a one-off tag-like renderer')
 })
 
-test('every resource-forest row uses one semantic rhythm without decorative selection bullets', () => {
+test('every resource-forest row uses one depth rhythm without decorative selection bullets', () => {
   const kinds: SidebarEntryKind[] = ['root', 'group', 'item', 'view']
   for (const kind of kinds) {
     const idle = sidebarEntryClass(kind, false)
@@ -100,10 +103,11 @@ test('every resource-forest row uses one semantic rhythm without decorative sele
     assert.match(idle, /text-ink-soft/, `${kind} rows share the quiet resting tone`)
   }
   assert.match(sidebarEntryClass('root', false), /text-\[13px\]/)
-  assert.match(sidebarEntryClass('item', false), /text-\[13px\]/)
-  assert.match(sidebarEntryClass('group', false), /text-\[12px\].*font-medium/)
-  assert.match(sidebarEntryClass('view', false), /text-\[12px\]/)
-  assert.doesNotMatch(sidebarEntryClass('view', false), /font-medium/)
+  const nested = (['group', 'item', 'view'] as const).map((kind) => sidebarEntryClass(kind, false))
+  assert.equal(new Set(nested).size, 1, 'group, item, and view roles share one exact nested-row class')
+  assert.ok(nested.every((row) => row.includes(SIDEBAR_NESTED_ENTRY_LAYOUT)), 'every nested role sources one anatomy')
+  assert.match(children, /ShowAllRow[\s\S]*SIDEBAR_NESTED_ENTRY_LAYOUT/, 'tail actions reuse the nested anatomy')
+  assert.match(children, /NoRowsRow[\s\S]*SIDEBAR_NESTED_ENTRY_LAYOUT/, 'empty copy reuses the nested anatomy')
 
   for (const [name, source] of [['Sidebar', sidebar], ['SectionTreeChildren', children]] as const) {
     assert.equal(

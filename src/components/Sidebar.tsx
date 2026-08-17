@@ -59,6 +59,7 @@ import {
   SIDEBAR_CREATE_BUTTON,
   SIDEBAR_HOVER,
   SIDEBAR_ICON_BUTTON,
+  SIDEBAR_NESTED_ENTRY_LAYOUT,
   SIDEBAR_TOOLBAR_BUTTON,
   sidebarEntryClass,
 } from '../lib/sidebar'
@@ -1114,11 +1115,13 @@ function RailListPartition({
     <section data-rail-list-partition data-routine-state-group={routineState} aria-labelledby={headingId}>
       <h3
         id={headingId}
+        data-rail-node-row
+        data-rail-entry-kind="group"
         data-rail-list-heading
-        className="flex min-h-8 items-center gap-2 px-2 text-[12px] font-medium text-ink-soft"
+        className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-soft`}
       >
         <RailEntryLead />
-        <span>{label}</span>
+        <span data-rail-entry>{label}</span>
       </h3>
       <RailTreeBranch role="list" aria-labelledby={headingId}>{children}</RailTreeBranch>
     </section>

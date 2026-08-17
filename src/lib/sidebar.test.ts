@@ -18,6 +18,7 @@ import {
   SIDEBAR_ENTRY_LEAD,
   SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
+  SIDEBAR_NESTED_ENTRY_LAYOUT,
   SIDEBAR_TOOLBAR_BUTTON,
   sidebarEntryClass,
 } from './sidebar.ts'
@@ -68,12 +69,12 @@ test('the rail marks WHERE YOU ARE without hue — one active look, no co-color'
   // Owner directive 2026-08-10. The Bindery duet gave "places" the co seat, which
   // put a Prussian-blue pill in the rail — making a NAVIGATION marker the most
   // saturated element in the panel that had just surrendered its solid so it
-  // would stop shouting. Standing location is fill + weight; co is kept for the
+  // would stop shouting. Standing location is fill + marker; co is kept for the
   // system's transient answers (focus flash, field focus, a checked box), which
   // is the sharper line the duet was reaching for.
   assert.ok(!/\bco\b|-co(?![\w])|co-/.test(SIDEBAR_ACTIVE), `the active row wears no co-color: "${SIDEBAR_ACTIVE}"`)
   assert.match(SIDEBAR_ACTIVE, /\bbg-/, 'it still fills, so "here" reads at a glance')
-  assert.match(SIDEBAR_ACTIVE, /\bfont-medium\b/, 'and carries the weight bump that replaces the hue')
+  assert.doesNotMatch(SIDEBAR_ACTIVE, /\bfont-/, 'selection does not break the resting weight shared at one depth')
   assert.match(SIDEBAR_ACTIVE, /before:left-0/, 'the persistent location marker is distinct from keyboard focus')
 
   // The whole rail, not just the token: no element may reintroduce the tint by
@@ -103,4 +104,16 @@ test('every non-root entry reserves one fixed lead column', () => {
   assert.match(SIDEBAR_ENTRY_LEAD, /\bw-5\b/, 'the lead seat has one fixed width')
   assert.match(SIDEBAR_ENTRY_LEAD, /\bshrink-0\b/, 'long labels cannot consume the hierarchy column')
   assert.match(SIDEBAR_ENTRY_LEAD, /items-center/, 'a caret and an empty seat share one centre')
+})
+
+test('semantic role never restyles entries at the same nested depth', () => {
+  const group = sidebarEntryClass('group', false)
+  const item = sidebarEntryClass('item', false)
+  const view = sidebarEntryClass('view', false)
+  assert.equal(group, item, 'a structural group and canonical item share one nested-row class')
+  assert.equal(item, view, 'a standing view cannot invent a quieter same-depth row')
+  assert.match(SIDEBAR_NESTED_ENTRY_LAYOUT, /\bgap-2\b/, 'every nested identity follows the same lead gap')
+  assert.match(SIDEBAR_NESTED_ENTRY_LAYOUT, /\bpx-2\b/, 'every nested row uses one horizontal inset')
+  assert.match(SIDEBAR_NESTED_ENTRY_LAYOUT, /text-\[13px\]/, 'every nested row uses one readable type scale')
+  assert.doesNotMatch(SIDEBAR_NESTED_ENTRY_LAYOUT, /font-/, 'semantic kind does not change resting weight')
 })

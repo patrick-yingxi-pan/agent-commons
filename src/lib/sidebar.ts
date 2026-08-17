@@ -58,7 +58,7 @@ export const SIDEBAR_SPLIT_AFTER = 'relative flex min-h-0 min-w-0 pt-2'
  *  drifted into two different active looks (a tinted pill vs a ringed fill) in
  *  one panel — same role, same look. */
 export const SIDEBAR_ACTIVE =
-  "relative bg-panel-2 font-medium text-ink before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-ink-soft before:content-['']"
+  "relative bg-panel-2 text-ink before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-ink-soft before:content-['']"
 
 /** Focus belongs to the control that received it; its containing row gets only
  *  the shared soft wash. This keeps keyboard response visibly distinct from
@@ -70,7 +70,7 @@ export const SIDEBAR_FOCUS_WITHIN = 'focus-within:bg-panel-2/70'
  * shifts the optical centre away from the surrounding resource rows. */
 export const SIDEBAR_CREATE_BUTTON = `flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-ink transition ${SIDEBAR_FOCUS_WITHIN} ${SIDEBAR_HOVER}`
 
-/** The resource forest has four visual roles, each earned by the node's place
+/** The resource forest has four semantic roles, each earned by the node's place
  * in the ontology rather than by the component that happened to render it.
  *
  * - root: a top-level resource kind (Sessions, Projects, Models)
@@ -78,23 +78,30 @@ export const SIDEBAR_CREATE_BUTTON = `flex min-h-8 w-full items-center gap-2 rou
  * - item: a canonical resource instance
  * - view: a lightweight lens over a resource root (Following, Watched)
  *
- * All four share one 32px rhythm, radius, hover/focus response and active cue.
- * Only the semantic hierarchy changes inset and type scale. Keeping the
- * complete grammar here prevents Project, Session, collection and Agent rows
- * from each inventing a nearly-identical class string. */
+ * Root versus nested depth is the only visual distinction. Group, item, and
+ * view are data roles—not styling permissions—so rows at the same depth share
+ * one inset, type scale, weight, rhythm, radius, and interaction response.
+ * Carets, counts, branch guides, and selection communicate meaning without
+ * letting Project, Session, collection, or Agent renderers invent variants. */
 export type SidebarEntryKind = 'root' | 'group' | 'item' | 'view'
 
-const SIDEBAR_ENTRY_LAYOUT: Record<SidebarEntryKind, string> = {
-  root: 'group flex min-h-8 w-full items-center rounded-lg pr-2 text-[13px] transition',
-  group: 'group flex min-h-8 w-full items-center gap-2 rounded-lg pl-1.5 pr-2 text-[12px] font-medium transition',
-  item: 'group flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] transition',
-  view: 'group flex min-h-8 w-full items-center rounded-lg px-2 text-[12px] transition',
-}
+const SIDEBAR_ROOT_ENTRY_LAYOUT =
+  'group flex min-h-8 w-full items-center rounded-lg pr-2 text-[13px] transition'
+
+/** One visual anatomy for every row below a root, including static list
+ * headings, tail actions, and empty copy. Branch nesting alone supplies depth. */
+export const SIDEBAR_NESTED_ENTRY_LAYOUT =
+  'flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px]'
+
+const sidebarEntryLayout = (kind: SidebarEntryKind): string =>
+  kind === 'root'
+    ? SIDEBAR_ROOT_ENTRY_LAYOUT
+    : `group ${SIDEBAR_NESTED_ENTRY_LAYOUT} transition`
 
 /** One class funnel for every row in the resource forest. Selection needs no
  * extra bullet: SIDEBAR_ACTIVE already supplies both fill and a left marker. */
 export function sidebarEntryClass(kind: SidebarEntryKind, active: boolean): string {
-  return `${SIDEBAR_ENTRY_LAYOUT[kind]} ${SIDEBAR_FOCUS_WITHIN} ${
+  return `${sidebarEntryLayout(kind)} ${SIDEBAR_FOCUS_WITHIN} ${
     active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
   }`
 }

@@ -47,6 +47,7 @@ import type { PaneSeed } from '../lib/paneNav'
 import {
   SIDEBAR_BRANCH,
   SIDEBAR_ENTRY_LEAD,
+  SIDEBAR_NESTED_ENTRY_LAYOUT,
   SIDEBAR_HOVER,
   sidebarEntryClass,
   type SidebarEntryKind,
@@ -155,10 +156,9 @@ export function RailEntryLead({
   )
 }
 
-/** One leaf under an expanded branch. Resource instances use the ordinary
- * reading scale; standing lenses use the quieter view scale. The parent and
- * data attribute carry that role, so the visible row spends width on identity
- * instead of a label or decorative bullet. */
+/** One leaf under an expanded branch. `kind` preserves semantic identity for
+ * the tree and tests; it does not change the row's visual anatomy. Depth alone
+ * sets the inset, so unrelated entries on the same level remain harmonious. */
 export function SubNavRow({
   nodeKey,
   label,
@@ -172,8 +172,7 @@ export function SubNavRow({
   /** The row's full text when the label truncates (an artifact name, a thread's
    *  opening post) — the rail is narrow and these are real entity names. */
   title?: string
-  /** Resource instances carry the normal reading scale; standing lenses are a
-   *  quieter structural level. Neither needs a decorative kind bullet. */
+  /** Semantic role only; every non-root role wears the same row anatomy. */
   kind?: Extract<SidebarEntryKind, 'item' | 'view'>
   active: boolean
   onClick: () => void
@@ -252,7 +251,7 @@ export function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: b
     <button
       onClick={onToggle}
       aria-expanded={open}
-      className={`flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+      className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-left text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
     >
       <RailEntryLead />
       <span>{open ? 'Show fewer' : `Show all — ${hidden} more`}</span>
@@ -530,7 +529,7 @@ function AgentLeafList({ rows, empty, activeId, onOpen, nodeKeyFor }: {
  *  here" and there are none, which is worth a word rather than a blank gap. */
 export function NoRowsRow({ children }: { children: ReactNode }) {
   return (
-    <p className="flex min-h-8 items-center gap-2 px-2 text-[12px] text-ink-faint">
+    <p className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-faint`}>
       <RailEntryLead />
       <span>{children}</span>
     </p>

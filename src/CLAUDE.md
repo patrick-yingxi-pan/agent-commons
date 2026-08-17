@@ -120,11 +120,11 @@ awkward to assert is usually a rule whose logic wants to move.
   checkboxes, the keyboard focus ring, title-door hovers, the user bubble.
   **Standing location is NOT co** (owner directive 2026-08-10, revising the
   original "places wear co"): the rail's active row is a neutral fill plus a
-  weight bump (`SIDEBAR_ACTIVE`), because a blue pill made a NAVIGATION marker
+  slim location marker (`SIDEBAR_ACTIVE`), because a blue pill made a NAVIGATION marker
   the loudest thing in the panel that had just given up its solid to stop
   shouting — and three of the four palettes are single-voice anyway, so the
   duet was never load-bearing. The sharper line: co means *the system just
-  responded*; weight and fill mean *you are here*. One active look serves every
+  responded*; fill and marker mean *you are here*. One active look serves every
   rail row kind (the section pill and the session rows had drifted into two).
   Locked by `src/lib/sidebar.test.ts`. Verbs never
   wear co, places never wear accent (locked by `src/lib/button.test.ts` +
@@ -595,8 +595,11 @@ uses the ONE `RailTreeBranch` guide, and every non-root row reserves the same
 20px `RailEntryLead` column whether it contains a caret or stays empty. That
 makes branch nesting monotonic: an atomic child, session, empty/tail row, or list
 heading can never jump left merely because it has nothing to disclose.
-Homogeneous leaves show their name rather than a repeated kind word, and
-composite parents / structural sections / leaves step down in type weight. A neutral left marker means **current location**; the softer
+Every row at the same physical depth wears the same anatomy, type scale, and
+resting weight across parent branches: `group`, `item`, and `view` remain
+semantic data roles, not styling permissions. Carets, counts, branch guides,
+and selection communicate meaning; homogeneous leaves show their name rather
+than a repeated kind word. A neutral left marker means **current location**; the softer
 `focus-within` wash means keyboard focus only, so tabbing never impersonates
 navigation. The rail toolbar is two spatial groups — global rail acts, then the
 focused view's pane acts behind a divider. At the 208px rail minimum, paired
