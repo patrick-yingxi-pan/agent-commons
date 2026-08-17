@@ -45,10 +45,10 @@ import { discussionTitle } from '../../contract/social.ts'
 import type { Project, SectionId } from '../types'
 import type { PaneSeed } from '../lib/paneNav'
 import {
-  SIDEBAR_ACTIVE,
   SIDEBAR_BRANCH,
-  SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
+  sidebarEntryClass,
+  type SidebarEntryKind,
 } from '../lib/sidebar'
 import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { useSectionFilter } from '../lib/useSectionFilter'
@@ -126,13 +126,15 @@ export function RailTreeBranch({ className = '', ...props }: ComponentProps<'div
   return <div {...props} data-rail-node-children className={`${SIDEBAR_BRANCH} ${className}`} />
 }
 
-/** One resource leaf under an expanded branch. The parent section already
- * names the resource kind, so repeating "artifact" / "session" beside every
- * row would spend the leaf's scarce width on tautology. */
+/** One leaf under an expanded branch. Resource instances use the ordinary
+ * reading scale; standing lenses use the quieter view scale. The parent and
+ * data attribute carry that role, so the visible row spends width on identity
+ * instead of a label or decorative bullet. */
 export function SubNavRow({
   nodeKey,
   label,
   title,
+  kind = 'item',
   active,
   onClick,
 }: {
@@ -141,6 +143,9 @@ export function SubNavRow({
   /** The row's full text when the label truncates (an artifact name, a thread's
    *  opening post) — the rail is narrow and these are real entity names. */
   title?: string
+  /** Resource instances carry the normal reading scale; standing lenses are a
+   *  quieter structural level. Neither needs a decorative kind bullet. */
+  kind?: Extract<SidebarEntryKind, 'item' | 'view'>
   active: boolean
   onClick: () => void
 }) {
@@ -149,16 +154,12 @@ export function SubNavRow({
       <button
         data-rail-node-row
         data-rail-entry
+        data-rail-entry-kind={kind}
         onClick={onClick}
         title={title}
         aria-current={active ? 'page' : undefined}
-        className={`flex w-full items-center gap-2.5 rounded-lg py-1.5 pl-2 pr-2 text-[13px] transition ${
-          active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-        }`}
+        className={sidebarEntryClass(kind, active)}
       >
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${active ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
-        />
         <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       </button>
     </RailTreeNode>
@@ -203,6 +204,7 @@ export function OwnerProfileChild({
       nodeKey={railNodeKey('section', 'commons', 'owner', tenantName)}
       label="Your profile"
       title={`Your public profile — everything ${tenantName} shares`}
+      kind="view"
       active={activeOwner === tenantName}
       onClick={() => onOpenOwner(tenantName)}
     />
@@ -213,7 +215,7 @@ export function OwnerProfileChild({
  *  2026-07-31: "Show all" must reveal the remaining rows under the section, not
  *  jump to another page — the rail is a disclosure tree, and this is one more
  *  disclosure). Not a `SubNavRow` — it names a QUANTITY, not a place, so it
- *  deliberately doesn't wear the instance dot (UI-19). While unfolded it reads
+ *  deliberately doesn't impersonate a destination. While unfolded it reads
  *  "Show fewer", so the fold back out is the same control. */
 export function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: boolean; onToggle: () => void }) {
   return (
@@ -387,6 +389,7 @@ export function AgentTreeChildren({
                       key={child.id}
                       nodeKey={railNodeKey('section', 'agents', 'section', section.id, 'subview', child.id)}
                       label={child.label}
+                      kind="view"
                       active={activeSubview === child.id}
                       onClick={() => onOpenSubview(child.id)}
                     />
@@ -419,7 +422,7 @@ function AgentStructureRow({
   onOpen: () => void
 }) {
   return (
-    <div data-rail-node-row className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`}`}>
+    <div data-rail-node-row data-rail-entry-kind="group" className={sidebarEntryClass('group', active)}>
       {hasChildren ? (
         <button type="button" onClick={onToggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`} aria-expanded={expanded} className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}>
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
@@ -627,9 +630,8 @@ function ProjectBranch({
     <RailTreeNode nodeKey={nodeKey}>
       <div
         data-rail-node-row
-        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[13px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
-          rootActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-        }`}
+        data-rail-entry-kind="item"
+        className={sidebarEntryClass('item', rootActive)}
       >
         <button
           type="button"
@@ -640,9 +642,6 @@ function ProjectBranch({
         >
           {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${rootActive ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'}`}
-        />
         <button
           data-rail-entry
           onClick={() => onOpenDetail('projects', { projectId: project.id })}
@@ -848,9 +847,8 @@ function ProjectSectionBranch({
     <RailTreeNode nodeKey={nodeKey}>
       <div
         data-rail-node-row
-        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
-          pageActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-        }`}
+        data-rail-entry-kind="group"
+        className={sidebarEntryClass('group', pageActive)}
       >
         {hasResources ? (
           <button
@@ -979,9 +977,8 @@ function CollectionSectionBranch({
       <div
         data-rail-node-row
         data-collection-section={group.id}
-        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
-          sectionActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-        }`}
+        data-rail-entry-kind="group"
+        className={sidebarEntryClass('group', sectionActive)}
       >
         {hasResources ? (
           <button

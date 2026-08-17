@@ -59,6 +59,35 @@ export const SIDEBAR_ACTIVE =
  *  SIDEBAR_ACTIVE's persistent fill + location marker. */
 export const SIDEBAR_FOCUS_WITHIN = 'focus-within:bg-panel-2/70'
 
+/** The resource forest has four visual roles, each earned by the node's place
+ * in the ontology rather than by the component that happened to render it.
+ *
+ * - root: a top-level resource kind (Sessions, Projects, Models)
+ * - group: a structural section inside a composite resource
+ * - item: a canonical resource instance
+ * - view: a lightweight lens over a resource root (Following, Watched)
+ *
+ * All four share one 32px rhythm, radius, hover/focus response and active cue.
+ * Only the semantic hierarchy changes inset and type scale. Keeping the
+ * complete grammar here prevents Project, Session, collection and Agent rows
+ * from each inventing a nearly-identical class string. */
+export type SidebarEntryKind = 'root' | 'group' | 'item' | 'view'
+
+const SIDEBAR_ENTRY_LAYOUT: Record<SidebarEntryKind, string> = {
+  root: 'group flex min-h-8 w-full items-center rounded-lg pr-2 text-[13px] transition',
+  group: 'group flex min-h-8 w-full items-center gap-2 rounded-lg pl-1.5 pr-2 text-[12px] font-medium transition',
+  item: 'group flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] transition',
+  view: 'group flex min-h-8 w-full items-center rounded-lg px-2 text-[12px] transition',
+}
+
+/** One class funnel for every row in the resource forest. Selection needs no
+ * extra bullet: SIDEBAR_ACTIVE already supplies both fill and a left marker. */
+export function sidebarEntryClass(kind: SidebarEntryKind, active: boolean): string {
+  return `${SIDEBAR_ENTRY_LAYOUT[kind]} ${SIDEBAR_FOCUS_WITHIN} ${
+    active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
+  }`
+}
+
 /** One guide for every disclosed branch. Nesting this primitive produces the
  *  depth grammar; rows no longer hand-calculate four unrelated left paddings. */
 export const SIDEBAR_BRANCH = 'ml-2.5 border-l border-line pl-1.5'

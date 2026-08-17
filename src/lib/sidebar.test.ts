@@ -16,6 +16,7 @@ import {
   SIDEBAR_BRANCH,
   SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
+  sidebarEntryClass,
 } from './sidebar.ts'
 
 const sidebarSrc = () => stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
@@ -69,5 +70,6 @@ test('focus and tree depth each have one rail-wide cue', () => {
   assert.doesNotMatch(SIDEBAR_FOCUS_WITHIN, /before:/, 'focus never impersonates the standing location marker')
   assert.match(SIDEBAR_BRANCH, /border-l/, 'a disclosed branch carries one visible guide')
   const src = sidebarSrc()
-  assert.ok(src.includes('SIDEBAR_FOCUS_WITHIN'), 'Sidebar rows source the focus cue')
+  assert.ok(sidebarEntryClass('item', false).includes(SIDEBAR_FOCUS_WITHIN), 'the shared row funnel owns focus')
+  assert.ok(src.includes('sidebarEntryClass'), 'Sidebar rows use the shared row funnel')
 })

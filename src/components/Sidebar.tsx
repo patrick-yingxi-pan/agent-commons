@@ -55,9 +55,9 @@ import { SectionFilterMenu } from './SectionFilterMenu'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import {
   SIDEBAR_ACTIVE,
-  SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
   SIDEBAR_ICON_BUTTON,
+  sidebarEntryClass,
 } from '../lib/sidebar'
 import {
   removeSchedule,
@@ -722,6 +722,7 @@ export function Sidebar({
                         key={sv.id}
                         nodeKey={railNodeKey('section', id, 'subview', sv.id)}
                         label={sv.label}
+                        kind="view"
                         active={activeSection === id && activeSubview === sv.id}
                         onClick={() => onChildClick(id, sv.id)}
                       />
@@ -911,9 +912,8 @@ function SectionTreeRow({
     <div
       data-rail-node-row
       data-section-root={sectionId}
-      className={`group flex w-full items-center rounded-lg pr-2 text-[13px] transition ${SIDEBAR_FOCUS_WITHIN} ${
-        active ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-      }`}
+      data-rail-entry-kind="root"
+      className={sidebarEntryClass('root', active)}
     >
       {hasChildren ? (
         <button
@@ -944,7 +944,7 @@ function SectionTreeRow({
   )
 }
 
-/** One Sessions row — a leading dot (or pin), the title, and a hover "⋮" menu.
+/** One Sessions row — the title, meaningful pin state, and a hover "⋮" menu.
  *  "Rename" flips the title into an inline editor; the rest go through the menu's
  *  own handlers. The main region selects the session; the menu sits outside that
  *  button so its clicks don't also open the thread. */
@@ -984,15 +984,9 @@ function SessionRow({
     <div
       data-rail-node-key={nodeKey}
       data-rail-node-row
-      className={`group flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 transition ${SIDEBAR_FOCUS_WITHIN} ${
-        active ? SIDEBAR_ACTIVE : SIDEBAR_HOVER
-      }`}
+      data-rail-entry-kind="item"
+      className={sidebarEntryClass('item', active)}
     >
-      {session.pinned ? (
-        <Pin size={12} className="shrink-0 text-ink-faint" />
-      ) : (
-        <Dot active={active} />
-      )}
       {editing ? (
         <input
           autoFocus
@@ -1015,10 +1009,13 @@ function SessionRow({
           onClick={onSelect}
           title={session.preview}
           aria-current={active ? 'page' : undefined}
-          className="min-w-0 flex-1 truncate text-left text-[13px] text-ink"
+          className="min-w-0 flex-1 truncate text-left"
         >
           {session.title}
         </button>
+      )}
+      {!editing && session.pinned && (
+        <Pin size={12} className="shrink-0 text-ink-faint" aria-label="Pinned" />
       )}
       {!editing && <RowMenu ariaLabel={`Actions for ${session.title}`} items={items} />}
     </div>
@@ -1180,9 +1177,8 @@ function RoutineRow({
     <div data-rail-node-key={nodeKey}>
       <div
         data-rail-node-row
-        className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[13px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
-          pageActive ? SIDEBAR_ACTIVE : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-        }`}
+        data-rail-entry-kind="item"
+        className={sidebarEntryClass('item', pageActive)}
       >
         <button
           type="button"
@@ -1269,11 +1265,8 @@ function RoutineSectionRows({
           >
             <div
               data-rail-node-row
-              className={`group flex w-full items-center gap-2 rounded-lg py-1.5 pl-1.5 pr-2 text-[12px] font-medium transition ${SIDEBAR_FOCUS_WITHIN} ${
-                activeSectionId === section.id
-                  ? SIDEBAR_ACTIVE
-                  : `text-ink-soft ${SIDEBAR_HOVER} hover:text-ink`
-              }`}
+              data-rail-entry-kind="group"
+              className={sidebarEntryClass('group', activeSectionId === section.id)}
             >
               {hasResources ? (
                 <button
@@ -1333,17 +1326,6 @@ function RoutineSectionRows({
         )
       })}
     </>
-  )
-}
-
-/** A leading status dot — filled for the active item, a hollow ring otherwise. */
-function Dot({ active }: { active: boolean }) {
-  return (
-    <span
-      className={`h-2 w-2 shrink-0 rounded-full ${
-        active ? 'bg-ink-soft' : 'border border-line-strong bg-transparent'
-      }`}
-    />
   )
 }
 
