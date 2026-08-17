@@ -224,6 +224,18 @@ test('composite page controls mirror rail filters and fold dynamic bands', async
   await unfoldAll.click()
   for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'true')
 
+  // Routine health is a named list partition in BOTH projections. The labels
+  // replace the ambiguous row/icon dots instead of layering on another signal.
+  await page.goto('/scheduled')
+  await expect(main.getByRole('heading', { name: 'Routines', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  const expandRoutines = rail.getByRole('button', { name: 'Expand Routines', exact: true })
+  if (await expandRoutines.isVisible()) await expandRoutines.click()
+  await expect(rail.locator('[data-routine-state-group="active"]')).toHaveText('Active')
+  await expect(rail.locator('[data-routine-row] .rounded-full')).toHaveCount(0)
+  await expect(main.locator('[data-resource-page-section]').filter({ hasText: /^Active/ })).toBeVisible()
+  await expect(main.locator('[data-routine-lead]').first()).toBeVisible()
+  await expect(main.locator('[data-routine-lead] > .absolute.rounded-full')).toHaveCount(0)
+
   await ada.context.close()
 })
 

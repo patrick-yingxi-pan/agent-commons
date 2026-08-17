@@ -1,7 +1,7 @@
 /** ── Scheduled-routines filter / sort / group ────────────────────────────────
  *  Routines is a normal instance branch in the account-resource tree. Its
  *  rail rows and main page therefore read this same live, per-account choice:
- *  the session filter's "Status" becomes routine Active/Paused, and a
+ *  the session filter's "Status" becomes routine state lists, and a
  *  routine's "recency" is its freshest run. No React here — just the option
  *  vocabulary, persistence, stable snapshot, and pipeline. */
 import type { ScheduledTask } from '../types'
@@ -19,13 +19,13 @@ export interface RoutineFilter {
   sortBy: RoutineSortBy
 }
 
-/** Neutral defaults: every routine in one resource list, freshest-run-first.
- * Status is mutable metadata, not a structural level in the resource tree;
- * people can still opt into status or project grouping from the shared menu. */
+/** State lists replace the routine rows' ambiguous status dots. They remain a
+ * view partition rather than structural resource nodes, while people can still
+ * choose a flat or project-grouped view from the shared menu. */
 export const DEFAULT_ROUTINE_FILTER: RoutineFilter = {
   status: 'all',
   projectId: 'all',
-  groupBy: 'none',
+  groupBy: 'status',
   sortBy: 'recency',
 }
 
@@ -33,21 +33,21 @@ export const DEFAULT_ROUTINE_FILTER: RoutineFilter = {
 // One JSON string inside uiPrefs: this standing view choice follows the active
 // account, whichever projection changes it. The suffix retires the former browser-
 // wide localStorage blob owned by the separate Scheduled pane.
-const KEY = 'scheduledFilter.v4'
-const LEGACY_KEY = 'scheduledFilter.v3'
+const KEY = 'scheduledFilter.v5'
+const LEGACY_KEYS = ['scheduledFilter.v4', 'scheduledFilter.v3'] as const
 
 export function loadRoutineFilter(): RoutineFilter {
   try {
     const raw = getLayout(KEY, '')
     if (raw) return { ...DEFAULT_ROUTINE_FILTER, ...(JSON.parse(raw) as Partial<RoutineFilter>) }
 
-    // v3 made status grouping the neutral default. Preserve any real status,
-    // project, sort, or project-group choices while retiring that implicit
-    // Active/Paused hierarchy; an explicit v4 choice can select it again.
-    const legacyRaw = getLayout(LEGACY_KEY, '')
+    // v5 makes named state lists the neutral view and removes row-level dots.
+    // Preserve real filters, project grouping and sort choices; migrate the old
+    // neutral flat view to the clearer state partition.
+    const legacyRaw = LEGACY_KEYS.map((key) => getLayout(key, '')).find(Boolean)
     if (!legacyRaw) return DEFAULT_ROUTINE_FILTER
     const legacy = { ...DEFAULT_ROUTINE_FILTER, ...(JSON.parse(legacyRaw) as Partial<RoutineFilter>) }
-    return { ...legacy, groupBy: legacy.groupBy === 'status' ? 'none' : legacy.groupBy }
+    return { ...legacy, groupBy: legacy.groupBy === 'none' ? 'status' : legacy.groupBy }
   } catch {
     return DEFAULT_ROUTINE_FILTER
   }
@@ -95,8 +95,17 @@ export function clampRoutineFilter(f: RoutineFilter, validProjectIds: ReadonlySe
 }
 
 // ── The filter / sort / group pipeline ───────────────────────────────────────
-const STATUS_LABEL: Record<string, string> = { active: 'Active', paused: 'Paused' }
-const STATUS_ORDER: Record<string, number> = { active: 0, paused: 1 }
+const STATUS_LABEL: Record<string, string> = {
+  attention: 'Needs attention',
+  active: 'Active',
+  paused: 'Paused',
+}
+const STATUS_ORDER: Record<string, number> = { attention: 0, active: 1, paused: 2 }
+
+function routineState(task: ScheduledTask): 'attention' | 'active' | 'paused' {
+  if (!task.enabled) return 'paused'
+  return task.lastStatus === 'failed' ? 'attention' : 'active'
+}
 
 export interface RoutineGroup {
   key: string
@@ -159,7 +168,7 @@ function groupRows(rows: ScheduledTask[], by: RoutineGroupBy, ctx: RoutineFilter
       if (pid) push(pid, ctx.projectName(pid), 0, t)
       else push('__none', 'No project', 1, t)
     } else {
-      const key = t.enabled ? 'active' : 'paused'
+      const key = routineState(t)
       push(key, STATUS_LABEL[key], STATUS_ORDER[key], t)
     }
   }

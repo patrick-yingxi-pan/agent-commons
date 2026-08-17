@@ -34,6 +34,28 @@ test('arrow keys resize the rail and a focused rail split through shared separat
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
 
+  // The pinned create action is one normal rail row: its direct glyph and label
+  // share an optical centre, without the old 24px ringed ornament around Plus.
+  const create = page.locator('[data-rail-create]')
+  await expect(create).toBeVisible()
+  const createGeometry = await create.evaluate((element) => {
+    const icon = element.querySelector('svg')
+    const label = element.querySelector('span')
+    if (!(icon instanceof SVGElement) || !(label instanceof HTMLElement)) throw new Error('create row anatomy missing')
+    const buttonBox = element.getBoundingClientRect()
+    const iconBox = icon.getBoundingClientRect()
+    const labelBox = label.getBoundingClientRect()
+    return {
+      height: buttonBox.height,
+      centerDelta: Math.abs(iconBox.top + iconBox.height / 2 - (labelBox.top + labelBox.height / 2)),
+      ornamentCount: element.querySelectorAll('.rounded-full, .ring-1').length,
+    }
+  })
+  expect(createGeometry.height, 'the action follows the 32px rail rhythm').toBeGreaterThanOrEqual(31)
+  expect(createGeometry.height, 'the action does not grow beyond the rail rhythm').toBeLessThanOrEqual(33)
+  expect(createGeometry.centerDelta, 'icon and label share one optical centre').toBeLessThanOrEqual(1)
+  expect(createGeometry.ornamentCount, 'the plus has no decorative circle or ring').toBe(0)
+
   // ── Vertical separator (rail width): Left/Right arrows step it. ──
   const rail = page.locator('aside')
   const railHandle = page.getByRole('separator', { name: 'Resize sidebar' })
@@ -70,11 +92,17 @@ test('arrow keys resize the rail and a focused rail split through shared separat
       hostBorderTop: Number.parseFloat(hostStyle.borderTopWidth),
       offset: Math.abs(lineBox.top - hostBox.top),
       lineHeight: lineBox.height,
+      lowerClearance: Number.parseFloat(hostStyle.paddingTop),
+      upperClearance: host.previousElementSibling instanceof HTMLElement
+        ? Number.parseFloat(getComputedStyle(host.previousElementSibling).paddingBottom)
+        : 0,
     }
   })
   expect(railEdge.hostBorderTop, 'the lower pane does not draw a second boundary').toBe(0)
   expect(railEdge.offset, 'the one hairline sits on the pane boundary').toBeLessThanOrEqual(1)
   expect(railEdge.lineHeight, 'the visible edge remains a hairline').toBeLessThanOrEqual(1.5)
+  expect(railEdge.upperClearance, 'the upper view clears the split seam').toBeGreaterThanOrEqual(7)
+  expect(railEdge.lowerClearance, 'the lower view clears the split seam').toBeGreaterThanOrEqual(7)
   const h0 = await settled(page, lower, 'height')
   await paneHandle.focus()
   await page.keyboard.press('Shift+ArrowUp')

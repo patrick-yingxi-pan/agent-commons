@@ -25,13 +25,19 @@ const run = (id: string, at: number): ScheduledRun => ({
   at,
 })
 
-const task = (id: string, name: string, enabled: boolean, runs: ScheduledRun[]): ScheduledTask => ({
+const task = (
+  id: string,
+  name: string,
+  enabled: boolean,
+  runs: ScheduledRun[],
+  lastStatus: ScheduledTask['lastStatus'] = 'ok',
+): ScheduledTask => ({
   id,
   name,
   cadence: 'x',
   next: 'x',
   enabled,
-  lastStatus: 'ok',
+  lastStatus,
   subtitle: 'x',
   trigger: 'x',
   prompt: 'x',
@@ -68,20 +74,25 @@ test('alpha sort orders by name; the status filter narrows to active / paused', 
   assert.equal(active.total, 1)
 })
 
-test('the default keeps mutable status out of the resource hierarchy', () => {
-  const on = task('on', 'On', true, [])
-  const off = task('off', 'Off', false, [])
-  const groups = filterRoutines([off, on], DEFAULT_ROUTINE_FILTER, ctx).groups
-  assert.equal(DEFAULT_ROUTINE_FILTER.groupBy, 'none')
-  assert.deepEqual(groups.map((group) => group.label), [''])
-  assert.deepEqual(groups.flatMap((group) => group.tasks.map((item) => item.id)), ['off', 'on'])
+test('the default classifies routine state into named lists instead of row dots', () => {
+  const attention = task('attention', 'Attention', true, [], 'failed')
+  const active = task('active', 'Active', true, [])
+  const paused = task('paused', 'Paused', false, [], 'failed')
+  const groups = filterRoutines([paused, active, attention], DEFAULT_ROUTINE_FILTER, ctx).groups
+  assert.equal(DEFAULT_ROUTINE_FILTER.groupBy, 'status')
+  assert.deepEqual(groups.map((group) => group.label), ['Needs attention', 'Active', 'Paused'])
+  assert.deepEqual(groups.map((group) => group.tasks.map((item) => item.id)), [
+    ['attention'],
+    ['active'],
+    ['paused'],
+  ])
 })
 
-test('status bands remain available when a person deliberately groups by status', () => {
+test('a deliberate flat view remains available', () => {
   const on = task('on', 'On', true, [])
   const off = task('off', 'Off', false, [])
-  const groups = filterRoutines([off, on], { ...DEFAULT_ROUTINE_FILTER, groupBy: 'status' }, ctx).groups
-  assert.deepEqual(groups.map((group) => group.label), ['Active', 'Paused'])
+  const groups = filterRoutines([off, on], { ...DEFAULT_ROUTINE_FILTER, groupBy: 'none' }, ctx).groups
+  assert.deepEqual(groups.map((group) => group.label), [''])
 })
 
 beforeEach(() => {
@@ -93,16 +104,16 @@ beforeEach(() => {
   setLayout('__routine_filter_reset__', 0)
 })
 
-test('v3 preferences keep real filters while retiring the former default status bands', () => {
+test('v4 preferences keep real filters while migrating the old neutral flat view', () => {
   setUiPrefScope('migration')
   setLayout(
-    'scheduledFilter.v3',
-    JSON.stringify({ status: 'paused', projectId: 'p-1', groupBy: 'status', sortBy: 'alpha' }),
+    'scheduledFilter.v4',
+    JSON.stringify({ status: 'paused', projectId: 'p-1', groupBy: 'none', sortBy: 'alpha' }),
   )
   assert.deepEqual(loadRoutineFilter(), {
     status: 'paused',
     projectId: 'p-1',
-    groupBy: 'none',
+    groupBy: 'status',
     sortBy: 'alpha',
   })
 })

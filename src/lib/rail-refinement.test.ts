@@ -16,6 +16,7 @@ import {
 
 const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
 const children = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
+const sectionView = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
 
 test('Routines is one instance branch in Sections, never a duplicate pane', () => {
   assert.equal(SECTION_INSTANCE_KEY.scheduled, 'scheduleId')
@@ -85,7 +86,14 @@ test('every resource-forest row uses one semantic rhythm without decorative sele
 
   assert.doesNotMatch(children, /h-1\.5 w-1\.5[^\n]*rounded-full/, 'generic leaf bullets are absent')
   assert.doesNotMatch(sidebar, /function Dot\(/, 'session selection does not mint a second active marker')
-  assert.match(sidebar, /function RoutineDot\(/, 'routine health keeps its meaningful status signal')
+  assert.doesNotMatch(sidebar, /function RoutineDot\(/, 'routine health does not mint a second dot signal')
+  assert.match(sidebar, /data-routine-state-group=\{routineState\}/, 'routine state is carried by named list bands')
+  assert.match(sectionView, /data-routine-lead/, 'the page exposes the routine lead for rendered dot-absence review')
+  const scheduledStart = sectionView.indexOf('function ScheduledRow')
+  const scheduledEnd = sectionView.indexOf('\nfunction ', scheduledStart + 1)
+  assert.ok(scheduledStart >= 0 && scheduledEnd > scheduledStart, 'ScheduledRow has an enumerable source body')
+  const scheduledRow = sectionView.slice(scheduledStart, scheduledEnd)
+  assert.doesNotMatch(scheduledRow, /const dot\s*=|absolute -bottom-/, 'the page lead has no routine-health dot')
   assert.match(sidebar, /session\.pinned/, 'pin state remains visible metadata')
 })
 

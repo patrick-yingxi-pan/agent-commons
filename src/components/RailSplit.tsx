@@ -5,6 +5,7 @@
 import { useLayoutEffect, useRef, type FocusEvent, type PointerEvent, type ReactNode } from 'react'
 import { clampRatio } from '../lib/splitFrame'
 import type { RailPaneContent, RailSplitNode, RailViewRoot } from '../lib/railSplit'
+import { SIDEBAR_SPLIT_AFTER, SIDEBAR_SPLIT_BEFORE } from '../lib/sidebar'
 import { ResizeHandle } from './ResizeHandle'
 
 const RAIL_VIEW_MIN = 96
@@ -65,11 +66,16 @@ function RailBranch(props: BranchProps) {
   )
   return (
     <div ref={ref} className="flex min-h-0 flex-1 flex-col" data-rail-split-branch={path || 'root'}>
-      <div className="flex min-h-0 min-w-0" style={{ flex: `${ratio} 1 0%`, minHeight: RAIL_VIEW_MIN }}>
+      <div
+        className={SIDEBAR_SPLIT_BEFORE}
+        data-rail-split-half="before"
+        style={{ flex: `${ratio} 1 0%`, minHeight: RAIL_VIEW_MIN }}
+      >
         {child(node.a, `${path}a`)}
       </div>
       <div
-        className="relative flex min-h-0 min-w-0"
+        className={SIDEBAR_SPLIT_AFTER}
+        data-rail-split-half="after"
         style={{ flex: `${1 - ratio} 1 0%`, minHeight: RAIL_VIEW_MIN }}
       >
         <ResizeHandle

@@ -14,6 +14,7 @@ import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
 import {
   SIDEBAR_ACTIVE,
   SIDEBAR_BRANCH,
+  SIDEBAR_CREATE_BUTTON,
   SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
   sidebarEntryClass,
@@ -38,6 +39,19 @@ test('the left panel sources its hover from the shared token — no element re-h
 
 test('the sidebar imports the shared hover module', () => {
   assert.match(sidebarSrc(), /from\s+'\.\.\/lib\/sidebar'/, 'Sidebar.tsx imports the shared sidebar module')
+})
+
+test('the create action is an aligned rail row without ornamental icon chrome', () => {
+  assert.match(SIDEBAR_CREATE_BUTTON, /min-h-8/, 'the action follows the shared 32px rhythm')
+  assert.match(SIDEBAR_CREATE_BUTTON, /items-center/, 'the glyph and type share one vertical centre')
+  assert.match(SIDEBAR_CREATE_BUTTON, /rounded-lg/, 'it shares the rail row radius')
+  const source = sidebarSrc()
+  const start = source.indexOf('data-rail-create')
+  const end = source.indexOf('</button>', start)
+  assert.ok(start >= 0 && end > start, 'the create action has an enumerable source body')
+  const create = source.slice(start, end)
+  assert.match(create, /<Plus[^>]*\/>\s*<span>New session<\/span>/, 'icon and label are direct siblings')
+  assert.doesNotMatch(create, /rounded-full|ring-1/, 'the plus has no decorative container')
 })
 
 test('the rail marks WHERE YOU ARE without hue — one active look, no co-color', () => {

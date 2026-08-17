@@ -55,6 +55,7 @@ import { SectionFilterMenu } from './SectionFilterMenu'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import {
   SIDEBAR_ACTIVE,
+  SIDEBAR_CREATE_BUTTON,
   SIDEBAR_HOVER,
   SIDEBAR_ICON_BUTTON,
   sidebarEntryClass,
@@ -541,19 +542,17 @@ export function Sidebar({
             is quiet text — which spent the loudest ink in the system on
             navigation chrome, and left nothing louder for the acts inside the
             workspace that actually commit something.
-            What makes it findable now is POSITION (first row, its own <nav>) and
-            the ringed glyph, not fill: the same way the desktop app's own
-            sidebar does it. The accent survives here as the icon alone — one
-            small claret mark, which is the seat law's "verbs wear accent" at the
-            smallest dose that still reads. */}
+            What makes it findable is POSITION (first row, its own <nav>) and a
+            familiar plus verb. The glyph and label share the same optical row;
+            an ornamental ring once made the icon feel larger and lower than its
+            text even though their boxes were mathematically centred. */}
         <button
           onClick={onNewSession}
-          className={`flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-[13px] text-ink transition ${SIDEBAR_HOVER}`}
+          data-rail-create
+          className={SIDEBAR_CREATE_BUTTON}
         >
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full ring-1 ring-line-strong">
-            <Plus size={13} className="text-accent" />
-          </span>
-          New session
+          <Plus size={15} strokeWidth={1.75} className="shrink-0 text-ink-soft" aria-hidden />
+          <span>New session</span>
         </button>
       </nav>
 
@@ -1023,8 +1022,15 @@ function SessionRow({
 }
 
 /** A group divider label shown above each bucket when Group by ≠ None. */
-function GroupHeader({ children }: { children: ReactNode }) {
-  return <div className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint">{children}</div>
+function GroupHeader({ children, routineState }: { children: ReactNode; routineState?: string }) {
+  return (
+    <div
+      data-routine-state-group={routineState}
+      className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint"
+    >
+      {children}
+    </div>
+  )
 }
 
 /** The Sessions section's live instance children. Group labels are view
@@ -1118,7 +1124,7 @@ function ScheduledTreeChildren({
     <>
       {visibleGroups.map((group) => (
         <Fragment key={group.key}>
-          {group.label && <GroupHeader>{group.label}</GroupHeader>}
+          {group.label && <GroupHeader routineState={group.key}>{group.label}</GroupHeader>}
           {group.tasks.map(renderRoutine)}
         </Fragment>
       ))}
@@ -1177,6 +1183,7 @@ function RoutineRow({
     <div data-rail-node-key={nodeKey}>
       <div
         data-rail-node-row
+        data-routine-row
         data-rail-entry-kind="item"
         className={sidebarEntryClass('item', pageActive)}
       >
@@ -1189,7 +1196,6 @@ function RoutineRow({
         >
           {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
         </button>
-        <RoutineDot enabled={task.enabled} lastStatus={task.lastStatus} />
         <button
           data-rail-entry
           onClick={onOpenPage}
@@ -1327,17 +1333,4 @@ function RoutineSectionRows({
       })}
     </>
   )
-}
-
-/** A routine's leading dot: muted when paused, red on a failed last run, else
- *  green (healthy / active). */
-function RoutineDot({
-  enabled,
-  lastStatus,
-}: {
-  enabled: boolean
-  lastStatus: ScheduledTask['lastStatus']
-}) {
-  const color = !enabled ? 'bg-line-strong' : lastStatus === 'failed' ? 'bg-danger' : 'bg-ok'
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={enabled ? lastStatus : 'paused'} />
 }

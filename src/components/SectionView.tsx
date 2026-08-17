@@ -12249,9 +12249,6 @@ function ScheduledRow({
   const lead = task.steps[0]?.tool ?? task.delivery.tool
   const pill = running ? { tone: 'warn' as const, label: 'Running…' } : taskPill(task)
   const lastRun = task.runs[0]
-  const dot =
-    task.lastStatus === 'ok' ? 'bg-ok' : task.lastStatus === 'failed' ? 'bg-danger' : 'bg-line-strong'
-
   return (
     // The row is a @container: its metadata is gated on the row's OWN width,
     // not the viewport (UI-9, docs/ui-invariants.md) — at 768px the viewport
@@ -12268,9 +12265,8 @@ function ScheduledRow({
           controls (run, delete, the enabled switch) keep their own handlers.
           Dividers come from the ledger container's divide-y (lib/ledger). */}
       <div className="flex min-w-0 flex-1 items-center gap-3 py-3">
-        <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2">
+        <span data-routine-lead className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2">
           <ToolGlyph tool={lead} size={16} />
-          <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${dot}`} />
         </span>
 
         <div className="min-w-0 flex-1 overflow-hidden">
@@ -12293,8 +12289,8 @@ function ScheduledRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        {/* In a tight row the pill yields its width to the name column — the
-            icon's status dot already carries ok/failed, the detail the rest. */}
+        {/* In a tight row the pill yields its width to the name column. The
+            labeled state band carries health without a second dot signal. */}
         <span className="hidden @sm:block">
           <StatusPill tone={pill.tone} label={pill.label} />
         </span>

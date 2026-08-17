@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments, concatSource } from '../../tests/helpers/source.ts'
+import { SIDEBAR_SPLIT_AFTER, SIDEBAR_SPLIT_BEFORE } from '../lib/sidebar.ts'
 
 const handle = stripComments(read(join(ROOT, 'src', 'components', 'ResizeHandle.tsx')))
 
@@ -140,6 +141,16 @@ test('each split boundary is one edge-owned hairline, never a host border plus a
   assert.match(mainSplit, /side=\{row \? 'left' : 'top'\}\s*\n\s*ownsEdge/, 'every main split gutter owns its one line')
   assert.doesNotMatch(mainSplit, /\$\{row \? 'border-l' : 'border-t'\} border-line/,
     'the second main pane cannot draw a second line behind the handle')
+})
+
+test('a stacked rail seam gives content breathing room on both sides of its one hairline', () => {
+  assert.match(SIDEBAR_SPLIT_BEFORE, /pb-2/, 'the upper view clears the seam')
+  assert.match(SIDEBAR_SPLIT_AFTER, /pt-2/, 'the lower view clears the seam')
+  const railSplit = stripComments(read(join(ROOT, 'src', 'components', 'RailSplit.tsx')))
+  assert.match(railSplit, /className=\{SIDEBAR_SPLIT_BEFORE\}/)
+  assert.match(railSplit, /className=\{SIDEBAR_SPLIT_AFTER\}/)
+  assert.match(railSplit, /data-rail-split-half="before"/)
+  assert.match(railSplit, /data-rail-split-half="after"/)
 })
 
 test('the focus cue rides the app-wide focus-visible ring, not a bespoke outline-off', () => {

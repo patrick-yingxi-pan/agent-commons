@@ -34,6 +34,12 @@
 /** The hover background shared by every interactive element in the left panel. */
 export const SIDEBAR_HOVER = 'hover:bg-panel-2/70'
 
+/** A stacked rail split is a seam, not a rule wedged against content. The one
+ * edge-owned hairline stays on the exact boundary while each neighbouring view
+ * contributes eight pixels of breathing room. */
+export const SIDEBAR_SPLIT_BEFORE = 'flex min-h-0 min-w-0 pb-2'
+export const SIDEBAR_SPLIT_AFTER = 'relative flex min-h-0 min-w-0 pt-2'
+
 /** The rail's ACTIVE row — where you are, in one look for every row kind (owner
  *  directive 2026-08-10).
  *
@@ -58,6 +64,11 @@ export const SIDEBAR_ACTIVE =
  *  the shared soft wash. This keeps keyboard response visibly distinct from
  *  SIDEBAR_ACTIVE's persistent fill + location marker. */
 export const SIDEBAR_FOCUS_WITHIN = 'focus-within:bg-panel-2/70'
+
+/** The pinned create action follows the rail's 32px row rhythm. The glyph and
+ * label are direct siblings: no ornamental circle competes with the action or
+ * shifts the optical centre away from the surrounding resource rows. */
+export const SIDEBAR_CREATE_BUTTON = `flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px] font-medium text-ink transition ${SIDEBAR_FOCUS_WITHIN} ${SIDEBAR_HOVER}`
 
 /** The resource forest has four visual roles, each earned by the node's place
  * in the ontology rather than by the component that happened to render it.
