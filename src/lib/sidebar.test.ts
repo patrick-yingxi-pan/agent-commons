@@ -15,6 +15,7 @@ import {
   SIDEBAR_ACTIVE,
   SIDEBAR_BRANCH,
   SIDEBAR_CREATE_BUTTON,
+  SIDEBAR_ENTRY_LEAD,
   SIDEBAR_FOCUS_WITHIN,
   SIDEBAR_HOVER,
   SIDEBAR_TOOLBAR_BUTTON,
@@ -95,4 +96,11 @@ test('focus and tree depth each have one rail-wide cue', () => {
   const src = sidebarSrc()
   assert.ok(sidebarEntryClass('item', false).includes(SIDEBAR_FOCUS_WITHIN), 'the shared row funnel owns focus')
   assert.ok(src.includes('sidebarEntryClass'), 'Sidebar rows use the shared row funnel')
+})
+
+test('every non-root entry reserves one fixed lead column', () => {
+  assert.match(SIDEBAR_ENTRY_LEAD, /\bh-5\b/, 'the lead seat follows the 20px disclosure control')
+  assert.match(SIDEBAR_ENTRY_LEAD, /\bw-5\b/, 'the lead seat has one fixed width')
+  assert.match(SIDEBAR_ENTRY_LEAD, /\bshrink-0\b/, 'long labels cannot consume the hierarchy column')
+  assert.match(SIDEBAR_ENTRY_LEAD, /items-center/, 'a caret and an empty seat share one centre')
 })

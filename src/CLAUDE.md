@@ -517,9 +517,10 @@ otherwise the rail's eight names are not the page's first eight, which is worse
 than listing none. Routines is an instance branch in that same tree; its richer
 status / project / cadence filter remains a dedicated funnel (`filterRoutines` +
 `useRoutineFilter`), but the branch and the main page consume the SAME live,
-per-account choice. Status is mutable metadata, so the neutral default is one
-flat resource list; explicit Group by Status / Project choices may add page and
-rail bands without turning them into structural tree nodes. There is no second
+per-account choice. Status is mutable metadata, so the neutral default is a set
+of labeled state LISTS; Group by None / Project remain explicit alternatives.
+In the rail those partitions are ordinary semantic lists with aligned headings,
+not tags, disclosure branches, or navigable tree nodes. There is no second
 Routines pane. A
 section lands on its **default** view (rail sub-view `null`; each hub body maps
 null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
@@ -589,9 +590,12 @@ promotion, protected forest and legacy repair) and
 `src/components/resize-handle.test.ts` + `e2e/keyboard-resize.spec.ts` (the keyboard path).
 
 The tree communicates depth without spending identity width: every expanded branch
-uses the ONE `RailTreeBranch` guide, homogeneous leaves show their name rather than a
-repeated kind word, and composite parents / structural sections / leaves step down in
-type weight. A neutral left marker means **current location**; the softer
+uses the ONE `RailTreeBranch` guide, and every non-root row reserves the same
+20px `RailEntryLead` column whether it contains a caret or stays empty. That
+makes branch nesting monotonic: an atomic child, session, empty/tail row, or list
+heading can never jump left merely because it has nothing to disclose.
+Homogeneous leaves show their name rather than a repeated kind word, and
+composite parents / structural sections / leaves step down in type weight. A neutral left marker means **current location**; the softer
 `focus-within` wash means keyboard focus only, so tabbing never impersonates
 navigation. The rail toolbar is two spatial groups — global rail acts, then the
 focused view's pane acts behind a divider. At the 208px rail minimum, paired

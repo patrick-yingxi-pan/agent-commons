@@ -1,6 +1,6 @@
 import {
-  Fragment,
   useEffect,
+  useId,
   useMemo,
   useState,
   type ReactNode,
@@ -10,7 +10,6 @@ import {
   ArchiveRestore,
   ChevronsDown,
   ChevronsUp,
-  ChevronDown,
   ChevronRight,
   Columns2,
   ChevronsUpDown,
@@ -44,6 +43,7 @@ import {
   AgentTreeChildren,
   OwnerProfileChild,
   RailRootScope,
+  RailEntryLead,
   RailTreeBranch,
   SectionInstanceChildren,
   ShowAllRow,
@@ -1055,8 +1055,10 @@ function SessionRow({
       data-rail-node-key={nodeKey}
       data-rail-node-row
       data-rail-entry-kind="item"
+      role="listitem"
       className={sidebarEntryClass('item', active)}
     >
+      <RailEntryLead />
       {editing ? (
         <input
           autoFocus
@@ -1092,15 +1094,34 @@ function SessionRow({
   )
 }
 
-/** A group divider label shown above each bucket when Group by ≠ None. */
-function GroupHeader({ children, routineState }: { children: ReactNode; routineState?: string }) {
+/** One ordinary labeled list. A view partition is not a tree node or a status
+ * tag: its heading aligns to the same lead column as its items, and the items
+ * carry native list semantics without gaining another disclosure guide. */
+function RailListPartition({
+  label,
+  fallbackLabel,
+  routineState,
+  children,
+}: {
+  label: string
+  fallbackLabel: string
+  routineState?: string
+  children: ReactNode
+}) {
+  const headingId = useId()
+  if (!label) return <div role="list" aria-label={fallbackLabel}>{children}</div>
   return (
-    <div
-      data-routine-state-group={routineState}
-      className="px-2 pb-1 pt-2.5 text-[11px] font-semibold text-ink-faint"
-    >
-      {children}
-    </div>
+    <section data-rail-list-partition data-routine-state-group={routineState} aria-labelledby={headingId}>
+      <h3
+        id={headingId}
+        data-rail-list-heading
+        className="flex min-h-8 items-center gap-2 px-2 text-[12px] font-medium text-ink-soft"
+      >
+        <RailEntryLead />
+        <span>{label}</span>
+      </h3>
+      <div role="list" aria-labelledby={headingId}>{children}</div>
+    </section>
   )
 }
 
@@ -1141,10 +1162,9 @@ function SessionTreeChildren({
   return (
     <>
       {visibleGroups.map((group) => (
-        <Fragment key={group.key}>
-          {group.label && <GroupHeader>{group.label}</GroupHeader>}
+        <RailListPartition key={group.key} label={group.label} fallbackLabel="Sessions">
           {group.sessions.map(renderSession)}
-        </Fragment>
+        </RailListPartition>
       ))}
       {(showAll || hidden > 0) && (
         <ShowAllRow
@@ -1194,10 +1214,14 @@ function ScheduledTreeChildren({
   return (
     <>
       {visibleGroups.map((group) => (
-        <Fragment key={group.key}>
-          {group.label && <GroupHeader routineState={group.key}>{group.label}</GroupHeader>}
+        <RailListPartition
+          key={group.key}
+          label={group.label}
+          fallbackLabel="Routines"
+          routineState={group.key}
+        >
           {group.tasks.map(renderRoutine)}
-        </Fragment>
+        </RailListPartition>
       ))}
       {(showAll || hidden > 0) && (
         <ShowAllRow
@@ -1256,17 +1280,14 @@ function RoutineRow({
         data-rail-node-row
         data-routine-row
         data-rail-entry-kind="item"
+        role="listitem"
         className={sidebarEntryClass('item', pageActive)}
       >
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${task.name}`}
-          aria-expanded={disclosed}
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-        >
-          {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        </button>
+        <RailEntryLead
+          label={task.name}
+          expanded={disclosed}
+          onToggle={() => setExpanded((value) => !value)}
+        />
         <button
           data-rail-entry
           onClick={onOpenPage}
@@ -1347,21 +1368,15 @@ function RoutineSectionRows({
               data-rail-entry-kind="group"
               className={sidebarEntryClass('group', activeSectionId === section.id)}
             >
-              {hasResources ? (
-                <button
-                  type="button"
-                  onClick={() => runs
-                    ? setRunsExpanded((value) => !value)
-                    : setDiscussionExpanded((value) => !value)}
-                  aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${section.label}`}
-                  aria-expanded={disclosed}
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
-                >
-                  {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-                </button>
-              ) : (
-                <span className="h-5 w-5 shrink-0" aria-hidden />
-              )}
+              {hasResources
+                ? <RailEntryLead
+                    label={section.label}
+                    expanded={disclosed}
+                    onToggle={() => runs
+                      ? setRunsExpanded((value) => !value)
+                      : setDiscussionExpanded((value) => !value)}
+                  />
+                : <RailEntryLead />}
               <button
                 data-rail-entry
                 onClick={() => onOpenSection(section.id)}

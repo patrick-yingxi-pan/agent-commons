@@ -46,6 +46,7 @@ import type { Project, SectionId } from '../types'
 import type { PaneSeed } from '../lib/paneNav'
 import {
   SIDEBAR_BRANCH,
+  SIDEBAR_ENTRY_LEAD,
   SIDEBAR_HOVER,
   sidebarEntryClass,
   type SidebarEntryKind,
@@ -123,6 +124,37 @@ export function RailTreeBranch({ className = '', ...props }: ComponentProps<'div
   return <div {...props} data-rail-node-children className={`${SIDEBAR_BRANCH} ${className}`} />
 }
 
+/** The first column of every non-root rail row. Branches put their caret in
+ * this seat; leaves deliberately preserve the empty seat so their label cannot
+ * drift left of the structural row that contains them. */
+export function RailEntryLead({
+  label,
+  expanded,
+  onToggle,
+}: {
+  label: string
+  expanded: boolean
+  onToggle: () => void
+} | {
+  label?: undefined
+  expanded?: undefined
+  onToggle?: undefined
+}) {
+  if (!onToggle) return <span data-rail-entry-lead className={SIDEBAR_ENTRY_LEAD} aria-hidden />
+  return (
+    <button
+      type="button"
+      data-rail-entry-lead
+      onClick={onToggle}
+      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+      aria-expanded={expanded}
+      className={`rounded text-ink-faint transition ${SIDEBAR_ENTRY_LEAD} ${SIDEBAR_HOVER} hover:text-ink`}
+    >
+      {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+    </button>
+  )
+}
+
 /** One leaf under an expanded branch. Resource instances use the ordinary
  * reading scale; standing lenses use the quieter view scale. The parent and
  * data attribute carry that role, so the visible row spends width on identity
@@ -157,6 +189,7 @@ export function SubNavRow({
         aria-current={active ? 'page' : undefined}
         className={sidebarEntryClass(kind, active)}
       >
+        <RailEntryLead />
         <span className="min-w-0 flex-1 truncate text-left">{label}</span>
       </button>
     </RailTreeNode>
@@ -219,9 +252,10 @@ export function ShowAllRow({ hidden, open, onToggle }: { hidden: number; open: b
     <button
       onClick={onToggle}
       aria-expanded={open}
-      className={`flex w-full items-center rounded-lg py-1.5 pl-2 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
+      className={`flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
     >
-      {open ? 'Show fewer' : `Show all — ${hidden} more`}
+      <RailEntryLead />
+      <span>{open ? 'Show fewer' : `Show all — ${hidden} more`}</span>
     </button>
   )
 }
@@ -438,11 +472,9 @@ function AgentStructureRow({
 }) {
   return (
     <div data-rail-node-row data-rail-entry-kind="group" className={sidebarEntryClass('group', active)}>
-      {hasChildren ? (
-        <button type="button" onClick={onToggle} aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`} aria-expanded={expanded} className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}>
-          {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        </button>
-      ) : <span className="h-5 w-5 shrink-0" aria-hidden />}
+      {hasChildren
+        ? <RailEntryLead label={label} expanded={expanded} onToggle={onToggle} />
+        : <RailEntryLead />}
       <button data-rail-entry onClick={onOpen} aria-current={active ? 'page' : undefined} className="min-w-0 flex-1 truncate text-left">{label}</button>
       {count !== undefined && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{count}</span>}
     </div>
@@ -497,7 +529,12 @@ function AgentLeafList({ rows, empty, activeId, onOpen, nodeKeyFor }: {
 /** The empty state of an expanded section: the tree said "there are children
  *  here" and there are none, which is worth a word rather than a blank gap. */
 export function NoRowsRow({ children }: { children: ReactNode }) {
-  return <p className="py-1.5 pl-2 pr-2 text-[12px] text-ink-faint">{children}</p>
+  return (
+    <p className="flex min-h-8 items-center gap-2 px-2 text-[12px] text-ink-faint">
+      <RailEntryLead />
+      <span>{children}</span>
+    </p>
+  )
 }
 
 export interface InstanceChildProps {
@@ -648,15 +685,11 @@ function ProjectBranch({
         data-rail-entry-kind="item"
         className={sidebarEntryClass('item', rootActive)}
       >
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${project.name}`}
-          aria-expanded={disclosed}
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
-        >
-          {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-        </button>
+        <RailEntryLead
+          label={project.name}
+          expanded={disclosed}
+          onToggle={() => setExpanded((value) => !value)}
+        />
         <button
           data-rail-entry
           onClick={() => onOpenDetail('projects', { projectId: project.id })}
@@ -865,19 +898,13 @@ function ProjectSectionBranch({
         data-rail-entry-kind="group"
         className={sidebarEntryClass('group', pageActive)}
       >
-        {hasResources ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${section.label}`}
-            aria-expanded={disclosed}
-            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
-          >
-            {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </button>
-        ) : (
-          <span className="h-5 w-5 shrink-0" aria-hidden />
-        )}
+        {hasResources
+          ? <RailEntryLead
+              label={section.label}
+              expanded={disclosed}
+              onToggle={() => setExpanded((value) => !value)}
+            />
+          : <RailEntryLead />}
         <button
           data-rail-entry
           onClick={() => onOpenDetail('projects', { projectId, projectSectionId: section.id })}
@@ -901,13 +928,11 @@ function ProjectSectionBranch({
             />
           ))}
           {(showAll || hidden > 0) && (
-            <button
-              onClick={() => setShowAll((value) => !value)}
-              aria-expanded={showAll}
-              className={`flex w-full items-center rounded-lg py-1.5 pl-2 pr-2 text-left text-[12px] text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink-soft`}
-            >
-              {showAll ? 'Show fewer' : `Show all — ${hidden} more`}
-            </button>
+            <ShowAllRow
+              hidden={hidden}
+              open={showAll}
+              onToggle={() => setShowAll((value) => !value)}
+            />
           )}
         </RailTreeBranch>
       )}
@@ -995,19 +1020,13 @@ function CollectionSectionBranch({
         data-rail-entry-kind="group"
         className={sidebarEntryClass('group', sectionActive)}
       >
-        {hasResources ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((value) => !value)}
-            aria-label={`${disclosed ? 'Collapse' : 'Expand'} ${group.label}`}
-            aria-expanded={disclosed}
-            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint transition ${SIDEBAR_HOVER} hover:text-ink`}
-          >
-            {disclosed ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
-          </button>
-        ) : (
-          <span className="h-5 w-5 shrink-0" aria-hidden />
-        )}
+        {hasResources
+          ? <RailEntryLead
+              label={group.label}
+              expanded={disclosed}
+              onToggle={() => setExpanded((value) => !value)}
+            />
+          : <RailEntryLead />}
         <button
           data-rail-entry
           onClick={() => onOpenDetail(section, { collectionSectionId: group.id })}

@@ -50,6 +50,12 @@ what the document or the sibling component claims.
   `lib/collectionSections.ts`, and each child keeps its canonical leaf page.
   The shell's Organize pane menu targets the main registry or strict descendants
   of the selected rail entry according to focus; collection rows do not redraw it.
+- **Rail depth is a fixed-column grammar.** Every non-root row begins with the
+  shared `RailEntryLead`: a branch puts its caret there and a leaf preserves an
+  empty seat. Sessions, atomic leaves, empty/tail copy, and labeled filter lists
+  may not skip the seat or hand-pick padding; a child without a caret must still
+  sit to the right of its parent. Mutable state groups are plain headings over
+  semantic lists, never tag-like chrome or canonical disclosure nodes.
 - **Composite capabilities are mirrored, not duplicated.** The one
   `lib/compositeFeatures.ts` catalog declares each root's standing primary
   action, local search and bulk disclosure; applicable Filter & sort remains

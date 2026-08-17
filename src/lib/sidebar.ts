@@ -103,6 +103,13 @@ export function sidebarEntryClass(kind: SidebarEntryKind, active: boolean): stri
  *  depth grammar; rows no longer hand-calculate four unrelated left paddings. */
 export const SIDEBAR_BRANCH = 'ml-2.5 border-l border-line pl-1.5'
 
+/** Every non-root rail row begins with one fixed lead column. A branch may put
+ * its disclosure caret here; an atomic leaf, list heading, empty state, or tail
+ * row keeps the column empty. Reserving the seat is what makes each additional
+ * branch guide produce a real indentation step instead of letting a child with
+ * no caret jump left of its parent label. */
+export const SIDEBAR_ENTRY_LEAD = 'flex h-5 w-5 shrink-0 items-center justify-center'
+
 /** The expanded rail header uses a denser 28px control rhythm. Its standing
  * utilities must coexist with the focused-pane actions at LEFT_MIN without
  * clipping the terminal Close action; open menus keep the same hover face and

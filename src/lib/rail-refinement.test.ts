@@ -9,6 +9,7 @@ import { SECTION_INSTANCE_KEY } from './subviews.ts'
 import {
   SIDEBAR_ACTIVE,
   SIDEBAR_BRANCH,
+  SIDEBAR_ENTRY_LEAD,
   SIDEBAR_FOCUS_WITHIN,
   sidebarEntryClass,
   type SidebarEntryKind,
@@ -60,6 +61,34 @@ test('resource leaves spend width on identity, not a repeated kind label', () =>
   const row = children.slice(start, end)
   assert.doesNotMatch(row, />\s*\{kind\}\s*</, 'the semantic style role is never printed as a redundant label')
   assert.match(row, /min-w-0 flex-1 truncate text-left/, 'the resource name owns remaining width')
+  assert.match(row, /<RailEntryLead\s*\/>/, 'an atomic leaf keeps the shared lead column')
+})
+
+test('every leaf-like rail row keeps the lead column and partitions remain simple lists', () => {
+  assert.match(SIDEBAR_ENTRY_LEAD, /\bw-5\b/, 'one fixed lead width owns horizontal alignment')
+  for (const name of ['ShowAllRow', 'NoRowsRow'] as const) {
+    const start = children.indexOf(`export function ${name}`)
+    const end = children.indexOf('\nexport ', start + 1)
+    assert.ok(start >= 0 && end > start, `${name} has an enumerable source body`)
+    assert.match(children.slice(start, end), /<RailEntryLead\s*\/>/, `${name} aligns with the rows it describes`)
+  }
+  const sessionStart = sidebar.indexOf('function SessionRow')
+  const sessionEnd = sidebar.indexOf('\nfunction ', sessionStart + 1)
+  assert.ok(sessionStart >= 0 && sessionEnd > sessionStart, 'SessionRow has an enumerable source body')
+  assert.match(sidebar.slice(sessionStart, sessionEnd), /<RailEntryLead\s*\/>/, 'sessions do not skip the lead column')
+
+  const partitionStart = sidebar.indexOf('function RailListPartition')
+  const partitionEnd = sidebar.indexOf('\nfunction ', partitionStart + 1)
+  assert.ok(partitionStart >= 0 && partitionEnd > partitionStart, 'RailListPartition has an enumerable source body')
+  const partition = sidebar.slice(partitionStart, partitionEnd)
+  assert.match(partition, /<h3[\s\S]*data-rail-list-heading/, 'a partition is introduced by an ordinary heading')
+  assert.match(partition, /<RailEntryLead\s*\/>/, 'the heading aligns with its item labels')
+  assert.match(
+    partition,
+    /role="list"\s+aria-labelledby=\{headingId\}/,
+    'the grouped resources remain a semantic list named by the visible heading',
+  )
+  assert.doesNotMatch(sidebar, /function GroupHeader/, 'state labels do not use a one-off tag-like renderer')
 })
 
 test('every resource-forest row uses one semantic rhythm without decorative selection bullets', () => {
@@ -87,7 +116,7 @@ test('every resource-forest row uses one semantic rhythm without decorative sele
   assert.doesNotMatch(children, /h-1\.5 w-1\.5[^\n]*rounded-full/, 'generic leaf bullets are absent')
   assert.doesNotMatch(sidebar, /function Dot\(/, 'session selection does not mint a second active marker')
   assert.doesNotMatch(sidebar, /function RoutineDot\(/, 'routine health does not mint a second dot signal')
-  assert.match(sidebar, /data-routine-state-group=\{routineState\}/, 'routine state is carried by named list bands')
+  assert.match(sidebar, /data-routine-state-group=\{routineState\}/, 'routine state is carried by named lists')
   assert.match(sectionView, /data-routine-lead/, 'the page exposes the routine lead for rendered dot-absence review')
   const scheduledStart = sectionView.indexOf('function ScheduledRow')
   const scheduledEnd = sectionView.indexOf('\nfunction ', scheduledStart + 1)

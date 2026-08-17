@@ -42,6 +42,63 @@ test('collection roots preserve main-page sections in the rail and canonical URL
   await ada.context.close()
 })
 
+test('every rail entry keeps one lead column and list partitions align with their items', async ({ browser }) => {
+  test.setTimeout(ms(90_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  const rail = sectionsNav(page)
+
+  const x = async (locator: import('@playwright/test').Locator) => {
+    const box = await locator.boundingBox()
+    expect(box, 'the rail label is rendered').not.toBeNull()
+    return box!.x
+  }
+  const expectCompleteLeadColumn = async () => {
+    const missing = await rail
+      .locator('[data-rail-node-row]:not([data-rail-entry-kind="root"])')
+      .evaluateAll((rows) => rows
+        .filter((row) => Array.from(row.children).filter((child) => child.hasAttribute('data-rail-entry-lead')).length !== 1)
+        .map((row) => row.textContent?.trim()))
+    expect(missing, 'every visible non-root row has exactly one direct lead seat').toEqual([])
+  }
+
+  await page.goto('/agents/agent-default')
+  await expect(page.getByRole('heading', { name: 'Default agent', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  const ready = rail.locator('[data-rail-node-key="section/agents/section/ready-agents"]')
+  const agent = rail.locator('[data-rail-node-key="section/agents/section/ready-agents/item/agent-default"]')
+  const readyX = await x(ready.locator(':scope > [data-rail-node-row] [data-rail-entry]'))
+  const agentX = await x(agent.locator(':scope > [data-rail-node-row] > span:last-child'))
+  expect(agentX - readyX, 'an agent leaf steps right of Ready agents').toBeGreaterThanOrEqual(16)
+  expect(agentX - readyX, 'an agent leaf advances by one branch step, not two').toBeLessThanOrEqual(20)
+  await expectCompleteLeadColumn()
+
+  await page.goto('/projects/p-insights/contributors')
+  await expect(page.getByRole('heading', { name: 'Insights dashboard', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  const contributors = rail.locator('[data-rail-node-key="section/projects/item/p-insights/section/contributors"]')
+  const contributor = rail.locator('[data-rail-node-key="section/projects/item/p-insights/section/contributors/item/agent%3Aagent-default"]')
+  const contributorsX = await x(contributors.locator(':scope > [data-rail-node-row] [data-rail-entry]'))
+  const contributorX = await x(contributor.locator(':scope > [data-rail-node-row] > span:last-child'))
+  expect(contributorX - contributorsX, 'a project resource steps right of its section').toBeGreaterThanOrEqual(16)
+  expect(contributorX - contributorsX, 'a project resource advances by one branch step, not two').toBeLessThanOrEqual(20)
+  await expectCompleteLeadColumn()
+
+  await page.goto('/scheduled')
+  await expect(page.getByRole('heading', { name: 'Routines', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  const activeList = rail.getByRole('list', { name: 'Active', exact: true })
+  await expect(activeList.getByRole('listitem')).not.toHaveCount(0)
+  const activeHeadingX = await x(rail.locator('[data-routine-state-group="active"] [data-rail-list-heading] > span:last-child'))
+  const activeRoutineX = await x(activeList.locator('[data-routine-row] [data-rail-entry]').first())
+  expect(Math.abs(activeHeadingX - activeRoutineX), 'a list heading aligns with the identities it groups').toBeLessThanOrEqual(1)
+  await expectCompleteLeadColumn()
+
+  await page.goto('/sessions')
+  await expect(page.getByRole('heading', { name: 'Sessions', exact: true })).toBeVisible({ timeout: ms(20_000) })
+  await expect(rail.getByRole('list', { name: 'Sessions', exact: true }).getByRole('listitem')).not.toHaveCount(0)
+  await expectCompleteLeadColumn()
+
+  await ada.context.close()
+})
+
 test('rail Organize pane reaches only strict descendants of the selected entry', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
@@ -281,7 +338,8 @@ test('composite page controls mirror rail filters and fold dynamic bands', async
   await expect(main.getByRole('heading', { name: 'Routines', exact: true })).toBeVisible({ timeout: ms(20_000) })
   const expandRoutines = rail.getByRole('button', { name: 'Expand Routines', exact: true })
   if (await expandRoutines.isVisible()) await expandRoutines.click()
-  await expect(rail.locator('[data-routine-state-group="active"]')).toHaveText('Active')
+  await expect(rail.locator('[data-routine-state-group="active"] [data-rail-list-heading]')).toHaveText('Active')
+  await expect(rail.getByRole('list', { name: 'Active', exact: true })).toBeVisible()
   await expect(rail.locator('[data-routine-row] .rounded-full')).toHaveCount(0)
   await expect(main.locator('[data-resource-page-section]').filter({ hasText: /^Active/ })).toBeVisible()
   await expect(main.locator('[data-routine-lead]').first()).toBeVisible()
