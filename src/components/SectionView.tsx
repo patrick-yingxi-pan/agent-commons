@@ -137,6 +137,7 @@ import {
   ResourcePageList as CardList,
   ResourcePageSection as FoldSection,
   ResourcePageSynopsisRow as SynopsisRow,
+  ResourceUnavailablePage as UnavailableResourcePage,
 } from './ResourcePage'
 import { SectionFilterMenu } from './SectionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
@@ -313,6 +314,9 @@ import {
   invalidate,
   keys,
   useSavedContexts,
+  useProjects,
+  useArtifacts,
+  useRelationGraph,
   useScheduleTemplates,
   useSchedules,
   useSessions,
@@ -709,6 +713,8 @@ function ProjectsSection({
   const [filter] = useSectionFilter('projects')
   const [creating, setCreating] = useState(false)
   const rel = useRelations()
+  const projectsQ = useProjects()
+  const relationsQ = useRelationGraph()
   // FWD-6: the caller's org seats — the New-project owner picker's options and
   // the "Your organizations" band's membership test (matched by tenant id; the
   // projection keeps `tenantId` on every seat-visible row).
@@ -765,6 +771,20 @@ function ProjectsSection({
         onNewSession={onNewSession}
       />
     )
+  if (projectId) {
+    const pending =
+      (projectsQ.data === undefined && projectsQ.status !== 'error') ||
+      (relationsQ.data === undefined && relationsQ.status !== 'error')
+    return (
+      <UnavailableResourcePage
+        title="Project"
+        state={pending ? 'loading' : 'missing'}
+        message="This project isn’t visible from this account (or no longer exists)."
+        backTo={backTo ?? { kind: 'section', section: 'projects', projectId: null, scheduleId: null }}
+        onBack={onBack}
+      />
+    )
+  }
 
   const needle = query.trim().toLowerCase()
   // The SAME list the rail's project children show, through the same function —
@@ -4878,15 +4898,13 @@ function DiscussionPage({
   const decidingPost = !isDm && feed.data === undefined && feed.status !== 'error'
   if (!d || decidingPost) {
     return (
-      <AtomicResourcePage>
-        <header className={PAGE_HEADER_CLASS}>
-          <div className="flex min-w-0 items-start gap-3">
-            <BackButton to={backTo} onBack={onBack} />
-            <h1 className={PAGE_TITLE_CLASS}>Discussion</h1>
-          </div>
-        </header>
-        <PageEmpty>{q.error ? 'This discussion isn’t visible from this account (or no longer exists).' : 'Loading…'}</PageEmpty>
-      </AtomicResourcePage>
+      <UnavailableResourcePage
+        title="Discussion"
+        state={!d && q.status === 'error' ? 'missing' : 'loading'}
+        message="This discussion isn’t visible from this account (or no longer exists)."
+        backTo={backTo}
+        onBack={onBack}
+      />
     )
   }
   return (
@@ -6598,6 +6616,8 @@ function ArtifactsSection({
   const [creating, setCreating] = useState(false)
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
+  const artifactsQ = useArtifacts()
+  const artifactRelationsQ = useRelationGraph()
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
   // Resolve an artifact's producing conversation for "From ‹conversation›": by its
@@ -6696,6 +6716,20 @@ function ArtifactsSection({
           Section={FoldSection}
         />
       </AtomicResourcePage>
+    )
+  }
+  if (artifactId) {
+    const pending =
+      (artifactsQ.data === undefined && artifactsQ.status !== 'error') ||
+      (artifactRelationsQ.data === undefined && artifactRelationsQ.status !== 'error')
+    return (
+      <UnavailableResourcePage
+        title="Artifact"
+        state={pending ? 'loading' : 'missing'}
+        message="This artifact isn’t visible from this account (or no longer exists)."
+        backTo={backTo ?? { kind: 'section', section: 'artifacts', projectId: null, scheduleId: null }}
+        onBack={onBack}
+      />
     )
   }
 
@@ -7214,6 +7248,17 @@ function ContextsSection({
         }}
       />
     )
+  if (contextId) {
+    return (
+      <UnavailableResourcePage
+        title="Context"
+        state={saved.data === undefined && saved.status !== 'error' ? 'loading' : 'missing'}
+        message="This context isn’t available to this account (or no longer exists)."
+        backTo={backTo ?? { kind: 'section', section: 'contexts', projectId: null, scheduleId: null }}
+        onBack={onBack}
+      />
+    )
+  }
 
   const needle = query.trim().toLowerCase()
   // The SAME list the rail's context children show (kind facet + order),
@@ -9018,15 +9063,13 @@ function ModelsSection({
       )
     }
     return (
-      <AtomicResourcePage>
-        <header className={PAGE_HEADER_CLASS}>
-          <div className="flex min-w-0 items-start gap-1">
-            <BackButton to={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }} onBack={onBack} />
-            <h1 className={PAGE_TITLE_CLASS}>Provider</h1>
-          </div>
-        </header>
-        {providersQ.data && <PageEmpty>This provider no longer exists.</PageEmpty>}
-      </AtomicResourcePage>
+      <UnavailableResourcePage
+        title="Provider"
+        state={providersQ.data === undefined && providersQ.status !== 'error' ? 'loading' : 'missing'}
+        message="This provider isn’t visible from this account (or no longer exists)."
+        backTo={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }}
+        onBack={onBack}
+      />
     )
   }
 
@@ -12045,7 +12088,8 @@ function ScheduledSection({
   // The routines + their runs come straight from the server (one live source,
   // shared with the rail tree). Mutations are commands; the run.*
   // events invalidate the cache, so the list reflects run-now / the daemon live.
-  const items = useSchedules().data ?? []
+  const schedulesQ = useSchedules()
+  const items = schedulesQ.data ?? []
   const rel = useRelations()
   const projects = rel.allProjects()
   const projectIds = new Set(projects.map((project) => project.id))
@@ -12104,6 +12148,17 @@ function ScheduledSection({
         }}
       />
     )
+  if (scheduleId) {
+    return (
+      <UnavailableResourcePage
+        title="Routine"
+        state={schedulesQ.data === undefined && schedulesQ.status !== 'error' ? 'loading' : 'missing'}
+        message="This routine isn’t visible from this account (or no longer exists)."
+        backTo={backTo ?? { kind: 'section', section: 'scheduled', projectId: null, scheduleId: null }}
+        onBack={onBack}
+      />
+    )
+  }
 
   const needle = query.trim().toLowerCase()
   const matches = items.filter(

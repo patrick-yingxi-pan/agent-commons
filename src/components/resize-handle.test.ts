@@ -123,6 +123,25 @@ test('each divider announces the same range its clamp enforces (no drifting boun
   assert.match(panel, /value=\{width\}\s*\n\s*min=\{PANEL_MIN\}\s*\n\s*max=\{PANEL_MAX\}/)
 })
 
+test('each split boundary is one edge-owned hairline, never a host border plus a centered stroke', () => {
+  // The visible defect was a doubled horizontal rule in the rail: the lower
+  // pane drew border-top while ResizeHandle drew a second line halfway through
+  // its eight-pixel hit strip. Both split trees use the same ownership rule so
+  // the class cannot survive on the main surface in either axis.
+  assert.match(handle, /data-resize-edge-owner=\{ownsEdge \|\| undefined\}/, 'the browser can enumerate owning dividers')
+  assert.match(handle, /horizontal\s*\? ownsEdge[\s\S]*?side === 'top' \? 'top-0' : 'bottom-0'/,
+    'a horizontal owner puts its hairline on the actual pane boundary')
+
+  const railSplit = stripComments(read(join(ROOT, 'src', 'components', 'RailSplit.tsx')))
+  assert.match(railSplit, /side="top"\s*\n\s*ownsEdge/, 'the rail gutter owns its one line')
+  assert.doesNotMatch(railSplit, /border-t border-line/, 'the lower rail pane cannot draw a second line')
+
+  const mainSplit = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
+  assert.match(mainSplit, /side=\{row \? 'left' : 'top'\}\s*\n\s*ownsEdge/, 'every main split gutter owns its one line')
+  assert.doesNotMatch(mainSplit, /\$\{row \? 'border-l' : 'border-t'\} border-line/,
+    'the second main pane cannot draw a second line behind the handle')
+})
+
 test('the focus cue rides the app-wide focus-visible ring, not a bespoke outline-off', () => {
   // src/index.css gives every [tabindex]:not([tabindex="-1"]) element the accent
   // focus ring; the strip must not opt out of it.

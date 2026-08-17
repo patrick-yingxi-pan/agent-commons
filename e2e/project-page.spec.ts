@@ -85,6 +85,22 @@ const header = (page: import('@playwright/test').Page, title: string) =>
 const mainColumn = (page: import('@playwright/test').Page) =>
   page.locator('div.flex-1.overflow-y-auto > div.mx-auto.w-full.max-w-3xl')
 
+test('an unresolved project URL keeps an honest unavailable detail page', async ({ browser }) => {
+  test.setTimeout(ms(60_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+
+  await page.goto('/projects/does-not-exist')
+  const unavailable = page.locator('[data-resource-unavailable="missing"]')
+  await expect(unavailable).toBeVisible({ timeout: ms(20_000) })
+  await expect(unavailable.getByRole('heading', { name: 'Project', exact: true })).toBeVisible()
+  await expect(unavailable).toContainText('This project isn’t visible from this account (or no longer exists).')
+  await expect(page).toHaveURL(/\/projects\/does-not-exist$/)
+  await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toHaveCount(0)
+
+  await ada.context.close()
+})
+
 test('the Projects root reuses the Project main-page grammar', async ({ browser }) => {
   test.setTimeout(ms(60_000))
   const ada = await newUser(browser)

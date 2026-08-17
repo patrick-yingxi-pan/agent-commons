@@ -23,6 +23,7 @@ import { useSectionFold } from '../lib/useSectionFold'
 import type { SectionId } from '../types'
 import { requestCompositeFold } from '../lib/compositeFeatures'
 import { useFocusedCompositeFold } from '../lib/useCompositeFeatures'
+import type { NavLocation } from '../lib/nav'
 
 /** The two main-page templates are semantic specializations of this one frame.
  *
@@ -151,6 +152,38 @@ export function AtomicResourcePage({
     <ResourcePageFrame nature="atomic" layout={layout} {...frameProps}>
       {children}
     </ResourcePageFrame>
+  )
+}
+
+/** The canonical face of an addressed resource while its registry is pending or
+ *  after it resolves absent. A detail URL must never fall through to the
+ *  collection renderer: that leaves the address naming one page while the body
+ *  shows another (and once produced a Projects index with “Back to Projects” at
+ *  `/projects/missing`). Hidden and missing share the same final face so the UI
+ *  preserves the server's existence-hiding wall. */
+export function ResourceUnavailablePage({
+  title,
+  state,
+  message,
+  backTo,
+  onBack,
+}: {
+  title: string
+  state: 'loading' | 'missing'
+  message: string
+  backTo: NavLocation | null
+  onBack: () => void
+}) {
+  return (
+    <AtomicResourcePage data-resource-unavailable={state}>
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-1">
+          <BackButton to={backTo} onBack={onBack} />
+          <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
+        </div>
+      </header>
+      <ResourcePageEmpty>{state === 'loading' ? 'Loading…' : message}</ResourcePageEmpty>
+    </AtomicResourcePage>
   )
 }
 

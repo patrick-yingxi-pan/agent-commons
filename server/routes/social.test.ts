@@ -195,6 +195,7 @@ test('a grant LISTS its subject (shared-with-me): redacted public face, own:fals
   const row = seedList.json.find((p: any) => p.id === 'p-insights')
   assert.ok(row, 'the granted seed project rides the audience’s list')
   assert.equal(row.own, false, 'visitor affordances')
+  assert.equal(row.ownerName, 'Ada Lovelace', 'the visitor face names the grant’s real granter, not the backend default')
   assert.equal(row.tenantId, undefined, 'raw owner tenant never crosses')
   assert.deepEqual([row.sessionIds, row.contexts, row.instructions], [[], [], ''], 'owner-scoped fields emptied')
   const noGrant = await call('GET', '/projects', undefined, { 'x-tenant-id': BYSTANDER })

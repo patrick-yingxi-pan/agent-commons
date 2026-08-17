@@ -107,6 +107,37 @@ test('every instance rail branch resolves to an honest canonical main page', () 
   assert.match(models, /rel\.navigate\('models', p\.id\)/, 'the Models index and rail share the canonical provider door')
 })
 
+test('a recognized detail URL that cannot resolve keeps one honest unavailable main page', () => {
+  const unavailable = templateFn('ResourceUnavailablePage')
+  assert.match(unavailable, /<AtomicResourcePage data-resource-unavailable=\{state\}>/,
+    'the unavailable face is an atomic page and exposes its state to browser review')
+  assert.match(unavailable, /state: 'loading' \| 'missing'/, 'loading cannot flash the terminal missing copy')
+  assert.match(unavailable, /<BackButton to=\{backTo\} onBack=\{onBack\}/, 'the stranded address keeps an explicit way out')
+
+  // These are the data-backed SECTION_INSTANCE_KEY leaves. A typo, stale link,
+  // hidden foreign id, or deleted row must never leave the collection index in
+  // place under a detail address. Existence-hiding deliberately shares the same
+  // terminal face as an absent id.
+  for (const [section, id, title] of [
+    ['ProjectsSection', 'projectId', 'Project'],
+    ['ArtifactsSection', 'artifactId', 'Artifact'],
+    ['ContextsSection', 'contextId', 'Context'],
+    ['ModelsSection', 'providerId', 'Provider'],
+    ['ScheduledSection', 'scheduleId', 'Routine'],
+  ] as const) {
+    const source = fn(section)
+    assert.match(source, new RegExp(`if \\(${id}\\)[\\s\\S]*?<UnavailableResourcePage[\\s\\S]*?title="${title}"`),
+      `${section} owns an unavailable face for its unresolved detail id`)
+    assert.match(source, /state=\{[^}]*\? 'loading' : 'missing'\}/,
+      `${section} separates the pending and terminal states`)
+  }
+  const discussion = fn('DiscussionPage')
+  assert.match(discussion, /<UnavailableResourcePage[\s\S]*?title="Discussion"/,
+    'the asynchronously fetched discussion leaf consumes the same unavailable face')
+  assert.match(discussion, /state=\{!d && q\.status === 'error' \? 'missing' : 'loading'\}/,
+    'the discussion keeps its feed-disambiguation wait distinct from a terminal miss')
+})
+
 test('every detail page derives from the template matching its resource nature', () => {
   for (const name of ['ProjectDetail', 'ScheduledDetail']) {
     const page = fn(name)

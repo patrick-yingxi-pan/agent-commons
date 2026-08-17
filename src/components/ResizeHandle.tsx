@@ -24,10 +24,10 @@ const KEY_COARSE = 4
  *  aria-valuenow/-min/-max (WCAG 4.1.2) so a screen reader hears each step land —
  *  or not, at the clamp.
  *
- *  One primitive serves the rail width, the panel width AND the rail's pane-height
- *  dividers, so the three never drift (form follows function). A vertical handle
- *  owns the one visible edge hairline; its host omits a second border while the
- *  full eight-pixel hit strip remains available for pointer input. */
+ *  One primitive serves the rail width, the panel width AND both split trees, so
+ *  the dividers never drift (form follows function). A handle can own the one
+ *  visible edge hairline in either axis; its host then omits a second border while
+ *  the full eight-pixel hit strip remains available for pointer input. */
 export function ResizeHandle({
   side,
   label,
@@ -48,7 +48,7 @@ export function ResizeHandle({
   label: string
   /** True when this handle supplies its host's only visible edge. The hairline
    * sits on the actual boundary rather than in the center of the hit strip;
-   * other vertical hosts retain their own border and hover-only handle cue. */
+   * other hosts retain their own border and hover-only handle cue. */
   ownsEdge?: boolean
   /** The size this divider controls, in px, with its current bounds — exposed as
    *  aria-valuenow/-min/-max (REQUIRED for a focusable separator, WCAG 4.1.2): a
@@ -170,17 +170,19 @@ export function ResizeHandle({
       aria-valuemin={Math.round(min)}
       aria-valuemax={Math.round(max)}
       title={label}
+      data-resize-edge-owner={ownsEdge || undefined}
       className={`group absolute z-20 touch-none ${
         horizontal ? `inset-x-0 h-2 cursor-row-resize ${edge}` : `inset-y-0 w-2 cursor-col-resize ${edge}`
       }`}
     >
-      {/* Horizontal pane gutters keep a centered line. A vertical handle either
-          owns the host edge (one persistent line on the actual boundary) or
-          keeps its centered cue hover-only behind the host's existing border. */}
+      {/* Every split gutter owns one boundary-aligned hairline. A non-owning
+          handle keeps only a centered, hover-only cue behind its host's border. */}
       <div
         className={`pointer-events-none absolute transition-colors duration-150 ${
           horizontal
-            ? 'inset-x-0 top-1/2 h-px -translate-y-1/2 bg-line-strong group-hover:bg-accent group-focus-visible:bg-accent'
+            ? ownsEdge
+              ? `inset-x-0 ${side === 'top' ? 'top-0' : 'bottom-0'} h-px bg-line group-hover:bg-accent/60 group-focus-visible:bg-accent/60`
+              : 'inset-x-0 top-1/2 h-px -translate-y-1/2 bg-transparent group-hover:bg-accent/50 group-focus-visible:bg-accent/50'
             : ownsEdge
               ? `inset-y-0 ${side === 'left' ? 'left-0' : 'right-0'} w-px bg-line group-hover:bg-accent/50 group-focus-visible:bg-accent/50`
               : 'inset-y-0 left-1/2 w-px -translate-x-1/2 bg-transparent group-hover:bg-accent/50 group-focus-visible:bg-accent/50'

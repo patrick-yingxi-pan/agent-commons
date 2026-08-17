@@ -87,8 +87,11 @@ export const STORE_VERSION = 5
  *    could not find it. `discussionId` cannot stand in — a thread carries many
  *    posts, and dropping every bell for the thread would silence the survivors.
  *
- *  Both additive-optional: a row written before them keeps the name it was
- *  minted with, and is simply not retractable — the honest degrade. */
+ *  Both additive-optional. A row written before them is simply not retractable;
+ *  an arbitrary actor name keeps the name it was minted with (the honest
+ *  degrade), while the six code-owned seed aliases retired by the namespace
+ *  rename recover their exact tenant id through `recoverSeedBellActors` and are
+ *  then refreshed like every newer row. */
 export interface StoredNotification extends AppNotification {
   tenantId: string
   actorTenant?: string

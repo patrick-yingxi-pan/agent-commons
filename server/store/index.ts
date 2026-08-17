@@ -856,20 +856,40 @@ function canonicalSocialRef(ref: SocialEntityRef): SocialEntityRef | undefined {
 /** The tier `viewerTenant` holds on a subject via grants (their read union) —
  *  module-level so the listing projections can consult it; `store.grantedTier`
  *  delegates here. */
+function grantAddressedTo(g: StoredGrant, viewerTenant: string): boolean {
+  return g.audience.kind === 'link'
+    ? (g.redeemedBy ?? []).some((t) => tenantReadsAs(viewerTenant, t))
+    : tenantReadsAs(viewerTenant, g.audienceTenant)
+}
+
+function addressedGrantFor(ref: SocialEntityRef, viewerTenant: string): StoredGrant | undefined {
+  return grants.find(
+    (g) => g.subject.kind === ref.kind && g.subject.id === ref.id && grantAddressedTo(g, viewerTenant),
+  )
+}
+
 function grantedTierFor(ref: SocialEntityRef, viewerTenant: string): ShareTier | undefined {
   let best: ShareTier | undefined
   for (const g of grants) {
     if (g.subject.kind !== ref.kind || g.subject.id !== ref.id) continue
     // A LINK grant (S6) addresses whoever REDEEMED the token; a directed grant
     // addresses its audience's read union.
-    const addressed =
-      g.audience.kind === 'link'
-        ? (g.redeemedBy ?? []).some((t) => tenantReadsAs(viewerTenant, t))
-        : tenantReadsAs(viewerTenant, g.audienceTenant)
-    if (!addressed) continue
+    if (!grantAddressedTo(g, viewerTenant)) continue
     if (best === undefined || tierRank(g.tier) > tierRank(best)) best = g.tier
   }
   return best
+}
+
+/** The public owner of a granted Project is the principal who opened that
+ *  surface to this viewer. This matters for the deliberately UNSTAMPED flagship
+ *  seeds: they have two private faces (the local desktop principal and Ada), but
+ *  the seeded cross-account grant is specifically Ada's act. Falling back to the
+ *  backend default labeled Grace's visitor page "by Personal" while its feed card
+ *  correctly said Ada Lovelace — two owners for one Project. Stamped Projects keep
+ *  their one owner; an ungranted legacy row keeps the backend-default fallback. */
+function publicProjectOwnerTenant(project: Project, viewerTenant: string): string {
+  if (project.tenantId) return project.tenantId
+  return addressedGrantFor({ kind: 'project', id: project.id }, viewerTenant)?.granterTenant ?? defaultTenantId()
 }
 
 /** Who may act as a subject's OWNER for grants. A stamped row: its tenant's
@@ -1342,7 +1362,7 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
       // viewer-relative and drives the owner/visitor affordance split client-side. A
       // foreign row also drops the raw `tenantId` — the display name is the public
       // face; the raw id of a foreign tenant never crosses (mirrors the directory).
-      const ownerName = tenantName(p.tenantId ?? defaultTenantId())
+      const ownerName = tenantName(publicProjectOwnerTenant(p, tenantId))
       if (rowVisibleTo(p, tenantId)) {
         // FWD-6 O-D6: `own` is WRITE-grade — the owner tenant itself, or an org
         // OWNER seat. A member sees the full object (they're inside the wall)
@@ -2101,6 +2121,29 @@ export function recoverBellActors(rows: StoredNotification[], threads: StoredDis
   }
 }
 
+/** Recover the authority id for legacy bells minted before `actorTenant` when
+ *  their actor wears one of the six CODE-OWNED seed namespace names retired by
+ *  the person-namespace collapse. Unlike an arbitrary display name, each of
+ *  these aliases has one frozen historical meaning, so the repair is exact; an
+ *  unknown name still keeps its honest legacy degrade. `refreshStoredNames`
+ *  immediately re-derives the current public face from the recovered id. */
+const LEGACY_SEED_ACTOR_TENANT: Readonly<Record<string, string>> = {
+  'Acme, Inc.': 'tenant-acme',
+  'Beta Platform': 'tenant-beta',
+  Growthworks: 'tenant-growthworks',
+  'Northlight Studio': 'tenant-northlight',
+  'Harbor Support': 'tenant-harbor',
+  'Rei’s Lab': 'tenant-reislab',
+}
+
+export function recoverSeedBellActors(rows: StoredNotification[]): void {
+  for (const n of rows) {
+    if (n.actorTenant !== undefined) continue
+    const tenant = LEGACY_SEED_ACTOR_TENANT[n.actor]
+    if (tenant !== undefined && accounts.tenants.has(tenant)) n.actorTenant = tenant
+  }
+}
+
 export function refreshStoredNames(): void {
   const known = (id: string | undefined): boolean => id !== undefined && accounts.tenants.has(id)
   for (const g of grants) {
@@ -2417,6 +2460,9 @@ function rehydrate(s: PersistedState): void {
   // have been recovered first. Both run before the name refresh, which is what
   // turns the recovered ids back into the names a reader actually sees.
   recoverBellActors(notifications, discussions)
+  // A resource bell cannot infer its actor from the thread, but the six retired
+  // seed aliases are frozen history rather than an arbitrary-name guess.
+  recoverSeedBellActors(notifications)
   refreshStoredNames()
   retractOrphanedBells()
   // Run sessions are ordinary persisted rows, but a snapshot written before they
@@ -4370,7 +4416,7 @@ export const store = {
       // Social S1: a granted seed project rides as its redacted public face
       // with visitor affordances (own: false) — the shared-with-me band.
       if (grantedTierFor({ kind: 'project', id: p.id }, tenantId) === undefined) return []
-      return [{ ...publicSharedProject(p), ownerName: tenantName(p.tenantId ?? defaultTenantId()), own: false, tenantId: undefined }]
+      return [{ ...publicSharedProject(p), ownerName: tenantName(publicProjectOwnerTenant(p, tenantId)), own: false, tenantId: undefined }]
     })
   },
   /** Resolve a Project across BOTH homes — seeded (`PROJECTS`) + created

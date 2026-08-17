@@ -58,6 +58,23 @@ test('arrow keys resize the rail and a focused rail split through shared separat
   const lower = page.locator('[data-rail-pane="b"]')
   const paneHandle = page.getByRole('separator', { name: 'Resize sidebar views (root)' })
   await expect(paneHandle).toBeVisible()
+  await expect(paneHandle).toHaveAttribute('data-resize-edge-owner', 'true')
+  const railEdge = await paneHandle.evaluate((element) => {
+    const host = element.parentElement
+    const line = element.firstElementChild
+    if (!(host instanceof HTMLElement) || !(line instanceof HTMLElement)) throw new Error('rail divider frame missing')
+    const hostStyle = getComputedStyle(host)
+    const hostBox = host.getBoundingClientRect()
+    const lineBox = line.getBoundingClientRect()
+    return {
+      hostBorderTop: Number.parseFloat(hostStyle.borderTopWidth),
+      offset: Math.abs(lineBox.top - hostBox.top),
+      lineHeight: lineBox.height,
+    }
+  })
+  expect(railEdge.hostBorderTop, 'the lower pane does not draw a second boundary').toBe(0)
+  expect(railEdge.offset, 'the one hairline sits on the pane boundary').toBeLessThanOrEqual(1)
+  expect(railEdge.lineHeight, 'the visible edge remains a hairline').toBeLessThanOrEqual(1.5)
   const h0 = await settled(page, lower, 'height')
   await paneHandle.focus()
   await page.keyboard.press('Shift+ArrowUp')

@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ROOT } from '../../tests/helpers/source.ts'
-import { store, recoverDmParties, recoverBellActors } from '../store/index.ts'
+import { store, recoverDmParties, recoverBellActors, recoverSeedBellActors } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
 
 // The seeded world — see server/routes/follows.test.ts for why real seeds, not
@@ -482,4 +482,30 @@ test('a legacy DM bell recovers its actor, so one person is not named two ways',
   const fresh: any = { id: 'ntf-3', kind: 'social.messaged', at: 1, read: false, actor: 'Grace Hopper', actorTenant: GRACE, discussionId: thread.id, tenantId: ADA }
   recoverBellActors([fresh], [thread])
   assert.equal(fresh.actorTenant, GRACE, 'an already-stamped bell is untouched')
+})
+
+test('legacy seed bell aliases recover their authority ids before names refresh', () => {
+  const aliases = [
+    ['Acme, Inc.', 'tenant-acme'],
+    ['Beta Platform', 'tenant-beta'],
+    ['Growthworks', 'tenant-growthworks'],
+    ['Northlight Studio', 'tenant-northlight'],
+    ['Harbor Support', 'tenant-harbor'],
+    ['Rei’s Lab', 'tenant-reislab'],
+  ]
+  const rows: any[] = aliases.map(([actor], index) => ({
+    id: `ntf-legacy-seed-${index}`,
+    kind: 'social.followed',
+    at: index,
+    read: false,
+    actor,
+    tenantId: ADA,
+  }))
+  const unknown: any = { id: 'ntf-legacy-unknown', kind: 'social.followed', at: 9, read: false, actor: 'Unmapped Person', tenantId: ADA }
+  rows.push(unknown)
+
+  recoverSeedBellActors(rows)
+
+  assert.deepEqual(rows.slice(0, aliases.length).map((row) => row.actorTenant), aliases.map(([, tenant]) => tenant))
+  assert.equal(unknown.actorTenant, undefined, 'an arbitrary legacy name is never guessed')
 })

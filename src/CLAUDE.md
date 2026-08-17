@@ -572,8 +572,8 @@ for both main and rail focus.
 `src/components/RailSplit.tsx` renders it through the shared `ResizeHandle`.
 A resizable rail omits its own right border because the
 vertical handle owns the one boundary-aligned, persistent hairline; the eight-pixel hit
-strip remains unchanged. (`top`/`bottom` pane handles keep the same persistent
-hairline — form follows function.) Every `ResizeHandle` — rail width, panel width, split gutters — is
+strip remains unchanged. Split gutters use the same rule in either axis: the handle owns
+one line on the pane boundary and the host never draws a second border behind it. Every `ResizeHandle` — rail width, panel width, split gutters — is
 **keyboard-operable** (WCAG 2.1.1, invariant UI-11): a focusable, distinctly named
 separator whose axis arrows run the same start→move→end pipeline as a pointer drag,
 announcing its size + bounds (`aria-valuenow/-min/-max`, WCAG 4.1.2) from the same

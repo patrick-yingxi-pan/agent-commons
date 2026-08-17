@@ -360,11 +360,12 @@ function Branch(props: BranchProps) {
         {child(node.a, `${path}a`)}
       </div>
       <div
-        className={`relative flex min-h-0 min-w-0 ${row ? 'border-l' : 'border-t'} border-line`}
+        className="relative flex min-h-0 min-w-0"
         style={{ flex: `${1 - ratio} 1 0%`, ...minStyle }}
       >
         <ResizeHandle
           side={row ? 'left' : 'top'}
+          ownsEdge
           label={`Resize view panes (${path || 'root'})`}
           value={Math.round((1 - ratio) * 100)}
           min={15}
