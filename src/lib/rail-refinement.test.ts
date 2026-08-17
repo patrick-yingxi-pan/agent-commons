@@ -64,7 +64,7 @@ test('resource leaves spend width on identity, not a repeated kind label', () =>
   assert.match(row, /<RailEntryLead\s*\/>/, 'an atomic leaf keeps the shared lead column')
 })
 
-test('every leaf-like rail row keeps the lead column and partitions remain simple lists', () => {
+test('every leaf-like rail row keeps the lead column and partitions remain nested lists', () => {
   assert.match(SIDEBAR_ENTRY_LEAD, /\bw-5\b/, 'one fixed lead width owns horizontal alignment')
   for (const name of ['ShowAllRow', 'NoRowsRow'] as const) {
     const start = children.indexOf(`export function ${name}`)
@@ -82,11 +82,11 @@ test('every leaf-like rail row keeps the lead column and partitions remain simpl
   assert.ok(partitionStart >= 0 && partitionEnd > partitionStart, 'RailListPartition has an enumerable source body')
   const partition = sidebar.slice(partitionStart, partitionEnd)
   assert.match(partition, /<h3[\s\S]*data-rail-list-heading/, 'a partition is introduced by an ordinary heading')
-  assert.match(partition, /<RailEntryLead\s*\/>/, 'the heading aligns with its item labels')
+  assert.match(partition, /<RailEntryLead\s*\/>/, 'the heading keeps the shared lead column')
   assert.match(
     partition,
-    /role="list"\s+aria-labelledby=\{headingId\}/,
-    'the grouped resources remain a semantic list named by the visible heading',
+    /<RailTreeBranch\s+role="list"\s+aria-labelledby=\{headingId\}/,
+    'the visible heading owns a semantically named, visibly nested resource list',
   )
   assert.doesNotMatch(sidebar, /function GroupHeader/, 'state labels do not use a one-off tag-like renderer')
 })

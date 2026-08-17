@@ -54,8 +54,9 @@ what the document or the sibling component claims.
   shared `RailEntryLead`: a branch puts its caret there and a leaf preserves an
   empty seat. Sessions, atomic leaves, empty/tail copy, and labeled filter lists
   may not skip the seat or hand-pick padding; a child without a caret must still
-  sit to the right of its parent. Mutable state groups are plain headings over
-  semantic lists, never tag-like chrome or canonical disclosure nodes.
+  sit to the right of its parent. A mutable state group is a plain parent
+  heading whose semantic list takes one shared `RailTreeBranch` step; the guide
+  communicates containment without tag chrome or a canonical disclosure node.
 - **Composite capabilities are mirrored, not duplicated.** The one
   `lib/compositeFeatures.ts` catalog declares each root's standing primary
   action, local search and bulk disclosure; applicable Filter & sort remains

@@ -519,9 +519,10 @@ status / project / cadence filter remains a dedicated funnel (`filterRoutines` +
 `useRoutineFilter`), but the branch and the main page consume the SAME live,
 per-account choice. Status is mutable metadata, so the neutral default is a set
 of labeled state LISTS; Group by None / Project remain explicit alternatives.
-In the rail those partitions are ordinary semantic lists with aligned headings,
-not tags, disclosure branches, or navigable tree nodes. There is no second
-Routines pane. A
+In the rail each plain state heading owns a visibly nested semantic list. The
+list reuses the shared branch inset and guide for containment, but the state is
+not a tag, disclosure control, navigable tree node, or canonical URL. There is
+no second Routines pane. A
 section lands on its **default** view (rail sub-view `null`; each hub body maps
 null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
 not a push; the registries disjoint; the shared-funnel pairing scanned both ways;

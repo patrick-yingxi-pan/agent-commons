@@ -42,7 +42,7 @@ test('collection roots preserve main-page sections in the rail and canonical URL
   await ada.context.close()
 })
 
-test('every rail entry keeps one lead column and list partitions align with their items', async ({ browser }) => {
+test('every rail entry keeps one lead column and list partitions visibly contain their items', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
   const page = ada.page
@@ -88,7 +88,8 @@ test('every rail entry keeps one lead column and list partitions align with thei
   await expect(activeList.getByRole('listitem')).not.toHaveCount(0)
   const activeHeadingX = await x(rail.locator('[data-routine-state-group="active"] [data-rail-list-heading] > span:last-child'))
   const activeRoutineX = await x(activeList.locator('[data-routine-row] [data-rail-entry]').first())
-  expect(Math.abs(activeHeadingX - activeRoutineX), 'a list heading aligns with the identities it groups').toBeLessThanOrEqual(1)
+  expect(activeRoutineX - activeHeadingX, 'a routine is visibly nested in its state list').toBeGreaterThanOrEqual(16)
+  expect(activeRoutineX - activeHeadingX, 'a state list adds one branch step, not two').toBeLessThanOrEqual(20)
   await expectCompleteLeadColumn()
 
   await page.goto('/sessions')

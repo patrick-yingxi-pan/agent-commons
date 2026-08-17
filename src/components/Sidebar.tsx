@@ -1094,9 +1094,9 @@ function SessionRow({
   )
 }
 
-/** One ordinary labeled list. A view partition is not a tree node or a status
- * tag: its heading aligns to the same lead column as its items, and the items
- * carry native list semantics without gaining another disclosure guide. */
+/** One ordinary labeled list. A view partition is not a navigable tree node or
+ * a status tag: its plain heading owns a visibly nested semantic list, reusing
+ * the rail's one branch guide without gaining disclosure or selection chrome. */
 function RailListPartition({
   label,
   fallbackLabel,
@@ -1120,7 +1120,7 @@ function RailListPartition({
         <RailEntryLead />
         <span>{label}</span>
       </h3>
-      <div role="list" aria-labelledby={headingId}>{children}</div>
+      <RailTreeBranch role="list" aria-labelledby={headingId}>{children}</RailTreeBranch>
     </section>
   )
 }
