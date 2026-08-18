@@ -11,6 +11,52 @@ type Handler = (ctx: Ctx) => void | Promise<void>
  *  e.g. a 429 from rate limiting). */
 type Middleware = (ctx: Ctx) => boolean | Promise<boolean>
 
+/** How one route participates in access parity (INV-11).
+ *
+ * Product operations are projected into every access surface by default. A
+ * route may instead be protocol/ceremony FORM (health probes, authentication
+ * entry, streams, machine callbacks), which is not a workspace capability and
+ * must carry the reason at its declaration. Multiple route shapes may realize
+ * one semantic capability (`capability`), and the in-app session may realize a
+ * capability intrinsically rather than by giving the model a recursive or
+ * self-consenting tool (`session: 'intrinsic'`). */
+export type RouteAccess =
+  | {
+      kind: 'product'
+      capability?: string
+      session?: 'tool' | 'intrinsic'
+      reason?: string
+    }
+  | {
+      kind: 'form'
+      reason: string
+      /** Some protocol/credential forms are deliberately presented by the UI
+       * (sign-in, account switching, stream replay). Declaring that fact makes
+       * a product route accidentally reclassified as form fail the UI lock. */
+      ui?: 'form'
+      /** Authentication bootstrap may be callable over remote MCP without
+       * becoming an authenticated workspace capability. */
+      remote?: 'tool'
+    }
+
+const PRODUCT_ACCESS: RouteAccess = { kind: 'product', session: 'tool' }
+
+export const formOnly = (reason: string): RouteAccess => ({ kind: 'form', reason })
+export const uiForm = (reason: string): RouteAccess => ({ kind: 'form', reason, ui: 'form' })
+export const uiRemoteMcpForm = (reason: string): RouteAccess => ({ kind: 'form', reason, ui: 'form', remote: 'tool' })
+export const capabilityAlias = (capability: string, reason: string): RouteAccess => ({
+  kind: 'product',
+  capability,
+  session: 'tool',
+  reason,
+})
+export const sessionIntrinsic = (reason: string, capability?: string): RouteAccess => ({
+  kind: 'product',
+  ...(capability ? { capability } : {}),
+  session: 'intrinsic',
+  reason,
+})
+
 interface Route {
   method: Method
   /** The registration pattern, verbatim (`/sessions/:id`). Kept alongside the
@@ -19,6 +65,7 @@ interface Route {
    *  what makes "every route is reachable through every access method" hold by
    *  construction instead of by a hand-maintained list. */
   pattern: string
+  access: RouteAccess
   segments: string[]
   handler: Handler
 }
@@ -27,6 +74,7 @@ interface Route {
 export interface RouteInfo {
   method: Method
   pattern: string
+  access: RouteAccess
 }
 
 export class Router {
@@ -42,24 +90,57 @@ export class Router {
   /** The registered routes, as data. Read-only: consumers derive from the
    *  table (tool catalogs, parity tests); registration stays `add()` only. */
   list(): RouteInfo[] {
-    return this.routes.map(({ method, pattern }) => ({ method, pattern }))
+    return this.routes.map(({ method, pattern, access }) => ({ method, pattern, access }))
   }
 
-  add(method: Method, pattern: string, handler: Handler): this {
-    this.routes.push({ method, pattern, segments: pattern.split('/').filter(Boolean), handler })
+  add(method: Method, pattern: string, handler: Handler, access: RouteAccess = PRODUCT_ACCESS): this {
+    this.routes.push({ method, pattern, access, segments: pattern.split('/').filter(Boolean), handler })
     return this
   }
-  get(p: string, h: Handler) {
-    return this.add('GET', p, h)
+  get(p: string, h: Handler, access?: RouteAccess) {
+    return this.add('GET', p, h, access)
   }
-  post(p: string, h: Handler) {
-    return this.add('POST', p, h)
+  post(p: string, h: Handler, access?: RouteAccess) {
+    return this.add('POST', p, h, access)
   }
-  patch(p: string, h: Handler) {
-    return this.add('PATCH', p, h)
+  patch(p: string, h: Handler, access?: RouteAccess) {
+    return this.add('PATCH', p, h, access)
   }
-  delete(p: string, h: Handler) {
-    return this.add('DELETE', p, h)
+  delete(p: string, h: Handler, access?: RouteAccess) {
+    return this.add('DELETE', p, h, access)
+  }
+
+  /** Route-declaration shorthands keep non-default access semantics beside the
+   * path itself; reviewers never have to reconcile a second exclusion list. */
+  formGet(p: string, reason: string, h: Handler) {
+    return this.get(p, h, formOnly(reason))
+  }
+  uiFormGet(p: string, reason: string, h: Handler) {
+    return this.get(p, h, uiForm(reason))
+  }
+  formPost(p: string, reason: string, h: Handler) {
+    return this.post(p, h, formOnly(reason))
+  }
+  uiFormPost(p: string, reason: string, h: Handler) {
+    return this.post(p, h, uiForm(reason))
+  }
+  uiRemoteMcpFormPost(p: string, reason: string, h: Handler) {
+    return this.post(p, h, uiRemoteMcpForm(reason))
+  }
+  formPatch(p: string, reason: string, h: Handler) {
+    return this.patch(p, h, formOnly(reason))
+  }
+  formDelete(p: string, reason: string, h: Handler) {
+    return this.delete(p, h, formOnly(reason))
+  }
+  uiFormDelete(p: string, reason: string, h: Handler) {
+    return this.delete(p, h, uiForm(reason))
+  }
+  aliasGet(p: string, capability: string, reason: string, h: Handler) {
+    return this.get(p, h, capabilityAlias(capability, reason))
+  }
+  intrinsicPost(p: string, reason: string, h: Handler, capability?: string) {
+    return this.post(p, h, sessionIntrinsic(reason, capability))
   }
 
   /** Try to match + run a route. Returns false if nothing matched (the caller

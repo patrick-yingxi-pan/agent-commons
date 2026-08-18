@@ -29,3 +29,7 @@ Beside them, the suites that lock the transport contract.
   `security-headers.test.ts` is what makes that non-negotiable.
 - **`dispatch.ts` must not grow a policy branch.** The moment a door gets its
   own conditional, access parity stops being structural and becomes a promise.
+- **Access classification belongs to the route.** Product is the default.
+  Protocol/credential forms, semantic capability aliases, and session-intrinsic
+  realizations use the router shorthands and carry a substantive reason beside
+  registration. Never recreate a door-specific exclusion list.

@@ -87,18 +87,21 @@ spec row SYNC-8.
 
 The product is reachable by the browser UI, the in-app session, and the **MCP
 door** (`POST /mcp`, `server/mcp.ts`) — equally capable, gated by the same
-policies, **by construction**: both non-HTTP doors GENERATE their tool surface
-from the one operation catalog (`server/apiSurface.ts`, over `Router.list()`)
-and re-enter the router for every act (`server/http/dispatch.ts`). The in-app
-leg (`server/model/apiTools.ts`, MODEL-25): reads run NOW as the sending user
-(provenance rows); mutations become family-carded proposals executed as the
-CONFIRMER on the user's click; `MODEL_API_EXCLUDED` walls the conversation /
-credential / machine planes with argued reasons. Never hand-add a generated
-tool with its own logic, and never give any access method a private policy
-branch. Auth is the one session credential over cookie OR `Authorization:
-Bearer` (`transport: 'bearer'` on login/signup mints for machines).
+policies, **by construction**. The route table owns whether an operation is an
+authenticated product capability, protocol/credential form, semantic alias,
+or session-intrinsic realization. Both MCP catalogs project that metadata and
+re-enter the router (`server/http/dispatch.ts`); the cross-layer lock derives
+the shipped UI's reachable API calls and compares all three semantic capability
+sets in both directions. The in-app leg (`server/model/apiTools.ts`, MODEL-25):
+reads run NOW as the sending user (provenance rows); mutations become
+family-carded proposals executed as the CONFIRMER on the user's click. Never
+hand-add a generated tool, create a private exclusion list, or give an access
+method a private policy branch. Auth is the one session credential over cookie
+OR `Authorization: Bearer` (`transport: 'bearer'` on login/signup mints for
+machines).
 Explainer: [`docs/mcp-access.md`](../docs/mcp-access.md); locks:
-`server/mcp-parity.test.ts`, `server/model/api-tools.test.ts`, `server/mcp.test.ts`,
+`tests/access-surface-parity.test.ts`, `server/mcp-parity.test.ts`,
+`server/model/api-tools.test.ts`, `server/mcp.test.ts`,
 `server/routes/auth-bearer.test.ts`.
 
 **The hand-written seam** (owner directive, 2026-08-09: *"always update the MCP

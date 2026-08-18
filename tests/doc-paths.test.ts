@@ -15,7 +15,7 @@
  *  oracle for a sentence about the past.
  *
  *  So the rule is: every path in prose resolves, EXCEPT the ones named below
- *  with their reason. Same idiom as `MODEL_API_EXCLUDED` and the suite-path
+ *  with their reason. Same idiom as the route-owned access classifications and the suite-path
  *  allowlist — an argued exception, never a pattern that would quietly re-open
  *  the hole. A new dead citation fails here; a deliberate reference to history
  *  costs one line and a sentence saying why. */

@@ -107,7 +107,7 @@ export async function sendMessage(
 ): Promise<void> {
   const { signal, ephemeral } = opts
   const body: SendMessageRequest = ephemeral ? { text, ephemeral: true } : { text }
-  const res = await fetch(`${API_BASE}${paths.session(sessionId)}/messages`, {
+  const res = await fetch(`${API_BASE}${paths.sessionMessages(sessionId)}`, {
     method: 'POST',
     headers: {
       // Identity rides the session cookie (P6) — the browser attaches it to
@@ -346,7 +346,7 @@ export async function createProvider(input: CreateProviderRequest): Promise<Crea
  *  instantly; an in-flight relayed turn falls back). Returns the row + the NEW one-time
  *  secret, shown once like the mint's. */
 export async function rotateProvider(id: string): Promise<CreatedProvider> {
-  const rotated = await apiPost<CreatedProvider>(`${paths.provider(id)}/rotate`, {})
+  const rotated = await apiPost<CreatedProvider>(paths.providerRotate(id), {})
   invalidate(keys.providers)
   return rotated
 }
@@ -357,7 +357,7 @@ export async function rotateProvider(id: string): Promise<CreatedProvider> {
  *  endpoint that doesn't answer a model list (400) — so the card can surface the
  *  reason; the existing catalog stays untouched on failure. */
 export async function refreshProviderModels(id: string): Promise<ModelProvider> {
-  const provider = await apiPost<ModelProvider>(`${paths.provider(id)}/models/refresh`, {})
+  const provider = await apiPost<ModelProvider>(paths.providerModelsRefresh(id), {})
   invalidate(keys.providers)
   return provider
 }

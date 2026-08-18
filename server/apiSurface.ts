@@ -3,14 +3,15 @@
  *  one runtime binding to dispatch against it. Both non-HTTP doors consume
  *  this: the MCP door (server/mcp.ts) generates its tools from the catalog,
  *  and the in-app session's generated API tools (server/model/apiTools.ts)
- *  execute through `apiDispatch`. Neither derives its own list — a route added
- *  tomorrow reaches every door tomorrow, from here.
+ *  execute through `apiDispatch`. Neither keeps a private list: a product
+ *  route reaches every capability surface, while a reasoned form/alias/
+ *  intrinsic classification is projected mechanically.
  *
  *  The singleton is bound by `buildRouter()` (routes/index.ts) at construction
  *  time; `generate.ts` and the routes reach dispatch through it without
  *  importing the router (which imports them — the binding breaks the cycle). */
 import type { IncomingMessage } from 'node:http'
-import type { Router } from './http/router.ts'
+import type { RouteAccess, Router } from './http/router.ts'
 import { dispatch, type InnerResponse } from './http/dispatch.ts'
 
 export interface ApiOperation {
@@ -22,6 +23,13 @@ export interface ApiOperation {
   name: string
   /** The `:param` names in registration order (`*` tail → `rest`). */
   params: string[]
+  /** Route-owned access classification. Product operations project into every
+   * access method; form-only routes never masquerade as capabilities. */
+  access: RouteAccess
+  /** Semantic identity used for cross-form parity. Route aliases (list vs
+   * by-id projections) may share one capability without pretending their HTTP
+   * shapes are identical. Absent for form-only operations. */
+  capability?: string
 }
 
 const snake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).replace(/-/g, '_')
@@ -38,10 +46,12 @@ export function toolNameFor(method: string, pattern: string): string {
 
 /** Derive the operation catalog from a router. Pure view over `list()`. */
 export function catalogOf(router: Router): ApiOperation[] {
-  return router.list().map(({ method, pattern }) => ({
+  return router.list().map(({ method, pattern, access }) => ({
     method,
     pattern,
     name: toolNameFor(method, pattern),
+    access,
+    ...(access.kind === 'product' ? { capability: access.capability ?? `${method} ${pattern}` } : {}),
     params: pattern
       .split('/')
       .filter(Boolean)

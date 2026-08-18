@@ -228,7 +228,7 @@ export async function inviteToOrg(orgId: string, email: string): Promise<{ ok: t
  *  not an unhandled rejection); either way the ledger re-reads. */
 export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    await apiDelete(`${paths.orgInvites(orgId)}/${encodeURIComponent(inviteId)}`)
+    await apiDelete(paths.orgInvite(orgId, inviteId))
     invalidate(keys.orgInvites(orgId))
     return { ok: true }
   } catch (err) {
@@ -242,7 +242,7 @@ export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<
  *  A failure (the invite revoked meanwhile) re-reads the list and reports. */
 export async function resolveMyInvite(inviteId: string, action: 'accept' | 'decline'): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
-    await apiPost(`${paths.meInvites}/${encodeURIComponent(inviteId)}/${action}`)
+    await apiPost(action === 'accept' ? paths.myInviteAccept(inviteId) : paths.myInviteDecline(inviteId))
     if (action === 'accept') resetAll() // a new seat widens the walls — re-read everything
     else invalidate(keys.meInvites)
     return { ok: true }

@@ -15,10 +15,11 @@
  *  preferred path for the flows they cover — richer cards, name→id edge
  *  resolution; these generated tools are the completeness guarantee.
  *
- *  `MODEL_API_EXCLUDED` is this leg's argued exclusion list (the analog of
- *  `MCP_EXCLUDED`): the conversation plane itself, the identity/credential
- *  plane, and machine self-service edges are not model-proposable — each entry
- *  carries its argument and the parity test locks the bijection. */
+ *  Route-level access metadata is the shared projection rule. Product routes
+ *  become tools by default; protocol/ceremony routes stay out of BOTH MCP
+ *  forms, and a product capability may be marked session-intrinsic when giving
+ *  the model that route would mean recursion or self-consent. There is no
+ *  model-private exclusion list to drift from the remote MCP or UI surfaces. */
 import type { ToolActivity, ToolCardFamily } from '../../contract/index.ts'
 import { API_BASE_PATH } from '../../contract/index.ts'
 import type { ApiOperation } from '../apiSurface.ts'
@@ -26,65 +27,6 @@ import { API_BODY_EXAMPLES, pathFor } from '../apiSurface.ts'
 import type { InnerResponse } from '../http/dispatch.ts'
 
 export const API_TOOL_PREFIX = 'api__'
-
-/** Routes the in-app model may NOT reach, each with its argument. Keyed
- *  `"METHOD /pattern"`. Three planes:
- *   • the conversation plane — the model IS this plane; driving it would be
- *     recursion or self-consent;
- *   • the identity/credential plane — sign-in, credential minting/rotation and
- *     membership are the user's own acts (a model-proposed credential is the
- *     confused-deputy shape the consent card cannot make legible);
- *   • machine self-service edges — a runner/relay/peer authenticates itself;
- *     these aren't user acts at all.
- *  Streams are excluded for FORM (same argument as the MCP door). */
-export const MODEL_API_EXCLUDED: ReadonlyMap<string, string> = new Map([
-  // form: streams + the MCP endpoint (a tool call is request/response)
-  ['GET /events', 'the ambient SSE stream never ends — state is readable through the list/get tools'],
-  ['GET /sessions/:id/turns/:turnId/stream', 'SSE resume of a live turn — the model already receives its turns through the conversation'],
-  ['GET /relay/poll', 'the session-relay mailbox long-poll — a machine edge with its own rendezvous credential'],
-  ['POST /mcp', 'the MCP endpoint — one non-HTTP door proposing calls to another adds recursion, not capability'],
-  ['GET /mcp', 'the MCP endpoint (its server→client stream — the conversation already has one)'],
-  ['DELETE /mcp', 'the MCP endpoint (its session teardown — not a workspace operation)'],
-  // the conversation plane
-  ['POST /sessions/:id/messages', 'the model IS the conversation — sending messages to sessions from inside a turn is recursion, not capability'],
-  ['POST /sessions/:id/turns/:turnId/cancel', 'cancelling turns is the viewing user\'s live-turn control, meaningless from inside the turn'],
-  ['POST /sessions/:id/tool-activities/:activityId', 'the consent-resolution edge — a model must never confirm or decline its own proposals'],
-  ['POST /relations/ops', 'the confirm EXECUTOR for the curated proposal cards — proposals are made through the purpose-built tools; only the user\'s click lands here'],
-  // the identity/credential plane
-  ['POST /auth/session', 'identity minting — sign-in and account switching are the user\'s own acts'],
-  ['DELETE /auth/session', 'sign-out is the user\'s own act'],
-  ['DELETE /auth/accounts/:id', 'forgetting a remembered account is the user\'s own act'],
-  ['POST /auth/signup', 'account creation is the user\'s own act'],
-  ['POST /auth/login', 'credential entry is the user\'s own act — a model never handles a password'],
-  ['POST /auth/token', 'minting a bearer credential — credential admin stays a direct user act'],
-  ['DELETE /auth/tokens/:id', 'revoking a bearer credential — credential admin stays a direct user act (the metadata LIST stays readable: the model may read what its user may read)'],
-  ['POST /orgs', 'founding an organization is an identity-plane act'],
-  ['POST /a2a/peers', 'minting a verified peer credential — a model-proposed credential is the confused-deputy shape'],
-  ['DELETE /a2a/peers/:id', 'revoking a peer credential — credential admin stays a direct user act'],
-  ['POST /providers/:id/rotate', 'rotating a relay rendezvous secret — credential admin stays a direct user act'],
-  // machine self-service edges
-  ['POST /runners', 'runner enrollment — a runner authenticates itself; not a user act'],
-  ['POST /runners/:id/heartbeat', 'runner liveness — machine self-service'],
-  ['PATCH /runners/:id/capabilities', 'runner advertisement — machine self-service'],
-  ['DELETE /runners/:id', 'runner deregistration — machine self-service'],
-  ['POST /runners/:id/sync', 'runner effect reconciliation — machine self-service'],
-  ['POST /relay/reply', 'the far model\'s mailbox edge — authenticated by the rendezvous secret, not a user act'],
-  ['POST /a2a/projects/:id', 'the foreign-peer JSON-RPC edge — authenticated by the peer\'s own bearer'],
-  ['POST /a2a/agents/:id', 'the foreign-peer JSON-RPC edge — authenticated by the peer\'s own bearer'],
-  // the instance-operator plane (the maintainer console) — cross-tenant
-  // administration is the maintainer's own act at the console; a model-proposed
-  // cross-tenant read/revoke is the confused-deputy shape, same argument as the
-  // credential plane (the 404 maintainer wall re-checks regardless)
-  ['GET /admin/users', 'the maintainer console — instance administration is the maintainer\'s own act'],
-  ['GET /admin/tenants', 'the maintainer console — instance administration is the maintainer\'s own act'],
-  ['GET /admin/invites', 'the maintainer console — instance administration is the maintainer\'s own act'],
-  ['GET /admin/tokens', 'the maintainer console — instance administration is the maintainer\'s own act'],
-  ['GET /admin/audit', 'the maintainer console — instance administration is the maintainer\'s own act'],
-  ['GET /admin/ops', 'the maintainer console — instance administration is the maintainer\'s own act'],
-  ['POST /admin/users/:id/deactivate', 'the maintainer console — deactivating an account is credential admin, a direct maintainer act'],
-  ['DELETE /admin/tokens/:userId/:id', 'the maintainer console — revoking another user\'s credential is a direct maintainer act'],
-  ['DELETE /admin/invites/:id', 'the maintainer console — closing another org\'s invitation is a direct maintainer act'],
-])
 
 /** POST tails that carry PROSE the user should review as content, not as a
  *  request shape — comments, proposals, sub-goals, invites. */
@@ -132,13 +74,14 @@ export interface DerivedApiTools {
   byName: Map<string, ApiOperation>
 }
 
-/** Derive the model-facing tool set from the operation catalog. Deterministic;
- *  excluded routes contribute nothing. */
+/** Derive the model-facing tool set from the shared operation catalog.
+ * Protocol/ceremony routes and session-intrinsic realizations contribute no
+ * tool; both decisions live on the route rather than in a second list. */
 export function deriveApiTools(catalog: ApiOperation[]): DerivedApiTools {
   const definitions: ApiToolDef[] = []
   const byName = new Map<string, ApiOperation>()
   for (const op of catalog) {
-    if (MODEL_API_EXCLUDED.has(`${op.method} ${op.pattern}`)) continue
+    if (op.access.kind !== 'product' || op.access.session === 'intrinsic') continue
     const name = `${API_TOOL_PREFIX}${op.name}`
     const properties: Record<string, unknown> = {}
     for (const p of op.params) properties[p] = { type: 'string', description: `Path parameter :${p} (a concrete id).` }

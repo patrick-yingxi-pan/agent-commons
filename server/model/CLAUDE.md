@@ -30,6 +30,8 @@ the boundary is the point, so the two sides do not share a directory.
   bypasses the tool loop.
 - **The tool surface is GENERATED from the route table** (`server/apiSurface.ts`
   over `Router.list()`), so a new route is a new tool with no second list to
-  update. Never hand-add a generated tool with its own logic; exclusions go
-  through `MODEL_API_EXCLUDED` with an argued reason (access parity, INV-11 —
-  [`docs/mcp-access.md`](../../docs/mcp-access.md)).
+  update. Never hand-add a generated tool with its own logic. Non-product form,
+  semantic alias, and session-intrinsic realizations are declared with a reason
+  on the route itself (access parity, INV-11 —
+  [`docs/mcp-access.md`](../../docs/mcp-access.md)); there is no model-private
+  exclusion list.

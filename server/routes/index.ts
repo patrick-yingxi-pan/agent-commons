@@ -456,7 +456,7 @@ export function buildRouter(): Router {
     sendError(res, 'bad_request', "transport must be 'cookie' or 'bearer' (absent = cookie).")
     return null
   }
-  r.post('/auth/session', async ({ req, res, body }) => {
+  r.uiFormPost('/auth/session', 'browser account-stack switching — identity ceremony before workspace capability use', async ({ req, res, body }) => {
     if (!store.capabilities().features.identitySwitch) {
       return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
     }
@@ -488,7 +488,7 @@ export function buildRouter(): Router {
   // account's stack entry is forgotten — the OTHER remembered accounts stay
   // (GitHub's "sign out of one account"; the client then offers the remaining
   // accounts on its picker). `?all=1` forgets every remembered account too.
-  r.delete('/auth/session', ({ req, res, url }) => {
+  r.uiFormDelete('/auth/session', 'browser sign-out and account-stack cookie ceremony', ({ req, res, url }) => {
     const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const me = store.identity(req.headers)
     const next = url.searchParams.get('all') ? [] : me.via === 'session' ? stackWithout(stack, me.user.id) : stack
@@ -501,7 +501,7 @@ export function buildRouter(): Router {
   // it — a remembered-list can't outlive the session that proves it). The
   // stack cookie itself is the authorization (it's this browser's own memory);
   // an id it doesn't hold is a no-op, answered identically (idempotent 204).
-  r.delete('/auth/accounts/:id', ({ req, res, params }) => {
+  r.uiFormDelete('/auth/accounts/:id', 'browser-local remembered-account ceremony', ({ req, res, params }) => {
     const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const me = store.identity(req.headers)
     const cookies = [stackSetCookie(stackWithout(stack, params.id))]
@@ -515,7 +515,7 @@ export function buildRouter(): Router {
   // Phase 2); a pre-collapse stack cookie's `tenantId` is ignored, not trusted.
   // Never enumerates anything the stack cookie doesn't already prove was
   // signed in here.
-  r.get('/auth/accounts', ({ req, res }) => {
+  r.uiFormGet('/auth/accounts', 'browser-local remembered-account projection', ({ req, res }) => {
     const entries = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const me = store.identity(req.headers)
     const rows: AuthAccount[] = []
@@ -543,7 +543,7 @@ export function buildRouter(): Router {
   // stack (§12): a credentialed sign-in is what makes an account "remembered on
   // this browser" for the switcher's instant hops.
   const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-  r.post('/auth/signup', async ({ req, res, body }) => {
+  r.uiRemoteMcpFormPost('/auth/signup', 'credential entry and account creation occur before an authenticated product session', async ({ req, res, body }) => {
     const { name, email, password, transport: transportRaw } = await body<SignUpRequest>()
     const transport = transportPick(res, transportRaw)
     if (!transport) return
@@ -564,7 +564,7 @@ export function buildRouter(): Router {
   // user; the same signed token a bearer login returns). STRICTLY
   // session-verified: the dev header seam and the default principal never
   // proved a credential, so they must not mint one.
-  r.post('/auth/token', async ({ req, res, body }) => {
+  r.uiRemoteMcpFormPost('/auth/token', 'one-time bearer credential minting is authentication ceremony, not a workspace capability', async ({ req, res, body }) => {
     const me = store.identity(req.headers)
     if (me.via !== 'session') {
       return sendError(res, 'unauthorized', 'Sign in first — a token is minted from a verified session.')
@@ -583,16 +583,16 @@ export function buildRouter(): Router {
   // at mint): list your rows, revoke one by id. The registry is the revocation
   // authority (identity.ts refuses a jti whose row is gone), so DELETE here
   // kills the credential immediately. Session-verified like the mint — and the
-  // model leg may READ the list (harmless metadata) but never revoke
-  // (MODEL_API_EXCLUDED walls the credential-admin act).
-  r.get('/auth/tokens', ({ req, res }) => {
+  // Credential registry administration belongs to the authenticated browser
+  // ceremony, not to the workspace capability catalog.
+  r.uiFormGet('/auth/tokens', 'bearer credential registry administration is authentication ceremony', ({ req, res }) => {
     const me = store.identity(req.headers)
     if (me.via !== 'session') {
       return sendError(res, 'unauthorized', 'Sign in first — the token registry belongs to a verified session.')
     }
     sendJson(res, accounts.listApiTokens(me.user.id))
   })
-  r.delete('/auth/tokens/:id', ({ req, res, params }) => {
+  r.uiFormDelete('/auth/tokens/:id', 'bearer credential revocation is authentication ceremony', ({ req, res, params }) => {
     const me = store.identity(req.headers)
     if (me.via !== 'session') {
       return sendError(res, 'unauthorized', 'Sign in first — the token registry belongs to a verified session.')
@@ -603,7 +603,7 @@ export function buildRouter(): Router {
     store.accountsMutated()
     sendJson(res, { ok: true })
   })
-  r.post('/auth/login', async ({ req, res, body }) => {
+  r.uiRemoteMcpFormPost('/auth/login', 'credential entry occurs before a properly authenticated product session', async ({ req, res, body }) => {
     const { email, password, transport: transportRaw } = await body<LoginRequest>()
     const transport = transportPick(res, transportRaw)
     if (!transport) return
@@ -719,10 +719,10 @@ export function buildRouter(): Router {
   // `/healthz` — the process is up (load-balancer liveness). `/readyz` — the process
   // can serve: a cheap store probe stands in for the DB-connectivity check a real
   // deployment runs; a failure replies 503 so the LB drains this instance.
-  r.get('/healthz', ({ res }) => {
+  r.formGet('/healthz', 'deployment liveness probe — transport operations, not workspace capability', ({ res }) => {
     sendJson(res, { status: 'ok', epoch: store.epoch })
   })
-  r.get('/readyz', ({ res }) => {
+  r.formGet('/readyz', 'deployment readiness probe — transport operations, not workspace capability', ({ res }) => {
     // Draining (post-SIGTERM): report unready so the load balancer stops routing new
     // traffic here while in-flight work finishes — but the process stays alive (/healthz ok).
     if (store.isDraining()) return sendJson(res, { status: 'draining' }, 503)
@@ -756,7 +756,7 @@ export function buildRouter(): Router {
   // `/metrics` — Prometheus text exposition (F6 PD31). Per-method request counts +
   // process uptime + the store epoch (as an info label). A real deployment adds
   // status-class + latency histograms metered at the edge.
-  r.get('/metrics', ({ res }) => {
+  r.formGet('/metrics', 'Prometheus scrape endpoint — deployment transport, not workspace capability', ({ res }) => {
     const ops = opsSnapshot()
     const lines = [
       '# HELP http_requests_total Matched-route requests by method.',
@@ -787,9 +787,9 @@ export function buildRouter(): Router {
   // (identity.ts stamps `instanceAdmin`). The wall answers 404 — existence-
   // hiding, the same posture as foreign-row reads — and sits BEHIND the auth
   // gate (this prefix is not in GATE_OPEN_*), so anonymous callers still meet
-  // the 401 first. Both non-HTTP doors exclude this plane with argued reasons
-  // (MCP_EXCLUDED / MODEL_API_EXCLUDED): instance administration is the
-  // maintainer's own act at the console.
+  // the 401 first. These remain product capabilities in every access surface;
+  // the shared maintainer wall, not a transport-specific omission, decides who
+  // may use them.
   const maintainerDenied = (req: IncomingMessage, res: ServerResponse): boolean => {
     if (store.identity(req.headers).instanceAdmin) return false
     sendError(res, 'not_found', 'Not found')
@@ -862,12 +862,12 @@ export function buildRouter(): Router {
   r.get('/runners', ({ res }) => {
     sendJson(res, store.registry.list())
   })
-  r.get('/runners/:id', ({ res, params }) => {
+  r.aliasGet('/runners/:id', 'GET /runners', 'the by-id runner read is a focused projection of the runner collection visible in the UI', ({ res, params }) => {
     const runner = store.registry.get(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.post('/runners', async ({ req, res, body }) => {
+  r.formPost('/runners', 'runner enrollment is a machine callback authenticated by the host enrollment credential', async ({ req, res, body }) => {
     if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     const input = await body<RegisterRunnerRequest>()
     if (!input?.label || !input?.host || !Array.isArray(input.capabilities)) {
@@ -885,13 +885,13 @@ export function buildRouter(): Router {
   // Heartbeat reconnects an offline runner (durable-identity re-bind), so it's gated by
   // the same enrollment token as POST /runners — otherwise an unauthenticated caller could
   // resurrect a reaped runner and defeat liveness reaping.
-  r.post('/runners/:id/heartbeat', ({ req, res, params }) => {
+  r.formPost('/runners/:id/heartbeat', 'runner liveness is a machine callback, not an interactive workspace capability', ({ req, res, params }) => {
     if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     const runner = store.registry.heartbeat(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.patch('/runners/:id/capabilities', async ({ req, res, params, body }) => {
+  r.formPatch('/runners/:id/capabilities', 'runner capability advertisement is a machine callback', async ({ req, res, params, body }) => {
     if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     const { capabilities } = await body<SetRunnerCapabilitiesRequest>()
     if (!Array.isArray(capabilities)) {
@@ -901,7 +901,7 @@ export function buildRouter(): Router {
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     sendJson(res, runner)
   })
-  r.delete('/runners/:id', ({ req, res, params }) => {
+  r.formDelete('/runners/:id', 'runner deregistration is a machine callback authenticated by the host enrollment credential', ({ req, res, params }) => {
     if (!enrollmentAllowed(req)) return sendError(res, 'forbidden', 'runner enrollment requires a valid token')
     if (!store.registry.deregister(params.id)) {
       return sendError(res, 'not_found', `No online runner '${params.id}'`)
@@ -917,7 +917,7 @@ export function buildRouter(): Router {
   // Idempotent by `commandId` (D2): a retried call returns the recorded effect
   // without re-executing. On success the effect is recorded on the runner's
   // authoritative log and projected (the relay/online path), returning the effect.
-  r.post('/runners/:id/invoke', async ({ req, res, params, body }) => {
+  r.formPost('/runners/:id/invoke', 'capability-broker execution edge; excluded until a direct UI control exposes the same scoped act', async ({ req, res, params, body }) => {
     const runner = store.registry.get(params.id)
     if (!runner) return sendError(res, 'not_found', `No runner '${params.id}'`)
     const request = await body<CapabilityRequest>()
@@ -1046,7 +1046,7 @@ export function buildRouter(): Router {
 
   // The runner's authoritative effect log (read-through). `?since=<seq>` returns
   // only the tail after a sequence number — the audit/projection read (D2/D3).
-  r.get('/runners/:id/effects', ({ req, res, params, url }) => {
+  r.formGet('/runners/:id/effects', 'runner-authoritative machine log authenticated by the enrollment credential', ({ req, res, params, url }) => {
     // The authoritative effect log (every host op's target + output) is runner-
     // identity data, not tenant-scoped — gated by the SAME enrollment token as the
     // lifecycle routes, or any signed-in tenant could read another's host activity.
@@ -1059,7 +1059,7 @@ export function buildRouter(): Router {
   // A runner replays its outbox — effects it executed out-of-band (via the
   // co-located fast path, or while the server was unreachable). Merged idempotently
   // by commandId, then projected; returns what was newly projected + the cursor.
-  r.post('/runners/:id/sync', async ({ req, res, params, body }) => {
+  r.formPost('/runners/:id/sync', 'runner outbox reconciliation is machine self-service, not an interactive workspace capability', async ({ req, res, params, body }) => {
     // Merging into the runner's AUTHORITATIVE log (the D2/D3 system of record audit
     // and projection trust) is a runner-identity write — the same enrollment gate
     // as heartbeat, or any signed-in tenant could inject fabricated effects.
@@ -1083,7 +1083,7 @@ export function buildRouter(): Router {
   r.get('/providers', ({ req, res }) => {
     sendJson(res, store.listProviders(store.identity(req.headers).tenant.id))
   })
-  r.get('/providers/:id', ({ req, res, params }) => {
+  r.aliasGet('/providers/:id', 'GET /providers', 'the by-id provider read is a focused projection of the provider collection visible in the UI', ({ req, res, params }) => {
     // `listProviders(tenant).find`, not `store.getProvider` — the latter falls back to the
     // default for an unknown id (the resolve-for-a-turn contract), which would mask a
     // 404 here. The scoped read also makes another tenant's provider a 404 (no existence leak).
@@ -1235,7 +1235,7 @@ export function buildRouter(): Router {
   // Rotate a Session provider's rendezvous secret — the kill switch (§7.5). The old
   // secret dies on the spot (a held connector meets 401; an in-flight turn falls back
   // immediately); the response carries the NEW secret exactly once, like the mint.
-  r.post('/providers/:id/rotate', ({ req, res, params }) => {
+  r.uiFormPost('/providers/:id/rotate', 'one-time rendezvous-secret rotation is credential ceremony', ({ req, res, params }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
     const rotated = store.rotateProviderSecret(params.id)
     if (!rotated) return sendError(res, 'conflict', 'Only a Session provider has a rendezvous secret to rotate.')
@@ -1264,7 +1264,7 @@ export function buildRouter(): Router {
   // `{superseded:true}` when a newer poll preempted this one (newest wins) or the
   // secret rotated away. A dropped socket unparks via `abandon`, so a zombie
   // connection neither wedges the slot nor leaks the handler.
-  r.get('/relay/poll', async ({ req, res, url }) => {
+  r.formGet('/relay/poll', 'session-relay long-poll authenticated by its rendezvous credential', async ({ req, res, url }) => {
     const providerId = relayAuth(req, res)
     if (!providerId) return
     // `have` advertises the framing/tool hashes the connector holds cached (v3
@@ -1296,7 +1296,7 @@ export function buildRouter(): Router {
   // minted server-side (never trusted from the wire), and exactly ONE of the three
   // answer forms is accepted (strict core: an ambiguous reply is refused loudly,
   // never resolved by precedence).
-  r.post('/relay/reply', async ({ req, res, body }) => {
+  r.formPost('/relay/reply', 'session-relay model callback authenticated by its rendezvous credential', async ({ req, res, body }) => {
     const providerId = relayAuth(req, res)
     if (!providerId) return
     const { entryId, completion, toolCalls, error } = await body<RelayReplyRequest>()
@@ -1348,7 +1348,7 @@ export function buildRouter(): Router {
   // Unauthenticated by design: the connector is a program, not a secret — the
   // rendezvous secret it later presents is the credential. Both backends serve it.
   let connectorJs: string | null = null
-  r.get('/connector', ({ res }) => {
+  r.formGet('/connector', 'downloadable relay connector program — installation transport, not workspace capability', ({ res }) => {
     connectorJs ??= stripTypeScriptTypes(
       readFileSync(fileURLToPath(new URL('../../connector/relay-connector.ts', import.meta.url)), 'utf8'),
     )
@@ -1362,7 +1362,7 @@ export function buildRouter(): Router {
   // behind the mint panel's one bootstrap prompt, so the UI never enumerates
   // coding tools and a harness we've never heard of still onboards. Same
   // unauthenticated stance as `/connector`: a manual is not a secret.
-  r.get('/connector/setup', ({ res, url }) => {
+  r.formGet('/connector/setup', 'agent-facing relay installation guide — setup transport, not workspace capability', ({ res, url }) => {
     sendText(res, renderConnectorSetup(`${url.origin}${API_BASE_PATH}`), 'text/markdown; charset=utf-8')
   })
 
@@ -1385,7 +1385,7 @@ export function buildRouter(): Router {
   r.get('/audit', ({ req, res, url }) => {
     sendList(res, url, store.listAuditLog(store.identity(req.headers).tenant.id), (e) => e.id)
   })
-  r.get('/agents/:id', ({ req, res, params }) => {
+  r.aliasGet('/agents/:id', 'GET /agents', 'the by-id agent read is a focused projection of the agent collection visible in the UI', ({ req, res, params }) => {
     // Like providers: the scoped `listAgents(tenant).find`, not `getAgent` (which falls back
     // to the default), so an unknown OR cross-tenant id is a real 404 (no existence leak).
     const agent = store.listAgents(store.identity(req.headers).tenant.id).find((a) => a.id === params.id)
@@ -1462,7 +1462,7 @@ export function buildRouter(): Router {
   // Agent-to-agent proxy (D15): A's Agent (`fromAgentId`) asks B's Agent (`:id`) to act on B's
   // private resource. B acts under *its own* authority and returns only the result — the
   // requester never holds a B credential (the structural D12 wall). Mock fulfilment.
-  r.post('/agents/:id/proxy', async ({ res, params, body }) => {
+  r.formPost('/agents/:id/proxy', 'agent-to-agent execution edge — machine coordination, not a human workspace act', async ({ res, params, body }) => {
     const req = await body<ProxyRequest>()
     if (!req?.fromAgentId || typeof req?.target !== 'string' || !PROJECT_EFFECT_TYPES.includes(req.capability)) {
       return sendError(res, 'bad_request', 'fromAgentId, target, and a valid capability are required')
@@ -1531,7 +1531,7 @@ export function buildRouter(): Router {
   r.get('/system-prompts', ({ req, res }) => {
     sendJson(res, store.listSystemPrompts(store.identity(req.headers).tenant.id))
   })
-  r.get('/system-prompts/:id', ({ req, res, params }) => {
+  r.aliasGet('/system-prompts/:id', 'GET /system-prompts', 'the by-id prompt read is a focused projection of the prompt collection visible in the UI', ({ req, res, params }) => {
     // Scoped list, so an unknown OR cross-tenant id is a real 404 (no existence leak).
     const entry = store.listSystemPrompts(store.identity(req.headers).tenant.id).find((p) => p.id === params.id)
     if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
@@ -1594,7 +1594,7 @@ export function buildRouter(): Router {
   r.get('/commissions', ({ req, res, url }) => {
     sendJson(res, store.listCommissions(url.searchParams.get('project') ?? undefined, store.identity(req.headers).tenant.id))
   })
-  r.get('/commissions/:id', ({ req, res, params }) => {
+  r.aliasGet('/commissions/:id', 'GET /commissions', 'the by-id commission read is a focused projection of the commission collection visible in the UI', ({ req, res, params }) => {
     // Visible if it's the caller's own/seed (full) or a Contributor on a SHARED project
     // (redacted to public identity) — consistent with the shared-project list (P8), rather
     // than 404ing a Contributor the list shows.
@@ -2057,10 +2057,10 @@ export function buildRouter(): Router {
     store.markDiscussionRead(params.did, store.identity(req.headers).tenant.id, input?.throughPostId)
     sendJson(res, { ok: true })
   })
-  r.get('/me/mutes', ({ req, res }) => {
+  r.formGet('/me/mutes', 'reserved social-guardrail projection; excluded until the UI has a mute-management surface', ({ req, res }) => {
     sendJson(res, store.listMutes(store.identity(req.headers).tenant.id))
   })
-  r.patch('/me/mutes', async ({ req, res, body }) => {
+  r.formPatch('/me/mutes', 'reserved social-guardrail mutation; excluded until the UI has a mute-management surface', async ({ req, res, body }) => {
     const input = await body<{ name?: string; muted?: boolean }>()
     if (typeof input?.name !== 'string' || !input.name.trim() || typeof input.muted !== 'boolean') {
       return sendError(res, 'bad_request', 'name and muted (boolean) are required')
@@ -2094,7 +2094,7 @@ export function buildRouter(): Router {
     if (!out) return sendError(res, 'not_found', `No feed item '${params.itemId}'`)
     sendJson(res, out)
   })
-  r.get('/social/watch', ({ req, res, url }) => {
+  r.aliasGet('/social/watch', 'POST /social/watch', 'watch-state reading and mutation are two forms of the same visible social-watch capability', ({ req, res, url }) => {
     const ref = socialRefFromQuery(url)
     if (!ref) return sendError(res, 'bad_request', 'kind (a social entity kind) and id are required')
     const tenant = store.identity(req.headers).tenant.id
@@ -2145,7 +2145,7 @@ export function buildRouter(): Router {
     if (out === 'invalid') return sendError(res, 'bad_request', 'the delta must be a non-empty suggestion or a well-formed relation op')
     sendJson(res, out)
   })
-  r.get('/proposals/:pid', ({ req, res, params }) => {
+  r.aliasGet('/proposals/:pid', 'GET /proposals', 'the by-id proposal read is a focused projection of the proposal collection visible in the UI', ({ req, res, params }) => {
     const out = store.getSocialProposal(params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     sendJson(res, out)
@@ -2341,11 +2341,11 @@ export function buildRouter(): Router {
   //
   // The platform's own card. Also mounted at the conventional server-root
   // `/.well-known/agent-card.json` (server/index.ts) on the deploy shape.
-  r.get('/a2a/card', ({ res, url }) => sendJson(res, platformCard(url.origin)))
+  r.formGet('/a2a/card', 'public Agent-to-Agent protocol card — machine discovery transport', ({ res, url }) => sendJson(res, platformCard(url.origin)))
   // A published Agent's card, built from its DIRECTORY ENTRY — the same redaction
   // function the D17 directory read uses, so a card can never expose a field the
   // directory withholds. Unpublished or unknown ⇒ the identical 404.
-  r.get('/a2a/agents/:id/card', ({ req, res, params, url }) => {
+  r.formGet('/a2a/agents/:id/card', 'public Agent-to-Agent agent card — machine discovery transport', ({ req, res, params, url }) => {
     const entry = store.agentDirectory(store.identity(req.headers).tenant.id).find((e) => e.id === params.id)
     if (!entry) return sendError(res, 'not_found', `No agent '${params.id}'`)
     sendJson(res, agentCard(entry, url.origin))
@@ -2382,17 +2382,17 @@ export function buildRouter(): Router {
   }
   // ── D28 — peer credentials (verified identity at the edge) ─────────────────
   // Owner-side registry: mint (token shown ONCE), list (hints only), revoke.
-  r.post('/a2a/peers', async ({ res, body }) => {
+  r.formPost('/a2a/peers', 'A2A peer-credential enrollment is machine authentication ceremony', async ({ res, body }) => {
     const input = await body<CreateA2aPeerRequest>()
     if (typeof input?.name !== 'string' || !input.name.trim()) {
       return sendError(res, 'bad_request', 'name is required')
     }
     sendJson(res, store.createA2aPeer(input.name))
   })
-  r.get('/a2a/peers', ({ res }) => {
+  r.formGet('/a2a/peers', 'A2A peer-credential registry is machine authentication ceremony', ({ res }) => {
     sendJson(res, store.listA2aPeers())
   })
-  r.delete('/a2a/peers/:id', ({ res, params }) => {
+  r.formDelete('/a2a/peers/:id', 'A2A peer-credential revocation is machine authentication ceremony', ({ res, params }) => {
     if (!store.deleteA2aPeer(params.id)) return sendError(res, 'not_found', `No peer '${params.id}'`)
     sendJson(res, { ok: true })
   })
@@ -2413,7 +2413,7 @@ export function buildRouter(): Router {
   // A shared Project's A2A endpoint: `message/send` posts open work (D19 via D20);
   // `tasks/get` re-reads the item's lifecycle (task id = item id). A Project the
   // caller cannot see answers exactly like a nonexistent one (TaskNotFound).
-  r.post('/a2a/projects/:id', async (ctx) => {
+  r.formPost('/a2a/projects/:id', 'inbound A2A JSON-RPC transport authenticated as a foreign peer', async (ctx) => {
     const { req, res, params } = ctx
     const { peer, abort } = a2aCaller(req, res)
     if (abort) return
@@ -2471,7 +2471,7 @@ export function buildRouter(): Router {
   // A published Agent's A2A endpoint: `message/send` is REFUSED with a
   // spec-conformant `rejected` Task (D18 — a card advertises a definition; the
   // endpoint never leases its owner's capability; fork-and-bind instead).
-  r.post('/a2a/agents/:id', async (ctx) => {
+  r.formPost('/a2a/agents/:id', 'inbound A2A JSON-RPC transport authenticated as a foreign peer', async (ctx) => {
     const { req, res, params, url } = ctx
     const rpc = await readRpc(ctx)
     if (!rpc) return
@@ -2542,7 +2542,7 @@ export function buildRouter(): Router {
   // now on a real path. Order: 400 fields → 404 project → 403 actor (caller-identity + shared-gate)
   // → 403 reach → 403 role → run (409 on a concurrent different principal). A charge has no
   // data-reach target, so it skips the reach check.
-  r.post('/projects/:id/effects', async ({ req, res, params, body }) => {
+  r.formPost('/projects/:id/effects', 'commissioned effect-ingress edge used by machine coordination, not a direct UI act', async ({ req, res, params, body }) => {
     const { commissionId, subGoal, type, target } = await body<ProjectEffectRequest>()
     if (!commissionId || !subGoal || typeof target !== 'string' || !PROJECT_EFFECT_TYPES.includes(type)) {
       return sendError(res, 'bad_request', 'commissionId, subGoal, target, and a valid type are required')
@@ -2584,17 +2584,17 @@ export function buildRouter(): Router {
   // irreversible write up front (docs/shared-resource-coordination.md). `reserve`
   // is reversible (releasable, TTL'd); `commit` records the irreversible step.
   // `conflict` (409) when the resource is at capacity / held by another session.
-  r.get('/resources/:key', ({ res, params }) => {
+  r.formGet('/resources/:key', 'capability-broker guardian primitive; the UI exposes resource-specific coordination instead', ({ res, params }) => {
     sendJson(res, store.guardian.status(params.key))
   })
-  r.patch('/resources/:key', async ({ res, params, body }) => {
+  r.formPatch('/resources/:key', 'capability-broker capacity primitive; excluded until a direct UI control exists', async ({ res, params, body }) => {
     const { capacity } = await body<SetCapacityRequest>()
     if (typeof capacity !== 'number' || capacity < 1) {
       return sendError(res, 'bad_request', 'capacity must be a positive number')
     }
     sendJson(res, store.guardian.setCapacity(params.key, capacity))
   })
-  r.post('/resources/:key/reserve', async ({ res, params, body }) => {
+  r.formPost('/resources/:key/reserve', 'capability-broker reservation primitive; UI reservations use their resource-specific route', async ({ res, params, body }) => {
     const input = await body<ReserveRequest>()
     if (!input?.holder) return sendError(res, 'bad_request', 'holder is required')
     try {
@@ -2604,7 +2604,7 @@ export function buildRouter(): Router {
       throw err
     }
   })
-  r.post('/reservations/:id/commit', ({ res, params }) => {
+  r.formPost('/reservations/:id/commit', 'capability-broker escrow primitive; effects commit it internally rather than through a UI act', ({ res, params }) => {
     try {
       sendJson(res, store.guardian.commit(params.id))
     } catch (err) {
@@ -2666,17 +2666,17 @@ export function buildRouter(): Router {
   // The arbitrary-path OS seam — distinct from the served sources above. The same
   // endpoints exist in both backends — only the fulfilment differs. This is what
   // lets ONE UI run as a native desktop app and as a web app unchanged.
-  r.get('/fs/pick', ({ res, url }) => {
+  r.formGet('/fs/pick', 'native picker transport; the UI realizes file choice through its host-specific picker', ({ res, url }) => {
     if (!gate(res, 'osPicker')) return
     sendJson(res, store.fsPick(url.searchParams.get('kind') ?? 'folder'))
   })
-  r.get('/fs/folders/:id', ({ res, params }) => {
+  r.formGet('/fs/folders/:id', 'native folder-handle transport; served filesystem reads are the symmetric product surface', ({ res, params }) => {
     if (!gate(res, 'localFs')) return
     const scan = store.scanFolder(params.id)
     if (!scan) return sendError(res, 'not_found', `No folder '${params.id}'`)
     sendJson(res, scan)
   })
-  r.get('/git/repos/:id/diff', ({ res, params }) => {
+  r.formGet('/git/repos/:id/diff', 'native git transport; repository context is the symmetric product surface', ({ res, params }) => {
     if (!gate(res, 'localGit')) return
     const diff = store.repoDiff(params.id)
     if (!diff) return sendError(res, 'not_found', `No repo '${params.id}'`)
@@ -2695,7 +2695,7 @@ export function buildRouter(): Router {
   // epoch changed), `hello.resumed: false` tells a returning client to drop its
   // cache and refetch. Either way: no silent loss. Duplicates are harmless — the
   // events are idempotent invalidation hints.
-  r.get('/events', ({ req, res, url }) => {
+  r.formGet('/events', 'browser ambient SSE stream — synchronization transport, not a workspace capability', ({ req, res, url }) => {
     const channel = openSse(res)
     // Tenant-filter the fan-out (F2/PD9): a subscriber only receives events for its own
     // tenant, so another tenant's session pushes don't leak down this channel. The
@@ -2866,7 +2866,7 @@ export function buildRouter(): Router {
   // docs/shared-resource-coordination.md). Persisted server-side so every effect a
   // session initiates can be mediated by *naming* an attached context (Tiers A–C).
   // Attach/detach broadcast `session.contexts.changed`.
-  r.get('/sessions/:id/contexts', ({ req, res, params }) => {
+  r.aliasGet('/sessions/:id/contexts', 'GET /sessions/:id', 'session context is already projected as part of the session detail shown in the UI', ({ req, res, params }) => {
     if (denyForeignSession(req, res, params.id)) return
     sendJson(res, store.sessionContexts(params.id))
   })
@@ -2915,7 +2915,7 @@ export function buildRouter(): Router {
   // server in dev; api.anthropic.com in prod) via the SDK — see server/generate.
   // We relay the model's text deltas, then append the app-domain relation
   // proposals as `message.relations` before `message.end`.
-  r.post('/sessions/:id/messages', async ({ req, res, params, body }) => {
+  r.intrinsicPost('/sessions/:id/messages', 'the in-app session realizes conversation input intrinsically; a recursive send-message tool would create a second conversation inside the turn', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
     // The caller's tenant — usage is metered + budget-gated per tenant (F2/PD9), so one
     // tenant's spend neither 429s nor shows up in another's gauge. Resolved once for the turn.
@@ -3241,7 +3241,7 @@ export function buildRouter(): Router {
   // disconnect, which merely detaches the view; only this route (bar the model
   // timeout) trips the turn's AbortController, so the `aborted` outcome metric now
   // means "a user chose to stop". The partial persists (see the send route's catch).
-  r.post('/sessions/:id/turns/:turnId/cancel', ({ req, res, params }) => {
+  r.intrinsicPost('/sessions/:id/turns/:turnId/cancel', 'live-turn cancellation is intrinsic host control for the in-app session', ({ req, res, params }) => {
     if (denyForeignSession(req, res, params.id)) return
     const turn = turns.get(params.turnId)
     if (!turn || turn.sessionId !== params.id) {
@@ -3273,7 +3273,7 @@ export function buildRouter(): Router {
   // frames after `?after=<seq>`, then continue with the live tail, ending with the
   // same `message.end` the original stream carries. 404 once the turn is gone —
   // the persisted message is the authority and the client refetches the session.
-  r.get('/sessions/:id/turns/:turnId/stream', ({ req, res, params, url }) => {
+  r.uiFormGet('/sessions/:id/turns/:turnId/stream', 'live turn SSE replay — synchronization transport, not a workspace capability', ({ req, res, params, url }) => {
     if (denyForeignSession(req, res, params.id)) return
     const turn = turns.get(params.turnId)
     if (!turn || turn.sessionId !== params.id) {
@@ -3302,7 +3302,7 @@ export function buildRouter(): Router {
   // connector/MCP writes). A read ran at generation time; an action only takes effect
   // here, on the user's approval, and is audited. Tenant-guarded like the other by-id
   // session routes (a foreign tenant can't confirm another's pending write).
-  r.post('/sessions/:id/tool-activities/:activityId', async ({ req, res, params, body }) => {
+  r.intrinsicPost('/sessions/:id/tool-activities/:activityId', 'consent resolution is intrinsic host control; a model must never confirm its own proposal', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
     const { decision } = await body<{ decision: 'confirm' | 'decline' }>()
     if (decision !== 'confirm' && decision !== 'decline') {
@@ -3521,7 +3521,7 @@ export function buildRouter(): Router {
     sendJson(res, { ok: true })
   })
   // The left rail's recent-runs feed (a single live source, the caller's routines only).
-  r.get('/runs/recent', ({ req, res }) => {
+  r.aliasGet('/runs/recent', 'GET /schedules', 'recent routine runs are already represented by the schedules and routine-state projection in the UI', ({ req, res }) => {
     sendJson(res, store.recentRuns(store.identity(req.headers).tenant.id))
   })
   // ETag/If-None-Match (F3): the graph changes only on a confirmed op, so a 304 saves
@@ -3544,7 +3544,7 @@ export function buildRouter(): Router {
   })
   // Apply a confirmed relation edit — the privileged write (a standing op
   // authorizes the schedule daemon). Returns the updated graph + broadcasts it.
-  r.post('/relations/ops', idempotent(async ({ req, res, body }) => {
+  r.intrinsicPost('/relations/ops', 'relation consent is realized by the session\'s purpose-built proposal cards; the model never executes its own proposal', idempotent(async ({ req, res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
     // The one op field the SHARED reducer calls a method on (review finding): a

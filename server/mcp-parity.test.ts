@@ -4,9 +4,9 @@
  *  same consent-gated routes), and the MCP door — may differ in FORM but never
  *  in capability or in the authentication/authorization policy that gates
  *  them. This suite locks the two halves that make the rule structural:
- *   1. CAPABILITY — the tool catalog is a bijection with the route table
- *      (every route is a tool, or carries an argued exclusion; nothing is
- *      excluded that isn't a real route; names are unique);
+ *   1. CAPABILITY — the tool catalog is exactly the route-owned remote
+ *      projection (every product operation plus declared remote auth forms;
+ *      names are unique);
  *   2. POLICY — the same request through either door meets the same wall:
  *      the auth gate's 401s, the front door's openness, the bearer credential
  *      minted by the same login, and the tenancy 404s all answer identically. */
@@ -14,7 +14,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './testkit/http.ts'
 import { buildRouter } from './routes/index.ts'
-import { MCP_EXCLUDED, toolNameFor } from './mcp.ts'
+import { catalogOf } from './apiSurface.ts'
+import { mcpToolRoutes, toolNameFor } from './mcp.ts'
 
 let seq = 0
 const rpc = async (method: string, params?: unknown, headers?: Record<string, string>) =>
@@ -35,19 +36,15 @@ const gated = async <T>(fn: () => Promise<T>): Promise<T> => {
 }
 
 test('CAPABILITY: the tool catalog is a bijection with the route table', async () => {
-  const routes = buildRouter().list()
-  const routeKeys = new Set(routes.map((r) => `${r.method} ${r.pattern}`))
-  // (b) nothing is excluded that isn't a real route — a stale exclusion would
-  // silently shrink the surface the day the route is renamed.
-  for (const key of MCP_EXCLUDED.keys()) {
-    assert.ok(routeKeys.has(key), `MCP_EXCLUDED names a real route: ${key}`)
-  }
-  // (a) every route is a tool or an argued exclusion, and names are unique.
+  const router = buildRouter()
+  const expected = mcpToolRoutes(router)
+  // Every authenticated product operation plus the explicitly remote-MCP
+  // authentication bootstrap is generated; form-only routes stay out because
+  // the classification lives on the route itself, not in an exclusion list.
   const { json } = await rpc('tools/list')
   const toolNames = new Set<string>(json.result.tools.map((t: any) => t.name))
   assert.equal(toolNames.size, json.result.tools.length, 'tool names are unique')
-  const expected = routes.filter((r) => !MCP_EXCLUDED.has(`${r.method} ${r.pattern}`))
-  assert.equal(json.result.tools.length, expected.length, 'tool count = routes − argued exclusions, exactly')
+  assert.equal(json.result.tools.length, expected.length, 'tool count = the route-owned remote projection, exactly')
   for (const r of expected) {
     assert.ok(toolNames.has(toolNameFor(r.method, r.pattern)), `route ${r.method} ${r.pattern} is reachable as a tool`)
   }
@@ -99,26 +96,35 @@ test('POLICY: tenancy answers identically — a foreign read 404s through both d
   assert.deepEqual(viaMcp.body, direct.json)
 })
 
-test('the argued exclusions are exactly the stream forms, the endpoint itself, and the maintainer plane', () => {
-  const keys = [...MCP_EXCLUDED.keys()].sort()
-  assert.deepEqual(keys, [
-    'DELETE /admin/invites/:id',
-    'DELETE /admin/tokens/:userId/:id',
-    'DELETE /mcp',
-    'GET /admin/audit',
-    'GET /admin/invites',
-    'GET /admin/ops',
-    'GET /admin/tenants',
-    'GET /admin/tokens',
-    'GET /admin/users',
-    'GET /events',
-    'GET /mcp',
-    'GET /relay/poll',
-    'GET /sessions/:id/turns/:turnId/stream',
-    'POST /admin/users/:id/deactivate',
-    'POST /mcp',
-  ])
-  for (const reason of MCP_EXCLUDED.values()) {
-    assert.ok(reason.length > 20, 'every exclusion carries its argument')
+test('POLICY: the maintainer wall is identical through MCP — included capability does not widen authority', async () => {
+  const login = await toolCall('post_auth_login', {
+    body: { email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' },
+  })
+  const auth = { authorization: `Bearer ${login.body.token}` }
+  const hiddenDirect = await call('GET', '/admin/users', undefined, auth)
+  const hiddenMcp = await toolCall('get_admin_users', undefined, auth)
+  assert.equal(hiddenDirect.status, 404)
+  assert.equal(hiddenMcp.status, 404)
+  assert.deepEqual(hiddenMcp.body, hiddenDirect.json)
+
+  process.env.MAINTAINERS = 'user-ada'
+  try {
+    const direct = await call('GET', '/admin/users', undefined, auth)
+    const viaMcp = await toolCall('get_admin_users', undefined, auth)
+    assert.equal(direct.status, 200)
+    assert.equal(viaMcp.status, 200)
+    assert.deepEqual(viaMcp.body, direct.json, 'the same maintainer grant opens the same cross-tenant projection')
+  } finally {
+    delete process.env.MAINTAINERS
+  }
+})
+
+test('form-only routes carry their reason at registration; the maintainer plane is product capability', () => {
+  const catalog = catalogOf(buildRouter())
+  const forms = catalog.filter((op) => op.access.kind === 'form')
+  assert.ok(forms.length > 20, 'the protocol/authentication forms are explicitly classified')
+  for (const op of forms) assert.ok(op.access.reason.length > 24, `${op.method} ${op.pattern} explains its form`)
+  for (const op of catalog.filter((op) => op.pattern.startsWith('/admin/'))) {
+    assert.equal(op.access.kind, 'product', `${op.method} ${op.pattern} stays in every authenticated capability surface`)
   }
 })

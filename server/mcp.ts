@@ -34,11 +34,11 @@
  *  system-prompt library — both read through the router with the caller's
  *  credential, so tenancy holds identically on every MCP primitive.
  *
- *  The few non-tool routes are the ones whose FORM can't be a request/response
- *  tool call (endless SSE streams; the endpoint itself) — enumerated with
- *  reasons in `MCP_EXCLUDED` and locked by `server/mcp-parity.test.ts` so an
- *  exclusion is a visible, argued decision, never a silent gap. Live streams
- *  are delivered by the GET stream above.
+ *  Route-owned access metadata separates authenticated PRODUCT capabilities
+ *  from protocol/credential FORM (endless SSE streams, callbacks, the MCP
+ *  endpoint itself). Product routes become tools by default; every non-default
+ *  form or semantic alias carries its reason beside the route declaration.
+ *  There is no MCP-private exclusion list that can drift from the UI.
  *
  *  Transport hardening (MCP spec, DNS rebinding): when a deployment pins
  *  `CORS_ORIGIN`, a browser-sent `Origin` that doesn't match is refused (403)
@@ -46,7 +46,7 @@
  *  clients send no Origin and are untouched; the dev default stays open). */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import type { Router } from './http/router.ts'
+import { formOnly, type Router } from './http/router.ts'
 import { BASE_HEADERS, headerValue } from './http/respond.ts'
 import { positiveNumberEnv } from './env.ts'
 import { API_BASE_PATH } from '../contract/index.ts'
@@ -58,39 +58,12 @@ export { toolNameFor } // re-exported for the parity test (the shared stem lives
 
 export const MCP_PROTOCOL_VERSION = '2025-06-18'
 
-/** Routes that are deliberately NOT tools, each with its argued reason. Keyed
- *  `"METHOD /pattern"`. The parity test locks that (a) every route is a tool or
- *  is named here, and (b) nothing is named here that isn't a real route. */
-export const MCP_EXCLUDED: ReadonlyMap<string, string> = new Map([
-  ['GET /events', 'the ambient SSE stream never ends — a tool call is request/response; the state it pushes is readable through the list/get tools'],
-  ['GET /sessions/:id/turns/:turnId/stream', 'SSE resume of a live turn — the send-message tool already returns the full reply stream, parsed'],
-  ['GET /relay/poll', 'the session-relay mailbox long-poll — a machine edge with its own rendezvous credential and drain loop (use the relay connector, not this door)'],
-  ['POST /mcp', 'the MCP endpoint itself'],
-  ['GET /mcp', 'the MCP endpoint itself'],
-  ['DELETE /mcp', 'the MCP endpoint itself'],
-  // The instance-operator plane (the maintainer console, contract/admin.ts):
-  // cross-tenant administration is the maintainer's own act at the console — an
-  // MCP-scripted cross-tenant read/revoke is the confused-deputy shape, the same
-  // argument that walls the credential plane. The 404 maintainer wall re-checks
-  // regardless; exclusion keeps the tool catalog free of routes almost no
-  // caller can ever use.
-  ['GET /admin/users', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
-  ['GET /admin/tenants', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
-  ['GET /admin/invites', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
-  ['GET /admin/tokens', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
-  ['GET /admin/audit', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
-  ['GET /admin/ops', 'the maintainer console — instance administration is the maintainer\'s own act at the console'],
-  ['POST /admin/users/:id/deactivate', 'the maintainer console — deactivating an account is credential admin, a direct maintainer act'],
-  ['DELETE /admin/tokens/:userId/:id', 'the maintainer console — revoking another user\'s credential is a direct maintainer act'],
-  ['DELETE /admin/invites/:id', 'the maintainer console — closing another org\'s invitation is a direct maintainer act'],
-])
-
 /** The tool-exposed routes, derived fresh from the shared catalog each call
  *  (the table is append-only after boot; deriving lazily keeps this a pure view). */
-function toolRoutes(router: Router): ApiOperation[] {
+export function mcpToolRoutes(router: Router): ApiOperation[] {
   const seen = new Set<string>()
   return catalogOf(router).filter((op) => {
-    if (MCP_EXCLUDED.has(`${op.method} ${op.pattern}`)) return false
+    if (op.access.kind !== 'product' && op.access.remote !== 'tool') return false
     if (seen.has(op.name)) throw new Error(`MCP tool name collision: ${op.name} (${op.method} ${op.pattern})`)
     seen.add(op.name)
     return true
@@ -152,8 +125,6 @@ export const MCP_CORE_TOOLS: readonly string[] = [
   'get_capabilities',
   'get_me',
   'post_auth_login',
-  'post_auth_token',
-  'get_auth_tokens',
   'get_sessions',
   'get_sessions_by_id',
   'post_sessions',
@@ -315,14 +286,13 @@ const mcpSessionOf = (req: IncomingMessage): McpSession | undefined => {
 /** `workspace://sessions` ↔ `GET /sessions`. Parameterless reads are static
  *  resources; parameterized reads are TEMPLATES (`workspace://sessions/{id}`). */
 const RESOURCE_SCHEME = 'workspace://'
-const resourceReads = (router: Router) => toolRoutes(router).filter((op) => op.method === 'GET')
+const resourceReads = (router: Router) => mcpToolRoutes(router).filter((op) => op.method === 'GET')
 const resourceUri = (pattern: string) => `${RESOURCE_SCHEME}${pattern.replace(/^\//, '').replace(/:([A-Za-z0-9_]+)/g, '{$1}')}`
 
-/** Whether a concrete path matches one of the readable resource patterns —
- *  the GET routes MINUS `MCP_EXCLUDED` (so the never-ending streams `/events`,
- *  the turn stream, `/relay/poll` are structurally unreachable here, never
- *  dispatched to hang). Segment-align: same length, literals equal, `:params`
- *  match anything. */
+/** Whether a concrete path matches one of the route-declared readable resource
+ *  patterns. Form-only streams (`/events`, the turn stream, `/relay/poll`) are
+ *  structurally unreachable here, never dispatched to hang. Segment-align:
+ *  same length, literals equal, `:params` match anything. */
 function matchResourceRead(router: Router, path: string): boolean {
   const segs = path.split('/').filter(Boolean)
   return resourceReads(router).some((op) => {
@@ -456,7 +426,7 @@ export function registerMcp(router: Router): void {
       // everyday subset (a client-chosen presentation; see MCP_CORE_TOOLS).
       // tools/call below never consults it — capability is identical.
       const core = url.searchParams.get('toolset') === 'core'
-      const routes = core ? toolRoutes(router).filter((t) => MCP_CORE_TOOLS.includes(t.name)) : toolRoutes(router)
+      const routes = core ? mcpToolRoutes(router).filter((t) => MCP_CORE_TOOLS.includes(t.name)) : mcpToolRoutes(router)
       return sendRpc(res, rpcResult(id, { tools: routes.map(toolDefinition) }))
     }
     if (msg.method === 'resources/list') {
@@ -521,7 +491,7 @@ export function registerMcp(router: Router): void {
     if (msg.method === 'tools/call') {
       const name = msg.params?.name
       const args = msg.params?.arguments ?? {}
-      const tool = toolRoutes(router).find((t) => t.name === name)
+      const tool = mcpToolRoutes(router).find((t) => t.name === name)
       if (!tool) return sendRpc(res, rpcError(id, -32602, `Unknown tool: ${String(name)}`))
       for (const p of tool.params) {
         if (typeof args[p] !== 'string' || args[p] === '') {
@@ -587,7 +557,7 @@ export function registerMcp(router: Router): void {
       )
     }
     return sendRpc(res, rpcError(id, -32601, `Method not found: ${String(msg.method)}`))
-  })
+  }, formOnly('the MCP request/response transport itself — not a workspace capability'))
 
   const plain = (res: ServerResponse, status: number, text: string) => {
     res.writeHead(status, { ...BASE_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' })
@@ -641,7 +611,7 @@ export function registerMcp(router: Router): void {
     }
     session.closeStream = close
     req.on('close', close)
-  })
+  }, formOnly('the MCP server-to-client event stream — a transport realization of live synchronization'))
 
   // End a session: subscriptions drop, its stream closes. Idempotent-ish: an
   // unknown id is an honest 404 (initialize again), absence a 400.
@@ -655,5 +625,5 @@ export function registerMcp(router: Router): void {
     mcpSessions.delete(sid)
     res.writeHead(204, BASE_HEADERS)
     res.end()
-  })
+  }, formOnly('MCP transport-session teardown — not a workspace capability'))
 }

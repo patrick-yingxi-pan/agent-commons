@@ -143,10 +143,13 @@ to — eight suites plus `helpers/source.ts`, down from 229.
 - **Git:** commit and push straight to `main` over HTTPS.
 - **Keep the MCP door in sync with the UI** (owner directive, 2026-08-09:
   *"always update the MCP interface of this website to keep the UI and MCP in
-  sync"*). Access parity (INV-11) is mostly structural — the tool catalog is
-  GENERATED from the route table, so a new route is a new tool with no second
-  list to update, and a UI change that adds no route needs no new tool
-  (inventing one would be the drift). What is NOT structural is everything
+  sync"*). Access symmetry (INV-11) is structural: each route owns its product,
+  form, alias, or session-intrinsic classification; both MCP projections are
+  generated from it; and `tests/access-surface-parity.test.ts` derives reachable
+  UI calls and compares all three semantic capability sets in both directions.
+  A new product route becomes a tool, while a UI change that adds no capability
+  needs no new tool (inventing one would be drift). What is NOT structural is
+  everything
   hand-written on that boundary: the door's `initialize` **instructions**, which
   point machine callers at places in the human UI. Every UI string they quote
   lives in `MCP_UI_COPY` (`server/mcp.ts`) and is scanned against the live

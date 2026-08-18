@@ -61,7 +61,7 @@ test('tools/list: generated from the route table, with path params as required s
   assert.ok(bySession, 'a :id route becomes a by_id tool')
   assert.deepEqual(bySession.inputSchema.required, ['id'])
   assert.equal(bySession.inputSchema.properties.id.type, 'string')
-  assert.ok(!byName.has('get_events'), 'the endless SSE stream is an argued exclusion')
+  assert.ok(!byName.has('get_events'), 'the endless SSE stream is a route-declared transport form')
   assert.ok(!byName.has('post_mcp'), 'the endpoint does not expose itself')
 })
 

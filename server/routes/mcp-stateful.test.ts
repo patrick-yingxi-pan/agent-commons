@@ -36,7 +36,7 @@ test('resources: parameterless reads are static resources, parameterized reads a
   const uris = list.json.result.resources.map((r: { uri: string }) => r.uri)
   assert.ok(uris.includes('workspace://sessions'))
   assert.ok(uris.includes('workspace://usage'))
-  assert.ok(!uris.includes('workspace://events'), 'the SSE stream is an argued exclusion, not a resource')
+  assert.ok(!uris.includes('workspace://events'), 'the SSE stream is a route-declared transport form, not a resource')
   const templates = await rpc('resources/templates/list')
   const tpl = templates.json.result.resourceTemplates.map((t: { uriTemplate: string }) => t.uriTemplate)
   assert.ok(tpl.includes('workspace://sessions/{id}'), 'a :id read becomes a {id} template')
@@ -205,7 +205,7 @@ test('the session-cap eviction prefers STREAMLESS sessions — churn spares a LI
 test('resources/read refuses the excluded stream routes (-32602) instead of hanging on a never-ending dispatch', async () => {
   // `GET /events` / the relay poll / the live turn stream never end — a
   // resources/read that dispatched one would hang forever and leak the
-  // subscription. They are MCP_EXCLUDED, so the read refuses them up front.
+  // subscription. They are route-declared forms, so the read refuses them up front.
   for (const uri of ['workspace://events', 'workspace://relay/poll', 'workspace://sessions/s1/turns/t1/stream']) {
     const r = await rpc('resources/read', { uri })
     assert.equal(r.json.error?.code, -32602, `${uri} is not a readable resource`)

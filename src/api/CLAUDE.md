@@ -22,6 +22,10 @@ reconciliation, the account guard, freshness/refetch behavior.
 - **One door.** Components read hooks; controllers issue commands. A component
   that learns a URL or an SSE event name has broken the seam that makes the
   contract portable.
+- **Reachability is the UI capability proof (INV-11).** Every backend operation
+  used by the shipped UI must pass a declared `paths.*` entry through this
+  funnel. The cross-layer parity lock follows imports into real consumers; an
+  unused wrapper cannot pretend the UI has a capability.
 - **Optimistic ids reconcile, never leak.** A locally-minted id must be replaced
   by the server's on ack; the lock beside this file exists because a leaked one
   looks correct until a reload.

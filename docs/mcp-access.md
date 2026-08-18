@@ -5,7 +5,9 @@
 > access methods. Requirement rows: PORT-9
 > ([`spec/05-portable-contract.md`](spec/05-portable-contract.md)) and INV-11
 > ([`spec/09-design-invariants.md`](spec/09-design-invariants.md)). Locks:
-> `server/mcp.test.ts`, `server/mcp-parity.test.ts`, `server/routes/auth-bearer.test.ts`.
+> `tests/access-surface-parity.test.ts`, `server/mcp.test.ts`,
+> `server/mcp-parity.test.ts`, `server/model/api-tools.test.ts`, and
+> `server/routes/auth-bearer.test.ts`.
 
 ## 1. The three access methods
 
@@ -14,15 +16,15 @@ The same product is reachable three ways, and they deliberately differ in
 
 1. **The browser UI** — a human clicking. The UI is a client of the HTTP API
    (`/api/v1/*`) and holds no capability of its own.
-2. **The in-app session** — a human *asking*. The model is declared one
-   **generated API tool per operation** (`api__…`, from the same catalog as
-   the MCP door — spec MODEL-25): reads execute immediately *as the user* and
-   land as provenance rows under the message; mutations become consent cards
-   (shape-derived families: edit / danger / create / action / post) showing
-   the exact operation, executed — through the same router, as the confirmer
-   — only on the user's click. The model adds no authority of its own.
-3. **The MCP door** — a machine (an agent, a script, another Claude) speaking
-   the Model Context Protocol to `POST /mcp`.
+2. **The permitted in-app session** — a human *asking*. Its model receives the
+   route-derived `api__…` tool projection (spec MODEL-25): reads execute
+   immediately *as the sending user* and land as provenance rows; mutations
+   become consent cards executed — through the same router, as the confirmer
+   — only on the user's click. Recursive conversation and self-consent acts are
+   intrinsic host controls, not tools the model can call on itself.
+3. **The authenticated remote MCP session** — a machine (an agent, a script,
+   another Claude) speaking the Model Context Protocol to `POST /mcp` with the
+   same signed identity credential over bearer transport.
 
 **The rule (INV-11):** all access interfaces, though they may differ
 significantly in form, are **equally capable and gated by the same
@@ -31,26 +33,46 @@ no door has a private policy.
 
 ## 2. Why parity holds by construction
 
-The MCP server is a **transport wrapper**, not a second implementation:
+The route table owns the shared capability model. Every route is classified
+at registration:
 
-- Its **tool catalog is generated from the live route table**
-  (`Router.list()` → `server/mcp.ts`). A route added tomorrow is an MCP tool
-  tomorrow; there is no second list to forget.
-- Every `tools/call` **re-enters the router** over a synthetic request, so the
-  full middleware wall — the auth gate's 401, identity resolution, tenancy
-  404s, idempotency replay, capability 409s, rate limits — applies to an MCP
-  caller exactly as to the web UI. `server/mcp.ts` contains **no authorization
-  logic of its own**; if it ever grows some, INV-11 is broken.
-- The parity test (`server/mcp-parity.test.ts`) locks the bijection: every
-  route is a tool **or** carries an argued exclusion, and nothing is excluded
-  that isn't a real route.
+- **Product** is the default. It names an authenticated semantic capability
+  and is projected into the UI, the permitted in-app session, and remote MCP.
+- **Alias** means another route shape is only a projection of an existing
+  semantic capability (for example list and by-id reads). It must name the
+  capability and explain the equivalence beside the route.
+- **Session-intrinsic** means the in-app host already realizes the capability;
+  exposing it recursively as a model tool would allow self-prompting or
+  self-consent. It also carries a reason beside the route.
+- **Form** is protocol or credential ceremony rather than an authenticated
+  workspace capability: sign-in, browser account stacking, streams, health
+  probes, runner callbacks, and the MCP endpoint itself. A form must explain
+  itself. UI-presented forms and remote authentication bootstrap are marked
+  explicitly; neither is allowed to hide a product operation.
 
-The only non-tools are the stream-shaped routes (`GET /events`, the live turn
-stream, the relay long-poll) — a tool call is request/response, so live
-streams stay transport-specific *delivery* of state the tools can read. Each
-exclusion carries its argument in `MCP_EXCLUDED`. The send-message tool
-(`post_sessions_by_id_messages`) returns the reply stream as a parsed event
-array, so the core loop is fully usable over MCP.
+The projections are then mechanical:
+
+- `server/mcp.ts` generates the remote tool catalog from product routes plus
+  the declared remote authentication bootstrap forms.
+- `server/model/apiTools.ts` generates in-session tools from product routes,
+  with route-declared intrinsic capabilities supplied by the host.
+- `tests/access-surface-parity.test.ts` derives the shipped UI surface from
+  real `paths.*` calls through the API funnel and follows imports to actual
+  component/controller consumers. An unused wrapper cannot pretend the UI can
+  do something.
+
+The lock compares all three **semantic capability sets in both directions**.
+It also rejects a UI-used product operation reclassified as an undeclared
+form, and requires reasons for every alias, form, and intrinsic realization.
+This closes the old failure mode: the previous route↔remote-tool test never
+derived the UI and allowed private exclusion maps, so a UI-only maintainer
+surface could be omitted from both MCP catalogs while every test stayed green.
+
+Finally, every machine call **re-enters the router**, so the auth gate,
+identity, tenancy 404s, maintainer wall, idempotency, capability 409s, and rate
+limits are the same policies as the UI. Form may differ; capability and policy
+may not. The send-message remote tool parses its finite reply stream into an
+event array, while open-ended push remains a transport form.
 
 ## 3. One credential, two transports
 
@@ -166,8 +188,10 @@ Tool results are the JSON `{status, body}` of the underlying HTTP response.
 
 | Piece | File | Locked by |
 |---|---|---|
-| The endpoint, tool generation, dispatch, exclusions | `server/mcp.ts` | `server/mcp.test.ts`, `server/mcp-parity.test.ts` |
-| The enumerable route table | `server/http/router.ts` (`list()`) | `server/mcp-parity.test.ts` |
+| The endpoint, remote tool projection, and dispatch | `server/mcp.ts` | `server/mcp.test.ts`, `server/mcp-parity.test.ts` |
+| Route-owned capability/form/alias/intrinsic metadata | `server/http/router.ts` (`RouteAccess`, `list()`), `server/routes/index.ts` | `tests/access-surface-parity.test.ts` |
+| Reachable UI capability derivation | `src/api/keys.ts`, `src/api/hooks.ts`, `src/api/commands.ts` | `tests/access-surface-parity.test.ts` |
+| In-session generated tool projection | `server/model/apiTools.ts` | `tests/access-surface-parity.test.ts`, `server/model/api-tools.test.ts` |
 | Bearer resolution of the session credential | `server/identity.ts` | `server/routes/auth-bearer.test.ts` |
 | `transport: 'bearer'` minting | `server/routes/index.ts` (`mintSession`), `contract/api.ts` (`SessionTransport`, `BearerSession`) | `server/routes/auth-bearer.test.ts` |
 | Gate + rate-limit postures for `/mcp` | `server/routes/index.ts` | `server/mcp-parity.test.ts` |

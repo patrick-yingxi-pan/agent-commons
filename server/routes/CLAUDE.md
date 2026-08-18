@@ -11,6 +11,12 @@ line, which is what lets `server/apiSurface.ts` GENERATE the MCP and in-app tool
 surfaces from it rather than from a second hand-kept list (access parity,
 INV-11 — see [`docs/mcp-access.md`](../../docs/mcp-access.md)).
 
+Every route also owns its access classification. An ordinary product route is
+projected into the UI and both MCP forms by default. Protocol/credential form,
+semantic alias, and in-session intrinsic realizations must use the named router
+shorthands and explain the exception at registration; no access door keeps a
+private exclusion list.
+
 Beside it: the ~77 suites that lock those endpoints, one per resource or
 behavior. A suite here drives the **real** router through
 [`../testkit/http.ts`](../testkit/http.ts) — `buildRouter()` + the real store,

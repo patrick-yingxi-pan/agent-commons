@@ -56,7 +56,7 @@ const SCOPED_HOMES: Record<string, string[]> = {
   'server/routes/CLAUDE.md': ['plain data', 'testkit/http.ts'],
   'server/store/CLAUDE.md': ['rowVisibleTo', 'in-memory'],
   'server/http/CLAUDE.md': ['No resource knowledge here', 'Router.list()'],
-  'server/model/CLAUDE.md': ['ANTHROPIC_BASE_URL', 'MODEL_API_EXCLUDED'],
+  'server/model/CLAUDE.md': ['ANTHROPIC_BASE_URL', 'route itself'],
   'server/persistence/CLAUDE.md': ['atomic', 'STORE_VERSION', 'SPEC.md'],
   'server/data/CLAUDE.md': ['reconcileSeedTenancy', 'demo-accounts.md'],
   'server/testkit/CLAUDE.md': ['buildRouter()', 'No fixtures here'],

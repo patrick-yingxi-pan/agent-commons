@@ -145,6 +145,10 @@ export const paths = {
   meWork: '/me/work',
   orgMembers: (orgId: string) => `/orgs/${orgId}/members`,
   orgInvites: (orgId: string) => `/orgs/${orgId}/invites`,
+  orgInvite: (orgId: string, inviteId: string) =>
+    `/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(inviteId)}`,
+  myInviteAccept: (inviteId: string) => `/me/invites/${encodeURIComponent(inviteId)}/accept`,
+  myInviteDecline: (inviteId: string) => `/me/invites/${encodeURIComponent(inviteId)}/decline`,
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after
    *  `after`, then the live tail. 404 once persisted (refetch the session). */
   turnStream: (id: string, turnId: string, after: number) =>
@@ -153,6 +157,8 @@ export const paths = {
     `/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/cancel`,
   providers: '/providers',
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
+  providerRotate: (id: string) => `/providers/${encodeURIComponent(id)}/rotate`,
+  providerModelsRefresh: (id: string) => `/providers/${encodeURIComponent(id)}/models/refresh`,
   systemPrompts: '/system-prompts',
   systemPrompt: (id: string) => `/system-prompts/${encodeURIComponent(id)}`,
   agentTools: '/agent-tools',
@@ -271,6 +277,7 @@ export const paths = {
   reservationRelease: (id: string) => `/reservations/${encodeURIComponent(id)}/release`,
   sessions: '/sessions',
   session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
+  sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`,
   sessionContexts: (id: string) => `/sessions/${encodeURIComponent(id)}/contexts`,
   sessionContext: (id: string, contextId: string) =>
     `/sessions/${encodeURIComponent(id)}/contexts/${encodeURIComponent(contextId)}`,

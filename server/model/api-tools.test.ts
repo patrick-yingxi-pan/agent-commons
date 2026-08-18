@@ -2,9 +2,9 @@
  *  The model serving a conversation is declared one tool per HTTP operation,
  *  derived from the SAME catalog as the MCP door. This suite locks the three
  *  halves that make the leg equal-and-gated:
- *   1. DERIVATION — every route is a generated tool or carries an argued
- *      exclusion (the model leg's own list — the conversation plane, the
- *      identity/credential plane, machine edges); names collide with nothing;
+ *   1. DERIVATION — every product route is a generated tool or carries a
+ *      route-owned intrinsic realization (conversation recursion and consent
+ *      stay in the host); protocol/credential forms are not capabilities;
  *   2. SEMANTICS — a read executes NOW (as the user, provenance row on the
  *      message); a mutation only PROPOSES (a `proposed` activity carrying the
  *      exact operation + its consent-card family);
@@ -20,23 +20,16 @@ import { startModelServer } from './index.ts'
 import { buildRouter } from '../routes/index.ts'
 import { catalogOf } from '../apiSurface.ts'
 import { dispatch } from '../http/dispatch.ts'
-import { MODEL_API_EXCLUDED, deriveApiTools, familyFor, runApiTool, API_TOOL_PREFIX } from './apiTools.ts'
+import { deriveApiTools, familyFor, runApiTool, API_TOOL_PREFIX } from './apiTools.ts'
 import { TOOL_NAMES } from './tools.ts'
 
 // ── 1. Derivation ────────────────────────────────────────────────────────────
 
-test('every route is a generated model tool or an argued exclusion — and every exclusion is a real route', () => {
+test('every product route is a generated model tool or a route-declared intrinsic realization', () => {
   const catalog = catalogOf(buildRouter())
-  const routeKeys = new Set(catalog.map((op) => `${op.method} ${op.pattern}`))
-  for (const key of MODEL_API_EXCLUDED.keys()) {
-    assert.ok(routeKeys.has(key), `MODEL_API_EXCLUDED names a real route: ${key}`)
-  }
-  for (const reason of MODEL_API_EXCLUDED.values()) {
-    assert.ok(reason.length > 20, 'every exclusion carries its argument')
-  }
   const { definitions, byName } = deriveApiTools(catalog)
-  const expected = catalog.filter((op) => !MODEL_API_EXCLUDED.has(`${op.method} ${op.pattern}`))
-  assert.equal(definitions.length, expected.length, 'tool count = routes − argued exclusions, exactly')
+  const expected = catalog.filter((op) => op.access.kind === 'product' && op.access.session !== 'intrinsic')
+  assert.equal(definitions.length, expected.length, 'tool count = the route-owned in-session projection, exactly')
   assert.equal(byName.size, definitions.length, 'names are unique')
   for (const d of definitions) {
     assert.ok(d.name.startsWith(API_TOOL_PREFIX), 'generated tools wear the api__ namespace')
@@ -44,45 +37,36 @@ test('every route is a generated model tool or an argued exclusion — and every
   }
 })
 
-test('the model-leg exclusions are exactly the three argued planes + the stream forms', () => {
-  const keys = [...MODEL_API_EXCLUDED.keys()]
-  // Spot-lock the load-bearing members — the consent-resolution edge above all:
-  // a model that could confirm its own proposals would dissolve the entire gate.
-  for (const mustExclude of [
-    'POST /sessions/:id/tool-activities/:activityId',
-    'POST /sessions/:id/messages',
+test('the route-owned form and intrinsic classifications preserve the recursion and self-consent walls', () => {
+  const catalog = catalogOf(buildRouter())
+  const intrinsic = catalog
+    .filter((op) => op.access.kind === 'product' && op.access.session === 'intrinsic')
+    .map((op) => `${op.method} ${op.pattern}`)
+    .sort()
+  assert.deepEqual(intrinsic, [
     'POST /relations/ops',
+    'POST /sessions/:id/messages',
+    'POST /sessions/:id/tool-activities/:activityId',
+    'POST /sessions/:id/turns/:turnId/cancel',
+  ])
+  for (const mustBeForm of [
     'POST /auth/login',
     'POST /a2a/peers',
     'POST /providers/:id/rotate',
     'POST /runners',
     'GET /events',
-    'POST /admin/users/:id/deactivate',
   ]) {
-    assert.ok(keys.includes(mustExclude), `${mustExclude} must stay non-model-proposable`)
+    const op = catalog.find((candidate) => `${candidate.method} ${candidate.pattern}` === mustBeForm)
+    assert.equal(op?.access.kind, 'form', `${mustBeForm} stays form-only`)
   }
-  // And reads are NEVER excluded beyond the stream forms and the maintainer
-  // plane — the model may read whatever its user may read (the granted
-  // read-access policy); the `/admin/*` reads are the one argued exception
-  // (cross-tenant instance administration is the maintainer's own act).
-  const excludedReads = keys.filter((k) => k.startsWith('GET '))
-  assert.deepEqual(excludedReads.sort(), [
-    'GET /admin/audit',
-    'GET /admin/invites',
-    'GET /admin/ops',
-    'GET /admin/tenants',
-    'GET /admin/tokens',
-    'GET /admin/users',
-    'GET /events',
-    'GET /mcp',
-    'GET /relay/poll',
-    'GET /sessions/:id/turns/:turnId/stream',
-  ])
+  const { byName } = deriveApiTools(catalog)
+  assert.ok(byName.has('api__get_admin_users'), 'maintainer reads are present and rely on the same route wall')
+  assert.ok(byName.has('api__post_admin_users_by_id_deactivate'), 'maintainer mutations are consent-gated, not hidden')
 })
 
 test('the card family is chosen mechanically from the operation shape, total over the surface', () => {
   const catalog = catalogOf(buildRouter())
-  const included = catalog.filter((op) => !MODEL_API_EXCLUDED.has(`${op.method} ${op.pattern}`) && op.method !== 'GET')
+  const included = catalog.filter((op) => op.access.kind === 'product' && op.access.session !== 'intrinsic' && op.method !== 'GET')
   for (const op of included) {
     const family = familyFor(op)
     assert.ok(['create', 'edit', 'danger', 'action', 'post'].includes(family), `${op.method} ${op.pattern} classifies`)

@@ -21,7 +21,7 @@ on one resource — they are two files, and neither is folded into the other.
 What stays in `tests/` is what the **repo** owns and no module can: the doc-lint
 and cross-layer locks (`context-map`, `spec-conformance`, `doc-paths`,
 `suite-paths`, `review-rulebook`, `contract-boundaries`, `verify-plan`,
-`ui-sweep-coverage`) plus `helpers/source.ts`, which scans the whole tree. This
+`ui-sweep-coverage`, `access-surface-parity`) plus `helpers/source.ts`, which scans the whole tree. This
 directory is a home, not a leftover — if a suite here names one module as its
 subject, it has a better home.
 
