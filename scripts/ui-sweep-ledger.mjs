@@ -45,6 +45,8 @@ export const CELLS = [
   'scheduled-detail',
   'discussion-detail',
   'artifact-page',
+  'profile-detail',
+  'profile-section',
 ]
 
 /** Per-run coverage bookkeeping across every column. */

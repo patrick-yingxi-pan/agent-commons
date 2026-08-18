@@ -18,6 +18,8 @@
  *                           profile" child is a standing DOOR to it, never a
  *                           `/commons/profile` sub-view — a page with two
  *                           addresses is the thing this module exists to prevent
+ *    /u/:ownerName/:sectionId
+ *                           one structural section of that composite profile
  *    /:section              a section list (Projects, Agents, …)
  *    /:section/:subview     a section focused on a rail-tree child (ADAPT-13);
  *                           subview ids win over detail ids (reserved words,
@@ -48,7 +50,7 @@ import { DRAFT_ID } from '../data/liveSession.ts'
 import { SECTION_LABELS, type NavLocation } from './nav.ts'
 import { OWNER_SECTION } from './paneNav.ts'
 import { SECTION_SUBVIEWS } from './subviews.ts'
-import { isProjectSectionId, isScheduleSectionId } from './compositeSections.ts'
+import { isOwnerProfileSectionId, isProjectSectionId, isScheduleSectionId } from './compositeSections.ts'
 import { isCollectionSectionHost } from './collectionSections.ts'
 
 /** A parsed address: the page plus the section sub-view (which nav history
@@ -70,7 +72,12 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.kind === 'session') {
     return loc.sessionId === DRAFT_ID ? '/' : `/s/${encodeURIComponent(loc.sessionId)}`
   }
-  if (loc.ownerName) return `/u/${encodeURIComponent(loc.ownerName)}`
+  if (loc.ownerName) {
+    const base = `/u/${encodeURIComponent(loc.ownerName)}`
+    return loc.ownerSectionId && isOwnerProfileSectionId(loc.ownerSectionId)
+      ? `${base}/${encodeURIComponent(loc.ownerSectionId)}`
+      : base
+  }
   if (loc.promptId) return `/agents/prompts/${encodeURIComponent(loc.promptId)}`
   if (loc.toolId) return `/agents/tools/${encodeURIComponent(loc.toolId)}`
   if (loc.agentId) return `/agents/${encodeURIComponent(loc.agentId)}`
@@ -117,6 +124,19 @@ export function viewForPath(pathname: string): RoutedView | null {
   if (segs[0] === 'u' && segs.length === 2 && segs[1]) {
     return {
       loc: { kind: 'section', section: OWNER_SECTION, projectId: null, scheduleId: null, ownerName: segs[1] },
+      subview: null,
+    }
+  }
+  if (segs[0] === 'u' && segs.length === 3 && segs[1] && isOwnerProfileSectionId(segs[2])) {
+    return {
+      loc: {
+        kind: 'section',
+        section: OWNER_SECTION,
+        projectId: null,
+        scheduleId: null,
+        ownerSectionId: segs[2],
+        ownerName: segs[1],
+      },
       subview: null,
     }
   }

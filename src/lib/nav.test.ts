@@ -15,7 +15,14 @@ const session = (id: string, title = id): NavLocation => ({ kind: 'session', ses
 const list = (section: SectionId): NavLocation => ({ kind: 'section', section, projectId: null, scheduleId: null })
 const projectDetail = (id: string): NavLocation => ({ kind: 'section', section: 'projects', projectId: id, scheduleId: null })
 const routineDetail = (id: string): NavLocation => ({ kind: 'section', section: 'scheduled', projectId: null, scheduleId: id })
-const ownerProfile = (name: string): NavLocation => ({ kind: 'section', section: 'agents', projectId: null, scheduleId: null, ownerName: name })
+const ownerProfile = (name: string, ownerSectionId?: string): NavLocation => ({
+  kind: 'section',
+  section: 'commons',
+  projectId: null,
+  scheduleId: null,
+  ownerName: name,
+  ownerSectionId,
+})
 const adminUserDetail = (id: string): NavLocation => ({ kind: 'section', section: 'admin', projectId: null, scheduleId: null, adminUserId: id })
 
 test('sameLocation compares page identity, ignoring a session title', () => {
@@ -25,10 +32,11 @@ test('sameLocation compares page identity, ignoring a session title', () => {
   assert.ok(!sameLocation(projectDetail('p1'), projectDetail('p2')))
   assert.ok(!sameLocation(projectDetail('p1'), list('projects')), 'the list and a detail are different pages')
   assert.ok(!sameLocation(session('s1'), list('projects')))
-  // The workspace profile (D21) is a detail of the agents section, keyed by name.
+  // The workspace profile (D21) is a detail under Commons, keyed by name.
   assert.ok(sameLocation(ownerProfile('Ada Lab'), ownerProfile('Ada Lab')))
   assert.ok(!sameLocation(ownerProfile('Ada Lab'), ownerProfile('Bo Studio')))
-  assert.ok(!sameLocation(ownerProfile('Ada Lab'), list('agents')), 'a profile and the hub are different pages')
+  assert.ok(!sameLocation(ownerProfile('Ada Lab'), list('commons')), 'a profile and the hub are different pages')
+  assert.ok(!sameLocation(ownerProfile('Ada Lab'), ownerProfile('Ada Lab', 'network')))
   // The maintainer console's account detail (FWD-7 v1.1) is keyed by user id.
   assert.ok(sameLocation(adminUserDetail('user-grace'), adminUserDetail('user-grace')))
   assert.ok(!sameLocation(adminUserDetail('user-grace'), adminUserDetail('user-ada')))
@@ -102,6 +110,7 @@ test('EVERY detail kind names itself — a back label never says the section for
     projectId: { section: 'projects', names: { project: { x: 'Q4 launch planning' } }, want: 'Q4 launch planning' },
     scheduleSectionId: { section: 'scheduled', names: {}, want: 'Workflow', id: 'workflow' },
     scheduleId: { section: 'scheduled', names: { schedule: { x: 'Daily news briefing' } }, want: 'Daily news briefing' },
+    ownerSectionId: { section: 'commons', names: {}, want: 'Network', id: 'network' },
     ownerName: { section: 'commons', names: {}, want: 'x' },
     agentId: { section: 'agents', names: { agent: { x: 'Atlas Guide' } }, want: 'Atlas Guide' },
     promptId: { section: 'agents', names: { prompt: { x: 'Careful reviewer' } }, want: 'Careful reviewer' },
@@ -129,7 +138,7 @@ test('EVERY detail kind names itself — a back label never says the section for
     assert.equal(
       resolveBackLabel(to, {}),
       key === 'ownerName' ? 'x'
-      : key === 'projectSectionId' || key === 'scheduleSectionId' ? spec.want
+      : key === 'projectSectionId' || key === 'scheduleSectionId' || key === 'ownerSectionId' ? spec.want
       : SECTION_LABELS[spec.section],
       `${key} degrades to its section when unnamed`,
     )

@@ -19,6 +19,13 @@ import { ms } from './budget.ts'
 const sectionsNav = (page: Page) => page.getByRole('navigation', { name: 'Sections' })
 const sectionRow = (page: Page, name: string) =>
   sectionsNav(page).getByRole('button', { name, exact: true })
+const PROFILE_SECTION_LABELS = [
+  'Network',
+  'Shared projects',
+  'Commons activity',
+  'Published agents',
+  'Recent public activity',
+]
 
 test('the Commons carries a door to your own profile, and holds the highlight', async ({ page }) => {
   test.setTimeout(ms(120_000))
@@ -58,6 +65,29 @@ test('the Commons carries a door to your own profile, and holds the highlight', 
   // 404 face — an own profile serves however empty.
   await expect(page.getByRole('heading', { name: `${namespace} (you)` })).toBeVisible()
 
+  // ── Projection symmetry: the profile is a composite branch whose ordered
+  //    section rows are the main page's ordered structural sections ──────────
+  const profileTree = sectionsNav(page).locator(`[data-owner-profile-tree="${namespace}"]`)
+  const railSections = profileTree.locator('[data-owner-profile-section] > button[data-rail-entry]')
+  const expectedSections = PROFILE_SECTION_LABELS
+  await expect(railSections).toHaveText(expectedSections)
+  const mainSections = page.getByRole('main').locator('[data-resource-page-section]')
+  await expect(mainSections).toHaveCount(expectedSections.length)
+  expect(await mainSections.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-resource-section'))))
+    .toEqual(expectedSections)
+
+  // A section name is a real page door, not an inert table-of-contents label.
+  const network = profileTree.getByRole('button', { name: 'Network', exact: true })
+  await network.click()
+  await expect(page).toHaveURL(new RegExp(`/u/${encodeURIComponent(namespace).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/network$`))
+  await expect(network).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('main').locator('[data-resource-page-section]')).toHaveCount(1)
+  await expect(page.getByRole('main').locator('[data-resource-page-section]')).toHaveAttribute('data-resource-section', 'Network')
+
+  // Return to the profile overview before checking its standing highlight.
+  await door.click()
+  await expect(page).toHaveURL(new RegExp(`/u/${encodeURIComponent(namespace).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`))
+
   // ── The highlight: the CHILD is current, its parent is not, and Agents —
   //    which used to claim every profile — is untouched ──────────────────────
   await expect(door).toHaveAttribute('aria-current', 'page')
@@ -71,4 +101,50 @@ test('the Commons carries a door to your own profile, and holds the highlight', 
   const doorAfter = sectionsNav(page).getByRole('button', { name: 'Your profile', exact: true })
   await expect(doorAfter).toHaveAttribute('aria-current', 'page')
   await expect(sectionRow(page, 'Agents')).not.toHaveAttribute('aria-current', 'page')
+})
+
+async function switchTo(page: Page, name: string) {
+  await page.getByTestId('account-chip').click()
+  await page.getByTestId('account-stack-option').filter({ hasText: name }).first().click()
+  await expect(page.getByTestId('account-chip')).toContainText(name)
+}
+
+async function expectOwnProfileSymmetry(page: Page, name: string) {
+  await page.goto(`/u/${encodeURIComponent(name)}`)
+  await expect(page.getByRole('heading', { name: `${name} (you)` })).toBeVisible()
+  const profileTree = sectionsNav(page).locator(`[data-owner-profile-tree="${name}"]`)
+  await expect(profileTree.locator('[data-owner-profile-section] > button[data-rail-entry]')).toHaveText(PROFILE_SECTION_LABELS)
+  const mainSections = page.getByRole('main').locator('[data-resource-page-section]')
+  await expect(mainSections).toHaveCount(PROFILE_SECTION_LABELS.length)
+  expect(await mainSections.evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-resource-section'))))
+    .toEqual(PROFILE_SECTION_LABELS)
+}
+
+test('stacked test accounts keep profile symmetry and a foreign profile never claims Your profile', async ({ page }) => {
+  test.setTimeout(ms(120_000))
+  for (const [email, password] of [
+    ['ada@acme.example', 'ada-demo-password'],
+    ['grace@acme.example', 'grace-demo-password'],
+    ['maya@growthworks.example', 'maya-demo-password'],
+  ] as const) {
+    const login = await page.request.post('/api/v1/auth/login', { data: { email, password } })
+    expect(login.ok()).toBeTruthy()
+  }
+  await page.goto('/')
+  await expect(page.getByTestId('account-chip')).toContainText('Maya Chen')
+
+  await expectOwnProfileSymmetry(page, 'Maya Chen')
+  await switchTo(page, 'Grace Hopper')
+  await expectOwnProfileSymmetry(page, 'Grace Hopper')
+
+  // Maya can open Ada's public face, but the standing door still belongs to
+  // Maya's own namespace and therefore cannot claim the foreign profile page.
+  await switchTo(page, 'Maya Chen')
+  await page.goto('/u/Ada%20Lovelace')
+  await expect(page.getByRole('heading', { name: 'Ada Lovelace', exact: true })).toBeVisible()
+  await expect(sectionsNav(page).getByRole('button', { name: 'Your profile', exact: true })).not.toHaveAttribute('aria-current', 'page')
+
+  // Hand the stacked test context back to the flagship account.
+  await switchTo(page, 'Ada Lovelace')
+  await expectOwnProfileSymmetry(page, 'Ada Lovelace')
 })

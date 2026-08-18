@@ -53,7 +53,7 @@ test('a work item reveals its note and a lifecycle timestamp (S3)', async ({ pag
   // (the header byline reads "by X (you)", so exact-match targets the poster).
   const me = (await page.request.get('/api/v1/me').then((r) => r.json())) as { tenant: { name: string } }
   await page.getByRole('button', { name: me.tenant.name, exact: true }).first().click()
-  await expect(page.getByText('Recent public activity')).toBeVisible() // a profile-page section
+  await expect(page.getByRole('main').getByText('Recent public activity', { exact: true })).toBeVisible() // a profile-page section
 })
 
 /** FWD-5 Phase 3 — a standing contributor's resolution renders the FULL attribution
@@ -108,5 +108,5 @@ test('a standing resolution renders the attribution chain: agent + owner door (F
   const me = (await page.request.get('/api/v1/me').then((r) => r.json())) as { tenant: { name: string } }
   await expect(page.getByText(/agent of/)).toBeVisible()
   await page.getByRole('button', { name: me.tenant.name, exact: true }).first().click()
-  await expect(page.getByText('Recent public activity')).toBeVisible()
+  await expect(page.getByRole('main').getByText('Recent public activity', { exact: true })).toBeVisible()
 })

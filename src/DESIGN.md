@@ -505,10 +505,13 @@ captures routing differences without allowing a second hierarchy:
   address, so it links out of the section's URL grammar instead of extending it.
   There is exactly one (owner directive 2026-08-09): the Commons' **Your
   profile** (`kind: 'owner-profile'`), the door to your own public face. It is
-  the first entry in `SECTION_CHILDREN.commons` and renders through the same
-  `SubNavRow` projection as its siblings, rather than a rail-only component. It
-  sits with the social section rather than the account chip because *a profile
-  is a social page, not an account setting* — the chip switches who you are; this goes to
+  the first entry in `SECTION_CHILDREN.commons`. Because that destination is a
+  composite page, `OwnerProfileBranch` discloses the same ordered
+  `OWNER_PROFILE_SECTIONS` skeleton the main page renders — Network, Shared
+  projects, Commons activity, Published agents, and Recent public activity —
+  with canonical `/u/:name/:section` doors and addressable resource rows beneath
+  them. It sits with the social section rather than the account chip because *a
+  profile is a social page, not an account setting* — the chip switches who you are; this goes to
   what you look like to everyone else. It is a door and not a sub-view because
   the page already answers to `/u/:name`, and `/commons/profile` would be a
   second address for it. That also fixed where profiles LIVE: `OWNER_SECTION`

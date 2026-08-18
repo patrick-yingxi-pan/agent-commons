@@ -13,7 +13,7 @@
  *  its label is resolved at render from the live project / schedule names. */
 import type { SectionId } from '../types'
 import { PANE_SEED_KEYS, type PaneSeed } from './paneNav.ts'
-import { projectSection, scheduleSection } from './compositeSections.ts'
+import { ownerProfileSection, projectSection, scheduleSection } from './compositeSections.ts'
 import { collectionSectionLabel } from './collectionSections.ts'
 
 export type NavLocation =
@@ -29,7 +29,10 @@ export type NavLocation =
       projectSectionId?: string | null
       /** A section page inside a composite routine (`/scheduled/:id/:section`). */
       scheduleSectionId?: string | null
-      /** A workspace profile open under the agents section (D21) — the display name,
+      /** A section page inside a composite namespace profile
+       * (`/u/:name/:section`). */
+      ownerSectionId?: string | null
+      /** A workspace profile open under Commons (D21) — the display name,
        *  which IS the public handle. Optional so older call sites / history entries
        *  stay valid; absent ≡ null. */
       ownerName?: string | null
@@ -93,6 +96,7 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       a.projectId === b.projectId &&
       (a.scheduleSectionId ?? null) === (b.scheduleSectionId ?? null) &&
       a.scheduleId === b.scheduleId &&
+      (a.ownerSectionId ?? null) === (b.ownerSectionId ?? null) &&
       (a.ownerName ?? null) === (b.ownerName ?? null) &&
       (a.workItemId ?? null) === (b.workItemId ?? null) &&
       (a.contributionId ?? null) === (b.contributionId ?? null) &&
@@ -146,6 +150,7 @@ const DETAIL_LABEL: {
   projectId: (id, n) => n.project?.[id],
   scheduleSectionId: (id) => scheduleSection(id)?.label,
   scheduleId: (id, n) => n.schedule?.[id],
+  ownerSectionId: (id) => ownerProfileSection(id)?.label,
   // A namespace profile is its own label — the display name IS the page (D21).
   ownerName: (id) => id,
   // Both are pages nested below a Project section. The section id precedes

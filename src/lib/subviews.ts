@@ -65,7 +65,9 @@ export function isSubviewChild(child: SectionChild): child is Extract<SectionChi
  *     that has one, and one page ⇒ one URL is the rule this rail's navigation
  *     is built on. The discriminant keeps that routing difference inside the
  *     shared child projection; it no longer licenses a rail-only component or
- *     a second hand-maintained order.
+ *     a second hand-maintained order. The door is itself composite:
+ *     `OWNER_PROFILE_SECTIONS` supplies the same structural children to its
+ *     rail branch and main page.
  *
  *  Deliberately pure (only a type-only import), so `tests/` can import the
  *  registry without pulling the UI's icon deps. */

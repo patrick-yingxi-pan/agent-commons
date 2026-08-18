@@ -423,12 +423,13 @@ async function seedIds(page) {
     }
   }
   const arr = (v) => (Array.isArray(v) ? v : (v?.items ?? []))
-  const [projects, schedules, artifacts, discussions, sessions] = await Promise.all([
+  const [projects, schedules, artifacts, discussions, sessions, me] = await Promise.all([
     get('/projects'),
     get('/schedules'),
     get('/artifacts'),
     get('/discussions?mine=1'),
     get('/sessions'),
+    get('/me'),
   ])
   // Sessions that actually HAVE an attached context: the chip remove-confirm can
   // only be swept where a chip exists (the demo thread has none, so that check
@@ -451,6 +452,7 @@ async function seedIds(page) {
     scheduleId: arr(schedules)[0]?.id ?? null,
     artifactId: arr(artifacts)[0]?.id ?? null,
     discussionId: arr(discussions)[0]?.id ?? null,
+    ownerName: me?.tenant?.name ?? null,
   }
 }
 
@@ -620,6 +622,36 @@ for (const vp of VIEWPORTS) {
         } else unreachable(cell, `artifact ${ids.artifactId} did not render its canonical main page`)
       }
     } else unreachable(cell, 'no artifact exists for this account')
+
+    // A namespace profile is a composite just like a Project: its root and a
+    // structural section are separate cells, and the active profile address
+    // also exposes the mirrored rail branch. Keep the rail screenshot distinct
+    // on narrow viewports so opening the drawer cannot overwrite the main page.
+    cell = at('profile-detail')
+    if (ids.ownerName) {
+      const ownerPath = `/u/${encodeURIComponent(ids.ownerName)}`
+      if (await goTo(page, ownerPath, cell)) {
+        await noHScroll(page, cell)
+        await shot(page, cell.replace('/', '_'))
+        await sweepTriggers(page, vp, cell, page.locator('main'))
+        if (await openRailIfNarrow(page, vp, cell)) {
+          if (vp.narrow) await shot(page, `${cell.replace('/', '_')}_rail`)
+          covered(cell)
+          await closeRailIfNarrow(page, vp)
+        }
+      }
+    } else unreachable(cell, 'the signed-in account has no namespace name')
+
+    cell = at('profile-section')
+    if (ids.ownerName) {
+      const networkPath = `/u/${encodeURIComponent(ids.ownerName)}/network`
+      if (await goTo(page, networkPath, cell)) {
+        await noHScroll(page, cell)
+        await shot(page, cell.replace('/', '_'))
+        await sweepTriggers(page, vp, cell, page.locator('main'))
+        covered(cell)
+      }
+    } else unreachable(cell, 'the signed-in account has no namespace name')
   } catch (e) {
     note(`${vp.name}/*`, 'COVERAGE', `the column aborted: ${firstLine(e)}`)
   } finally {

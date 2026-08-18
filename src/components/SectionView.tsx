@@ -155,8 +155,10 @@ import {
   type AgentSectionId,
 } from '../lib/agentStructure'
 import {
+  ownerProfileSection,
   projectSection,
   scheduleSection,
+  type OwnerProfileSectionId,
   type ProjectSectionId,
   type ScheduleSectionId,
 } from '../lib/compositeSections'
@@ -421,6 +423,7 @@ export function SectionView({
   focusProjectSectionId = null,
   focusScheduleId = null,
   focusScheduleSectionId = null,
+  focusOwnerSectionId = null,
   focusOwnerName = null,
   focusWorkItemId = null,
   focusContributionId = null,
@@ -473,6 +476,8 @@ export function SectionView({
   focusScheduleId?: string | null
   /** A dedicated section page inside the open routine. */
   focusScheduleSectionId?: string | null
+  /** A dedicated section page inside the open namespace profile. */
+  focusOwnerSectionId?: string | null
   /** A namespace profile open under the COMMONS section (D21, `OWNER_SECTION`)
    *  — the display name. A profile is a social page, so the social section hosts
    *  it; it sat under Agents until 2026-08-09 only because profiles were first
@@ -570,6 +575,7 @@ export function SectionView({
       focusOwnerName ? (
         <OwnerProfilePage
           name={focusOwnerName}
+          sectionId={focusOwnerSectionId}
           onOpenProject={onOpenProject}
           onOpenAgentPage={onOpenAgentPage}
           onBack={onBack}
@@ -4455,21 +4461,24 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
 /** A profile's Commons band (S5): the actor's published shares + landings, as
  *  the VIEWER's feed filtered to that actor — the wall math stays the feed's
  *  (you see only what you could see anyway), and the cards are the same
- *  FeedCard projection. Renders nothing when the actor has no visible acts
- *  (no empty-band noise on a quiet profile). */
+ *  FeedCard projection. The structural section remains present when empty so
+ *  the main page and its rail projection keep the same skeleton. */
 function ProfileCommonsBand({ actor }: { actor: string }) {
   const mine = (useCommons().data ?? []).filter((i) => i.actor === actor)
-  if (mine.length === 0) return null
   return (
     <FoldSection
       title="Commons activity"
       summary={`${mine.length} public act${mine.length === 1 ? '' : 's'}`}
     >
-      <div className="space-y-4">
-        {mine.map((item) => (
-          <FeedCard key={item.id} item={item} />
-        ))}
-      </div>
+      {mine.length === 0 ? (
+        <Empty>No Commons activity yet.</Empty>
+      ) : (
+        <div className="space-y-4">
+          {mine.map((item) => (
+            <FeedCard key={item.id} item={item} />
+          ))}
+        </div>
+      )}
     </FoldSection>
   )
 }
@@ -10370,12 +10379,14 @@ function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
 
 function OwnerProfilePage({
   name,
+  sectionId,
   onOpenProject,
   onOpenAgentPage,
   onBack,
   backTo,
 }: {
   name: string
+  sectionId?: string | null
   onOpenProject: (id: string) => void
   onOpenAgentPage: (agentId: string) => void
   onBack: () => void
@@ -10404,8 +10415,11 @@ function OwnerProfilePage({
     )
   }
   const s = profile.stats
+  const selectedSection = ownerProfileSection(sectionId)
+  const showProfileSection = (id: OwnerProfileSectionId) =>
+    !selectedSection || selectedSection.id === id
   return (
-    <AtomicResourcePage>
+    <CompositeResourcePage section="commons" sectionPage={selectedSection !== undefined}>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3.5">
         <BackButton to={backTo} onBack={onBack} />
@@ -10416,8 +10430,11 @@ function OwnerProfilePage({
           <h1 className={PAGE_TITLE_CLASS}>
             {profileTitle(profile.name, profile.own)}
           </h1>
+          {selectedSection && (
+            <p className="mt-0.5 text-[13px] font-medium text-ink-soft">{selectedSection.label}</p>
+          )}
           <p className="mt-0.5 text-[13px] text-ink-soft">{profileTagline(profile.name)}</p>
-          <p className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-faint">
+          {!selectedSection && <p className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-ink-faint">
             {/* The aggregate counts sum this owner's agents — the door lands on
                 the Published-agents band, whose cards carry the per-agent lineage. */}
             <CreditLine
@@ -10447,7 +10464,7 @@ function OwnerProfilePage({
             <button onClick={() => followBandRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })} className={STANDING_DOOR_CLASS}>
               {profile.follow.following} following
             </button>
-          </p>
+          </p>}
         </div>
         </div>
         {/* The two acts a PERSON affords — the only controls on this page that
@@ -10464,8 +10481,9 @@ function OwnerProfilePage({
         </div>
       </header>
 
+      {!selectedSection && <CompositePageControls section="commons" />}
       <div>
-        {profile.org && (
+        {showProfileSection('organization') && profile.org && (
           <FoldSection title="Organization" summary={`${profile.org.role} seat`}>
             <OrgMemberPanel org={profile.org} />
           </FoldSection>
@@ -10478,7 +10496,7 @@ function OwnerProfilePage({
             This page renders inside split panes, so a viewport gate would put
             two roster columns in a 380px pane on a wide window (the UI-9 rule,
             locked by src/components/pane-safe-layout.test.ts — which caught this). */}
-        <div ref={followBandRef}>
+        {showProfileSection('network') && <div ref={followBandRef}>
           <FoldSection
             title="Network"
             summary={`${profile.follow.followers} followers · ${profile.follow.following} following`}
@@ -10500,9 +10518,9 @@ function OwnerProfilePage({
               />
             </div>
           </FoldSection>
-        </div>
+        </div>}
 
-        <FoldSection
+        {showProfileSection('shared-projects') && <FoldSection
           title="Shared projects"
           summary={`${profile.projects.length} project${profile.projects.length === 1 ? '' : 's'}`}
         >
@@ -10520,15 +10538,15 @@ function OwnerProfilePage({
               ))}
             </CardList>
           )}
-        </FoldSection>
+        </FoldSection>}
 
         {/* Commons activity (S5 profiles): what this owner PUBLISHED and
             LANDED — a viewer-walled projection of the feed (the caller's own
             Commons read filtered to this actor, so the wall math is the feed's;
             display names are the D21 handle, matching the page's identity key). */}
-        <ProfileCommonsBand actor={profile.name} />
+        {showProfileSection('commons-activity') && <ProfileCommonsBand actor={profile.name} />}
 
-        <div ref={agentsBandRef}>
+        {showProfileSection('published-agents') && <div ref={agentsBandRef}>
           <FoldSection
             title="Published agents"
             summary={`${profile.agents.length} agent${profile.agents.length === 1 ? '' : 's'}`}
@@ -10548,9 +10566,9 @@ function OwnerProfilePage({
               </CardList>
             )}
           </FoldSection>
-        </div>
+        </div>}
 
-        <FoldSection
+        {showProfileSection('recent-public-activity') && <FoldSection
           title="Recent public activity"
           summary={`${s.workPosted} posted · ${s.workResolved} resolved`}
         >
@@ -10611,10 +10629,14 @@ function OwnerProfilePage({
               ))}
             </ul>
           )}
-        </FoldSection>
+        </FoldSection>}
+
+        {selectedSection?.id === 'organization' && !profile.org && (
+          <PageEmpty>This profile has no organization section.</PageEmpty>
+        )}
       </div>
 
-    </AtomicResourcePage>
+    </CompositeResourcePage>
   )
 }
 

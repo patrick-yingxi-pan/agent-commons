@@ -1,8 +1,9 @@
 /** ── The rail tree's kinds of child ─────────────────────────────────────────
  *  A rail child is a PLACE (src/lib/subviews.ts): a declared surface, one
  *  INSTANCE of the section's list, or a fixed canonical door declared in the
- *  shared registry. Sidebar renders fixed children generically; this module
- *  renders live instances. The instance kind is the
+ *  shared registry. Sidebar renders atomic fixed children generically and
+ *  delegates the composite profile door here; this module also renders live
+ *  instances. The instance kind is the
  *  top rows of the very list the section page shows, in the same order, sliced
  *  by `RAIL_INSTANCE_CAP` with a tail row that UNFOLDS the rest in place. The
  *  section row mirrors the page's Filter & sort control over the same state.
@@ -36,6 +37,7 @@ import {
   useMyDiscussions,
   useMyOrgs,
   useOpenSubGoals,
+  useOwnerProfile,
   useProviders,
   useSavedContexts,
   useSystemPrompts,
@@ -43,7 +45,7 @@ import {
 import { useRelations } from '../controller/useRelations'
 import { discussionTitle } from '../../contract/social.ts'
 import type { Project, SectionId } from '../types'
-import type { PaneSeed } from '../lib/paneNav'
+import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import {
   SIDEBAR_BRANCH,
   SIDEBAR_ENTRY_LEAD,
@@ -56,8 +58,11 @@ import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { useSectionFilter } from '../lib/useSectionFilter'
 import { groupProjects, listArtifacts, listContexts, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
 import {
+  OWNER_PROFILE_SECTIONS,
   PROJECT_SECTIONS,
+  visibleOwnerProfileSections,
   visibleCompositeSections,
+  type OwnerProfileSectionId,
   type ProjectSectionId,
 } from '../lib/compositeSections'
 import { AGENT_SECTIONS, agentSectionForSubview, agentToolLabel } from '../lib/agentStructure'
@@ -334,6 +339,225 @@ function cappedWithActive<T>(
   const visible = rows.slice(0, RAIL_INSTANCE_CAP)
   const current = rows.find(active)
   return current && !visible.includes(current) ? [...visible, current] : visible
+}
+
+type ProfileResourceRow = {
+  key: string
+  label: string
+  active: boolean
+  open: () => void
+}
+
+/** The fixed Commons door is itself a composite resource. Its disclosed
+ * section skeleton is the same registry OwnerProfilePage renders, and the
+ * canonical rows inside Network / Shared projects / Published agents sit one
+ * level deeper just as they do on the page. */
+export function OwnerProfileBranch({
+  name,
+  label,
+  profileActive,
+  activeSeed,
+  onOpenRoot,
+  onOpenDetail,
+  foldSignal,
+}: {
+  name: string
+  label: string
+  profileActive: boolean
+  activeSeed?: PaneSeed | null
+  onOpenRoot: () => void
+  onOpenDetail: InstanceChildProps['onOpenDetail']
+  foldSignal?: RailFoldSignal | null
+}) {
+  const profile = useOwnerProfile(name).data
+  const nodeKey = railNodeKey('section', OWNER_SECTION, 'owner', name)
+  const forcedOpen = useForcedRailAncestor(nodeKey)
+  const [expanded, setExpanded] = useState(profileActive)
+  useEffect(() => {
+    if (profileActive) setExpanded(true)
+  }, [profileActive])
+  useEffect(() => {
+    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
+  }, [foldSignal, nodeKey])
+
+  const sections = visibleOwnerProfileSections(profile?.org !== undefined)
+  const rootActive = profileActive && !activeSeed?.ownerSectionId
+  const disclosed = expanded || forcedOpen
+  const people = (rows: NonNullable<typeof profile>['follow']['followerList']): ProfileResourceRow[] =>
+    rows.map((row) => ({
+      key: `owner:${row.name}`,
+      label: row.name,
+      active: activeSeed?.ownerName === row.name && !activeSeed.ownerSectionId,
+      open: () => onOpenDetail(OWNER_SECTION, { ownerName: row.name }),
+    }))
+  const resources: Partial<Record<OwnerProfileSectionId, ProfileResourceRow[]>> = profile ? {
+    'shared-projects': profile.projects.map((project) => ({
+      key: `project:${project.id}`,
+      label: project.name,
+      active: activeSeed?.projectId === project.id,
+      open: () => onOpenDetail('projects', { projectId: project.id }),
+    })),
+    'published-agents': profile.agents.map((agent) => ({
+      key: `agent:${agent.id}`,
+      label: agent.label,
+      active: activeSeed?.agentId === agent.id,
+      open: () => onOpenDetail('agents', { agentId: agent.id }),
+    })),
+  } : {}
+
+  return (
+    <RailTreeNode nodeKey={nodeKey}>
+      <div
+        data-rail-node-row
+        data-rail-entry-kind="view"
+        className={sidebarEntryClass('view', rootActive)}
+      >
+        <RailEntryLead
+          label={label}
+          expanded={disclosed}
+          onToggle={() => setExpanded((value) => !value)}
+        />
+        <button
+          data-rail-entry
+          onClick={onOpenRoot}
+          title={`Your public profile — everything ${name} shares`}
+          aria-current={rootActive ? 'page' : undefined}
+          className="min-w-0 flex-1 truncate text-left"
+        >
+          {label}
+        </button>
+      </div>
+      {disclosed && (
+        <RailTreeBranch data-owner-profile-tree={name}>
+          {sections.map((section) => {
+            const rows = resources[section.id] ?? []
+            return (
+              <OwnerProfileSectionBranch
+                key={section.id}
+                name={name}
+                section={section}
+                rows={rows}
+                profileActive={profileActive}
+                activeSeed={activeSeed}
+                onOpenDetail={onOpenDetail}
+                foldSignal={foldSignal}
+              >
+                {section.id === 'network' ? (
+                  <>
+                    <RailListPartition label="Followers" fallbackLabel="Followers">
+                      <ProfileResourceRows
+                        nodeKey={`${railNodeKey('section', OWNER_SECTION, 'owner', name, 'section', section.id)}/followers`}
+                        rows={profile ? people(profile.follow.followerList) : []}
+                        empty="No followers."
+                      />
+                    </RailListPartition>
+                    <RailListPartition label="Following" fallbackLabel="Following">
+                      <ProfileResourceRows
+                        nodeKey={`${railNodeKey('section', OWNER_SECTION, 'owner', name, 'section', section.id)}/following`}
+                        rows={profile ? people(profile.follow.followingList) : []}
+                        empty="Not following anyone."
+                      />
+                    </RailListPartition>
+                  </>
+                ) : undefined}
+              </OwnerProfileSectionBranch>
+            )
+          })}
+        </RailTreeBranch>
+      )}
+    </RailTreeNode>
+  )
+}
+
+function OwnerProfileSectionBranch({
+  name,
+  section,
+  rows,
+  profileActive,
+  activeSeed,
+  onOpenDetail,
+  foldSignal,
+  children,
+}: {
+  name: string
+  section: (typeof OWNER_PROFILE_SECTIONS)[number]
+  rows: ProfileResourceRow[]
+  profileActive: boolean
+  activeSeed?: PaneSeed | null
+  onOpenDetail: InstanceChildProps['onOpenDetail']
+  foldSignal?: RailFoldSignal | null
+  children?: ReactNode
+}) {
+  const sectionActive = profileActive && activeSeed?.ownerSectionId === section.id
+  const nodeKey = railNodeKey('section', OWNER_SECTION, 'owner', name, 'section', section.id)
+  const forcedOpen = useForcedRailAncestor(nodeKey)
+  const [expanded, setExpanded] = useState(sectionActive)
+  useEffect(() => {
+    if (sectionActive) setExpanded(true)
+  }, [sectionActive])
+  useEffect(() => {
+    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
+  }, [foldSignal, nodeKey])
+  const hasResources = rows.length > 0 || children !== undefined
+  const disclosed = expanded || forcedOpen
+  return (
+    <RailTreeNode nodeKey={nodeKey}>
+      <div
+        data-rail-node-row
+        data-owner-profile-section={section.id}
+        data-rail-entry-kind="group"
+        className={sidebarEntryClass('group', sectionActive)}
+      >
+        {hasResources ? (
+          <RailEntryLead
+            label={section.label}
+            expanded={disclosed}
+            onToggle={() => setExpanded((value) => !value)}
+          />
+        ) : <RailEntryLead />}
+        <button
+          data-rail-entry
+          onClick={() => onOpenDetail(OWNER_SECTION, { ownerName: name, ownerSectionId: section.id })}
+          aria-current={sectionActive ? 'page' : undefined}
+          className="min-w-0 flex-1 truncate text-left"
+        >
+          {section.label}
+        </button>
+        {rows.length > 0 && (
+          <span className="shrink-0 text-[10px] font-normal text-ink-faint">{rows.length}</span>
+        )}
+      </div>
+      {hasResources && disclosed && (
+        <RailTreeBranch data-owner-profile-section-resources={section.id}>
+          {children ?? <ProfileResourceRows nodeKey={nodeKey} rows={rows} />}
+        </RailTreeBranch>
+      )}
+    </RailTreeNode>
+  )
+}
+
+function ProfileResourceRows({ nodeKey, rows, empty }: { nodeKey: string; rows: ProfileResourceRow[]; empty?: string }) {
+  const [showAll, setShowAll] = useState(false)
+  if (rows.length === 0 && empty) return <NoRowsRow>{empty}</NoRowsRow>
+  const visible = cappedWithActive(rows, showAll, (row) => row.active)
+  const hidden = rows.length - visible.length
+  return (
+    <>
+      {visible.map((row) => (
+        <SubNavRow
+          key={row.key}
+          nodeKey={`${nodeKey}/item/${encodeURIComponent(row.key)}`}
+          label={row.label}
+          title={row.label}
+          active={row.active}
+          onClick={row.open}
+        />
+      ))}
+      {(showAll || hidden > 0) && (
+        <ShowAllRow hidden={hidden} open={showAll} onToggle={() => setShowAll((value) => !value)} />
+      )}
+    </>
+  )
 }
 
 /** Agents is a composite rather than a flat surface switcher. The same

@@ -1,4 +1,4 @@
-import { PROJECT_SECTIONS, SCHEDULE_SECTIONS } from './compositeSections.ts'
+import { OWNER_PROFILE_SECTIONS, PROJECT_SECTIONS, SCHEDULE_SECTIONS } from './compositeSections.ts'
 
 /** ── The account resource ontology ──────────────────────────────────────────
  *
@@ -15,6 +15,7 @@ import { PROJECT_SECTIONS, SCHEDULE_SECTIONS } from './compositeSections.ts'
  */
 
 export const ACCOUNT_RESOURCE_NATURE = {
+  profile: 'composite',
   project: 'composite',
   schedule: 'composite',
   work: 'atomic',
@@ -34,6 +35,7 @@ const sectionChildKinds = (sections: readonly { childKinds: readonly string[] }[
   [...new Set(sections.flatMap((section) => section.childKinds))]
 
 export const COMPOSITE_CHILD_KINDS = {
+  profile: sectionChildKinds(OWNER_PROFILE_SECTIONS),
   project: sectionChildKinds(PROJECT_SECTIONS),
   schedule: sectionChildKinds(SCHEDULE_SECTIONS),
 } as const satisfies Record<

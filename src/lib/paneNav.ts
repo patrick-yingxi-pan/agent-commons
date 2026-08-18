@@ -41,6 +41,9 @@ export interface PaneSeed {
    * `scheduleId`; the parent overview omits it. */
   scheduleSectionId?: string
   scheduleId?: string
+  /** An addressable section inside a namespace profile. Meaningful only with
+   * `ownerName`; the profile overview omits it. */
+  ownerSectionId?: string
   ownerName?: string
   workItemId?: string
   /** A contribution's page under its project (the PR-page analog, workflow
@@ -68,7 +71,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
+export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerSectionId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.

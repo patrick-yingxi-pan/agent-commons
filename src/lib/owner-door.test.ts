@@ -80,7 +80,8 @@ test('the shared fixed-child registry carries the canonical door first under Com
   assert.doesNotMatch(children, /OwnerProfileChild/, 'the door is not a rail-only component')
   assert.match(sidebar, /children\.map\(\(child\) => child\.kind === 'owner-profile'/)
   assert.match(sidebar, /label=\{child\.label\}/, 'every fixed child reads its shared label')
-  assert.match(sidebar, /<SubNavRow\s/, 'the canonical door wears the same row primitive as every subview')
+  assert.match(sidebar, /<OwnerProfileBranch\s/, 'the canonical door delegates to the shared composite branch')
+  assert.match(children, /data-rail-entry-kind="view"/, 'the profile root keeps the fixed-child row role')
 })
 
 test('every fixed child kind makes its section expandable through the same registry', () => {
@@ -117,7 +118,10 @@ test('a profile open in the pane un-lights the Commons row — the child holds t
   )
   assert.match(
     sidebar,
-    /active=\{activeSection === id && activeSeed\?\.ownerName === tenantName\}/,
-    'and the child is lit only when the pane shows YOUR profile in this section',
+    /profileActive=\{activeSection === id && activeSeed\?\.ownerName === tenantName\}/,
+    'the branch receives whether the pane shows YOUR profile in this section',
   )
+  const children = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
+  assert.match(children, /const rootActive = profileActive && !activeSeed\?\.ownerSectionId/)
+  assert.match(children, /const sectionActive = profileActive && activeSeed\?\.ownerSectionId === section\.id/)
 })

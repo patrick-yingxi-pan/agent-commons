@@ -197,7 +197,7 @@ test('a recognized detail URL that cannot resolve keeps one honest unavailable m
 })
 
 test('every detail page derives from the template matching its resource nature', () => {
-  for (const name of ['ProjectDetail', 'ScheduledDetail']) {
+  for (const name of ['ProjectDetail', 'ScheduledDetail', 'OwnerProfilePage']) {
     const page = fn(name)
     assert.match(page, /<CompositeResourcePage\b/, `${name} derives from the composite template`)
     assert.match(page, /<CompositePageControls\b/, `${name} offers the template's discovered fold controls`)
@@ -206,7 +206,6 @@ test('every detail page derives from the template matching its resource nature',
   for (const name of [
     'ContextDetail',
     'ProviderDetailPage',
-    'OwnerProfilePage',
     'AgentPublicPage',
     'PromptDetailPage',
     'ToolDetailPage',

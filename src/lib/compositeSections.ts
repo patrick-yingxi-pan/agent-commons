@@ -49,8 +49,21 @@ export const SCHEDULE_SECTIONS = [
   { id: 'discussion', label: 'Discussion', visibility: 'all', childKinds: ['discussion'] },
 ] as const satisfies readonly CompositeSectionSpec[]
 
+/** A namespace profile is a composite social resource, not an atomic card. Its
+ * rail branch mirrors these main-page sections in this order. Organization is
+ * viewer-relative and appears only when the profile response carries a seat. */
+export const OWNER_PROFILE_SECTIONS = [
+  { id: 'organization', label: 'Organization', visibility: 'all', childKinds: [] },
+  { id: 'network', label: 'Network', visibility: 'all', childKinds: ['profile'] },
+  { id: 'shared-projects', label: 'Shared projects', visibility: 'all', childKinds: ['project'] },
+  { id: 'commons-activity', label: 'Commons activity', visibility: 'all', childKinds: [] },
+  { id: 'published-agents', label: 'Published agents', visibility: 'all', childKinds: ['agent'] },
+  { id: 'recent-public-activity', label: 'Recent public activity', visibility: 'all', childKinds: [] },
+] as const satisfies readonly CompositeSectionSpec[]
+
 export type ProjectSectionId = (typeof PROJECT_SECTIONS)[number]['id']
 export type ScheduleSectionId = (typeof SCHEDULE_SECTIONS)[number]['id']
+export type OwnerProfileSectionId = (typeof OWNER_PROFILE_SECTIONS)[number]['id']
 
 export function projectSection(id: string | null | undefined) {
   return PROJECT_SECTIONS.find((section) => section.id === id)
@@ -60,12 +73,24 @@ export function scheduleSection(id: string | null | undefined) {
   return SCHEDULE_SECTIONS.find((section) => section.id === id)
 }
 
+export function ownerProfileSection(id: string | null | undefined) {
+  return OWNER_PROFILE_SECTIONS.find((section) => section.id === id)
+}
+
 export function isProjectSectionId(id: string): id is ProjectSectionId {
   return projectSection(id) !== undefined
 }
 
 export function isScheduleSectionId(id: string): id is ScheduleSectionId {
   return scheduleSection(id) !== undefined
+}
+
+export function isOwnerProfileSectionId(id: string): id is OwnerProfileSectionId {
+  return ownerProfileSection(id) !== undefined
+}
+
+export function visibleOwnerProfileSections(hasOrganization: boolean) {
+  return OWNER_PROFILE_SECTIONS.filter((section) => section.id !== 'organization' || hasOrganization)
 }
 
 export function visibleCompositeSections<T extends CompositeSectionSpec>(sections: readonly T[], own: boolean): readonly T[] {

@@ -59,7 +59,7 @@ test('project and routine details round-trip', () => {
 })
 
 test('every composite section is a canonical page between its parent and resources', async () => {
-  const { PROJECT_SECTIONS, SCHEDULE_SECTIONS } = await import('./compositeSections.ts')
+  const { OWNER_PROFILE_SECTIONS, PROJECT_SECTIONS, SCHEDULE_SECTIONS } = await import('./compositeSections.ts')
   for (const projectSection of PROJECT_SECTIONS) {
     const loc = section({ projectId: 'p_42', projectSectionId: projectSection.id })
     const path = `/projects/p_42/${projectSection.id}`
@@ -69,6 +69,12 @@ test('every composite section is a canonical page between its parent and resourc
   for (const routineSection of SCHEDULE_SECTIONS) {
     const loc = section({ section: 'scheduled', scheduleId: 'sch_1', scheduleSectionId: routineSection.id })
     const path = `/scheduled/sch_1/${routineSection.id}`
+    assert.equal(pathForView(loc, null), path)
+    assert.deepEqual(viewForPath(path), { loc, subview: null })
+  }
+  for (const profileSection of OWNER_PROFILE_SECTIONS) {
+    const loc = section({ section: OWNER_SECTION, ownerName: 'Ada Lovelace', ownerSectionId: profileSection.id })
+    const path = `/u/Ada%20Lovelace/${profileSection.id}`
     assert.equal(pathForView(loc, null), path)
     assert.deepEqual(viewForPath(path), { loc, subview: null })
   }
@@ -206,7 +212,7 @@ test('a namespace profile lives under /u/ and survives names needing encoding', 
   assert.deepEqual(viewForPath(path), { loc, subview: null })
 })
 
-test('the profile has exactly ONE address — the rail\'s "Your profile" is a door, not a sub-view', () => {
+test('the profile has one canonical address tree — never a Commons sub-view alias', () => {
   // The standing-door rule (src/lib/subviews.ts). Registering the row as a
   // Commons sub-view would make `/commons/profile` a second address for the
   // page `/u/:name` already serves, and a reserved sub-view id beats a detail
@@ -222,6 +228,7 @@ test('the profile has exactly ONE address — the rail\'s "Your profile" is a do
     loc: section({ section: OWNER_SECTION, ownerName: 'Grace Hopper' }),
     subview: null,
   })
+  assert.equal(viewForPath('/u/Grace%20Hopper/not-a-section'), null)
 })
 
 test('addresses the app does not serve parse to null (stay on the default, never guess)', () => {

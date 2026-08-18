@@ -176,6 +176,7 @@ export function SectionPane({
         focusProjectSectionId={focus.projectSectionId}
         focusScheduleId={focus.scheduleId}
         focusScheduleSectionId={focus.scheduleSectionId}
+        focusOwnerSectionId={focus.ownerSectionId}
         focusOwnerName={focus.ownerName}
         focusWorkItemId={focus.workItemId}
         focusContributionId={focus.contributionId}

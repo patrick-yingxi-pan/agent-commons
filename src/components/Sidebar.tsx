@@ -39,6 +39,7 @@ import { SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
 import {
   AgentTreeChildren,
+  OwnerProfileBranch,
   RailRootScope,
   RailEntryLead,
   RailCollectionTemplate,
@@ -691,17 +692,21 @@ export function Sidebar({
                   ) : children ? (
                     children.map((child) => child.kind === 'owner-profile' ? (
                       tenantName && onOpenOwner ? (
-                        <SubNavRow
+                        <OwnerProfileBranch
                           key={child.id}
-                          nodeKey={railNodeKey('section', id, 'owner', tenantName)}
+                          name={tenantName}
                           label={child.label}
-                          title={`Your public profile — everything ${tenantName} shares`}
-                          kind="view"
-                          active={activeSection === id && activeSeed?.ownerName === tenantName}
-                          onClick={() => {
+                          profileActive={activeSection === id && activeSeed?.ownerName === tenantName}
+                          activeSeed={activeSeed}
+                          onOpenRoot={() => {
                             onOpenOwner(tenantName)
                             onLeafNavigate?.()
                           }}
+                          onOpenDetail={(section, seed) => {
+                            onOpenDetail(section, seed)
+                            onLeafNavigate?.()
+                          }}
+                          foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
                         />
                       ) : null
                     ) : (
