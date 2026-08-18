@@ -74,3 +74,10 @@ test('Sessions is registered from the contract through navigation and its main p
   assert.match(page, /section === 'sessions'/)
   assert.match(page, /<SessionsSection\b/)
 })
+
+test('Sessions heads the resource forest immediately before Commons', () => {
+  const registry = stripComments(read(join(ROOT, 'src', 'lib', 'sections.tsx')))
+  const orderBody = registry.match(/SECTION_ORDER[^=]*=\s*\[([\s\S]*?)\]/)?.[1] ?? ''
+  const order = [...orderBody.matchAll(/'([^']+)'/g)].map((match) => match[1])
+  assert.deepEqual(order.slice(0, 2), ['sessions', 'commons'])
+})

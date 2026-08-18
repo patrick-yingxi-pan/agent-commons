@@ -34,7 +34,13 @@ test('the Commons carries a door to your own profile, and holds the highlight', 
   const namespace = me.tenant.name
   expect(namespace, 'the boot identity carries a namespace name').toBeTruthy()
 
-  // ── Expand the Commons: the standing door sits FIRST, above the lenses ──
+  // Conversation history heads the account-resource forest; the shared social
+  // root follows it. Neither is hidden in a utility container.
+  const roots = sectionsNav(page).locator('[data-rail-entry-kind="root"] > button[data-rail-entry]')
+  await expect(roots.nth(0)).toContainText('Sessions')
+  await expect(roots.nth(1)).toContainText('Commons')
+
+  // ── Expand Commons: the shared fixed-child projection owns this order ────
   const expand = sectionsNav(page).getByRole('button', { name: 'Expand Commons' })
   if (await expand.count()) await expand.click()
   const door = sectionsNav(page).getByRole('button', { name: 'Your profile', exact: true })

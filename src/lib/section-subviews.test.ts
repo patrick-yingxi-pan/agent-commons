@@ -19,41 +19,55 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, concatSource, stripComments } from '../../tests/helpers/source.ts'
-import { COMMONS_LENSES, RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY, SECTION_SUBVIEWS } from './subviews.ts'
+import {
+  COMMONS_LENSES,
+  OWNER_PROFILE_DOOR,
+  RAIL_INSTANCE_CAP,
+  SECTION_CHILDREN,
+  SECTION_INSTANCE_KEY,
+  SECTION_SUBVIEWS,
+} from './subviews.ts'
 import { SECTION_FILTERS, ALL_FACET, clampSectionFilter } from './sectionFilter.ts'
 import { AGENT_SUBVIEWS } from './agentStructure.ts'
 // Every section id — from the pure nav module, since `lib/sections.tsx` carries
 // the icons (a .tsx node --test can't load).
 import { SECTION_LABELS } from './nav.ts'
 
-test('the subview registry holds only SURFACE hubs — every facet has left it', () => {
+test('the fixed-child registry owns shared order while URL subviews remain canonical', () => {
   // Agents and the maintainer console: children that are genuinely different
-  // PAGES. The Commons' four are the viewer's own standing collections — not a
+  // PAGES. The Commons' five lenses are the viewer's own standing collections — not a
   // slice of the feed's content, which is why they are places and `shares` /
   // `landings` is a filter.
+  assert.deepEqual(Object.keys(SECTION_CHILDREN).sort(), ['admin', 'agents', 'commons'])
   assert.deepEqual(Object.keys(SECTION_SUBVIEWS).sort(), ['admin', 'agents', 'commons'])
   // `following` (S7) joins them as the fifth — and the only one keyed on WHO
   // ACTED rather than on the subject, which is what makes the feed social.
   assert.deepEqual(COMMONS_LENSES.map((s) => s.id), ['following', 'watched', 'liked', 'posted', 'viewed'])
+  assert.equal(SECTION_CHILDREN.commons?.[0], OWNER_PROFILE_DOOR)
+  assert.deepEqual(SECTION_CHILDREN.commons?.map((child) => [child.kind, child.id]), [
+    ['owner-profile', 'profile'],
+    ...COMMONS_LENSES.map((lens) => ['subview', lens.id]),
+    ['subview', 'browse'],
+  ])
   assert.deepEqual(SECTION_SUBVIEWS.commons.map((s) => s.id), [
     ...COMMONS_LENSES.map((s) => s.id),
     'browse',
   ], 'the directory is a real surface instead of a page-only list')
   assert.deepEqual(SECTION_SUBVIEWS.agents, AGENT_SUBVIEWS, 'Agents addresses derive from its nested structure')
   assert.deepEqual(SECTION_SUBVIEWS.admin.map((s) => s.id), ['orgs', 'credentials', 'audit', 'ops'])
-  for (const subs of Object.values(SECTION_SUBVIEWS)) {
-    const ids = subs.map((s) => s.id)
+  for (const children of Object.values(SECTION_CHILDREN)) {
+    const ids = children.map((child) => child.id)
     assert.equal(new Set(ids).size, ids.length, 'child ids unique per section')
-    for (const s of subs) assert.ok(s.label.trim(), `${s.id} needs a label`)
+    for (const child of children) assert.ok(child.label.trim(), `${child.id} needs a label`)
     assert.ok(!ids.includes('all'), 'no "all" child — the section row is the all view')
   }
 })
 
-test('a section has ONE kind of child: surfaces or instances, never both', () => {
+test('a section has ONE kind of list child: fixed children or instances, never both', () => {
   for (const id of Object.keys(SECTION_LABELS)) {
     assert.ok(
-      !(SECTION_SUBVIEWS[id] && SECTION_INSTANCE_KEY[id]),
-      `${id} declares surfaces AND instances — a tree row has one kind of child`,
+      !(SECTION_CHILDREN[id] && SECTION_INSTANCE_KEY[id]),
+      `${id} declares fixed children AND instances — a tree row has one kind of list child`,
     )
   }
   // Scheduled is now an ordinary instance branch. Its richer routine filter is
@@ -177,7 +191,7 @@ test('a facet has one live value and no bespoke second filter grammar', () => {
 
 test('the rail is an inline disclosure tree, not a drill-in push', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
-  assert.match(sidebar, /SECTION_SUBVIEWS/, 'the rail reads the surface registry')
+  assert.match(sidebar, /SECTION_CHILDREN/, 'the rail reads the complete fixed-child registry')
   assert.match(sidebar, /SECTION_INSTANCE_KEY/, 'and the instance registry')
   assert.match(sidebar, /function SectionTreeRow/, 'sections render as disclosure-tree rows')
   assert.match(sidebar, /toggleExpand/, 'nodes expand/collapse in place')
@@ -186,7 +200,7 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
   // One predicate decides whether a row expands, so both kinds of child are
   // treated identically by every expand / fold-all / deep-link mechanism.
   assert.match(sidebar, /function hasChildren\(id: SectionId\)/)
-  assert.match(sidebar, /!!SECTION_SUBVIEWS\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/)
+  assert.match(sidebar, /!!SECTION_CHILDREN\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/)
 })
 
 test('the rail shares one focus-aware fold menu that reaches strict descendants of its selected entry', () => {

@@ -57,7 +57,7 @@ test('every disclosed level composes the same visible branch guide', () => {
 
 test('resource leaves spend width on identity, not a repeated kind label', () => {
   const start = children.indexOf('export function SubNavRow')
-  const end = children.indexOf('export function OwnerProfileChild')
+  const end = children.indexOf('\nexport ', start + 1)
   assert.ok(start >= 0 && end > start, 'SubNavRow has an enumerable source body')
   const row = children.slice(start, end)
   assert.doesNotMatch(row, />\s*\{kind\}\s*</, 'the semantic style role is never printed as a redundant label')

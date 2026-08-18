@@ -93,6 +93,9 @@ export const SECTION_META: Record<
 }
 
 export const SECTION_ORDER: SectionId[] = [
+  // Conversation history is the first resource root, immediately below the
+  // standing New session action and before the Commons.
+  'sessions',
   'commons',
   'projects',
   'artifacts',
@@ -106,13 +109,9 @@ export const SECTION_ORDER: SectionId[] = [
   'dispatch',
   'customize',
   'admin',
-  // Sessions is an ordinary resource root. It stays last in the account forest
-  // so transient conversation history follows durable and operational roots
-  // without inventing a utility container or a second hierarchy.
-  'sessions',
 ]
 
-// The section sub-view registry lives in the pure `./subviews` module (no lucide
+// The section child registry lives in the pure `./subviews` module (no lucide
 // import), so a node --test can import it directly — re-exported here for callers
 // that already reach for section metadata.
-export { SECTION_SUBVIEWS, type SubView } from './subviews'
+export { SECTION_CHILDREN, SECTION_SUBVIEWS, type SectionChild, type SubView } from './subviews'

@@ -23,10 +23,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, concatSource, filesUnder, read, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, concatSource, read, stripComments } from '../../tests/helpers/source.ts'
 import { OWNER_SECTION, seedFor } from './paneNav.ts'
 import { SECTION_LABELS } from './nav.ts'
-import { SECTION_SUBVIEWS } from './subviews.ts'
+import { OWNER_PROFILE_DOOR, SECTION_CHILDREN, SECTION_SUBVIEWS } from './subviews.ts'
 
 test('the profile is hosted by a NAMED section, and the name resolves', () => {
   assert.ok(OWNER_SECTION in SECTION_LABELS, 'OWNER_SECTION names a real section')
@@ -72,35 +72,25 @@ test('the funnel exists, and is built from the PANE-composed navigate', () => {
   )
 })
 
-test('the rail carries a standing door to YOUR profile, under the Commons', () => {
+test('the shared fixed-child registry carries the canonical door first under Commons', () => {
   const children = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
-  assert.match(children, /export function OwnerProfileChild\(/, 'the row is a named component')
-  assert.match(children, /label="Your profile"/)
-  // It wears the SAME child primitive as every lens beside it (form follows
-  // function) rather than a hand-styled row that would drift from them.
-  assert.match(children, /<SubNavRow\s/, 'the standing door is a SubNavRow like its siblings')
-  // Rendered under OWNER_SECTION only — a standing door is not a general
-  // mechanism, and a second one would need its own argument.
-  assert.match(sidebar, /id === OWNER_SECTION && onOpenOwner && \(/, 'rendered under the owner section only')
-  assert.equal(
-    filesUnder('src').filter((f) => stripComments(read(f)).includes('<OwnerProfileChild')).length,
-    1,
-    'exactly one caller — the rail',
-  )
+  assert.equal(SECTION_CHILDREN[OWNER_SECTION]?.[0], OWNER_PROFILE_DOOR)
+  assert.equal(OWNER_PROFILE_DOOR.label, 'Your profile')
+  assert.doesNotMatch(children, /OwnerProfileChild/, 'the door is not a rail-only component')
+  assert.match(sidebar, /children\.map\(\(child\) => child\.kind === 'owner-profile'/)
+  assert.match(sidebar, /label=\{child\.label\}/, 'every fixed child reads its shared label')
+  assert.match(sidebar, /<SubNavRow\s/, 'the canonical door wears the same row primitive as every subview')
 })
 
-test('the standing door RIDES an expandable section — it cannot make one expandable', () => {
-  // `hasChildren` counts declared surfaces and instances only, so the door is
-  // reachable purely because the Commons has lenses. Drop those and the row
-  // would stop expanding and this door would disappear with no test failing —
-  // so the pairing is asserted here rather than discovered from an empty rail.
+test('every fixed child kind makes its section expandable through the same registry', () => {
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
-  assert.match(sidebar, /!!SECTION_SUBVIEWS\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/, 'expandability counts the two registries')
+  assert.match(sidebar, /!!SECTION_CHILDREN\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/)
   assert.ok(
-    (SECTION_SUBVIEWS[OWNER_SECTION] ?? []).length > 0,
-    'the owner section must be expandable on its own, or the standing door is unreachable',
+    (SECTION_CHILDREN[OWNER_SECTION] ?? []).some((child) => child.kind === 'owner-profile'),
+    'the canonical door itself participates in expandability',
   )
+  assert.ok(!(SECTION_SUBVIEWS[OWNER_SECTION] ?? []).some((child) => child.id === 'profile'))
 })
 
 test('the door opens the NAMESPACE’s name, never the user’s', () => {
@@ -109,9 +99,9 @@ test('the door opens the NAMESPACE’s name, never the user’s', () => {
   // door by `tenant.name`. On the seeded accounts the two names are equal
   // (that is what lib/accountFace is about), so a `user.name` door would work
   // by coincidence here and break for any account whose namespace was renamed.
-  const children = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
-  assert.match(children, /useMe\(\)\.data\?\.tenant\.name/, 'the door reads the namespace name')
-  assert.doesNotMatch(children, /\.data\?\.user\.name/, 'never the person name')
+  const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
+  assert.match(sidebar, /const tenantName = me\?\.tenant\.name/, 'the door reads the namespace name')
+  assert.doesNotMatch(sidebar, /const tenantName = me\?\.user\.name/, 'never the person name')
 })
 
 test('a profile open in the pane un-lights the Commons row — the child holds the highlight', () => {
@@ -127,7 +117,7 @@ test('a profile open in the pane un-lights the Commons row — the child holds t
   )
   assert.match(
     sidebar,
-    /activeSection === id \? \(activeSeed\?\.ownerName \?\? null\) : null/,
+    /active=\{activeSection === id && activeSeed\?\.ownerName === tenantName\}/,
     'and the child is lit only when the pane shows YOUR profile in this section',
   )
 })

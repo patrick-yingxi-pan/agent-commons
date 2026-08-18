@@ -34,12 +34,11 @@ import { ResizeHandle } from './ResizeHandle'
 import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
-import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
+import { SECTION_CHILDREN, SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
 import {
   AgentTreeChildren,
-  OwnerProfileChild,
   RailRootScope,
   RailEntryLead,
   RailCollectionTemplate,
@@ -105,16 +104,12 @@ import {
 } from '../lib/collectionProjection'
 
 
-/** Does this section's row expand? Every LIST kind counts (UI-19) — a declared
- *  surface list, its section-detail rows, or Sessions' canonical `/s/:id` rows.
- *  A standing door deliberately
- *  does NOT: it is one fixed row, so a section whose only child was a door would
- *  be a chevron hiding a single link. It rides a section that already expands
- *  (`src/lib/owner-door.test.ts` asserts that pairing, since losing it would make
- *  the door vanish with nothing failing). Module-level so the state initializer
- *  can call it before the component body runs. */
+/** Does this section's row expand? Every child kind counts (UI-19) — fixed
+ *  surfaces and canonical doors, section-detail rows, or Sessions' canonical
+ *  `/s/:id` rows. Module-level so the state initializer can call it before the
+ *  component body runs. */
 function hasChildren(id: SectionId): boolean {
-  return id === 'sessions' || !!SECTION_SUBVIEWS[id] || !!SECTION_INSTANCE_KEY[id]
+  return id === 'sessions' || !!SECTION_CHILDREN[id] || !!SECTION_INSTANCE_KEY[id]
 }
 
 export function Sidebar({
@@ -274,7 +269,9 @@ export function Sidebar({
   // The maintainer console's rail row is CHROME gated on the identity's
   // `instanceAdmin` grant (the server's 404 wall is the real gate) — everyone
   // else sees the roster without it.
-  const instanceAdmin = useMe().data?.instanceAdmin === true
+  const me = useMe().data
+  const instanceAdmin = me?.instanceAdmin === true
+  const tenantName = me?.tenant.name
   const visibleSections = useMemo(
     () => SECTION_ORDER.filter((id) => id !== 'admin' || instanceAdmin),
     [instanceAdmin],
@@ -556,7 +553,7 @@ export function Sidebar({
             <div data-rail-forest>
               {visibleSections.map((id) => {
           const { label, Icon, beta } = SECTION_META[id]
-          const surfaces = SECTION_SUBVIEWS[id]
+          const children = SECTION_CHILDREN[id]
           const instanceKey = SECTION_INSTANCE_KEY[id]
           const sectionNodeKey = railNodeKey('section', id)
           const isExpanded = expanded.has(id) || !!content.root?.ancestors.includes(sectionNodeKey)
@@ -618,14 +615,6 @@ export function Sidebar({
               />
               {isExpanded && (
                 <RailTreeBranch data-section-tree={id}>
-                  {id === OWNER_SECTION && onOpenOwner && (
-                    // The standing door — YOUR public face, first among the
-                    // Commons' children because it is the one that is you.
-                    <OwnerProfileChild
-                      activeOwner={activeSection === id ? (activeSeed?.ownerName ?? null) : null}
-                      onOpenOwner={onOpenOwner}
-                    />
-                  )}
                   {id === 'sessions' ? (
                     <SessionTreeChildren
                       groups={groups}
@@ -699,15 +688,30 @@ export function Sidebar({
                         />
                       )}
                     />
-                  ) : surfaces ? (
-                    surfaces.map((sv) => (
+                  ) : children ? (
+                    children.map((child) => child.kind === 'owner-profile' ? (
+                      tenantName && onOpenOwner ? (
+                        <SubNavRow
+                          key={child.id}
+                          nodeKey={railNodeKey('section', id, 'owner', tenantName)}
+                          label={child.label}
+                          title={`Your public profile — everything ${tenantName} shares`}
+                          kind="view"
+                          active={activeSection === id && activeSeed?.ownerName === tenantName}
+                          onClick={() => {
+                            onOpenOwner(tenantName)
+                            onLeafNavigate?.()
+                          }}
+                        />
+                      ) : null
+                    ) : (
                       <SubNavRow
-                        key={sv.id}
-                        nodeKey={railNodeKey('section', id, 'subview', sv.id)}
-                        label={sv.label}
+                        key={child.id}
+                        nodeKey={railNodeKey('section', id, 'subview', child.id)}
+                        label={child.label}
                         kind="view"
-                        active={activeSection === id && activeSubview === sv.id}
-                        onClick={() => onChildClick(id, sv.id)}
+                        active={activeSection === id && activeSubview === child.id}
+                        onClick={() => onChildClick(id, child.id)}
                       />
                     ))
                   ) : instanceKey ? (

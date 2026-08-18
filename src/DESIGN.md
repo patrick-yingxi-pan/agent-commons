@@ -456,10 +456,12 @@ toggles children without navigating; the row body opens the page.
 **A rail child is a PLACE; a partition is a FILTER** (invariant UI-19, owner
 directive 2026-07-24). The rail is the account-resource FOREST and the main
 page is the honest projection of the selected node (UI-28). A section has
-exactly one kind of LIST child (surfaces or instances, never both), and may
-carry a standing door beside it:
+exactly one kind of LIST child (fixed children or instances, never both).
+`SECTION_CHILDREN` owns the ordered fixed-child projection; its discriminant
+captures routing differences without allowing a second hierarchy:
 
-- **Declared surfaces** — `src/lib/subviews.ts` (`SECTION_SUBVIEWS`): a hub whose
+- **Declared surfaces** — `src/lib/subviews.ts` (`SECTION_CHILDREN`, with the
+  URL-native `SECTION_SUBVIEWS` projection derived from it): a hub whose
   children are genuinely different PAGES. Agents is itself composite: the shared
   `agentStructure.ts` hierarchy is **Ready agents · Building blocks · Coordination ·
   Discover · Audit**; Building blocks preserves Prompts / Tools and Coordination
@@ -502,9 +504,11 @@ carry a standing door beside it:
 - **Standing doors** — a FIXED child whose place already has its own canonical
   address, so it links out of the section's URL grammar instead of extending it.
   There is exactly one (owner directive 2026-08-09): the Commons' **Your
-  profile** (`OwnerProfileChild`), the door to your own public face. It sits with
-  the social section rather than the account chip because *a profile is a social
-  page, not an account setting* — the chip switches who you are; this goes to
+  profile** (`kind: 'owner-profile'`), the door to your own public face. It is
+  the first entry in `SECTION_CHILDREN.commons` and renders through the same
+  `SubNavRow` projection as its siblings, rather than a rail-only component. It
+  sits with the social section rather than the account chip because *a profile
+  is a social page, not an account setting* — the chip switches who you are; this goes to
   what you look like to everyone else. It is a door and not a sub-view because
   the page already answers to `/u/:name`, and `/commons/profile` would be a
   second address for it. That also fixed where profiles LIVE: `OWNER_SECTION`
