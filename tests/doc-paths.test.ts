@@ -51,7 +51,7 @@ const HISTORICAL: Record<string, string> = {
 const DOC_TREES = ['docs', 'contract', 'server', 'src', 'tests', 'e2e', 'connector', '.claude/skills']
 
 function docFiles(): string[] {
-  const out = ['AGENTS.md', 'CLAUDE.md', 'README.md', 'PROPOSAL.md']
+  const out = ['AGENTS.md', 'CLAUDE.md', 'README.md']
   for (const tree of DOC_TREES) {
     if (!existsSync(join(ROOT, tree))) continue
     for (const f of readdirSync(join(ROOT, tree), { recursive: true })) {

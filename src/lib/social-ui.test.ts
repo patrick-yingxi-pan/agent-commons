@@ -55,7 +55,7 @@ test('the grants UI goes through the one door: no component/controller carries t
  *  Earned 2026-07-22: the work-item Retract control compared display names, on
  *  BOTH its surfaces, against a wire face that deliberately strips the ids a
  *  client would need to do it correctly. Muting stays name-keyed on purpose —
- *  it is a per-viewer preference, not an authorization (docs/evaluation.md). */
+ *  it is a per-viewer preference, not an authorization (INV-9). */
 test('no UI control is gated by comparing a display name — authority rides a server flag', () => {
   // The REDACTED display-name fields the social / work payloads carry.
   // `author` and `counterpart` joined the list in the S7 review: the DM inbox

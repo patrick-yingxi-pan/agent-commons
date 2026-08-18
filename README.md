@@ -1,231 +1,113 @@
-# Claude · Agent Commons — a UI/UX proposal
+# Agent Commons — an agents-collaboration platform
 
-> A working prototype arguing that the Claude desktop app's three top-level
-> tabs — **Chat**, **Cowork**, and **Code** — should collapse into **one
-> conversation with an adaptive workspace**.
+Agent Commons is a multi-account platform where people configure agents, work
+through adaptive conversations, and coordinate shared projects. Conversations,
+projects, artifacts, contexts, model providers, agents, routines, discussions,
+and change proposals are addressable resources in one collaboration workspace.
 
-This repo is a clickable demo built to accompany a written proposal to
-Anthropic. It is **not** affiliated with or endorsed by Anthropic; all visuals
-are an independent concept and use mock data.
+The repository is a working end-to-end implementation over a deterministic
+development backend. The UI, versioned HTTP + SSE contract, authentication and
+authorization, MCP doors, model/tool-use seam, persistence, and session-relay
+connector are real boundaries. Seeded entities and the local model are explicit
+fixtures documented in [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md).
 
----
+## What the platform supports
 
-## The argument in one breath
+- **People and agent workers.** Accounts register providers and system prompts,
+  configure agents with bounded authority and budgets, and commission them onto
+  shared projects.
+- **Adaptive conversations.** A conversation can attach workspaces,
+  repositories, files, connectors, and MCP servers. Its tools and context panes
+  grow in place without losing the thread.
+- **Shared resource coordination.** Projects collect contributors, open work,
+  artifacts, contexts, routines, discussions, proposals, and contribution
+  history under one canonical resource model.
+- **Consent and delegation.** Model-requested mutations become explicit
+  confirmation cards. Standing grants, routine approval, principal attribution,
+  and audit records make delegated effects inspectable.
+- **Equivalent access doors.** The browser UI, a permitted in-session model, and
+  an authenticated remote MCP client enter the same route-owned capability and
+  authorization surface. See [`docs/mcp-access.md`](docs/mcp-access.md).
+- **One split workspace.** Every conversation and resource page is an equal pane
+  that can be focused, split, resized, navigated, and closed.
 
-Chat, Cowork, and Code are the *same primitive* — a threaded conversation with
-Claude plus some context and tools — presented as three siloed tabs. That split
-forces you to **choose a mode before you know where the work will go**, keeps
-**separate histories and composers** you can't flow between, and makes three
-**heavily-overlapping** surfaces feel redundant.
+## Architecture
 
-The prototype proposes the alternative: you just start talking, and **context
-(a folder, a repo, a connector) attaches to the thread**. The panel on the right
-**progressively reveals** the right tools — artifacts for a workspace, a code
-editor / diff / terminal for a repo — all inside one conversation, one history.
+The React frontend does not import backend fixtures. It reads through hooks and
+issues commands through controllers against a versioned API. The server owns
+state, authorization, persistence, scheduling, model tool execution, and the SSE
+event stream.
 
-See [`PROPOSAL.md`](PROPOSAL.md) for the full write-up. **Evaluating this with a
-code agent?** [`AGENTS.md`](AGENTS.md) is the agent-facing context map — quick
-start, how to verify, and pointers to the claim-by-claim evaluation guide
-([`docs/evaluation.md`](docs/evaluation.md)) and the directory-scoped rules.
-
-## What the demo shows
-
-Open it and free-type the flow. One conversation walks through four beats
-without ever switching tabs:
-
-1. **Chat** — an ordinary message thread. No mode chosen up front.
-   Then ask for each escalation in plain words — *"open a workspace and draft the
-   launch assets"*, *"connect the repo"* — and approve the consent prompt it raises:
-2. **→ Workspace** — the same thread grows a workspace; a panel slides in with a
-   one-pager, a launch email, and a hero image. *(This is today's "Cowork".)*
-3. **→ Repo** — it becomes a coding session: a branch, a diff, and a passing
-   test run in the terminal (representative fixtures — repo content is mocked; see
-   [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md)). *(This is
-   today's "Code".)*
-4. **→ Organize** — Claude proposes how to file what you just made (the session
-   under a project, the drafts as artifacts, a schedule to keep a digest) as
-   **inline confirmation cards**. Confirm one and it shows up in Projects /
-   Artifacts / Scheduled. One-off edits confirm each time; a recurring schedule
-   is approved once, then runs unprompted. You can also just type *"file this
-   under Growth experiments"* in any session to get the same cards.
-
-The sidebar shows the payoff: **one unified history** instead of three
-scattered across tabs — each conversation's capabilities surface on its own
-composer chips and panel. Open "Refactor auth middleware" (chat + repo) or
-"Vector databases, explained" (chat only) to see the panel adapt per
-conversation.
-
-## Architecture: a real frontend over a portable backend
-
-The UI is **not** wired to in-process mock data — it's a real web frontend that
-talks to a backend over a versioned HTTP + SSE API. That backend is a
-**zero-dependency mock server** today, but the contract is designed so the same
-UI runs unchanged in two deployments:
-
-1. **Native desktop app** — the UI renders in an app shell; the backend is a
-   local sidecar. It can reach native resources (the filesystem, a local git
-   working tree, OS pickers) that a browser can't, and later proxy the real
-   Anthropic API — *without changing the API the UI speaks*.
-2. **Web app** — the same UI is served by a remote web server that implements the
-   same API. So the desktop and web experiences are byte-identical, with no drift
-   between two separate codebases.
-
-Three trees, one contract:
-
-```
-contract/   Framework-free wire types, imported VERBATIM by the UI (Vite) and the
-            server (Node 26's native TypeScript). This type-identity IS the
-            portability guarantee: entities, the relationship graph + reducer, the
-            ServerEvent union (SSE), Capabilities, and the id invariants both ends
-            must agree on.
-
-server/     The mock backend — a near-zero-dependency node:http server run directly
-            by Node 26 (no build step). In-memory store + event bus, a tiny router,
-            SSE, and the seed data. Serves the built UI from dist/ too, so "web UI
-            served from the server" is literally true. Its one dependency is the
-            Anthropic SDK, used by the generation seam; server/model/ is the dev
-            mock of the Messages endpoint it streams from (api.anthropic.com in prod).
-
-src/        The UI. Components read through hooks (src/api), controllers issue
-            commands; nothing else knows a URL or an event. Point VITE_API_BASE at
-            a native sidecar or a remote server and the whole app moves.
+```text
+contract/   Framework-free wire types and reducers imported verbatim by UI and server
+server/     Node HTTP + SSE backend, route catalog, stores, persistence, auth, model seam
+src/        React UI, API cache, controllers, projection models, and rendered surfaces
+connector/  Session-relay connector served by the product
 ```
 
-**How it stays in sync (simple, push-based).** Reads go through a small
-read-through query cache (`useSyncExternalStore`). The server pushes everything
-the UI *didn't* request over one SSE stream (`GET /v1/events`) — a scheduled run
-firing, a standing approval acting, a connector's auth expiring — and an event
-router turns each into a cache patch. An assistant turn streams token-by-token
-from `POST /v1/sessions/:id/messages`. The backend gets that text the production
-way — it calls an Anthropic **Messages** endpoint through `@anthropic-ai/sdk`
-**with a real tool interface** (`server/model/tools.ts`, one tool per resource
-manipulation) and runs the tool-use loop: the model answers with `tool_use`
-blocks, the backend executes each call into a consent-gated proposal (a relation
-card or a panel escalation), feeds the `tool_result`s back, and relays the final
-stream. In dev that endpoint is a local Anthropic-compatible mock
-(`server/model/`, `:8788`) that decides which tools to call by matching the
-message by keyword pattern and wraps canned prose around them — so every
-organizing turn is a real round-trip. Going live is
-just `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` — the whole pipeline is already
-real, only the model is mocked.
+The contract is the portability boundary. The same UI can talk to a local
+sidecar or a remote server; `GET /v1/capabilities` describes which host-bound
+operations are available, and unsupported native operations return
+`409 capability_unavailable` rather than being guessed from the environment.
 
-**Three access doors, one wall (access-parity INV-11).** The product is
-reachable three ways — the browser UI, the in-app session (the model's
-consent-gated tool calls), and an **auth-gated MCP server** at `POST /mcp`
-whose tool catalog is *generated from the route table* and whose every call
-re-enters the same router, so all doors are equally capable and gated by the
-same authentication/authorization by construction. The same signed session
-credential works as the browser cookie or as `Authorization: Bearer` (mint it
-with `transport: 'bearer'` on login). Explainer:
-[`docs/mcp-access.md`](docs/mcp-access.md).
-
-**Native vs remote, without env-sniffing.** `GET /v1/capabilities` tells the UI
-what *this* backend can do (`localFs`, `localGit`, `osPicker`, …). The UI gates
-native-only affordances on those flags — never on detecting Electron vs web.
-Native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`) live
-behind the same API; a remote backend returns `409 capability_unavailable`. Run
-the server with `BACKEND=remote` to see the web-server variant.
+Generation runs through `@anthropic-ai/sdk` and a real Messages tool-use loop.
+Development boots an Anthropic-compatible deterministic model server at `:8788`.
+Set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and optionally `ANTHROPIC_MODEL` to
+point the same seam at a live provider.
 
 ## Run it
 
-Requires **Node 26+** (the mock server runs TypeScript natively, no build step).
+Requires **Node 26+**.
 
 ```bash
 npm install
-npm run dev        # boots BOTH the UI (Vite, :5173) and the mock backend (:8787)
-                   # → http://127.0.0.1:5173   (Vite proxies /api → the server)
+npm run dev        # UI 127.0.0.1:5173 + API 127.0.0.1:8787 + mock model :8788
 ```
 
-Other scripts:
+The auth gate defaults on. Ada is the flagship demo account:
+`ada@acme.example` / `ada-demo-password`. All six accounts are listed in
+[`docs/demo-accounts.md`](docs/demo-accounts.md). Use `127.0.0.1`, not
+`localhost`, because the remembered account stack is origin-local.
+
+Useful commands:
 
 ```bash
-npm run dev:ui     # just the Vite UI (expects a backend on :8787)
-npm run server     # just the mock backend (node --watch server/index.ts)
-npm run model      # just the Anthropic-compatible mock model server (:8788)
-npm run start      # one process: serve the built UI + the API (the deploy shape)
-npm run build      # production build to dist/
-npm run typecheck  # tsc --noEmit (UI + contract)
-
-npm test           # the behavior locks (node --test over tests/)
-npm run e2e        # Playwright browser specs (DOM-level wiring)
-npm run ui:sweep   # the /ui-review harness: every surface x 5 viewports, exits 1 on violations
-npm run connector  # the session-relay connector
-npm run snapshot:build   # rebuild the comprehensive .data snapshot (see server/CLAUDE.md)
-
-BACKEND=remote npm run server   # the remote-web-server variant (native ops 409)
-
-# point the backend at the REAL Anthropic API instead of the in-process mock:
-ANTHROPIC_BASE_URL=https://api.anthropic.com ANTHROPIC_API_KEY=sk-... npm run dev
+npm run dev:ui       # Vite only; expects the backend on :8787
+npm run server       # backend only
+npm run model        # deterministic model server only
+npm run connector    # session-relay connector
+npm run start        # serve the built UI and API in one process
+npm run typecheck
+npm run build
+npm test             # Node behavior and repository locks
+npm run e2e          # Playwright browser wiring
+npm run ui:sweep     # signed-in surface × viewport review harness
+npm run verify       # typecheck + Node suite + build + sharded E2E
 ```
+
+Run the remote-web capability profile with `BACKEND=remote npm run server`.
 
 ## Stack
 
-- **React + TypeScript + Vite** (UI) · **Tailwind CSS v4** · **framer-motion** ·
-  **lucide-react**
-- **Node 26 + node:http** (mock backend) — runs the TypeScript directly; one
-  runtime dependency, **`@anthropic-ai/sdk`** (the Messages client for the model
-  seam), otherwise dependency-free.
-- The data is mock on purpose (deterministic, easy to review) — but it now lives
-  *behind the API*, in the server, exactly where a real backend's database +
-  Anthropic API would.
+- React + TypeScript + Vite, Tailwind CSS v4, Framer Motion, Lucide
+- Node 26 + `node:http`
+- `@anthropic-ai/sdk` at the replaceable generation boundary
+- Framework-free shared contract and dependency-light server modules
 
 ## Project layout
 
-```
-contract/                 # the shared wire types (the API IS these types)
-  entities · cowork · relations · graph · runs · contexts · content
-  events (SSE union) · api (Capabilities + DTOs) · ids (shared invariants)
-
-server/                   # the mock backend (Node 26 native TS; one dep: the SDK)
-                          # every module carries its own CLAUDE.md, the
-                          # requirement rows it owns (SPEC.md), and the
-                          # *.test.ts suites that lock it, as SIBLINGS
-  index.ts                # http server: prefix routing, CORS, static dist/, daemon
-  generate.ts             # the Anthropic Messages seam — declares the tools, runs the tool-use loop, streams the reply
-  auth.ts · accounts.ts · mcp.ts · relay.ts · turns.ts · …   (+ <module>.test.ts beside each)
-  store/index.ts          # working state + event bus + the run daemon
-  persistence/            # filesystem persistence — snapshots UI state to .data/store.json
-    persist.ts            #   the store-facing facade (loadState/saveState, PersistedState)
-    index.ts · json.ts · sqlite.ts · format.ts · migrate.ts
-    SPEC.md               #   PERSIST-1…6 — the rows, next to what satisfies them
-  model/                  # the Anthropic-compatible mock model server (POST /v1/messages)
-    tools.ts              #   the resource-manipulation tool interface + executor (one tool per manipulation)
-    intents.ts            #   the mock's tool-decision logic (fixed-string tour table + keyword fallback)
-    replies.ts            #   the mock's canned prose ("weights")
-  http/{router,respond,sse,dispatch}.ts
-  routes/index.ts         # the route table (one .get/.post per endpoint)
-  data/                   # the seed data (sessions, cowork, contexts, …)
-  testkit/{http,connector}.ts  # the drivers suites boot the server with
-
-docs/                     # the written record
-  spec/                   #   the requirements ledger — what's BUILT vs mocked, row by row
-  design/                 #   design docs (the social layer, the split workspace, …)
-  evaluation.md           #   the evaluator's guide + "don't file these as bugs"
-  ui-invariants.md        #   the earned ledger of machine-checkable UI rules
-  capability-broker-architecture.md  # forward-looking: control plane + native-agent registry
-
-tests/                    # the locks the REPO owns (node --test): doc-lint,
-                          # cross-layer contracts, helpers/source.ts
-e2e/                      # Playwright browser specs
-scripts/                  # dev orchestration, the ui-sweep harness, snapshot tooling
-connector/                # the session-relay connector (served by the product itself)
-
-src/                      # every module carries its CLAUDE.md + *.test.ts siblings
-  main.tsx · App.tsx · types.ts (re-exports the contract) · index.css
-  api/                    # the UI's one door to the backend
-    client.ts             # fetch wrapper (base URL = VITE_API_BASE ?? /api/v1)
-    cache.ts              # normalized read-through query cache (useSyncExternalStore)
-    events.ts             # EventSource → cache invalidations (the event router)
-    commands.ts           # writes: streaming send, relation ops, schedules, recents
-    hooks.ts · keys.ts
-  controller/             # useSessionWorkspace · useRelations · useLayout
-  components/             # Sidebar · SectionView · Composer · AddContextButton · …
-  lib/                    # connectors · sections · recents (server-backed) · …
-  data/                   # thin shims over server/data for not-yet-migrated reads
+```text
+contract/   shared API types, entities, reducers, events, and capability vocabulary
+server/     backend modules; scoped context, specs, and tests live beside their owners
+src/        frontend modules; shared primitives and projection templates live in lib/
+docs/       design rationale, operational guides, and the requirements ledger
+tests/      repository-owned document and cross-layer locks
+e2e/        Playwright tests for rendered browser behavior
+scripts/    development, verification, snapshot, and UI-sweep tooling
+connector/  session-relay connector
 ```
 
-## Status
-
-A public proposal prototype, shared with Anthropic as constructive feedback
-alongside the written proposal. An **independent concept** — mock data, **not
-affiliated with or endorsed by Anthropic**.
+Start with [`AGENTS.md`](AGENTS.md) for the progressive-disclosure context map.
+The checkable requirements and implementation/lock correlations live in
+[`docs/spec/`](docs/spec/README.md); production-oriented architecture decisions
+live in [`docs/design/`](docs/design/README.md).

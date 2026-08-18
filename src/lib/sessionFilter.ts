@@ -1,5 +1,5 @@
 /** ── Sessions filter / sort / group — the pure model behind both projections'
- *  "Filter & sort" menu (mirrors the Claude desktop app's Code tab). No React:
+ *  "Filter & sort" menu shared by the rail and the Sessions page. No React:
  *  just the option vocabulary, the persisted preference blob, and one function
  *  that turns a session list + a filter into ordered, optionally-grouped rows.
  *  The menu component renders these; the Sidebar applies the result. */

@@ -1,27 +1,24 @@
 # Design spec — the conformance baseline
 
-> **What this is.** A hierarchical, checkable specification of *what this prototype
-> is supposed to do*, written so an evaluator (human or agent) can verify the code
-> still implements it — and so a gap like "files/photos/folders are mocked, not
+> **What this is.** A hierarchical, checkable specification of *what Agent Commons
+> is supposed to do*, written so a maintainer can verify the code still implements
+> it — and so a gap like "files/photos/folders are mocked, not
 > really served" is **visible by construction** instead of discovered by accident.
 >
-> It complements, not duplicates, the other docs: [`PROPOSAL.md`](../../PROPOSAL.md)
-> is the *argument*, [`README.md`](../../README.md) is the *engineering tour*, and
-> [`AGENTS.md`](../../AGENTS.md) is the *context map* (with
-> [`docs/evaluation.md`](../evaluation.md) as the evaluation digest). This spec is the
-> **requirements ledger** they imply, with each requirement traced to the code that
-> satisfies it and the test that locks it.
+> It complements, not duplicates, the other docs: [`README.md`](../../README.md)
+> is the engineering tour and [`AGENTS.md`](../../AGENTS.md) is the context map.
+> This spec is the **requirements ledger**, with each requirement traced to the
+> code that satisfies it and the test that locks it.
 
 ## The goal (L0)
 
-The Claude desktop app exposes **Chat / Cowork / Code** as three sibling tabs.
-This prototype argues they are three presentations of one primitive and should be
-**one conversation surface with an adaptive workspace**: you start a normal
-conversation, *attach context* to it, and the UI **progressively discloses** the
-right tools as the work demands them. The whole system is built as **real
-boundaries with only the model mocked** — a real frontend over a real (mock) HTTP +
-SSE backend, a real Anthropic Messages + tool-use seam, real filesystem serving —
-so the interaction model *and* the client/server shape are both tangible.
+Agent Commons is an agents-collaboration platform. People configure bounded
+workers, drive work through adaptive conversations, and coordinate shared
+projects, resources, routines, discussions, and proposals. Conversations attach
+context and disclose the tools that context enables; every resource remains
+addressable through the same split workspace. The system uses real UI/backend,
+HTTP + SSE, authentication, MCP, Messages tool-use, and filesystem boundaries;
+deterministic fixtures are enumerated in [pillar 11](11-mock-boundary.md).
 
 Everything below decomposes that goal into pillars, and each pillar into leaf
 requirements you can check against the tree.
@@ -110,22 +107,22 @@ here and its locking test — that is the discipline this directory enforces.
 | [06](06-model-and-tools.md) | Real model + tool boundary | Generation runs through a real Anthropic Messages API with a real tool-use loop; only the model is mocked. |
 | [07](07-persistence.md) | Server-owned state & persistence | UI-owned state is the server's, snapshotted to disk and rehydrated; transient state is not. |
 | [08](08-capability-broker.md) | Capability broker (built + exploration) | A live runner registry brokers host capabilities (fs/terminal/process) with mediation, a journal, and reservations; Agent Commons layers authority/budget. |
-| [09](09-design-invariants.md) | Design invariants | Locked-in decisions: light-theme-only, no "before" view, IPv4 bind, shared primitives (form follows function), one door to the backend, framework-free contract. |
-| [10](10-forward-looking.md) | Forward-looking — required but not built | The top-down gap rows: features the goal implies that the prototype doesn't (fully) ship yet (`📝`/`🟡`). This is what makes the spec a gap-finder, not a code inventory. |
+| [09](09-design-invariants.md) | Design invariants | Locked-in decisions: current product identity, token theming, IPv4 bind, shared primitives (form follows function), one door to the backend, framework-free contract. |
+| [10](10-forward-looking.md) | Forward-looking — required but not built | The top-down gap rows: platform features the current implementation does not fully ship yet (`📝`/`🟡`). This is what makes the spec a gap-finder, not a code inventory. |
 | [11](11-mock-boundary.md) | The mock boundary | The complete set of surfaces faked beyond the model (artifact bodies, connector/MCP detail, repo content+git, seed entities, usage) — so "real vs mock" is always answerable. |
 | [12](12-social-layer.md) | Social layer | Share / discuss / improve as three orthogonal primitives over a generic entity ref; grants built (S0–S1 server core), discussion + proposal + the Commons feed phased in `docs/design/social-layer.md`. |
 
 ## Known gaps (the unimplemented / partial features)
 
-These are the requirements the goal implies that the prototype does **not** fully
+These are the requirements the platform goal implies that the current implementation does **not** fully
 satisfy today — kept here at L0 so they're visible, and enforced by
 `tests/spec-conformance.test.ts` (every `📝` requirement must appear in this list).
 Detail + anchors are in [pillar 10](10-forward-looking.md).
 
-- **FWD-1** `🟡` — pre-attached entry shortcuts (§7); the `newSession(seed)` seam + an `EmptyState` launcher are built, dedicated per-mode sidebar entries remain.
-- **FWD-2** `🟡` — the right panel's expansion remembered per-conversation (§7); per-session memory is built (localStorage), the server-side cross-device pref isn't.
-- ~~**FWD-3**~~ `✅` — responsive layout (§8) is **done and moved to [ADAPT-11](01-adaptive-conversation.md)**: narrow-tier rail drawer + full-viewport panel takeover + the `short` height axis (the icon-rail idea was superseded by the drawer — PD35).
-- **FWD-4** `🟡` — cross-device sync of the server-owned state (§10); the foundation is built, multi-device fan-out isn't.
+- ~~**FWD-1**~~ `✅` — context-seeded conversation entry is complete through `newSession(seed)` and the shared `EmptyState` attachment launcher; duplicate resource-specific launchers are not required.
+- **FWD-2** `🟡` — the right panel's expansion remembered per-conversation; per-session memory is built (localStorage), the server-side cross-device pref isn't.
+- ~~**FWD-3**~~ `✅` — responsive layout is **done and moved to [ADAPT-11](01-adaptive-conversation.md)**: narrow-tier rail drawer + full-viewport panel takeover + the `short` height axis (the icon-rail idea was superseded by the drawer — PD35).
+- **FWD-4** `🟡` — cross-device sync of the server-owned state; the foundation is built, multi-device fan-out isn't.
 - ~~**FWD-5**~~ `✅` — the **principals & namespaces** re-rooting is **done and moved to [INV-10](09-design-invariants.md)**: person-only login with one namespace per account, principal-stamped acts (kind-only wire), the agent-actor badge + attribution chain; orgs deferred by design behind the opaque owner id.
 - ~~**FWD-8**~~ `✅` — **`server/` is now typechecked** ([pillar 10](10-forward-looking.md)): `server` joined the tsconfig include (37 errors → 0). Three real defects fell out of it — a dropped session-unfile override, a contract face declaring `epoch: number` against a string, and a seeded Agent missing required fields behind a double cast.
 - **SOCIAL-10** `📝` — **anonymous rendering + indexing** ([pillar 12](12-social-layer.md)): the declared S6 tail. Today "anyone with the link" means anyone SIGNED IN who redeems it; reading with no account, and being indexable, are deliberately unbuilt — the one part of the social layer with no honest mock.

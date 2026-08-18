@@ -62,7 +62,7 @@ export function AuthScreen({ view, gated }: { view: AuthScreenView; gated: boole
           </button>
         )}
         <p className="mt-8 max-w-[36ch] text-center text-[11px] leading-relaxed text-ink-faint">
-          Independent UI proposal — not affiliated with Anthropic. Accounts live in the local mock backend.
+          Demo accounts and state live in the local development backend.
         </p>
       </main>
     </div>
@@ -87,7 +87,7 @@ function SignIn({ addAccount, onMode }: { addAccount: boolean; onMode: (m: AuthS
   }
   return (
     <>
-      <Title>{addAccount ? 'Add another account' : 'Sign in to Claude'}</Title>
+      <Title>{addAccount ? 'Add another account' : 'Sign in to Agent Commons'}</Title>
       {addAccount && (
         <Subtitle>Your current account stays signed in — you can switch between them from the sidebar.</Subtitle>
       )}
@@ -119,7 +119,7 @@ function SignIn({ addAccount, onMode }: { addAccount: boolean; onMode: (m: AuthS
         </button>
       </Card>
       <AltCard>
-        New to Claude?{' '}
+        New to Agent Commons?{' '}
         <button data-testid="auth-open-signup" onClick={() => onMode({ kind: 'signup' })} className={AUTH_LINK_CLASS}>
           Create an account
         </button>

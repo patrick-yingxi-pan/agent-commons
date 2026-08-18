@@ -7,8 +7,7 @@
 > confirmation card and *nothing changes until you confirm*. Two consent shapes:
 > **per-action** (a one-off edit, confirmed each time) and **standing** (a schedule
 > is approved once, in advance, then runs unprompted on its cadence). The same gate
-> governs everything Claude changes, including the Agent Commons registries.
-> (PROPOSAL §4.7, §6.6.)
+> governs every model-requested change, including the Agent Commons registries.
 
 ## Requirements (L2)
 

@@ -8,9 +8,9 @@ layer index; this file explains *why* those rules exist.
 
 ## Product boundary
 
-- **No "before" view.** The prototype deliberately does *not* reproduce today's
-  three-tab UI. The motivation lives in the docs, and reviewers can diff against
-  the live app — so don't build a side-by-side "before".
+- **One collaboration workspace.** A conversation, resource page, and context
+  view are equal pane contents in Agent Commons. Extend that shared workspace
+  instead of creating a parallel application shell or resource-specific chrome.
 
 ## Context and verification architecture
 

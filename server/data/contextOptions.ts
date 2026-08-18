@@ -133,7 +133,7 @@ export const GITHUB_REPO_OPTIONS: ({
   },
   {
     id: 'gh-proposal',
-    remote: 'patrick-yingxi-pan/claude-ui-proposal',
+    remote: 'patrick-yingxi-pan/agent-commons',
     branch: 'main',
     meta: 'TypeScript · just now',
     ...proposalRepoCode,

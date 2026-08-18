@@ -1,13 +1,13 @@
 # Capability-broker architecture — portability via a registry of native agents
 
 > **Status: forward-looking architecture exploration.** It does **not** describe
-> what the prototype does today, and it does **not** change current behavior. What
+> current shipped behavior, and it does **not** change current behavior. What
 > it *does* record — carefully, for later reference — is a set of **settled design
 > choices** (and the trade-offs each one accepts) reached in a design dialogue, so
 > that whoever builds this next inherits the reasoning, not just the conclusion.
 >
 > "Decision" here means *settled within this exploration's design space* — **not**
-> "implemented in the prototype." The prototype's actually-shipped, locked-in
+> "implemented." The platform's actually-shipped, locked-in
 > decisions live separately in the directory-scoped `CLAUDE.md` files
 > ([`../AGENTS.md`](../AGENTS.md) maps them); nothing here overrides those.
 >
@@ -26,7 +26,7 @@
 > with a bytes route proxying the runner, and a post-attach effect read runs through
 > the mediated, journaled `POST /runners/:id/invoke`. So the relay path + the
 > context-mediation seam below are exercised for real for fs reads. See
-> [`evaluation.md`](evaluation.md) "What's intentionally mock" and `contract/fs.ts`.)*
+> [`spec/11-mock-boundary.md`](spec/11-mock-boundary.md) and `contract/fs.ts`.)*
 
 ## Thesis
 

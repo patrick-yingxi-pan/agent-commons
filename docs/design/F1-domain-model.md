@@ -48,7 +48,7 @@ Derived from `contract/entities.ts`, `contract/cowork.ts`, `contract/agents.ts`,
 ### 2.2 The relation graph as typed edges (not a blob)
 
 The prototype's `RelationGraph` is a denormalized snapshot. In production each
-relationship from PROPOSAL §4.7 is a **typed edge**, enforced by FKs and uniqueness:
+relationship in the platform catalog is a **typed edge**, enforced by FKs and uniqueness:
 
 | Prototype field (`RelationGraph`) | Production edge |
 |-----------------------------------|-----------------|

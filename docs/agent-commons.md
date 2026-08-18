@@ -9,14 +9,14 @@
 > layer (the GitHub-Apps mapping is tabled in that doc); acts gain a **principal**
 > (human or badged agent) beside the owner.
 
-> **Status: forward-looking architecture exploration.** It does **not** describe
-> what the prototype does today and does **not** change current behavior. What it
+> **Status: architecture record.** It distinguishes settled design from current
+> shipped behavior and does **not** change runtime behavior. What it
 > records — carefully, for later reference — is a set of **settled design choices**
 > (and the trade-off each accepts) reached in a design dialogue, so whoever builds
 > this next inherits the reasoning, not just the conclusion.
 >
-> "Decision" here means *settled within this exploration's design space* — **not**
-> "implemented in the prototype." The prototype's actually-shipped, locked-in
+> "Decision" here means *settled within this design space* — **not necessarily**
+> "implemented." The platform's actually-shipped, locked-in
 > decisions live in the directory-scoped `CLAUDE.md` files ([`../AGENTS.md`](../AGENTS.md) maps them);
 > nothing here overrides those. **The "smallest first slice" plan (below) is built, the
 > multi-tenant surface above it (D6–D13) is built out end to end (slices 1–10), and that
@@ -52,7 +52,7 @@
 > — **D13 economics** (reputation + the per-commissioner abuse cap), the **D15/OQ7 detective
 > audit**, and the opt-in **D10/OQ5 prompt-fit probe** (Phases 5–7, `agent-commons-impl-plan.md`).
 > The only forward residue is OQ6's adversarial multi-principal consent — a watch-item, not a
-> mechanism. The prototype now exercises a working slice of every D6–D16 decision rather than the
+> mechanism. The platform now exercises a working slice of every D6–D16 decision rather than the
 > degenerate N=1 case.
 >
 > **This doc renames the broker doc's "native agent" to "Runner"** (decision D6).
@@ -72,24 +72,21 @@
 
 ## Thesis
 
-The prototype argues that one user's three tabs — Chat, Cowork, Code — collapse
-into **one adaptive conversation**. **Agent Commons** is the claim one altitude up:
-that conversation is how **one worker** does work, and a platform is built by
-**composing many of them across users onto shared goals**. Concretely — a public
-area, like GitHub's public repos, where **shared Projects** are browsed and
-searched; a user account holds **many Agents** (workers the user configures); and
-the user **commissions** Agents onto Projects they care about, the way people
-contribute to a repo.
+**Agent Commons** composes many configurable workers across accounts onto shared
+goals. A user account holds many **Agents**; an Agent drives a **Conversation**;
+many Conversations contribute to a **Project**; and the Project's **Guardian**
+coordinates shared invariants and reservations. Public Projects and published
+agent definitions are discoverable, while commissions bind a worker to a goal
+under explicit authority and budget.
 
-The load-bearing framing decision (D7) is that **Agent Commons *subsumes* the
-single-conversation proposal, it does not replace it.** The unified adaptive
-workspace becomes *the inside of one citizen's workspace*: how one Agent drives one
-Conversation. The platform is the republic of many such interiors, coordinated —
-never peer-to-peer — at each Project's **Guardian** (the coordination doc's D5).
+The load-bearing decision (D7) is the nesting itself. The adaptive conversation
+is one worker's unit of active work; Agent Commons is the system that coordinates
+many such units across principals. Coordination runs through each Project's
+Guardian rather than peer-to-peer between workers.
 
 Because the doc spans two altitudes, every claim is tagged:
 
-- **[INTERIOR]** — true *within one conversation* (the prototype's existing thesis).
+- **[INTERIOR]** — true *within one conversation* (the current Conversation model).
 - **[COMMONS]** — true *across conversations / users* (the new layer).
 
 The whole point of Agent Commons is **[COMMONS]**, and it forces one thing to the
@@ -148,7 +145,7 @@ prevent.
 | **Model provider** | A registered *cognition source* — one Messages-API integration point, with named effort levels, provider-specific config, and an optional plan limit. The **root** of the budget cascade. An Agent's *mind*. |
 | **Agent** | A user-created **worker**: a bundle of {model-provider selection, system prompt, tools, custom instructions} + an optional budget (tighter than its provider's). The bare word "agent" now means *only* this. |
 | **Runner** | The **host-bound capability server** the broker doc called a "native agent" — one per machine; advertises fs/terminal/process; system of record for its host (D2); durable ambient identity (D4). An Agent's *hands*. Mostly hidden from users by default. |
-| **Conversation** | The **unit of work** — the prototype's unified, context-attached adaptive thread. Backed by the contract type `Session` ([`../contract/entities.ts:200`](../contract/entities.ts)). One Conversation is driven by one Agent. |
+| **Conversation** | The **unit of work** — a unified, context-attached adaptive thread. Backed by the contract type `Session` ([`../contract/entities.ts:200`](../contract/entities.ts)). One Conversation is driven by one Agent. |
 | **Project** | A **shared goal** = a shared resource ([`../contract/cowork.ts:24`](../contract/cowork.ts)). Many Conversations, from many users, contribute to it. It gets a Guardian. |
 | **Commission** | The **act** of assigning an Agent to a Project, with an optional per-commission grant (tighter than the Agent's budget). The leaf of the cascade. |
 | **Contributor** | **A role, not a fifth entity** — the role an Agent plays once Commissioned onto a Project (the GitHub-contributor analog). |
@@ -211,64 +208,30 @@ still won: "Host" is the *machine*, and we want a name for the *server process o
 it that runs work* (one machine could, in principle, run more than one). Keeping
 "Host" for the box and "Runner" for the process is the cleaner two-noun split.
 
-### D7 — Agent Commons subsumes the single-conversation thesis (it does not replace it)
+### D7 — Conversation, Agent, and Project form one nested collaboration model
 
-**Decision.** The prototype's proposal and Agent Commons are **one nested model**,
-not rivals at war over scope. Three units: the **Conversation** is the unit of work
-(`Session`); the **Agent** is the worker that drives a Conversation; the **Project**
-is the shared goal many Agents contribute to under a Guardian. The unified adaptive
-workspace — chat → workspace → repo → organize, no mode chosen up front — *is* the
-inside of one citizen's workspace. Agent Commons reaches the platform by
-**composition** (replicate the conversation primitive across principals; coordinate
-the replicas at the Project's Guardian), **not by rewrite**.
+**Decision.** The **Conversation** is the unit of active work (`Session`); the
+**Agent** is the worker that drives it; the **Project** is the shared goal many
+Agents contribute to under a Guardian. The platform grows by composing those
+units across principals and coordinating them at the Project boundary.
 
-**Why.** Read as rivals, "collapse three tabs to cut one user's friction" and
-"GitHub-for-agents" contradict AGENTS.md's locked single-user scope; read as nested
-they don't, and the repo already provides the *types the nesting composes over*
-(not the nesting itself). **[INTERIOR]** The Conversation-as-unit is literally
-`Session` ([`../contract/entities.ts:200`](../contract/entities.ts)) with its
-`SessionWorkspace` and `SessionContext` bindings — already self-contained, not
-assuming one global user. **[COMMONS]** The Agent-as-worker *does not exist as a
-type yet*, and that absence is the tell: today the only worker is the single
-implicit Anthropic client built per base URL in `server/generate.ts`
-([`:16`,`:23`](../server/generate.ts)), driving every `Session`. The
-Project-as-shared-goal is `Project` ([`../contract/cowork.ts:24`](../contract/cowork.ts)),
-but today an **inert node** in the relation graph
-([`RelationGraph`, `../contract/api.ts:117`](../contract/api.ts)): edges point *at*
-it (`sessionProject`, `artifactProject`, `projectContexts`) but nothing owns its
-invariant — it has no `guardianId`, no contributors. The nesting step is to give a
-Project a Guardian (D11), lifting D5's per-context guardian to the Project level.
+**Why.** `Session` already owns its thread, workspace, and attached context.
+`Agent` owns cognition, tools, instructions, authority, and budget. `Project`
+owns the collaboration surface and Guardian. Keeping those responsibilities
+nested lets commissions and multi-principal coordination wrap a Conversation
+without changing its message, attachment, or consent machinery. The acting
+Contributor confirms irreversible effects; the Project owner governs up front
+through roles and grants (D14/D16).
 
-The honest seam — and the falsifiable bet: subsumption is a **lie** if making a
-`Session` multi-principal forces changes *inside* the conversation model (the
-morphing panel, the attach flow, the escalation gates). The grounding argues the new
-structure (worker Agent, Project Guardian, Commission) *wraps* `Session`/`Project`
-rather than reaching inside them — **the central bet, whose sharpest test was Open Question 6
-(whose human confirms a Contributor's irreversible effect). It is now resolved — the acting
-Contributor self-confirms, the owner governing up-front by role (D14/D16), with no change reaching
-inside the conversation model, which is the evidence the nesting holds.** We still do not claim it
-proven under adversarial multi-principal load.
+**Trade-off accepted.** The model carries four visible actors (Conversation,
+Agent, Runner, Project) and three systems of record (session state, host journal,
+Project Guardian). Claims therefore keep the **[INTERIOR]** and **[COMMONS]** tags
+when the scope would otherwise be ambiguous.
 
-**Trade-off accepted.** One nested model carries a far larger conceptual surface
-than "one adaptive thread": a reader holds four actors (Conversation, Agent, Runner,
-Project) and three systems-of-record (session cache, host journal, resource
-guardian) at once. We trade the proposal's narrative simplicity for architectural
-reach, and pay an ongoing tax: every claim must be altitude-tagged
-(**[INTERIOR]**/**[COMMONS]**) or it reads as scope-confused. We also accept that
-the running prototype forever *understates* the vision — an evaluator who only plays
-the guided tour sees one citizen's interior, roughly a quarter of the model.
-
-**Rejected alternative.** (1) **Replace** the single-conversation thesis ("the
-platform was always the real proposal; the unified thread was a stepping stone").
-False to the repo (the interior is fully specified and load-bearing) and
-strategically worse (it reopens AGENTS.md's locked decisions and orphans D5's
-guardian, which only makes sense *above* still-intact conversations). (2) **Clean
-layering** — treat the two as orthogonal proposals at different altitudes, no
-containment claim. This is the genuine strongest competitor: it avoids the
-altitude-tagging tax above. We still reject it because the scope-jump *demands* an
-answer to "single-user clarity or multi-tenant platform?", and nesting answers it
-with a containment relation the existing types can carry, where pure layering leaves
-the reader to guess. The coupling cost (altitude tags) is the price of that answer.
+**Rejected alternative.** Treat Conversations and the shared-project layer as
+orthogonal systems with duplicate identity, authority, or history. That would
+leave every integration to rediscover how a worker's acts become a Project's
+contributions; the explicit containment relation gives those acts one path.
 
 ### D8 — The cascade is object-capability attenuation — over authority first, tokens as the quota case
 
@@ -425,7 +388,7 @@ resolves to a model outside the prompt's authored-for family, the picker surface
 mismatch as a downgrade **warning** at selection time. It does not silently apply a
 Claude-tuned prompt to a small open model.
 
-**Why.** System prompts are provider-optimized, not portable text. The prototype's
+**Why.** System prompts are provider-optimized, not portable text. The current
 `systemPrompt(session)` ([`../server/generate.ts:69`](../server/generate.ts)) is
 written in Claude's idiom — it frames the loop as proposal-then-consent and assumes
 the model honors `tool_use` over the `TOOL_DEFINITIONS` sent every request — and is
@@ -581,8 +544,8 @@ context)*: the in-scope set is the *Project's* admitted contexts, never the owne
 The owner's ambient set is the *ceiling* you attenuate from (D8); the Commission's
 allowlist — provider ⊇ agent ⊇ commission, on connectors as on tokens — is what the
 Agent actually carries onto the Project, validated **once at commission time**, the
-way a standing schedule is approved once then runs unprompted (the prototype's
-existing standing-approval pattern), not re-checked per turn.
+way a standing schedule is approved once then runs unprompted (the platform's
+standing-approval pattern), not re-checked per turn.
 
 Two consequences. The Project's Guardian (D11) **would** own the *authority*
 invariant (which contexts a Contributor may attach) alongside its reservation ledger —
@@ -779,12 +742,11 @@ with the Agent that drove it**, so authorship, metering (D13 owner-pays), and au
 attributable across a hand-off — the binding names the *current driver*, backed by per-turn
 provenance, not one immutable author. **[INTERIOR]**
 
-**Why.** The proposal's spine is "escalate in place, nothing re-explained" (the guided tour's
-chat → workspace → repo). The next natural escalation is *who drives*: a generalist Agent opens a
+**Why.** Conversation continuity means work can gain context and capability
+without being restarted or re-explained. The same principle applies to *who drives*: a generalist Agent opens a
 thread, it turns into repo work, and the user hands it to a specialized worker (different prompt,
 tools, a higher-effort provider) without starting over. Forbidding hand-off would force a **new
-Conversation at exactly the moment the proposal promises continuity** — the multi-tab
-fragmentation the whole thesis removes, reintroduced one level down. Making hand-off a
+Conversation at exactly the moment continuity matters most**. Making hand-off a
 consent-gated event keeps it inside "one gate for everything Claude changes"; per-turn stamping
 keeps owner-pays honest when two Agents (two owners) touched one thread.
 
@@ -797,7 +759,7 @@ mid-conversation — power bought with the loss of a single stable identity.
 **Rejected alternative.** A fixed binding (one Agent per Conversation for life; switching workers
 = a new Conversation). Simpler attribution and a constant identity — but it breaks in-place
 escalation at the worker boundary and scatters one piece of work across Conversations whenever the
-right driver changes, the very fragmentation the proposal exists to end.
+right driver changes.
 
 ### D17 — Discovery is a directory, not a feed
 

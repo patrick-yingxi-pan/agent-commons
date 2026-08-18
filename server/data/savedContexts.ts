@@ -254,7 +254,7 @@ export const SAVED_CONTEXTS: SavedContext[] = [
   // ── Repositories (ids match the repo catalogs) ──
   {
     id: 'gh-proposal',
-    label: 'patrick-yingxi-pan/claude-ui-proposal',
+    label: 'patrick-yingxi-pan/agent-commons',
     kind: 'repo',
     status: 'connected',
     origin: 'github',

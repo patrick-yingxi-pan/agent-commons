@@ -1,9 +1,9 @@
 {
-  "name": "claude-ui-proposal",
+  "name": "agent-commons",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A prototype proposing a unified Chat / Cowork / Code experience for the Claude desktop app.",
+  "description": "A collaboration platform for people and agents.",
   "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "node scripts/dev.mjs",

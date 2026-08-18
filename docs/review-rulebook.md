@@ -211,7 +211,7 @@ A new capability is gated by `/capabilities` (remote → 409
 route suites; grep `src/components` for object-literal fixtures of server
 entities.
 **Fix:** move data to seeds; gate the capability; document intentional mock
-behavior in `docs/evaluation.md` / spec pillar 11.
+behavior in spec pillar 11 (`docs/spec/11-mock-boundary.md`).
 
 ### F-16 · Dependencies stay few and deliberate
 The server keeps its single dependency; UI deps are minimal; adding one

@@ -6,7 +6,7 @@
 > verbatim by both ends (the shared types *are* the API), a small read-through cache
 > fed by one SSE stream for push-based sync, and `GET /v1/capabilities` + `409
 > capability_unavailable` so native-only features gate on flags, never on sniffing
-> Electron vs web. (PROPOSAL §10; README "Architecture".)
+> Electron vs web. See [`../../README.md`](../../README.md#architecture).
 
 ## Requirements (L2)
 

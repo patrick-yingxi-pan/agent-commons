@@ -1,20 +1,17 @@
 # Production design — `docs/design/`
 
-> **What this is.** The engineering design for a *production-ready* version of this
-> system, derived top-down from the goal ([`PROPOSAL.md`](../../PROPOSAL.md)), the
-> architecture ([`README.md`](../../README.md)), and the requirements ledger
-> ([`docs/spec/`](../spec/README.md)). Where `docs/spec/` says *what the prototype
+> **What this is.** The engineering design for a production-ready Agent Commons,
+> derived top-down from the platform architecture ([`README.md`](../../README.md))
+> and the requirements ledger ([`docs/spec/`](../spec/README.md)). Where
+> `docs/spec/` says *what the current implementation
 > does and what's still mocked*, this tree says *how the real thing would actually
 > work* — components, data models, protocols, sequence flows, failure modes, and the
 > decisions behind them.
 >
-> **We design, not build** *(superseded 2026-06-30)*. Originally these docs were a
-> paper blueprint and the prototype stayed a prototype. The owner has since chosen to
-> **implement the locked-in design in-repo**, incrementally and architecture-first —
-> see [`IMPLEMENTATION.md`](IMPLEMENTATION.md) for the reversal, the constraints that
-> still hold (few deps, framework-free contract, tests-with-every-step), and the
-> build status per `PD*` decision. These docs remain the blueprint; `IMPLEMENTATION.md`
-> tracks what's actually built.
+> These docs remain the production blueprint while
+> [`IMPLEMENTATION.md`](IMPLEMENTATION.md) tracks what is built in-repo per `PD*`
+> decision. Changes stay architecture-first, dependency-light, contract-driven,
+> and locked by tests.
 
 ## Target
 
@@ -79,7 +76,7 @@ answered. These are **`docs/spec/` requirement-status** markers (full legend in 
 
 | Spec item | What it is | Production design |
 |-----------|-----------|-------------------|
-| FWD-1 `🟡` | Pre-attached entry shortcuts (seam + launcher built; per-mode sidebar entries remain) | [P1](P1-adaptive-ui.md) (PD33) |
+| FWD-1 `✅` | Context-seeded conversation entry (shared seam + launcher) | [P1](P1-adaptive-ui.md) (PD33) |
 | FWD-2 `🟡` | Per-conversation panel memory | [P1](P1-adaptive-ui.md) (PD34) |
 | FWD-3 `✅` | Responsive ladder — **complete, moved to ADAPT-11** (narrow rail drawer + panel takeover + `short` axis; icon-rail superseded, see PD35) | [P1](P1-adaptive-ui.md) (PD35) |
 | FWD-4 `🟡` | Cross-device sync | [F3](F3-contract-sync.md)/[F6](F6-persistence-ops.md) (PD13/PD34) |
@@ -92,7 +89,7 @@ answered. These are **`docs/spec/` requirement-status** markers (full legend in 
 
 ## Relationship to the spec
 
-`docs/spec/` is the conformance ledger for the *prototype* (built vs mocked vs gap).
+`docs/spec/` is the conformance ledger for the current implementation (built vs mocked vs gap).
 `docs/design/` is the blueprint for *production*. A spec requirement marked `📝`/`🟡`
 (a known gap) should have its production design here; a spec `🟡` mock-boundary row
 should have here the design for the *real* boundary that replaces the fixture.

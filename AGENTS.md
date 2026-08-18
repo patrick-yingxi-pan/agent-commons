@@ -3,13 +3,14 @@
 
 ## Scope
 
-This repository is a working prototype and written proposal for collapsing the
-Claude desktop app's Chat, Cowork, and Code tabs into one conversation with an
-adaptive workspace. It is independent, not affiliated with or endorsed by
-Anthropic, and deliberately uses deterministic mock data and a mock model
-endpoint. Read [`PROPOSAL.md`](PROPOSAL.md) for the argument,
-[`README.md`](README.md) for the engineering tour, and
-[`docs/evaluation.md`](docs/evaluation.md) before evaluating mock behavior.
+This repository is **Agent Commons**, an agents-collaboration platform where
+people configure agents, work through adaptive conversations, and coordinate
+shared projects, resources, routines, and proposals. The frontend, HTTP + SSE
+backend, MCP access doors, model seam, and session-relay connector are real
+boundaries; seeded data and the development model remain deterministic fixtures.
+Read [`README.md`](README.md) for the engineering tour and
+[`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md) for the explicit
+mock boundary.
 
 This file is a map. The disclosure model, category order, and rule-record schema
 are defined in [`docs/context-system.md`](docs/context-system.md).
@@ -39,7 +40,7 @@ their local implementation and evidence.
 <!-- context-rules:start -->
 | ID | Category | Rule | Implementation | Locks | Relations |
 |---|---|---|---|---|---|
-| ROOT-P1 | product | One adaptive conversation replaces mode selection; every page is an equal workspace surface. | [`src/App.tsx`](src/App.tsx) · [`src/components/MainSplit.tsx`](src/components/MainSplit.tsx) | [`e2e/main-split.spec.ts`](e2e/main-split.spec.ts) | root |
+| ROOT-P1 | product | Agent Commons is one collaboration platform: conversations and resource pages are equal workspace surfaces. | [`src/App.tsx`](src/App.tsx) · [`src/components/MainSplit.tsx`](src/components/MainSplit.tsx) | [`tests/product-identity.test.ts`](tests/product-identity.test.ts) · [`e2e/main-split.spec.ts`](e2e/main-split.spec.ts) | root |
 | ROOT-P2 | product | Mock behavior is explicit, deterministic, and distinguishable from built boundaries. | [`server/data/`](server/data/) · [`server/model/`](server/model/) | [`server/data/demo-accounts.test.ts`](server/data/demo-accounts.test.ts) · [`tests/spec-conformance.test.ts`](tests/spec-conformance.test.ts) | root |
 | ROOT-A1 | architecture | Every concept has one authoritative description; other surfaces are generated or live projections. | [`server/routes/index.ts`](server/routes/index.ts) · [`src/lib/collectionProjection.ts`](src/lib/collectionProjection.ts) | [`tests/access-surface-parity.test.ts`](tests/access-surface-parity.test.ts) · [`src/lib/collection-projection.test.ts`](src/lib/collection-projection.test.ts) | root |
 | ROOT-A2 | architecture | Build real, replaceable boundaries between UI, backend, model, and connectors. | [`contract/`](contract/) · [`server/generate.ts`](server/generate.ts) · [`connector/`](connector/) | [`tests/contract-boundaries.test.ts`](tests/contract-boundaries.test.ts) · [`server/model/generate.test.ts`](server/model/generate.test.ts) | root |
@@ -89,5 +90,5 @@ src/        React UI, API cache, controllers, primitives, rendered surfaces
 connector/  self-contained session-relay connector
 e2e/        rendered browser wiring
 tests/      repository-owned doc and cross-layer locks
-docs/       proposal detail, design rationale, spec ledger, evaluation guide
+docs/       design rationale, operational guides, and the spec ledger
 ```

@@ -64,7 +64,7 @@ export function plainReplyText(userText: string): string {
   // canned (the mock stands in for the model's words, as everywhere) — the cooperation
   // itself (commission, sub-goal reservation, effect) runs through the real backend.
   if (/\bdraft\b/.test(t) && /\barticle\b/.test(t)) {
-    return 'Here’s a draft for our shared article, **The Adaptive Workspace**:\n\n> One conversation that grows into a workspace beats three tabs that each start from zero. Context should attach to the thread — never the other way around.\n\nI’ve claimed this section at the project’s Guardian so we don’t collide with the other contributors — refine away.'
+    return 'Here’s a draft for our shared article, **Coordinating Agent Work**:\n\n> A durable conversation keeps context, decisions, and delegated effects together. Shared Projects coordinate many such work streams through explicit roles and a Guardian.\n\nI’ve claimed this section at the project’s Guardian so we don’t collide with the other contributors — refine away.'
   }
   return 'The model here is a local mock, so free-form chat is canned — but every organizing act is real. Ask me to *open a workspace*, *connect the repo*, *save a draft as an artifact*, *file this under a project*, or *have a schedule save a digest*.'
 }

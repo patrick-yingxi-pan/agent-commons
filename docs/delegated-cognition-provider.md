@@ -569,24 +569,6 @@ successor**, plus the provider-row removal and the existing agent-binding 409.
   what happened.
 - **Silence** is the deadline's job: the turn falls back and the slot clears (§7.1).
 
-### 7.7 The tour: forbid the playback, not the binding
-
-> **Retired (2026-07):** the guided tour (and its launch gate) was removed when the
-> proposal's framing chrome came out — the prose-only *badge* and the picker warning
-> survive. This section stays as the design record of the ruling.
-
-The guided tour is scripted around tool-call escalations; on a prose-only provider
-its beats cannot land (the far session free-answers — the mock's fixed-string
-intents never fire). Ruling: binding the default Agent to a Session provider stays
-**allowed** — it's the user's registry — and the picker carries a specific warning
-line beside the prose-only badge ("the guided tour depends on this Agent's tool
-calls"); but the **tour launcher refuses to start** when the demo session's Agent
-resolves to a `kind:'session'` provider, with the remedy in the message (repoint the
-default Agent to a tool-capable provider). Rejected: silently pinning the tour's
-turns to the default provider (hides the misconfiguration and breaks "one provider
-resolution rule for every turn"), and playing the script knowingly gutted — the demo
-is the argument, and a gutted demo argues the opposite.
-
 ### 7.8 No token streaming in v1 is structural — so the UI says who it's waiting on
 
 A tool call's argument is complete when the call is made: `respond_and_wait(answer)`
@@ -664,8 +646,8 @@ document, the usage estimate, the relay-specific fallback (§7.2); (4) the pre-t
 (`relay_offline` / `relay_busy` 503, refused before the user turn persists); (5) the security
 walls (constant-time bearer, hashed-secret persistence + restart re-bind, one-time-show,
 masked-on-read, kill-switch DELETE/rotate — §7.5, the outbound-injection wall — §7.9);
-(6) the UI (kind toggle, one-time connect panel, offline dot, prose-only badge everywhere,
-provenance chip, the "Waiting on your session…" state, the tour-launch gate — §7.7/§7.8);
+(6) the UI (kind toggle, one-time connect panel, offline dot, provenance chip,
+the "Waiting on your session…" state — §7.8);
 (7) the shipped user-side MCP connector exposing `start` / `respond_and_wait` (entry-keyed,
 refusal-is-a-reply, tagged-error submit, the prose-only standing instruction — §7.6/§7.9).
 No consent-gated proposals on a relay turn — that was the whole reason v1 was prose-only.
@@ -966,7 +948,7 @@ lifecycle intricacies, recorded with the machinery that answers them:
 The first pass's "unresolved edge cases" block is gone: every item in it is now ruled
 in §7 (lease/abort/slot-release → §7.1; stale submits → §7.1; degenerate completions
 → §7.6; flattening fidelity → §7.4; rotate-mid-turn → §7.5; TTL-vs-deadline → §6.5 +
-§7.2/§7.3; the tour → §7.7; streaming → §7.8, deferred below). What remains is
+§7.2/§7.3; streaming → §7.8, deferred below). What remains is
 genuine v2 work, each a real feature, not polish:
 
 - ~~**Structured tool-use over the mailbox**~~ → **BUILT** (§9.1): the framed mailbox

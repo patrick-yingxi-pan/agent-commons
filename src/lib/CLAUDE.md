@@ -42,9 +42,8 @@ output, no DOM needed).
 
 - **A registry has ONE home.** Sections, rail panes, palettes, URL routes — the
   rail, the body, the pickers and the docs all derive from the same table. A
-  second hand-kept list is the drift, and several locks here exist because one
-  appeared (`PROPOSAL.md`'s section list was derived from `sections.tsx` only
-  after it had rotted).
+  second hand-kept list is the drift; projection locks exist because a prose
+  inventory once diverged from `sections.tsx` and hid missing sections.
 - **Primitives are shared, not restyled.** A surface that wants a slightly
   different button extends the primitive; it does not hand-roll one. Suites here
   assert the import (`thread-composer` checks the composer sources the shared

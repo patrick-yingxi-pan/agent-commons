@@ -187,7 +187,7 @@ test('an article-draft request is a plain-chat turn whose canned prose is the sh
   const msg = 'Draft the introduction of our co-authored article.'
   assert.deepEqual(matchIntents(msg), [], 'drafting prose is not a resource manipulation — no tool calls')
   const prose = plainReplyText(msg)
-  assert.match(prose, /The Adaptive Workspace/, 'the draft names the shared article')
+  assert.match(prose, /Coordinating Agent Work/, 'the draft names the shared article')
   assert.match(prose, /Guardian/, 'the draft narrates the coordination it stands on')
   // The generic local-mock pointer must NOT swallow the beat.
   assert.doesNotMatch(prose, /local mock/)

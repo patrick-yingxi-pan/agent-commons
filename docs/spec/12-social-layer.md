@@ -74,7 +74,7 @@
 
 | ID | Requirement | Anchor / where it would live | Status |
 |----|-------------|------------------------------|--------|
-| SOCIAL-10 | **Anonymous rendering + indexing** — the remainder of S6's "public" phase: a `link` grant readable with NO account (today "anyone with the link" means anyone SIGNED IN who redeems it), and shared resources being indexable. Deliberately unbuilt, not merely unfinished: it is the one part of the social layer with no honest mock — anonymous rendering is a production concern (cache/CDN semantics, abuse surface, crawler policy) that a deterministic demo backend would only pretend to answer, and pretending is what `docs/evaluation.md`'s mock-boundary rule forbids. Listed so "what isn't built?" has an answer in the ledger rather than only in design prose. | `server/routes/index.ts` (the auth-gate middleware), `src/App.tsx` (the `/shared/:token` boot consumer) | 📝 |
+| SOCIAL-10 | **Anonymous rendering + indexing** — the remainder of S6's "public" phase: a `link` grant readable with NO account (today "anyone with the link" means anyone SIGNED IN who redeems it), and shared resources being indexable. Deliberately unbuilt, not merely unfinished: it is the one part of the social layer with no honest mock — anonymous rendering is a production concern (cache/CDN semantics, abuse surface, crawler policy) that a deterministic development backend would only pretend to answer, and pillar 11's mock-boundary rule forbids that pretense. Listed so "what isn't built?" has an answer in the ledger rather than only in design prose. | `server/routes/index.ts` (the auth-gate middleware), `src/App.tsx` (the `/shared/:token` boot consumer) | 📝 |
 
 ## Planned (the backlog lives in the design doc)
 

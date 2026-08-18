@@ -260,7 +260,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await ada.page.getByRole('main').getByRole('button', { name: 'New session' }).click()
   await ada.page.getByPlaceholder('Reply to Claude…').fill('Draft the introduction of our co-authored article.')
   await ada.page.keyboard.press('Enter')
-  await expect(ada.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: ms(20_000) })
+  await expect(ada.page.getByText(/Coordinating Agent Work/)).toBeVisible({ timeout: ms(20_000) })
 
   // Bo is a VISITOR on this project page, so the header's New session is (correctly)
   // absent for him — his drafting session is his own tenant-scoped chat, started from
@@ -268,7 +268,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await bo.page.getByRole('complementary').getByRole('button', { name: 'New session' }).click()
   await bo.page.getByPlaceholder('Reply to Claude…').fill('Draft the conclusion of our co-authored article.')
   await bo.page.keyboard.press('Enter')
-  await expect(bo.page.getByText(/One conversation that grows into a workspace/)).toBeVisible({ timeout: ms(20_000) })
+  await expect(bo.page.getByText(/Coordinating Agent Work/)).toBeVisible({ timeout: ms(20_000) })
 
   // Session tenancy through the UI: Ada's sidebar never lists Bo's drafting session.
   await reloadApp(ada.page)

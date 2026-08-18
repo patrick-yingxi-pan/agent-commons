@@ -1,13 +1,12 @@
 # 03 · In-place escalation
 
-> **Intent.** The defining move: a plain chat can **level up into a workspace, then
+> **Intent.** A conversation can **level up into a workspace, then
 > into a repo, in the same thread**, carrying all prior context, with no tab switch
 > and nothing re-explained. Each escalation is the *result of a model tool call*
 > (`open_workspace` / `connect_repo` / `create_project`) executed by the backend and
 > surfaced as a **consent-gated proposal** — panels attach only on the user's
 > approval. It's a real round-trip, so the panels' content is a tool's output, not
-> a client fixture. (PROPOSAL §4.4; AGENTS "no real model — but the whole pipeline
-> is real".)
+> a client fixture.
 
 ## Requirements (L2)
 

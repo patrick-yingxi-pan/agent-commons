@@ -61,7 +61,7 @@ apply its standing effect **unprompted** (the prototype's `applyStandingEffects`
 `relation.applied by:'standing'`). Production: the daemon acts under that grant, **each
 application audited** (F5 PD27), and the grant is listed + revocable (revoking stops
 future unprompted effects). This is the "approved once, then runs unprompted" model
-from PROPOSAL §4.7 made durable.
+from the shared relationship catalog made durable.
 
 ## 3. Failure modes & edge cases
 

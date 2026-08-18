@@ -18,7 +18,7 @@ when the subject is the repository, a document graph, or a cross-layer seam.
 |---|---|---|---|---|---|
 | TEST-V1 | verification | A suite lives beside what it locks; this directory owns only repository-wide and cross-layer claims. | [`../scripts/verifyPlan.mjs`](../scripts/verifyPlan.mjs) | [`suite-paths.test.ts`](suite-paths.test.ts) · [`verify-plan.test.ts`](verify-plan.test.ts) | refines ROOT-V1 |
 | TEST-V2 | verification | Every shipped feature has a current spec row naming implementation, lock, and status. | [`../docs/spec/`](../docs/spec/) | [`spec-conformance.test.ts`](spec-conformance.test.ts) | refines ROOT-V1 |
-| TEST-V3 | verification | A lock reads the real source, asserts its preconditions, and is watched fail before it is evidence. | [`helpers/source.ts`](helpers/source.ts) | [`context-map.test.ts`](context-map.test.ts) · [`contract-boundaries.test.ts`](contract-boundaries.test.ts) | refines ROOT-V1 |
+| TEST-V3 | verification | A lock reads the real source, asserts its preconditions, and is watched fail before it is evidence. | [`helpers/source.ts`](helpers/source.ts) | [`context-map.test.ts`](context-map.test.ts) · [`contract-boundaries.test.ts`](contract-boundaries.test.ts) · [`product-identity.test.ts`](product-identity.test.ts) | refines ROOT-V1 |
 | TEST-V4 | verification | Browser-only behavior belongs in E2E; pure behavior moves into a testable module. | [`../e2e/`](../e2e/) · [`../src/lib/`](../src/lib/) | [`verify-plan.test.ts`](verify-plan.test.ts) | refines ROOT-V1; requires E2E-V1 |
 <!-- context-rules:end -->
 
@@ -43,7 +43,8 @@ on one resource — they are two files, and neither is folded into the other.
 What stays in `tests/` is what the **repo** owns and no module can: the doc-lint
 and cross-layer locks (`context-map`, `context-structure`, `spec-conformance`, `doc-paths`,
 `suite-paths`, `review-rulebook`, `contract-boundaries`, `verify-plan`,
-`ui-sweep-coverage`, `access-surface-parity`) plus `helpers/source.ts`, which scans the whole tree. This
+`ui-sweep-coverage`, `access-surface-parity`, `product-identity`) plus
+`helpers/source.ts`, which scans the whole tree. This
 directory is a home, not a leftover — if a suite here names one module as its
 subject, it has a better home.
 

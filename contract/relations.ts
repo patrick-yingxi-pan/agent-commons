@@ -1,8 +1,8 @@
 /** ── Contract: the relationship graph between the five entities ─────────────
- *  The prototype models five nouns — Session, Project, Artifact, Context, and
+ *  The relationship graph models five nouns — Session, Project, Artifact, Context, and
  *  Schedule. They aren't islands: every pair relates. This file is the single
- *  source of truth for (a) what those relationships ARE (`RELATIONS`, restated in
- *  PROPOSAL.md §4.7) and (b) the edits Claude can propose to them (`RelationOp`),
+ *  source of truth for (a) what those relationships ARE (`RELATIONS`) and (b)
+ *  the edits a model can propose to them (`RelationOp`),
  *  each gated by a confirmation prompt in the conversation.
  *
  *  Shared by the UI (the confirmation card, the proposal labels) and the backend
@@ -121,7 +121,7 @@ export type RelationOp =
   // Session ↔ Project — file / move a session into a project (null = unfile).
   | { kind: 'file-session'; sessionId: string; sessionTitle: string; projectId: string | null; projectName: string }
   // Session ↔ Project — create a new project, optionally filing a session into it
-  // in the same move. The AI's tour proposal files the live session; a user
+  // in the same move. A model-created project proposal files the live session; a user
   // creating a project from the Projects page passes neither (an empty project).
   // `ownerTenantId` (FWD-6 O-D4, the owner picker): ABSENT = the caller's own
   // namespace (the fixed minimal-risk absence, INV-9 — never a mutable default);

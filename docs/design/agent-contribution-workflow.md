@@ -895,6 +895,6 @@ its pulse: in flight / awaiting review / landed) and touch no consent
 machinery — the safe start. **C is the pivot** (the pre-approval thesis lands
 here) and must precede D's manifest stamping. **E completes the
 contribution-side story**; F and G are each independently valuable after E and
-can reorder on evaluator feedback. Throughout: seed-data worlds
+can reorder as implementation evidence changes. Throughout: seed-data worlds
 (`server/data/`) gain a mid-flight exemplar project so every stage is
-*visible* on first sign-in — the demo is the argument.
+*visible* on first sign-in so every stage remains reviewable.

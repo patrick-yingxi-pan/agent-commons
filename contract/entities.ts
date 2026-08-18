@@ -7,14 +7,12 @@
  *  talk to the local mock backend or a remote web server without changing a line,
  *  because both implement these exact types. */
 
-/** The three capabilities that, in today's app, are three separate top-level
- *  tabs (Chat / Cowork / Code). In this prototype they are attributes that a
- *  single conversation can hold, all at once. */
+/** Capability is conversation state, not application identity. A conversation
+ *  may carry chat, workspace, and repository capability at the same time. */
 export type Capability = 'chat' | 'workspace' | 'repo'
 
-/** A cross-cutting tool in the sidebar nav — not a conversation, but a global
- *  surface (your projects, every artifact, scheduled runs, …). Opening one
- *  takes over the main area in place of the active thread. */
+/** An account-resource root in the rail. Each opens as an equal main-workspace
+ *  pane beside conversations and other resources. */
 export type SectionId =
   | 'commons'
   | 'projects'

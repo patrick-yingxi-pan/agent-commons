@@ -5,10 +5,9 @@
  *  capability server in `agents.ts`): the Agent is the *who/how*, the Runner the
  *  *where*. The two never share the word again.
  *
- *  Forward-looking: today there is exactly one, seeded, wrapping the single implicit
- *  model client — the degenerate N=1 case (`server/data/workers.ts`). Multi-agent
- *  management, model providers, and budgets are later slices; `providerId` and a
- *  budget are deliberately absent until the slices that enforce them land. */
+ *  Agents are account-scoped persisted resources. The seeded default remains a
+ *  usable baseline, while registered providers, prompts, budgets, commissions,
+ *  and worker management supply the multi-agent platform around it. */
 
 import type { Budget } from './budget.ts'
 import type { Authority } from './authority.ts'

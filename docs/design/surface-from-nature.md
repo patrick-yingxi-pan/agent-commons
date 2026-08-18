@@ -165,7 +165,7 @@ This principle *extends* the existing ones, it doesn't fight them:
   location** (`src/CLAUDE.md`). The dedicated-page form here is the same doctrine: owner and
   visitor get *one* page; the timeline/diff/thread render for both; only the *acts*
   (merge, retract, comment) gate on the viewer-relative `own` flag.
-- **Progressive disclosure** (`PROPOSAL.md`): a page need not show its whole timeline at
+- **Progressive disclosure** ([`../context-system.md`](../context-system.md)): a page need not show its whole timeline at
   once; recent events + "show earlier" is the natural fold.
 
 ## Worked examples (the targets this method surfaces)

@@ -47,7 +47,7 @@ const SCOPED_HOMES: Record<string, string[]> = {
   'connector/CLAUDE.md': ['session-relay-primer.md', 'delegated-cognition-provider.md'],
   'docs/context-system.md': ['Controlled categories and order', 'Rule record', 'What the structural lock proves'],
   'docs/agent-workflow.md': ['Review UI changes', 'Keep access surfaces symmetric', 'Land the change'],
-  'docs/evaluation.md': ['No mode chosen up front', 'intentionally mock', '11-mock-boundary.md'],
+  'docs/spec/11-mock-boundary.md': ['MOCK-1', 'MOCK-6', 'The declared fixtures'],
   // Module-scoped homes: colocation applied to context, not only to code. Each
   // is one directory's rules, loaded by opening that directory.
   'server/routes/CLAUDE.md': ['ROUTES-A1', 'plain data', 'testkit/http.ts'],
@@ -123,51 +123,10 @@ test('every relative link in the map and the scoped files resolves', () => {
   }
 })
 
-/** PROPOSAL.md §5 maps each idea to where a reader can SEE it, so its section
- *  list is a factual claim about the shipped rail — and it rotted: it named
- *  "New task" (the row is "New session") and six of the eleven sections did not
- *  exist yet when it was written. A claim a reviewer checks first should not
- *  depend on someone remembering to update prose. Derived from the one registry
- *  (src/lib/sections.tsx), the same source the rail and the body read. */
-test('PROPOSAL §5 names the sections the rail actually has', () => {
-  const proposal = read('PROPOSAL.md')
-  const row = proposal.split('\n').find((l) => l.includes('Cross-cutting tools, not tabs'))
-  assert.ok(row, 'the §5 mapping row exists')
-  const meta = read('src/lib/sections.tsx')
-  // The `admin` section (label "Maintain") is role-gated — the rail filters it
-  // out unless `instanceAdmin` — so it is not part of the everyday nav the row
-  // describes. Named by its LABEL, which is not its id: this lock's first run
-  // caught the author of that very row writing capitalized ids instead.
-  const labels = [...meta.matchAll(/label:\s*'([^']+)'/g)].map((m) => m[1]).filter((l) => l !== 'Maintain')
-  assert.ok(labels.length >= 9, 'found the section labels to check against')
-  for (const label of labels) {
-    assert.ok(row!.includes(label), `PROPOSAL §5 omits the "${label}" section — the rail has it`)
-  }
-  assert.ok(row!.includes('New session'), 'the create row is called "New session"')
-})
-
-/** §9 and §10 are where a reviewer calibrates what is real. Both had drifted:
- *  §10 called the backend "zero-dependency" while `@anthropic-ai/sdk` was in
- *  package.json, and §9's "no real model behind the streaming reply" read as if
- *  the tool-use loop were faked, when the boundary is a genuine Messages client
- *  (server/CLAUDE.md) that two env vars point at the real API. Claiming fewer
- *  dependencies than you ship, to the company whose SDK it is, is the kind of
- *  error worth making impossible rather than remembering. */
-test('PROPOSAL §10 states the backend dependency it actually ships', () => {
-  const proposal = read('PROPOSAL.md')
-  const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> }
-  const serverDep = '@anthropic-ai/sdk'
-  assert.ok(pkg.dependencies[serverDep], 'the SDK is still the server dependency this claim is about')
-  assert.ok(
-    !/zero-dependency/.test(proposal),
-    'PROPOSAL claims a zero-dependency backend while package.json ships one',
-  )
-  assert.ok(proposal.includes(serverDep), `PROPOSAL §10 should name ${serverDep} — the seam that makes the boundary real`)
-})
-
-/** README is the engineering tour, so its two most checkable claims — which
- *  commands exist, and what the tree contains — are derived, not remembered.
- *  Both had drifted: it named neither `npm test` nor `npm run e2e` (a reviewer
+/** README is the engineering tour, so its most checkable claims — which
+ *  commands exist, what the tree contains, and the dependency at the model
+ *  boundary — are derived, not remembered.
+ *  Those claims had drifted: it named neither `npm test` nor `npm run e2e` (a reviewer
  *  could not find the 1400+ locks), and its layout omitted tests/, e2e/,
  *  scripts/ and connector/ entirely. */
 test('README names only real npm scripts, and names the verification ones', () => {
@@ -190,4 +149,12 @@ test('README project layout lists every top-level source directory', () => {
   for (const dir of ['contract', 'server', 'src', 'docs', 'tests', 'e2e', 'scripts', 'connector']) {
     assert.ok(new RegExp('(^|\n)' + dir + '/').test(layout), `README layout omits ${dir}/`)
   }
+})
+
+test('README names the SDK dependency at the model boundary', () => {
+  const readme = read('README.md')
+  const pkg = JSON.parse(read('package.json')) as { dependencies: Record<string, string> }
+  const serverDependency = '@anthropic-ai/sdk'
+  assert.ok(pkg.dependencies[serverDependency], `${serverDependency} remains the generation-boundary dependency`)
+  assert.ok(readme.includes(serverDependency), `README should name ${serverDependency}`)
 })
