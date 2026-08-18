@@ -1,7 +1,27 @@
-# server/http/ — the transport layer (loaded when working under server/http/)
+<!-- context-schema: v1 -->
+# server/http/ — transport module index
+
+## Scope
 
 The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
+
+## Read path
+
+Read [`../routes/CLAUDE.md`](../routes/CLAUDE.md) for resource registration and
+[`docs/mcp-access.md`](../../docs/mcp-access.md) before changing dispatch or
+access metadata.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| HTTP-A1 | architecture | Transport owns matching, responses, SSE, and router re-entry—never resource meaning. | [`router.ts`](router.ts) · [`respond.ts`](respond.ts) · [`sse.ts`](sse.ts) | [`security-headers.test.ts`](security-headers.test.ts) | refines ROOT-A2 |
+| HTTP-A2 | architecture | Shared response and security policy is applied in one transport funnel. | [`respond.ts`](respond.ts) | [`security-headers.test.ts`](security-headers.test.ts) | refines ROOT-A1; requires HTTP-A1 |
+| HTTP-D1 | data-access | Non-HTTP doors re-enter the router without private policy branches. | [`dispatch.ts`](dispatch.ts) | [`../mcp-parity.test.ts`](../mcp-parity.test.ts) | refines SERVER-D3 |
+| HTTP-D2 | data-access | Access classification is route-owned metadata exposed by `Router.list()`. | [`router.ts`](router.ts) | [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines SERVER-A2; requires HTTP-D1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -33,3 +53,8 @@ Beside them, the suites that lock the transport contract.
   Protocol/credential forms, semantic capability aliases, and session-intrinsic
   realizations use the router shorthands and carry a substantive reason beside
   registration. Never recreate a door-specific exclusion list.
+
+## Verification
+
+Run the transport suite and both access-parity locks after router or dispatch
+changes.

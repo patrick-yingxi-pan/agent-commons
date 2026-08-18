@@ -1,7 +1,26 @@
-# server/model/ — the model seam (loaded when working under server/model/)
+<!-- context-schema: v1 -->
+# server/model/ — model-seam module index
+
+## Scope
 
 The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
+
+## Read path
+
+Read [`../DESIGN.md`](../DESIGN.md) for the Messages/tool-use boundary and
+[`docs/mcp-access.md`](../../docs/mcp-access.md) for in-session access parity.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| MODEL-A1 | architecture | The local model is a wire-compatible Anthropic Messages endpoint, not a backend shortcut. | [`index.ts`](index.ts) · [`tools.ts`](tools.ts) | [`model-server.test.ts`](model-server.test.ts) · [`model-tools.test.ts`](model-tools.test.ts) | refines SERVER-A1 |
+| MODEL-A2 | architecture | Resource mutations travel as `tool_use`/`tool_result` through the generation loop. | [`tools.ts`](tools.ts) · [`../generate.ts`](../generate.ts) | [`model-tools.test.ts`](model-tools.test.ts) · [`generate.test.ts`](generate.test.ts) | refines ROOT-A2; requires MODEL-A1 |
+| MODEL-D1 | data-access | In-session API tools are generated from route-owned product capabilities and intrinsic realizations. | [`apiTools.ts`](apiTools.ts) · [`../apiSurface.ts`](../apiSurface.ts) | [`api-tools.test.ts`](api-tools.test.ts) | refines SERVER-D3; requires SERVER-A2 |
+| MODEL-V1 | verification | Mock intent/reply behavior and provider catalogs stay explicit and independently locked. | [`intents.ts`](intents.ts) · [`replies.ts`](replies.ts) · [`catalog.ts`](catalog.ts) | [`model-intents.test.ts`](model-intents.test.ts) · [`provider-models.test.ts`](provider-models.test.ts) | refines ROOT-V1; requires ROOT-P2 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -35,3 +54,8 @@ the boundary is the point, so the two sides do not share a directory.
   on the route itself (access parity, INV-11 —
   [`docs/mcp-access.md`](../../docs/mcp-access.md)); there is no model-private
   exclusion list.
+
+## Verification
+
+Run the changed model suite plus `server/model/generate.test.ts`; generated tool
+changes also run the access-parity lock.

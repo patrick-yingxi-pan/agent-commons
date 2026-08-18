@@ -1,7 +1,25 @@
-# src/data/ — client-side derivations (loaded when working here)
+<!-- context-schema: v1 -->
+# src/data/ — presentation-derivation module index
+
+## Scope
 
 The layer's rules are [`src/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
+
+## Read path
+
+Read the consuming controller/component context. Entity fixtures belong under
+[`server/data/CLAUDE.md`](../../server/data/CLAUDE.md), never here.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| UIDATA-A1 | architecture | This module owns pure presentation shape and state machines, not server entities. | [`liveSession.ts`](liveSession.ts) · [`contextOptions.ts`](contextOptions.ts) | [`focusForAdded.test.ts`](focusForAdded.test.ts) | refines UI-D1 |
+| UIDATA-E1 | experience | Escalation application and consent-card state derive from one shared funnel. | [`liveSession.ts`](liveSession.ts) | [`escalation-funnel.test.ts`](escalation-funnel.test.ts) · [`consent-state.test.ts`](consent-state.test.ts) | refines ROOT-P1; requires UIDATA-A1 |
+| UIDATA-D1 | data-access | Every escalation requires a confirmed card before server-owned state changes. | [`liveSession.ts`](liveSession.ts) · [`../controller/useSessionEscalation.ts`](../controller/useSessionEscalation.ts) | [`consent-state.test.ts`](consent-state.test.ts) | refines ROOT-D1; requires UIDATA-E1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -26,3 +44,8 @@ UI the same way real data does.
   from it, so a new step is a row, not a new branch in a component.
 - **Every escalation asks first.** A step that lands without a confirmed card
   contradicts the whole argument the prototype is making.
+
+## Verification
+
+Run the derivation suite and the consuming controller suite. Reject any entity
+fixture or authoritative status introduced here.

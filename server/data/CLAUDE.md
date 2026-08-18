@@ -1,7 +1,27 @@
-# server/data/ — seed fixtures (loaded when working under server/data/)
+<!-- context-schema: v1 -->
+# server/data/ — seed-data module index
+
+## Scope
 
 The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
+
+## Read path
+
+Read [`docs/spec/11-mock-boundary.md`](../../docs/spec/11-mock-boundary.md) and
+[`docs/demo-accounts.md`](../../docs/demo-accounts.md), then the fixture family
+and its sibling lock.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| SEED-P1 | product | Seed data is the declared deterministic mock boundary, not hidden production behavior. | [`sessions.ts`](sessions.ts) · [`cowork.ts`](cowork.ts) | [`demo-accounts.test.ts`](demo-accounts.test.ts) | refines ROOT-P2 |
+| SEED-D1 | data-access | Each demo account owns a disjoint, moderately complete themed world. | [`sessions.ts`](sessions.ts) · [`cowork.ts`](cowork.ts) | [`demo-accounts.test.ts`](demo-accounts.test.ts) | refines SERVER-O1 |
+| SEED-D2 | data-access | Tenancy stamps are code-owned and reconciled after snapshot restore. | [`cowork.ts`](cowork.ts) · [`../store/index.ts`](../store/index.ts) | [`demo-accounts.test.ts`](demo-accounts.test.ts) · [`../store/registry-tenancy.test.ts`](../store/registry-tenancy.test.ts) | refines STORE-D2 |
+| SEED-V1 | verification | Showcase state is built through real mutators so fixtures cannot drift from contract behavior. | [`cowork.ts`](cowork.ts) · [`../store/index.ts`](../store/index.ts) | [`demo-accounts.test.ts`](demo-accounts.test.ts) | refines ROOT-V1; requires SEED-D1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -29,3 +49,8 @@ Beside the fixtures, the suites that hold them to their standard —
   is what keeps fixtures from drifting away from the contract.
 - **An existing snapshot is never re-seeded.** Delete `.data/store.json` to
   regenerate.
+
+## Verification
+
+Run [`demo-accounts.test.ts`](demo-accounts.test.ts) and the affected resource's
+store/route suites. Review all six worlds when changing the data standard.

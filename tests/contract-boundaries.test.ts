@@ -72,6 +72,22 @@ test('contract/ + server/ use only erasable TypeScript (no enum / namespace / pa
   assert.deepEqual(offenders, [], `non-erasable syntax breaks the type-stripping Node runtime: ${offenders.join('; ')}`)
 })
 
+test('the server runtime imports only its one intentional external dependency', () => {
+  const externals = new Set<string>()
+  for (const file of filesUnder('server')) {
+    const src = stripComments(read(file))
+    for (const match of src.matchAll(/(?:\bfrom\s+|^\s*import\s+|\bimport\s*\()'([^']+)'/gm)) {
+      const specifier = match[1]
+      if (!specifier.startsWith('.') && !specifier.startsWith('node:')) externals.add(specifier)
+    }
+  }
+  assert.deepEqual(
+    [...externals].sort(),
+    ['@anthropic-ai/sdk'],
+    'server runtime dependencies are a deliberate boundary; add one only with an explicit invariant update',
+  )
+})
+
 // ── Seeds import contract types, never re-declare them ───────────────────────
 // The saved-context seed satisfies the wire type `SavedContext`; it must import
 // that shape from the contract, not mint a parallel copy. A hand-mirrored copy

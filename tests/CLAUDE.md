@@ -1,6 +1,28 @@
-# tests/ — testing conventions (loaded when working under tests/)
+<!-- context-schema: v1 -->
+# tests/ — repository-lock index
 
-The always-on map is [`AGENTS.md`](../AGENTS.md).
+## Scope
+
+Only doc-lint and cross-layer locks with no narrower module owner. The always-on
+map is [`AGENTS.md`](../AGENTS.md).
+
+## Read path
+
+For a behavioral feature test, go to the owning module instead. Stay here only
+when the subject is the repository, a document graph, or a cross-layer seam.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| TEST-V1 | verification | A suite lives beside what it locks; this directory owns only repository-wide and cross-layer claims. | [`../scripts/verifyPlan.mjs`](../scripts/verifyPlan.mjs) | [`suite-paths.test.ts`](suite-paths.test.ts) · [`verify-plan.test.ts`](verify-plan.test.ts) | refines ROOT-V1 |
+| TEST-V2 | verification | Every shipped feature has a current spec row naming implementation, lock, and status. | [`../docs/spec/`](../docs/spec/) | [`spec-conformance.test.ts`](spec-conformance.test.ts) | refines ROOT-V1 |
+| TEST-V3 | verification | A lock reads the real source, asserts its preconditions, and is watched fail before it is evidence. | [`helpers/source.ts`](helpers/source.ts) | [`context-map.test.ts`](context-map.test.ts) · [`contract-boundaries.test.ts`](contract-boundaries.test.ts) | refines ROOT-V1 |
+| TEST-V4 | verification | Browser-only behavior belongs in E2E; pure behavior moves into a testable module. | [`../e2e/`](../e2e/) · [`../src/lib/`](../src/lib/) | [`verify-plan.test.ts`](verify-plan.test.ts) | refines ROOT-V1; requires E2E-V1 |
+<!-- context-rules:end -->
+
+## Details
 
 ## Where a suite lives: with the code it locks
 
@@ -19,7 +41,7 @@ next to `auth.ts`; a test whose subject is the endpoint's own contract sits in
 on one resource — they are two files, and neither is folded into the other.
 
 What stays in `tests/` is what the **repo** owns and no module can: the doc-lint
-and cross-layer locks (`context-map`, `spec-conformance`, `doc-paths`,
+and cross-layer locks (`context-map`, `context-structure`, `spec-conformance`, `doc-paths`,
 `suite-paths`, `review-rulebook`, `contract-boundaries`, `verify-plan`,
 `ui-sweep-coverage`, `access-surface-parity`) plus `helpers/source.ts`, which scans the whole tree. This
 directory is a home, not a leftover — if a suite here names one module as its
@@ -95,3 +117,8 @@ decision below that the test surface is verified by running, not by compiling.
   saying "no such kind", and the real name had to be found by reading the
   reducer. Accepted — but if this bites repeatedly, the measurement above is the
   starting point, and `node:test`/`node:assert` declarations are the first step.
+
+## Verification
+
+Run the new or changed lock once against an intentional mutation, restore the
+subject, then run `node --test` (and `npm run verify` before landing).

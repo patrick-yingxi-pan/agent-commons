@@ -1,8 +1,27 @@
-# server/persistence/ — snapshots & durability (loaded when working here)
+<!-- context-schema: v1 -->
+# server/persistence/ — persistence module index
+
+## Scope
 
 The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md). The requirement rows this module owns are
 [`SPEC.md`](SPEC.md) — local, because they are checkable here.
+
+## Read path
+
+Read [`SPEC.md`](SPEC.md), then the backend/format being changed and its sibling
+suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.md).
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| PERSIST-A1 | architecture | JSON and SQLite implement one store-facing persistence interface and versioned format. | [`index.ts`](index.ts) · [`format.ts`](format.ts) · [`persist.ts`](persist.ts) | [`persist-backend.test.ts`](persist-backend.test.ts) · [`persist.test.ts`](persist.test.ts) | refines SERVER-D4 |
+| PERSIST-D1 | data-access | Writes are atomic; absent, malformed, or mismatched snapshots re-seed rather than crash. | [`json.ts`](json.ts) · [`persist.ts`](persist.ts) | [`persist.test.ts`](persist.test.ts) | refines SERVER-D4 |
+| PERSIST-D2 | data-access | Snapshot coverage equals durable UI-owned state and excludes truly transient state. | [`format.ts`](format.ts) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`dispatch-durability.test.ts`](dispatch-durability.test.ts) | requires PERSIST-A1; refines ROOT-A1 |
+| PERSIST-V1 | verification | Every new durable slice updates local requirements, round-trip coverage, and migration behavior. | [`SPEC.md`](SPEC.md) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`persist-migrate.test.ts`](persist-migrate.test.ts) | refines SERVER-V1; requires PERSIST-D2 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -29,3 +48,8 @@ The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); the always-on map is
 - **A new persisted slice is not done until `snapshot.test.ts`'s every-slice
   coverage invariant sees it** — that assertion is what stops a slice from being
   added to the store and silently forgotten by the snapshot.
+
+## Verification
+
+Run all persistence suites and update [`SPEC.md`](SPEC.md) for any format,
+backend, migration, or durable-slice change.

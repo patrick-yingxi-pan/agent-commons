@@ -1,6 +1,28 @@
-# e2e/ — browser E2E conventions (loaded when working under e2e/)
+<!-- context-schema: v1 -->
+# e2e/ — browser E2E index
 
-The always-on map is [`AGENTS.md`](../AGENTS.md).
+## Scope
+
+Rendered browser wiring that `node --test` cannot prove. The always-on map is
+[`AGENTS.md`](../AGENTS.md).
+
+## Read path
+
+Read the affected spec, [`tests/CLAUDE.md`](../tests/CLAUDE.md) for evidence
+discipline, and the owning UI module context. The stack is isolated from any
+running preview.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| E2E-V1 | verification | E2E proves rendered layout, focus, scroll, accessibility wiring, and cross-tenant walks—not store logic already locked below. | [`../src/components/`](../src/components/) · [`social-helpers.ts`](social-helpers.ts) | [`responsive.spec.ts`](responsive.spec.ts) · [`keyboard-resize.spec.ts`](keyboard-resize.spec.ts) | refines ROOT-V1 |
+| E2E-V2 | verification | Assertions target the rendered subject structurally and state every precondition; no textarea mirrors, vacuous counts, or clean-store assumptions. | [`social-helpers.ts`](social-helpers.ts) | [`social-sharing.spec.ts`](social-sharing.spec.ts) · [`project-page.spec.ts`](project-page.spec.ts) | refines ROOT-V1 |
+| E2E-O1 | operations | E2E boots an isolated remote-backend stack on 5183/5184 with a pinned local model endpoint. | [`../playwright.config.ts`](../playwright.config.ts) · [`wipe-store.mjs`](wipe-store.mjs) | [`../tests/verify-plan.test.ts`](../tests/verify-plan.test.ts) | requires E2E-V1 |
+<!-- context-rules:end -->
+
+## Details
 
 `npm run e2e` needs the browser once: `npx playwright install chromium`. It
 drives the **rendered UI** (the layer `node --test` can't — no DOM), booting
@@ -72,3 +94,9 @@ nav buttons carry a `navigation` role.
   and said nothing about *which* post had landed where. `parentRow.locator('li')
   .filter({ has: page.locator('p', { hasText: X }) })` states the claim
   directly and fails on a flat render.
+
+## Verification
+
+Run the affected spec first, then `npm run e2e` or `npm run verify`. Clear only
+the isolated E2E store when diagnosing accumulated-state flakiness; never make a
+test depend on that cleanup.

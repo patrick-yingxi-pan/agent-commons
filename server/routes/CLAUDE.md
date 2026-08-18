@@ -1,7 +1,26 @@
-# server/routes/ — the route table (loaded when working under server/routes/)
+<!-- context-schema: v1 -->
+# server/routes/ — route-table module index
+
+## Scope
 
 The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md). This file governs `server/routes/` only.
+
+## Read path
+
+Read [`../http/CLAUDE.md`](../http/CLAUDE.md) for registration/dispatch rules,
+[`../testkit/CLAUDE.md`](../testkit/CLAUDE.md) for the handler-level driver, and
+[`docs/mcp-access.md`](../../docs/mcp-access.md) for access classifications.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| ROUTES-A1 | architecture | `buildRouter()` is plain route data and the authoritative capability catalog. | [`index.ts`](index.ts) | [`../mcp-parity.test.ts`](../mcp-parity.test.ts) · [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines SERVER-A2 |
+| ROUTES-D1 | data-access | Product is default; every form, alias, or intrinsic realization is declared on its route with a reason. | [`index.ts`](index.ts) · [`../http/router.ts`](../http/router.ts) | [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines SERVER-D3; requires ROUTES-A1 |
+| ROUTES-V1 | verification | Each resource suite drives the real router/store through the shared HTTP testkit. | [`../testkit/http.ts`](../testkit/http.ts) | [`sessions.test.ts`](sessions.test.ts) · [`schedules.test.ts`](schedules.test.ts) | refines SERVER-V1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -46,3 +65,8 @@ per-resource `register*(r)` modules is the natural next refactor; when it
 happens, each suite here already sits next to the module it will belong to.
 Until then, don't take the flat listing as a sign that new endpoints should keep
 piling into one function — prefer extracting the resource you're touching.
+
+## Verification
+
+Run the changed resource suite. Access classification changes also run both
+parity suites linked in ROUTES-A1/ROUTES-D1.

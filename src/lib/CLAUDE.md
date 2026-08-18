@@ -1,7 +1,28 @@
-# src/lib/ — shared primitives & registries (loaded when working here)
+<!-- context-schema: v1 -->
+# src/lib/ — primitive and projection module index
+
+## Scope
 
 The layer's rules are [`src/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
+
+## Read path
+
+Read [`../DESIGN.md`](../DESIGN.md) only for the relevant visual, interaction,
+navigation, or workspace category. Rendered consumers live under
+[`../components/CLAUDE.md`](../components/CLAUDE.md).
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| UILIB-A1 | architecture | Every registry—sections, routes, panes, palettes, capabilities—has one authoritative table. | [`sections.tsx`](sections.tsx) · [`urlRoutes.ts`](urlRoutes.ts) · [`theme.ts`](theme.ts) | [`url-routes.test.ts`](url-routes.test.ts) · [`theme.test.ts`](theme.test.ts) | refines UI-A2; refines ROOT-A1 |
+| UILIB-A2 | architecture | Collection identity, groups, order, roles, presentation, and emptiness live in one projection model. | [`collectionProjection.ts`](collectionProjection.ts) | [`collection-projection.test.ts`](collection-projection.test.ts) | refines UI-A2; symmetric-with ROOT-E2 |
+| UILIB-E1 | experience | Shared primitives own equal roles; consumers compose or extend them rather than restyling copies. | [`button.ts`](button.ts) · [`formInput.ts`](formInput.ts) · [`popover.ts`](popover.ts) | [`button.test.ts`](button.test.ts) · [`form-input.test.ts`](form-input.test.ts) · [`popover.test.ts`](popover.test.ts) | refines UI-E2 |
+| UILIB-E2 | experience | Theme and palette application passes through one token funnel. | [`theme.ts`](theme.ts) · [`../index.css`](../index.css) | [`theme.test.ts`](theme.test.ts) · [`contrast.test.ts`](contrast.test.ts) | refines UI-E1 |
+| UILIB-V1 | verification | Pure derivations live here so behavior can be locked exactly without a DOM. | [`paneHistory.ts`](paneHistory.ts) · [`replyTree.ts`](replyTree.ts) · [`railSplit.ts`](railSplit.ts) | [`pane-history.test.ts`](pane-history.test.ts) · [`reply-tree.test.ts`](reply-tree.test.ts) · [`rail-split.test.ts`](rail-split.test.ts) | refines UI-V1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -41,3 +62,8 @@ output, no DOM needed).
 - **Theming goes through the one funnel** (`theme.ts`) — it alone stamps
   `data-theme` / `data-palette`. Full rule + palette contract:
   [`src/CLAUDE.md`](../CLAUDE.md).
+
+## Verification
+
+Run the changed primitive/projection suite and its consuming source lock. Any
+new registry or primitive must add an enumeration lock that catches local copies.

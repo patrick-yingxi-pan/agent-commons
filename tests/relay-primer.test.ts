@@ -5,8 +5,9 @@
  *  clamps, tool names, endpoints, the security walls) are read FROM THE SOURCE
  *  and asserted to appear in the primer — so changing the relay without updating
  *  the primer fails here, with a message naming the stale section. The
- *  cross-links are locked too: the files whose changes should force a primer
- *  update must point at it, and it must point back at the deep docs. */
+ *  cross-links are locked too: behavior-owning files point at the primer, the
+ *  boot map reaches it through the connector's scoped context (progressive
+ *  disclosure), and the primer points back at the deep docs. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -59,7 +60,11 @@ test('the primer is cross-linked: deep docs from it, and back-pointers from the 
   assert.ok(primer.includes('delegated-cognition-provider.md'), 'primer must link the design log')
   assert.ok(primer.includes('spec/06-model-and-tools.md'), 'primer must link the requirement ledger')
   // Behavior-owning files → primer (the "update me too" pointer).
-  for (const file of ['../connector/relay-connector.ts', '../server/connectorSetup.ts', '../docs/delegated-cognition-provider.md', '../AGENTS.md']) {
+  for (const file of ['../connector/relay-connector.ts', '../server/connectorSetup.ts', '../docs/delegated-cognition-provider.md']) {
     assert.ok(read(file).includes('session-relay-primer.md'), `${file.replace('../', '')} must point at the primer so edits there prompt a primer update`)
   }
+  // Boot map → scoped connector context → primer. Requiring every deep document
+  // directly in AGENTS.md was the flat-manual shape the context refactor removes.
+  assert.ok(read('../AGENTS.md').includes('connector/CLAUDE.md'), 'the boot map must route connector work to its scoped context')
+  assert.ok(read('../connector/CLAUDE.md').includes('session-relay-primer.md'), 'the connector context must route behavior work to the primer')
 })

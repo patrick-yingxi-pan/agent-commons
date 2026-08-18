@@ -1,7 +1,25 @@
-# server/testkit/ — the server's test drivers (loaded when working here)
+<!-- context-schema: v1 -->
+# server/testkit/ — server test-driver index
+
+## Scope
 
 The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); testing conventions
 are [`tests/CLAUDE.md`](../../tests/CLAUDE.md).
+
+## Read path
+
+Read the driver and the real subsystem it starts. Test data remains owned by
+[`../data/CLAUDE.md`](../data/CLAUDE.md), never by this kit.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| TESTKIT-A1 | architecture | Drivers start the real router or connector process rather than a test-only implementation. | [`http.ts`](http.ts) · [`connector.ts`](connector.ts) | [`../routes/sessions.test.ts`](../routes/sessions.test.ts) · [`../routes/connector-serve.test.ts`](../routes/connector-serve.test.ts) | refines SERVER-V1; requires ROOT-A2 |
+| TESTKIT-V1 | verification | Drivers capture transport/process behavior but supply no fixture truth. | [`http.ts`](http.ts) · [`connector.ts`](connector.ts) | [`../../tests/suite-paths.test.ts`](../../tests/suite-paths.test.ts) | refines ROOT-V1; requires TESTKIT-A1 |
+| TESTKIT-V2 | verification | Testkit and all suites are executed rather than typechecked. | [`../../tsconfig.json`](../../tsconfig.json) · [`../../scripts/verifyPlan.mjs`](../../scripts/verifyPlan.mjs) | [`../../tests/verify-plan.test.ts`](../../tests/verify-plan.test.ts) | refines TEST-V1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -33,3 +51,8 @@ did **not** move — it scans the whole repository, so it stays repo-level.
 - **No fixtures here.** A driver boots the real thing; the moment it starts
   *supplying* data, suites begin passing against the kit instead of the server.
   Seed data belongs in [`../data/`](../data/).
+
+## Verification
+
+Run a representative route suite and both connector source/served-form suites
+after driver changes.

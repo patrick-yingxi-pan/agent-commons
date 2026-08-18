@@ -1,7 +1,30 @@
-# src/components/ — the rendered surfaces (loaded when working here)
+<!-- context-schema: v1 -->
+# src/components/ — rendered-surface module index
+
+## Scope
 
 The layer's rules are [`src/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
+
+## Read path
+
+Read [`../DESIGN.md`](../DESIGN.md) for the governing category,
+[`../lib/CLAUDE.md`](../lib/CLAUDE.md) for primitives/projections, and
+[`e2e/CLAUDE.md`](../../e2e/CLAUDE.md) when the claim requires a browser.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| COMPONENT-A1 | architecture | Atomic and composite pages compose one resource frame; collection bodies instantiate shared page/rail templates. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`SectionTreeChildren.tsx`](SectionTreeChildren.tsx) | [`../lib/page-grammar.test.ts`](../lib/page-grammar.test.ts) · [`../../e2e/collection-symmetry.spec.ts`](../../e2e/collection-symmetry.spec.ts) | refines UI-A2; requires UILIB-A2 |
+| COMPONENT-E1 | experience | Rendered roles use shared primitives and entity-appropriate surfaces. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`PublicFace.tsx`](PublicFace.tsx) | [`../lib/page-grammar.test.ts`](../lib/page-grammar.test.ts) · [`../lib/public-face.test.ts`](../lib/public-face.test.ts) | refines UI-E2; refines UI-E3 |
+| COMPONENT-E2 | experience | Rail rows use one fixed-depth anatomy; role changes semantics, never inset, type, or resting weight. | [`Sidebar.tsx`](Sidebar.tsx) · [`SectionTreeChildren.tsx`](SectionTreeChildren.tsx) | [`../lib/rail-refinement.test.ts`](../lib/rail-refinement.test.ts) · [`../../e2e/collection-symmetry.spec.ts`](../../e2e/collection-symmetry.spec.ts) | refines UI-E4 |
+| COMPONENT-E3 | experience | Composite actions, search, filters, and bulk disclosure are symmetric main/rail projections. | [`CompositeRailControls.tsx`](CompositeRailControls.tsx) · [`ResourcePage.tsx`](ResourcePage.tsx) | [`../lib/composite-controls.test.ts`](../lib/composite-controls.test.ts) · [`../../e2e/collection-symmetry.spec.ts`](../../e2e/collection-symmetry.spec.ts) | refines UI-E5 |
+| COMPONENT-E4 | experience | Organize, split, and close share one focus-aware command surface; the complete rail forest is permanent. | [`Sidebar.tsx`](Sidebar.tsx) · [`RailSplit.tsx`](RailSplit.tsx) | [`../lib/rail-split.test.ts`](../lib/rail-split.test.ts) · [`resize-handle.test.ts`](resize-handle.test.ts) | refines UI-A3; requires COMPONENT-E2 |
+| COMPONENT-E5 | experience | Index rows are quiet synopses; configuration, lifecycle, and rich bodies begin on canonical pages. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`SectionView.tsx`](SectionView.tsx) | [`../lib/index-synopsis.test.ts`](../lib/index-synopsis.test.ts) · [`../lib/artifact-index-preview.test.ts`](../lib/artifact-index-preview.test.ts) | refines UI-E3 |
+| COMPONENT-V1 | verification | Source scans prove shared structure, pure logic moves to `lib`, and browser-computed facts live in E2E. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`MainSplit.tsx`](MainSplit.tsx) | [`pane-safe-layout.test.ts`](pane-safe-layout.test.ts) · [`../../e2e/project-page.spec.ts`](../../e2e/project-page.spec.ts) | refines UI-V1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -103,3 +126,8 @@ what the document or the sibling component claims.
   how a visitor-only regression hides.
 - **No component knows a URL.** Data comes from hooks; commands go to
   controllers ([`src/CLAUDE.md`](../CLAUDE.md)).
+
+## Verification
+
+Run colocated source locks and the browser spec for computed behavior. Perform
+the signed-in UI review in [`docs/agent-workflow.md`](../../docs/agent-workflow.md).

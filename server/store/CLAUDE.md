@@ -1,7 +1,27 @@
-# server/store/ — the in-memory store (loaded when working under server/store/)
+<!-- context-schema: v1 -->
+# server/store/ — in-memory store module index
+
+## Scope
 
 The layer's rules are [`server/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
+
+## Read path
+
+Read the entity's direct store suite, its route context if changing an endpoint,
+and [`../persistence/CLAUDE.md`](../persistence/CLAUDE.md) when changing durable
+state.
+
+## Rule index
+
+<!-- context-rules:start -->
+| ID | Category | Rule | Implementation | Locks | Relations |
+|---|---|---|---|---|---|
+| STORE-A1 | architecture | Server-owned entities and mutators have one in-memory source of truth. | [`index.ts`](index.ts) | [`index.test.ts`](index.test.ts) | refines ROOT-A1 |
+| STORE-D1 | data-access | Tenant visibility is enforced by read-time projection and hides foreign existence. | [`index.ts`](index.ts) | [`project-tenancy.test.ts`](project-tenancy.test.ts) · [`session-tenancy.test.ts`](session-tenancy.test.ts) | refines ROOT-D1; requires SERVER-D2 |
+| STORE-D2 | data-access | Seed tenancy is reconciled after rehydrate so old snapshots cannot undo isolation. | [`index.ts`](index.ts) · [`../data/`](../data/) | [`registry-tenancy.test.ts`](registry-tenancy.test.ts) | requires STORE-D1; requires SERVER-D4 |
+| STORE-V1 | verification | Direct store suites run in memory; HTTP behavior and snapshot round-trips stay with their own modules. | [`index.ts`](index.ts) | [`index.test.ts`](index.test.ts) · [`../persistence/snapshot.test.ts`](../persistence/snapshot.test.ts) | refines SERVER-V1 |
+<!-- context-rules:end -->
 
 ## What lives here
 
@@ -39,3 +59,8 @@ cost legible rather than fixing it: the suites beside it name the seams
 (sessions, projects, artifacts, registries, usage, audit, schedules), and a
 split along those lines is the natural follow-up. New state belongs in the
 narrowest module that can hold it, not automatically here.
+
+## Verification
+
+Run the entity's direct store suite, the corresponding route suite when its API
+projection changes, and the persistence suite when adding durable state.
