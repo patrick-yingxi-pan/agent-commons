@@ -455,8 +455,8 @@ carry a standing door beside it:
   Discover · Audit**; Building blocks preserves Prompts / Tools and Coordination
   preserves Your work / Commissions as another structural level before their live
   resource leaves. Its root is the complete overview, never one child disguised as
-  the default. The maintainer console's panels are the other declared hub. The **Commons' four
-  lenses** (Watched / Liked / Posted / Recently viewed) are surfaces too: the feed
+  the default. The maintainer console's panels are the other declared hub. The **Commons' five
+  lenses** (Following / Watched / Liked / Posted / Recently viewed) are surfaces too: the feed
   has no per-row page to list, and a lens is the VIEWER's own collection — a place
   you go back to — not a slice of the items. Each filters on a server-stamped,
   viewer-relative `CommonsItem` field (`watched` / `liked` / `mine` / `viewedAt`);
@@ -505,7 +505,17 @@ carry a standing door beside it:
   a profile. Locked by `src/lib/owner-door.test.ts` + `e2e/own-profile.spec.ts`.
 
 A partition of a list by a property of its items — kind, state, ownership — is
-**not** a child: it is a filter. Its STATE has one home
+not a canonical PLACE, but it is still a visible list entry when the main page
+names that partition. The page and rail must derive the same ordered groups from
+one pure function; a foldable page list has a same-label foldable rail list, and
+a static page list has a same-label static rail list. A flat root with only one
+unpartitioned list names neither. `CompositeResourcePage` carries the section
+identity; `ResourcePageSection` stamps structural entries and explicitly marks a
+`listPartition`, while `ResourcePageListPartition` covers the static form. The
+browser derives every rendered rail root before
+checking the inverse main → rail relation. This closes the old loophole where a
+hand-maintained forward test stayed green while a new page-only wrapper shipped.
+The partition's FILTER STATE has one home
 (`src/lib/sectionFilter.ts` + `useSectionFilter`, per account through `uiPrefs`)
 and its CONTROL has two symmetric projections: the section row and the selected
 composite main page both render `SectionFilterMenu` / the shared `FilterMenu`.
@@ -529,8 +539,9 @@ section lands on its **default** view (rail sub-view `null`; each hub body maps
 null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
 not a push; the registries disjoint; the shared-funnel pairing scanned both ways;
 no bespoke second facet grammar), `src/lib/composite-controls.test.ts`,
-`src/lib/section-lists.test.ts`, and
-`src/lib/url-routes.test.ts` (every listed kind round-trips as a URL).
+`src/lib/section-lists.test.ts`, `src/lib/page-grammar.test.ts`, and
+`src/lib/url-routes.test.ts` (every listed kind round-trips as a URL), plus the
+rail-derived inverse sweep in `e2e/collection-symmetry.spec.ts`.
 
 **Control symmetry is capability-total, not filter-specific** (owner
 clarification 2026-08-16). Every RESOURCE-SCOPED standing capability of a

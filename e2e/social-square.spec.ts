@@ -91,7 +91,7 @@ test('a world with NO social activity: the Commons teaches instead of going blan
   // …but the page is not dead: the Browse band is a directory of what OTHER
   // workspaces opened, so a brand-new account has somewhere to go. That pairing
   // is the Discover consolidation's whole point (SOCIAL-8).
-  await expect(rei.page.getByText(/Browse the Commons/i)).toBeVisible()
+  await expect(rei.page.getByRole('main').getByRole('heading', { name: 'Browse the Commons' })).toBeVisible()
   // A directory card rendered — its contributor meta line ("Open to
   // contributors" at zero), since the card no longer carries an "Open project"
   // button (the card itself is the door, UI-17).

@@ -62,7 +62,7 @@ test('Contexts and Models keep their main-page section skeleton in the rail', ()
 test('each selected collection section becomes the sole forced-open main-page projection', () => {
   for (const name of ['ArtifactsSection', 'ContextsSection', 'ModelsSection']) {
     const page = stripComments(sectionViewComponent(name))
-    assert.match(page, /<CompositeResourcePage sectionPage=/, `${name} declares section-page mode`)
+    assert.match(page, /<CompositeResourcePage section="[^"]+" sectionPage=/, `${name} declares section-page mode`)
     assert.match(page, /collectionSectionId/, `${name} reads the canonical intermediate page id`)
   }
   const page = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))

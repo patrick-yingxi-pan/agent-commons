@@ -20,6 +20,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useId,
   useState,
   type ComponentProps,
   type ReactNode,
@@ -54,7 +55,7 @@ import {
 } from '../lib/sidebar'
 import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { useSectionFilter } from '../lib/useSectionFilter'
-import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
+import { groupProjects, listArtifacts, listContexts, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
 import {
   PROJECT_SECTIONS,
   visibleCompositeSections,
@@ -170,6 +171,81 @@ export function RailEntryLead({
     >
       {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
     </button>
+  )
+}
+
+/** One named list projected into the constrained rail. The same primitive owns
+ * static list labels (Sessions) and foldable list labels (Projects/Routines),
+ * so a main-page partition cannot acquire a one-off tag or disclosure grammar.
+ * It is intentionally not a canonical tree node: classification changes list
+ * posture, not address or ontology. */
+export function RailListPartition({
+  label,
+  fallbackLabel,
+  groupKey,
+  routineState,
+  disclosure,
+  children,
+}: {
+  label: string
+  fallbackLabel: string
+  groupKey?: string
+  routineState?: string
+  disclosure?: {
+    nodeKey: string
+    foldSignal?: RailFoldSignal | null
+  }
+  children: ReactNode
+}) {
+  const headingId = useId()
+  const listId = useId()
+  const [expanded, setExpanded] = useState(true)
+  useEffect(() => {
+    if (disclosure?.foldSignal && railFoldAffects(disclosure.foldSignal, disclosure.nodeKey)) {
+      setExpanded(disclosure.foldSignal.expanded)
+    }
+  }, [disclosure?.foldSignal, disclosure?.nodeKey])
+  if (!label) return <div role="list" aria-label={fallbackLabel}>{children}</div>
+  return (
+    <section
+      data-rail-list-partition
+      data-projection-list-group={groupKey}
+      data-routine-state-group={routineState}
+      aria-labelledby={headingId}
+    >
+      {disclosure ? (
+        <h3 id={headingId}>
+          <button
+            type="button"
+            data-rail-node-row
+            data-rail-entry-kind="group"
+            data-rail-list-heading
+            data-rail-list-disclosure
+            aria-expanded={expanded}
+            aria-controls={listId}
+            onClick={() => setExpanded((value) => !value)}
+            className={sidebarEntryClass('group', false)}
+          >
+            <RailEntryLead disclosureExpanded={expanded} />
+            <span data-rail-entry className="min-w-0 flex-1 truncate text-left">{label}</span>
+          </button>
+        </h3>
+      ) : (
+        <h3
+          id={headingId}
+          data-rail-node-row
+          data-rail-entry-kind="group"
+          data-rail-list-heading
+          className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-soft`}
+        >
+          <RailEntryLead />
+          <span data-rail-entry>{label}</span>
+        </h3>
+      )}
+      {(!disclosure || expanded) && (
+        <RailTreeBranch id={listId} role="list" aria-labelledby={headingId}>{children}</RailTreeBranch>
+      )}
+    </section>
   )
 }
 
@@ -645,20 +721,41 @@ function ProjectChildren({ foldSignal, ...props }: InstanceChildProps & { foldSi
   const rel = useRelations()
   const myOrgIds = new Set((useMyOrgs().data ?? []).map((o) => o.tenant.id))
   const rows = listProjects(rel.allProjects(), filter, myOrgIds)
+  const groups = groupProjects(rows, myOrgIds)
   const [showAll, setShowAll] = useState(false)
   const rootPath = useRailRootPathKeys()
   if (rows.length === 0) return <NoRowsRow>No projects here yet.</NoRowsRow>
-  const head = cappedWithActive(
-    rows,
-    showAll,
-    (project) =>
-      project.id === props.activeSeed?.projectId ||
-      rootPath.has(railNodeKey('section', 'projects', 'item', project.id)),
-  )
-  const hidden = rows.length - head.length
+  let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
+  const visibleGroups = groups.map((group) => {
+    const capped = group.projects.slice(0, Math.max(0, remaining))
+    remaining -= capped.length
+    const required = group.projects.filter(
+      (project) =>
+        (project.id === props.activeSeed?.projectId ||
+          rootPath.has(railNodeKey('section', 'projects', 'item', project.id))) &&
+        !capped.some((visible) => visible.id === project.id),
+    )
+    return { ...group, projects: [...capped, ...required] }
+  }).filter((group) => group.projects.length > 0)
+  const hidden = Math.max(0, rows.length - visibleGroups.reduce((count, group) => count + group.projects.length, 0))
   return (
     <>
-      {head.map((project) => <ProjectBranch key={project.id} project={project} foldSignal={foldSignal} {...props} />)}
+      {visibleGroups.map((group) => (
+        <RailListPartition
+          key={group.key}
+          label={group.label}
+          fallbackLabel="Projects"
+          groupKey={group.key}
+          disclosure={{
+            nodeKey: railNodeKey('section', 'projects', 'partition', group.key),
+            foldSignal,
+          }}
+        >
+          {group.projects.map((project) => (
+            <ProjectBranch key={project.id} project={project} foldSignal={foldSignal} {...props} />
+          ))}
+        </RailListPartition>
+      ))}
       {(showAll || hidden > 0) && (
         <ShowAllRow
           hidden={hidden}

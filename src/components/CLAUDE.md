@@ -44,12 +44,19 @@ what the document or the sibling component claims.
   template registers structural sections. Sessions select the atomic
   `workspace` layout for their transcript/fixed-composer behavior. Contract and equivalence test:
   [`docs/design/resource-page-templates.md`](../../docs/design/resource-page-templates.md).
-- **A collection heading is a rail place when it structures the main page.**
-  Artifacts, Contexts, and Models route their intermediate collection sections
-  through `collectionSectionId`; both projections consume
-  `lib/collectionSections.ts`, and each child keeps its canonical leaf page.
-  The shell's Organize pane menu targets the main registry or strict descendants
-  of the selected rail entry according to focus; collection rows do not redraw it.
+- **Every main list construct has an honest rail projection.** A composite page
+  supplies its `section` to the shared template; `ResourcePageSection` stamps
+  structural entries and its explicit `listPartition` role plus
+  `ResourcePageListPartition` identify named lists for the inverse browser sweep.
+  A named partition either has a same-label rail list
+  entry with the same disclosure capability, or is omitted from both projections
+  when the page is one unpartitioned list. Artifacts, Contexts, and Models route
+  their addressable intermediate places through `collectionSectionId`; Projects,
+  Sessions, and Routines share pure grouping functions with `RailListPartition`.
+  Never add a one-list wrapper such as “Threads” merely to satisfy the page
+  grammar. The shell's Organize pane menu targets the main registry or strict
+  descendants of the selected rail entry according to focus; list rows do not
+  redraw it.
 - **Rail depth is a fixed-column grammar.** Every non-root row begins with the
   shared `RailEntryLead`: a branch puts its caret there and a leaf preserves an
   empty seat. Sessions, atomic leaves, empty/tail copy, and labeled filter lists

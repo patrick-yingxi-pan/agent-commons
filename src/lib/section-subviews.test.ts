@@ -19,7 +19,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, concatSource, stripComments } from '../../tests/helpers/source.ts'
-import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY, SECTION_SUBVIEWS } from './subviews.ts'
+import { COMMONS_LENSES, RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY, SECTION_SUBVIEWS } from './subviews.ts'
 import { SECTION_FILTERS, ALL_FACET, clampSectionFilter } from './sectionFilter.ts'
 import { AGENT_SUBVIEWS } from './agentStructure.ts'
 // Every section id — from the pure nav module, since `lib/sections.tsx` carries
@@ -34,7 +34,11 @@ test('the subview registry holds only SURFACE hubs — every facet has left it',
   assert.deepEqual(Object.keys(SECTION_SUBVIEWS).sort(), ['admin', 'agents', 'commons'])
   // `following` (S7) joins them as the fifth — and the only one keyed on WHO
   // ACTED rather than on the subject, which is what makes the feed social.
-  assert.deepEqual(SECTION_SUBVIEWS.commons.map((s) => s.id), ['following', 'watched', 'liked', 'posted', 'viewed'])
+  assert.deepEqual(COMMONS_LENSES.map((s) => s.id), ['following', 'watched', 'liked', 'posted', 'viewed'])
+  assert.deepEqual(SECTION_SUBVIEWS.commons.map((s) => s.id), [
+    ...COMMONS_LENSES.map((s) => s.id),
+    'browse',
+  ], 'the directory is a real surface instead of a page-only list')
   assert.deepEqual(SECTION_SUBVIEWS.agents, AGENT_SUBVIEWS, 'Agents addresses derive from its nested structure')
   assert.deepEqual(SECTION_SUBVIEWS.admin.map((s) => s.id), ['orgs', 'credentials', 'audit', 'ops'])
   for (const subs of Object.values(SECTION_SUBVIEWS)) {

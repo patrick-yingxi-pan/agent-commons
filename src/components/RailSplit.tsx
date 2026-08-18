@@ -151,7 +151,18 @@ function RailLeaf({
       const hide = (element: Element) => element.setAttribute('data-rail-root-hidden', '')
       const keepOnly = (container: HTMLElement, kept: HTMLElement) => {
         Array.from(container.children).forEach((child) => {
-          if (child !== kept) hide(child)
+          if (child === kept) return
+          if (child instanceof HTMLElement && child.contains(kept)) {
+            // List partitions are visual grouping only, so they are deliberately
+            // absent from the canonical root key. Walk through such transparent
+            // wrappers while hiding their heading and sibling lists; otherwise a
+            // rooted project view disappears merely because Projects gained
+            // ownership bands.
+            child.setAttribute('data-rail-root-ancestor', '')
+            keepOnly(child, kept)
+            return
+          }
+          hide(child)
         })
       }
       keepOnly(forest, chain[0])

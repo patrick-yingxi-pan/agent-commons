@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useId,
   useMemo,
   useState,
   type ReactNode,
@@ -44,6 +43,7 @@ import {
   OwnerProfileChild,
   RailRootScope,
   RailEntryLead,
+  RailListPartition,
   RailTreeBranch,
   SectionInstanceChildren,
   ShowAllRow,
@@ -59,7 +59,6 @@ import {
   SIDEBAR_CREATE_BUTTON,
   SIDEBAR_HOVER,
   SIDEBAR_ICON_BUTTON,
-  SIDEBAR_NESTED_ENTRY_LAYOUT,
   SIDEBAR_TOOLBAR_BUTTON,
   sidebarEntryClass,
 } from '../lib/sidebar'
@@ -1096,73 +1095,6 @@ function SessionRow({
   )
 }
 
-/** One ordinary labeled list. A view partition is not a navigable tree node or
- * a status tag. When its main-page counterpart is foldable, the rail projects
- * that same list capability through one accessible disclosure row; density
- * changes the row anatomy, never what the list can do. */
-function RailListPartition({
-  label,
-  fallbackLabel,
-  routineState,
-  disclosure,
-  children,
-}: {
-  label: string
-  fallbackLabel: string
-  routineState?: string
-  disclosure?: {
-    nodeKey: string
-    foldSignal?: RailFoldSignal | null
-  }
-  children: ReactNode
-}) {
-  const headingId = useId()
-  const listId = useId()
-  const [expanded, setExpanded] = useState(true)
-  useEffect(() => {
-    if (disclosure?.foldSignal && railFoldAffects(disclosure.foldSignal, disclosure.nodeKey)) {
-      setExpanded(disclosure.foldSignal.expanded)
-    }
-  }, [disclosure?.foldSignal, disclosure?.nodeKey])
-  if (!label) return <div role="list" aria-label={fallbackLabel}>{children}</div>
-  return (
-    <section data-rail-list-partition data-routine-state-group={routineState} aria-labelledby={headingId}>
-      {disclosure ? (
-        <h3 id={headingId}>
-          <button
-            type="button"
-            data-rail-node-row
-            data-rail-entry-kind="group"
-            data-rail-list-heading
-            data-rail-list-disclosure
-            aria-expanded={expanded}
-            aria-controls={listId}
-            onClick={() => setExpanded((value) => !value)}
-            className={sidebarEntryClass('group', false)}
-          >
-            <RailEntryLead disclosureExpanded={expanded} />
-            <span data-rail-entry className="min-w-0 flex-1 truncate text-left">{label}</span>
-          </button>
-        </h3>
-      ) : (
-        <h3
-          id={headingId}
-          data-rail-node-row
-          data-rail-entry-kind="group"
-          data-rail-list-heading
-          className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-soft`}
-        >
-          <RailEntryLead />
-          <span data-rail-entry>{label}</span>
-        </h3>
-      )}
-      {(!disclosure || expanded) && (
-        <RailTreeBranch id={listId} role="list" aria-labelledby={headingId}>{children}</RailTreeBranch>
-      )}
-    </section>
-  )
-}
-
 /** The Sessions section's live instance children. Group labels are view
  * partitions selected by its filter, not structural navigation nodes. */
 function SessionTreeChildren({
@@ -1200,7 +1132,7 @@ function SessionTreeChildren({
   return (
     <>
       {visibleGroups.map((group) => (
-        <RailListPartition key={group.key} label={group.label} fallbackLabel="Sessions">
+        <RailListPartition key={group.key} label={group.label} fallbackLabel="Sessions" groupKey={group.key}>
           {group.sessions.map(renderSession)}
         </RailListPartition>
       ))}
@@ -1258,6 +1190,7 @@ function ScheduledTreeChildren({
           key={group.key}
           label={group.label || 'Routines'}
           fallbackLabel="Routines"
+          groupKey={group.key}
           routineState={group.key}
           disclosure={{
             nodeKey: railNodeKey('section', 'scheduled', 'partition', group.key),

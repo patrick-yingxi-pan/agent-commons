@@ -5,6 +5,83 @@ import { openOrganizePaneMenu, openSplitPaneMenu, organizePane, splitPane } from
 
 const sectionsNav = (page: import('@playwright/test').Page) => page.locator('nav[aria-label="Sections"]')
 
+test('every rendered collection list construct has a rail counterpart with the same disclosure capability', async ({ browser }) => {
+  test.setTimeout(ms(120_000))
+  const ada = await newUser(browser)
+  const page = ada.page
+  const rail = sectionsNav(page)
+  const main = page.locator('main')
+
+  await page.goto('/projects')
+  await expect(main.locator('[data-resource-page]')).toBeVisible({ timeout: ms(20_000) })
+  // Derive the surface set from the rendered resource forest. This is the
+  // inverse lock the old hand-written Artifacts/Contexts/Models walk lacked:
+  // a new root joins the sweep merely by appearing in the rail.
+  const sectionIds = await rail.locator('[data-rail-node-key^="section/"]').evaluateAll((nodes) =>
+    [...new Set(nodes
+      .map((node) => node.getAttribute('data-rail-node-key'))
+      .filter((key): key is string => key?.split('/').length === 2)
+      .map((key) => decodeURIComponent(key.split('/')[1]))
+    )],
+  )
+  expect(sectionIds.length, 'the inverse sweep has resource-root subjects').toBeGreaterThanOrEqual(10)
+
+  for (const sectionId of sectionIds) {
+    await page.goto(`/${sectionId}`)
+    await expect(main.locator('[data-resource-page]')).toBeVisible({ timeout: ms(20_000) })
+    const projections = main.locator('[data-main-projection-entry]')
+    const titles = await projections.evaluateAll((nodes) =>
+      nodes.map((node) => node.getAttribute('data-projection-entry-label')).filter((title): title is string => !!title),
+    )
+    if (titles.length === 0) continue
+
+    const root = rail.locator(`[data-rail-node-key="section/${encodeURIComponent(sectionId)}"]`)
+    const collapsedDoor = root.locator('button[aria-label^="Expand "]').first()
+    if ((await collapsedDoor.count()) > 0) await collapsedDoor.click()
+    const tree = rail.locator(`[data-section-tree="${sectionId}"]`)
+    await expect(tree, `${sectionId} exposes its main-page lists in the rail`).toBeAttached()
+    for (const title of titles) {
+      const attributeTitle = title.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      // Resolve from the stable projection stamp, not from the current list
+      // contents: folding removes the CardList child that made the inverse
+      // enumeration selector match in the first place.
+      const partition = main.locator(
+        `[data-main-projection-entry][data-projection-entry-label="${attributeTitle}"]`,
+      ).first()
+      const exactEntry = tree.getByText(title, { exact: true })
+      await expect(exactEntry.first(), `${sectionId} → ${title} has a rail projection entry`).toBeAttached()
+      if ((await partition.getAttribute('data-main-list-partition')) === null) continue
+      const mainDisclosure = partition.locator(':scope > div > button[aria-expanded]')
+      const foldable = (await mainDisclosure.count()) > 0
+      if (!foldable) {
+        await expect(exactEntry.first(), `${sectionId} → ${title} remains a static list entry`).not.toHaveAttribute('aria-expanded')
+        continue
+      }
+      const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const railDisclosure = tree
+        .locator('[data-rail-list-disclosure]')
+        .filter({ hasText: title })
+        .or(tree.getByRole('button', { name: new RegExp(`^(Expand|Collapse) ${escaped}$`) }))
+        .first()
+      await expect(railDisclosure, `${sectionId} → ${title} mirrors foldability`).toHaveAttribute('aria-expanded', /true|false/)
+
+      const railBefore = await railDisclosure.getAttribute('aria-expanded')
+      await railDisclosure.click()
+      await expect(railDisclosure).toHaveAttribute('aria-expanded', railBefore === 'true' ? 'false' : 'true')
+      await railDisclosure.click()
+      await expect(railDisclosure).toHaveAttribute('aria-expanded', railBefore!)
+
+      const mainBefore = await mainDisclosure.getAttribute('aria-expanded')
+      await mainDisclosure.click()
+      await expect(mainDisclosure).toHaveAttribute('aria-expanded', mainBefore === 'true' ? 'false' : 'true')
+      await mainDisclosure.click()
+      await expect(mainDisclosure).toHaveAttribute('aria-expanded', mainBefore!)
+    }
+  }
+
+  await ada.context.close()
+})
+
 test('collection roots preserve main-page sections in the rail and canonical URL', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)

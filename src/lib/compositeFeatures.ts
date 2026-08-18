@@ -23,20 +23,20 @@ export interface CompositeFeatureSpec {
 
 /** Complete over SectionId so a new rail root cannot silently skip the audit. */
 export const COMPOSITE_FEATURES: Record<SectionId, CompositeFeatureSpec> = {
-  commons: { fold: true },
+  commons: {},
   projects: { primaryAction: 'New project', search: 'Search projects', fold: true },
   artifacts: { primaryAction: 'New artifact', search: 'Search artifacts', fold: true },
   contexts: { primaryAction: 'Add context', search: 'Search contexts', fold: true },
   models: { primaryAction: 'New provider', fold: true },
   agents: { primaryAction: 'New agent', fold: true },
   scheduled: { primaryAction: 'New routine', search: 'Search routines', fold: true },
-  discussions: { fold: true },
-  messages: { fold: true },
-  notifications: { fold: true },
+  discussions: {},
+  messages: {},
+  notifications: {},
   sessions: { primaryAction: 'New session' },
-  dispatch: { primaryAction: 'New dispatch', fold: true },
+  dispatch: { primaryAction: 'New dispatch' },
   customize: {},
-  admin: { fold: true },
+  admin: {},
 }
 
 export interface CompositeCommand {

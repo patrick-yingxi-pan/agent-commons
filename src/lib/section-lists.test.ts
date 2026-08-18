@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   discussionActivityAt,
+  groupProjects,
   listArtifacts,
   listContexts,
   listDiscussions,
@@ -56,6 +57,19 @@ test('the projects list: facet narrows, sort orders, and neither mutates the sou
   assert.deepEqual(listProjects(rows, F('shared', 'recency'), orgs).map((p) => p.id), ['p-s'])
   assert.deepEqual(listProjects(rows, F('mine', 'recency'), orgs).map((p) => p.id), ['p-b', 'p-a'])
   assert.deepEqual(rows, frozen, 'the shared registry read is never sorted in place')
+  assert.deepEqual(
+    groupProjects(listProjects(rows, F(ALL_FACET, 'recency'), orgs), orgs).map((group) => ({
+      key: group.key,
+      label: group.label,
+      projects: group.projects.map((entry) => entry.id),
+    })),
+    [
+      { key: 'mine', label: 'Yours', projects: ['p-b', 'p-a'] },
+      { key: 'org', label: 'Your organizations', projects: ['p-o'] },
+      { key: 'shared', label: 'Shared with you', projects: ['p-s'] },
+    ],
+    'the page and rail receive the same named relationship lists',
+  )
 })
 
 test('artifacts and contexts narrow on their own kind', () => {

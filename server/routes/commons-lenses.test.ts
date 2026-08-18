@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
-import { SECTION_SUBVIEWS } from '../../src/lib/subviews.ts'
+import { COMMONS_LENSES } from '../../src/lib/subviews.ts'
 
 const OWNER = 'tenant-lens-owner'
 const READER = 'tenant-beta'
@@ -154,7 +154,7 @@ test('every rail lens has a predicate and an empty state — both directions', (
   }
   const holds = table('LENS_HOLDS')
   const empty = table('LENS_EMPTY')
-  const ids = (SECTION_SUBVIEWS.commons ?? []).map((s) => s.id)
+  const ids = COMMONS_LENSES.map((s) => s.id)
   assert.ok(ids.length >= 4, 'the scan has subjects')
   for (const id of ids) {
     assert.match(holds, new RegExp(`\\b${id}:`), `the ${id} lens has a predicate`)

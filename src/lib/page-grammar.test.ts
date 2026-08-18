@@ -26,25 +26,68 @@ test('every reading main page uses the one reading column', () => {
   assert.doesNotMatch(consumers, /max-w-3xl/, 'resource pages cannot redraw the template reading column')
 })
 
-test('collection roots derive from the composite template and use one section primitive', () => {
-  for (const name of [
+test('collection roots derive from the composite template and only draw list sections when structure exists', () => {
+  const sectioned = [
     'ProjectsSection',
     'ArtifactsSection',
     'ContextsSection',
     'ModelsSection',
     'AgentCommonsSection',
     'ScheduledSection',
+  ]
+  const flat = [
     'CommonsSection',
     'DiscussionsSection',
     'MessagesSection',
     'NotificationsSection',
     'AdminSection',
     'GenericSection',
-  ]) {
+  ]
+  for (const name of [...sectioned, ...flat]) {
     assert.match(fn(name), /<CompositeResourcePage\b/, `${name} derives from the composite page template`)
+  }
+  for (const name of sectioned) {
     assert.match(fn(name), /<FoldSection\b/, `${name} projects its groups through FoldSection`)
     assert.match(fn(name), /<CompositePageControls\b/, `${name} exposes the composite view-control toolbar`)
   }
+  for (const name of flat) {
+    assert.doesNotMatch(fn(name), /<FoldSection\b/, `${name} does not wrap its only list in a redundant fold`)
+  }
+  const consumers = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const openings = [...consumers.matchAll(/<CompositeResourcePage\b([^>]*)>/g)]
+  assert.ok(openings.length >= sectioned.length + flat.length, 'the section-scope scan has subjects')
+  for (const opening of openings) {
+    assert.match(opening[1], /\bsection=/, 'every composite page identifies its rail projection to the shared template')
+  }
+  const composite = templateFn('CompositeResourcePage')
+  assert.match(
+    composite,
+    /<CompositeProjectionContext\.Provider value=\{projectSections \? section : null\}>/,
+    'the shared composite template carries section identity only for rail-projected structure',
+  )
+  for (const primitive of ['ResourcePageSection', 'ResourcePageListPartition']) {
+    const source = templateFn(primitive)
+    assert.match(source, /data-main-projection-entry=/, `${primitive} enters the inverse browser enumeration`)
+    assert.match(source, /data-projection-entry-label=/, `${primitive} exposes the label its rail entry must mirror`)
+  }
+  assert.match(
+    templateFn('ResourcePageListPartition'),
+    /data-main-list-partition=/,
+    'the static list primitive declares the capability the browser must mirror',
+  )
+  assert.match(
+    templateFn('ResourcePageSection'),
+    /data-main-list-partition=\{projection && listPartition/,
+    'only an explicitly classified view partition claims mirrored list disclosure',
+  )
+  assert.match(fn('ProjectsSection'), /<FoldSection[\s\S]*?listPartition/, 'Project relationship groups declare list projection')
+  assert.match(fn('ScheduledSection'), /<FoldSection[\s\S]*?listPartition/, 'Routine state groups declare list projection')
+  assert.match(fn('GenericSection'), /projectSections=\{false\}/, 'Customize information regions never pose as rail structure')
+  assert.doesNotMatch(
+    consumers,
+    /<FoldSection[^>]*\btitle="(?:Threads|Inbox|Conversations|Runs)"/,
+    'a flat one-list root cannot add a page-only list wrapper',
+  )
   assert.doesNotMatch(templateFn('ResourcePageSection'), /FoldGroupHeader/, 'FoldSection does not delegate to a second look')
   assert.throws(() => sectionViewComponent('FoldGroupHeader'), /has no top-level component/, 'the parallel hub-group primitive is gone')
 })

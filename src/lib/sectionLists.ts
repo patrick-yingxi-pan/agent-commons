@@ -28,11 +28,41 @@ export function projectFacet(p: Project, myOrgIds: ReadonlySet<string>): 'mine' 
   return p.own === false ? 'shared' : 'mine'
 }
 
-/** The band order the Projects page draws in — yours, then your orgs, then the
- *  commons. The LIST carries it too, so the rail's flat head is the page's first
- *  rows and not a different set: sorted purely by recency, two of your own
- *  projects sank below ten shared ones in the rail while the page still showed
- *  them first (found live, 2026-07-24). */
+export type ProjectListGroup = {
+  key: 'mine' | 'org' | 'shared'
+  label: string
+  projects: Project[]
+}
+
+const PROJECT_GROUP_LABEL: Record<ProjectListGroup['key'], string> = {
+  mine: 'Yours',
+  org: 'Your organizations',
+  shared: 'Shared with you',
+}
+
+/** The relationship lists shown by BOTH Projects projections. Keeping the
+ * labels and membership here prevents the page from inventing foldable bands
+ * that the rail can only flatten away. Empty groups stay absent in both. */
+export function groupProjects(
+  rows: readonly Project[],
+  myOrgIds: ReadonlySet<string>,
+): ProjectListGroup[] {
+  const groups = new Map<ProjectListGroup['key'], Project[]>([
+    ['mine', []],
+    ['org', []],
+    ['shared', []],
+  ])
+  for (const project of rows) groups.get(projectFacet(project, myOrgIds))!.push(project)
+  return ([...groups] as [ProjectListGroup['key'], Project[]][])
+    .filter(([, projects]) => projects.length > 0)
+    .map(([key, projects]) => ({ key, label: PROJECT_GROUP_LABEL[key], projects }))
+}
+
+/** The band order both Projects projections draw in — yours, then your orgs,
+ *  then shared. Keeping it in the list funnel means each group's local sort and
+ *  the page/rail ordering cannot diverge: before the fix, two owned projects
+ *  sank below ten shared ones in the rail while the page showed them first
+ *  (found live, 2026-07-24). */
 const PROJECT_BAND_ORDER = { mine: 0, org: 1, shared: 2 } as const
 
 export function listProjects(

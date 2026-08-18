@@ -49,6 +49,14 @@ export type SubView = { id: string; label: string }
  *
  *  Deliberately pure (only a type-only import), so `tests/` can import the
  *  registry without pulling the UI's icon deps. */
+export const COMMONS_LENSES: SubView[] = [
+  { id: 'following', label: 'Following' },
+  { id: 'watched', label: 'Watched' },
+  { id: 'liked', label: 'Liked' },
+  { id: 'posted', label: 'Posted' },
+  { id: 'viewed', label: 'Recently viewed' },
+]
+
 export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
   // The Commons' standing LENSES (owner request, 2026-07-24: "add sub-entries
   // that filter contents … this helps the user find things"). They are children
@@ -64,11 +72,11 @@ export const SECTION_SUBVIEWS: Partial<Record<SectionId, SubView[]>> = {
     // the subject. Following someone has to deliver something or it is a dead
     // affordance; this is what it delivers (and deliberately all it delivers —
     // a followee's publishes reach this lens, never a bell).
-    { id: 'following', label: 'Following' },
-    { id: 'watched', label: 'Watched' },
-    { id: 'liked', label: 'Liked' },
-    { id: 'posted', label: 'Posted' },
-    { id: 'viewed', label: 'Recently viewed' },
+    ...COMMONS_LENSES,
+    // The directory is a second collection, not another band inside Feed.
+    // Giving it a place prevents a page-only "Browse" list from violating the
+    // rail/page ontology and gives the directory an address of its own.
+    { id: 'browse', label: 'Browse the Commons' },
   ],
   // Agents is a real composite: the root is its overview, and this flattened
   // address registry is derived from the nested hierarchy the rail renders.

@@ -85,6 +85,7 @@ type FoldRegistry = {
 const FoldScopeContext = createContext<FoldRegistry | null>(null)
 const FoldEntriesContext = createContext<readonly FoldEntry[]>([])
 const CompositeSectionPageContext = createContext(false)
+const CompositeProjectionContext = createContext<SectionId | null>(null)
 
 /** A branch page in the account-resource forest.
  *
@@ -96,10 +97,16 @@ const CompositeSectionPageContext = createContext(false)
  */
 export function CompositeResourcePage({
   children,
+  section,
   sectionPage = false,
+  projectSections = true,
 }: {
   children: ReactNode
+  section: SectionId
   sectionPage?: boolean
+  /** False when this composite root contains only information regions rather
+   * than rail-projected structure (Customize is the standing example). */
+  projectSections?: boolean
 }) {
   const [entries, setEntries] = useState<FoldEntry[]>([])
   const register = useCallback<FoldRegistry['register']>((entry) => {
@@ -121,9 +128,11 @@ export function CompositeResourcePage({
     <ResourcePageFrame nature="composite">
       <FoldEntriesContext.Provider value={entries}>
         <FoldScopeContext.Provider value={registry}>
-          <CompositeSectionPageContext.Provider value={sectionPage}>
-            {children}
-          </CompositeSectionPageContext.Provider>
+          <CompositeProjectionContext.Provider value={projectSections ? section : null}>
+            <CompositeSectionPageContext.Provider value={sectionPage}>
+              {children}
+            </CompositeSectionPageContext.Provider>
+          </CompositeProjectionContext.Provider>
         </FoldScopeContext.Provider>
       </FoldEntriesContext.Provider>
     </ResourcePageFrame>
@@ -311,6 +320,7 @@ export function ResourcePageSection({
   actions,
   defaultFolded,
   persist = true,
+  listPartition = false,
   summary,
   children,
 }: {
@@ -318,6 +328,8 @@ export function ResourcePageSection({
   actions?: ReactNode
   defaultFolded?: boolean
   persist?: boolean
+  /** A non-canonical view partition whose list capability is mirrored in the rail. */
+  listPartition?: boolean
   summary: ReactNode
   children: ReactNode
 }) {
@@ -326,6 +338,7 @@ export function ResourcePageSection({
   const folded = persist ? storedFolded : localFolded
   const setFolded = persist ? setStoredFolded : setLocalFolded
   const sectionPage = useContext(CompositeSectionPageContext)
+  const projection = useContext(CompositeProjectionContext)
   const effectiveFolded = sectionPage ? false : folded
   const register = useContext(FoldScopeContext)
   const foldId = useId()
@@ -340,6 +353,9 @@ export function ResourcePageSection({
     <section
       data-resource-page-section
       data-resource-section={title}
+      data-main-projection-entry={projection ? '' : undefined}
+      data-main-list-partition={projection && listPartition ? '' : undefined}
+      data-projection-entry-label={projection ? title : undefined}
       className={`${SECTION_REVEAL_GROUP} ${effectiveFolded ? SECTION_GAP.folded : SECTION_GAP.open}`}
     >
       <div
@@ -370,6 +386,40 @@ export function ResourcePageSection({
         {actions && <ResourcePageActions>{actions}</ResourcePageActions>}
       </div>
       {effectiveFolded ? null : <div className={SECTION_BODY_CLASS}>{children}</div>}
+    </section>
+  )
+}
+
+/** A named but non-foldable collection partition. Sessions uses this when its
+ * selected grouping has labels; the rail consumes the same groups through
+ * `RailListPartition`. Keeping the static form beside the foldable form gives
+ * the browser one complete enumeration handle for main-page list constructs. */
+export function ResourcePageListPartition({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  const headingId = useId()
+  const projection = useContext(CompositeProjectionContext)
+  if (!title) return <>{children}</>
+  return (
+    <section
+      data-main-projection-entry={projection ? '' : undefined}
+      data-main-list-partition={projection ? '' : undefined}
+      data-projection-entry-label={projection ? title : undefined}
+      aria-labelledby={headingId}
+      className="mt-7 first:mt-0"
+    >
+      <h2
+        id={headingId}
+        data-resource-list-heading
+        className={`mb-1.5 pb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-soft ${LEDGER_RULE_CLASS}`}
+      >
+        {title}
+      </h2>
+      {children}
     </section>
   )
 }

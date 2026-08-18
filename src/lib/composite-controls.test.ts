@@ -73,17 +73,21 @@ test('every filtered composite page mirrors the rail control over the same live 
   assert.match(sectionView, /from '\.\/SectionFilterMenu'/, 'main pages consume the shared control')
 })
 
-test('composite pages without facets still expose discovered fold controls', () => {
+test('only pages with filters or real sections mount composite controls', () => {
   for (const name of [
     'ProjectDetail',
+    'ProjectsSection',
+    'ArtifactsSection',
+    'ContextsSection',
+    'ModelsSection',
     'AgentCommonsSection',
-    'NotificationsSection',
-    'MessagesSection',
-    'AdminSection',
-    'GenericSection',
+    'ScheduledSection',
     'ScheduledDetail',
   ]) {
     assert.match(fn(name), /<CompositePageControls\b/, `${name} uses the composite toolbar`)
+  }
+  for (const name of ['NotificationsSection', 'MessagesSection', 'AdminSection', 'GenericSection']) {
+    assert.doesNotMatch(fn(name), /<CompositePageControls\b/, `${name} has no empty toolbar for a flat list`)
   }
 })
 

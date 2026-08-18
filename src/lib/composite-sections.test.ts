@@ -65,7 +65,7 @@ test('a composite section destination renders only that section and forces its c
     )
   }
   for (const body of [project, routine]) {
-    assert.match(body, /<CompositeResourcePage sectionPage=\{selectedSection !== undefined\}>/)
+    assert.match(body, /<CompositeResourcePage section="(?:projects|scheduled)" sectionPage=\{selectedSection !== undefined\}>/)
     assert.match(body, /!selectedSection && <CompositePageControls/, 'the overview alone offers page-wide controls')
   }
   const composite = stripComments(resourcePageComponent('CompositeResourcePage'))

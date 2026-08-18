@@ -135,6 +135,7 @@ import {
   ResourcePageEmpty as PageEmpty,
   ResourcePageHeader as PageHeader,
   ResourcePageList as CardList,
+  ResourcePageListPartition as ListPartition,
   ResourcePageSection as FoldSection,
   ResourcePageSynopsisRow as SynopsisRow,
   ResourceUnavailablePage as UnavailableResourcePage,
@@ -143,7 +144,7 @@ import { SectionFilterMenu } from './SectionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { SessionFilterMenu } from './SessionFilterMenu'
 import type { NavLocation } from '../lib/nav'
-import { SECTION_SUBVIEWS } from '../lib/subviews'
+import { COMMONS_LENSES, SECTION_SUBVIEWS } from '../lib/subviews'
 import {
   AGENT_SECTION,
   AGENT_SECTIONS,
@@ -163,7 +164,7 @@ import { useSectionFilter } from '../lib/useSectionFilter'
 import { useRoutineFilter } from '../lib/useRoutineFilter'
 import { useSessionFilter } from '../lib/useSessionFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
-import { listArtifacts, listContexts, listDiscussions, listProjects, listProviders, projectFacet } from '../lib/sectionLists'
+import { groupProjects, listArtifacts, listContexts, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
 import {
   ACCOUNT_MCP_SECTION,
   artifactCollectionSections,
@@ -647,7 +648,7 @@ function SessionsSection({
   )
 
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section="sessions">
       <PageHeader title="Sessions" subtitle={SECTION_META.sessions.subtitle}>
         <PageActionButton
           icon={<Plus size={15} />}
@@ -666,14 +667,9 @@ function SessionsSection({
         <PageEmpty>No sessions match these filters.</PageEmpty>
       ) : (
         groups.map((group) => (
-          <section key={group.key} className={group.label ? 'mt-7 first:mt-0' : ''}>
-            {group.label && (
-              <h2 className={`mb-1.5 pb-2 text-[12px] font-semibold uppercase tracking-wide text-ink-soft ${LEDGER_RULE_CLASS}`}>
-                {group.label}
-              </h2>
-            )}
+          <ListPartition key={group.key} title={group.label}>
             {rows(group.sessions)}
-          </section>
+          </ListPartition>
         ))
       )}
     </CompositeResourcePage>
@@ -802,10 +798,7 @@ function ProjectsSection({
   // browsable, joinable, not yours. Neither interleaves with your own. The bands
   // survive the filter move: picking one facet leaves exactly one band standing,
   // and the all view still shows the three in order.
-  const band = (p: Project) => projectFacet(p, myOrgIds)
-  const orgRows = sorted.filter((p) => band(p) === 'org')
-  const mine = sorted.filter((p) => band(p) === 'mine')
-  const sharedWithYou = sorted.filter((p) => band(p) === 'shared')
+  const projectGroups = groupProjects(sorted, myOrgIds)
 
   // A collection root is a composite page too. Its relationship bands therefore
   // use the SAME section frame as one Project's About / Context / Discussion
@@ -824,7 +817,7 @@ function ProjectsSection({
   )
 
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section="projects">
       <PageHeader title="Projects">
         <PageActionButton
           icon={<Plus size={15} />}
@@ -855,37 +848,29 @@ function ProjectsSection({
         </Empty>
       ) : (
         <>
-          {mine.length > 0 && (
-            <FoldSection title="Yours" summary={`${mine.length} project${mine.length === 1 ? '' : 's'}`} persist={false}>
-              {ledger(mine)}
-            </FoldSection>
-          )}
-          {orgRows.length > 0 && (
+          {projectGroups.map((group) => (
             <FoldSection
-              title="Your organizations"
-              summary={`${orgRows.length} project${orgRows.length === 1 ? '' : 's'}`}
+              key={group.key}
+              title={group.label}
+              summary={`${group.projects.length} project${group.projects.length === 1 ? '' : 's'}`}
               persist={false}
+              listPartition
             >
-              <p className="mb-3 text-[12px] text-ink-faint">
-                Projects owned by organizations you belong to — a seat, not a switch (the byline is
-                the org's page).
-              </p>
-              {ledger(orgRows)}
+              {group.key === 'org' && (
+                <p className="mb-3 text-[12px] text-ink-faint">
+                  Projects owned by organizations you belong to — a seat, not a switch (the byline is
+                  the org's page).
+                </p>
+              )}
+              {group.key === 'shared' && (
+                <p className="mb-3 text-[12px] text-ink-faint">
+                  Projects other people opened to the commons — visit one to commission your agent
+                  or take open work.
+                </p>
+              )}
+              {ledger(group.projects)}
             </FoldSection>
-          )}
-          {sharedWithYou.length > 0 && (
-            <FoldSection
-              title="Shared with you"
-              summary={`${sharedWithYou.length} project${sharedWithYou.length === 1 ? '' : 's'}`}
-              persist={false}
-            >
-              <p className="mb-3 text-[12px] text-ink-faint">
-                Projects other people opened to the commons — visit one to commission your agent
-                or take open work.
-              </p>
-              {ledger(sharedWithYou)}
-            </FoldSection>
-          )}
+          ))}
         </>
       )}
       {creating && <NewProjectDialog orgs={myOrgs} onCreate={createProject} onClose={() => setCreating(false)} />}
@@ -1157,7 +1142,7 @@ function ProjectDetail({
     ) : null
 
   return (
-    <CompositeResourcePage sectionPage={selectedSection !== undefined}>
+    <CompositeResourcePage section="projects" sectionPage={selectedSection !== undefined}>
       {/* ── The page header IS a section header, one level up ─────────────
           (Owner directive 2026-08-13: *"the reveal action buttons can be placed
           at the same row of the title, effectively becoming project-level
@@ -4509,7 +4494,7 @@ const LENS_HOLDS: Record<string, (i: CommonsItem) => boolean> = {
 /** The lens's own name, taken FROM the rail registry rather than retyped, so
  *  the page header and the rail row can't drift apart. */
 const LENS_LABEL: Record<string, string> = Object.fromEntries(
-  (SECTION_SUBVIEWS.commons ?? []).map((s) => [s.id, s.label]),
+  COMMONS_LENSES.map((s) => [s.id, s.label]),
 )
 
 /** What each lens says when it holds nothing — the act that would fill it. An
@@ -4685,9 +4670,10 @@ function CommonsSection({ lens }: { lens: string | null }) {
   const byKind = kind ? all.filter((i) => i.kind === kind) : all
   // The rail's LENS narrows to the viewer's own collection — each on a
   // server-stamped, viewer-relative field, never a client guess.
-  const inLens = lens === null ? byKind : byKind.filter((i) => LENS_HOLDS[lens]?.(i) ?? true)
+  const feedLens = lens === 'browse' ? null : lens
+  const inLens = feedLens === null ? byKind : byKind.filter((i) => LENS_HOLDS[feedLens]?.(i) ?? true)
   const list =
-    lens === 'viewed'
+    feedLens === 'viewed'
       ? // "Recently viewed" IS an order: by when YOU opened the subject, not by
         // when the act happened — the sort choice would answer a different
         // question here, so this lens owns its own.
@@ -4696,80 +4682,84 @@ function CommonsSection({ lens }: { lens: string | null }) {
   // The BROWSE band (Discover consolidation): the D17 shared-project directory
   // lives with the resources it lists — searchable, list-not-feed, never
   // widening visibility. The Agents hub's Discover keeps agent discovery
-  // (definitions belong to the agent hub). Rendered on the ALL view only; the
-  // facet views stay pure feed.
+  // (definitions belong to the agent hub). The root keeps this second list so
+  // an empty feed still leads somewhere; the rail door gives that directory an
+  // address of its own. Facet views stay pure feed.
   const [q, setQ] = useState('')
   const browse = useProjectDirectory(q.trim() || undefined).data ?? []
   // S7 — the Following lens is the ONE lens whose emptiness is ambiguous (see
   // `lensEmptyText`), so it needs the follow list to say which emptiness it is.
   // Fetched only on that lens: every other view would pay a request for a
   // sentence it never renders.
-  const followed = useFollows(lens === 'following').data ?? []
-  const feedTitle = lens ? (LENS_LABEL[lens] ?? lens) : 'Feed'
+  const followed = useFollows(feedLens === 'following').data ?? []
+  const browsePage = lens === 'browse'
+  const browseDirectory = (
+    <>
+      <p className="mb-4 text-[12px] text-ink-faint">
+        Every project other people opened to contributors — a searchable directory, not a feed.
+      </p>
+      <div className="relative mb-4">
+        <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search shared projects…"
+          aria-label="Search shared projects"
+          className={`${FORM_INPUT_CLASS} pl-8`}
+        />
+      </div>
+      {browse.length === 0 ? (
+        <PageEmpty>No shared projects{q.trim() ? ' match' : ' yet — share one from its project page'}.</PageEmpty>
+      ) : (
+        <CardList>
+          {browse.map((p) => (
+            <SharedProjectRow
+              key={p.id}
+              entry={p}
+              onOpen={() => rel.navigate('projects', p.id)}
+              onOwnerClick={() => rel.openOwner(p.owner)}
+            />
+          ))}
+        </CardList>
+      )}
+    </>
+  )
   return (
-    <CompositeResourcePage>
-      <PageHeader title={lens ? `Commons · ${LENS_LABEL[lens] ?? lens}` : 'Commons'} />
+    <CompositeResourcePage section="commons">
+      <PageHeader title={browsePage ? 'Commons · Browse the Commons' : feedLens ? `Commons · ${LENS_LABEL[feedLens] ?? feedLens}` : 'Commons'} />
       <CompositePageControls
         section="commons"
-        filter={<SectionFilterMenu section="commons" placement="page" />}
+        filter={browsePage ? undefined : <SectionFilterMenu section="commons" placement="page" />}
       />
-      <FoldSection title={feedTitle} summary={`${list.length} item${list.length === 1 ? '' : 's'}`} persist={false}>
-        {/* Compose on the square itself. A LENS is a filtered view of your own
-            collections ("things I liked"), and a composer there would write into
-            a place whose filter the new post may not even satisfy. */}
-        {lens === null && <PostComposer />}
-        {list.length === 0 ? (
-          <Empty>
-            {/* A lens names the act that fills it; a facet says what it found
-                nothing of; the bare feed explains what a post even is. */}
-            {lens
-              ? lensEmptyText(lens, followed)
-              : filter.facet !== 'all'
-                ? `No ${filter.facet} in your commons yet.`
-                : 'Nothing here yet — say something above, or share a resource with a note (the note is the post).'}
-          </Empty>
-        ) : (
-          <div className="space-y-4">
-            {list.map((item) => (
-              <FeedCard key={item.id} item={item} />
-            ))}
-          </div>
-        )}
-      </FoldSection>
-      {lens === null && filter.facet === 'all' && (
-        <FoldSection
-          title="Browse the commons"
-          summary={`${browse.length} shared project${browse.length === 1 ? '' : 's'}`}
-          persist={false}
-        >
-          <p className="mb-4 text-[12px] text-ink-faint">
-            Every project other people opened to contributors — a searchable directory, not a feed.
-          </p>
-          <div className="relative mb-4">
-            <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search shared projects…"
-              aria-label="Search shared projects"
-              className={`${FORM_INPUT_CLASS} pl-8`}
-            />
-          </div>
-          {browse.length === 0 ? (
-            <Empty>No shared projects{q.trim() ? ' match' : ' yet — share one from its project page'}.</Empty>
+      {browsePage ? (
+        browseDirectory
+      ) : (
+        <>
+          {/* Compose on the square itself. A LENS is a filtered view of your own
+              collections ("things I liked"), and a composer there would write into
+              a place whose filter the new post may not even satisfy. */}
+          {feedLens === null && <PostComposer />}
+          {list.length === 0 ? (
+            <PageEmpty>
+              {/* A lens names the act that fills it; a facet says what it found
+                  nothing of; the bare feed explains what a post even is. */}
+              {feedLens
+                ? lensEmptyText(feedLens, followed)
+                : filter.facet !== 'all'
+                  ? `No ${filter.facet} in your commons yet.`
+                  : 'Nothing here yet — say something above, or share a resource with a note (the note is the post).'}
+            </PageEmpty>
           ) : (
-            <CardList>
-              {browse.map((p) => (
-                <SharedProjectRow
-                  key={p.id}
-                  entry={p}
-                  onOpen={() => rel.navigate('projects', p.id)}
-                  onOwnerClick={() => rel.openOwner(p.owner)}
-                />
+            <div className="space-y-4">
+              {list.map((item) => (
+                <FeedCard key={item.id} item={item} />
               ))}
-            </CardList>
+            </div>
           )}
-        </FoldSection>
+          {feedLens === null && filter.facet === 'all' && (
+            <ListPartition title="Browse the Commons">{browseDirectory}</ListPartition>
+          )}
+        </>
       )}
     </CompositeResourcePage>
   )
@@ -5061,52 +5051,46 @@ function DiscussionsSection({
   // The same list the rail's thread children show (state facet + order).
   const filtered = listDiscussions(list, filter)
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section="discussions">
       <PageHeader title="Discussions" />
       <CompositePageControls
         section="discussions"
         filter={<SectionFilterMenu section="discussions" placement="page" />}
       />
-      <FoldSection
-        title="Threads"
-        summary={`${filtered.length} discussion${filtered.length === 1 ? '' : 's'}`}
-        persist={false}
-      >
-        {filtered.length === 0 ? (
-          <Empty>
-            {filter.facet !== 'all'
-              ? `No ${filter.facet} discussions you participate in.`
-              : 'No discussions yet — start one from any resource’s Discussion section.'}
-          </Empty>
-        ) : (
-          <CardList>
-            {filtered.map((d) => (
-              <div key={d.id} className="flex items-center gap-3 py-3">
-                <span className="flex w-4 shrink-0 items-center justify-center">
-                  {d.state === 'open' ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Open" />
-                  ) : (
-                    <CheckCircle2 size={14} className="text-ink-faint" aria-label="Resolved" />
-                  )}
-                </span>
-                <div className="min-w-0 flex-1">
-                  {/* Title-as-door: the first post fronts the thread's page. */}
-                  <button onClick={() => rel.navigate('discussions', d.id)} className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}>
-                    {discussionTitle(d.posts[0]?.body)}
-                  </button>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
-                    <span>
-                      {d.posts.length} {d.posts.length === 1 ? 'post' : 'posts'} · by {d.openedBy}
-                    </span>
-                    <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />
-                  </div>
+      {filtered.length === 0 ? (
+        <PageEmpty>
+          {filter.facet !== 'all'
+            ? `No ${filter.facet} discussions you participate in.`
+            : 'No discussions yet — start one from any resource’s Discussion section.'}
+        </PageEmpty>
+      ) : (
+        <CardList>
+          {filtered.map((d) => (
+            <div key={d.id} className="flex items-center gap-3 py-3">
+              <span className="flex w-4 shrink-0 items-center justify-center">
+                {d.state === 'open' ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Open" />
+                ) : (
+                  <CheckCircle2 size={14} className="text-ink-faint" aria-label="Resolved" />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                {/* Title-as-door: the first post fronts the thread's page. */}
+                <button onClick={() => rel.navigate('discussions', d.id)} className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}>
+                  {discussionTitle(d.posts[0]?.body)}
+                </button>
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
+                  <span>
+                    {d.posts.length} {d.posts.length === 1 ? 'post' : 'posts'} · by {d.openedBy}
+                  </span>
+                  <AnchorChip anchor={d.anchor} onOpenSession={onOpenSession} onFocusHere={onFocusHere} />
                 </div>
-                <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
               </div>
-            ))}
-          </CardList>
-        )}
-      </FoldSection>
+              <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
+            </div>
+          ))}
+        </CardList>
+      )}
     </CompositeResourcePage>
   )
 }
@@ -5276,7 +5260,7 @@ function NotificationsSection({
   }
 
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section="notifications">
       <PageHeader title="Notifications">
         {unread > 0 && (
           <button onClick={() => void markNotificationsRead()} className={INLINE_ACTION_CLASS}>
@@ -5284,18 +5268,15 @@ function NotificationsSection({
           </button>
         )}
       </PageHeader>
-      <CompositePageControls section="notifications" />
-      <FoldSection title="Inbox" summary={`${rows.length} notification${rows.length === 1 ? '' : 's'}`} persist={false}>
-        {rows.length === 0 ? (
-          <Empty>Nothing yet — watch a project (or share one) and its public acts land here.</Empty>
-        ) : (
-          <CardList>
-            {rows.map((n) => (
-              <NotificationRow key={n.id} row={n} onOpen={() => open(n)} />
-            ))}
-          </CardList>
-        )}
-      </FoldSection>
+      {rows.length === 0 ? (
+        <PageEmpty>Nothing yet — watch a project (or share one) and its public acts land here.</PageEmpty>
+      ) : (
+        <CardList>
+          {rows.map((n) => (
+            <NotificationRow key={n.id} row={n} onOpen={() => open(n)} />
+          ))}
+        </CardList>
+      )}
     </CompositeResourcePage>
   )
 }
@@ -5319,17 +5300,15 @@ function MessagesSection() {
   const rel = useRelations()
   const list = useDirectMessages().data ?? []
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section="messages">
       <PageHeader title="Messages" />
-      <CompositePageControls section="messages" />
-      <FoldSection title="Conversations" summary={`${list.length} message thread${list.length === 1 ? '' : 's'}`} persist={false}>
-        {list.length === 0 ? (
-          <Empty>
-            No messages yet — open someone’s profile from the commons and use “Message” to start one.
-          </Empty>
-        ) : (
-          <CardList>
-            {list.map((d) => {
+      {list.length === 0 ? (
+        <PageEmpty>
+          No messages yet — open someone’s profile from the commons and use “Message” to start one.
+        </PageEmpty>
+      ) : (
+        <CardList>
+          {list.map((d) => {
             const last = d.posts[d.posts.length - 1]
             const unread = d.unread ?? 0
             return (
@@ -5359,10 +5338,9 @@ function MessagesSection() {
                 <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(last?.at ?? d.openedAt)}</span>
               </div>
             )
-            })}
-          </CardList>
-        )}
-      </FoldSection>
+          })}
+        </CardList>
+      )}
     </CompositeResourcePage>
   )
 }
@@ -6734,7 +6712,7 @@ function ArtifactsSection({
   }
 
   return (
-    <CompositeResourcePage sectionPage={selectedGroup !== null}>
+    <CompositeResourcePage section="artifacts" sectionPage={selectedGroup !== null}>
       <PageHeader title="Artifacts" subtitle={selectedGroup?.label}>
         <PageActionButton
           icon={<Plus size={15} />}
@@ -7278,7 +7256,7 @@ function ContextsSection({
   const shownGroups = selectedResourceGroup ? [selectedResourceGroup] : accountMcpSelected ? [] : groups
 
   return (
-    <CompositeResourcePage sectionPage={sectionSelected}>
+    <CompositeResourcePage section="contexts" sectionPage={sectionSelected}>
       <PageHeader
         title="Contexts"
         subtitle={selectedLabel ?? (
@@ -7840,7 +7818,7 @@ function AgentCommonsSection({
   const canCreatePrompt = subview === 'building-blocks' || subview === 'prompts'
 
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section="agents">
       <PageHeader
         title={surfaceTitle}
         subtitle={surfaceSummary}
@@ -9074,7 +9052,7 @@ function ModelsSection({
   }
 
   return (
-    <CompositeResourcePage sectionPage={providersSelected}>
+    <CompositeResourcePage section="models" sectionPage={providersSelected}>
       <PageHeader
         title="Models"
         subtitle={providersSelected ? providersGroup.label : 'Every model your sessions can run on — built-in, registered endpoint, or delegated AI session.'}
@@ -11346,27 +11324,16 @@ function AdminSection({
           : subview === 'ops'
             ? 'Ops'
             : 'Accounts'
-  const surfaceSummary =
-    subview === 'orgs'
-      ? 'Organizations and invitations'
-      : subview === 'credentials'
-        ? 'Bearer-token metadata and revocation'
-        : subview === 'audit'
-          ? 'Instance-wide effect trail'
-          : subview === 'ops'
-            ? 'Runtime health and workload'
-            : 'Instance accounts and namespaces'
   return (
-    <CompositeResourcePage>
-      <PageHeader title={meta.label} subtitle={meta.subtitle} />
-      <CompositePageControls section="admin" />
+    <CompositeResourcePage section="admin">
+      <PageHeader title={`${meta.label} · ${surfaceTitle}`} subtitle={meta.subtitle} />
       {!granted ? (
         <PageEmpty>
           This console is for instance maintainers. Sign in as an account on the server’s
           MAINTAINERS allowlist to use it.
         </PageEmpty>
       ) : (
-        <FoldSection title={surfaceTitle} summary={surfaceSummary}>
+        <>
           {subview === 'orgs' ? (
             <AdminOrgsPanel />
           ) : subview === 'credentials' ? (
@@ -11378,7 +11345,7 @@ function AdminSection({
           ) : (
             <AdminAccountsPanel />
           )}
-        </FoldSection>
+        </>
       )}
     </CompositeResourcePage>
   )
@@ -11910,7 +11877,7 @@ function GenericSection({ section }: { section: SectionId }) {
   const meta = SECTION_META[section]
   const [creating, setCreating] = useState(false)
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section={section} projectSections={false}>
       <PageHeader
         title={meta.label}
         badge={
@@ -11933,13 +11900,7 @@ function GenericSection({ section }: { section: SectionId }) {
           </PageActionButton>
         )}
       </PageHeader>
-      <CompositePageControls section={section} />
-
-      {section === 'dispatch' && (
-        <FoldSection title="Runs" summary="Background dispatch history" persist={false}>
-          <DispatchView />
-        </FoldSection>
-      )}
+      {section === 'dispatch' && <DispatchView />}
       {section === 'customize' && <CustomizeView />}
       {creating && <NewDispatchDialog onClose={() => setCreating(false)} />}
     </CompositeResourcePage>
@@ -12181,7 +12142,7 @@ function ScheduledSection({
     }))
 
   return (
-    <CompositeResourcePage>
+    <CompositeResourcePage section="scheduled">
       <PageHeader
         title="Routines"
         subtitle="Recurring workflows — Claude runs their steps on a cadence and delivers the result."
@@ -12210,6 +12171,7 @@ function ScheduledSection({
             title={g.label}
             summary={`${g.items.length} routine${g.items.length === 1 ? '' : 's'}`}
             persist={false}
+            listPartition
           >
             <CardList className={g.key === 'paused' ? 'opacity-80' : ''}>
               {g.items.map((t) => (
@@ -12485,7 +12447,7 @@ function ScheduledDetail({
     sectionAllowed && (!selectedSection || selectedSection.id === id)
 
   return (
-    <CompositeResourcePage sectionPage={selectedSection !== undefined}>
+    <CompositeResourcePage section="scheduled" sectionPage={selectedSection !== undefined}>
       {/* A routine is a composite resource: instruction + workflow + execution
           history + its standing configuration. ProjectDetail established the
           page form for that nature, so routines use the same discoverable fold
