@@ -70,6 +70,17 @@ import {
   type CollectionSection,
 } from '../lib/collectionSections'
 import { railFoldAffects, type RailFoldSignal } from '../lib/railSplit'
+import {
+  capCollectionProjection,
+  collectionProjectionCount,
+  collectionProjectionItems,
+  flatCollectionProjection,
+  partitionedCollectionProjection,
+  structuralCollectionProjection,
+  type CollectionProjection,
+  type CollectionProjectionGroup,
+  type CollectionProjectionItem,
+} from '../lib/collectionProjection'
 
 /** Stable, path-shaped identity for one canonical rail node. A split stores
  * this key rather than a row ordinal, so filtering, capping, and async arrival
@@ -205,10 +216,15 @@ export function RailListPartition({
       setExpanded(disclosure.foldSignal.expanded)
     }
   }, [disclosure?.foldSignal, disclosure?.nodeKey])
-  if (!label) return <div role="list" aria-label={fallbackLabel}>{children}</div>
+  if (!label) return (
+    <div data-collection-group-key={groupKey} role="list" aria-label={fallbackLabel}>
+      {children}
+    </div>
+  )
   return (
     <section
       data-rail-list-partition
+      data-collection-group-key={groupKey}
       data-projection-list-group={groupKey}
       data-routine-state-group={routineState}
       aria-labelledby={headingId}
@@ -643,6 +659,245 @@ export interface InstanceChildProps {
   onOpenSession?: (sessionId: string) => void
 }
 
+type RailCollectionTemplateProps<T> = {
+  projection: CollectionProjection<T>
+  activeItemKey?: string | null
+  activeGroupKey?: string | null
+  foldSignal?: RailFoldSignal | null
+  onOpenItem?: (
+    item: CollectionProjectionItem<T>,
+    group: CollectionProjectionGroup<T>,
+  ) => void
+  onOpenGroup?: (group: CollectionProjectionGroup<T>) => void
+  isItemActive?: (
+    item: CollectionProjectionItem<T>,
+    group: CollectionProjectionGroup<T>,
+  ) => boolean
+  retainItem?: (
+    item: CollectionProjectionItem<T>,
+    group: CollectionProjectionGroup<T>,
+  ) => boolean
+  renderItem?: (
+    item: CollectionProjectionItem<T>,
+    group: CollectionProjectionGroup<T>,
+  ) => ReactNode
+}
+
+const collectionGroupNodeKey = <T,>(
+  projection: CollectionProjection<T>,
+  group: CollectionProjectionGroup<T>,
+) => railNodeKey(
+  'section',
+  projection.section,
+  group.role === 'section' ? 'collection' : 'partition',
+  group.key,
+)
+
+const collectionItemNodeKey = <T,>(
+  projection: CollectionProjection<T>,
+  group: CollectionProjectionGroup<T>,
+  item: CollectionProjectionItem<T>,
+) => group.role === 'section'
+  ? railNodeKey('section', projection.section, 'collection', group.key, 'item', item.key)
+  : railNodeKey('section', projection.section, 'item', item.key)
+
+/** The one collection-body template for the rail. It consumes the same typed
+ * runtime projection as `MainCollectionTemplate`, owns density capping, named
+ * partitions, structural-section rows, disclosure, empty/tail rows, and node
+ * identity, and delegates only the resource-specific row payload. */
+export function RailCollectionTemplate<T>(props: RailCollectionTemplateProps<T>) {
+  const { projection } = props
+  const [showAll, setShowAll] = useState(false)
+  const rootPath = useRailRootPathKeys()
+  const active = props.isItemActive ?? ((item: CollectionProjectionItem<T>) => item.key === props.activeItemKey)
+  const retain = (item: CollectionProjectionItem<T>, group: CollectionProjectionGroup<T>) =>
+    active(item, group) ||
+    props.retainItem?.(item, group) === true ||
+    rootPath.has(collectionItemNodeKey(projection, group, item))
+  const total = collectionProjectionCount(projection)
+  if (total === 0 && !projection.groups.some((group) => group.keepEmpty === true)) {
+    return (
+      <div data-rail-collection-template data-collection-projection={projection.section}>
+        <NoRowsRow>{projection.empty}</NoRowsRow>
+      </div>
+    )
+  }
+
+  const capped = projection.railCap === 'global'
+    ? capCollectionProjection(projection, RAIL_INSTANCE_CAP, showAll, retain)
+    : { groups: [...projection.groups], hidden: 0 }
+
+  return (
+    <div data-rail-collection-template data-collection-projection={projection.section}>
+      {capped.groups.map((group) => (
+        <RailCollectionGroupTemplate
+          key={group.key}
+          {...props}
+          group={group}
+          active={active}
+          retain={retain}
+          locallyCapped={projection.railCap === 'per-group'}
+        />
+      ))}
+      {projection.railCap === 'global' && (showAll || capped.hidden > 0) && (
+        <ShowAllRow
+          hidden={capped.hidden}
+          open={showAll}
+          onToggle={() => setShowAll((value) => !value)}
+        />
+      )}
+    </div>
+  )
+}
+
+function RailCollectionGroupTemplate<T>({
+  projection,
+  group,
+  activeGroupKey,
+  foldSignal,
+  onOpenItem,
+  onOpenGroup,
+  renderItem,
+  active,
+  retain,
+  locallyCapped,
+}: RailCollectionTemplateProps<T> & {
+  group: CollectionProjectionGroup<T>
+  active: (item: CollectionProjectionItem<T>, group: CollectionProjectionGroup<T>) => boolean
+  retain: (item: CollectionProjectionItem<T>, group: CollectionProjectionGroup<T>) => boolean
+  locallyCapped: boolean
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const local = locallyCapped
+    ? capCollectionProjection(
+        { ...projection, railCap: 'global', groups: [group] },
+        RAIL_INSTANCE_CAP,
+        showAll,
+        retain,
+      )
+    : { groups: [group], hidden: 0 }
+  const visibleGroup = local.groups[0] ?? ({ ...group, items: [] } as CollectionProjectionGroup<T>)
+  const render = (item: CollectionProjectionItem<T>) => (
+    <Fragment key={item.key}>
+      {renderItem ? renderItem(item, group) : (
+        <SubNavRow
+          nodeKey={collectionItemNodeKey(projection, group, item)}
+          label={item.label}
+          title={item.label}
+          active={active(item, group)}
+          onClick={() => onOpenItem?.(item, group)}
+        />
+      )}
+    </Fragment>
+  )
+
+  if (group.role === 'partition') {
+    return (
+      <RailListPartition
+        label={group.label}
+        fallbackLabel={projection.fallbackLabel}
+        groupKey={group.key}
+        routineState={projection.section === 'scheduled' ? group.key : undefined}
+        disclosure={group.presentation === 'foldable' ? {
+          nodeKey: collectionGroupNodeKey(projection, group),
+          foldSignal,
+        } : undefined}
+      >
+        {visibleGroup.items.map(render)}
+        {locallyCapped && (showAll || local.hidden > 0) && (
+          <ShowAllRow hidden={local.hidden} open={showAll} onToggle={() => setShowAll((value) => !value)} />
+        )}
+      </RailListPartition>
+    )
+  }
+
+  return (
+    <RailCollectionSectionTemplate
+      projection={projection}
+      group={visibleGroup}
+      sourceGroup={group}
+      active={activeGroupKey === group.key}
+      containsActive={group.items.some((item) => active(item, group))}
+      foldSignal={foldSignal}
+      onOpen={() => onOpenGroup?.(group)}
+    >
+      {visibleGroup.items.map(render)}
+      {locallyCapped && (showAll || local.hidden > 0) && (
+        <ShowAllRow hidden={local.hidden} open={showAll} onToggle={() => setShowAll((value) => !value)} />
+      )}
+    </RailCollectionSectionTemplate>
+  )
+}
+
+function RailCollectionSectionTemplate<T>({
+  projection,
+  group,
+  sourceGroup,
+  active,
+  containsActive,
+  foldSignal,
+  onOpen,
+  children,
+}: {
+  projection: CollectionProjection<T>
+  group: CollectionProjectionGroup<T>
+  sourceGroup: CollectionProjectionGroup<T>
+  active: boolean
+  containsActive: boolean
+  foldSignal?: RailFoldSignal | null
+  onOpen: () => void
+  children: ReactNode
+}) {
+  const nodeKey = collectionGroupNodeKey(projection, sourceGroup)
+  const forcedOpen = useForcedRailAncestor(nodeKey)
+  const [expanded, setExpanded] = useState(active || containsActive)
+  useEffect(() => {
+    if (active || containsActive) setExpanded(true)
+  }, [active, containsActive])
+  useEffect(() => {
+    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
+  }, [foldSignal, nodeKey])
+  const hasResources = sourceGroup.items.length > 0
+  const disclosed = expanded || forcedOpen
+  return (
+    <RailTreeNode nodeKey={nodeKey}>
+      <div
+        data-rail-node-row
+        data-collection-section={group.key}
+        data-collection-group-key={group.key}
+        data-rail-entry-kind="group"
+        className={sidebarEntryClass('group', active)}
+      >
+        {hasResources ? (
+          <RailEntryLead
+            label={group.label}
+            expanded={disclosed}
+            onToggle={() => setExpanded((value) => !value)}
+          />
+        ) : <RailEntryLead />}
+        <button
+          data-rail-entry
+          onClick={onOpen}
+          aria-current={active ? 'page' : undefined}
+          className="min-w-0 flex-1 truncate text-left"
+        >
+          {group.label}
+        </button>
+        {hasResources && (
+          <span className="shrink-0 text-[10px] font-normal text-ink-faint">
+            {sourceGroup.items.length}
+          </span>
+        )}
+      </div>
+      {hasResources && disclosed && (
+        <RailTreeBranch data-collection-section-resources={group.key}>
+          {children}
+        </RailTreeBranch>
+      )}
+    </RailTreeNode>
+  )
+}
+
 /** The instance projection of a content section. Collection roots may preserve
  * an intermediate structural section before these canonical rows. */
 export function SectionInstanceChildren({
@@ -682,37 +937,18 @@ function InstanceRows({
   empty: string
 } & InstanceChildProps) {
   const key = SECTION_INSTANCE_KEY[section]
-  // Unfolded-ness is VIEW state, not a preference: it resets when the section
-  // row folds (these children unmount while collapsed), the tree's own idiom.
-  const [showAll, setShowAll] = useState(false)
-  const rootPath = useRailRootPathKeys()
-  if (rows.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
-  const head = cappedWithActive(
-    rows,
-    showAll,
-    (row) => row.id === activeId || rootPath.has(railNodeKey('section', section, 'item', row.id)),
-  )
-  const hidden = rows.length - head.length
+  const projection = flatCollectionProjection({
+    section,
+    fallbackLabel: section,
+    empty,
+    items: collectionProjectionItems(rows, (row) => row.id, (row) => row.label),
+  })
   return (
-    <>
-      {head.map((r) => (
-        <SubNavRow
-          key={r.id}
-          nodeKey={railNodeKey('section', section, 'item', r.id)}
-          label={r.label}
-          title={r.label}
-          active={activeId === r.id}
-          onClick={() => onOpenDetail(section, key ? { [key]: r.id } : {})}
-        />
-      ))}
-      {(showAll || hidden > 0) && (
-        <ShowAllRow
-          hidden={hidden}
-          open={showAll}
-          onToggle={() => setShowAll((v) => !v)}
-        />
-      )}
-    </>
+    <RailCollectionTemplate
+      projection={projection}
+      activeItemKey={activeId}
+      onOpenItem={(item) => onOpenDetail(section, key ? { [key]: item.key } : {})}
+    />
   )
 }
 
@@ -722,48 +958,31 @@ function ProjectChildren({ foldSignal, ...props }: InstanceChildProps & { foldSi
   const myOrgIds = new Set((useMyOrgs().data ?? []).map((o) => o.tenant.id))
   const rows = listProjects(rel.allProjects(), filter, myOrgIds)
   const groups = groupProjects(rows, myOrgIds)
-  const [showAll, setShowAll] = useState(false)
-  const rootPath = useRailRootPathKeys()
-  if (rows.length === 0) return <NoRowsRow>No projects here yet.</NoRowsRow>
-  let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
-  const visibleGroups = groups.map((group) => {
-    const capped = group.projects.slice(0, Math.max(0, remaining))
-    remaining -= capped.length
-    const required = group.projects.filter(
-      (project) =>
-        (project.id === props.activeSeed?.projectId ||
-          rootPath.has(railNodeKey('section', 'projects', 'item', project.id))) &&
-        !capped.some((visible) => visible.id === project.id),
-    )
-    return { ...group, projects: [...capped, ...required] }
-  }).filter((group) => group.projects.length > 0)
-  const hidden = Math.max(0, rows.length - visibleGroups.reduce((count, group) => count + group.projects.length, 0))
+  const projection = partitionedCollectionProjection({
+    section: 'projects',
+    fallbackLabel: 'Projects',
+    empty: 'No projects here yet.',
+    itemNoun: 'project',
+    presentation: 'foldable',
+    groups: groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      items: collectionProjectionItems(
+        group.projects,
+        (project) => project.id,
+        (project) => project.name,
+      ),
+    })),
+  })
   return (
-    <>
-      {visibleGroups.map((group) => (
-        <RailListPartition
-          key={group.key}
-          label={group.label}
-          fallbackLabel="Projects"
-          groupKey={group.key}
-          disclosure={{
-            nodeKey: railNodeKey('section', 'projects', 'partition', group.key),
-            foldSignal,
-          }}
-        >
-          {group.projects.map((project) => (
-            <ProjectBranch key={project.id} project={project} foldSignal={foldSignal} {...props} />
-          ))}
-        </RailListPartition>
-      ))}
-      {(showAll || hidden > 0) && (
-        <ShowAllRow
-          hidden={hidden}
-          open={showAll}
-          onToggle={() => setShowAll((v) => !v)}
-        />
+    <RailCollectionTemplate
+      projection={projection}
+      activeItemKey={props.activeSeed?.projectId}
+      foldSignal={foldSignal}
+      renderItem={(item) => (
+        <ProjectBranch project={item.value} foldSignal={foldSignal} {...props} />
       )}
-    </>
+    />
   )
 }
 
@@ -1072,106 +1291,27 @@ function CollectionSectionRows({
   empty: string
   foldSignal?: RailFoldSignal | null
 } & InstanceChildProps) {
-  if (groups.length === 0) return <NoRowsRow>{empty}</NoRowsRow>
+  const projection = structuralCollectionProjection({
+    section,
+    fallbackLabel: section,
+    empty,
+    itemNoun: section === 'models' ? 'provider' : section === 'contexts' ? 'context' : 'artifact',
+    groups: groups.map((group) => ({
+      key: group.id,
+      label: group.label,
+      keepEmpty: group.items.length === 0,
+      items: collectionProjectionItems(group.items, (item) => item.id, (item) => item.label),
+    })),
+  })
   return (
-    <>
-      {groups.map((group) => (
-        <CollectionSectionBranch
-          key={group.id}
-          section={section}
-          group={group}
-          activeId={activeId}
-          activeSeed={activeSeed}
-          onOpenDetail={onOpenDetail}
-          foldSignal={foldSignal}
-        />
-      ))}
-    </>
-  )
-}
-
-function CollectionSectionBranch({
-  section,
-  group,
-  activeId,
-  activeSeed,
-  onOpenDetail,
-  foldSignal,
-}: {
-  section: SectionId
-  group: CollectionSection<CollectionRailItem>
-  foldSignal?: RailFoldSignal | null
-} & Pick<InstanceChildProps, 'activeId' | 'activeSeed' | 'onOpenDetail'>) {
-  const sectionActive = activeSeed?.collectionSectionId === group.id
-  const nodeKey = railNodeKey('section', section, 'collection', group.id)
-  const forcedOpen = useForcedRailAncestor(nodeKey)
-  const containsActiveLeaf = group.items.some((item) => item.id === activeId)
-  const [expanded, setExpanded] = useState(sectionActive || containsActiveLeaf)
-  const [showAll, setShowAll] = useState(false)
-  const rootPath = useRailRootPathKeys()
-  useEffect(() => {
-    if (sectionActive || containsActiveLeaf) setExpanded(true)
-  }, [sectionActive, containsActiveLeaf])
-  useEffect(() => {
-    if (foldSignal && railFoldAffects(foldSignal, nodeKey)) setExpanded(foldSignal.expanded)
-  }, [foldSignal])
-  const hasResources = group.items.length > 0
-  const visible = cappedWithActive(
-    group.items,
-    showAll,
-    (item) =>
-      item.id === activeId ||
-      rootPath.has(railNodeKey('section', section, 'collection', group.id, 'item', item.id)),
-  )
-  const hidden = group.items.length - visible.length
-  const disclosed = expanded || forcedOpen
-  return (
-    <RailTreeNode nodeKey={nodeKey}>
-      <div
-        data-rail-node-row
-        data-collection-section={group.id}
-        data-rail-entry-kind="group"
-        className={sidebarEntryClass('group', sectionActive)}
-      >
-        {hasResources
-          ? <RailEntryLead
-              label={group.label}
-              expanded={disclosed}
-              onToggle={() => setExpanded((value) => !value)}
-            />
-          : <RailEntryLead />}
-        <button
-          data-rail-entry
-          onClick={() => onOpenDetail(section, { collectionSectionId: group.id })}
-          aria-current={sectionActive ? 'page' : undefined}
-          className="min-w-0 flex-1 truncate text-left"
-        >
-          {group.label}
-        </button>
-        {hasResources && <span className="shrink-0 text-[10px] font-normal text-ink-faint">{group.items.length}</span>}
-      </div>
-      {hasResources && disclosed && (
-        <RailTreeBranch data-collection-section-resources={group.id}>
-          {visible.map((item) => (
-            <SubNavRow
-              key={item.id}
-              nodeKey={railNodeKey('section', section, 'collection', group.id, 'item', item.id)}
-              label={item.label}
-              title={item.label}
-              active={activeId === item.id}
-              onClick={() => onOpenDetail(section, item.seed)}
-            />
-          ))}
-          {(showAll || hidden > 0) && (
-            <ShowAllRow
-              hidden={hidden}
-              open={showAll}
-              onToggle={() => setShowAll((value) => !value)}
-            />
-          )}
-        </RailTreeBranch>
-      )}
-    </RailTreeNode>
+    <RailCollectionTemplate
+      projection={projection}
+      activeItemKey={activeId}
+      activeGroupKey={activeSeed?.collectionSectionId}
+      foldSignal={foldSignal}
+      onOpenGroup={(group) => onOpenDetail(section, { collectionSectionId: group.key })}
+      onOpenItem={(item) => onOpenDetail(section, item.value.seed)}
+    />
   )
 }
 

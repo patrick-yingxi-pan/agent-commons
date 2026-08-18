@@ -7,13 +7,15 @@
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 
 const component = (name: string) => stripComments(sectionViewComponent(name))
 
 test('the Artifacts root is one list of standardized preview rows', () => {
   const section = component('ArtifactsSection')
-  assert.match(section, /<CardList>/, 'artifact groups use the shared one-column list')
+  assert.match(section, /<MainCollectionTemplate\b/, 'artifact groups use the shared collection template')
+  assert.match(stripComments(resourcePageComponent('MainCollectionTemplate')), /<ResourcePageList\b/,
+    'the template owns the shared one-column list')
   assert.match(section, /<ArtifactPreviewRow\b/, 'every artifact routes through the one index preview')
   assert.doesNotMatch(section, /grid-cols-|<ArtifactCard\b|<ArtifactThumb\b/, 'the index has no gallery or miniature-content escape')
 })

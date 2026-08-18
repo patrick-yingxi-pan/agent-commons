@@ -32,6 +32,12 @@ output, no DOM needed).
   belongs here rather than inside a component, because `node --test` has no DOM:
   what lives here can be locked exactly, and what doesn't has to be verified in
   the running app or in `e2e/`.
+- **A collection has one runtime projection model.**
+  `collectionProjection.ts` is the typed bridge between the main-page and rail
+  templates. Group identity, order, role, presentation and emptiness belong in
+  that model; rail density reduction is a pure, non-mutating projection that
+  preserves named groups and the addressed item. Components may specialize a
+  row payload, never rebuild the group grammar.
 - **Theming goes through the one funnel** (`theme.ts`) — it alone stamps
   `data-theme` / `data-palette`. Full rule + palette contract:
   [`src/CLAUDE.md`](../CLAUDE.md).

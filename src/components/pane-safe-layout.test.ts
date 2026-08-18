@@ -64,6 +64,8 @@ test('the resource-page frame is the @container the page layouts key on', () => 
   // promise the same reading order while changing from one to two columns.
   assert.ok(!src.includes('@3xl:flex-row'), 'Context detail no longer escapes into a side-column grammar')
   const artifacts = stripComments(sectionViewComponent('ArtifactsSection'))
-  assert.match(artifacts, /<CardList>/, 'the Artifact index is one shared preview list')
+  assert.match(artifacts, /<MainCollectionTemplate\b/, 'the Artifact index uses the one shared collection list template')
+  assert.match(stripComments(resourcePageComponent('MainCollectionTemplate')), /<ResourcePageList\b/,
+    'the shared template owns the one-column list')
   assert.doesNotMatch(artifacts, /grid-cols-/, 'the Artifact index never changes reading order by width')
 })

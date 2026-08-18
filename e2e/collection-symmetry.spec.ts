@@ -33,12 +33,32 @@ test('every rendered collection list construct has a rail counterpart with the s
     const titles = await projections.evaluateAll((nodes) =>
       nodes.map((node) => node.getAttribute('data-projection-entry-label')).filter((title): title is string => !!title),
     )
-    if (titles.length === 0) continue
 
     const root = rail.locator(`[data-rail-node-key="section/${encodeURIComponent(sectionId)}"]`)
     const collapsedDoor = root.locator('button[aria-label^="Expand "]').first()
     if ((await collapsedDoor.count()) > 0) await collapsedDoor.click()
     const tree = rail.locator(`[data-section-tree="${sectionId}"]`)
+    const mainTemplate = main.locator(
+      `[data-main-collection-template][data-collection-projection="${sectionId}"]`,
+    )
+    const railTemplate = tree.locator(
+      `[data-rail-collection-template][data-collection-projection="${sectionId}"]`,
+    )
+    if ((await mainTemplate.count()) > 0 && (await railTemplate.count()) > 0) {
+      const projectionKeys = async (scope: import('@playwright/test').Locator) =>
+        scope.locator('[data-collection-group-key]').evaluateAll((nodes) =>
+          [...new Set(nodes
+            .map((node) => node.getAttribute('data-collection-group-key'))
+            .filter((key): key is string => key !== null)
+          )].sort(),
+        )
+      expect(
+        await projectionKeys(railTemplate),
+        `${sectionId} instantiates the rail and main templates from the same runtime groups`,
+      ).toEqual(await projectionKeys(mainTemplate))
+    }
+    if (titles.length === 0) continue
+
     await expect(tree, `${sectionId} exposes its main-page lists in the rail`).toBeAttached()
     for (const title of titles) {
       const attributeTitle = title.replace(/\\/g, '\\\\').replace(/"/g, '\\"')

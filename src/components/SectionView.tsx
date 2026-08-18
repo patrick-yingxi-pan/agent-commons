@@ -131,6 +131,7 @@ import {
   CompositePageControls,
   CompositeResourcePage,
   FoldPairRow,
+  MainCollectionTemplate,
   ResourcePageActions as SectionActions,
   ResourcePageEmpty as PageEmpty,
   ResourcePageHeader as PageHeader,
@@ -165,6 +166,12 @@ import { useRoutineFilter } from '../lib/useRoutineFilter'
 import { useSessionFilter } from '../lib/useSessionFilter'
 import { sortSectionRows } from '../lib/sectionFilter'
 import { groupProjects, listArtifacts, listContexts, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
+import {
+  collectionProjectionItems,
+  flatCollectionProjection,
+  partitionedCollectionProjection,
+  structuralCollectionProjection,
+} from '../lib/collectionProjection'
 import {
   ACCOUNT_MCP_SECTION,
   artifactCollectionSections,
@@ -627,25 +634,27 @@ function SessionsSection({
   const filter = clampSessionFilter(rawFilter, projectIds)
   const projectName = (projectId: string) =>
     projects.find((project) => project.id === projectId)?.name ?? 'Project'
-  const { groups, total } = filterSessions(sessions, filter, {
+  const { groups } = filterSessions(sessions, filter, {
     projectIdOf: relations.projectIdForSession,
     projectName,
     now: Date.now(),
   })
-
-  const rows = (items: Session[]) => (
-    <CardList>
-      {items.map((session) => (
-        <SynopsisRow
-          key={session.id}
-          title={session.title}
-          description={session.preview}
-          meta={`${session.pinned ? 'Pinned · ' : ''}${relativeTime(session.updatedAt ?? session.createdAt)}`}
-          onOpen={() => onOpenSession(session.id)}
-        />
-      ))}
-    </CardList>
-  )
+  const projection = partitionedCollectionProjection({
+    section: 'sessions',
+    fallbackLabel: 'Sessions',
+    empty: 'No sessions match these filters.',
+    itemNoun: 'session',
+    presentation: 'static',
+    groups: groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      items: collectionProjectionItems(
+        group.sessions,
+        (session) => session.id,
+        (session) => session.title,
+      ),
+    })),
+  })
 
   return (
     <CompositeResourcePage section="sessions">
@@ -663,15 +672,17 @@ function SessionsSection({
         section="sessions"
         filter={<SessionFilterMenu filter={filter} onChange={setFilter} projects={projects} />}
       />
-      {total === 0 ? (
-        <PageEmpty>No sessions match these filters.</PageEmpty>
-      ) : (
-        groups.map((group) => (
-          <ListPartition key={group.key} title={group.label}>
-            {rows(group.sessions)}
-          </ListPartition>
-        ))
-      )}
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => (
+          <SynopsisRow
+            title={item.value.title}
+            description={item.value.preview}
+            meta={`${item.value.pinned ? 'Pinned · ' : ''}${relativeTime(item.value.updatedAt ?? item.value.createdAt)}`}
+            onOpen={() => onOpenSession(item.value.id)}
+          />
+        )}
+      />
     </CompositeResourcePage>
   )
 }
@@ -799,22 +810,34 @@ function ProjectsSection({
   // survive the filter move: picking one facet leaves exactly one band standing,
   // and the all view still shows the three in order.
   const projectGroups = groupProjects(sorted, myOrgIds)
-
-  // A collection root is a composite page too. Its relationship bands therefore
-  // use the SAME section frame as one Project's About / Context / Discussion
-  // sections; only the rows inside remain the ledger form their nature calls for.
-  const ledger = (items: Project[]) => (
-    <CardList>
-      {items.map((p) => (
-        <ProjectRow
-          key={p.id}
-          project={p}
-          sessionCount={rel.sessionsForProject(p.id).length}
-          onOpen={() => onOpenProject(p.id)}
-        />
-      ))}
-    </CardList>
-  )
+  const projectEmpty = query.trim()
+    ? `No projects match “${query.trim()}”.`
+    : filter.facet === 'shared'
+      ? 'No projects shared with you yet — projects other people share with you show here.'
+      : filter.facet === 'org'
+        ? 'No organization projects yet — a project owned by an org you have a seat in shows here.'
+        : 'No projects yet — create one to group related work.'
+  const projection = partitionedCollectionProjection({
+    section: 'projects',
+    fallbackLabel: 'Projects',
+    empty: projectEmpty,
+    itemNoun: 'project',
+    presentation: 'foldable',
+    groups: projectGroups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      description: group.key === 'org'
+        ? "Projects owned by organizations you belong to — a seat, not a switch (the byline is the org's page)."
+        : group.key === 'shared'
+          ? 'Projects other people opened to the commons — visit one to commission your agent or take open work.'
+          : undefined,
+      items: collectionProjectionItems(
+        group.projects,
+        (project) => project.id,
+        (project) => project.name,
+      ),
+    })),
+  })
 
   return (
     <CompositeResourcePage section="projects">
@@ -833,46 +856,18 @@ function ProjectsSection({
         section="projects"
         filter={<SectionFilterMenu section="projects" placement="page" />}
       />
-      {/* The three relationships stay BANDED whatever the facet — picking one in
-          the rail's menu simply leaves that band standing alone (with its header,
-          so the page always says which relationship you're reading). */}
-      {sorted.length === 0 ? (
-        <Empty>
-          {query.trim()
-            ? `No projects match “${query.trim()}”.`
-            : filter.facet === 'shared'
-              ? 'No projects shared with you yet — projects other people share with you show here.'
-              : filter.facet === 'org'
-                ? 'No organization projects yet — a project owned by an org you have a seat in shows here.'
-                : 'No projects yet — create one to group related work.'}
-        </Empty>
-      ) : (
-        <>
-          {projectGroups.map((group) => (
-            <FoldSection
-              key={group.key}
-              title={group.label}
-              summary={`${group.projects.length} project${group.projects.length === 1 ? '' : 's'}`}
-              persist={false}
-              listPartition
-            >
-              {group.key === 'org' && (
-                <p className="mb-3 text-[12px] text-ink-faint">
-                  Projects owned by organizations you belong to — a seat, not a switch (the byline is
-                  the org's page).
-                </p>
-              )}
-              {group.key === 'shared' && (
-                <p className="mb-3 text-[12px] text-ink-faint">
-                  Projects other people opened to the commons — visit one to commission your agent
-                  or take open work.
-                </p>
-              )}
-              {ledger(group.projects)}
-            </FoldSection>
-          ))}
-        </>
-      )}
+      {/* Relationship bands and their row placement are instantiated by the
+          same projection grammar the rail consumes. */}
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => (
+          <ProjectRow
+            project={item.value}
+            sessionCount={rel.sessionsForProject(item.value.id).length}
+            onOpen={() => onOpenProject(item.value.id)}
+          />
+        )}
+      />
       {creating && <NewProjectDialog orgs={myOrgs} onCreate={createProject} onClose={() => setCreating(false)} />}
     </CompositeResourcePage>
   )
@@ -5050,6 +5045,18 @@ function DiscussionsSection({
   if (discussionId) return <DiscussionPage discussionId={discussionId} onOpenSession={onOpenSession} onFocusHere={onFocusHere} onBack={onBack} backTo={backTo} />
   // The same list the rail's thread children show (state facet + order).
   const filtered = listDiscussions(list, filter)
+  const projection = flatCollectionProjection({
+    section: 'discussions',
+    fallbackLabel: 'Discussions',
+    empty: filter.facet !== 'all'
+      ? `No ${filter.facet} discussions you participate in.`
+      : 'No discussions yet — start one from any resource’s Discussion section.',
+    items: collectionProjectionItems(
+      filtered,
+      (discussion) => discussion.id,
+      (discussion) => discussionTitle(discussion.posts[0]?.body),
+    ),
+  })
   return (
     <CompositeResourcePage section="discussions">
       <PageHeader title="Discussions" />
@@ -5057,16 +5064,12 @@ function DiscussionsSection({
         section="discussions"
         filter={<SectionFilterMenu section="discussions" placement="page" />}
       />
-      {filtered.length === 0 ? (
-        <PageEmpty>
-          {filter.facet !== 'all'
-            ? `No ${filter.facet} discussions you participate in.`
-            : 'No discussions yet — start one from any resource’s Discussion section.'}
-        </PageEmpty>
-      ) : (
-        <CardList>
-          {filtered.map((d) => (
-            <div key={d.id} className="flex items-center gap-3 py-3">
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => {
+          const d = item.value
+          return (
+            <div className="flex items-center gap-3 py-3">
               <span className="flex w-4 shrink-0 items-center justify-center">
                 {d.state === 'open' ? (
                   <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Open" />
@@ -5088,9 +5091,9 @@ function DiscussionsSection({
               </div>
               <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(d.posts[d.posts.length - 1]?.at ?? d.openedAt)}</span>
             </div>
-          ))}
-        </CardList>
-      )}
+          )
+        }}
+      />
     </CompositeResourcePage>
   )
 }
@@ -5258,6 +5261,16 @@ function NotificationsSection({
         assertHandledIntent(intent)
     }
   }
+  const projection = flatCollectionProjection({
+    section: 'notifications',
+    fallbackLabel: 'Notifications',
+    empty: 'Nothing yet — watch a project (or share one) and its public acts land here.',
+    items: collectionProjectionItems(
+      rows,
+      (row) => row.id,
+      (row) => row.subjectName ?? row.projectName ?? row.actor,
+    ),
+  })
 
   return (
     <CompositeResourcePage section="notifications">
@@ -5268,15 +5281,12 @@ function NotificationsSection({
           </button>
         )}
       </PageHeader>
-      {rows.length === 0 ? (
-        <PageEmpty>Nothing yet — watch a project (or share one) and its public acts land here.</PageEmpty>
-      ) : (
-        <CardList>
-          {rows.map((n) => (
-            <NotificationRow key={n.id} row={n} onOpen={() => open(n)} />
-          ))}
-        </CardList>
-      )}
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => (
+          <NotificationRow row={item.value} onOpen={() => open(item.value)} />
+        )}
+      />
     </CompositeResourcePage>
   )
 }
@@ -5299,48 +5309,54 @@ function assertHandledIntent(intent: never): void {
 function MessagesSection() {
   const rel = useRelations()
   const list = useDirectMessages().data ?? []
+  const projection = flatCollectionProjection({
+    section: 'messages',
+    fallbackLabel: 'Messages',
+    empty: 'No messages yet — open someone’s profile from the commons and use “Message” to start one.',
+    items: collectionProjectionItems(
+      list,
+      (discussion) => discussion.id,
+      (discussion) => discussion.counterpart ?? discussion.openedBy,
+    ),
+  })
   return (
     <CompositeResourcePage section="messages">
       <PageHeader title="Messages" />
-      {list.length === 0 ? (
-        <PageEmpty>
-          No messages yet — open someone’s profile from the commons and use “Message” to start one.
-        </PageEmpty>
-      ) : (
-        <CardList>
-          {list.map((d) => {
-            const last = d.posts[d.posts.length - 1]
-            const unread = d.unread ?? 0
-            return (
-              <div key={d.id} className="flex items-center gap-3 py-3">
-                <span className="flex w-4 shrink-0 items-center justify-center">
-                  {unread > 0 ? (
-                    <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-label={`${unread} unread`} />
-                  ) : null}
-                </span>
-                <div className="min-w-0 flex-1">
-                  {/* Title-as-door — and the title of a MESSAGE is who it is
-                      with, not its opening words. That is the one thing a DM
-                      row is scanned for. */}
-                  <button
-                    onClick={() => rel.navigate('discussions', d.id)}
-                    className={`block max-w-full truncate text-left text-[13px] ${unread > 0 ? 'font-medium text-ink' : 'text-ink'} ${DOOR_CLASS}`}
-                  >
-                    {d.counterpart ?? d.openedBy}
-                  </button>
-                  {/* `mine` — the server's flag — not `author === counterpart`:
-                      display names are not unique and not identities, and this
-                      repo's rule is that a control or cue never keys on one. */}
-                  <div className="mt-0.5 truncate text-[11px] text-ink-faint">
-                    {last ? `${last.mine === true ? 'You: ' : ''}${last.body}` : 'No messages yet'}
-                  </div>
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => {
+          const d = item.value
+          const last = d.posts[d.posts.length - 1]
+          const unread = d.unread ?? 0
+          return (
+            <div className="flex items-center gap-3 py-3">
+              <span className="flex w-4 shrink-0 items-center justify-center">
+                {unread > 0 ? (
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-label={`${unread} unread`} />
+                ) : null}
+              </span>
+              <div className="min-w-0 flex-1">
+                {/* Title-as-door — and the title of a MESSAGE is who it is
+                    with, not its opening words. That is the one thing a DM
+                    row is scanned for. */}
+                <button
+                  onClick={() => rel.navigate('discussions', d.id)}
+                  className={`block max-w-full truncate text-left text-[13px] ${unread > 0 ? 'font-medium text-ink' : 'text-ink'} ${DOOR_CLASS}`}
+                >
+                  {d.counterpart ?? d.openedBy}
+                </button>
+                {/* `mine` — the server's flag — not `author === counterpart`:
+                    display names are not unique and not identities, and this
+                    repo's rule is that a control or cue never keys on one. */}
+                <div className="mt-0.5 truncate text-[11px] text-ink-faint">
+                  {last ? `${last.mine === true ? 'You: ' : ''}${last.body}` : 'No messages yet'}
                 </div>
-                <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(last?.at ?? d.openedAt)}</span>
               </div>
-            )
-          })}
-        </CardList>
-      )}
+              <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(last?.at ?? d.openedAt)}</span>
+            </div>
+          )
+        }}
+      />
     </CompositeResourcePage>
   )
 }
@@ -6711,6 +6727,24 @@ function ArtifactsSection({
     )
   }
 
+  const projection = structuralCollectionProjection({
+    section: 'artifacts',
+    fallbackLabel: 'Artifacts',
+    empty: 'No artifacts match.',
+    itemNoun: 'artifact',
+    groups: shownGroups.map((group) => ({
+      key: group.id,
+      label: group.label,
+      keepEmpty: selectedGroup?.id === group.id,
+      empty: 'No artifacts in this section.',
+      items: collectionProjectionItems(
+        group.items,
+        (artifact) => artifact.id,
+        (artifact) => artifact.name,
+      ),
+    })),
+  })
+
   return (
     <CompositeResourcePage section="artifacts" sectionPage={selectedGroup !== null}>
       <PageHeader title="Artifacts" subtitle={selectedGroup?.label}>
@@ -6729,39 +6763,24 @@ function ArtifactsSection({
         filter={<SectionFilterMenu section="artifacts" placement="page" />}
       />
 
-      {shownGroups.length === 0 ? (
-        <Empty>No artifacts match.</Empty>
-      ) : (
-        shownGroups.map((g) => (
-          <FoldSection
-            key={g.id}
-            title={g.label}
-            summary={`${g.items.length} artifact${g.items.length === 1 ? '' : 's'}`}
-            persist={false}
-          >
-            <CardList>
-              {g.items.map((a) => {
-                // A just-created artifact carries a temporary optimistic id until the
-                // server's authoritative `art-live-*` id replaces it on reconcile. Don't
-                // let it be opened in that window — its id isn't one the server would
-                // recognize, so opening (then re-filing) it would target a phantom id.
-                const pending = isOptimisticId(a.id)
-                return (
-                  <ArtifactPreviewRow
-                    key={a.id}
-                    artifact={a}
-                    source={rel.artifactSourceFor(a.id)}
-                    pending={pending}
-                    onOpen={() => {
-                      if (!pending) rel.navigate('artifacts', a.id)
-                    }}
-                  />
-                )
-              })}
-            </CardList>
-          </FoldSection>
-        ))
-      )}
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => {
+          // A just-created artifact carries a temporary optimistic id until the
+          // server's authoritative id replaces it; do not door to a phantom id.
+          const pending = isOptimisticId(item.value.id)
+          return (
+            <ArtifactPreviewRow
+              artifact={item.value}
+              source={rel.artifactSourceFor(item.value.id)}
+              pending={pending}
+              onOpen={() => {
+                if (!pending) rel.navigate('artifacts', item.value.id)
+              }}
+            />
+          )
+        }}
+      />
 
       {creating && (
         <NewArtifactDialog projects={projects} onCreate={createArtifact} onClose={() => setCreating(false)} />
@@ -7253,7 +7272,34 @@ function ContextsSection({
     : null
   const accountMcpSelected = collectionSectionId === ACCOUNT_MCP_SECTION.id
   const sectionSelected = selectedLabel !== undefined
-  const shownGroups = selectedResourceGroup ? [selectedResourceGroup] : accountMcpSelected ? [] : groups
+  const accountMcpGroup = {
+    ...ACCOUNT_MCP_SECTION,
+    summary: 'MCP endpoint, toolset, and access tokens',
+    items: [] as SavedContext[],
+  }
+  const shownGroups = selectedResourceGroup
+    ? [selectedResourceGroup]
+    : accountMcpSelected
+      ? [accountMcpGroup]
+      : [...groups, accountMcpGroup]
+  const projection = structuralCollectionProjection({
+    section: 'contexts',
+    fallbackLabel: 'Contexts',
+    empty: 'No contexts match.',
+    itemNoun: 'context',
+    groups: shownGroups.map((group) => ({
+      key: group.id,
+      label: group.label,
+      summary: group.id === ACCOUNT_MCP_SECTION.id ? accountMcpGroup.summary : undefined,
+      keepEmpty: selectedResourceGroup?.id === group.id || group.id === ACCOUNT_MCP_SECTION.id,
+      empty: 'No contexts in this section.',
+      items: collectionProjectionItems(
+        group.items,
+        (context) => context.id,
+        (context) => context.label,
+      ),
+    })),
+  })
 
   return (
     <CompositeResourcePage section="contexts" sectionPage={sectionSelected}>
@@ -7274,39 +7320,20 @@ function ContextsSection({
         filter={<SectionFilterMenu section="contexts" placement="page" />}
       />
 
-      {!accountMcpSelected && shownGroups.length === 0 ? (
-        <Empty>No contexts match.</Empty>
-      ) : (
-        shownGroups.map((g) => (
-          <FoldSection
-            key={g.id}
-            title={g.label}
-            summary={`${g.items.length} context${g.items.length === 1 ? '' : 's'}`}
-            persist={false}
-          >
-            <CardList>
-              {g.items.map((c) => (
-                <ContextRow
-                  key={c.id}
-                  ctx={c}
-                  onOpen={() => rel.navigate('contexts', c.id)}
-                  onToggle={() => toggle(c.id)}
-                  onRemove={() => remove(c.id)}
-                />
-              ))}
-            </CardList>
-          </FoldSection>
-        ))
-      )}
-
-      {(!sectionSelected || accountMcpSelected) && (
-        <FoldSection
-          title={ACCOUNT_MCP_SECTION.label}
-          summary="MCP endpoint, toolset, and access tokens"
-        >
-          <McpAccessCard />
-        </FoldSection>
-      )}
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => (
+          <ContextRow
+            ctx={item.value}
+            onOpen={() => rel.navigate('contexts', item.value.id)}
+            onToggle={() => toggle(item.value.id)}
+            onRemove={() => remove(item.value.id)}
+          />
+        )}
+        renderEmptyGroup={(group) =>
+          group.key === ACCOUNT_MCP_SECTION.id ? <McpAccessCard /> : undefined
+        }
+      />
     </CompositeResourcePage>
   )
 }
@@ -9051,6 +9078,24 @@ function ModelsSection({
     )
   }
 
+  const projection = structuralCollectionProjection({
+    section: 'models',
+    fallbackLabel: 'Models',
+    empty: 'No providers in this view.',
+    itemNoun: 'provider',
+    groups: [{
+      key: providersGroup.id,
+      label: providersGroup.label,
+      keepEmpty: true,
+      empty: 'No providers in this view.',
+      items: collectionProjectionItems(
+        shown,
+        (provider) => provider.id,
+        (provider) => provider.label,
+      ),
+    }],
+  })
+
   return (
     <CompositeResourcePage section="models" sectionPage={providersSelected}>
       <PageHeader
@@ -9070,21 +9115,15 @@ function ModelsSection({
         section="models"
         filter={<SectionFilterMenu section="models" placement="page" />}
       />
-      <FoldSection title={providersGroup.label} summary={`${shown.length} provider${shown.length === 1 ? '' : 's'}`} persist={false}>
-        {shown.length === 0 ? (
-          <Empty>No providers in this view.</Empty>
-        ) : (
-          <CardList>
-            {shown.map((p) => (
-              <ProviderRow
-                key={p.id}
-                provider={p}
-                onOpen={() => rel.navigate('models', p.id)}
-              />
-            ))}
-          </CardList>
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => (
+          <ProviderRow
+            provider={item.value}
+            onOpen={() => rel.navigate('models', item.value.id)}
+          />
         )}
-      </FoldSection>
+      />
       {editing && (
         <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
       )}
@@ -12140,6 +12179,23 @@ function ScheduledSection({
       label: group.label || 'Routines',
       items: group.tasks,
     }))
+  const projection = partitionedCollectionProjection({
+    section: 'scheduled',
+    fallbackLabel: 'Routines',
+    empty: 'No routines match.',
+    itemNoun: 'routine',
+    presentation: 'foldable',
+    groups: groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      tone: group.key === 'paused' ? 'muted' : undefined,
+      items: collectionProjectionItems(
+        group.items,
+        (task) => task.id,
+        (task) => task.name,
+      ),
+    })),
+  })
 
   return (
     <CompositeResourcePage section="scheduled">
@@ -12162,33 +12218,19 @@ function ScheduledSection({
         }
       />
 
-      {groups.length === 0 ? (
-        <Empty>No routines match.</Empty>
-      ) : (
-        groups.map((g) => (
-          <FoldSection
-            key={g.key}
-            title={g.label}
-            summary={`${g.items.length} routine${g.items.length === 1 ? '' : 's'}`}
-            persist={false}
-            listPartition
-          >
-            <CardList className={g.key === 'paused' ? 'opacity-80' : ''}>
-              {g.items.map((t) => (
-                <ScheduledRow
-                  key={t.id}
-                  task={t}
-                  running={running.has(t.id)}
-                  onOpen={() => onOpenSchedule(t.id)}
-                  onToggle={() => toggleEnabled(t.id)}
-                  onRunNow={() => runNow(t.id)}
-                  onRemove={() => remove(t.id)}
-                />
-              ))}
-            </CardList>
-          </FoldSection>
-        ))
-      )}
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => (
+          <ScheduledRow
+            task={item.value}
+            running={running.has(item.value.id)}
+            onOpen={() => onOpenSchedule(item.value.id)}
+            onToggle={() => toggleEnabled(item.value.id)}
+            onRunNow={() => runNow(item.value.id)}
+            onRemove={() => remove(item.value.id)}
+          />
+        )}
+      />
     </CompositeResourcePage>
   )
 }
@@ -13588,18 +13630,27 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
 
 function DispatchView() {
   const runs = useDispatchRuns().data ?? []
+  const projection = flatCollectionProjection({
+    section: 'dispatch',
+    fallbackLabel: 'Dispatch',
+    empty: 'No dispatch runs yet.',
+    items: collectionProjectionItems(runs, (run) => run.id, (run) => run.title),
+  })
   return (
-    <CardList>
-      {runs.map((r) => (
-        <SynopsisRow
-          key={r.id}
-          prefix={<DispatchStatus status={r.status} />}
-          title={r.title}
-          description={r.detail}
-          meta={r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
-        />
-      ))}
-    </CardList>
+    <MainCollectionTemplate
+      projection={projection}
+      renderItem={(item) => {
+        const r = item.value
+        return (
+          <SynopsisRow
+            prefix={<DispatchStatus status={r.status} />}
+            title={r.title}
+            description={r.detail}
+            meta={r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
+          />
+        )
+      }}
+    />
   )
 }
 

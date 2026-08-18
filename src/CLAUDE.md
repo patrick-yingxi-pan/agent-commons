@@ -238,14 +238,17 @@ Every rail destination derives from the page templates in
 `CompositeResourcePage` specialize one private `ResourcePageFrame`, which owns
 the `max-w-3xl` reading column, container query, page inset and review stamps.
 This is React composition, not class inheritance or copied markup. Collection
-roots once reopened to `max-w-7xl` and used a parallel `FoldGroupHeader`, so
-Projects → Yours/Shared and Project → About/Discussion solved the same grouped-
-resource problem with two grammars. The root pages now use `FoldSection` too;
-their resource-specific row/card/timeline form stays inside it. Stable schema
-sections persist; data-defined bands pass `persist={false}` so a user-created
-project name never becomes an unbounded preference key. Both still register in
-the composite page's in-memory fold scope, so Fold all / Unfold all is complete
-without making a dynamic title durable chrome.
+roots go one step further: they declare a typed `CollectionProjection` in
+`src/lib/collectionProjection.ts`, and `MainCollectionTemplate` plus
+`RailCollectionTemplate` instantiate that same runtime description at reading
+and navigation densities. Group label, order, presentation (flat/static/
+foldable), semantic role (partition/section), emptiness and row identity are
+data; only resource-specific content is a slot. A consumer may not map
+groups into `FoldSection` or `RailListPartition` itself. Stable schema sections
+still persist on detail pages; the main collection template owns
+`persist={false}` for data-defined bands, so a user-created project name never
+becomes an unbounded preference key while every rendered fold still joins the
+page's in-memory Organize scope.
 
 The template split is ONTOLOGICAL, never a visual-style classification
 (UI-28). A composite contains canonical resources or declared sub-pages, so its
@@ -506,15 +509,16 @@ carry a standing door beside it:
 
 A partition of a list by a property of its items — kind, state, ownership — is
 not a canonical PLACE, but it is still a visible list entry when the main page
-names that partition. The page and rail must derive the same ordered groups from
-one pure function; a foldable page list has a same-label foldable rail list, and
-a static page list has a same-label static rail list. A flat root with only one
-unpartitioned list names neither. `CompositeResourcePage` carries the section
-identity; `ResourcePageSection` stamps structural entries and explicitly marks a
-`listPartition`, while `ResourcePageListPartition` covers the static form. The
-browser derives every rendered rail root before
-checking the inverse main → rail relation. This closes the old loophole where a
-hand-maintained forward test stayed green while a new page-only wrapper shipped.
+names that partition. The page and rail consume the SAME ordered
+`CollectionProjection`: a foldable group becomes a foldable list in both, a
+static group stays static in both, and a flat root names neither. Structural
+groups use the same model but retain their addressable section role. The main
+and rail templates own the page/rail primitives, disclosure, empty answers,
+density caps and DOM review stamps; consumers supply only projection data and a
+resource row. The browser compares the templates' rendered group keys as well
+as inverse labels/capabilities. This closes both old loopholes: a hand-maintained
+forward test and two independently assembled bodies that happened to share a
+grouping helper.
 The partition's FILTER STATE has one home
 (`src/lib/sectionFilter.ts` + `useSectionFilter`, per account through `uiPrefs`)
 and its CONTROL has two symmetric projections: the section row and the selected

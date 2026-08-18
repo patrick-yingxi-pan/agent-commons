@@ -26,36 +26,42 @@ test('every reading main page uses the one reading column', () => {
   assert.doesNotMatch(consumers, /max-w-3xl/, 'resource pages cannot redraw the template reading column')
 })
 
-test('collection roots derive from the composite template and only draw list sections when structure exists', () => {
-  const sectioned = [
+test('collection roots derive from the composite frame and the one runtime collection template', () => {
+  const collections = [
+    'SessionsSection',
     'ProjectsSection',
     'ArtifactsSection',
     'ContextsSection',
     'ModelsSection',
-    'AgentCommonsSection',
     'ScheduledSection',
-  ]
-  const flat = [
-    'CommonsSection',
     'DiscussionsSection',
     'MessagesSection',
     'NotificationsSection',
+    'DispatchView',
+  ]
+  const otherCompositePages = [
+    'CommonsSection',
+    'AgentCommonsSection',
     'AdminSection',
     'GenericSection',
   ]
-  for (const name of [...sectioned, ...flat]) {
+  for (const name of [...collections.filter((name) => name !== 'DispatchView'), ...otherCompositePages]) {
     assert.match(fn(name), /<CompositeResourcePage\b/, `${name} derives from the composite page template`)
   }
-  for (const name of sectioned) {
-    assert.match(fn(name), /<FoldSection\b/, `${name} projects its groups through FoldSection`)
-    assert.match(fn(name), /<CompositePageControls\b/, `${name} exposes the composite view-control toolbar`)
+  for (const name of collections) {
+    assert.match(fn(name), /<MainCollectionTemplate\b/, `${name} delegates its collection body to the shared template`)
+    assert.match(
+      fn(name),
+      /(?:flat|partitioned|structural)CollectionProjection\(/,
+      `${name} declares runtime data through the typed projection grammar`,
+    )
   }
-  for (const name of flat) {
-    assert.doesNotMatch(fn(name), /<FoldSection\b/, `${name} does not wrap its only list in a redundant fold`)
+  for (const name of ['ProjectsSection', 'ArtifactsSection', 'ContextsSection', 'ModelsSection', 'ScheduledSection']) {
+    assert.match(fn(name), /<CompositePageControls\b/, `${name} exposes the composite view-control toolbar`)
   }
   const consumers = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   const openings = [...consumers.matchAll(/<CompositeResourcePage\b([^>]*)>/g)]
-  assert.ok(openings.length >= sectioned.length + flat.length, 'the section-scope scan has subjects')
+  assert.ok(openings.length >= collections.length + otherCompositePages.length - 1, 'the section-scope scan has subjects')
   for (const opening of openings) {
     assert.match(opening[1], /\bsection=/, 'every composite page identifies its rail projection to the shared template')
   }
@@ -80,8 +86,14 @@ test('collection roots derive from the composite template and only draw list sec
     /data-main-list-partition=\{projection && listPartition/,
     'only an explicitly classified view partition claims mirrored list disclosure',
   )
-  assert.match(fn('ProjectsSection'), /<FoldSection[\s\S]*?listPartition/, 'Project relationship groups declare list projection')
-  assert.match(fn('ScheduledSection'), /<FoldSection[\s\S]*?listPartition/, 'Routine state groups declare list projection')
+  const collectionTemplate = templateFn('MainCollectionTemplate')
+  assert.match(collectionTemplate, /data-main-collection-template/, 'the main template exposes its projection for browser review')
+  assert.match(collectionTemplate, /group\.presentation === 'flat'/, 'flat collections cannot grow a redundant heading')
+  assert.match(collectionTemplate, /group\.presentation === 'static'/, 'static named lists use the one partition primitive')
+  assert.match(collectionTemplate, /<ResourcePageSection/, 'foldable groups use the one structural-section primitive')
+  assert.match(collectionTemplate, /persist=\{false\}/, 'runtime collection groups stay out of bounded preferences')
+  assert.match(collectionTemplate, /listPartition=\{group\.role === 'partition'\}/,
+    'the data role, not consumer markup, decides whether a group mirrors into the rail')
   assert.match(fn('GenericSection'), /projectSections=\{false\}/, 'Customize information regions never pose as rail structure')
   assert.doesNotMatch(
     consumers,
@@ -107,9 +119,12 @@ test('the atomic and composite templates are semantic specializations of one fra
 
 test('the Models index uses the Project synopsis-row vocabulary, not provider cards', () => {
   const models = fn('ModelsSection')
-  assert.match(models, /<CardList\b/, 'providers share the divider-list container used by Projects')
+  assert.match(models, /<MainCollectionTemplate\b/, 'providers share the collection container used by Projects')
   assert.match(models, /<ProviderRow\b/, 'each provider has a dedicated index synopsis')
   assert.doesNotMatch(models, /<ProviderDetailSections\b|<MetricTile\b|QUIET_CARD_CLASS/, 'the index never embeds provider detail or card chrome')
+
+  assert.match(templateFn('MainCollectionTemplate'), /<ResourcePageList\b/,
+    'the collection template owns the divider-list container for every index')
 
   const row = fn('ProviderRow')
   assert.match(row, /<SynopsisRow\b/, 'provider rows consume the Project synopsis funnel')
@@ -147,7 +162,7 @@ test('every instance rail branch resolves to an honest canonical main page', () 
   assert.match(models, /if \(providerId\)/, 'a provider id changes the rendered main surface')
   assert.match(models, /<ProviderDetailPage\b/, 'the provider leaf gets its own page')
   assert.doesNotMatch(models, /scrollIntoView|FOCUS_FLASH_CLASS|focusRef/, 'a provider URL never merely focuses its index card')
-  assert.match(models, /rel\.navigate\('models', p\.id\)/, 'the Models index and rail share the canonical provider door')
+  assert.match(models, /rel\.navigate\('models', item\.value\.id\)/, 'the Models index and rail share the canonical provider door')
 })
 
 test('a recognized detail URL that cannot resolve keeps one honest unavailable main page', () => {
@@ -241,8 +256,11 @@ test('dynamic collection bands reuse the frame without growing uiPrefs', () => {
   assert.match(section, /persist \? storedFolded : localFolded/, 'one component selects the honest state source')
   assert.match(section, /register\?\.register/, 'local and stored bands both join the in-memory page fold scope')
   assert.doesNotMatch(section, /persist \? register/, 'joining Fold all does not make a dynamic band persistent')
+  const collectionTemplate = templateFn('MainCollectionTemplate')
+  assert.match(collectionTemplate, /<ResourcePageSection[\s\S]*?persist=\{false\}/,
+    'the collection template keeps every runtime band out of bounded preferences')
   for (const name of ['ProjectsSection', 'ArtifactsSection', 'ContextsSection', 'ScheduledSection']) {
-    assert.match(fn(name), /persist=\{false\}/, `${name}'s data-defined bands stay out of bounded preferences`)
+    assert.match(fn(name), /<MainCollectionTemplate\b/, `${name}'s data-defined bands use the non-persistent template path`)
   }
 })
 

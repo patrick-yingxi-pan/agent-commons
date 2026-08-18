@@ -35,22 +35,19 @@ import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
 import { SECTION_META, SECTION_ORDER, SECTION_SUBVIEWS } from '../lib/sections'
-import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
+import { SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
 import {
-  NoRowsRow,
   AgentTreeChildren,
   OwnerProfileChild,
   RailRootScope,
   RailEntryLead,
-  RailListPartition,
+  RailCollectionTemplate,
   RailTreeBranch,
   SectionInstanceChildren,
-  ShowAllRow,
   SubNavRow,
   railNodeKey,
   useRailRootAncestorKeys,
-  useRailRootPathKeys,
 } from './SectionTreeChildren'
 import { SectionFilterMenu } from './SectionFilterMenu'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
@@ -102,6 +99,10 @@ import {
   type RailViewRoot,
 } from '../lib/railSplit'
 import type { RailSelection } from '../controller/useRailSplit'
+import {
+  collectionProjectionItems,
+  partitionedCollectionProjection,
+} from '../lib/collectionProjection'
 
 
 /** Does this section's row expand? Every LIST kind counts (UI-19) — a declared
@@ -334,7 +335,7 @@ export function Sidebar({
   const projectIds = useMemo(() => new Set(projects.map((p) => p.id)), [projects])
   const filter = clampSessionFilter(rawFilter, projectIds)
   const updateFilter = (next: SessionFilter) => setFilter(next)
-  const { groups, total } = useMemo(() => {
+  const { groups } = useMemo(() => {
     return filterSessions(sessions, filter, {
       projectIdOf: projectIdForSession,
       projectName,
@@ -350,7 +351,7 @@ export function Sidebar({
   const updateRoutineFilter = (next: RoutineFilter) => {
     setRoutineFilter(next)
   }
-  const { groups: routineGroups, total: routineTotal } = useMemo(() => {
+  const { groups: routineGroups } = useMemo(() => {
     return filterRoutines(routines, routineFilter, {
       projectIdOfTask: scheduleProjectId,
       projectName,
@@ -628,7 +629,6 @@ export function Sidebar({
                   {id === 'sessions' ? (
                     <SessionTreeChildren
                       groups={groups}
-                      total={total}
                       renderSession={(session) => (
                         <SessionRow
                           key={session.id}
@@ -658,7 +658,6 @@ export function Sidebar({
                   ) : id === 'scheduled' ? (
                     <ScheduledTreeChildren
                       groups={routineGroups}
-                      total={routineTotal}
                       foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
                       renderRoutine={(t) => (
                         <RoutineRow
@@ -1099,51 +1098,32 @@ function SessionRow({
  * partitions selected by its filter, not structural navigation nodes. */
 function SessionTreeChildren({
   groups,
-  total,
   renderSession,
 }: {
   groups: SessionGroup[]
-  total: number
   renderSession: (session: Session) => ReactNode
 }) {
-  const [showAll, setShowAll] = useState(false)
-  const rootPath = useRailRootPathKeys()
-  if (total === 0) return <NoRowsRow>No sessions match these filters.</NoRowsRow>
-  let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
-  const cappedGroups = groups
-    .map((group) => {
-      const sessions = group.sessions.slice(0, Math.max(0, remaining))
-      remaining -= sessions.length
-      return { ...group, sessions }
-    })
-    .filter((group) => group.sessions.length > 0)
-  const visibleGroups = groups
-    .map((group) => {
-      const capped = cappedGroups.find((candidate) => candidate.key === group.key)?.sessions ?? []
-      const required = group.sessions.filter(
-        (session) =>
-          rootPath.has(railNodeKey('section', 'sessions', 'item', session.id)) &&
-          !capped.some((visible) => visible.id === session.id),
-      )
-      return { ...group, sessions: [...capped, ...required] }
-    })
-    .filter((group) => group.sessions.length > 0)
-  const hidden = Math.max(0, total - visibleGroups.reduce((count, group) => count + group.sessions.length, 0))
+  const projection = partitionedCollectionProjection({
+    section: 'sessions',
+    fallbackLabel: 'Sessions',
+    empty: 'No sessions match these filters.',
+    itemNoun: 'session',
+    presentation: 'static',
+    groups: groups.map((group) => ({
+      key: group.key,
+      label: group.label,
+      items: collectionProjectionItems(
+        group.sessions,
+        (session) => session.id,
+        (session) => session.title,
+      ),
+    })),
+  })
   return (
-    <>
-      {visibleGroups.map((group) => (
-        <RailListPartition key={group.key} label={group.label} fallbackLabel="Sessions" groupKey={group.key}>
-          {group.sessions.map(renderSession)}
-        </RailListPartition>
-      ))}
-      {(showAll || hidden > 0) && (
-        <ShowAllRow
-          hidden={hidden}
-          open={showAll}
-          onToggle={() => setShowAll((value) => !value)}
-        />
-      )}
-    </>
+    <RailCollectionTemplate
+      projection={projection}
+      renderItem={(item) => renderSession(item.value)}
+    />
   )
 }
 
@@ -1151,63 +1131,36 @@ function SessionTreeChildren({
  * even when the chosen grouping divides the list into several visual bands. */
 function ScheduledTreeChildren({
   groups,
-  total,
   renderRoutine,
   foldSignal,
 }: {
   groups: RoutineGroup[]
-  total: number
   renderRoutine: (task: ScheduledTask) => ReactNode
   foldSignal?: RailFoldSignal | null
 }) {
-  const [showAll, setShowAll] = useState(false)
-  const rootPath = useRailRootPathKeys()
-  if (total === 0) return <NoRowsRow>No routines match these filters.</NoRowsRow>
-  let remaining = showAll ? Number.POSITIVE_INFINITY : RAIL_INSTANCE_CAP
-  const cappedGroups = groups
-    .map((group) => {
-      const tasks = group.tasks.slice(0, Math.max(0, remaining))
-      remaining -= tasks.length
-      return { ...group, tasks }
-    })
-    .filter((group) => group.tasks.length > 0)
-  const visibleGroups = groups
-    .map((group) => {
-      const capped = cappedGroups.find((candidate) => candidate.key === group.key)?.tasks ?? []
-      const required = group.tasks.filter(
-        (task) =>
-          rootPath.has(railNodeKey('section', 'scheduled', 'item', task.id)) &&
-          !capped.some((visible) => visible.id === task.id),
-      )
-      return { ...group, tasks: [...capped, ...required] }
-    })
-    .filter((group) => group.tasks.length > 0)
-  const hidden = Math.max(0, total - visibleGroups.reduce((count, group) => count + group.tasks.length, 0))
+  const projection = partitionedCollectionProjection({
+    section: 'scheduled',
+    fallbackLabel: 'Routines',
+    empty: 'No routines match these filters.',
+    itemNoun: 'routine',
+    presentation: 'foldable',
+    groups: groups.map((group) => ({
+      key: group.key,
+      label: group.label || 'Routines',
+      tone: group.key === 'paused' ? 'muted' : undefined,
+      items: collectionProjectionItems(
+        group.tasks,
+        (task) => task.id,
+        (task) => task.name,
+      ),
+    })),
+  })
   return (
-    <>
-      {visibleGroups.map((group) => (
-        <RailListPartition
-          key={group.key}
-          label={group.label || 'Routines'}
-          fallbackLabel="Routines"
-          groupKey={group.key}
-          routineState={group.key}
-          disclosure={{
-            nodeKey: railNodeKey('section', 'scheduled', 'partition', group.key),
-            foldSignal,
-          }}
-        >
-          {group.tasks.map(renderRoutine)}
-        </RailListPartition>
-      ))}
-      {(showAll || hidden > 0) && (
-        <ShowAllRow
-          hidden={hidden}
-          open={showAll}
-          onToggle={() => setShowAll((value) => !value)}
-        />
-      )}
-    </>
+    <RailCollectionTemplate
+      projection={projection}
+      foldSignal={foldSignal}
+      renderItem={(item) => renderRoutine(item.value)}
+    />
   )
 }
 

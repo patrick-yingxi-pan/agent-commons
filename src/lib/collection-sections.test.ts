@@ -21,9 +21,13 @@ test('collection grouping is one pure projection shared by rail and page', () =>
     assert.ok(page.includes(`${fn}(`), `page calls ${fn}`)
   }
   assert.match(rail, /<CollectionSectionRows/)
-  assert.match(rail, /data-collection-section=\{group\.id\}/)
-  assert.match(rail, /onOpenDetail\(section, \{ collectionSectionId: group\.id \}\)/)
-  assert.match(rail, /data-collection-section-resources=\{group\.id\}/)
+  assert.match(rail, /structuralCollectionProjection\(/, 'rail groups enter the shared runtime projection')
+  assert.match(page, /structuralCollectionProjection\(/, 'page groups enter the shared runtime projection')
+  assert.match(rail, /<RailCollectionTemplate/, 'the rail projection owns structural group rendering')
+  assert.match(page, /<MainCollectionTemplate/, 'the page projection owns structural group rendering')
+  assert.match(rail, /data-collection-section=\{group\.key\}/)
+  assert.match(rail, /onOpenDetail\(section, \{ collectionSectionId: group\.key \}\)/)
+  assert.match(rail, /data-collection-section-resources=\{group\.key\}/)
 })
 
 test('Artifacts groups by live project membership with an honest Unfiled tail', () => {

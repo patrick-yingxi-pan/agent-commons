@@ -97,8 +97,16 @@ test('every leaf-like rail row keeps the lead column and mirrored partitions rem
   const scheduledStart = sidebar.indexOf('function ScheduledTreeChildren')
   const scheduledEnd = sidebar.indexOf('\nfunction ', scheduledStart + 1)
   const scheduled = sidebar.slice(scheduledStart, scheduledEnd)
-  assert.match(scheduled, /label=\{group\.label \|\| 'Routines'\}/, 'the explicit flat grouping keeps the same named list the page renders')
-  assert.match(scheduled, /disclosure=\{\{[\s\S]*nodeKey: railNodeKey\('section', 'scheduled', 'partition', group\.key\)[\s\S]*foldSignal/, 'routine lists opt into disclosure and the focused bulk-fold scope')
+  assert.match(scheduled, /partitionedCollectionProjection\(/, 'routine states are declared as lists in the shared projection model')
+  assert.match(scheduled, /label: group\.label \|\| 'Routines'/, 'the projection keeps the same named list the page renders')
+  assert.match(scheduled, /presentation: 'foldable'/, 'routine state lists declare disclosure as data')
+  assert.match(scheduled, /<RailCollectionTemplate[\s\S]*?foldSignal=\{foldSignal\}/,
+    'routine lists delegate disclosure and focused bulk folding to the shared rail template')
+  const railTemplateStart = children.indexOf('export function RailCollectionTemplate')
+  const railTemplateEnd = children.indexOf('\nexport function ', railTemplateStart + 1)
+  const railTemplate = children.slice(railTemplateStart, railTemplateEnd)
+  assert.match(railTemplate, /group\.presentation === 'foldable'/,
+    'the common template derives partition disclosure from the runtime projection')
   assert.doesNotMatch(sidebar, /function GroupHeader/, 'state labels do not use a one-off tag-like renderer')
 })
 

@@ -1,4 +1,5 @@
 import {
+  Fragment,
   createContext,
   forwardRef,
   useCallback,
@@ -23,6 +24,12 @@ import { useSectionFold } from '../lib/useSectionFold'
 import type { SectionId } from '../types'
 import { useFocusedCompositeFold, usePublishFocusedCompositeFold } from '../lib/useCompositeFeatures'
 import type { NavLocation } from '../lib/nav'
+import {
+  collectionProjectionCount,
+  type CollectionProjection,
+  type CollectionProjectionGroup,
+  type CollectionProjectionItem,
+} from '../lib/collectionProjection'
 
 /** The two main-page templates are semantic specializations of this one frame.
  *
@@ -317,6 +324,7 @@ export function CompositePageControls({
  */
 export function ResourcePageSection({
   title,
+  projectionKey,
   actions,
   defaultFolded,
   persist = true,
@@ -325,6 +333,7 @@ export function ResourcePageSection({
   children,
 }: {
   title: string
+  projectionKey?: string
   actions?: ReactNode
   defaultFolded?: boolean
   persist?: boolean
@@ -353,6 +362,7 @@ export function ResourcePageSection({
     <section
       data-resource-page-section
       data-resource-section={title}
+      data-collection-group-key={projectionKey}
       data-main-projection-entry={projection ? '' : undefined}
       data-main-list-partition={projection && listPartition ? '' : undefined}
       data-projection-entry-label={projection ? title : undefined}
@@ -396,9 +406,11 @@ export function ResourcePageSection({
  * the browser one complete enumeration handle for main-page list constructs. */
 export function ResourcePageListPartition({
   title,
+  projectionKey,
   children,
 }: {
   title: string
+  projectionKey?: string
   children: ReactNode
 }) {
   const headingId = useId()
@@ -409,6 +421,7 @@ export function ResourcePageListPartition({
       data-main-projection-entry={projection ? '' : undefined}
       data-main-list-partition={projection ? '' : undefined}
       data-projection-entry-label={projection ? title : undefined}
+      data-collection-group-key={projectionKey}
       aria-labelledby={headingId}
       className="mt-7 first:mt-0"
     >
@@ -424,8 +437,97 @@ export function ResourcePageListPartition({
   )
 }
 
+/** The one collection-body template for a main page. The caller provides the
+ * runtime projection plus resource-specific row content (and, rarely, content
+ * for a standing resource-free group); this template owns list containment,
+ * named-group presentation, disclosure, descriptions, empty answers, review
+ * stamps, and muted posture. */
+export function MainCollectionTemplate<T>({
+  projection,
+  renderItem,
+  renderEmptyGroup,
+}: {
+  projection: CollectionProjection<T>
+  renderItem: (
+    item: CollectionProjectionItem<T>,
+    group: CollectionProjectionGroup<T>,
+  ) => ReactNode
+  renderEmptyGroup?: (group: CollectionProjectionGroup<T>) => ReactNode
+}) {
+  const count = collectionProjectionCount(projection)
+  const preservesEmptyGroup = projection.groups.some((group) => group.keepEmpty === true)
+  if (count === 0 && !preservesEmptyGroup) {
+    return (
+      <div data-main-collection-template data-collection-projection={projection.section}>
+        <ResourcePageEmpty>{projection.empty}</ResourcePageEmpty>
+      </div>
+    )
+  }
+
+  const body = (group: CollectionProjectionGroup<T>) => (
+    <>
+      {group.description && (
+        <p className="mb-3 text-[12px] text-ink-faint">{group.description}</p>
+      )}
+      {group.items.length === 0 ? (
+        renderEmptyGroup?.(group) ?? (
+          <ResourcePageSectionEmpty>{group.empty ?? projection.empty}</ResourcePageSectionEmpty>
+        )
+      ) : (
+        <ResourcePageList className={group.tone === 'muted' ? 'opacity-80' : ''}>
+          {group.items.map((item) => (
+            <Fragment key={item.key}>{renderItem(item, group)}</Fragment>
+          ))}
+        </ResourcePageList>
+      )}
+    </>
+  )
+
+  return (
+    <div data-main-collection-template data-collection-projection={projection.section}>
+      {projection.groups.map((group) => {
+        if (group.presentation === 'flat') {
+          return (
+            <div key={group.key} data-collection-group-key={group.key}>
+              {body(group)}
+            </div>
+          )
+        }
+        if (group.presentation === 'static') {
+          return (
+            <ResourcePageListPartition
+              key={group.key}
+              title={group.label}
+              projectionKey={group.key}
+            >
+              {body(group)}
+            </ResourcePageListPartition>
+          )
+        }
+        return (
+          <ResourcePageSection
+            key={group.key}
+            title={group.label}
+            projectionKey={group.key}
+            summary={group.summary}
+            persist={false}
+            listPartition={group.role === 'partition'}
+          >
+            {body(group)}
+          </ResourcePageSection>
+        )
+      })}
+    </div>
+  )
+}
+
 export function ResourcePageEmpty({ children }: { children: ReactNode }) {
   return <div className="py-16 text-center text-[13px] text-ink-faint">{children}</div>
+}
+
+/** A missing row inside a named section, aligned where that row would begin. */
+export function ResourcePageSectionEmpty({ children }: { children: ReactNode }) {
+  return <div className="py-1.5 text-[13px] text-ink-faint">{children}</div>
 }
 
 /** The one main-column list container, exported with the page grammar so a

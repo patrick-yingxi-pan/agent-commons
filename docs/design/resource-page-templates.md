@@ -88,6 +88,39 @@ Filter options remain properties of the view and therefore never become tree
 children; structural section nodes remain places and are never flattened by a
 filter.
 
+### One collection model, two density templates
+
+A collection body is not assembled independently inside `SectionView` and the
+sidebar. It is declared as a typed `CollectionProjection`: a section identity,
+ordered runtime groups, ordered item identities, empty answers, and a small
+discriminated grammar:
+
+- `flat + partition` — one unnamed list in both projections;
+- `static + partition` — one named, non-folding list in both projections;
+- `foldable + partition` — a named view list (state/ownership/time) that folds
+  in both projections without becoming a canonical place;
+- `foldable + section` — a structural, addressable intermediate place in both
+  projections.
+
+`MainCollectionTemplate` renders that description through the shared page list
+and section primitives. `RailCollectionTemplate` renders it through the shared
+lead-column tree and list-partition primitives, applying only a density cap; it
+preserves every named group and any addressed/rooted row beyond the cap. The
+resource-specific row is the ordinary render slot. A standing structural group
+with no rows may supply content through the explicit empty-group payload slot
+(the account MCP access panel is the one current example), while the template
+still owns its heading, disclosure and spacing. Consumers therefore cannot make
+“Active” a foldable page list but a static rail tag, or add a page-only
+“Threads” wrapper: those combinations are no longer expressible at the call
+site.
+
+This is still projection symmetry rather than DOM identity. The page may show
+all rows while the rail initially caps them, and row payloads adapt to available
+width. The classification, ordering, disclosure capability, empty meaning and
+canonical identity are shared data. Browser stamps compare the rendered group
+keys from both templates; source locks enumerate every collection-root consumer
+and fail if it redraws the body locally.
+
 Sessions demonstrates the distinction between a composite collection and an
 atomic child. `/sessions` is a `CompositeResourcePage`: the complete filtered
 collection, its New session capability, and its synopsis doors. Each `/s/:id`
@@ -202,7 +235,9 @@ in a new order without revealing a new resource truth.
   `ConversationPane`.
 - Shared vocabulary: `ResourcePageHeader`, `ResourcePageSection`,
   `ResourcePageList`, `ResourcePageSynopsisRow`, `ResourcePageActions`,
-  `ResourcePageEmpty`, `CompositePageControls`, and `SectionFilterMenu`.
+  `ResourcePageEmpty`, `MainCollectionTemplate`, `RailCollectionTemplate`,
+  `CompositePageControls`, and `SectionFilterMenu`; collection data is declared
+  through `CollectionProjection`.
 
 The source lock in `src/lib/page-grammar.test.ts` enumerates the current page
 families and fails if one falls back to a bespoke frame. The ontology lock in
