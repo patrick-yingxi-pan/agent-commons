@@ -125,22 +125,39 @@ export function RailTreeBranch({ className = '', ...props }: ComponentProps<'div
   return <div {...props} data-rail-node-children className={`${SIDEBAR_BRANCH} ${className}`} />
 }
 
-/** The first column of every non-root rail row. Branches put their caret in
- * this seat; leaves deliberately preserve the empty seat so their label cannot
- * drift left of the structural row that contains them. */
+/** The first column of every non-root rail row. Branches and foldable list
+ * headings put their caret in this seat; leaves deliberately preserve the empty
+ * seat so their label cannot drift left of the structural row that contains them. */
 export function RailEntryLead({
   label,
   expanded,
   onToggle,
-}: {
+  disclosureExpanded,
+}: ({
   label: string
   expanded: boolean
   onToggle: () => void
+  disclosureExpanded?: undefined
 } | {
   label?: undefined
   expanded?: undefined
   onToggle?: undefined
-}) {
+  /** A parent button owns the disclosure action; this seat renders only its
+   *  visual state so the row stays one tab stop. */
+  disclosureExpanded: boolean
+} | {
+  label?: undefined
+  expanded?: undefined
+  onToggle?: undefined
+  disclosureExpanded?: undefined
+})) {
+  if (disclosureExpanded !== undefined) {
+    return (
+      <span data-rail-entry-lead className={SIDEBAR_ENTRY_LEAD} aria-hidden>
+        {disclosureExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+      </span>
+    )
+  }
   if (!onToggle) return <span data-rail-entry-lead className={SIDEBAR_ENTRY_LEAD} aria-hidden />
   return (
     <button

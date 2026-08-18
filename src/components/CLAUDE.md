@@ -57,8 +57,10 @@ what the document or the sibling component claims.
   sit to the right of its parent. All same-depth rows—including groups, items,
   views, state headings, tail actions, and empty copy—source one nested anatomy;
   semantic role may not alter inset, size, or resting weight. A mutable state
-  heading's list takes one shared `RailTreeBranch` step, so the guide communicates
-  containment without tag chrome or a canonical disclosure node.
+  heading is an accessible disclosure row when the corresponding main-page list
+  folds. Its list takes one shared `RailTreeBranch` step, so the caret and guide
+  communicate posture and containment without tag chrome or a canonical
+  navigation node.
 - **Composite capabilities are mirrored, not duplicated.** The one
   `lib/compositeFeatures.ts` catalog declares each root's standing primary
   action, local search and bulk disclosure; applicable Filter & sort remains

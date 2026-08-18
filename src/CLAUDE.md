@@ -519,10 +519,12 @@ status / project / cadence filter remains a dedicated funnel (`filterRoutines` +
 `useRoutineFilter`), but the branch and the main page consume the SAME live,
 per-account choice. Status is mutable metadata, so the neutral default is a set
 of labeled state LISTS; Group by None / Project remain explicit alternatives.
-In the rail each plain state heading owns a visibly nested semantic list. The
-list reuses the shared branch inset and guide for containment, but the state is
-not a tag, disclosure control, navigable tree node, or canonical URL. There is
-no second Routines pane. A
+In the rail each state heading owns a visibly nested semantic list and projects
+the main page's same foldable-list capability through one accessible disclosure
+button. Its caret occupies the shared lead seat and the focused Organize pane
+scope folds/unfolds it with the other descendants. The state is still not a tag,
+navigable tree node, or canonical URL: disclosure changes list posture, not
+ontology. There is no second Routines pane. A
 section lands on its **default** view (rail sub-view `null`; each hub body maps
 null to its own default). Locked by `src/lib/section-subviews.test.ts` (inline tree
 not a push; the registries disjoint; the shared-funnel pairing scanned both ways;
@@ -598,7 +600,8 @@ heading can never jump left merely because it has nothing to disclose.
 Every row at the same physical depth wears the same anatomy, type scale, and
 resting weight across parent branches: `group`, `item`, and `view` remain
 semantic data roles, not styling permissions. Carets, counts, branch guides,
-and selection communicate meaning; homogeneous leaves show their name rather
+and selection communicate meaning; a partition caret means its corresponding
+main-page list can fold, while homogeneous leaves show their name rather
 than a repeated kind word. A neutral left marker means **current location**; the softer
 `focus-within` wash means keyboard focus only, so tabbing never impersonates
 navigation. The rail toolbar is two spatial groups — global rail acts, then the

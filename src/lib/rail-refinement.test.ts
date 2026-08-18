@@ -65,7 +65,7 @@ test('resource leaves spend width on identity, not a repeated kind label', () =>
   assert.match(row, /<RailEntryLead\s*\/>/, 'an atomic leaf keeps the shared lead column')
 })
 
-test('every leaf-like rail row keeps the lead column and partitions remain nested lists', () => {
+test('every leaf-like rail row keeps the lead column and mirrored partitions remain disclosure lists', () => {
   assert.match(SIDEBAR_ENTRY_LEAD, /\bw-5\b/, 'one fixed lead width owns horizontal alignment')
   for (const name of ['ShowAllRow', 'NoRowsRow'] as const) {
     const start = children.indexOf(`export function ${name}`)
@@ -82,15 +82,23 @@ test('every leaf-like rail row keeps the lead column and partitions remain neste
   const partitionEnd = sidebar.indexOf('\nfunction ', partitionStart + 1)
   assert.ok(partitionStart >= 0 && partitionEnd > partitionStart, 'RailListPartition has an enumerable source body')
   const partition = sidebar.slice(partitionStart, partitionEnd)
-  assert.match(partition, /<h3[\s\S]*data-rail-list-heading/, 'a partition is introduced by an ordinary heading')
+  assert.match(partition, /<h3[\s\S]*data-rail-list-heading/, 'a partition is introduced by a real heading')
   assert.match(partition, /data-rail-node-row[\s\S]*data-rail-entry-kind="group"/, 'a list heading declares the shared row role')
   assert.match(partition, /SIDEBAR_NESTED_ENTRY_LAYOUT/, 'a list heading cannot invent its own same-depth style')
-  assert.match(partition, /<RailEntryLead\s*\/>/, 'the heading keeps the shared lead column')
+  assert.match(partition, /data-rail-list-disclosure/, 'a mirrored foldable list is an actual rail disclosure')
+  assert.match(partition, /aria-expanded=\{expanded\}/, 'the disclosure announces its state')
+  assert.match(partition, /aria-controls=\{listId\}/, 'the disclosure names the list it controls')
+  assert.match(partition, /<RailEntryLead disclosureExpanded=\{expanded\}\s*\/>/, 'the one button carries its caret in the shared lead column')
   assert.match(
     partition,
-    /<RailTreeBranch\s+role="list"\s+aria-labelledby=\{headingId\}/,
+    /<RailTreeBranch id=\{listId\} role="list" aria-labelledby=\{headingId\}/,
     'the visible heading owns a semantically named, visibly nested resource list',
   )
+  const scheduledStart = sidebar.indexOf('function ScheduledTreeChildren')
+  const scheduledEnd = sidebar.indexOf('\nfunction ', scheduledStart + 1)
+  const scheduled = sidebar.slice(scheduledStart, scheduledEnd)
+  assert.match(scheduled, /label=\{group\.label \|\| 'Routines'\}/, 'the explicit flat grouping keeps the same named list the page renders')
+  assert.match(scheduled, /disclosure=\{\{[\s\S]*nodeKey: railNodeKey\('section', 'scheduled', 'partition', group\.key\)[\s\S]*foldSignal/, 'routine lists opt into disclosure and the focused bulk-fold scope')
   assert.doesNotMatch(sidebar, /function GroupHeader/, 'state labels do not use a one-off tag-like renderer')
 })
 

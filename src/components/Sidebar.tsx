@@ -660,6 +660,7 @@ export function Sidebar({
                     <ScheduledTreeChildren
                       groups={routineGroups}
                       total={routineTotal}
+                      foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
                       renderRoutine={(t) => (
                         <RoutineRow
                           key={t.id}
@@ -1096,34 +1097,68 @@ function SessionRow({
 }
 
 /** One ordinary labeled list. A view partition is not a navigable tree node or
- * a status tag: its plain heading owns a visibly nested semantic list, reusing
- * the rail's one branch guide without gaining disclosure or selection chrome. */
+ * a status tag. When its main-page counterpart is foldable, the rail projects
+ * that same list capability through one accessible disclosure row; density
+ * changes the row anatomy, never what the list can do. */
 function RailListPartition({
   label,
   fallbackLabel,
   routineState,
+  disclosure,
   children,
 }: {
   label: string
   fallbackLabel: string
   routineState?: string
+  disclosure?: {
+    nodeKey: string
+    foldSignal?: RailFoldSignal | null
+  }
   children: ReactNode
 }) {
   const headingId = useId()
+  const listId = useId()
+  const [expanded, setExpanded] = useState(true)
+  useEffect(() => {
+    if (disclosure?.foldSignal && railFoldAffects(disclosure.foldSignal, disclosure.nodeKey)) {
+      setExpanded(disclosure.foldSignal.expanded)
+    }
+  }, [disclosure?.foldSignal, disclosure?.nodeKey])
   if (!label) return <div role="list" aria-label={fallbackLabel}>{children}</div>
   return (
     <section data-rail-list-partition data-routine-state-group={routineState} aria-labelledby={headingId}>
-      <h3
-        id={headingId}
-        data-rail-node-row
-        data-rail-entry-kind="group"
-        data-rail-list-heading
-        className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-soft`}
-      >
-        <RailEntryLead />
-        <span data-rail-entry>{label}</span>
-      </h3>
-      <RailTreeBranch role="list" aria-labelledby={headingId}>{children}</RailTreeBranch>
+      {disclosure ? (
+        <h3 id={headingId}>
+          <button
+            type="button"
+            data-rail-node-row
+            data-rail-entry-kind="group"
+            data-rail-list-heading
+            data-rail-list-disclosure
+            aria-expanded={expanded}
+            aria-controls={listId}
+            onClick={() => setExpanded((value) => !value)}
+            className={sidebarEntryClass('group', false)}
+          >
+            <RailEntryLead disclosureExpanded={expanded} />
+            <span data-rail-entry className="min-w-0 flex-1 truncate text-left">{label}</span>
+          </button>
+        </h3>
+      ) : (
+        <h3
+          id={headingId}
+          data-rail-node-row
+          data-rail-entry-kind="group"
+          data-rail-list-heading
+          className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-soft`}
+        >
+          <RailEntryLead />
+          <span data-rail-entry>{label}</span>
+        </h3>
+      )}
+      {(!disclosure || expanded) && (
+        <RailTreeBranch id={listId} role="list" aria-labelledby={headingId}>{children}</RailTreeBranch>
+      )}
     </section>
   )
 }
@@ -1186,10 +1221,12 @@ function ScheduledTreeChildren({
   groups,
   total,
   renderRoutine,
+  foldSignal,
 }: {
   groups: RoutineGroup[]
   total: number
   renderRoutine: (task: ScheduledTask) => ReactNode
+  foldSignal?: RailFoldSignal | null
 }) {
   const [showAll, setShowAll] = useState(false)
   const rootPath = useRailRootPathKeys()
@@ -1219,9 +1256,13 @@ function ScheduledTreeChildren({
       {visibleGroups.map((group) => (
         <RailListPartition
           key={group.key}
-          label={group.label}
+          label={group.label || 'Routines'}
           fallbackLabel="Routines"
           routineState={group.key}
+          disclosure={{
+            nodeKey: railNodeKey('section', 'scheduled', 'partition', group.key),
+            foldSignal,
+          }}
         >
           {group.tasks.map(renderRoutine)}
         </RailListPartition>

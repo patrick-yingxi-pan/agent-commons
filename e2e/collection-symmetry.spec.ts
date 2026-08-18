@@ -371,14 +371,46 @@ test('composite page controls mirror rail filters and fold dynamic bands', async
   await organizePane(page, 'Unfold all')
   for (const header of await headers.all()) await expect(header).toHaveAttribute('aria-expanded', 'true')
 
-  // Routine health is a named list partition in BOTH projections. The labels
-  // replace the ambiguous row/icon dots instead of layering on another signal.
+  // Routine health is a named disclosure list in BOTH projections. A semantic
+  // role alone is not symmetry: each projection must expose the same foldable
+  // list capability, with the rail adapting it to the fixed lead-column grid.
   await page.goto('/scheduled')
   await expect(main.getByRole('heading', { name: 'Routines', exact: true })).toBeVisible({ timeout: ms(20_000) })
   const expandRoutines = rail.getByRole('button', { name: 'Expand Routines', exact: true })
   if (await expandRoutines.isVisible()) await expandRoutines.click()
-  await expect(rail.locator('[data-routine-state-group="active"] [data-rail-list-heading]')).toHaveText('Active')
-  await expect(rail.getByRole('list', { name: 'Active', exact: true })).toBeVisible()
+  // The clean remote-store seed has Active + Needs attention, while the owner's
+  // flagship world also has a Paused row. Put the E2E world in the annotated
+  // state idempotently so the interaction lock never depends on prior runs.
+  const standupSwitch = main.getByRole('switch', { name: 'Standup digest from Linear enabled' })
+  if ((await standupSwitch.getAttribute('aria-checked')) === 'true') await standupSwitch.click()
+  await expect(standupSwitch).toHaveAttribute('aria-checked', 'false')
+  await expect(rail.locator('[data-routine-state-group="paused"]')).toBeVisible()
+  for (const [state, label] of [['active', 'Active'], ['paused', 'Paused']] as const) {
+    const railPartition = rail.locator(`[data-routine-state-group="${state}"]`)
+    const railDisclosure = railPartition.locator('[data-rail-list-disclosure]')
+    const pageSection = main.locator(`[data-resource-section="${label}"]`)
+    const pageDisclosure = pageSection.locator(':scope > div > button[aria-expanded]')
+
+    await expect(railDisclosure).toHaveAccessibleName(label)
+    await expect(railDisclosure).toHaveAttribute('aria-expanded', 'true')
+    await expect(railPartition.getByRole('list', { name: label, exact: true })).toBeVisible()
+    await railDisclosure.click()
+    await expect(railDisclosure).toHaveAttribute('aria-expanded', 'false')
+    await expect(railPartition.getByRole('list', { name: label, exact: true })).toHaveCount(0)
+    await railDisclosure.click()
+    await expect(railDisclosure).toHaveAttribute('aria-expanded', 'true')
+
+    await expect(pageDisclosure).toHaveAttribute('aria-expanded', 'true')
+    await pageDisclosure.click()
+    await expect(pageDisclosure).toHaveAttribute('aria-expanded', 'false')
+    await pageDisclosure.click()
+    await expect(pageDisclosure).toHaveAttribute('aria-expanded', 'true')
+  }
+  await rail.getByRole('button', { name: 'Routines', exact: true }).click()
+  await organizePane(page, 'Fold all')
+  await expect(rail.locator('[data-routine-state-group] [data-rail-list-disclosure][aria-expanded="true"]')).toHaveCount(0)
+  await organizePane(page, 'Unfold all')
+  await expect(rail.locator('[data-routine-state-group] [data-rail-list-disclosure][aria-expanded="false"]')).toHaveCount(0)
   await expect(rail.locator('[data-routine-row] .rounded-full')).toHaveCount(0)
   await expect(main.locator('[data-resource-page-section]').filter({ hasText: /^Active/ })).toBeVisible()
   await expect(main.locator('[data-routine-lead]').first()).toBeVisible()

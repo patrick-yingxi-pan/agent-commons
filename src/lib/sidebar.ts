@@ -88,7 +88,7 @@ export type SidebarEntryKind = 'root' | 'group' | 'item' | 'view'
 const SIDEBAR_ROOT_ENTRY_LAYOUT =
   'group flex min-h-8 w-full items-center rounded-lg pr-2 text-[13px] transition'
 
-/** One visual anatomy for every row below a root, including static list
+/** One visual anatomy for every row below a root, including list
  * headings, tail actions, and empty copy. Branch nesting alone supplies depth. */
 export const SIDEBAR_NESTED_ENTRY_LAYOUT =
   'flex min-h-8 w-full items-center gap-2 rounded-lg px-2 text-[13px]'
@@ -111,8 +111,9 @@ export function sidebarEntryClass(kind: SidebarEntryKind, active: boolean): stri
 export const SIDEBAR_BRANCH = 'ml-2.5 border-l border-line pl-1.5'
 
 /** Every non-root rail row begins with one fixed lead column. A branch may put
- * its disclosure caret here; an atomic leaf, list heading, empty state, or tail
- * row keeps the column empty. Reserving the seat is what makes each additional
+ * its disclosure caret here; a foldable list heading uses it too, while an
+ * atomic leaf, static heading, empty state, or tail row keeps it empty. Reserving
+ * the seat is what makes each additional
  * branch guide produce a real indentation step instead of letting a child with
  * no caret jump left of its parent label. */
 export const SIDEBAR_ENTRY_LEAD = 'flex h-5 w-5 shrink-0 items-center justify-center'
