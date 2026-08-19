@@ -583,10 +583,11 @@ Inside that forest, navigation and disclosure controls stand because they say
 where the tree goes; contextual row actions do not. Filter, overflow, and compact
 resource controls share one resting-display rule: quiet at rest on a hover-capable
 rail, visible on row hover, keyboard focus, or while open, and persistent on the
-narrow touch tier. A changed filter is the one exception because its visible icon
-communicates a live transformation of the list. `FilterMenu` owns that placement
-and active-state decision for every filter flavor; the default `RowMenu` trigger
-owns it for overflow actions. A caller cannot opt out by forgetting a wrapper.
+narrow touch tier. Filter state never changes that display posture: a changed
+filter is described inside its menu, not by making one rail glyph break rank.
+`FilterMenu` owns that placement decision for every filter flavor; the default
+`RowMenu` trigger owns it for overflow actions. A caller cannot opt out by
+forgetting a wrapper.
 
 Independent scrolling is a layout projection over that forest, not another
 ontology. Rail views use the same generic `SplitNode` grammar and the same

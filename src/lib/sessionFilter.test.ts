@@ -60,8 +60,8 @@ test('the rail and main page subscribe to one live Sessions filter value', () =>
   assert.equal(notifications, 1, 'an unmounted projection stops receiving updates')
 })
 
-test('the Sessions filter has one semantic resting state for its rail action', () => {
-  assert.equal(isSessionFilterActive(DEFAULT_SESSION_FILTER), false, 'the default view does not pin rail chrome')
+test('the Sessions filter reports whether its collection view differs from the default', () => {
+  assert.equal(isSessionFilterActive(DEFAULT_SESSION_FILTER), false, 'the default view is semantically neutral')
   for (const patch of [
     { status: 'archived' as const },
     { projectId: 'p-1' },

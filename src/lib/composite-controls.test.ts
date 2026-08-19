@@ -67,7 +67,7 @@ test('every filtered composite page mirrors the rail control over the same live 
 
   const sessionsMenu = stripComments(read(join(ROOT, 'src', 'components', 'SessionFilterMenu.tsx')))
   assert.match(sessionsMenu, /placement = 'rail'/, 'Sessions supports the same two explicit projections')
-  assert.match(sessionsMenu, /active=\{isSessionFilterActive\(filter\)\}/, 'Sessions pins only a semantically changed filter')
+  assert.match(sessionsMenu, /active=\{isSessionFilterActive\(filter\)\}/, 'Sessions reports the same semantic filter state')
 
   const sessionStore = stripComments(read(join(ROOT, 'src', 'lib', 'useSessionFilter.ts')))
   assert.match(sessionStore, /useSyncExternalStore/, 'Sessions rail and page are two views of one external-store value')

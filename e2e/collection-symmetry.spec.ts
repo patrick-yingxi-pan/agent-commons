@@ -310,7 +310,7 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
   await expect(main.getByText('No sessions match these filters.', { exact: true })).toBeVisible()
   await expect(rail.getByText('No sessions match these filters.', { exact: true })).toBeVisible()
   await expect(railFilterProjection).toHaveAttribute('data-filter-active', 'true')
-  await expect(railFilterProjection).toHaveCSS('opacity', '1')
+  await expect(railFilterProjection).toHaveCSS('opacity', '0')
 
   await filterMenu.getByRole('menuitem', { name: /^Status/ }).hover()
   await page.getByRole('menuitemradio', { name: 'Active', exact: true }).click()

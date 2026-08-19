@@ -93,7 +93,7 @@ export function FilterMenu({
     }
   }, [open])
 
-  const railReveal = placement === 'rail' && !active ? HOVER_REVEAL : ''
+  const railReveal = placement === 'rail' ? HOVER_REVEAL : ''
 
   return (
     <span

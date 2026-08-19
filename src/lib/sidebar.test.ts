@@ -51,7 +51,8 @@ test('the left panel sources its hover from the shared token — no element re-h
 
 test('contextual rail-row buttons share one enforced resting-display funnel', () => {
   const filter = componentSrc('FilterMenu.tsx')
-  assert.match(filter, /placement === 'rail' && !active \? HOVER_REVEAL/, 'every neutral rail filter hides at rest')
+  assert.match(filter, /placement === 'rail' \? HOVER_REVEAL/, 'every rail filter hides at rest, regardless of state')
+  assert.doesNotMatch(filter, /placement === 'rail' && !active/, 'active state cannot opt a rail filter out of the funnel')
   assert.match(filter, /has-\[\[data-open=true\]\]:opacity-100/, 'an open filter remains visible')
   assert.match(filter, /focus-within:opacity-100/, 'a keyboard-focused filter remains visible')
   assert.match(filter, /data-contextual-action=\{placement === 'rail'/, 'rail filters identify the governed role')
