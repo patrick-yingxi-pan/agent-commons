@@ -122,6 +122,7 @@ export function RowMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
+        data-contextual-action={triggerClassName == null || undefined}
         className={
           triggerClassName ??
           `flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus:opacity-100 focus:outline-none data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[open=true]:opacity-100 ${HOVER_REVEAL}`

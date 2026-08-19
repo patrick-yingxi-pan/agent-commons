@@ -1,5 +1,4 @@
 import type { SectionId } from '../types'
-import { HOVER_REVEAL } from '../lib/hoverReveal'
 import {
   ALL_FACET,
   SECTION_FILTERS,
@@ -63,14 +62,12 @@ export function SectionFilterMenu({
       })),
     },
   ]
-  const railReveal = placement === 'rail' && !active ? HOVER_REVEAL : ''
   return (
-    <span
-      data-filter-projection={placement}
-      data-filter-active={active || undefined}
-      className={`${railReveal} has-[[data-open=true]]:opacity-100 focus-within:opacity-100`}
-    >
-      <FilterMenu ariaLabel={`Filter & sort ${SECTION_META[section].label.toLowerCase()}`} rows={rows} />
-    </span>
+    <FilterMenu
+      ariaLabel={`Filter & sort ${SECTION_META[section].label.toLowerCase()}`}
+      rows={rows}
+      placement={placement}
+      active={active}
+    />
   )
 }

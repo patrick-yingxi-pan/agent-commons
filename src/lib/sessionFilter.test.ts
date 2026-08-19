@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import {
   filterSessions,
   DEFAULT_SESSION_FILTER,
+  isSessionFilterActive,
   saveSessionFilter,
   sessionFilterSnapshot,
   subscribeSessionFilter,
@@ -57,4 +58,22 @@ test('the rail and main page subscribe to one live Sessions filter value', () =>
   unsubscribe()
   saveSessionFilter(DEFAULT_SESSION_FILTER)
   assert.equal(notifications, 1, 'an unmounted projection stops receiving updates')
+})
+
+test('the Sessions filter has one semantic resting state for its rail action', () => {
+  assert.equal(isSessionFilterActive(DEFAULT_SESSION_FILTER), false, 'the default view does not pin rail chrome')
+  for (const patch of [
+    { status: 'archived' as const },
+    { projectId: 'p-1' },
+    { environment: 'local' as const },
+    { activity: '7d' as const },
+    { groupBy: 'project' as const },
+    { sortBy: 'alpha' as const },
+  ]) {
+    assert.equal(
+      isSessionFilterActive({ ...DEFAULT_SESSION_FILTER, ...patch }),
+      true,
+      `${Object.keys(patch)[0]} changes the resting collection`,
+    )
+  }
 })

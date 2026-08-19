@@ -24,6 +24,7 @@ import {
 } from './sidebar.ts'
 
 const sidebarSrc = () => stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx')))
+const componentSrc = (name: string) => stripComments(read(join(ROOT, 'src', 'components', name)))
 
 test('the sidebar hover token is a real hover-background utility', () => {
   assert.match(SIDEBAR_HOVER, /\bhover:bg-/, 'SIDEBAR_HOVER highlights the background on hover')
@@ -46,6 +47,31 @@ test('the left panel sources its hover from the shared token — no element re-h
     !src.includes('hover:bg-surface'),
     'no sidebar element hardcodes hover:bg-surface — it must come from lib/sidebar',
   )
+})
+
+test('contextual rail-row buttons share one enforced resting-display funnel', () => {
+  const filter = componentSrc('FilterMenu.tsx')
+  assert.match(filter, /placement === 'rail' && !active \? HOVER_REVEAL/, 'every neutral rail filter hides at rest')
+  assert.match(filter, /has-\[\[data-open=true\]\]:opacity-100/, 'an open filter remains visible')
+  assert.match(filter, /focus-within:opacity-100/, 'a keyboard-focused filter remains visible')
+  assert.match(filter, /data-contextual-action=\{placement === 'rail'/, 'rail filters identify the governed role')
+
+  const rowMenu = componentSrc('RowMenu.tsx')
+  assert.match(rowMenu, /data-contextual-action=\{triggerClassName == null/, 'default row menus identify the same role')
+  assert.match(rowMenu, /\$\{HOVER_REVEAL\}/, 'default row menus use the shared resting-display cue')
+
+  const sidebar = sidebarSrc()
+  const start = sidebar.indexOf('trailing={')
+  const end = sidebar.indexOf('\n              />', start)
+  assert.ok(start >= 0 && end > start, 'the root-row trailing action cluster is enumerable')
+  const trailing = sidebar.slice(start, end)
+  const allowed = ['CompositeRailControls', 'ScheduledFilterMenu', 'SectionFilterMenu', 'SessionFilterMenu']
+  const rendered = [...trailing.matchAll(/<([A-Z][A-Za-z0-9]*)\b/g)].map((match) => match[1]).sort()
+  assert.deepEqual(rendered, allowed, 'the complete root action cluster uses only the governed components')
+  for (const component of allowed) {
+    assert.ok(trailing.includes(`<${component}`), `${component} is routed through an enforced action primitive`)
+  }
+  assert.doesNotMatch(trailing, /<button\b|<FilterMenu\b|<RowMenu\b/, 'the rail root cannot hand-roll a trailing button')
 })
 
 test('the sidebar imports the shared hover module', () => {

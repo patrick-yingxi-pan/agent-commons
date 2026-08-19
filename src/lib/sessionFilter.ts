@@ -36,6 +36,20 @@ export const DEFAULT_SESSION_FILTER: SessionFilter = {
   sortBy: 'recency',
 }
 
+/** Whether the collection is narrowed, regrouped, or reordered away from its
+ * resting Sessions view. The rail uses this semantic state to keep a changed
+ * filter visible without treating the neutral default as a standing badge. */
+export function isSessionFilterActive(filter: SessionFilter): boolean {
+  return (
+    filter.status !== DEFAULT_SESSION_FILTER.status ||
+    filter.projectId !== DEFAULT_SESSION_FILTER.projectId ||
+    filter.environment !== DEFAULT_SESSION_FILTER.environment ||
+    filter.activity !== DEFAULT_SESSION_FILTER.activity ||
+    filter.groupBy !== DEFAULT_SESSION_FILTER.groupBy ||
+    filter.sortBy !== DEFAULT_SESSION_FILTER.sortBy
+  )
+}
+
 // ── Persistence ─────────────────────────────────────────────────────────────
 // Its own small localStorage blob, separate from layout prefs (uiPrefs.ts) since
 // the values are string enums, not numbers/booleans.

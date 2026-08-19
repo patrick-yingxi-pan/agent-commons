@@ -579,6 +579,15 @@ There are no content-container headers called **Sections** or **Recents**.
 same filtered session rows its `/sessions` main page renders, and both projections
 subscribe to one `useSessionFilter` value. The rail remains one ordered forest.
 
+Inside that forest, navigation and disclosure controls stand because they say
+where the tree goes; contextual row actions do not. Filter, overflow, and compact
+resource controls share one resting-display rule: quiet at rest on a hover-capable
+rail, visible on row hover, keyboard focus, or while open, and persistent on the
+narrow touch tier. A changed filter is the one exception because its visible icon
+communicates a live transformation of the list. `FilterMenu` owns that placement
+and active-state decision for every filter flavor; the default `RowMenu` trigger
+owns it for overflow actions. A caller cannot opt out by forgetting a wrapper.
+
 Independent scrolling is a layout projection over that forest, not another
 ontology. Rail views use the same generic `SplitNode` grammar and the same
 `PaneActionButtons` as the main workspace, restricted to vertical (`col`)

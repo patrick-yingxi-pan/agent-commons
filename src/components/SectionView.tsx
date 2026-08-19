@@ -676,7 +676,7 @@ function SessionsSection({
       </PageHeader>
       <CompositePageControls
         section="sessions"
-        filter={<SessionFilterMenu filter={filter} onChange={setFilter} projects={projects} />}
+        filter={<SessionFilterMenu filter={filter} onChange={setFilter} projects={projects} placement="page" />}
       />
       <MainCollectionTemplate
         projection={projection}

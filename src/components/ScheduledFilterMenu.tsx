@@ -7,7 +7,6 @@ import {
   type RoutineSortBy,
   type RoutineStatusFilter,
 } from '../lib/routineFilter'
-import { HOVER_REVEAL } from '../lib/hoverReveal'
 
 /** ── Scheduled "Filter & sort" — the routine-flavoured menu ───────────────────
  *  The same control as Sessions, retuned for the rail's routine list: the session
@@ -104,15 +103,13 @@ export function ScheduledFilterMenu({
     },
   ]
 
-  const railReveal = placement === 'rail' && !active ? HOVER_REVEAL : ''
   return (
-    <span
-      data-filter-projection={placement}
-      data-filter-active={active || undefined}
-      className={`${railReveal} has-[[data-open=true]]:opacity-100 focus-within:opacity-100`}
-    >
-      <FilterMenu ariaLabel="Filter & sort routines" rows={rows} />
-    </span>
+    <FilterMenu
+      ariaLabel="Filter & sort routines"
+      rows={rows}
+      placement={placement}
+      active={active}
+    />
   )
 }
 

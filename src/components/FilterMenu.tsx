@@ -3,10 +3,11 @@ import { createPortal } from 'react-dom'
 import { Check, ChevronRight, SlidersHorizontal } from 'lucide-react'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_MARGIN, POPOVER_SURFACE, clampLeft } from '../lib/popover'
+import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { FlyoutPanel, useFlyout } from './RecentOverflowList'
 
 /** ── A generic "Filter & sort" menu — the sliders button + its popover ────────
- *  The shell behind both the Sessions and Routines filters: one
+ *  The shell behind every collection filter: one
  *  popover of rows, each opening a submenu to the right. The popover and its
  *  submenus are portaled to <body> so the sidebar's scroll container can't clip
  *  them (same reason RecentOverflowList portals its flyout). Selecting an option
@@ -45,7 +46,17 @@ const POPOVER_WIDTH = 244
 // Approximate rendered height; used only to decide whether to open below or above.
 const POPOVER_EST_HEIGHT = 220
 
-export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: FilterRowSpec[] }) {
+export function FilterMenu({
+  ariaLabel,
+  rows,
+  placement,
+  active,
+}: {
+  ariaLabel: string
+  rows: FilterRowSpec[]
+  placement: 'rail' | 'page'
+  active: boolean
+}) {
   const [open, setOpen] = useState(false)
   // The popover panel + submenu flyouts are portaled and each stop their own
   // mousedown, so anchoring the dismiss ref to the trigger alone is enough: any
@@ -82,8 +93,15 @@ export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: Filte
     }
   }, [open])
 
+  const railReveal = placement === 'rail' && !active ? HOVER_REVEAL : ''
+
   return (
-    <>
+    <span
+      data-filter-projection={placement}
+      data-filter-active={active || undefined}
+      data-contextual-action={placement === 'rail' || undefined}
+      className={`${railReveal} has-[[data-open=true]]:opacity-100 focus-within:opacity-100`}
+    >
       <button
         ref={triggerRef}
         onClick={() => setOpen((o) => !o)}
@@ -123,7 +141,7 @@ export function FilterMenu({ ariaLabel, rows }: { ariaLabel: string; rows: Filte
           </div>,
           document.body,
         )}
-    </>
+    </span>
   )
 }
 

@@ -55,6 +55,7 @@ test('every filtered composite page mirrors the rail control over the same live 
   const sessions = fn('SessionsSection')
   assert.match(sessions, /<CompositePageControls[\s\S]{0,240}?<SessionFilterMenu\b/)
   assert.match(sessions, /useSessionFilter\(\)/, 'the page subscribes to the live Sessions filter')
+  assert.match(sessions, /<SessionFilterMenu[^>]+placement="page"/, 'the Sessions page declares the visible page projection')
 
   const shared = stripComments(read(join(ROOT, 'src', 'components', 'SectionFilterMenu.tsx')))
   assert.match(shared, /useSectionFilter\(section\)/, 'both projections subscribe to one stored section choice')
@@ -62,7 +63,11 @@ test('every filtered composite page mirrors the rail control over the same live 
 
   const scheduled = stripComments(read(join(ROOT, 'src', 'components', 'ScheduledFilterMenu.tsx')))
   assert.match(scheduled, /placement = 'rail'/, 'the richer routine filter supports the same two placements')
-  assert.match(scheduled, /data-filter-projection=\{placement\}/, 'routine controls identify their projection too')
+  assert.match(scheduled, /<FilterMenu[\s\S]{0,180}?placement=\{placement\}/, 'routine controls delegate placement to the shared funnel')
+
+  const sessionsMenu = stripComments(read(join(ROOT, 'src', 'components', 'SessionFilterMenu.tsx')))
+  assert.match(sessionsMenu, /placement = 'rail'/, 'Sessions supports the same two explicit projections')
+  assert.match(sessionsMenu, /active=\{isSessionFilterActive\(filter\)\}/, 'Sessions pins only a semantically changed filter')
 
   const sessionStore = stripComments(read(join(ROOT, 'src', 'lib', 'useSessionFilter.ts')))
   assert.match(sessionStore, /useSyncExternalStore/, 'Sessions rail and page are two views of one external-store value')

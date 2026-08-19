@@ -1,6 +1,12 @@
 import type { Project } from '../types'
 import { FilterMenu, type FilterRowSpec } from './FilterMenu'
-import type { ActivityFilter, SessionFilter, SortBy, StatusFilter } from '../lib/sessionFilter'
+import {
+  isSessionFilterActive,
+  type ActivityFilter,
+  type SessionFilter,
+  type SortBy,
+  type StatusFilter,
+} from '../lib/sessionFilter'
 
 /** ── Sessions "Filter & sort" — the session-flavoured menu ────────────────────
  *  The session collection's shared filter vocabulary: Status /
@@ -36,10 +42,12 @@ export function SessionFilterMenu({
   filter,
   onChange,
   projects,
+  placement = 'rail',
 }: {
   filter: SessionFilter
   onChange: (next: SessionFilter) => void
   projects: Project[]
+  placement?: 'rail' | 'page'
 }) {
   const set = (patch: Partial<SessionFilter>) => onChange({ ...filter, ...patch })
 
@@ -132,7 +140,14 @@ export function SessionFilterMenu({
     },
   ]
 
-  return <FilterMenu ariaLabel="Filter & sort sessions" rows={rows} />
+  return (
+    <FilterMenu
+      ariaLabel="Filter & sort sessions"
+      rows={rows}
+      placement={placement}
+      active={isSessionFilterActive(filter)}
+    />
+  )
 }
 
 function GROUP_LABEL(g: SessionFilter['groupBy']): string {

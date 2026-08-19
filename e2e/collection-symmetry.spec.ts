@@ -281,18 +281,45 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
 
   const railFilter = rail.getByRole('button', { name: 'Filter & sort sessions', exact: true })
   const pageFilter = main.getByRole('button', { name: 'Filter & sort sessions', exact: true })
+  const railFilterProjection = railFilter.locator('..')
+  await page.mouse.move(800, 200)
+  const contextualActions = rail.locator('[data-contextual-action]')
+  expect(await contextualActions.count()).toBeGreaterThan(2)
+  await expect
+    .poll(() =>
+      contextualActions.evaluateAll((nodes) =>
+        nodes
+          .filter((node) => getComputedStyle(node).opacity !== '0')
+          .map(
+            (node) =>
+              node.getAttribute('aria-label') ?? node.querySelector('button')?.getAttribute('aria-label') ?? node.tagName,
+          ),
+      ),
+    )
+    .toEqual([])
+  await expect(railFilterProjection).toHaveCSS('opacity', '0')
+  await rail.locator('[data-section-root="sessions"]').hover()
+  await expect(railFilterProjection).toHaveCSS('opacity', '1')
+  await page.mouse.move(800, 200)
+  await expect(railFilterProjection).toHaveCSS('opacity', '0')
+
   await pageFilter.click()
   const filterMenu = page.getByRole('menu', { name: 'Filter & sort sessions' })
   await filterMenu.getByRole('menuitem', { name: /^Status/ }).hover()
   await page.getByRole('menuitemradio', { name: 'Archived', exact: true }).click()
   await expect(main.getByText('No sessions match these filters.', { exact: true })).toBeVisible()
   await expect(rail.getByText('No sessions match these filters.', { exact: true })).toBeVisible()
+  await expect(railFilterProjection).toHaveAttribute('data-filter-active', 'true')
+  await expect(railFilterProjection).toHaveCSS('opacity', '1')
 
   await filterMenu.getByRole('menuitem', { name: /^Status/ }).hover()
   await page.getByRole('menuitemradio', { name: 'Active', exact: true }).click()
   await expect(main.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
   await expect(rail.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
+  await page.mouse.move(800, 200)
+  await expect(railFilterProjection).not.toHaveAttribute('data-filter-active')
+  await expect(railFilterProjection).toHaveCSS('opacity', '0')
 
   await expect(main.getByRole('button', { name: 'Fold all sections', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Rail view options', exact: true })).toHaveCount(0)
