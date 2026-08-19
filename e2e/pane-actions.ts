@@ -15,8 +15,8 @@ export async function splitPane(page: Page, direction: 'right' | 'down'): Promis
   await menu.getByRole('menuitem', { name: `Split ${direction}`, exact: true }).click()
 }
 
-/** Bulk disclosure shares the pane-action cluster. The focused command targets
- * a main page or selected rail subtree; explicit panel commands reach the full rail. */
+/** Bulk disclosure shares the pane-action cluster. Focus selects the command
+ * scope: main page, selected rail subtree, or the whole rail background. */
 export async function openOrganizePaneMenu(page: Page): Promise<Locator> {
   const toolbar = page.locator('[data-rail-toolbar-group="view"]')
   await toolbar.getByRole('button', { name: 'Organize pane', exact: true }).click()
@@ -25,7 +25,7 @@ export async function openOrganizePaneMenu(page: Page): Promise<Locator> {
 
 export async function organizePane(
   page: Page,
-  command: 'Fold all' | 'Unfold all' | 'Fold entire panel' | 'Unfold entire panel',
+  command: 'Fold all' | 'Unfold all',
 ): Promise<void> {
   const menu = await openOrganizePaneMenu(page)
   await menu.getByRole('menuitem', { name: command, exact: true }).click()

@@ -203,7 +203,7 @@ test('the rail is an inline disclosure tree, not a drill-in push', () => {
   assert.match(sidebar, /!!SECTION_CHILDREN\[id\] \|\| !!SECTION_INSTANCE_KEY\[id\]/)
 })
 
-test('the rail shares one fold menu for the selected subtree and the complete panel', () => {
+test('one fold menu follows focus across a selected subtree and the complete panel', () => {
   const sidebar = read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))
   assert.match(sidebar, /ariaLabel="Organize pane"/, 'focused acts share one labeled compact menu')
   assert.match(sidebar, /label: 'Fold all'/)
@@ -213,8 +213,10 @@ test('the rail shares one fold menu for the selected subtree and the complete pa
   assert.match(sidebar, /publishRailFold\(open, selectedRailEntry\.root\.key, selectedRailEntry\.path\)/, 'the selected entry and pane are the disclosure scope')
   assert.match(sidebar, /requestRailPanelFold/, 'the same menu has a complete-panel scope')
   assert.match(sidebar, /publishRailFold\(open, null, null\)/, 'null scope reaches every root in every rail pane')
-  assert.match(sidebar, /label: 'Fold entire panel'/)
-  assert.match(sidebar, /label: 'Unfold entire panel'/)
+  assert.match(sidebar, /const railOwnsOrganize = paneActionTarget === 'rail'/)
+  assert.match(sidebar, /const railTargetsEntry = railOwnsOrganize && selectedRailEntry\?\.path === focusedRailPane/)
+  assert.match(sidebar, /onPointerDownCapture/, 'empty header chrome focuses the whole rail')
+  assert.doesNotMatch(sidebar, /Fold entire panel|Unfold entire panel|onFoldPanel/, 'scope is not rendered as duplicate commands')
   const railSplit = read(join(ROOT, 'src', 'lib', 'railSplit.ts'))
   assert.match(railSplit, /nodeKey === signal\.targetKey/, 'path identity includes the selected subtree root')
   assert.match(railSplit, /signal\.targetKey === null/, 'the explicit forest scope includes every node')

@@ -76,9 +76,10 @@ Close in shell chrome. Main focus uses the rendered page's live registry;
 main-page discovery includes data-defined bands, which join the in-memory fold
 scope while retaining `persist={false}`. Rail focus instead scopes the request
 to the selected canonical subtree in that one rail pane, including the selected
-entry itself. Sibling branches retain their posture. The same menu exposes an
-explicit entire-panel scope that reaches every root and nested branch; a
-user-created title never grows `uiPrefs` merely to participate.
+entry itself. Sibling branches retain their posture. Clicking empty rail
+header/background clears the entry selection, so the same two commands address
+every root and nested branch. Scope changes with focus and never adds duplicate
+menu items; a user-created title never grows `uiPrefs` merely to participate.
 
 Filter scope follows the same symmetry without confusing representation with
 state. The rail row and main-page toolbar both render `SectionFilterMenu` (or

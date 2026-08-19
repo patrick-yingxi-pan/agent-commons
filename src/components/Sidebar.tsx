@@ -278,9 +278,9 @@ export function Sidebar({
     () => SECTION_ORDER.filter((id) => id !== 'admin' || instanceAdmin),
     [instanceAdmin],
   )
-  // Organize pane follows the same focus target as split/close. A selected rail
-  // entry owns its complete subtree, including the selected root; the rail host
-  // also exposes a complete-panel scope that reaches every pane and root.
+  // Organize pane follows focus. Main focus uses the page registry; a selected
+  // rail entry owns its complete subtree; rail focus with no selected entry
+  // means the complete left panel. One command pair, three honest scopes.
   const railFoldRevision = useRef(0)
   const [railFoldSignal, setRailFoldSignal] = useState<(RailFoldSignal & { panePath: string | null }) | null>(null)
   const publishRailFold = (open: boolean, targetKey: string | null, panePath: string | null) => {
@@ -312,9 +312,18 @@ export function Sidebar({
     railFoldSignal && (railFoldSignal.panePath === null || railFoldSignal.panePath === path)
       ? railFoldSignal
       : null
-  const railOwnsOrganize = paneActionTarget === 'rail' && selectedRailEntry?.path === focusedRailPane
-  const paneFoldAll = railOwnsOrganize ? () => requestRailFold(false) : onFoldAll
-  const paneUnfoldAll = railOwnsOrganize ? () => requestRailFold(true) : onUnfoldAll
+  const railOwnsOrganize = paneActionTarget === 'rail'
+  const railTargetsEntry = railOwnsOrganize && selectedRailEntry?.path === focusedRailPane
+  const paneFoldAll = railTargetsEntry
+    ? () => requestRailFold(false)
+    : railOwnsOrganize
+      ? () => requestRailPanelFold(false)
+      : onFoldAll
+  const paneUnfoldAll = railTargetsEntry
+    ? () => requestRailFold(true)
+    : railOwnsOrganize
+      ? () => requestRailPanelFold(true)
+      : onUnfoldAll
 
   // Clicking a section row: open its page, and — if it has children — expand it in place
   // (keeping the narrow drawer open so the children show, so you can pick one). A childless
@@ -496,7 +505,15 @@ export function Sidebar({
       {/* Rail header — the collapse toggle sits at the top-left, with a search
           icon beside it; both on one line (no separate product top bar). Search
           opens a floating palette rather than filtering inline. */}
-      <div data-rail-toolbar className="flex items-center px-2 pt-2.5">
+      <div
+        data-rail-toolbar
+        className="flex items-center px-2 pt-2.5"
+        onPointerDownCapture={(event) => {
+          const target = event.target
+          if (target instanceof Element && target.closest('button, [role="menu"], [role="separator"]')) return
+          onFocusRailPane(focusedRailPane)
+        }}
+      >
         <div data-rail-toolbar-group="global" className="flex items-center gap-0.5">
           <button
             onClick={onToggleCollapse}
@@ -518,22 +535,22 @@ export function Sidebar({
               or posted. The badge is live via notification.changed. */}
           <NotificationBell onClick={onOpenNotifications} compact />
         </div>
-        <div
-          data-rail-toolbar-group="view"
-          data-pane-action-target={paneActionTarget}
-          className="ml-auto flex items-center gap-0.5 border-l border-line pl-1.5"
-        >
-          <PaneActionButtons
-            onFoldAll={paneFoldAll}
-            onUnfoldAll={paneUnfoldAll}
-            onFoldPanel={() => requestRailPanelFold(false)}
-            onUnfoldPanel={() => requestRailPanelFold(true)}
-            onSplitRow={onSplitRow}
-            onSplitCol={onSplitCol}
-            onCloseView={onCloseView}
-            compact
-          />
-        </div>
+        {(paneFoldAll || paneUnfoldAll || onSplitRow || onSplitCol || onCloseView) && (
+          <div
+            data-rail-toolbar-group="view"
+            data-pane-action-target={paneActionTarget}
+            className="ml-auto flex items-center gap-0.5 border-l border-line pl-1.5"
+          >
+            <PaneActionButtons
+              onFoldAll={paneFoldAll}
+              onUnfoldAll={paneUnfoldAll}
+              onSplitRow={onSplitRow}
+              onSplitCol={onSplitCol}
+              onCloseView={onCloseView}
+              compact
+            />
+          </div>
+        )}
       </div>
 
       {/* New session — pinned above the pane stack, in a labeled <nav> so e2e's
@@ -778,14 +795,10 @@ export function Sidebar({
 // (multi-account P7 — it grew the sign-in / create-account / workspace flows).
 
 /** One focus-aware organize/split/close cluster for both navigation and
- * content. Main reports real page fold work; rail focus scopes the same menu to
- * the selected subtree. The expanded rail can add whole-panel disclosure acts
- * without redrawing the shared menu. */
+ * content. Its two disclosure commands receive their scope from the shell. */
 export function PaneActionButtons({
   onFoldAll,
   onUnfoldAll,
-  onFoldPanel,
-  onUnfoldPanel,
   onSplitRow,
   onSplitCol,
   onCloseView,
@@ -793,8 +806,6 @@ export function PaneActionButtons({
 }: {
   onFoldAll?: () => void
   onUnfoldAll?: () => void
-  onFoldPanel?: () => void
-  onUnfoldPanel?: () => void
   onSplitRow?: () => void
   onSplitCol?: () => void
   onCloseView?: () => void
@@ -817,27 +828,6 @@ export function PaneActionButtons({
       label: 'Unfold all',
       icon: <ChevronsDown size={15} />,
       onSelect: onUnfoldAll,
-    })
-  }
-  if ((onFoldPanel || onUnfoldPanel) && organizeItems.length > 0) {
-    organizeItems.push({ kind: 'divider', key: 'panel-disclosure' })
-  }
-  if (onFoldPanel) {
-    organizeItems.push({
-      kind: 'action',
-      key: 'fold-panel',
-      label: 'Fold entire panel',
-      icon: <ChevronsUp size={15} />,
-      onSelect: onFoldPanel,
-    })
-  }
-  if (onUnfoldPanel) {
-    organizeItems.push({
-      kind: 'action',
-      key: 'unfold-panel',
-      label: 'Unfold entire panel',
-      icon: <ChevronsDown size={15} />,
-      onSelect: onUnfoldPanel,
     })
   }
   const organizeControl = organizeItems.length > 0 ? (

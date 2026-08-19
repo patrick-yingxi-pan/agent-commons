@@ -15,7 +15,7 @@
  *  src/lib/url-routes.test.ts); this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
 import { ms } from './budget.ts'
-import { organizePane } from './pane-actions.ts'
+import { openOrganizePaneMenu, organizePane } from './pane-actions.ts'
 
 const sectionsNav = (page: Page) => page.getByRole('navigation', { name: 'Sections' })
 const sectionRow = (page: Page, name: string) =>
@@ -104,7 +104,7 @@ test('the Commons carries a door to your own profile, and holds the highlight', 
   await expect(sectionRow(page, 'Agents')).not.toHaveAttribute('aria-current', 'page')
 })
 
-test('rail organization folds the selected profile root and can fold or unfold the entire panel', async ({ page }) => {
+test('one fold pair follows focus from the main page to a profile subtree or the whole rail', async ({ page }) => {
   test.setTimeout(ms(120_000))
   const me = (await (await page.request.get('/api/v1/me')).json()) as { tenant: { name: string } }
   const namespace = me.tenant.name
@@ -112,6 +112,12 @@ test('rail organization folds the selected profile root and can fold or unfold t
   await expect(page.getByRole('heading', { name: `${namespace} (you)` })).toBeVisible()
 
   const rail = sectionsNav(page)
+  const toolbar = page.locator('[data-rail-toolbar-group="view"]')
+  await expect(toolbar).toHaveAttribute('data-pane-action-target', 'main')
+  let menu = await openOrganizePaneMenu(page)
+  await expect(menu.getByRole('menuitem', { name: /entire panel/i })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+
   const profile = rail.getByRole('button', { name: 'Your profile', exact: true })
   await profile.click()
   await expect(rail.getByRole('button', { name: 'Collapse Your profile', exact: true })).toBeVisible()
@@ -120,11 +126,19 @@ test('rail organization folds the selected profile root and can fold or unfold t
   await expect(rail.getByRole('button', { name: 'Expand Your profile', exact: true })).toBeVisible()
   await expect(rail.getByRole('button', { name: 'Collapse Commons', exact: true })).toBeVisible()
 
-  await organizePane(page, 'Fold entire panel')
+  // Empty rail chrome clears the selected entry and focuses the whole panel.
+  // The SAME two menu items now address the complete forest.
+  await page.locator('[data-rail-toolbar]').click({ position: { x: 120, y: 12 } })
+  await expect(toolbar).toHaveAttribute('data-pane-action-target', 'rail')
+  menu = await openOrganizePaneMenu(page)
+  await expect(menu.getByRole('menuitem')).toHaveText(['Fold all', 'Unfold all'])
+  await page.keyboard.press('Escape')
+
+  await organizePane(page, 'Fold all')
   await expect(rail.getByRole('button', { name: /^Collapse / })).toHaveCount(0)
   await expect(rail.locator(`[data-owner-profile-tree="${namespace}"]`)).toHaveCount(0)
 
-  await organizePane(page, 'Unfold entire panel')
+  await organizePane(page, 'Unfold all')
   await expect(rail.getByRole('button', { name: 'Collapse Commons', exact: true })).toBeVisible()
   await expect(rail.getByRole('button', { name: 'Collapse Your profile', exact: true })).toBeVisible()
   await expect(rail.locator(`[data-owner-profile-tree="${namespace}"]`)).toBeAttached()
