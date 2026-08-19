@@ -235,7 +235,7 @@ test('every same-depth rail entry shares one anatomy and list partitions visibly
   await ada.context.close()
 })
 
-test('rail Organize pane reaches only strict descendants of the selected entry', async ({ browser }) => {
+test('rail Organize pane reaches the selected subtree, root included, without changing siblings', async ({ browser }) => {
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
   const page = ada.page
@@ -255,11 +255,12 @@ test('rail Organize pane reaches only strict descendants of the selected entry',
   const artifacts = rail.locator('[data-rail-node-key="section/artifacts"]').first()
   await artifacts.getByRole('button', { name: 'Artifacts', exact: true }).click()
   await organizePane(page, 'Fold all')
-  await expect(rail.getByRole('button', { name: 'Collapse Artifacts', exact: true })).toBeVisible()
-  await expect(artifacts.locator('[data-collection-section-resources]')).toHaveCount(0)
+  await expect(rail.getByRole('button', { name: 'Expand Artifacts', exact: true })).toBeVisible()
+  await expect(artifacts.locator('[data-section-tree="artifacts"]')).toHaveCount(0)
   await expect(models.locator('[data-collection-section-resources="providers"]')).toBeAttached()
 
   await organizePane(page, 'Unfold all')
+  await expect(rail.getByRole('button', { name: 'Collapse Artifacts', exact: true })).toBeVisible()
   await expect(rail.locator('[data-section-tree="artifacts"]')).toBeAttached()
   await expect(rail.locator('[data-collection-section-resources="p-insights"]')).toBeAttached()
 

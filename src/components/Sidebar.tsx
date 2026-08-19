@@ -1,6 +1,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -277,19 +278,40 @@ export function Sidebar({
     () => SECTION_ORDER.filter((id) => id !== 'admin' || instanceAdmin),
     [instanceAdmin],
   )
-  // Organize pane follows the same focus target as split/close. In the rail it
-  // acts only on canonical nodes STRICTLY below the selected entry in that one
-  // pane. The selected entry stays open and remains the visible scope anchor.
-  const [railFoldSignal, setRailFoldSignal] = useState<(RailFoldSignal & { panePath: string }) | null>(null)
+  // Organize pane follows the same focus target as split/close. A selected rail
+  // entry owns its complete subtree, including the selected root; the rail host
+  // also exposes a complete-panel scope that reaches every pane and root.
+  const railFoldRevision = useRef(0)
+  const [railFoldSignal, setRailFoldSignal] = useState<(RailFoldSignal & { panePath: string | null }) | null>(null)
+  const publishRailFold = (open: boolean, targetKey: string | null, panePath: string | null) => {
+    const signal = {
+      revision: ++railFoldRevision.current,
+      expanded: open,
+      targetKey,
+      panePath,
+    }
+    const affectedSections = SECTION_ORDER.filter(
+      (id) => hasChildren(id) && railFoldAffects(signal, railNodeKey('section', id)),
+    )
+    for (const id of affectedSections) setLayout(`treeOpen.${id}`, open)
+    if (affectedSections.length > 0) {
+      setExpanded((current) => {
+        const next = new Set(current)
+        for (const id of affectedSections) open ? next.add(id) : next.delete(id)
+        return next
+      })
+    }
+    setRailFoldSignal(signal)
+  }
   const requestRailFold = (open: boolean) => {
     if (!selectedRailEntry || selectedRailEntry.path !== focusedRailPane) return
-    setRailFoldSignal((current) => ({
-      revision: (current?.revision ?? 0) + 1,
-      expanded: open,
-      targetKey: selectedRailEntry.root.key,
-      panePath: selectedRailEntry.path,
-    }))
+    publishRailFold(open, selectedRailEntry.root.key, selectedRailEntry.path)
   }
+  const requestRailPanelFold = (open: boolean) => publishRailFold(open, null, null)
+  const foldSignalForPane = (path: string): RailFoldSignal | null =>
+    railFoldSignal && (railFoldSignal.panePath === null || railFoldSignal.panePath === path)
+      ? railFoldSignal
+      : null
   const railOwnsOrganize = paneActionTarget === 'rail' && selectedRailEntry?.path === focusedRailPane
   const paneFoldAll = railOwnsOrganize ? () => requestRailFold(false) : onFoldAll
   const paneUnfoldAll = railOwnsOrganize ? () => requestRailFold(true) : onUnfoldAll
@@ -496,22 +518,22 @@ export function Sidebar({
               or posted. The badge is live via notification.changed. */}
           <NotificationBell onClick={onOpenNotifications} compact />
         </div>
-        {(paneFoldAll || paneUnfoldAll || onSplitRow || onSplitCol || onCloseView) && (
-          <div
-            data-rail-toolbar-group="view"
-            data-pane-action-target={paneActionTarget}
-            className="ml-auto flex items-center gap-0.5 border-l border-line pl-1.5"
-          >
-            <PaneActionButtons
-              onFoldAll={paneFoldAll}
-              onUnfoldAll={paneUnfoldAll}
-              onSplitRow={onSplitRow}
-              onSplitCol={onSplitCol}
-              onCloseView={onCloseView}
-              compact
-            />
-          </div>
-        )}
+        <div
+          data-rail-toolbar-group="view"
+          data-pane-action-target={paneActionTarget}
+          className="ml-auto flex items-center gap-0.5 border-l border-line pl-1.5"
+        >
+          <PaneActionButtons
+            onFoldAll={paneFoldAll}
+            onUnfoldAll={paneUnfoldAll}
+            onFoldPanel={() => requestRailPanelFold(false)}
+            onUnfoldPanel={() => requestRailPanelFold(true)}
+            onSplitRow={onSplitRow}
+            onSplitCol={onSplitCol}
+            onCloseView={onCloseView}
+            compact
+          />
+        </div>
       </div>
 
       {/* New session — pinned above the pane stack, in a labeled <nav> so e2e's
@@ -643,12 +665,12 @@ export function Sidebar({
                         onOpenDetail(section, seed)
                         onLeafNavigate?.()
                       }}
-                      foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
+                      foldSignal={foldSignalForPane(path)}
                     />
                   ) : id === 'scheduled' ? (
                     <ScheduledTreeChildren
                       groups={routineGroups}
-                      foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
+                      foldSignal={foldSignalForPane(path)}
                       renderRoutine={(t) => (
                         <RoutineRow
                           key={t.id}
@@ -685,7 +707,7 @@ export function Sidebar({
                             onLeafNavigate?.()
                           }}
                           menuItems={routineMenuItems(t)}
-                          foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
+                          foldSignal={foldSignalForPane(path)}
                         />
                       )}
                     />
@@ -706,7 +728,7 @@ export function Sidebar({
                             onOpenDetail(section, seed)
                             onLeafNavigate?.()
                           }}
-                          foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
+                          foldSignal={foldSignalForPane(path)}
                         />
                       ) : null
                     ) : (
@@ -733,7 +755,7 @@ export function Sidebar({
                         onSelect(sessionId)
                         onLeafNavigate?.()
                       }}
-                      foldSignal={railFoldSignal?.panePath === path ? railFoldSignal : null}
+                      foldSignal={foldSignalForPane(path)}
                     />
                   ) : null}
                 </RailTreeBranch>
@@ -757,11 +779,13 @@ export function Sidebar({
 
 /** One focus-aware organize/split/close cluster for both navigation and
  * content. Main reports real page fold work; rail focus scopes the same menu to
- * the selected entry's descendants. Keeping one renderer makes icon, tooltip,
- * keyboard, and responsive behavior identical while focus supplies semantics. */
+ * the selected subtree. The expanded rail can add whole-panel disclosure acts
+ * without redrawing the shared menu. */
 export function PaneActionButtons({
   onFoldAll,
   onUnfoldAll,
+  onFoldPanel,
+  onUnfoldPanel,
   onSplitRow,
   onSplitCol,
   onCloseView,
@@ -769,6 +793,8 @@ export function PaneActionButtons({
 }: {
   onFoldAll?: () => void
   onUnfoldAll?: () => void
+  onFoldPanel?: () => void
+  onUnfoldPanel?: () => void
   onSplitRow?: () => void
   onSplitCol?: () => void
   onCloseView?: () => void
@@ -791,6 +817,27 @@ export function PaneActionButtons({
       label: 'Unfold all',
       icon: <ChevronsDown size={15} />,
       onSelect: onUnfoldAll,
+    })
+  }
+  if ((onFoldPanel || onUnfoldPanel) && organizeItems.length > 0) {
+    organizeItems.push({ kind: 'divider', key: 'panel-disclosure' })
+  }
+  if (onFoldPanel) {
+    organizeItems.push({
+      kind: 'action',
+      key: 'fold-panel',
+      label: 'Fold entire panel',
+      icon: <ChevronsUp size={15} />,
+      onSelect: onFoldPanel,
+    })
+  }
+  if (onUnfoldPanel) {
+    organizeItems.push({
+      kind: 'action',
+      key: 'unfold-panel',
+      label: 'Unfold entire panel',
+      icon: <ChevronsDown size={15} />,
+      onSelect: onUnfoldPanel,
     })
   }
   const organizeControl = organizeItems.length > 0 ? (

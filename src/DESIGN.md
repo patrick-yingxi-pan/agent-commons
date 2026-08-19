@@ -569,8 +569,10 @@ is `src/lib/compositeFeatures.ts`; the main page's real button/field/fold scope
 answers the focused-pane command while `CompositeRailControls` is the compact
 projection for resource-local actions and search. Bulk disclosure has one shell
 home: `PaneActionButtons`. Main focus consumes the live page registry; rail
-focus targets strict descendants of the selected canonical entry in that rail
-pane. The rendered form may adapt to density, but capability may not: split,
+focus targets the selected canonical subtree, including its root, in that rail
+pane. The same menu also names a separate entire-panel scope, which reaches all
+roots and nested branches without pretending a row selection means the whole
+rail. The rendered form may adapt to density, but capability may not: split,
 close, resize, fold, filter, search and scroll remain available on both sides.
 Locked by `src/lib/composite-features.test.ts`,
 `src/lib/composite-controls.test.ts`, and `e2e/collection-symmetry.spec.ts`.
@@ -609,9 +611,10 @@ Views nest arbitrarily, scroll independently, retain scroll memory by stable
 view id, and persist their ratios/tree plus stable root-key/ancestor paths per
 account in `claude-ui.railsplit.v1`. Organize pane shares the focus-aware
 `PaneActionButtons` cluster with Split pane and direct terminal Close. In rail
-focus it never rewrites the complete forest: only strict descendants of the
-selected entry answer, in the selected view alone. The selected entry and
-sibling branches keep their posture.
+focus, Fold all / Unfold all address the selected subtree root and descendants
+in the selected view alone; sibling branches keep their posture. Fold entire
+panel / Unfold entire panel is the explicit broader command and reaches every
+root and nested branch across the left panel.
 
 `src/lib/railSplit.ts` owns the pure vertical-only model,
 `src/controller/useRailSplit.ts` owns focus/selection/tree edits, and

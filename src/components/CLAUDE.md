@@ -21,7 +21,7 @@ Read [`../DESIGN.md`](../DESIGN.md) for the governing category,
 | COMPONENT-E1 | experience | Rendered roles use shared primitives and entity-appropriate surfaces. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`PublicFace.tsx`](PublicFace.tsx) | [`../lib/page-grammar.test.ts`](../lib/page-grammar.test.ts) · [`../lib/public-face.test.ts`](../lib/public-face.test.ts) | refines UI-E2; refines UI-E3 |
 | COMPONENT-E2 | experience | Rail rows use one fixed-depth anatomy; role changes semantics, never inset, type, or resting weight, and contextual row actions share one resting-display funnel. | [`Sidebar.tsx`](Sidebar.tsx) · [`SectionTreeChildren.tsx`](SectionTreeChildren.tsx) · [`FilterMenu.tsx`](FilterMenu.tsx) · [`RowMenu.tsx`](RowMenu.tsx) | [`../lib/rail-refinement.test.ts`](../lib/rail-refinement.test.ts) · [`../lib/sidebar.test.ts`](../lib/sidebar.test.ts) · [`../../e2e/collection-symmetry.spec.ts`](../../e2e/collection-symmetry.spec.ts) | refines UI-E4 |
 | COMPONENT-E3 | experience | Composite actions, search, filters, and bulk disclosure are symmetric main/rail projections. | [`CompositeRailControls.tsx`](CompositeRailControls.tsx) · [`ResourcePage.tsx`](ResourcePage.tsx) | [`../lib/composite-controls.test.ts`](../lib/composite-controls.test.ts) · [`../../e2e/collection-symmetry.spec.ts`](../../e2e/collection-symmetry.spec.ts) | refines UI-E5 |
-| COMPONENT-E4 | experience | Organize, split, and close share one focus-aware command surface; the complete rail forest is permanent. | [`Sidebar.tsx`](Sidebar.tsx) · [`RailSplit.tsx`](RailSplit.tsx) | [`../lib/rail-split.test.ts`](../lib/rail-split.test.ts) · [`resize-handle.test.ts`](resize-handle.test.ts) | refines UI-A3; requires COMPONENT-E2 |
+| COMPONENT-E4 | experience | Organize, split, and close share one focus-aware command surface; selected-subtree disclosure includes its root, whole-panel disclosure reaches the forest, and the complete rail forest is permanent. | [`Sidebar.tsx`](Sidebar.tsx) · [`RailSplit.tsx`](RailSplit.tsx) | [`../lib/rail-split.test.ts`](../lib/rail-split.test.ts) · [`../../e2e/own-profile.spec.ts`](../../e2e/own-profile.spec.ts) · [`resize-handle.test.ts`](resize-handle.test.ts) | refines UI-A3; requires COMPONENT-E2 |
 | COMPONENT-E5 | experience | Index rows are quiet synopses; configuration, lifecycle, and rich bodies begin on canonical pages. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`SectionView.tsx`](SectionView.tsx) | [`../lib/index-synopsis.test.ts`](../lib/index-synopsis.test.ts) · [`../lib/artifact-index-preview.test.ts`](../lib/artifact-index-preview.test.ts) | refines UI-E3 |
 | COMPONENT-V1 | verification | Source scans prove shared structure, pure logic moves to `lib`, and browser-computed facts live in E2E. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`MainSplit.tsx`](MainSplit.tsx) | [`pane-safe-layout.test.ts`](pane-safe-layout.test.ts) · [`../../e2e/project-page.spec.ts`](../../e2e/project-page.spec.ts) | refines UI-V1 |
 <!-- context-rules:end -->
@@ -78,8 +78,9 @@ what the document or the sibling component claims.
   resource row or the content of an explicitly resource-free structural group.
   Never map groups into those primitives locally
   or add a one-list wrapper such as “Threads.” The shell's Organize pane menu
-  targets the main registry or strict descendants of the selected rail entry
-  according to focus; list rows do not redraw it.
+  targets the main registry or the selected rail subtree, root included,
+  according to focus; its explicit panel commands reach the whole forest, and
+  list rows do not redraw it.
 - **Rail depth is a fixed-column grammar.** Every non-root row begins with the
   shared `RailEntryLead`: a branch puts its caret there and a leaf preserves an
   empty seat. Sessions, atomic leaves, empty/tail copy, and labeled filter lists
@@ -114,7 +115,9 @@ what the document or the sibling component claims.
   split directions in one labeled menu so Close can remain the terminal direct
   action at the 208px minimum, while the unconstrained vertical MiniRail keeps
   the direct buttons. Fold all / Unfold all share one labeled Organize pane menu
-  inside the cluster and act only on the focused main page or selected rail subtree.
+  inside the cluster and act on the focused main page or selected rail subtree,
+  including that subtree root. The expanded rail adds explicit Fold/Unfold entire
+  panel commands that reach every root and nested branch.
 - **An index entry is a synopsis, not a compressed detail page.** Ordinary
   addressable rows consume `ResourcePageSynopsisRow`: 13px identity, one 12px
   descriptor and one 11px state/count field in a frameless divider ledger.

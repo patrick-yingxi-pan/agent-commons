@@ -18,13 +18,12 @@ export type RailViewRoot = {
   ancestors: string[]
 }
 
-/** One revisioned disclosure request scoped to a selected canonical node. */
-export type RailFoldSignal = { revision: number; expanded: boolean; targetKey: string }
+/** One revisioned disclosure request. A canonical key scopes it to that whole
+ * subtree (root included); null addresses the complete forest. */
+export type RailFoldSignal = { revision: number; expanded: boolean; targetKey: string | null }
 
-/** Equality is deliberately excluded: Organize pane changes descendants of
- * the selected rail entry without folding the selected entry out of view. */
 export const railFoldAffects = (signal: RailFoldSignal, nodeKey: string): boolean =>
-  nodeKey.startsWith(`${signal.targetKey}/`)
+  signal.targetKey === null || nodeKey === signal.targetKey || nodeKey.startsWith(`${signal.targetKey}/`)
 
 export type RailPaneContent = {
   kind: 'rail-view'

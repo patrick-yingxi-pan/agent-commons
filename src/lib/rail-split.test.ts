@@ -14,13 +14,13 @@ import {
   splitRailView,
 } from './railSplit.ts'
 
-test('a rail organize request affects strict descendants, never its selected root or siblings', () => {
+test('a rail organize request affects the selected subtree root and descendants, never siblings', () => {
   const signal = {
     revision: 1,
     expanded: false,
     targetKey: 'section/projects/item/p-insights',
   }
-  assert.equal(railFoldAffects(signal, signal.targetKey), false, 'the selected entry remains visible')
+  assert.equal(railFoldAffects(signal, signal.targetKey), true, 'the selected entry folds with its subtree')
   assert.equal(
     railFoldAffects(signal, `${signal.targetKey}/section/artifacts`),
     true,
@@ -31,6 +31,13 @@ test('a rail organize request affects strict descendants, never its selected roo
     false,
     'a sibling subtree keeps its posture',
   )
+})
+
+test('a complete-forest organize request affects every rail node', () => {
+  const signal = { revision: 2, expanded: false, targetKey: null }
+  assert.equal(railFoldAffects(signal, 'section/sessions'), true)
+  assert.equal(railFoldAffects(signal, 'section/commons/owner/Ada%20Lovelace'), true)
+  assert.equal(railFoldAffects(signal, 'section/projects/item/p-insights/section/context'), true)
 })
 
 let storage: Map<string, string>

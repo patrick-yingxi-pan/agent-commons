@@ -15,6 +15,7 @@
  *  src/lib/url-routes.test.ts); this locks the wiring. */
 import { test, expect, type Page } from '@playwright/test'
 import { ms } from './budget.ts'
+import { organizePane } from './pane-actions.ts'
 
 const sectionsNav = (page: Page) => page.getByRole('navigation', { name: 'Sections' })
 const sectionRow = (page: Page, name: string) =>
@@ -101,6 +102,32 @@ test('the Commons carries a door to your own profile, and holds the highlight', 
   const doorAfter = sectionsNav(page).getByRole('button', { name: 'Your profile', exact: true })
   await expect(doorAfter).toHaveAttribute('aria-current', 'page')
   await expect(sectionRow(page, 'Agents')).not.toHaveAttribute('aria-current', 'page')
+})
+
+test('rail organization folds the selected profile root and can fold or unfold the entire panel', async ({ page }) => {
+  test.setTimeout(ms(120_000))
+  const me = (await (await page.request.get('/api/v1/me')).json()) as { tenant: { name: string } }
+  const namespace = me.tenant.name
+  await page.goto(`/u/${encodeURIComponent(namespace)}`)
+  await expect(page.getByRole('heading', { name: `${namespace} (you)` })).toBeVisible()
+
+  const rail = sectionsNav(page)
+  const profile = rail.getByRole('button', { name: 'Your profile', exact: true })
+  await profile.click()
+  await expect(rail.getByRole('button', { name: 'Collapse Your profile', exact: true })).toBeVisible()
+
+  await organizePane(page, 'Fold all')
+  await expect(rail.getByRole('button', { name: 'Expand Your profile', exact: true })).toBeVisible()
+  await expect(rail.getByRole('button', { name: 'Collapse Commons', exact: true })).toBeVisible()
+
+  await organizePane(page, 'Fold entire panel')
+  await expect(rail.getByRole('button', { name: /^Collapse / })).toHaveCount(0)
+  await expect(rail.locator(`[data-owner-profile-tree="${namespace}"]`)).toHaveCount(0)
+
+  await organizePane(page, 'Unfold entire panel')
+  await expect(rail.getByRole('button', { name: 'Collapse Commons', exact: true })).toBeVisible()
+  await expect(rail.getByRole('button', { name: 'Collapse Your profile', exact: true })).toBeVisible()
+  await expect(rail.locator(`[data-owner-profile-tree="${namespace}"]`)).toBeAttached()
 })
 
 async function switchTo(page: Page, name: string) {
