@@ -6,6 +6,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call, callRaw } from '../testkit/http.ts'
+import { store } from '../store/index.ts'
+import type { Message } from '../../contract/index.ts'
 
 test('POST /sessions materializes a real, listed session titled from the first message', async () => {
   const create = await call('POST', '/sessions', { firstMessage: 'Refactor the auth middleware please' })
@@ -66,4 +68,54 @@ test('GET /usage?session runs the foreign-session wall — a cross-tenant id is 
   assert.equal(own.status, 200, 'the owner reads its own session usage')
   const foreign = await call('GET', `/usage?session=${session.id}`, undefined, { 'x-tenant-id': 'tenant-usage-oracle-b' })
   assert.equal(foreign.status, 404, 'a foreign tenant is refused — the same wall every by-id session route runs')
+})
+
+test('GET /sessions/:id pages the newest message tail without changing the default response', async () => {
+  const { json: created } = await call('POST', '/sessions', { firstMessage: 'long history' })
+  const messages: Message[] = [
+    { id: `${created.id}-m1`, role: 'user', content: 'aaaa' },
+    { id: `${created.id}-m2`, role: 'assistant', content: 'bbbbbbbb' },
+    { id: `${created.id}-m3`, role: 'user', content: 'cccccccccccc' },
+    {
+      id: `${created.id}-m4`,
+      role: 'assistant',
+      content: 'dddddddddddddddd',
+      escalation: { kind: 'workspace', rootChoices: ['history/'], artifacts: [] },
+    },
+    { id: `${created.id}-m5`, role: 'user', content: 'eeeeeeeeeeeeeeeeeeee' },
+  ]
+  for (const message of messages) store.appendMessage(created.id, message)
+
+  const full = await call('GET', `/sessions/${created.id}`)
+  assert.deepEqual(full.json.messages.map((m: Message) => m.id), messages.map((m) => m.id), 'no opt-in keeps the full contract')
+  assert.equal(full.json.messagePage, undefined)
+
+  const newest = await call('GET', `/sessions/${created.id}?messageLimit=2`)
+  assert.equal(newest.status, 200)
+  assert.deepEqual(newest.json.messages.map((m: Message) => m.id), messages.slice(-2).map((m) => m.id))
+  assert.ok(newest.json.messagePage.olderCursor)
+  assert.equal(newest.json.messagePage.olderTokens, 6, 'tokens before the page remain represented in the context gauge')
+  assert.equal(newest.json.messagePage.latestEscalation.messageId, messages[3].id, 'a held consent proposal remains discoverable outside the visible tail')
+
+  const older = await call(
+    'GET',
+    `/sessions/${created.id}?messageLimit=2&messageCursor=${encodeURIComponent(newest.json.messagePage.olderCursor)}`,
+  )
+  assert.deepEqual(older.json.messages.map((m: Message) => m.id), messages.slice(1, 3).map((m) => m.id))
+  assert.equal(older.json.messagePage.olderTokens, 1)
+
+  const oldest = await call(
+    'GET',
+    `/sessions/${created.id}?messageLimit=2&messageCursor=${encodeURIComponent(older.json.messagePage.olderCursor)}`,
+  )
+  assert.deepEqual(oldest.json.messages.map((m: Message) => m.id), [messages[0].id])
+  assert.equal(oldest.json.messagePage.olderCursor, null)
+  assert.equal(oldest.json.messagePage.olderTokens, 0)
+})
+
+test('GET /sessions/:id rejects an invalid message page limit', async () => {
+  const { json: created } = await call('POST', '/sessions', {})
+  const bad = await call('GET', `/sessions/${created.id}?messageLimit=0`)
+  assert.equal(bad.status, 400)
+  assert.equal(bad.json.error.code, 'bad_request')
 })

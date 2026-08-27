@@ -57,7 +57,7 @@ export const REFERENCE_MS = 15.2
  *  machine can do", while a mean is dragged around by whatever else is
  *  running — and a budget that inflates because a build happened to be running
  *  during calibration would hide the very slowness it is meant to absorb. */
-export function calibrationMs(rounds = 3, iterations = CALIBRATION_ITERATIONS) {
+export function calibrationMs(rounds = 5, iterations = CALIBRATION_ITERATIONS) {
   let best = Infinity
   for (let r = 0; r < rounds; r++) {
     const t = process.hrtime.bigint()

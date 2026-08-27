@@ -20,9 +20,9 @@ export interface LoggedEvent {
 
 /** How many events the replay window holds. A few minutes of typical chatter;
  *  past it a reconnect falls back to a full resync (correct, just costlier).
- *  Entries hold full event payloads (a `session.updated` carries its session),
- *  so this counts entries, not bytes — fine at prototype scale; a byte-budgeted
- *  ring is the production refinement if payloads grow. */
+ *  Invalidation events carry compact resource refs (not session transcripts),
+ *  so entry count is a meaningful first bound; a byte ceiling remains the next
+ *  refinement if other event payloads grow. */
 const DEFAULT_CAPACITY = 512
 
 export class EventLog {

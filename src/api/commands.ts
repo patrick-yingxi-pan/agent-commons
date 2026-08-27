@@ -75,6 +75,7 @@ import { invalidate, invalidatePrefix, mutate, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
+import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -200,23 +201,34 @@ export async function createSession(firstMessage?: string, providerId?: string, 
   return session
 }
 
-/** Read a session's full thread from the server (the system of record) and prime
- *  the cache. The controller calls this on select to reconcile the open thread, so
- *  a persisted turn reappears after switching away and back. */
+/** Read a session's newest bounded thread tail from the server (the system of
+ *  record) and prime the cache. The controller calls this on select; older pages
+ *  are requested explicitly and merged in its keyed conversation store. */
 export async function loadSession(id: string): Promise<Session> {
-  const session = await apiGet<Session>(paths.session(id))
+  const session = await apiGet<Session>(paths.session(id, { limit: MESSAGE_PAGE_SIZE }))
   setData(keys.session(id), session)
   return session
+}
+
+/** Continue a session's message stream toward its beginning. Deliberately does
+ *  not replace the by-id cache: that cache represents the newest projection
+ *  used by ownership/title readers, while the controller owns page merging. */
+export function loadEarlierSession(id: string, cursor: string): Promise<Session> {
+  return apiGet<Session>(paths.session(id, { limit: MESSAGE_PAGE_SIZE, cursor }))
 }
 
 /** Write a session's live workspace through to the server — the panels it has
  *  grown (the *content* of its attached contexts), assembled by the controller
  *  from the server-owned context catalogs. The server is the system of record, so
  *  a runtime attach survives a reload / shows on another client. Fire-and-forget
- *  (the optimistic `live` is the panel's instant driver); primes the session cache. */
+ *  (the optimistic `live` is the panel's instant driver); invalidates the bounded
+ *  session projection so ownership/read consumers reconcile. */
 export async function persistWorkspace(id: string, workspace: SessionWorkspace): Promise<void> {
-  const session = await apiPatch<Session>(paths.sessionWorkspace(id), workspace)
-  setData(keys.session(id), session)
+  await apiPatch<Session>(paths.sessionWorkspace(id), workspace)
+  // The open controller already carries the optimistic workspace. Re-read the
+  // bounded by-id projection instead of caching this mutation's legacy full
+  // Session response (which may contain an arbitrarily long message array).
+  invalidate(keys.session(id))
 }
 
 let optSeq = 0

@@ -22,12 +22,15 @@ export const MAX_PAGE_LIMIT = 100
  *   • `'invalid'` — a malformed `limit` ⇒ the caller replies 400,
  *   • `{limit, cursor?}` — paginate.
  *  `limit` must be an integer in `1..MAX_PAGE_LIMIT`. */
-export function pageParams(url: URL): { limit: number; cursor?: string } | null | 'invalid' {
-  const raw = url.searchParams.get('limit')
+export function pageParams(
+  url: URL,
+  names: { limit: string; cursor: string } = { limit: 'limit', cursor: 'cursor' },
+): { limit: number; cursor?: string } | null | 'invalid' {
+  const raw = url.searchParams.get(names.limit)
   if (raw === null) return null
   const limit = Number(raw)
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_PAGE_LIMIT) return 'invalid'
-  const cursor = url.searchParams.get('cursor') ?? undefined
+  const cursor = url.searchParams.get(names.cursor) ?? undefined
   return cursor ? { limit, cursor } : { limit }
 }
 
@@ -66,4 +69,33 @@ export function paginate<T>(
       ? encodeCursor(keyOf(pageItems[pageItems.length - 1]))
       : null
   return { items: pageItems, nextCursor }
+}
+
+/** A newest-first traversal for chronologically stored streams such as messages.
+ *  Each returned page remains in ordinary reading order; only the direction in
+ *  which pages are requested runs backward. The cursor anchors to the first item
+ *  returned, so new items appended at the end cannot shift an older continuation.
+ *  `remainingBefore` is the source prefix length, allowing a caller to summarize
+ *  unloaded history (for example, its token count) without exposing an offset as
+ *  the continuation contract. */
+export function paginateBackwards<T>(
+  items: T[],
+  keyOf: (item: T) => string,
+  params: { limit: number; cursor?: string },
+): Page<T> & { remainingBefore: number } {
+  let end = items.length
+  if (params.cursor) {
+    const anchor = decodeCursor(params.cursor)
+    if (anchor !== null) {
+      const idx = items.findIndex((item) => keyOf(item) === anchor)
+      if (idx >= 0) end = idx
+    }
+  }
+  const start = Math.max(0, end - params.limit)
+  const pageItems = items.slice(start, end)
+  return {
+    items: pageItems,
+    nextCursor: start > 0 && pageItems.length > 0 ? encodeCursor(keyOf(pageItems[0])) : null,
+    remainingBefore: start,
+  }
 }

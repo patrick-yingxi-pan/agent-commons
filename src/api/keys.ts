@@ -276,7 +276,12 @@ export const paths = {
   reservationCommit: (id: string) => `/reservations/${encodeURIComponent(id)}/commit`,
   reservationRelease: (id: string) => `/reservations/${encodeURIComponent(id)}/release`,
   sessions: '/sessions',
-  session: (id: string) => `/sessions/${encodeURIComponent(id)}`,
+  session: (id: string, page?: { limit: number; cursor?: string }) => {
+    const base = `/sessions/${encodeURIComponent(id)}`
+    if (!page) return base
+    const cursor = page.cursor ? `&messageCursor=${encodeURIComponent(page.cursor)}` : ''
+    return `${base}?messageLimit=${page.limit}${cursor}`
+  },
   sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`,
   sessionContexts: (id: string) => `/sessions/${encodeURIComponent(id)}/contexts`,
   sessionContext: (id: string, contextId: string) =>

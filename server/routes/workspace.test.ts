@@ -44,6 +44,7 @@ test('PATCH /sessions/:id/workspace persists the panels and reads them back', as
   const patched = await call('PATCH', `/sessions/${s.id}/workspace`, workspace)
   assert.equal(patched.status, 200)
   assert.deepEqual(patched.json.workspace, workspace, 'the response carries the stored workspace')
+  assert.equal(patched.json.messages, undefined, 'a workspace mutation never echoes an unbounded transcript')
 
   // It survives a re-read (the system of record) — a runtime attach persists.
   const reread = await call('GET', `/sessions/${s.id}`)

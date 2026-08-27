@@ -120,6 +120,92 @@ test('reconcile replaces live WITHOUT staling the stream, and refuses after a re
   assert.equal(store.get('s').live.messages.length, 0)
 })
 
+test('paged history prepends without duplicates and a live reconcile preserves the loaded prefix', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  const tail = { ...EMPTY, messages: [user('u3', 'three'), user('u4', 'four')] }
+  store.reset('s', EMPTY)
+  const since = store.epoch('s')
+  assert.equal(
+    store.reconcile('s', since, tail, { olderCursor: 'before-u3', olderTokens: 2 }),
+    true,
+  )
+  assert.equal(store.get('s').history.olderCursor, 'before-u3')
+  assert.equal(store.get('s').history.olderTokens, 2)
+
+  store.setHistoryLoading('s', true)
+  assert.equal(store.get('s').history.loading, true)
+  store.prependHistory(
+    's',
+    since,
+    { ...EMPTY, messages: [user('u1', 'one'), user('u2', 'two'), user('u3', 'three')] },
+    { olderCursor: null, olderTokens: 0 },
+  )
+  assert.deepEqual(store.get('s').live.messages.map((m) => m.id), ['u1', 'u2', 'u3', 'u4'])
+  assert.equal(store.get('s').history.olderCursor, null)
+  assert.equal(store.get('s').history.loading, false)
+
+  // A push brings an authoritative newest tail. Since this client already has
+  // the whole prefix, the refresh must update/append the tail without throwing
+  // the older messages away.
+  const refreshed = { ...EMPTY, messages: [user('u4', 'four updated'), user('u5', 'five')] }
+  assert.equal(store.reconcile('s', since, refreshed, { olderCursor: 'before-u4', olderTokens: 3 }), true)
+  assert.deepEqual(store.get('s').live.messages.map((m) => m.id), ['u1', 'u2', 'u3', 'u4', 'u5'])
+  assert.equal(store.get('s').live.messages.find((m) => m.id === 'u4')?.content, 'four updated')
+  assert.equal(store.get('s').history.olderCursor, null, 'the already-loaded prefix stays complete')
+  assert.equal(store.get('s').history.olderTokens, 0)
+})
+
+test('an older page captured before reset is refused by the session epoch fence', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', { ...EMPTY, messages: [user('tail', 'tail')] })
+  const staleEpoch = store.epoch('s')
+  store.reset('s', { ...EMPTY, messages: [user('fresh', 'fresh')] })
+  assert.equal(
+    store.prependHistory(
+      's',
+      staleEpoch,
+      { ...EMPTY, messages: [user('old', 'old')] },
+      { olderCursor: null, olderTokens: 0 },
+    ),
+    false,
+  )
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.id), ['fresh'])
+})
+
+test('a complete paged reconcile resets stale loaded history after remote compaction', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', EMPTY)
+  const since = store.epoch('s')
+  store.reconcile('s', since, { ...EMPTY, messages: [user('old', 'old'), user('tail', 'tail')] }, {
+    olderCursor: null,
+    olderTokens: 0,
+  })
+  const compacted: Message = { id: 'summary', role: 'assistant', content: 'summary', compactedFrom: 2 }
+  store.reconcile('s', since, { ...EMPTY, messages: [compacted] }, { olderCursor: null, olderTokens: 0 })
+  assert.deepEqual(store.get('s').live.messages.map((m) => m.id), ['summary'])
+})
+
+test('a newest-page reconcile with no overlap resets instead of inventing a contiguous history', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', EMPTY)
+  const since = store.epoch('s')
+  store.reconcile('s', since, { ...EMPTY, messages: [user('old-1', 'old'), user('old-2', 'old')] }, {
+    olderCursor: 'before-old-1',
+    olderTokens: 4,
+  })
+  store.reconcile('s', since, { ...EMPTY, messages: [user('new-1', 'new'), user('new-2', 'new')] }, {
+    olderCursor: 'before-new-1',
+    olderTokens: 80,
+  })
+  assert.deepEqual(store.get('s').live.messages.map((m) => m.id), ['new-1', 'new-2'])
+  assert.equal(store.get('s').history.olderCursor, 'before-new-1')
+  assert.equal(store.get('s').history.olderTokens, 80)
+})
+
 test('clearAll BUMPS epochs (monotonic), staling an in-flight stream that captured since===0 — the account-switch fence', async () => {
   const { transport, sends } = fakeTransport()
   const store = createConversationStore(transport, empty)

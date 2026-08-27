@@ -1633,14 +1633,30 @@ function titleFrom(firstMessage?: string): string {
   return text.length > 48 ? `${text.slice(0, 48).trimEnd()}…` : text
 }
 
+/** Strip resource bodies from invalidation-only session events before either the
+ *  live wire or replay ring can retain them. One projection at the single publish
+ *  point makes the bound structural: a future session mutator cannot accidentally
+ *  broadcast an arbitrarily long transcript by passing its in-memory row. */
+function eventForSubscribers(e: ServerEvent): ServerEvent {
+  if (e.type !== 'session.updated' && e.type !== 'session.removed') return e
+  return {
+    type: e.type,
+    session: {
+      id: e.session.id,
+      ...(e.session.tenantId ? { tenantId: e.session.tenantId } : {}),
+    },
+  }
+}
+
 /** Publish a domain event to every open ambient SSE channel. The single publish
- *  point, so the event log stamps each event's global seq exactly once (the
- *  resumable-stream backbone — server/eventlog.ts, design §5.3). */
+ *  point, so payload projection and the event log's global seq happen exactly
+ *  once (the resumable-stream backbone — server/eventlog.ts, design §5.3). */
 function emit(e: ServerEvent): void {
-  const seq = eventlog.record(e)
+  const projected = eventForSubscribers(e)
+  const seq = eventlog.record(projected)
   for (const fn of listeners) {
     try {
-      fn(e, seq)
+      fn(projected, seq)
     } catch {
       /* a dead channel shouldn't break the others */
     }
@@ -2928,7 +2944,7 @@ export const store = {
   /** Whether a session is visible to `tenantId` — the route-level guard for reads by id,
    *  so a tenant can't open another tenant's session by guessing its id. A seed/legacy or
    *  synthesized (run) session with no tenantId belongs to the default tenant. */
-  sessionVisibleToTenant(session: Session, tenantId: string): boolean {
+  sessionVisibleToTenant(session: Pick<Session, 'id' | 'tenantId'>, tenantId: string): boolean {
     // Social S1: a grant opens the subject — the session share is the flagship
     // (replayable at `view`). Ownership stays strict; only READ widens.
     return rowVisibleTo(session, tenantId) || this.grantedTier({ kind: 'session', id: session.id }, tenantId) !== undefined

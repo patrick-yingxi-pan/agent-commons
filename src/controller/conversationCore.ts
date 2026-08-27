@@ -35,6 +35,19 @@ export interface PendingEscalation {
   escalation: EscalationProposal
 }
 
+/** The browser's loaded slice of a session's chronological message stream.
+ *  `olderCursor === undefined` means this entry was not loaded through the
+ *  bounded-history contract (a draft or local seed); `null` means the loaded
+ *  prefix reaches the beginning. Tokens cover only the still-unloaded prefix. */
+export interface ConversationHistory {
+  olderCursor?: string | null
+  olderTokens: number
+  loading: boolean
+  error: string | null
+}
+
+export type HistoryPage = Pick<ConversationHistory, 'olderCursor' | 'olderTokens'>
+
 /** One session's conversation state — everything a pane needs to render a
  *  thread and its composer affordances. */
 export interface ConversationState {
@@ -46,6 +59,7 @@ export interface ConversationState {
   /** The server's refusal copy for the last failed send (the pre-persist gates). */
   sendFailure: string | null
   pendingEscalation: PendingEscalation | null
+  history: ConversationHistory
   /** Which attached context this session's right panel is showing (null = closed).
    *  Per-session so EVERY pane derives its OWN context panel (universal split
    *  Phase 6) — remembered across reopen by `panelPrefs` (FWD-2). */
@@ -97,6 +111,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     liveTurn: null,
     sendFailure: null,
     pendingEscalation: null,
+    history: { olderTokens: 0, loading: false, error: null },
     focus: null,
     reconciled: false,
   })
@@ -153,18 +168,70 @@ export function createConversationStore(transport: ConversationTransport, empty:
 
   /** Select-time reset: a fresh entry seeded with `live`; every in-flight
    *  stream for this session goes stale (the server re-read supersedes it). */
-  const reset = (id: string, live: Live): void => {
+  const reset = (id: string, live: Live, history?: HistoryPage): void => {
     bump(id)
-    states.set(id, { ...blank(), live })
+    states.set(id, {
+      ...blank(),
+      live,
+      ...(history ? { history: { ...history, loading: false, error: null } } : {}),
+    })
     notify(id)
+  }
+
+  const mergeMessages = (loaded: Message[], fresh: Message[]): Message[] => {
+    const freshById = new Map(fresh.map((message) => [message.id, message]))
+    const merged = loaded.map((message) => freshById.get(message.id) ?? message)
+    const seen = new Set(loaded.map((message) => message.id))
+    for (const message of fresh) if (!seen.has(message.id)) merged.push(message)
+    return merged
   }
 
   /** A server reconcile: replace the live state WITHOUT staling in-flight
    *  streams — refused (false) when the entry was reset since `since`, so a
    *  slow read can't clobber a newer selection. */
-  const reconcile = (id: string, since: number, live: Live): boolean => {
+  const reconcile = (id: string, since: number, live: Live, history?: HistoryPage): boolean => {
     if (epoch(id) !== since) return false
-    update(id, (s) => ({ ...s, live, reconciled: true }))
+    update(id, (s) => {
+      // A later newest-tail refresh must not discard pages this client already
+      // loaded. A response with no older cursor is authoritative and complete,
+      // however (notably after remote compaction), so it replaces stale history.
+      const loadedIds = new Set(s.live.messages.map((message) => message.id))
+      const preserveLoadedPrefix =
+        !!history &&
+        s.reconciled &&
+        s.history.olderCursor !== undefined &&
+        history.olderCursor !== null &&
+        live.messages.some((fresh) => loadedIds.has(fresh.id))
+      return {
+        ...s,
+        live: preserveLoadedPrefix
+          ? { ...live, messages: mergeMessages(s.live.messages, live.messages) }
+          : live,
+        history: history
+          ? preserveLoadedPrefix
+            ? { ...s.history, loading: false, error: null }
+            : { ...history, loading: false, error: null }
+          : { olderTokens: 0, loading: false, error: null },
+        reconciled: true,
+      }
+    })
+    return true
+  }
+
+  /** Mark the one-per-session older-page read. Shared by duplicate panes so a
+   *  double click cannot race two continuations into the same stream. */
+  const setHistoryLoading = (id: string, loading: boolean, error: string | null = null): void =>
+    update(id, (s) => ({ ...s, history: { ...s.history, loading, error } }))
+
+  /** Land an older page before the loaded thread, id-deduped because a cursor
+   *  replay and a concurrent tail refresh may overlap at the boundary. */
+  const prependHistory = (id: string, since: number, live: Live, history: HistoryPage): boolean => {
+    if (epoch(id) !== since) return false
+    update(id, (s) => ({
+      ...s,
+      live: { ...s.live, messages: mergeMessages(live.messages, s.live.messages) },
+      history: { ...history, loading: false, error: null },
+    }))
     return true
   }
 
@@ -330,6 +397,8 @@ export function createConversationStore(transport: ConversationTransport, empty:
     epoch,
     reset,
     reconcile,
+    setHistoryLoading,
+    prependHistory,
     adopt,
     holdEscalation,
     clearAll,

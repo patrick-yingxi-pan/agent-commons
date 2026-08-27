@@ -201,6 +201,24 @@ test('unresolvedEscalation: workspace/repo proposals read applied-ness off the s
   assert.equal(unresolvedEscalation(session, { ...EMPTY_LIVE, messages: [] }, emptyGraph()), null, 'no proposal ⇒ nothing pending')
 })
 
+test('unresolvedEscalation reads the projected carrier when bounded history omits the proposal message (C28/PD36)', () => {
+  const escalation: EscalationProposal = { kind: 'workspace', rootChoices: ['~/older'], artifacts: [] }
+  const session = {
+    id: 's-paged',
+    title: 'Paged',
+    messagePage: {
+      olderCursor: 'opaque',
+      olderTokens: 12,
+      latestEscalation: { messageId: 'm-older', escalation },
+    },
+  }
+  const tail: Live = { ...EMPTY_LIVE, messages: [{ id: 'm-new', role: 'assistant', content: 'newest reply' }] }
+  assert.deepEqual(unresolvedEscalation(session, tail, emptyGraph()), {
+    messageId: 'm-older',
+    escalation,
+  })
+})
+
 test('the controller resurfaces the held proposal at BOTH reconcile sites — the record is the authority (C28)', () => {
   // Every pane runs the open recipe through usePaneConversation now (Phase 6):
   // BOTH its reconcile sites — the mount-time read and the session-push
@@ -209,7 +227,7 @@ test('the controller resurfaces the held proposal at BOTH reconcile sites — th
   // let the push site silently miss the resurface — the shared tail is the
   // fix, so the lock asserts the sharing, not a copy count.)
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'usePaneConversation.ts')))
-  assert.match(controller, /unresolvedEscalation\(s, reconciled/, 'the shared reconcile tail derives the held proposal')
+  assert.match(controller, /unresolvedEscalation\(s, landed/, 'the shared reconcile tail derives the held proposal from the merged page state')
   const calls = (controller.match(/reconcileNow\(sessionId[,)]/g) ?? []).length // calls, not the definition
   assert.equal(calls, 2, 'the mount-time read AND the session-push re-read both run the shared tail')
   // Resurfacing never stomps a live-stream pending proposal: holdEscalation is

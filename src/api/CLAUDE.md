@@ -21,6 +21,7 @@ Read [`contract/CLAUDE.md`](../../contract/CLAUDE.md) for wire types,
 | API-D1 | data-access | Cache and events project server-owned truth; the client invents no entities. | [`cache.ts`](cache.ts) · [`events.ts`](events.ts) | [`connectivity-freshness.test.ts`](connectivity-freshness.test.ts) | refines UI-D1 |
 | API-D2 | data-access | Every UI operation uses a declared `paths.*` builder visible to the parity scanner. | [`keys.ts`](keys.ts) · [`hooks.ts`](hooks.ts) · [`commands.ts`](commands.ts) | [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines UI-D2; requires API-A1 |
 | API-D3 | data-access | Optimistic IDs reconcile on acknowledgement and every server event has producer and consumer. | [`cache.ts`](cache.ts) · [`events.ts`](events.ts) | [`optimistic-id.test.ts`](optimistic-id.test.ts) · [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | requires API-D1; refines ROOT-A1 |
+| API-D4 | data-access | Browser session reads share one bounded message-page budget; older continuations belong to the conversation controller and never replace the newest by-id cache projection. | [`sessionPaging.ts`](sessionPaging.ts) · [`commands.ts`](commands.ts) · [`hooks.ts`](hooks.ts) | [`../controller/conversation-store.test.ts`](../controller/conversation-store.test.ts) · [`../../e2e/history-pagination.spec.ts`](../../e2e/history-pagination.spec.ts) | refines UI-E6; requires API-A1 |
 <!-- context-rules:end -->
 
 ## What lives here

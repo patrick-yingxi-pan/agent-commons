@@ -353,6 +353,19 @@ export interface Session {
    *  even to a client that just arrived (reattach via
    *  `GET /sessions/:id/turns/:turnId/stream?after=<seq>`). */
   activeTurnId?: string
+  /** Present only when the caller opts into bounded message history on the
+   *  by-id read (`?messageLimit=N`). `messages` is then one chronological page,
+   *  initially the newest tail; `olderCursor` continues toward the beginning.
+   *  `olderTokens` keeps the context gauge honest while that prefix is not in
+   *  the browser. The newest escalation is projected separately because a held
+   *  consent prompt must remain actionable even when its carrier is older than
+   *  the visible tail. Cursors are opaque and must only be replayed to the same
+   *  session endpoint. */
+  messagePage?: {
+    olderCursor: string | null
+    olderTokens: number
+    latestEscalation?: { messageId: string; escalation: EscalationProposal }
+  }
   /** Canned content shown when a non-demo conversation is opened. */
   messages?: Message[]
   /** Messages archived by context compaction (P5 / BROKER-EXP-3): compaction moves the

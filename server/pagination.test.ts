@@ -5,7 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './testkit/http.ts'
-import { paginate, pageParams, MAX_PAGE_LIMIT } from './pagination.ts'
+import { paginate, paginateBackwards, pageParams, MAX_PAGE_LIMIT } from './pagination.ts'
 import type { Page, Session } from '../contract/index.ts'
 
 const item = (id: string) => ({ id })
@@ -48,6 +48,31 @@ test('paginate handles an empty list', () => {
   assert.equal(p.nextCursor, null)
 })
 
+test('paginateBackwards returns the newest tail in reading order, then walks toward the start', () => {
+  const all = ['a', 'b', 'c', 'd', 'e'].map(item)
+  const p1 = paginateBackwards(all, (i) => i.id, { limit: 2 })
+  assert.deepEqual(ids(p1), ['d', 'e'])
+  assert.equal(p1.remainingBefore, 3)
+  assert.ok(p1.nextCursor)
+
+  const p2 = paginateBackwards(all, (i) => i.id, { limit: 2, cursor: p1.nextCursor! })
+  assert.deepEqual(ids(p2), ['b', 'c'])
+  assert.equal(p2.remainingBefore, 1)
+
+  const p3 = paginateBackwards(all, (i) => i.id, { limit: 2, cursor: p2.nextCursor! })
+  assert.deepEqual(ids(p3), ['a'])
+  assert.equal(p3.remainingBefore, 0)
+  assert.equal(p3.nextCursor, null)
+})
+
+test('paginateBackwards cursor is stable when new messages append after the newest page', () => {
+  const all = ['a', 'b', 'c', 'd'].map(item)
+  const p1 = paginateBackwards(all, (i) => i.id, { limit: 2 })
+  const grown = [...all, item('NEW')]
+  const p2 = paginateBackwards(grown, (i) => i.id, { limit: 2, cursor: p1.nextCursor! })
+  assert.deepEqual(ids(p2), ['a', 'b'], 'resumes before c — an append cannot shift the older window')
+})
+
 // ── pageParams ───────────────────────────────────────────────────────────────
 test('pageParams: absent limit → null; valid → params; invalid → "invalid"', () => {
   const at = (q: string) => pageParams(new URL(`http://t/x${q}`))
@@ -59,6 +84,14 @@ test('pageParams: absent limit → null; valid → params; invalid → "invalid"
   assert.equal(at('?limit=2.5'), 'invalid')
   assert.equal(at('?limit=abc'), 'invalid')
   assert.equal(at(`?limit=${MAX_PAGE_LIMIT + 1}`), 'invalid')
+
+  const messages = (q: string) => pageParams(new URL(`http://t/x${q}`), {
+    limit: 'messageLimit',
+    cursor: 'messageCursor',
+  })
+  assert.equal(messages(''), null)
+  assert.deepEqual(messages('?messageLimit=20&messageCursor=older'), { limit: 20, cursor: 'older' })
+  assert.equal(messages('?messageLimit=0'), 'invalid')
 })
 
 // ── Wiring on GET /sessions (the seed has several sessions) ───────────────────

@@ -112,3 +112,22 @@ test('removeSession broadcasts the definitive session.removed gone-signal (live 
     'a delete says REMOVED (definitive), not "updated" (a refetch hint a receiver cannot derive deletion from)',
   )
 })
+
+test('session invalidation events carry only the tenant-visible ref, never a transcript', () => {
+  const session = store.createSession('bounded ambient event', 'tenant-event-ref')
+  store.appendMessage(session.id, { id: `${session.id}-m`, role: 'user', content: 'a transcript body' })
+  const seen: Array<{ type: string; session: unknown }> = []
+  const off = store.subscribe((event) => {
+    if (event.type === 'session.updated' || event.type === 'session.removed') seen.push(event)
+  })
+  try {
+    store.patchSession(session.id, { title: 'bounded event changed' })
+    store.removeSession(session.id)
+  } finally {
+    off()
+  }
+  assert.deepEqual(seen, [
+    { type: 'session.updated', session: { id: session.id, tenantId: 'tenant-event-ref' } },
+    { type: 'session.removed', session: { id: session.id, tenantId: 'tenant-event-ref' } },
+  ])
+})

@@ -60,8 +60,11 @@ transitions), and WCAG-AA contrast (light-theme only, INV-1). Target WCAG 2.2 AA
 
 ### 2.5 Performance
 
-- **History virtualization** — windowed message list so a long thread renders a
-  bounded number of nodes; back-pages via cursor pagination (F3 PD14), newest-first.
+- **History virtualization** — a session opens on a 40-message newest tail and each
+  pane mounts at most one 40-row chronological window; back-pages use a stable keyed
+  cursor (F3 PD14), with explicit newer / jump-to-latest controls. Unloaded-prefix
+  tokens remain represented, deep turn doors page until their target mounts, and a
+  held escalation is projected independently so pagination cannot strand consent.
 - **Lazy content** — panel bodies + images load on demand (image lazy-loading already
   in `PhotoThumb`); artifact bodies fetched per-open, cached.
 - **Optimistic writes** — the cache already supports optimistic updates; reconcile on
@@ -77,7 +80,9 @@ surfaces a retry.
 
 ## 3. Failure modes & edge cases
 
-- **Very long thread** — virtualization + pagination bound memory; jump-to-latest.
+- **Very long thread** — pagination bounds the initial transfer and windowing bounds
+  mounted DOM; explicitly loaded pages remain available for earlier/newer navigation,
+  with jump-to-latest always present away from the live edge.
 - **Tiny viewport** — the narrow tier keeps the thread usable; the panel is a drawer.
 - **Slow content** — skeletons (the prototype already shows loading states); never a
   layout jump (reserve space).

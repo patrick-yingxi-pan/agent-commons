@@ -88,6 +88,7 @@ import { LimitError } from '../limit.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
+import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
 import type {
   A2aDataPart,
   A2aMessage,
@@ -2773,7 +2774,7 @@ export function buildRouter(): Router {
   r.get('/sessions', ({ req, res, url }) => {
     sendList(res, url, store.listSessions(store.identity(req.headers).tenant.id), (s) => s.id)
   })
-  r.get('/sessions/:id', ({ req, res, params }) => {
+  r.get('/sessions/:id', ({ req, res, params, url }) => {
     if (denyForeignSession(req, res, params.id)) return
     // A scheduled run *is* a session — a persisted row minted through the same
     // funnel as a human one (`srun-*` ids resolve here like any other).
@@ -2788,7 +2789,11 @@ export function buildRouter(): Router {
     // but its share configuration is the owner's alone. Computed here, where the
     // reader is in hand — never stored.
     const own = store.sessionOwnedBy(session, store.identity(req.headers).tenant.id)
-    sendJson(res, { ...session, own, ...(live ? { activeTurnId: live.id } : {}) })
+    const projected = projectSessionHistory(session, url)
+    if (projected === 'invalid') {
+      return sendError(res, 'bad_request', `messageLimit must be an integer from 1 to ${MAX_PAGE_LIMIT}`)
+    }
+    sendJson(res, { ...projected, own, ...(live ? { activeTurnId: live.id } : {}) })
   })
   // CONTINUE a conversation from one of its turns, into the caller's namespace
   // (social S3). Existence-hiding on an unreadable source; `propose` tier to act.
@@ -2848,7 +2853,7 @@ export function buildRouter(): Router {
     try {
       const session = store.patchSession(params.id, patch)
       if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
-      sendJson(res, session)
+      sendJson(res, sessionWithoutHistory(session))
     } catch (err) {
       // A model pick outside the effective provider's catalog — refused, never normalized.
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
@@ -2895,7 +2900,8 @@ export function buildRouter(): Router {
   // attachments). Server-owned so a runtime attach survives a reload, the way the
   // conversation does. The client write-throughs the merged panels it assembled
   // from the (server-owned) context catalogs; the server stores them as the system
-  // of record and returns the full session. Broadcasts `session.updated`.
+  // of record and returns the changed session projection without its transcript.
+  // Broadcasts `session.updated`.
   r.patch('/sessions/:id/workspace', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
     const ws = await body<import('../../contract/index.ts').SessionWorkspace>()
@@ -2904,7 +2910,7 @@ export function buildRouter(): Router {
     }
     if (!store.getSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
     store.setSessionWorkspace(params.id, ws)
-    sendJson(res, store.getSession(params.id))
+    sendJson(res, sessionWithoutHistory(store.getSession(params.id)!))
   })
 
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic

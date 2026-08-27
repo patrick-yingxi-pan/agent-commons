@@ -15,7 +15,7 @@
  *
  *  Request/response is enough for plain reads and for *initiating* a command; it
  *  is not enough for anything on this list. */
-import type { Connector, EscalationProposal, Message, Session, ToolActivity } from './entities.ts'
+import type { Connector, EscalationProposal, Message, ToolActivity } from './entities.ts'
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
 import type { AuditEntry } from './audit.ts'
@@ -137,21 +137,28 @@ export interface SavedContextChangedEvent {
   type: 'savedcontext.changed'
   id: string
 }
+/** The minimum identity an invalidation hint needs. Session updates can follow
+ *  arbitrarily long conversations, so an ambient event must never echo or retain
+ *  the transcript it is telling clients to refetch. `tenantId` is the push-side
+ *  visibility stamp; an absent value keeps the seed/default-tenant semantics. */
+export interface SessionEventRef {
+  id: string
+  tenantId?: string
+}
 /** A session's persisted summary changed (title, preview, updatedAt) — e.g.
- *  after a turn — so list rows refresh without a full refetch. */
+ *  after a turn — so readers invalidate and refetch through their bounded door. */
 export interface SessionUpdatedEvent {
   type: 'session.updated'
-  session: Session
+  session: SessionEventRef
 }
 /** A session was DELETED — the definitive gone-signal (a `session.updated`
  *  can't say "removed": its receiver only refetches lists, and a run session
- *  isn't in any list to vanish from). Carries the full removed row so the
- *  fan-out's tenant gate resolves visibility exactly like `session.updated`
- *  (the row is no longer resolvable by id). Receivers prune every pane
- *  hosting it (live prune) and invalidate its caches. */
+ *  isn't in any list to vanish from). Carries the same minimal identity ref so
+ *  the fan-out's tenant gate works after the row is gone. Receivers prune every
+ *  pane hosting it (live prune) and invalidate its caches. */
 export interface SessionRemovedEvent {
   type: 'session.removed'
-  session: Session
+  session: SessionEventRef
 }
 /** A session's attached contexts changed — attached or detached (Primitive 1 of
  *  docs/shared-resource-coordination.md). Carries the full list so the cache can

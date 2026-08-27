@@ -13,16 +13,20 @@
  *  MVC per pane: model = the keyed conversation entry + the shared api hooks;
  *  view = this component; controller = the thin adapter supplying the command
  *  props (App for the primary, ConversationPane for a split pane). */
-import { useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence } from 'framer-motion'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Composer } from './Composer'
 import { MessageRow, TypingRow } from './Message'
+import { Spinner } from './Spinner'
 import { CompactionAffordance } from './CompactionAffordance'
 import { TurnControls } from './TurnControls'
 import { EscalationPrompt } from './EscalationPrompt'
 import { estimateTokens } from '../../contract/index.ts'
 import { useAgents, useProviders, useSessions } from '../api'
+import { MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
 import { usePendingFocus } from '../lib/focusContext'
+import { messageWindow } from '../lib/messageWindow'
 import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
 import type { AddedContext, PanelFocus, UsageModelRef } from '../types'
@@ -39,6 +43,8 @@ export function ConversationView({
   streaming,
   sendFailure,
   pendingApproval,
+  history,
+  onLoadEarlier,
   onApprove,
   onSend,
   onStop,
@@ -69,6 +75,10 @@ export function ConversationView({
   /** The held escalation, already projected for display (the one consent
    *  funnel — data/liveSession's approvalView). */
   pendingApproval: ReturnType<typeof approvalView> | null
+  /** Cursor state for the still-unloaded prefix. Undefined cursor means a draft
+   *  or a legacy full read; null means the beginning has been reached. */
+  history?: { olderCursor?: string | null; olderTokens: number; loading: boolean; error: string | null }
+  onLoadEarlier?: () => Promise<string | null>
   onApprove: (workspaceRoot?: string) => void
   onSend: (text: string) => void
   onStop: () => void
@@ -94,12 +104,68 @@ export function ConversationView({
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const didMount = useRef(false)
+  const forceBottom = useRef(false)
+  const [windowAnchor, setWindowAnchor] = useState<string | null>(null)
+  useEffect(() => setWindowAnchor(null), [sessionId])
   // A door that landed on a TURN (SOCIAL-6b) beats open-at-the-bottom: you were
   // brought here to see one message, so the thread must not yank past it. The
   // target row's own `useFocusFlash` does the scrolling; this only stands the
   // default landing down. Read at RENDER — `useFocusFlash` consumes the target
   // in a child effect, which runs before this parent one.
   const focusedTurn = usePendingFocus().pending?.messageId
+  const window = useMemo(
+    () => messageWindow(live.messages, windowAnchor, MESSAGE_PAGE_SIZE),
+    [live.messages, windowAnchor],
+  )
+  const anchorExists = windowAnchor !== null && live.messages.some((message) => message.id === windowAnchor)
+  const atLatest = windowAnchor === null || !anchorExists
+
+  // A turn door may target history older than the initial tail. Walk opaque
+  // pages until its row exists, then hold the bounded window around that row so
+  // the row's existing focus-flash effect can perform the final scroll.
+  useEffect(() => {
+    if (!focusedTurn) return
+    const index = live.messages.findIndex((message) => message.id === focusedTurn)
+    if (index >= 0) {
+      const visible = index >= window.start && index < window.start + window.items.length
+      if (!visible) {
+        const start = Math.min(index, Math.max(0, live.messages.length - MESSAGE_PAGE_SIZE))
+        setWindowAnchor(live.messages[start]?.id ?? null)
+      }
+      return
+    }
+    if (history?.olderCursor && !history.loading && !history.error && onLoadEarlier) void onLoadEarlier()
+  }, [focusedTurn, history?.olderCursor, history?.loading, history?.error, live.messages, onLoadEarlier, window])
+
+  const showEarlier = useCallback(async () => {
+    if (window.hiddenEarlier > 0) {
+      const start = Math.max(0, window.start - MESSAGE_PAGE_SIZE)
+      setWindowAnchor(live.messages[start]?.id ?? null)
+      return
+    }
+    if (history?.olderCursor && onLoadEarlier) {
+      const firstId = await onLoadEarlier()
+      if (firstId) setWindowAnchor(firstId)
+    }
+  }, [history?.olderCursor, live.messages, onLoadEarlier, window.hiddenEarlier, window.start])
+
+  const showNewer = useCallback(() => {
+    const latestStart = Math.max(0, live.messages.length - MESSAGE_PAGE_SIZE)
+    const start = Math.min(latestStart, window.start + MESSAGE_PAGE_SIZE)
+    if (start >= latestStart) forceBottom.current = true
+    setWindowAnchor(start >= latestStart ? null : (live.messages[start]?.id ?? null))
+  }, [live.messages, window.start])
+
+  const jumpLatest = useCallback(() => {
+    forceBottom.current = true
+    setWindowAnchor(null)
+  }, [])
+
+  const sendAtLatest = useCallback((text: string) => {
+    forceBottom.current = true
+    setWindowAnchor(null)
+    onSend(text)
+  }, [onSend])
   useEffect(() => {
     // On FIRST render, always jump to the newest content (open the thread at the
     // bottom, as before). After that, auto-scroll only when the viewport is already
@@ -114,6 +180,13 @@ export function ConversationView({
       didMount.current = true
       return
     }
+    if (!atLatest) return
+    if (forceBottom.current) {
+      forceBottom.current = false
+      bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' })
+      didMount.current = true
+      return
+    }
     const el = scrollRef.current
     if (didMount.current && el) {
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120
@@ -123,7 +196,7 @@ export function ConversationView({
     // for subsequent streamed updates.
     bottomRef.current?.scrollIntoView({ behavior: didMount.current ? 'smooth' : 'auto', block: 'end' })
     didMount.current = true
-  }, [live.messages, typing, pendingApproval, focusedTurn])
+  }, [window.items, typing, pendingApproval, focusedTurn, atLatest])
 
   // The relay wait state, derived once for every host: the session's turn routes
   // session pick → Agent's provider → default; a `kind:'session'` provider means
@@ -138,8 +211,8 @@ export function ConversationView({
 
   // Live token count of the thread, so the usage gauge fills as it grows.
   const messageTokens = useMemo(
-    () => live.messages.reduce((n, m) => n + estimateTokens(m.content), 0),
-    [live.messages],
+    () => (history?.olderTokens ?? 0) + live.messages.reduce((n, m) => n + estimateTokens(m.content), 0),
+    [history?.olderTokens, live.messages],
   )
 
   // An orphaned turn: the thread's last word is the user's with nothing
@@ -154,15 +227,37 @@ export function ConversationView({
           empty
         ) : (
           <div className={threadPadClass}>
-            {live.messages.map((m) => (
+            {(window.hiddenEarlier > 0 || !!history?.olderCursor || history?.error) && (
+              <div className="mx-auto flex w-full max-w-3xl items-center justify-center px-4 pb-2">
+                <button
+                  type="button"
+                  onClick={() => void showEarlier()}
+                  disabled={history?.loading}
+                  aria-label={window.hiddenEarlier > 0 ? 'Show earlier messages' : 'Load earlier messages'}
+                  className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2 hover:text-ink disabled:cursor-wait disabled:opacity-60"
+                >
+                  {history?.loading ? <Spinner size={13} /> : <ChevronUp size={14} />}
+                  {history?.loading
+                    ? 'Loading earlier messages…'
+                    : history?.error
+                      ? window.hiddenEarlier === 0
+                        ? 'Couldn’t load earlier messages · Retry'
+                        : `${window.hiddenEarlier} earlier messages`
+                      : window.hiddenEarlier > 0
+                        ? `${window.hiddenEarlier} earlier messages`
+                        : 'Load earlier messages'}
+                </button>
+              </div>
+            )}
+            {window.items.map((m) => (
               <MessageRow key={m.id} message={m} sessionId={sessionId} onOpenSession={onOpenSession} />
             ))}
             <AnimatePresence>
-              {typing && <TypingRow waitingOn={onRelay ? RELAY_WAIT : undefined} />}
+              {typing && atLatest && <TypingRow waitingOn={onRelay ? RELAY_WAIT : undefined} />}
             </AnimatePresence>
             {/* Claude asks before it escalates: this consent prompt gates
                 attaching a workspace / repo / project (the one apply funnel). */}
-            {pendingApproval && (
+            {pendingApproval && atLatest && (
               <EscalationPrompt
                 key={pendingApproval.kind}
                 kind={pendingApproval.kind}
@@ -177,10 +272,33 @@ export function ConversationView({
         )}
       </div>
 
+      {/* When reading an older window, the return path stays in persistent
+          conversation chrome — never after forty rows the user would have to
+          scroll through just to get back to the live edge. */}
+      {window.hiddenNewer > 0 && (
+        <div data-history-edge className="flex shrink-0 items-center justify-center gap-1 bg-canvas px-2 py-1">
+          <button
+            type="button"
+            onClick={showNewer}
+            className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-3 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2 hover:text-ink"
+          >
+            <ChevronDown size={14} />
+            {window.hiddenNewer} newer messages
+          </button>
+          <button
+            type="button"
+            onClick={jumpLatest}
+            className="min-h-8 rounded-lg px-3 text-[12px] font-medium text-accent-strong transition hover:bg-accent-tint"
+          >
+            Jump to latest
+          </button>
+        </div>
+      )}
+
       {/* Compaction (P5): offered once the thread is long enough to be worth
           compacting, and only BETWEEN turns (compacting mid-stream would swap
           out live.messages and drop the still-streaming reply). */}
-      {onCompact && !draft && !busy && !typing && live.messages.length > 6 && (
+      {onCompact && atLatest && !draft && !busy && !typing && live.messages.length > 6 && (
         <CompactionAffordance onCompact={onCompact} />
       )}
 
@@ -202,7 +320,7 @@ export function ConversationView({
         focus={focus}
         disabled={busy}
         disabledLabel={onRelay ? RELAY_WAIT : undefined}
-        onSend={onSend}
+        onSend={sendAtLatest}
         onAddContext={onAddContext}
         onOpenContext={onOpenContext}
         onRemoveContexts={onRemoveContexts}

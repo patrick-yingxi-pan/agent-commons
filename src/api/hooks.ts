@@ -6,6 +6,7 @@
 import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
 import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
+import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow, Tenant as TenantT } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
@@ -606,9 +607,13 @@ export function useSessions(): QueryState<Session[]> {
   return useQuery(keys.sessions, () => apiGet<Session[]>(paths.sessions))
 }
 
-/** A full session by id (messages / artifacts / repo included). */
+/** A bounded newest-tail session by id (workspace + ownership included). */
 export function useSession(id: string): QueryState<Session> {
-  return useQuery(keys.session(id), () => apiGet<Session>(paths.session(id)))
+  return useQuery(
+    keys.session(id),
+    () => apiGet<Session>(paths.session(id, { limit: MESSAGE_PAGE_SIZE })),
+    !!id,
+  )
 }
 
 /** The contexts attached to a session — the attachment of record every effect

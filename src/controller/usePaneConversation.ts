@@ -7,10 +7,10 @@
  *  primary already holds finds a non-pristine entry and simply shares it (the
  *  store dedupes by key); mounting never resets an entry that has state, so a
  *  duplicate pane can't stale its twin's stream. */
-import { useEffect } from 'react'
+import { useCallback, useEffect } from 'react'
 import { SESSIONS } from '../data/sessions'
 import { DRAFT_ID, liveFromSession, unresolvedEscalation, type Live } from '../data/liveSession'
-import { keys, loadSession, onSessionPush, peek } from '../api'
+import { keys, loadEarlierSession, loadSession, onSessionPush, peek } from '../api'
 import { getPanelPref } from '../lib/panelPrefs'
 import { conversations, useConversation } from './conversationStore'
 import type { ConversationState } from './conversationCore'
@@ -40,16 +40,42 @@ function reconcileNow(sessionId: string, after?: (s: Session, reconciled: Live) 
       const now = conversations.get(sessionId)
       if (now.busy || now.typing) return
       const reconciled = liveFromSession(s)
-      if (!conversations.reconcile(sessionId, since, reconciled)) return
-      const held = unresolvedEscalation(s, reconciled, peek<RelationGraph>(keys.relations))
+      if (!conversations.reconcile(sessionId, since, reconciled, s.messagePage)) return
+      const landed = conversations.get(sessionId).live
+      const held = unresolvedEscalation(s, landed, peek<RelationGraph>(keys.relations))
       if (held) conversations.holdEscalation(sessionId, held)
-      after?.(s, reconciled)
+      after?.(s, landed)
     })
     .catch(() => {})
 }
 
-export function usePaneConversation(sessionId: string): ConversationState {
+export function usePaneConversation(sessionId: string): ConversationState & { loadEarlier: () => Promise<string | null> } {
   const conv = useConversation(sessionId)
+
+  const loadEarlier = useCallback(async (): Promise<string | null> => {
+    const current = conversations.get(sessionId)
+    const cursor = current.history.olderCursor
+    if (!cursor || current.history.loading || sessionId === DRAFT_ID) return null
+    const since = conversations.epoch(sessionId)
+    conversations.setHistoryLoading(sessionId, true)
+    try {
+      const page = await loadEarlierSession(sessionId, cursor)
+      if (!page.messagePage) throw new Error('The server did not return a message page')
+      const older = liveFromSession(page)
+      if (!conversations.prependHistory(sessionId, since, older, page.messagePage)) return null
+      const held = unresolvedEscalation(page, conversations.get(sessionId).live, peek<RelationGraph>(keys.relations))
+      if (held) conversations.holdEscalation(sessionId, held)
+      return older.messages[0]?.id ?? null
+    } catch (error) {
+      if (conversations.epoch(sessionId) !== since) return null
+      conversations.setHistoryLoading(
+        sessionId,
+        false,
+        error instanceof Error && error.message ? error.message : 'Could not load earlier messages',
+      )
+      return null
+    }
+  }, [sessionId])
 
   useEffect(() => {
     // The DRAFT has no server row (it materializes on first send through the
@@ -96,5 +122,5 @@ export function usePaneConversation(sessionId: string): ConversationState {
     [sessionId],
   )
 
-  return conv
+  return { ...conv, loadEarlier }
 }

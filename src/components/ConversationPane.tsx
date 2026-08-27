@@ -126,7 +126,11 @@ export function ConversationPane({
   const compact = useCallback(async () => {
     try {
       const updated = await compactSession(sessionId)
-      conversations.setLive(sessionId, (l) => ({ ...l, messages: updated.messages ?? [] }))
+      conversations.update(sessionId, (state) => ({
+        ...state,
+        live: { ...state.live, messages: updated.messages ?? [] },
+        history: { olderTokens: 0, loading: false, error: null },
+      }))
     } catch {
       /* leave the thread as-is; the user can retry */
     }
@@ -173,6 +177,8 @@ export function ConversationPane({
         streaming={!!(conv.busy && conv.liveTurn)}
         sendFailure={conv.sendFailure}
         pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
+        history={conv.history}
+        onLoadEarlier={isDraft ? undefined : conv.loadEarlier}
         onApprove={approve}
         onSend={isDraft ? sendDraft : (text) => void conversations.dispatchTurn(sessionId, text)}
         onStop={() => conversations.stop(sessionId)}

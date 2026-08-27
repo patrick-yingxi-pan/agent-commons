@@ -19,6 +19,7 @@ Read [`../http/CLAUDE.md`](../http/CLAUDE.md) for registration/dispatch rules,
 |---|---|---|---|---|---|
 | ROUTES-A1 | architecture | `buildRouter()` is plain route data and the authoritative capability catalog. | [`index.ts`](index.ts) | [`../mcp-parity.test.ts`](../mcp-parity.test.ts) · [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines SERVER-A2 |
 | ROUTES-D1 | data-access | Product is default; every form, alias, or intrinsic realization is declared on its route with a reason. | [`index.ts`](index.ts) · [`../http/router.ts`](../http/router.ts) | [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines SERVER-D3; requires ROUTES-A1 |
+| ROUTES-D2 | data-access | A session detail is full by default for contract compatibility, but browser opt-in returns a newest chronological message tail with an opaque stable older cursor; mutation projections never echo transcripts. | [`sessionHistory.ts`](sessionHistory.ts) · [`index.ts`](index.ts) | [`sessions.test.ts`](sessions.test.ts) · [`workspace.test.ts`](workspace.test.ts) · [`../pagination.test.ts`](../pagination.test.ts) | refines SERVER-D3; requires ROUTES-A1 |
 | ROUTES-V1 | verification | Each resource suite drives the real router/store through the shared HTTP testkit. | [`../testkit/http.ts`](../testkit/http.ts) | [`sessions.test.ts`](sessions.test.ts) · [`schedules.test.ts`](schedules.test.ts) | refines SERVER-V1 |
 <!-- context-rules:end -->
 
@@ -64,7 +65,10 @@ commission, relations/commons, a2a, social). Splitting `buildRouter()` into
 per-resource `register*(r)` modules is the natural next refactor; when it
 happens, each suite here already sits next to the module it will belong to.
 Until then, don't take the flat listing as a sign that new endpoints should keep
-piling into one function — prefer extracting the resource you're touching.
+piling into one function — prefer extracting the resource you're touching. The
+session history projection is the first such extracted resource seam
+(`sessionHistory.ts`); route registration still stays in the catalog until the
+larger registration split can preserve access-surface generation cleanly.
 
 ## Verification
 

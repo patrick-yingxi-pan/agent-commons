@@ -200,13 +200,20 @@ export function liveFromSession(session: Session): Live {
  *  loaded a project proposal returns null — never re-offer what may already be
  *  approved. */
 export function unresolvedEscalation(
-  session: Pick<Session, 'id' | 'title'>,
+  session: Pick<Session, 'id' | 'title' | 'messagePage'>,
   live: Live,
   graph: RelationGraph | undefined,
 ): { messageId: string; escalation: EscalationProposal } | null {
-  void session // kept in the signature: the panel checks may grow session-shaped reads
-  for (let i = live.messages.length - 1; i >= 0; i -= 1) {
-    const m = live.messages[i]
+  // A bounded tail may not contain the message carrying the newest proposal.
+  // The page metadata projects that one carrier without inserting a non-
+  // contiguous message into the timeline; treat it as the newest candidate.
+  const fallback = session.messagePage?.latestEscalation
+  const candidates =
+    fallback && !live.messages.some((message) => message.id === fallback.messageId)
+      ? [...live.messages, { id: fallback.messageId, role: 'assistant' as const, content: '', escalation: fallback.escalation }]
+      : live.messages
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const m = candidates[i]
     if (m.role !== 'assistant' || !m.escalation) continue
     const esc = m.escalation
     const held = { messageId: m.id, escalation: esc }
