@@ -24,14 +24,22 @@ on creation (running the same attach funnel), landing already-escalated; "New ch
 the seed-less case. One code path, several launchers — consistent with the
 one-door/one-funnel invariants.
 
-### 2.2 Per-conversation panel state (FWD-2)
+### 2.2 Per-conversation panel state (FWD-2) — **built (ADAPT-28)**
 
-Today `strongestFocus` re-derives the panel on every open; production **persists the
-per-session panel choice** (open/closed, which panel, width). Store it as **user
-preferences server-side** (a small `ui_prefs` keyed by `(user, session)`) so it syncs
-across devices (the multi-device payoff of server-owned state, F3); `strongestFocus`
-remains the default when no stored choice exists. Falls back to `localStorage` on the
-desktop/offline.
+The panel choice is a viewer-owned tri-state, not shared Session state: absent means
+derive `strongestFocus`, `null` means explicitly closed, and a `PanelFocus` names the
+attached context to show. A nested `(user, session)` preference persists server-side,
+rides the by-id Session projection, and synchronizes through the ordinary identity-only
+`session.updated` invalidation. An account-scoped `localStorage` mirror remains the
+instant/offline face. Local acts are dirty until their matching acknowledgement; writes
+serialize per `(user, session)`, so an account switch or stale response cannot erase a
+newer click. A newly attached focus waits for the workspace write that makes it valid,
+and a later authoritative read retries an interrupted preference write.
+
+The universal split superseded this design's old independent right frame. Its geometry
+is now the per-account split tree (ADAPT-17), so per-conversation panel *width* is no
+longer a meaningful or desirable preference. Only open/closed/which-context belongs to
+the conversation.
 
 ### 2.3 Responsive ladder (FWD-3) — **built (ADAPT-11)**
 

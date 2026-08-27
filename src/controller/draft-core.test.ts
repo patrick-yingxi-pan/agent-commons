@@ -121,6 +121,28 @@ test('FWD-1 seeds flush BEFORE the turn streams (P6: tools derive from server-si
   assert.equal(log.filter((l) => l.startsWith('attach:')).length, 1)
 })
 
+test('draft generation does not wait for workspace paint, while panel persistence does', async () => {
+  const { deps, log } = fakeDeps()
+  let releaseWorkspace!: () => void
+  const workspaceWrite = new Promise<void>((resolve) => { releaseWorkspace = resolve })
+  deps.persistWorkspace = (sid) => {
+    log.push(`persist:${sid}`)
+    return workspaceWrite
+  }
+  let panelBarrier: Promise<unknown> | undefined
+  deps.setPanelPref = (_sid, _focus, ready) => { panelBarrier = ready }
+  const draft = createDraftController(deps)
+  draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
+
+  const sending = draft.sendDraftTurn('go', () => ({}))
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  assert.ok(log.includes('send:real-1:go'), 'tool-ready generation is not delayed by a presentation write')
+  assert.ok(panelBarrier, 'the panel write receives the still-pending workspace prerequisite')
+
+  releaseWorkspace()
+  await sending
+})
+
 test('clearBuffer abandons staged contexts (navigating away from the draft)', async () => {
   const { deps, log } = fakeDeps()
   const draft = createDraftController(deps)

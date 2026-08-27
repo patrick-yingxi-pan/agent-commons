@@ -44,11 +44,13 @@ at registration:
 - **Session-intrinsic** means the in-app host already realizes the capability;
   exposing it recursively as a model tool would allow self-prompting or
   self-consent. It also carries a reason beside the route.
-- **Form** is protocol or credential ceremony rather than an authenticated
-  workspace capability: sign-in, browser account stacking, streams, health
-  probes, runner callbacks, and the MCP endpoint itself. A form must explain
-  itself. UI-presented forms and remote authentication bootstrap are marked
-  explicitly; neither is allowed to hide a product operation.
+- **Form** is protocol, credential, or viewer-presentation ceremony rather than
+  an authenticated workspace capability: sign-in, browser account stacking,
+  streams, health probes, runner callbacks, the MCP endpoint itself, and a
+  person's private panel chrome. A form must explain itself. UI-presented forms
+  and remote authentication bootstrap are marked explicitly; neither is allowed
+  to hide a product operation. Presentation form may change only the reader's
+  view—never the shared resource or what an agent can do within it.
 
 The projections are then mechanical:
 

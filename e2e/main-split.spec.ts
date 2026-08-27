@@ -11,6 +11,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { ms } from './budget.ts'
 import { openSplitPaneMenu, splitPane } from './pane-actions.ts'
+import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
 
 /** A repo / workspace session auto-tiles its context PANEL as a pane in the
  *  universal tree on the wide tier (ADAPT-16 folded into ADAPT-17). Close it so
@@ -19,9 +20,15 @@ import { openSplitPaneMenu, splitPane } from './pane-actions.ts'
 async function clearAutoPanel(page: Page) {
   const ctx = page.locator('[data-context-pane]')
   if ((await ctx.count()) === 0) return
-  await ctx.first().dispatchEvent('pointerdown')
-  await page.locator('[data-close-view]').click()
-  await expect(page.locator('[data-context-pane]')).toHaveCount(0)
+  // The seed can paint the default panel before the durable explicit-close
+  // preference arrives. If reconciliation removes it between count and focus,
+  // cleanup has already succeeded; the terminal count assertion still keeps
+  // this helper honest when a real panel remains.
+  await ctx.first().dispatchEvent('pointerdown', undefined, { timeout: ms(1_000) }).catch(() => {})
+  if ((await ctx.count()) > 0) {
+    await page.locator('[data-close-view]').click({ timeout: ms(1_000) }).catch(() => {})
+  }
+  await expect(ctx).toHaveCount(0)
   await expect(page.locator('[data-main-pane]')).toHaveCount(1)
 }
 
@@ -421,6 +428,7 @@ test('a run session is ONE surface: run history floats as a click-down, never a 
 
 test('the right panel folds into the tree: a repo session tiles its context PANEL beside the conversation (ADAPT-16 → ADAPT-17)', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
+  await ensureAuthRefactorPanelOpen(page)
   await page.goto('/s/auth-refactor')
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
 

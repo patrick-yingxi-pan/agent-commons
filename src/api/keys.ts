@@ -287,6 +287,7 @@ export const paths = {
   sessionContext: (id: string, contextId: string) =>
     `/sessions/${encodeURIComponent(id)}/contexts/${encodeURIComponent(contextId)}`,
   sessionWorkspace: (id: string) => `/sessions/${encodeURIComponent(id)}/workspace`,
+  sessionPreferences: (id: string) => `/sessions/${encodeURIComponent(id)}/preferences`,
   toolActivity: (id: string, activityId: string) =>
     `/sessions/${encodeURIComponent(id)}/tool-activities/${encodeURIComponent(activityId)}`,
   sessionCompact: (id: string) => `/sessions/${encodeURIComponent(id)}/compact`,

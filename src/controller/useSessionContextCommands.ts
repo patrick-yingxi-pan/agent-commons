@@ -22,7 +22,7 @@ import { useCallback } from 'react'
 import { attachContext, detachContext, persistWorkspace } from '../api'
 import { conversations } from './conversationStore'
 import { rememberAttached } from '../lib/contextShortcuts'
-import { setPanelPref } from '../lib/panelPrefs'
+import { rememberPanelPreference } from './panelPreferences'
 import {
   addContextToLive,
   bindingsFor,
@@ -54,7 +54,7 @@ function clearDanglingFocus(sessionId: string, next: Live) {
   const focus = conversations.get(sessionId).focus
   if (focus && !focusValidIn(next, focus)) {
     conversations.setFocus(sessionId, null)
-    setPanelPref(sessionId, null)
+    rememberPanelPreference(sessionId, null)
   }
 }
 
@@ -65,14 +65,14 @@ export function useSessionContextCommands(sessionId: string): SessionContextComm
       for (const b of bindingsFor(ctx)) void attachContext(sessionId, b).catch(() => {})
       const next = addContextToLive(conversations.get(sessionId).live, ctx)
       conversations.setLive(sessionId, next)
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+      const workspaceWrite = persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
       // Open the newly attached context's panel so you see what you added —
       // and remember it (FWD-2). The wide tier tiles it beside the
       // conversation (the focus projection); the overlay tiers dock it.
       const f = focusForAdded(ctx, next)
       if (f) {
         conversations.setFocus(sessionId, f)
-        setPanelPref(sessionId, f)
+        rememberPanelPreference(sessionId, f, workspaceWrite)
       }
     },
     [sessionId],

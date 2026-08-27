@@ -107,16 +107,17 @@ test('session pushes reach the panes through the one narrow seam (one-door holds
   // Every visible conversation subscribes for its own session now (Phase 6 —
   // the pane controller replaced the singleton's one-active-thread watcher),
   // and the push re-read runs the SAME shared reconcile tail as the mount
-  // recipe (reconcileNow — one loadSession, one mid-stream guard).
+  // recipe (reconcileNow — one loadSession, one mid-stream transcript guard).
   const controller = src('src', 'controller', 'usePaneConversation.ts')
   assert.match(controller, /onSessionPush\(\(sid\) => \{/, 'each pane subscribes')
   // The mid-stream guard reads the SESSION'S OWN entry (the generation flags
   // live in the keyed conversation store).
-  assert.match(
-    controller,
-    /if \(now\.busy \|\| now\.typing\) return/,
-    'a mid-stream thread is never stomped by a reconcile',
+  const busyGuard = controller.slice(
+    controller.indexOf('if (now.busy || now.typing)'),
+    controller.indexOf('if (!conversations.reconcile'),
   )
+  assert.match(busyGuard, /reconcilePanelPreference\(sessionId, s, reconciled\)/, 'orthogonal panel intent remains live mid-stream')
+  assert.match(busyGuard, /return/, 'a mid-stream transcript is never stomped by the authoritative reconcile')
   const push = controller.slice(controller.indexOf('onSessionPush(('))
   assert.match(push.slice(0, 300), /reconcileNow\(sessionId\)/, 'the push re-read is the same shared server reconcile the mount recipe uses')
 })

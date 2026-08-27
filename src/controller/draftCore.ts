@@ -50,7 +50,7 @@ export interface DraftDeps {
   persistWorkspace: (sessionId: string, workspace: ReturnType<typeof workspaceOf>) => Promise<unknown>
   patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
   /** FWD-2: remember the draft's panel choice on the real session. */
-  setPanelPref: (sessionId: string, focus: PanelFocus | null) => void
+  setPanelPref: (sessionId: string, focus: PanelFocus | null, ready?: Promise<unknown>) => void
   /** The live provider registry (peek(keys.providers)) — undefined = not loaded. */
   knownProviders: () => Array<{ id: string; models?: Array<{ id: string }> }> | undefined
   /** The inherit-default provider id the sanitize resolves an unset pick against. */
@@ -240,16 +240,20 @@ export function createDraftController(deps: DraftDeps) {
       // could have replaced the live state), keeping binding-of-record and
       // panels in lock-step.
       const seeded = pendingContexts
+      let panelReady: Promise<unknown> | undefined
       if (seeded.length) {
         await Promise.all(seeded.flatMap((ctx) => bindingsFor(ctx).map((b) => deps.attachContext(sid, b).catch(() => {}))))
         const seededLive = seeded.reduce((l, ctx) => addContextToLive(l, ctx), EMPTY_LIVE)
-        void deps.persistWorkspace(sid, workspaceOf(seededLive)).catch(() => {})
+        // The panel queue waits behind this write because the server validates
+        // focus against the workspace. Generation need not: its tool boundary
+        // reads the bindings already awaited above.
+        panelReady = deps.persistWorkspace(sid, workspaceOf(seededLive)).catch(() => {})
         pendingContexts = []
       }
       // Carry the draft's panel choice onto the real session (FWD-2): the
       // draft couldn't persist a pref (no server id), so an explicitly-closed
       // panel would otherwise be re-opened by strongestFocus on reopen.
-      deps.setPanelPref(sid, draftFocus)
+      deps.setPanelPref(sid, draftFocus, panelReady)
       // A model pick changed WHILE materializing went to the draft slot after
       // the capture above — flush it, sanitized the same way (a stale pref the
       // dispatch dropped must not re-PATCH and 404 every fresh-draft send).

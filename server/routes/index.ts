@@ -41,9 +41,10 @@ import type {
   SetRunnerCapabilitiesRequest,
   SetConnectorStatusRequest,
   UpdateScheduleRequest,
+  UpdateSessionPreferencesRequest,
   OpsSummary,
 } from '../../contract/index.ts'
-import { SOCIAL_ENTITY_KINDS, isAnchorLocus } from '../../contract/index.ts'
+import { SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -2788,12 +2789,18 @@ export function buildRouter(): Router {
     // without widening ownership, so a granted visitor opens this conversation
     // but its share configuration is the owner's alone. Computed here, where the
     // reader is in hand — never stored.
-    const own = store.sessionOwnedBy(session, store.identity(req.headers).tenant.id)
+    const identity = store.identity(req.headers)
+    const own = store.sessionOwnedBy(session, identity.tenant.id)
     const projected = projectSessionHistory(session, url)
     if (projected === 'invalid') {
       return sendError(res, 'bad_request', `messageLimit must be an integer from 1 to ${MAX_PAGE_LIMIT}`)
     }
-    sendJson(res, { ...projected, own, ...(live ? { activeTurnId: live.id } : {}) })
+    sendJson(res, {
+      ...projected,
+      own,
+      viewerPreferences: store.sessionPreferences(identity.user.id, params.id),
+      ...(live ? { activeTurnId: live.id } : {}),
+    })
   })
   // CONTINUE a conversation from one of its turns, into the caller's namespace
   // (social S3). Existence-hiding on an unreadable source; `propose` tier to act.
@@ -2858,6 +2865,25 @@ export function buildRouter(): Router {
       // A model pick outside the effective provider's catalog — refused, never normalized.
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       throw err
+    }
+  })
+  // Viewer presentation intent is UI form, not a workspace capability: it
+  // changes how this browser/person lays out a readable conversation, never the
+  // shared conversation or what a model/MCP caller can do within it.
+  r.uiFormPatch('/sessions/:id/preferences', 'viewer presentation preference; not a shared workspace capability', async ({ req, res, params, body }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const input = await body<Partial<UpdateSessionPreferencesRequest>>()
+    if (!input || !Object.prototype.hasOwnProperty.call(input, 'panelFocus')) {
+      return sendError(res, 'bad_request', 'panelFocus is required (null closes the panel)')
+    }
+    if (input.panelFocus !== null && !isPanelFocus(input.panelFocus)) {
+      return sendError(res, 'bad_request', 'panelFocus must be null or a valid context focus')
+    }
+    try {
+      sendJson(res, store.setSessionPreferences(store.identity(req.headers).user.id, params.id, input.panelFocus))
+    } catch (error) {
+      if (error instanceof ValidationError) return sendError(res, 'bad_request', error.message)
+      throw error
     }
   })
   // Delete a session (the row menu's "Delete").

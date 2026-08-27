@@ -6,7 +6,7 @@
  *  materialization ONLY through here (one funnel, no fork). */
 import { attachContext, createSession, keys, patchSession, peek, persistWorkspace } from '../api'
 import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../../contract/index'
-import { setPanelPref } from '../lib/panelPrefs'
+import { rememberPanelPreference } from './panelPreferences'
 import { conversations } from './conversationStore'
 import { createDraftController } from './draftCore'
 
@@ -15,7 +15,7 @@ export const draft = createDraftController({
   attachContext,
   persistWorkspace,
   patchSession: (sessionId, patch) => patchSession(sessionId, patch),
-  setPanelPref,
+  setPanelPref: rememberPanelPreference,
   knownProviders: () => peek<ModelProvider[]>(keys.providers),
   defaultProviderId: DEFAULT_PROVIDER_ID,
   store: conversations,

@@ -12,6 +12,7 @@ import type {
   Workspace,
 } from '../types'
 import { opAppliedInGraph } from '../../contract/graph.ts'
+import { panelFocusInWorkspace } from '../../contract/entities.ts'
 
 /** ── Model: the live session ──────────────────────────────────────────────
  *  Pure domain logic for the unit a user works in. A `Session` (sessions.ts) is
@@ -380,16 +381,7 @@ export function focusForAdded(ctx: AddedContext, live: Live): PanelFocus | null 
  *  that was just detached (the pane projection would otherwise keep rendering
  *  the "no longer attached" placeholder forever). Pure; shared by every host. */
 export function focusValidIn(l: Live, focus: PanelFocus): boolean {
-  switch (focus.kind) {
-    case 'workspace':
-      return l.workspaces.some((w) => w.id === focus.id)
-    case 'repo':
-      return l.repos.some((r) => r.id === focus.id)
-    case 'connector':
-      return l.connectors.some((c) => c.id === focus.id)
-    default:
-      return l.attachments.some((a) => a.id === focus.id)
-  }
+  return panelFocusInWorkspace(workspaceOf(l), focus)
 }
 
 /** Bucket a remove's PanelFocus targets by context kind — the ONE id-grouping

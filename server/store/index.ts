@@ -48,6 +48,7 @@ import type {
   ServerEvent,
   Session,
   SessionContext,
+  SessionPreferences,
   SessionWorkspace,
   ShareTier,
   SocialEntityRef,
@@ -114,6 +115,14 @@ import { EMPTY_WORKSPACE, workspaceFromSeed } from '../workspace.ts'
 import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
+import {
+  getSessionPreferences as viewerSessionPreferences,
+  persistedSessionPreferences,
+  pruneSessionPreferences,
+  rehydrateSessionPreferences,
+  removeSessionPreferences,
+  setSessionPreferences as writeSessionPreferences,
+} from '../sessionPreferences.ts'
 
 /** An ambient-event subscriber. `seq` is the event's global sequence number
  *  (server/eventlog.ts — the SSE `id:` field that makes the stream resumable);
@@ -1962,6 +1971,7 @@ function snapshot(): PersistedState {
     sessions: SESSIONS,
     bindings: [...sessionContextBindings.entries()],
     workspaces: [...sessionWorkspaces.entries()],
+    sessionPreferences: persistedSessionPreferences(),
     schedules,
     recents,
     graph,
@@ -2350,6 +2360,13 @@ function rehydrate(s: PersistedState): void {
     orgInvites: s.orgInvites,
     apiTokens: s.apiTokens,
     seq: { user: s.seq.user, tenant: s.seq.tenant, orgInvite: s.seq.orgInvite },
+  })
+  const knownUsers = new Set(accounts.toPersisted().users.map(([id]) => id))
+  rehydrateSessionPreferences(s.sessionPreferences, (userId, sessionId) => {
+    if (!knownUsers.has(userId)) return undefined
+    const session = SESSIONS.find((row) => row.id === sessionId)
+    if (!session) return undefined
+    return sessionWorkspaces.get(sessionId) ?? workspaceFromSeed(session)
   })
   sessionSeq = s.seq.session
   messageSeq = s.seq.message
@@ -3206,10 +3223,30 @@ export const store = {
    *  so any other client reconciles. Returns the stored workspace. */
   setSessionWorkspace(id: string, workspace: SessionWorkspace): SessionWorkspace {
     sessionWorkspaces.set(id, workspace)
+    pruneSessionPreferences(id, workspace)
     const session = SESSIONS.find((s) => s.id === id)
     if (session) emit({ type: 'session.updated', session })
     persist()
     return workspace
+  },
+
+  /** This viewer's durable panel intent for a session. Kept outside the shared
+   * Session row so collaborators can view the same conversation differently. */
+  sessionPreferences(userId: string, sessionId: string): SessionPreferences {
+    return viewerSessionPreferences(userId, sessionId)
+  },
+  setSessionPreferences(userId: string, sessionId: string, panelFocus: import('../../contract/index.ts').PanelFocus | null): SessionPreferences {
+    const session = SESSIONS.find((row) => row.id === sessionId)
+    if (!session) throw new ValidationError(`No session '${sessionId}'`)
+    try {
+      const next = writeSessionPreferences(userId, sessionId, panelFocus, this.sessionWorkspace(sessionId))
+      emit({ type: 'session.updated', session })
+      persist()
+      return next
+    } catch (error) {
+      if (error instanceof Error) throw new ValidationError(error.message)
+      throw error
+    }
   },
 
   /** Mint a server-owned message id. The conversation is the system of record, so
@@ -4094,6 +4131,7 @@ export const store = {
     const i = SESSIONS.findIndex((s) => s.id === id)
     if (i === -1) return false
     const [removed] = SESSIONS.splice(i, 1)
+    removeSessionPreferences(id)
     if (removed.scheduledRunOf) {
       const task = schedules.find((t) => t.id === removed.scheduledRunOf!.taskId)
       if (task) {

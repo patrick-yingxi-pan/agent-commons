@@ -21,6 +21,7 @@
  *  the very first navigation. Selectors mirror e2e/main-split.spec.ts. */
 import { test, expect, type ConsoleMessage } from '@playwright/test'
 import { splitPane } from './pane-actions.ts'
+import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
 
 /** React's dev warning for a reordered hook list, plus the hard errors a count
  *  change throws in React 19 — any of these means a Rules-of-Hooks violation. */
@@ -38,6 +39,7 @@ test('the Workspace shell keeps a stable hook order across focus / panel / split
   })
 
   await page.setViewportSize({ width: 1280, height: 1000 })
+  await ensureAuthRefactorPanelOpen(page)
 
   // Mount on the fresh draft (focus null), then boot-restore a repo session:
   // `focus` goes non-null and its context panel auto-tiles as a pane in the

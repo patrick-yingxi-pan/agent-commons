@@ -9,6 +9,7 @@
  *  an at-render-only ref stored the previous size, so a reload snapped it back). */
 import { test, expect, type Locator, type Page } from '@playwright/test'
 import { splitPane } from './pane-actions.ts'
+import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
 
 /** The rail width animates (200ms transition), so measure only once the box has
  *  stopped moving — two consecutive samples within half a pixel. */
@@ -136,6 +137,7 @@ test('the overlay panel separator takes RAPID keyboard steps, announces its valu
   // split node owns geometry, ADAPT-16→ADAPT-17; narrow is a takeover). So the
   // swallowed-step regression lives here now.
   await page.setViewportSize({ width: 768, height: 1000 })
+  await ensureAuthRefactorPanelOpen(page)
   await page.goto('/')
 
   // The seeded repo session restores its panel on select (same door responsive.spec uses).

@@ -35,6 +35,7 @@ import type {
   SocialProposal,
   Session,
   SessionContext,
+  SessionPreferences,
   SessionWorkspace,
   SystemPromptEntry,
   WorkItemComment,
@@ -229,6 +230,10 @@ export interface PersistedState {
   sessions: Session[]
   bindings: [string, SessionContext[]][]
   workspaces: [string, SessionWorkspace][]
+  /** Per-user, per-session presentation intent. Nested map entries keep viewer
+   * preferences out of the shared Session row. Additive-optional so older
+   * snapshots load with the product default. */
+  sessionPreferences?: [string, [string, SessionPreferences][]][]
   schedules: ScheduledTask[]
   recents: RecentsSnapshot
   graph: RelationGraph
@@ -394,6 +399,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   sessions: 'array',
   bindings: 'mapEntries',
   workspaces: 'mapEntries',
+  sessionPreferences: 'mapEntries',
   schedules: 'array',
   recents: 'singleton',
   graph: 'singleton',

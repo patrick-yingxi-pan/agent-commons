@@ -43,6 +43,9 @@ Anchor specs:
 - `e2e/responsive.spec.ts` — the viewport ladder at phone/tablet/landscape
   sizes: the narrow-tier rail drawer, the full-viewport panel takeover, and
   the `short:` chrome compression (spec ADAPT-11).
+- `e2e/panel-preferences.spec.ts` — two isolated browser contexts prove the
+  reader's close/open intent comes from the server and reconciles live, not
+  from shared localStorage.
 - **The social layer — three specs, one walk each**, sharing setup through
   `e2e/social-helpers.ts`. They were one 1,611-line file until it measured 26%
   of the whole E2E suite; because a lane can never be shorter than its longest

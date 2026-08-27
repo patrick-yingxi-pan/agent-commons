@@ -66,9 +66,11 @@ import {
   type SetConnectorStatusRequest,
   type Session,
   type SessionContext,
+  type SessionPreferences,
   type SessionWorkspace,
   type ToolActivity,
   type UpdateScheduleRequest,
+  type UpdateSessionPreferencesRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, invalidatePrefix, mutate, setData } from './cache.ts'
@@ -232,6 +234,16 @@ export async function persistWorkspace(id: string, workspace: SessionWorkspace):
   // bounded by-id projection instead of caching this mutation's legacy full
   // Session response (which may contain an arbitrarily long message array).
   invalidate(keys.session(id))
+}
+
+/** Persist this viewer's panel intent. Presentation preferences are deliberately
+ * separate from the shared session PATCH: collaborators may view the same
+ * conversation differently. The controller owns optimistic/offline retry. */
+export function patchSessionPreferences(
+  id: string,
+  request: UpdateSessionPreferencesRequest,
+): Promise<SessionPreferences> {
+  return apiPatch<SessionPreferences>(paths.sessionPreferences(id), request)
 }
 
 let optSeq = 0

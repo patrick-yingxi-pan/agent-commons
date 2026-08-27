@@ -29,7 +29,7 @@ import {
 } from './api'
 import { conversations, useConversation } from './controller/conversationStore'
 import { sameFocus } from './lib/focus'
-import { setPanelPref } from './lib/panelPrefs'
+import { rememberPanelPreference } from './controller/panelPreferences'
 import { useSessionWorkspace } from './controller/useSessionWorkspace'
 import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
@@ -393,7 +393,7 @@ function Workspace() {
       onOpenSessionContext: (sessionId, f) => {
         const next = sameFocus(conversations.get(sessionId).focus, f) ? null : f
         conversations.setFocus(sessionId, next)
-        if (sessionId !== DRAFT_ID) setPanelPref(sessionId, next)
+        if (sessionId !== DRAFT_ID) rememberPanelPreference(sessionId, next)
       },
       sessionLabel,
       // A pane-hosted draft materialized: every draft pane follows the entry
@@ -409,7 +409,7 @@ function Workspace() {
       onPaneSubjectGone: (path, content) => {
         if (content.kind === 'context-panel' && content.focusDriven) {
           conversations.setFocus(content.sessionId, null)
-          if (content.sessionId !== DRAFT_ID) setPanelPref(content.sessionId, null)
+          if (content.sessionId !== DRAFT_ID) rememberPanelPreference(content.sessionId, null)
         } else {
           closeMainPane(path)
         }
@@ -494,7 +494,7 @@ function Workspace() {
             const sid = c?.kind === 'context-panel' ? c.sessionId : null
             if (sid) {
               conversations.setFocus(sid, null)
-              if (sid !== DRAFT_ID) setPanelPref(sid, null)
+              if (sid !== DRAFT_ID) rememberPanelPreference(sid, null)
             }
           })
       : undefined

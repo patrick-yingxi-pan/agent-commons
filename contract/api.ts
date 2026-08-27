@@ -93,6 +93,12 @@ export interface CreateSessionRequest {
   modelId?: string
 }
 
+/** Body of `PATCH /v1/sessions/:id/preferences`. The property is required so
+ * an empty request cannot accidentally turn "default" into "closed". */
+export interface UpdateSessionPreferencesRequest {
+  panelFocus: import('./entities.ts').PanelFocus | null
+}
+
 /** Body of `POST /v1/sessions/:id/contexts` — attach a context to a session (the
  *  attachment of record; see docs/shared-resource-coordination.md). The persisted
  *  binding is a `SessionContext`; `scope` defaults to `'*'` (unscoped) when omitted. */

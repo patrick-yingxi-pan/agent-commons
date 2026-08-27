@@ -76,7 +76,12 @@ test("a relation card's attach-context op attaches to ITS OWN session (no root b
 test('the shared attach funnel opens the panel; every remove funnel clears a dangling focus', () => {
   const cmds = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionContextCommands.ts')))
   assert.match(cmds, /focusForAdded\(ctx, next\)/, 'attach derives the panel to open (you see what you added)')
-  assert.match(cmds, /setPanelPref\(sessionId, f\)/, 'the opened panel is remembered (FWD-2)')
+  assert.match(cmds, /workspaceWrite = persistWorkspace\(sessionId, workspaceOf\(next\)\)/, 'the attached panel writes through')
+  assert.match(
+    cmds,
+    /rememberPanelPreference\(sessionId, f, workspaceWrite\)/,
+    'the opened panel is remembered only after its workspace becomes valid (FWD-2)',
+  )
   // All three remove commands run the dangling-focus guard.
   const clears = cmds.split('clearDanglingFocus(sessionId, next)').length - 1
   assert.equal(clears, 3, 'removeContexts, removeFolder and removeAttachment all clear a dangling focus')

@@ -94,6 +94,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.ok((created?.messages?.length ?? 0) >= 2, 'the created session carries its exchange')
   assert.ok(s.bindings.some(([sid]) => sid.startsWith('sess-')), 'the created session has an attached context')
   assert.ok(s.workspaces.some(([sid]) => sid.startsWith('sess-')), 'the created session has a live workspace')
+  assert.ok(
+    s.sessionPreferences?.some(([userId, rows]) =>
+      userId === 'user-local' && rows.some(([sid, prefs]) => sid.startsWith('sess-') && prefs.panelFocus?.id === 'repo-playground')),
+    'setSessionPreferences → viewer-scoped panel intent',
+  )
   const ws = s.workspaces.find(([sid]) => sid.startsWith('sess-'))?.[1]
   assert.ok(ws && ws.repos.length > 0 && ws.workspaces.length > 0 && ws.connectors.length > 0 && ws.attachments.length > 0, 'the workspace populates all four panel kinds')
   assert.ok(s.schedules.some((t) => t.id.startsWith('s-new-')), 'a created schedule exists')

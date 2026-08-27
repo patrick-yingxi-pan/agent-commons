@@ -8,7 +8,7 @@
 import { AnimatePresence } from 'framer-motion'
 import { conversations, useConversation } from '../controller/conversationStore'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
-import { setPanelPref } from '../lib/panelPrefs'
+import { rememberPanelPreference } from '../controller/panelPreferences'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DRAFT_ID } from '../data/liveSession'
 import { WorkspacePanel } from './WorkspacePanel'
@@ -34,7 +34,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
   const closePanel = () => {
     // Clear the driver; remember the closed state (FWD-2) on real sessions.
     conversations.setFocus(sessionId, null)
-    if (sessionId !== DRAFT_ID) setPanelPref(sessionId, null)
+    if (sessionId !== DRAFT_ID) rememberPanelPreference(sessionId, null)
   }
 
   const focusedWorkspace = focus?.kind === 'workspace' ? live.workspaces.find((w) => w.id === focus.id) : undefined

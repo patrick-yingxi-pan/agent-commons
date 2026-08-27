@@ -20,6 +20,7 @@ state.
 | STORE-A1 | architecture | Server-owned entities and mutators have one in-memory source of truth. | [`index.ts`](index.ts) | [`index.test.ts`](index.test.ts) | refines ROOT-A1 |
 | STORE-D1 | data-access | Tenant visibility is enforced by read-time projection and hides foreign existence. | [`index.ts`](index.ts) | [`project-tenancy.test.ts`](project-tenancy.test.ts) · [`session-tenancy.test.ts`](session-tenancy.test.ts) | refines ROOT-D1; requires SERVER-D2 |
 | STORE-D2 | data-access | Seed tenancy is reconciled after rehydrate so old snapshots cannot undo isolation. | [`index.ts`](index.ts) · [`../data/`](../data/) | [`registry-tenancy.test.ts`](registry-tenancy.test.ts) | requires STORE-D1; requires SERVER-D4 |
+| STORE-D3 | data-access | Per-viewer session presentation state lives in its narrow user/session module; workspace changes prune dangling focus and session deletion cascades it. | [`../sessionPreferences.ts`](../sessionPreferences.ts) · [`index.ts`](index.ts) | [`../sessionPreferences.test.ts`](../sessionPreferences.test.ts) · [`../routes/session-preferences.test.ts`](../routes/session-preferences.test.ts) | refines SERVER-D5; requires STORE-A1 |
 | STORE-V1 | verification | Direct store suites run in memory; HTTP behavior and snapshot round-trips stay with their own modules. | [`index.ts`](index.ts) | [`index.test.ts`](index.test.ts) · [`../persistence/snapshot.test.ts`](../persistence/snapshot.test.ts) | refines SERVER-V1 |
 <!-- context-rules:end -->
 

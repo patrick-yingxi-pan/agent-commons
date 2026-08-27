@@ -30,8 +30,8 @@ export type RouteAccess =
   | {
       kind: 'form'
       reason: string
-      /** Some protocol/credential forms are deliberately presented by the UI
-       * (sign-in, account switching, stream replay). Declaring that fact makes
+      /** Some protocol/credential/presentation forms are deliberately presented by the UI
+       * (sign-in, account switching, stream replay, viewer chrome). Declaring that fact makes
        * a product route accidentally reclassified as form fail the UI lock. */
       ui?: 'form'
       /** Authentication bootstrap may be callable over remote MCP without
@@ -129,6 +129,9 @@ export class Router {
   }
   formPatch(p: string, reason: string, h: Handler) {
     return this.patch(p, h, formOnly(reason))
+  }
+  uiFormPatch(p: string, reason: string, h: Handler) {
+    return this.patch(p, h, uiForm(reason))
   }
   formDelete(p: string, reason: string, h: Handler) {
     return this.delete(p, h, formOnly(reason))

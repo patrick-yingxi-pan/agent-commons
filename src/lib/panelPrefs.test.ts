@@ -5,10 +5,18 @@
  *  lazily per call, so installing the shim before the calls suffices). */
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { getPanelPref, setPanelPref } from './panelPrefs.ts'
+import {
+  acknowledgePanelPref,
+  adoptServerPanelPref,
+  getPanelPref,
+  getPanelPrefState,
+  setPanelPref,
+} from './panelPrefs.ts'
+import { setUiPrefScope } from './uiPrefs.ts'
 import type { PanelFocus } from '../types.ts'
 
 beforeEach(() => {
+  setUiPrefScope(null)
   const m = new Map<string, string>()
   ;(globalThis as { localStorage?: unknown }).localStorage = {
     getItem: (k: string) => (m.has(k) ? m.get(k)! : null),
@@ -38,4 +46,36 @@ test('a fresh module evaluation reads the persisted choice (survives a reload)',
   // cache were ever introduced (which a same-process re-read wouldn't catch).
   const fresh = await import('./panelPrefs.ts?reload=1')
   assert.deepEqual(fresh.getPanelPref('s1'), { kind: 'workspace', id: 'ws' })
+})
+
+test('preferences are account-scoped and inherit the legacy blob once', () => {
+  setPanelPref('s1', { kind: 'repo', id: 'legacy' })
+  setUiPrefScope('ada')
+  assert.deepEqual(getPanelPrefState('s1'), { focus: { kind: 'repo', id: 'legacy' }, dirty: true })
+  setPanelPref('s1', null)
+  setUiPrefScope('grace')
+  assert.deepEqual(getPanelPref('s1'), { kind: 'repo', id: 'legacy' })
+  setPanelPref('s1', { kind: 'repo', id: 'grace' })
+  setUiPrefScope('ada')
+  assert.equal(getPanelPref('s1'), null)
+})
+
+test('dirty local intent beats a stale server read until the matching ack', () => {
+  setPanelPref('s1', { kind: 'repo', id: 'local' })
+  assert.deepEqual(adoptServerPanelPref('s1', { panelFocus: { kind: 'repo', id: 'server' } }), {
+    kind: 'repo',
+    id: 'local',
+  })
+  acknowledgePanelPref('s1', { kind: 'repo', id: 'server' }, { panelFocus: { kind: 'repo', id: 'server' } })
+  assert.equal(getPanelPrefState('s1')?.dirty, true, 'a stale acknowledgement cannot clear the newer choice')
+  acknowledgePanelPref('s1', { kind: 'repo', id: 'local' }, { panelFocus: { kind: 'repo', id: 'local' } })
+  assert.equal(getPanelPrefState('s1')?.dirty, false)
+  assert.equal(adoptServerPanelPref('s1', { panelFocus: null }), null)
+})
+
+test('a clean absent server value restores the default state', () => {
+  setPanelPref('s1', null)
+  acknowledgePanelPref('s1', null, { panelFocus: null })
+  assert.equal(adoptServerPanelPref('s1', {}), undefined)
+  assert.equal(getPanelPrefState('s1'), undefined)
 })

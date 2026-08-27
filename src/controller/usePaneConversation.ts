@@ -9,10 +9,11 @@
  *  duplicate pane can't stale its twin's stream. */
 import { useCallback, useEffect } from 'react'
 import { SESSIONS } from '../data/sessions'
-import { DRAFT_ID, liveFromSession, unresolvedEscalation, type Live } from '../data/liveSession'
+import { DRAFT_ID, focusValidIn, liveFromSession, unresolvedEscalation, type Live } from '../data/liveSession'
 import { keys, loadEarlierSession, loadSession, onSessionPush, peek } from '../api'
 import { getPanelPref } from '../lib/panelPrefs'
 import { conversations, useConversation } from './conversationStore'
+import { rememberPanelPreference, resolvePanelPreference } from './panelPreferences'
 import type { ConversationState } from './conversationCore'
 import type { PanelFocus, RelationGraph, Session } from '../types'
 
@@ -24,6 +25,18 @@ function strongestFocus(l: Live): PanelFocus | null {
     : l.workspaces[0]
       ? { kind: 'workspace', id: l.workspaces[0].id }
       : null
+}
+
+/** Apply the server/local tri-state after every authoritative read, including
+ * ambient pushes from another device. A stale local/server id becomes an
+ * explicit close through the same durable funnel as a context removal. */
+function reconcilePanelPreference(sessionId: string, session: Session, live: Live): void {
+  let focus = resolvePanelPreference(sessionId, session.viewerPreferences)
+  if (focus && !focusValidIn(live, focus)) {
+    focus = null
+    rememberPanelPreference(sessionId, null)
+  }
+  conversations.setFocus(sessionId, focus !== undefined ? focus : strongestFocus(live))
 }
 
 /** The ONE server-reconcile tail both effects below share: load the session,
@@ -38,10 +51,17 @@ function reconcileNow(sessionId: string, after?: (s: Session, reconciled: Live) 
   loadSession(sessionId)
     .then((s) => {
       const now = conversations.get(sessionId)
-      if (now.busy || now.typing) return
       const reconciled = liveFromSession(s)
+      // Presentation intent is orthogonal to transcript reconciliation: a
+      // remote close/open may land while this client is streaming a turn.
+      if (now.busy || now.typing) {
+        reconcilePanelPreference(sessionId, s, reconciled)
+        after?.(s, reconciled)
+        return
+      }
       if (!conversations.reconcile(sessionId, since, reconciled, s.messagePage)) return
       const landed = conversations.get(sessionId).live
+      reconcilePanelPreference(sessionId, s, landed)
       const held = unresolvedEscalation(s, landed, peek<RelationGraph>(keys.relations))
       if (held) conversations.holdEscalation(sessionId, held)
       after?.(s, landed)
@@ -95,14 +115,7 @@ export function usePaneConversation(sessionId: string): ConversationState & { lo
       const pref = getPanelPref(sessionId)
       conversations.setFocus(sessionId, pref !== undefined ? pref : strongestFocus(conversations.get(sessionId).live))
     }
-    reconcileNow(sessionId, (s, reconciled) => {
-      // The reconciled live may reveal contexts the seed lacked — re-run the
-      // panel restore ONLY while nothing is open (a user toggle mid-load, or
-      // the seed restore above, must not be clobbered).
-      if (pristine && !conversations.get(sessionId).focus) {
-        const pref = getPanelPref(sessionId)
-        conversations.setFocus(sessionId, pref !== undefined ? pref : strongestFocus(reconciled))
-      }
+    reconcileNow(sessionId, (s) => {
       // A turn still generating server-side: resume rendering its stream
       // (replay from the top, then the live tail — invariant I1).
       if (s.activeTurnId && !conversations.get(sessionId).liveTurn) conversations.reattach(sessionId, s.activeTurnId)

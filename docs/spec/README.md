@@ -120,7 +120,7 @@ satisfy today — kept here at L0 so they're visible, and enforced by
 Detail + anchors are in [pillar 10](10-forward-looking.md).
 
 - ~~**FWD-1**~~ `✅` — context-seeded conversation entry is complete through `newSession(seed)` and the shared `EmptyState` attachment launcher; duplicate resource-specific launchers are not required.
-- **FWD-2** `🟡` — the right panel's expansion remembered per-conversation; per-session memory is built (localStorage), the server-side cross-device pref isn't.
+- ~~**FWD-2**~~ `✅` — panel intent is **done and moved to [ADAPT-28](01-adaptive-conversation.md)**: per-viewer absent/closed/named-context state persists server-side, syncs live across devices, and keeps an account-scoped offline mirror. The universal split retired the old per-conversation frame-width follow-on.
 - ~~**FWD-3**~~ `✅` — responsive layout is **done and moved to [ADAPT-11](01-adaptive-conversation.md)**: narrow-tier rail drawer + full-viewport panel takeover + the `short` height axis (the icon-rail idea was superseded by the drawer — PD35).
 - **FWD-4** `🟡` — cross-device sync of the server-owned state; the foundation is built, multi-device fan-out isn't.
 - ~~**FWD-5**~~ `✅` — the **principals & namespaces** re-rooting is **done and moved to [INV-10](09-design-invariants.md)**: person-only login with one namespace per account, principal-stamped acts (kind-only wire), the agent-actor badge + attribution chain; orgs deferred by design behind the opaque owner id.

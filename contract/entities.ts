@@ -300,6 +300,41 @@ export interface SessionWorkspace {
   attachments: Attachment[]
 }
 
+/** Viewer-owned presentation intent for one conversation. This deliberately
+ * distinguishes three states: an absent `panelFocus` means "use the product
+ * default", `null` means "keep the context panel closed", and a focus names the
+ * attached context to show. The server projects this per reader; it is never a
+ * shared property of the conversation itself. */
+export interface SessionPreferences {
+  panelFocus?: PanelFocus | null
+}
+
+const PANEL_FOCUS_KINDS = new Set<PanelFocus['kind']>(['workspace', 'repo', 'connector', 'file', 'photo'])
+
+/** Runtime guard at both ends of the wire. Keeping the closed kind set beside
+ * the contract prevents client storage and server request validation drifting. */
+export function isPanelFocus(value: unknown): value is PanelFocus {
+  if (!value || typeof value !== 'object') return false
+  const row = value as { kind?: unknown; id?: unknown }
+  return typeof row.kind === 'string' && PANEL_FOCUS_KINDS.has(row.kind as PanelFocus['kind']) && typeof row.id === 'string' && row.id.length > 0
+}
+
+/** Whether a focus still names an attached context. Shared by the UI's
+ * optimistic remove funnels and the server's durable-preference guard so the
+ * two sides cannot disagree about which ids are valid. */
+export function panelFocusInWorkspace(workspace: SessionWorkspace, focus: PanelFocus): boolean {
+  switch (focus.kind) {
+    case 'workspace':
+      return workspace.workspaces.some((item) => item.id === focus.id)
+    case 'repo':
+      return workspace.repos.some((item) => item.id === focus.id)
+    case 'connector':
+      return workspace.connectors.some((item) => item.id === focus.id)
+    default:
+      return workspace.attachments.some((item) => item.id === focus.id && item.kind === focus.kind)
+  }
+}
+
 export interface Session {
   id: string
   title: string
@@ -335,6 +370,10 @@ export interface Session {
    *  shared conversation but must not see its share configuration. Absent on
    *  payloads served without a reader in hand; treat absent as NOT owned. */
   own?: boolean
+  /** VIEWER-RELATIVE: this reader's durable presentation intent. By-id reads
+   * project it; list rows omit it. An empty object is distinct from an explicit
+   * `{ panelFocus: null }` close. */
+  viewerPreferences?: SessionPreferences
   /** Provenance for a session CONTINUED from someone else's (social S3): which
    *  conversation it was taken from, and the turn it was taken at.
    *

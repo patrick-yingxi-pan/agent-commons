@@ -15,7 +15,7 @@
 import { useCallback } from 'react'
 import { applyRelationOp, attachContext, persistWorkspace } from '../api'
 import { conversations } from './conversationStore'
-import { setPanelPref } from '../lib/panelPrefs'
+import { rememberPanelPreference } from './panelPreferences'
 import {
   DRAFT_ID,
   applyEscalationToLive,
@@ -58,11 +58,11 @@ export function useSessionEscalation(
               : null
         if (grown) {
           conversations.setFocus(sessionId, grown)
-          if (sessionId !== DRAFT_ID) setPanelPref(sessionId, grown)
         }
         const binding = escalationBinding(esc, label, workspaceRoot)
         if (binding) void attachContext(sessionId, binding).catch(() => {})
-        void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+        const workspaceWrite = persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
+        if (grown && sessionId !== DRAFT_ID) rememberPanelPreference(sessionId, grown, workspaceWrite)
       }
       conversations.patch(sessionId, { pendingEscalation: null })
     },

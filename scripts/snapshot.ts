@@ -164,6 +164,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
     connectors: [{ id: 'gh-mcp', label: 'GitHub', kind: 'github' }],
     attachments: [{ id: 'att-1', label: 'gtm-brief.md', kind: 'file' }],
   })
+  store.setSessionPreferences('user-local', session.id, { kind: 'repo', id: 'repo-playground' })
   store.applyRelationOp({
     kind: 'file-session',
     sessionId: session.id,

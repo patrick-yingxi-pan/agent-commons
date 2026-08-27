@@ -15,8 +15,8 @@ import { STORE_VERSION, type PersistedState } from './persist.ts'
 
 // A fully-populated snapshot that exercises every slice kind: singletons (version,
 // recents, graph, seq), ordered arrays (sessions, schedules-empty, savedContexts,
-// auditLog) and Map-entry slices (bindings, workspaces, the Agent Commons registries,
-// commissionCaps).
+// auditLog) and Map-entry slices (bindings, workspaces, nested session preferences,
+// the Agent Commons registries, commissionCaps).
 const sample: PersistedState = {
   version: STORE_VERSION,
   sessions: [
@@ -29,6 +29,7 @@ const sample: PersistedState = {
   ] as unknown as PersistedState['sessions'],
   bindings: [['s1', [{ id: 'c1', type: 'repo', label: 'r', scope: '*' }]]] as unknown as PersistedState['bindings'],
   workspaces: [['s1', { workspaces: [], repos: [], connectors: [], attachments: [] }]] as unknown as PersistedState['workspaces'],
+  sessionPreferences: [['user-a', [['s1', { panelFocus: null }]]]],
   schedules: [], // present-but-empty array must round-trip as [], not vanish
   recents: { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] } as unknown as PersistedState['recents'],
   graph: {
@@ -153,6 +154,7 @@ test('SQLite omits absent optional slices (no phantom keys)', () => {
   assert.ok(loaded)
   assert.ok(!('auditLog' in loaded), 'an absent optional slice is not resurrected')
   assert.ok(!('providers' in loaded), 'an absent optional slice is not resurrected')
+  assert.ok(!('sessionPreferences' in loaded), 'an absent additive preference slice keeps the legacy default')
   assert.deepStrictEqual(loaded, JSON.parse(JSON.stringify(minimal)))
   db.close()
 })

@@ -15,6 +15,7 @@
  *  would re-boot the webServer and roughly double the suite's runtime. */
 import { test, expect, type Page } from '@playwright/test'
 import { ms } from './budget.ts'
+import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
 
 const STAMP = Date.now().toString(36)
 
@@ -24,6 +25,7 @@ const noHorizontalScroll = async (page: Page) =>
 test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, send works, no horizontal scroll', async ({ page }) => {
   test.setTimeout(ms(120_000))
   await page.setViewportSize({ width: 375, height: 812 })
+  await ensureAuthRefactorPanelOpen(page)
   await page.goto('/')
 
   // The rail starts closed on narrow — the reopen control is the door, and it
@@ -227,6 +229,7 @@ test('desktop (1280×800): the collapsed rail\'s reopen control is in-flow and n
 
 test('tablet (768×1024): the panel overlays the thread behind a scrim; the scrim click dismisses', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 })
+  await ensureAuthRefactorPanelOpen(page)
   await page.goto('/')
 
   // The seeded repo session restores its repo focus on open — panel + scrim.
