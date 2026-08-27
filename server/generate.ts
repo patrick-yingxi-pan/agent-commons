@@ -11,11 +11,12 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { Agent, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
-import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
-import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
-import { deriveApiTools, runApiTool, type ApiToolRuntime } from './model/apiTools.ts'
+import { TOOL_DEFINITIONS, type ToolContext } from './model/tools.ts'
+import { deriveConnectorTools } from './model/connectorTools.ts'
+import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
+import { executeToolBatch } from './toolExecution.ts'
 
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
@@ -349,55 +350,32 @@ export async function generateReply(
     }
 
     // ── Execute the tool calls — build the consent-gated proposals ───────────
-    // Same-turn chaining: later tools see (and may consume) the proposals built
-    // by earlier calls of this turn — e.g. create_agent bundling a just-proposed
-    // system prompt into one card.
-    ctx.pending = relationOps
     // Defense in depth against a non-conformant endpoint: only EXECUTE a tool the
     // turn actually declared. A real endpoint never emits an undeclared `tool_use`,
     // but a buggy/hostile one could — and executing it would bypass the agent's
     // tool-grant allowlist (the wall `agentTools` builds above). An undeclared name
     // is refused back to the model, never run.
     const declaredNames = new Set(tools.map((t) => t.name))
-    // Sequential (not Promise.all): curated tools chain within the turn via
-    // ctx.pending, and API reads run against the live store — order preserves
-    // the same-turn semantics a serial model expects.
-    const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> = []
-    for (const tu of toolUses) {
-      if (!declaredNames.has(tu.name)) {
-        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: `Tool '${tu.name}' was not offered this turn and was not executed.`, is_error: true })
-        continue
-      }
-      // A connector/MCP tool (P6) executes into a ToolActivity (mock result).
-      const activity = runConnectorTool(tu.name, connectorBindings, tu.id)
-      if (activity) {
-        toolActivities.push(activity)
-        // A read already ran → feed its result back. An action is only PROPOSED (consent-
-        // gated), so tell the model it's pending, not done, so its prose doesn't claim the
-        // write happened.
-        const content =
-          activity.status === 'proposed'
-            ? 'Proposed to the user — awaiting their confirmation; not executed yet.'
-            : activity.summary
-        toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content })
-        continue
-      }
-      // A generated API tool (INV-11): a read runs NOW through the router as the
-      // user; a mutation becomes a `proposed` activity carrying its operation.
-      if (api) {
-        const outcome = await runApiTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, tu.id, api)
-        if (outcome) {
-          if (outcome.activity) toolActivities.push(outcome.activity)
-          toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: outcome.content, ...(outcome.isError ? { is_error: true } : {}) })
-          continue
-        }
-      }
-      // Anything else is a built-in resource / relation / escalation tool.
-      const effect = executeTool(tu.name, (tu.input ?? {}) as Record<string, unknown>, ctx)
-      if (effect.relationOps) relationOps.push(...effect.relationOps)
-      if (effect.escalation) escalation = effect.escalation
-      toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: effect.summary })
-    }
+    // One shared serial executor owns the transport-neutral safety/consent seam:
+    // same-turn chaining, batch cap, per-tool deadline, declared-name wall, and
+    // structured failure isolation. Every tool_use still receives one result.
+    const executed = await executeToolBatch(toolUses, {
+      declaredNames,
+      connectorBindings,
+      api,
+      context: ctx,
+      relationOps,
+      toolActivities,
+      signal,
+    })
+    escalation = executed.escalation
+    const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> =
+      executed.results.map((result) => ({
+        type: 'tool_result',
+        tool_use_id: result.callId,
+        content: result.content,
+        ...(result.isError ? { is_error: true } : {}),
+      }))
 
     // ── Turn 2: feed the results back, stream the final prose ────────────────
     const stream2 = clientFor(provider).messages.stream(

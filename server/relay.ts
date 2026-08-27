@@ -39,11 +39,12 @@ import type {
   ToolActivity,
 } from '../contract/index.ts'
 import { systemPrompt, type ReplyHandlers, type ReplyResult, type ReplySession } from './generate.ts'
-import { TOOL_DEFINITIONS, executeTool, type ToolContext } from './model/tools.ts'
-import { deriveConnectorTools, runConnectorTool } from './model/connectorTools.ts'
-import { deriveApiTools, runApiTool, type ApiToolRuntime } from './model/apiTools.ts'
+import { TOOL_DEFINITIONS, type ToolContext } from './model/tools.ts'
+import { deriveConnectorTools } from './model/connectorTools.ts'
+import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv } from './env.ts'
+import { executeToolBatch, toolExecutionLimits } from './toolExecution.ts'
 
 /** ── The rendezvous secret ───────────────────────────────────────────────────
  *  High-entropy bearer token, shown exactly once at mint/rotate. Only its SHA-256
@@ -494,6 +495,12 @@ export async function relayReply(
   const startedAt = Date.now()
 
   for (let round = 0; ; round += 1) {
+    // Check the one whole-turn deadline BEFORE offering an entry. Otherwise a
+    // tool batch that consumes the final millisecond can hand a continuation to
+    // a parked connector and immediately clear it; the far side then wastes work
+    // answering an entry guaranteed to receive 410.
+    const remaining = timeoutMs - (Date.now() - startedAt)
+    if (remaining <= 0) return relayFallback(handlers, FALLBACK_TIMEOUT)
     // Rounds past the first are CONTINUATIONS: the channel held a slot until its
     // previous round settled, so they bypass the concurrency ceiling — a rival
     // channel grabbing the last slot between rounds must not fail a conversation
@@ -503,21 +510,17 @@ export async function relayReply(
     // the enqueue race behind it.
     if (!offer) return relayFallback(handlers, FALLBACK_BUSY)
 
-    const remaining = timeoutMs - (Date.now() - startedAt)
-    const raced =
-      remaining <= 0
-        ? 'timeout'
-        : await new Promise<RelayOutcome | 'timeout' | 'cancelled'>((resolve) => {
-            const timer = setTimeout(() => resolve('timeout'), remaining)
-            ;(timer as { unref?: () => void }).unref?.()
-            const onAbort = () => resolve('cancelled')
-            signal?.addEventListener('abort', onAbort, { once: true })
-            void offer.completion.then((o) => {
-              clearTimeout(timer)
-              signal?.removeEventListener('abort', onAbort)
-              resolve(o)
-            })
-          })
+    const raced = await new Promise<RelayOutcome | 'timeout' | 'cancelled'>((resolve) => {
+      const timer = setTimeout(() => resolve('timeout'), remaining)
+      ;(timer as { unref?: () => void }).unref?.()
+      const onAbort = () => resolve('cancelled')
+      signal?.addEventListener('abort', onAbort, { once: true })
+      void offer.completion.then((o) => {
+        clearTimeout(timer)
+        signal?.removeEventListener('abort', onAbort)
+        resolve(o)
+      })
+    })
 
     if (raced === 'cancelled') {
       relay.clear(providerId, offer.entryId) // a late submit meets 410, never a wrong turn
@@ -541,40 +544,27 @@ export async function relayReply(
       // turn actually declared. Mailbox text is untrusted input — a far session
       // relaying an undeclared curated tool must not bypass the Agent's grant.
       const declaredNames = new Set(tools.map((t) => t.name))
-      const results: Array<{ toolCallId: string; content: string }> = []
-      for (const call of raced.calls) {
-        if (!declaredNames.has(call.name)) {
-          results.push({ toolCallId: call.id, content: `Tool '${call.name}' was not offered this turn and was not executed.` })
-          continue
-        }
-        // A connector/MCP tool (P6) executes into a ToolActivity; anything else is a
-        // built-in resource / relation / escalation tool — the same dispatch (and the
-        // same honest "proposed, not done" wording) as `generateReply`'s.
-        const activity = runConnectorTool(call.name, connectorBindings, call.id)
-        if (activity) {
-          toolActivities.push(activity)
-          const content =
-            activity.status === 'proposed' ? 'Proposed to the user — awaiting their confirmation; not executed yet.' : activity.summary
-          results.push({ toolCallId: call.id, content })
-          continue
-        }
-        // A generated API tool (INV-11): a read runs NOW as the user; a mutation
-        // becomes a `proposed` activity — same semantics as `generateReply`'s.
-        if (api) {
-          const outcome = await runApiTool(call.name, call.input ?? {}, call.id, api)
-          if (outcome) {
-            if (outcome.activity) toolActivities.push(outcome.activity)
-            results.push({ toolCallId: call.id, content: outcome.content })
-            continue
-          }
-        }
-        // `executeTool` answers an unknown name with a no-effect summary — fed back
-        // so the far model can correct itself next round instead of failing the turn.
-        const effect = executeTool(call.name, call.input ?? {}, ctx)
-        if (effect.relationOps) relationOps.push(...effect.relationOps)
-        if (effect.escalation) escalation = effect.escalation
-        results.push({ toolCallId: call.id, content: effect.summary })
-      }
+      // Same executor as the endpoint transport: no authority, timeout, batch,
+      // or failure semantics can drift with provider transport. The relay's one
+      // whole-turn deadline also clamps every per-tool deadline across rounds.
+      const executed = await executeToolBatch(raced.calls, {
+        declaredNames,
+        connectorBindings,
+        api,
+        context: ctx,
+        relationOps,
+        toolActivities,
+        escalation,
+        signal,
+        deadlineAt: startedAt + timeoutMs,
+        limits: toolExecutionLimits(),
+      })
+      escalation = executed.escalation
+      const results = executed.results.map((result) => ({
+        toolCallId: result.callId,
+        content: result.content,
+        ...(result.isError ? { isError: true } : {}),
+      }))
       turns.push({ role: 'assistant', toolCalls: raced.calls }, { role: 'user', toolResults: results })
       continue
     }

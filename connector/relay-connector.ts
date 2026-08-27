@@ -229,7 +229,7 @@ async function relayFetch(path: string, init?: { method?: string; body?: string 
 function renderTurn(t: RelayPromptTurn): string {
   if (t.toolCalls) return `[${t.role} — tool calls you relayed]\n${JSON.stringify(t.toolCalls, null, 2)}`
   if (t.toolResults) {
-    return `[tool results — executed by the platform]\n${t.toolResults.map((r) => `${r.toolCallId}: ${r.content}`).join('\n')}`
+    return `[tool results — executed by the platform]\n${t.toolResults.map((r) => `${r.toolCallId}${r.isError ? ' [error]' : ''}: ${r.content}`).join('\n')}`
   }
   return `[${t.role}]\n${t.text ?? ''}`
 }

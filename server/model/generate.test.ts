@@ -71,6 +71,27 @@ test('a project turn yields a project escalation (create_project, filing this se
   assert.ok(msg.escalation?.kind === 'project' && msg.escalation.fileSession === true)
 })
 
+test('the dial-out path enforces the shared per-batch call ceiling without collapsing the reply', async () => {
+  const previous = process.env.MODEL_MAX_TOOL_CALLS
+  process.env.MODEL_MAX_TOOL_CALLS = '1'
+  try {
+    const c = collect()
+    const { message: msg, outcome } = await generateReply(
+      session,
+      DEFAULT_AGENT,
+      'Connect the repo and save the recap as guarded.md.',
+      c.handlers,
+    )
+    assert.equal(outcome, 'ok', 'the refused excess call is model-visible recovery, not a turn fallback')
+    assert.equal(msg.escalation?.kind, 'repo', 'the admitted prefix still executed')
+    assert.equal(msg.relationActions, undefined, 'the excess save_artifact call did not execute')
+    assert.ok(c.text.length > 0, 'the second model call still concluded in prose')
+  } finally {
+    if (previous === undefined) delete process.env.MODEL_MAX_TOOL_CALLS
+    else process.env.MODEL_MAX_TOOL_CALLS = previous
+  }
+})
+
 test('a plain-chat turn yields prose only — no escalation, no relations', async () => {
   const c = collect()
   const { message: msg } = await generateReply(session, DEFAULT_AGENT, 'We ship the new Insights dashboard next week. Help me think through the launch.', c.handlers)

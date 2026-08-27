@@ -227,7 +227,7 @@ test('v3 suffix rendering: a follow-up entry re-carrying the exchange prints onl
         messages: [
           first,
           { role: 'assistant', toolCalls: [{ id: 'rtc-1', name: 'create_project', input: { name: 'X' } }] },
-          { role: 'user', toolResults: [{ toolCallId: 'rtc-1', content: 'Proposed to the user — awaiting confirmation.' }] },
+          { role: 'user', toolResults: [{ toolCallId: 'rtc-1', content: 'The tool failed safely.', isError: true }] },
         ],
       },
     })
@@ -236,7 +236,7 @@ test('v3 suffix rendering: a follow-up entry re-carrying the exchange prints onl
     assert.match(doc2, /continuing the exchange of entry rve-c/, 'the follow-up names the exchange it continues')
     assert.match(doc2, /first 1 turn\(s\) are unchanged/, 'and how much is elided')
     assert.match(doc2, /new turns only/)
-    assert.match(doc2, /awaiting confirmation/, 'the executed results — the actual news — are printed')
+    assert.match(doc2, /rtc-1 \[error\]: The tool failed safely\./, 'structured tool errors are explicit to the far model')
     assert.ok(!doc2.includes('organize this'), 'the already-read turn prefix is not reprinted')
   } finally {
     c.close()

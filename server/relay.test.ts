@@ -15,7 +15,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call, callRaw } from './testkit/http.ts'
 import { store } from './store/index.ts'
-import { hashRelaySecret } from './relay.ts'
+import { DEFAULT_AGENT } from './data/workers.ts'
+import { hashRelaySecret, relayReply, RelayRuntime } from './relay.ts'
 
 const PROVIDER_BODY = { label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' }
 const auth = (secret: string) => ({ authorization: `Bearer ${secret}` })
@@ -670,6 +671,77 @@ test('the tool-use loop over the mailbox: declared tools → relayed calls → e
     assert.equal(escalation!.escalation.project.name, 'Relay Proto')
     const end = fs.find((f) => f.type === 'message.end')
     assert.equal(end?.message.content, 'Proposed the Relay Proto project — confirm to create it.')
+  })
+})
+
+test('the relay path enforces the shared batch ceiling and marks excess results as errors', async () => {
+  const p = await mintSessionProvider('Bounded tool batch')
+  const { sessionId } = await sessionWithTools(p.id, ['create_project', 'save_artifact'])
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000', MODEL_MAX_TOOL_CALLS: '1' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'bounded batch' })
+    const round1 = await parked
+    await call(
+      'POST',
+      '/relay/reply',
+      {
+        entryId: round1.json.entryId,
+        toolCalls: [
+          { name: 'create_project', input: { name: 'Admitted project' } },
+          { name: 'save_artifact', input: { name: 'must-not-land.md' } },
+        ],
+      },
+      auth(p.secret),
+    )
+    const round2 = await call('GET', '/relay/poll', undefined, auth(p.secret))
+    const results = (round2.json.prompt.messages as Array<Record<string, any>>).find((m) => m.toolResults)!.toolResults
+    assert.equal(results.length, 2, 'the follow-up keys one result to every relayed call')
+    assert.equal(results[0].isError, undefined)
+    assert.equal(results[1].isError, true)
+    assert.match(results[1].content, /batch limit/i)
+
+    await call('POST', '/relay/reply', { entryId: round2.json.entryId, completion: 'The first proposal is ready.' }, auth(p.secret))
+    const fs = frames((await send).body)
+    assert.equal(fs.find((f) => f.type === 'message.escalation')?.escalation.project.name, 'Admitted project')
+    assert.equal(fs.find((f) => f.type === 'message.relations'), undefined, 'the excess save call never executed')
+  })
+})
+
+test('a tool consuming the whole relay deadline cannot offer a doomed continuation entry', async () => {
+  await withEnv({ RELAY_POLL_MS: '120', RELAY_TIMEOUT_MS: '50', MODEL_TOOL_TIMEOUT_MS: '500' }, async () => {
+    const relay = new RelayRuntime(() => {})
+    const providerId = 'provider-deadline-guard'
+    const reply = relayReply(
+      { id: 'session-deadline-guard', title: 'Deadline guard' },
+      DEFAULT_AGENT,
+      'read usage',
+      { onStart: () => {}, onDelta: () => {} },
+      undefined,
+      relay,
+      providerId,
+      undefined,
+      [],
+      [],
+      {
+        catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+        dispatch: async () => await new Promise(() => {}),
+      },
+    )
+    const first = await relay.poll(providerId).result
+    assert.ok('entryId' in first)
+    if (!('entryId' in first)) return
+    relay.submit(providerId, first.entryId, {
+      kind: 'toolCalls',
+      calls: [{ id: 'rtc-deadline', name: 'api__get_usage', input: {} }],
+    })
+    // Park the connector while the API read consumes the remaining turn budget.
+    // A continuation offered after expiry would wake this poll with a doomed id.
+    const continuation = relay.poll(providerId).result
+    const result = await reply
+    assert.equal(result.outcome, 'fallback')
+    assert.match(result.message.content, /didn’t answer in time/)
+    assert.deepEqual(await continuation, { idle: true }, 'no post-deadline continuation reached the far side')
   })
 })
 

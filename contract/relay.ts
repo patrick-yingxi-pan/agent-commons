@@ -33,6 +33,9 @@ export interface RelayToolCall {
 export interface RelayToolResult {
   toolCallId: string
   content: string
+  /** A refusal, timeout, or executor failure. Optional for wire compatibility
+   *  with pre-guard relays; the connector renders it explicitly when present. */
+  isError?: boolean
 }
 
 /** One turn of the prompt document — the role structure survives the relay
