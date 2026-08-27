@@ -26,6 +26,7 @@ import { RelationsProvider } from './controller/useRelations'
 import { canSplitRow, railWidthCss, useViewport } from './lib/viewport'
 import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
+import { SyncHealthNotice } from './components/SyncHealthNotice'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
@@ -514,6 +515,7 @@ function Workspace() {
   return (
     <RelationsProvider navigate={navigateToSection}>
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
+      <SyncHealthNotice />
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim

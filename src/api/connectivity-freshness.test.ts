@@ -121,6 +121,24 @@ test('session pushes reach the panes through the one narrow seam (one-door holds
   assert.match(push.slice(0, 300), /reconcileNow\(sessionId\)/, 'the push re-read is the same shared server reconcile the mount recipe uses')
 })
 
+test('ambient sync health is earned by hello and degraded by every stream failure (SYNC-10)', () => {
+  const events = src('src', 'api', 'events.ts')
+  assert.match(eventCase(events, 'hello'), /ambientSyncHealth\.signal\('hello'\)/,
+    'the identity/resume-validated hello is the only live proof')
+  const error = events.slice(events.indexOf('opened.onerror ='))
+  assert.match(error.slice(0, 350), /ambientSyncHealth\.signal\('error'\)/,
+    'EventSource errors disclose degraded live updates')
+  const accountSwitch = events.slice(events.indexOf('onAccountSwitch(() =>'))
+  assert.match(accountSwitch.slice(0, 300), /ambientSyncHealth\.signal\('account-switch'\)/,
+    'an expected account rebind does not carry the prior account warning')
+  assert.match(events, /const opened = new EventSource\([\s\S]*source = opened/,
+    'each callback can prove which EventSource instance owns it')
+  assert.equal((events.match(/if \(source !== opened\) return/g) ?? []).length, 2,
+    'both late frames and late errors from a retired account are fenced')
+  assert.doesNotMatch(events, /source\.onopen|navigator\.onLine/,
+    'a socket or network link is not identity-validated replay continuity')
+})
+
 // ── Seed-mirror reads replaced by the live registry (C12/C22/C23/C24) ─────────
 
 test('the rail reads the LIVE project registry, not the seed-only /projects mirror', () => {

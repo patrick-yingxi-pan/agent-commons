@@ -16,6 +16,7 @@ import { invalidate, invalidatePrefix } from './cache.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { helloRequiresReset } from './streamPolicy.ts'
 import { activeAccount, onAccountSwitch } from './account.ts'
+import { ambientSyncHealth } from './syncHealth.ts'
 
 let source: EventSource | null = null
 let knownEpoch: string | null = null
@@ -61,6 +62,10 @@ function route(e: ServerEvent): void {
     case 'hello': {
       if (helloRequiresReset(e, knownEpoch)) resetAll()
       knownEpoch = e.epoch
+      // `hello` is the health proof: by this point the identity echo has been
+      // accepted, and its resumption bit has either preserved continuity or
+      // triggered a complete cache reset. A socket open alone proves neither.
+      ambientSyncHealth.signal('hello')
       break
     }
     case 'session.updated':
@@ -285,12 +290,18 @@ function route(e: ServerEvent): void {
 /** Open the ambient stream once (idempotent). Safe to call on every mount. */
 export function connectEvents(): void {
   if (source) return
+  ambientSyncHealth.signal('connect')
   // The stream binds identity at open via the session COOKIE (P6): EventSource
   // can't set headers, but it carries cookies natively — the very reason the
   // credential is a cookie. (The server's ?user=&tenant= params are the legacy
   // dev seam; this client no longer uses them.)
-  source = new EventSource(`${API_BASE}/events`)
-  source.onmessage = (ev) => {
+  const opened = new EventSource(`${API_BASE}/events`)
+  source = opened
+  opened.onmessage = (ev) => {
+    // An account switch retires the old source before opening the new one, but
+    // an already-queued callback may still run. Never let a retired account's
+    // frame invalidate the current account's cache or change its health.
+    if (source !== opened) return
     try {
       const e = JSON.parse(ev.data) as ServerEvent
       // I5 tripwire, SSE face: the hello names the identity the server resolved
@@ -300,7 +311,8 @@ export function connectEvents(): void {
         const acct = activeAccount()
         if (acct && e.identity.tenantId !== acct.tenantId) {
           console.error(`[events] identity echo mismatch: acting as tenant '${acct.tenantId}' but the stream resolved '${e.identity.tenantId}' — stream closed`)
-          source?.close()
+          ambientSyncHealth.signal('error')
+          opened.close()
           source = null
           // Don't route the wrong account's frames — but don't go permanently
           // deaf either: a TRANSIENT mismatch (a cookie momentarily stale) must
@@ -318,8 +330,13 @@ export function connectEvents(): void {
   // EventSource retries transient errors itself. If it gives up entirely (the
   // server was down at load, or a long outage), it lands in CLOSED — reset and
   // reconnect with a small backoff so the UI recovers without a reload.
-  source.onerror = () => {
-    if (source && source.readyState === EventSource.CLOSED) {
+  opened.onerror = () => {
+    // `EventSource.close()` normally emits no error, but the instance fence is
+    // what makes that timing irrelevant: a retired source cannot warn or reset
+    // the source that replaced it.
+    if (source !== opened) return
+    ambientSyncHealth.signal('error')
+    if (opened.readyState === EventSource.CLOSED) {
       source = null
       setTimeout(connectEvents, 2000)
     }
@@ -334,6 +351,7 @@ export function connectEvents(): void {
 // carried-over assumptions). The cache reset itself is the switcher's job
 // (switchAccount → resetAll in the app layer); this module only re-binds the pipe.
 onAccountSwitch(() => {
+  ambientSyncHealth.signal('account-switch')
   source?.close()
   source = null
   knownEpoch = null

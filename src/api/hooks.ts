@@ -3,11 +3,13 @@
  *  `useSessions()` and gains: a real fetch, a loading/error state, and live
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
+import { useSyncExternalStore } from 'react'
 import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
 import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
+import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow, Tenant as TenantT } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
 import type {
@@ -75,6 +77,18 @@ export function useCapabilities(): QueryState<Capabilities> {
  *  the single local user ("You" · Personal); on the web it's the IdP principal + org. */
 export function useMe(): QueryState<Identity> {
   return useQuery(keys.me, () => apiGet<Identity>(paths.me))
+}
+
+/** Whether unrequested server changes are reaching this client. The stream
+ * store is separate from query data: cached surfaces stay usable while the
+ * global notice truthfully discloses that their live invalidation path is
+ * recovering. */
+export function useAmbientSyncHealth(): AmbientSyncHealth {
+  return useSyncExternalStore(
+    ambientSyncHealth.subscribe,
+    ambientSyncHealth.getSnapshot,
+    ambientSyncHealth.getSnapshot,
+  )
 }
 
 /** Switch the active account AND reset the world (multi-account §6.1; P6:
