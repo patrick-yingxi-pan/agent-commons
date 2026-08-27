@@ -225,6 +225,11 @@ The one behavioral change that delivers I1:
 - Retry after the turn persisted: `409`-free no-op — respond with a terminal
   `message.end` carrying the persisted message (fetched by the recorded
   messageId).
+- Retry after the transient turn registry is gone but its user row persisted
+  (server restart or fatal generation error): an explicit `retryLastUser` may
+  reuse only the final user message whose text exactly matches. If no such row
+  exists, the first attempt failed before persistence and the request performs
+  its one ordinary append. Absence always means a new turn (INV-9).
 
 ### 5.5 `server/identity.ts` + `server/http/respond.ts`
 
@@ -296,10 +301,10 @@ the new account.
 
 ### 6.4 `src/api/commands.ts` — idempotent send + reattach
 
-- `sendMessage` mints an `Idempotency-Key` per logical send and passes the
-  account headers (it uses raw `fetch` for the streamed POST — it joins the same
-  header/generation policy as `client.ts`, via a small shared helper so the
-  policy isn't duplicated).
+- `conversationCore` mints an `Idempotency-Key` per logical send and retains it
+  across transport failure; `sendMessage` accepts that key rather than silently
+  replacing it. Its finite SSE document succeeds only on `message.end`; EOF is
+  an interrupted view, not an empty reply.
 - New `reattachTurn(sessionId, turnId, after, handlers)` — fetch-streamed GET of
   the reattach route (fetch streams *can* set headers; only `EventSource`
   can't), dispatching through the existing `SendHandlers`. Delta `seq` dedupes
@@ -315,8 +320,14 @@ the new account.
   outcome split.
 - A session whose last message is a user turn with **no** active turn (server
   restarted mid-generation, or turn errored while detached) renders a quiet
-  "generation was interrupted — retry" affordance; retry is a fresh send. This
-  is the one place the failure matrix (§7) surfaces to the user.
+  "generation was interrupted — retry" affordance. Retry removes an
+  unpersisted assistant shell/partial, keeps the one user row, and retransmits
+  the retained key; after reload it uses a new key plus `retryLastUser` to
+  regenerate against the server-owned final user row. A failed draft reruns
+  materialization first. If a **reattached view** fails, Retry reattaches that
+  known server turn again before it may regenerate; the unseen turn could have
+  completed, so starting new work would be unsafe. This is the one place the
+  failure matrix (§7) surfaces to the user.
 
 ### 6.6 `src/components/Sidebar.tsx` — the chip becomes the switcher
 
@@ -332,10 +343,10 @@ native/mock backend the flag is false and the chip stays exactly as today.
 |---|---|
 | Viewer disconnects / switches mid-turn | Turn continues (I1); reply persists; `session.updated` routes to the tenant's subscribers; on return, reattach or refetch shows it. |
 | Explicit cancel | Turn stops, partial persists, outcome `aborted`. |
-| Server restarts mid-turn | Registry (transient) is void; user turn persisted, reply absent; epoch change → client `resetAll`; thread shows the retry affordance (§6.5). Accepted loss — the mock has no turn-resume, and the *record* never lies. |
+| Server restarts mid-turn | Registry (transient) is void; user turn persisted, reply absent; epoch change → client `resetAll`; thread shows Retry, which reuses that exact unresolved row and starts one replacement generation (§6.5). |
 | SSE drops, reconnects within buffer | Native `Last-Event-ID` → replay; no reset, no loss. |
 | SSE drops, reconnects past buffer / after restart | `hello { resumed: false }` → `resetAll` → full resync. |
-| Send request lost / retried | Same `Idempotency-Key` → attach to the live turn or replay the persisted result; never a duplicate user turn or double generation. |
+| Send request lost / retried | Same `Idempotency-Key` → attach to the live turn or replay the persisted result; if only the unresolved user record survived, `retryLastUser` reuses it. Never a duplicate user turn or double generation. |
 | Response lands after account switch | Client generation guard drops it; cache entry `gen` refuses stale application; identity echo catches anything that slips past. |
 | Identity-routing bug on the server | `x-resolved-tenant` mismatch → response dropped loudly client-side (I5 tripwire). |
 
@@ -357,7 +368,8 @@ under the PORT table) and the switcher row noted against PORT-8's identity seam.
   aged-out → resumed:false, tenant filter applied to replay, duplication
   harmlessness), client router reset rule in `tests/` events-router coverage.
 - **P2 — idempotent send.** Registry-keyed dedupe + attach-on-retry +
-  post-persist replay. *Tests:* extend `server/idempotency.test.ts` +
+  post-persist replay + exact unresolved-user reuse once transient state is
+  gone. *Tests:* extend `server/idempotency.test.ts` +
   `server/routes/turns.test.ts` (retry never double-appends; mid-turn retry
   attaches; post-turn retry returns the persisted message).
 - **P3 — client account layer + identity surface.** `account.ts`, header/query
@@ -421,8 +433,9 @@ What §9 promised, delivered — and what a deployment must still bring:
 - **Turn affordances (§6.5) complete.** The stop button cancels the SERVER-owned
   turn (partial persists; the stream's own `message.end` stands the UI down) and
   the interrupted-retry affordance surfaces an orphaned turn as a quiet inline
-  notice + fresh send — one shared component (`src/components/TurnControls.tsx`)
-  so the two states can't drift apart visually.
+  notice + one-logical-turn replay — one shared component
+  (`src/components/TurnControls.tsx`) so the two states can't drift apart
+  visually.
 - **Deployment constraint — single process.** The turn registry
   (`server/turns.ts`), the ambient event ring (`server/eventlog.ts`), and the
   SSE fan-out are **per-process, in-memory** — correct on one instance, which is

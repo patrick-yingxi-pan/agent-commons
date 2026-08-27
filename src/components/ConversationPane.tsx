@@ -95,6 +95,7 @@ export function ConversationPane({
         typing: true,
         busy: true,
         sendFailure: null,
+        retryableSend: null,
         // The SHARED optimistic-id mint (not a hand-rolled `u-${Date.now()}`) so a
         // coalesced double-send can't collide on a React key / retry lookup.
         live: { ...s.live, messages: [...s.live.messages, { id: conversations.nextUserMessageId(), role: 'user' as const, content: text }] },
@@ -119,9 +120,22 @@ export function ConversationPane({
   const { addContext, removeContexts, removeFolder } = useSessionContextCommands(sessionId)
 
   const retry = useCallback(() => {
-    const last = [...conversations.get(sessionId).live.messages].reverse().find((m) => m.role === 'user')
-    if (last?.content) void conversations.dispatchTurn(sessionId, last.content)
-  }, [sessionId])
+    if (isDraft) {
+      // A draft whose first materialization failed must try the mint funnel
+      // again; sending directly to the client-only draft id could never make
+      // the recovered conversation durable. beginRetry keeps its one user row.
+      const logical = conversations.beginRetry(DRAFT_ID)
+      if (!logical) return
+      void draft.sendDraftTurn(
+        logical.text,
+        () => draftPickRef.current,
+        undefined,
+        (realId) => nav.onDraftAdopted(realId),
+      )
+      return
+    }
+    void conversations.retryTurn(sessionId)
+  }, [isDraft, nav, sessionId])
 
   const compact = useCallback(async () => {
     try {
@@ -176,6 +190,7 @@ export function ConversationPane({
         busy={conv.busy}
         streaming={!!(conv.busy && conv.liveTurn)}
         sendFailure={conv.sendFailure}
+        canRetry={conv.retryableSend !== null}
         pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
         history={conv.history}
         onLoadEarlier={isDraft ? undefined : conv.loadEarlier}

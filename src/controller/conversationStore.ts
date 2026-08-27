@@ -10,7 +10,7 @@ import { createConversationStore, type ConversationState } from './conversationC
 
 export const conversations = createConversationStore(
   {
-    sendMessage: (sessionId, text, handlers) => sendMessage(sessionId, text, handlers),
+    sendMessage: (sessionId, text, handlers, options) => sendMessage(sessionId, text, handlers, options),
     reattachTurn: (sessionId, turnId, fromSeq, handlers) => reattachTurn(sessionId, turnId, fromSeq, handlers),
     cancelTurn,
     // The turn consumed real tokens, and a persisted turn grew the thread's

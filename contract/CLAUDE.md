@@ -22,6 +22,7 @@ For cross-layer seams also read
 | CONTRACT-A2 | architecture | Shared reducers define graph behavior once for both sides. | [`graph.ts`](graph.ts) | [`shared-reducer.test.ts`](shared-reducer.test.ts) | refines ROOT-A1; requires CONTRACT-A1 |
 | CONTRACT-D1 | data-access | Every optional request field has fixed absence semantics. | [`api.ts`](api.ts) · [`relations.ts`](relations.ts) | [`tests/spec-conformance.test.ts`](../tests/spec-conformance.test.ts) | refines ROOT-D1 |
 | CONTRACT-D2 | data-access | Backend capabilities gate native-only UI behavior. | [`api.ts`](api.ts) | [`server/routes/capability-remote.test.ts`](../server/routes/capability-remote.test.ts) | refines ROOT-A2; requires CONTRACT-A1 |
+| CONTRACT-D3 | data-access | A send retry is explicit: absent `retryLastUser` appends a new user turn; true may reuse only the matching unresolved final user row. | [`api.ts`](api.ts) | [`server/send-idempotency.test.ts`](../server/send-idempotency.test.ts) | refines CONTRACT-D1; requires CONTRACT-A1 |
 | CONTRACT-V1 | verification | New boundary seams extend the cross-layer contract scan. | [`index.ts`](index.ts) | [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | refines ROOT-V1 |
 <!-- context-rules:end -->
 

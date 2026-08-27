@@ -2926,7 +2926,7 @@ export function buildRouter(): Router {
     // The caller's tenant — usage is metered + budget-gated per tenant (F2/PD9), so one
     // tenant's spend neither 429s nor shows up in another's gauge. Resolved once for the turn.
     const tenantId = store.identity(req.headers).tenant.id
-    const { text, ephemeral } = await body<SendMessageRequest>()
+    const { text, ephemeral, retryLastUser } = await body<SendMessageRequest>()
 
     // Idempotent send (design §5.4, invariant I4): a RETRY of the same logical
     // send — same session + `Idempotency-Key` — must never double-append the user
@@ -2937,8 +2937,9 @@ export function buildRouter(): Router {
     //     replaying from the top then following the live tail;
     //   • the turn finished and persisted → replay the terminal `message.end`
     //     with the recorded message (the record is the authority);
-    //   • the turn finished WITHOUT persisting (error/ephemeral) → fall through
-    //     and genuinely retry.
+    //   • the turn finished WITHOUT an assistant record → fall through and
+    //     genuinely retry; `retryLastUser` below reuses a persisted orphaned
+    //     user row, while an ephemeral turn remains fully ephemeral.
     const idemKey = headerValue(req.headers, 'idempotency-key')
     if (idemKey) {
       const liveTurn = turns.byIdempotencyKey(params.id, idemKey)
@@ -2978,6 +2979,17 @@ export function buildRouter(): Router {
     // generic shell and an ephemeral turn; every real session — run sessions
     // included, they're rows through the same mint funnel — persists below.
     const known = store.getSession(params.id)
+    const persistedTail = known?.messages?.at(-1)
+    // A retry after a server restart or failed generation has no transient turn
+    // handle to attach to, but its user row is still the record. Reuse that row
+    // only when it is the unresolved tail AND its exact text matches. When the
+    // first request was refused before persistence, there is no matching user
+    // tail and the retry proceeds as an ordinary first append.
+    const reusePersistedUser =
+      retryLastUser === true &&
+      !ephemeral &&
+      persistedTail?.role === 'user' &&
+      persistedTail.content === (text ?? '')
     const session = known
       ? { id: known.id, title: known.title }
       : { id: params.id, title: 'New session' }
@@ -3031,9 +3043,10 @@ export function buildRouter(): Router {
     // snapshotted BEFORE the new user turn persists below (appendMessage swaps the
     // array on this same session object). Dial-out turns don't read this — their
     // endpoint transport is out of scope here.
+    const relayHistorySource = reusePersistedUser ? (known?.messages ?? []).slice(0, -1) : (known?.messages ?? [])
     const relayHistory =
       provider.kind === 'session'
-        ? (known?.messages ?? [])
+        ? relayHistorySource
             .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
             .map((m) => ({ role: m.role, text: m.content }))
         : []
@@ -3066,7 +3079,7 @@ export function buildRouter(): Router {
     // (409) forever, since only `finish` clears the one-live-turn slot.
     const channel = (() => {
       try {
-        if (persist) {
+        if (persist && !reusePersistedUser) {
           store.appendMessage(params.id, {
             id: store.mintMessageId('user'),
             role: 'user',

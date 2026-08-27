@@ -22,18 +22,31 @@ const shell = (id: string): Message => ({ id, role: 'assistant', content: '' })
 /** A scripted transport: each sendMessage call parks until the test drives its
  *  handlers, so streams can interleave deterministically. */
 function fakeTransport() {
-  const sends: Array<{ sessionId: string; text: string; handlers: TurnHandlers; finish: () => void }> = []
-  const reattaches: Array<{ sessionId: string; turnId: string; handlers: TurnHandlers; finish: () => void }> = []
+  const sends: Array<{
+    sessionId: string
+    text: string
+    handlers: TurnHandlers
+    options: { idempotencyKey: string; retryLastUser: boolean }
+    finish: () => void
+    fail: (error: Error) => void
+  }> = []
+  const reattaches: Array<{
+    sessionId: string
+    turnId: string
+    handlers: TurnHandlers
+    finish: () => void
+    fail: (error: Error) => void
+  }> = []
   const cancelled: Array<{ sessionId: string; turnId: string }> = []
   const settledFor: string[] = []
   const transport: ConversationTransport = {
-    sendMessage: (sessionId, text, handlers) =>
-      new Promise<void>((resolve) => {
-        sends.push({ sessionId, text, handlers, finish: resolve })
+    sendMessage: (sessionId, text, handlers, options) =>
+      new Promise<void>((resolve, reject) => {
+        sends.push({ sessionId, text, handlers, options, finish: resolve, fail: reject })
       }),
     reattachTurn: (sessionId, turnId, _from, handlers) =>
-      new Promise<void>((resolve) => {
-        reattaches.push({ sessionId, turnId, handlers, finish: resolve })
+      new Promise<void>((resolve, reject) => {
+        reattaches.push({ sessionId, turnId, handlers, finish: resolve, fail: reject })
       }),
     cancelTurn: (sessionId, turnId) => {
       cancelled.push({ sessionId, turnId })
@@ -285,6 +298,155 @@ test('a failed send lands the refusal copy in the entry and settles the flags', 
   await store.sendTurn('s', 'q')
   assert.equal(store.get('s').busy, false)
   assert.match(store.get('s').sendFailure ?? '', /delegated session/)
+})
+
+test('retry retransmits one logical send in place with the same idempotency key', async () => {
+  const { transport, sends } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  const first = store.dispatchTurn('s', 'keep this once')
+  await tick()
+  const firstKey = sends[0]!.options.idempotencyKey
+  sends[0]!.handlers.onStart?.('partial-a', shell('partial-a'), 'turn-a')
+  sends[0]!.handlers.onDelta?.('partial-a', 'half an answer')
+  sends[0]!.fail(new Error('connection dropped'))
+  await first
+
+  assert.deepEqual(
+    store.get('s').live.messages.map((message) => [message.role, message.content]),
+    [['user', 'keep this once'], ['assistant', 'half an answer']],
+    'the failed view may contain a partial assistant shell',
+  )
+  assert.equal(store.get('s').retryableSend?.idempotencyKey, firstKey)
+
+  const retry = store.retryTurn('s')
+  await tick()
+  assert.deepEqual(
+    store.get('s').live.messages.map((message) => [message.role, message.content]),
+    [['user', 'keep this once']],
+    'retry removes the unpersisted partial and never appends the user input again',
+  )
+  assert.equal(sends[1]!.options.idempotencyKey, firstKey, 'transport retransmission keeps the original key')
+  assert.equal(sends[1]!.options.retryLastUser, true, 'the server may reuse an already-persisted user tail')
+
+  // A completed-key replay carries only message.end (no start/deltas). It must
+  // still restore the authoritative reply after the partial was removed.
+  sends[1]!.handlers.onEnd?.({ id: 'answer-a', role: 'assistant', content: 'complete answer' })
+  sends[1]!.finish()
+  await retry
+  assert.deepEqual(
+    store.get('s').live.messages.map((message) => [message.role, message.content]),
+    [['user', 'keep this once'], ['assistant', 'complete answer']],
+  )
+  assert.equal(store.get('s').retryableSend, null)
+  assert.equal(store.get('s').sendFailure, null)
+})
+
+test('an orphaned server user row retries after reload without a second optimistic prompt', async () => {
+  const { transport, sends } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', { ...EMPTY, messages: [user('server-user', 'resume this')] })
+
+  const retry = store.retryTurn('s')
+  await tick()
+  assert.equal(store.get('s').live.messages.length, 1, 'the existing server row is the retry target')
+  assert.equal(sends[0]!.text, 'resume this')
+  assert.equal(sends[0]!.options.retryLastUser, true)
+  assert.ok(sends[0]!.options.idempotencyKey, 'the recovered operation gets a new stable key')
+  sends[0]!.handlers.onEnd?.({ id: 'answer-b', role: 'assistant', content: 'resumed' })
+  sends[0]!.finish()
+  await retry
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.role), ['user', 'assistant'])
+})
+
+test('authoritative reconcile completes a lost response but preserves a send that never persisted', async () => {
+  const { transport, sends } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', { ...EMPTY, messages: [user('prior', 'already answered'), shell('prior-answer')] })
+
+  const completedSend = store.dispatchTurn('s', 'server finished this')
+  await tick()
+  sends[0]!.fail(new Error('response lost'))
+  await completedSend
+  assert.equal(store.get('s').retryableSend?.priorMessageId, 'prior-answer')
+
+  store.reconcile('s', store.epoch('s'), {
+    ...EMPTY,
+    messages: [
+      user('prior', 'already answered'),
+      { ...shell('prior-answer'), content: 'previous result' },
+      user('server-user', 'server finished this'),
+      { ...shell('server-answer'), content: 'recovered by the record' },
+    ],
+  })
+  assert.equal(store.get('s').retryableSend, null, 'an assistant after this operation baseline proves completion')
+  assert.equal(store.get('s').sendFailure, null)
+  assert.deepEqual(
+    store.get('s').live.messages.map((message) => message.id),
+    ['prior', 'prior-answer', 'server-user', 'server-answer'],
+    'the authoritative suffix replaces the optimistic row without duplication',
+  )
+
+  const unpersistedSend = store.dispatchTurn('s', 'never reached the server')
+  await tick()
+  sends[1]!.fail(new Error('request refused before persistence'))
+  await unpersistedSend
+  const optimisticId = store.get('s').retryableSend?.userMessageId
+  store.reconcile('s', store.epoch('s'), {
+    ...EMPTY,
+    messages: [
+      user('prior', 'already answered'),
+      { ...shell('prior-answer'), content: 'previous result' },
+      user('server-user', 'server finished this'),
+      { ...shell('server-answer'), content: 'recovered by the record' },
+    ],
+  })
+  assert.equal(store.get('s').retryableSend?.userMessageId, optimisticId, 'Retry remains available')
+  assert.equal(store.get('s').live.messages.at(-1)?.content, 'never reached the server')
+  assert.equal(store.get('s').live.messages.filter((message) => message.content === 'never reached the server').length, 1)
+
+  store.reconcile('s', store.epoch('s'), {
+    ...EMPTY,
+    messages: [{ id: 'compacted', role: 'assistant', content: 'authoritative compacted history', compactedFrom: 4 }],
+  })
+  assert.equal(store.get('s').retryableSend?.userMessageId, optimisticId, 'an absent boundary cannot invent completion')
+  assert.deepEqual(
+    store.get('s').live.messages.map((message) => message.id),
+    ['compacted', optimisticId],
+    'compaction stays authoritative while the unpersisted operation remains visible once',
+  )
+})
+
+test('a failed reattach keeps retry available after rendering a partial assistant reply', async () => {
+  const { transport, sends, reattaches } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', { ...EMPTY, messages: [user('server-user', 'finish this')] })
+
+  store.reattach('s', 'turn-live')
+  await tick()
+  reattaches[0]!.handlers.onStart?.('partial', shell('partial'), 'turn-live')
+  reattaches[0]!.handlers.onDelta?.('partial', 'unfinished')
+  reattaches[0]!.fail(new Error('reattach interrupted'))
+  await tick()
+  await tick()
+
+  assert.equal(store.get('s').retryableSend?.text, 'finish this')
+  assert.equal(store.get('s').retryableSend?.turnId, 'turn-live')
+  assert.equal(store.get('s').live.messages.at(-1)?.content, 'unfinished')
+
+  const retry = store.retryTurn('s')
+  await tick()
+  assert.deepEqual(
+    store.get('s').live.messages.map((message) => [message.role, message.content]),
+    [['user', 'finish this']],
+    'retry removes the replayed partial before starting again',
+  )
+  assert.equal(sends.length, 0, 'retry reattaches the known turn instead of risking duplicate work')
+  assert.equal(reattaches.length, 2)
+  assert.equal(reattaches[1]!.turnId, 'turn-live')
+  reattaches[1]!.handlers.onEnd?.({ id: 'complete', role: 'assistant', content: 'finished' })
+  reattaches[1]!.finish()
+  await retry
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.role), ['user', 'assistant'])
 })
 
 test('escalations hold per session; holdEscalation never replaces a held prompt', () => {

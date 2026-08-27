@@ -48,6 +48,23 @@ export interface ConversationHistory {
 
 export type HistoryPage = Pick<ConversationHistory, 'olderCursor' | 'olderTokens'>
 
+/** The one logical send a failed transport may retransmit. Kept only in the
+ * browser entry: the server owns the message record, while this handle owns the
+ * exact idempotency key and optimistic row needed to reconstruct its view. */
+export interface RetryableSend {
+  text: string
+  idempotencyKey: string
+  userMessageId?: string
+  /** The authoritative transcript tail before this operation. `null` means
+   * the turn began an empty thread; undefined is a legacy/unknown baseline.
+   * It lets a later server reconcile distinguish a completed lost response
+   * from a request that never persisted its optimistic user row. */
+  priorMessageId?: string | null
+  /** A failed VIEW of a known server turn retries that view first. Starting a
+   * new generation here could race an unseen completion and duplicate work. */
+  turnId?: string
+}
+
 /** One session's conversation state — everything a pane needs to render a
  *  thread and its composer affordances. */
 export interface ConversationState {
@@ -58,6 +75,10 @@ export interface ConversationState {
   liveTurn: { sessionId: string; turnId: string } | null
   /** The server's refusal copy for the last failed send (the pre-persist gates). */
   sendFailure: string | null
+  /** Present only when this client saw a send fail and can retransmit the same
+   * logical operation. A reload can still retry the server-owned final user row
+   * through `retryLastUser`, but naturally has no prior transport key. */
+  retryableSend: RetryableSend | null
   pendingEscalation: PendingEscalation | null
   history: ConversationHistory
   /** Which attached context this session's right panel is showing (null = closed).
@@ -86,7 +107,12 @@ export interface TurnHandlers {
 /** What the store needs from the outside world — the api commands in the app,
  *  a fake in tests. */
 export interface ConversationTransport {
-  sendMessage: (sessionId: string, text: string, handlers: TurnHandlers) => Promise<void>
+  sendMessage: (
+    sessionId: string,
+    text: string,
+    handlers: TurnHandlers,
+    options: { idempotencyKey: string; retryLastUser: boolean },
+  ) => Promise<void>
   reattachTurn: (sessionId: string, turnId: string, fromSeq: number, handlers: TurnHandlers) => Promise<void>
   cancelTurn: (sessionId: string, turnId: string) => Promise<void>
   /** A turn settled (message.end) — the wiring refreshes the usage gauge. */
@@ -110,6 +136,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     busy: false,
     liveTurn: null,
     sendFailure: null,
+    retryableSend: null,
     pendingEscalation: null,
     history: { olderTokens: 0, loading: false, error: null },
     focus: null,
@@ -202,11 +229,66 @@ export function createConversationStore(transport: ConversationTransport, empty:
         s.history.olderCursor !== undefined &&
         history.olderCursor !== null &&
         live.messages.some((fresh) => loadedIds.has(fresh.id))
+      let nextLive = preserveLoadedPrefix
+        ? { ...live, messages: mergeMessages(s.live.messages, live.messages) }
+        : live
+      let retryableSend = s.retryableSend
+      let sendFailure = s.sendFailure
+
+      // A session.updated may beat the failed stream back to this view. Rebase
+      // the failed optimistic suffix onto the authoritative transcript: a
+      // matching user + assistant after the captured prior tail proves the
+      // logical turn completed and clears Retry; no matching user proves the
+      // request failed before persistence, so its one optimistic row survives.
+      const logical = s.retryableSend
+      if (logical && logical.priorMessageId !== undefined) {
+        const optimisticUser = logical.userMessageId
+          ? s.live.messages.find((message) => message.id === logical.userMessageId && message.role === 'user')
+          : undefined
+        const serverPriorIndex = logical.priorMessageId === null
+          ? -1
+          : live.messages.findIndex((message) => message.id === logical.priorMessageId)
+        const landedPriorIndex = logical.priorMessageId === null
+          ? -1
+          : nextLive.messages.findIndex((message) => message.id === logical.priorMessageId)
+        const boundaryVisible = logical.priorMessageId === null || (serverPriorIndex >= 0 && landedPriorIndex >= 0)
+        if (boundaryVisible) {
+          const serverSuffix = live.messages.slice(serverPriorIndex + 1)
+          const targetIndex = serverSuffix.findIndex(
+            (message) => message.role === 'user' && message.content === logical.text,
+          )
+          const completed = targetIndex >= 0 && serverSuffix[targetIndex + 1]?.role === 'assistant'
+          nextLive = {
+            ...live,
+            messages: [
+              ...nextLive.messages.slice(0, landedPriorIndex + 1),
+              ...serverSuffix,
+              ...(targetIndex < 0 && optimisticUser ? [optimisticUser] : []),
+            ],
+          }
+          if (completed) {
+            retryableSend = null
+            sendFailure = null
+          }
+        } else if (optimisticUser) {
+          // Compaction/paging can make the captured boundary unavailable. It
+          // cannot prove completion, so prefer an explicit pending row over
+          // silently dropping a user operation from the authoritative view.
+          nextLive = {
+            ...live,
+            messages: [
+              ...live.messages.filter((message) => message.id !== optimisticUser.id),
+              optimisticUser,
+            ],
+          }
+        }
+      }
+
       return {
         ...s,
-        live: preserveLoadedPrefix
-          ? { ...live, messages: mergeMessages(s.live.messages, live.messages) }
-          : live,
+        live: nextLive,
+        retryableSend,
+        sendFailure,
         history: history
           ? preserveLoadedPrefix
             ? { ...s.history, loading: false, error: null }
@@ -312,7 +394,15 @@ export function createConversationStore(transport: ConversationTransport, empty:
       },
       onEnd: (message) => {
         if (stale()) return
-        mapMessage(message.id, () => message)
+        update(id, (s) => ({
+          ...s,
+          // A post-completion idempotency replay contains only `message.end`.
+          // Append its authoritative message when this view never received the
+          // original `message.start`; ordinary streams still replace their shell.
+          live: s.live.messages.some((candidate) => candidate.id === message.id)
+            ? { ...s.live, messages: s.live.messages.map((candidate) => (candidate.id === message.id ? message : candidate)) }
+            : { ...s.live, messages: [...s.live.messages, message] },
+        }))
         transport.onTurnSettled?.(id)
       },
     }
@@ -320,11 +410,18 @@ export function createConversationStore(transport: ConversationTransport, empty:
 
   /** Stand the generation affordances down (however the stream ended — end,
    *  error, or drop; the record is the authority). */
-  const settle = (id: string, since: number, failure?: string | null): void => {
+  const settle = (id: string, since: number, failure?: string | null, retryableSend?: RetryableSend): void => {
     if (epoch(id) !== since) return
     update(id, (s) =>
-      s.typing || s.busy || s.liveTurn || failure !== undefined
-        ? { ...s, typing: false, busy: false, liveTurn: null, ...(failure !== undefined ? { sendFailure: failure } : {}) }
+      s.typing || s.busy || s.liveTurn || s.sendFailure || s.retryableSend || failure !== undefined
+        ? {
+            ...s,
+            typing: false,
+            busy: false,
+            liveTurn: null,
+            sendFailure: failure === undefined ? null : failure,
+            retryableSend: failure === undefined ? null : (retryableSend ?? null),
+          }
         : s,
     )
   }
@@ -340,28 +437,62 @@ export function createConversationStore(transport: ConversationTransport, empty:
    *  no two optimistic turns collide on a React key or a `retry` lookup. The
    *  draft path (ConversationPane) mints through this too, not a hand-rolled copy. */
   const nextUserMessageId = (): string => `u-${Date.now().toString(36)}-${(userSeq += 1)}`
+  /** Recover the logical operation represented by a server-owned user tail.
+   *  Reattachment has no access to the original browser key, so a dropped
+   *  reattach gets a fresh key while still targeting that one persisted turn. */
+  const logicalForLastUser = (id: string, text?: string): RetryableSend | null => {
+    const messages = get(id).live.messages
+    let userIndex = -1
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index]
+      if (message?.role === 'user' && (text === undefined || message.content === text)) {
+        userIndex = index
+        break
+      }
+    }
+    const lastUser = messages[userIndex]
+    return lastUser
+      ? {
+          text: lastUser.content,
+          idempotencyKey: crypto.randomUUID(),
+          userMessageId: lastUser.id,
+          priorMessageId: messages[userIndex - 1]?.id ?? null,
+        }
+      : null
+  }
   const dispatchTurn = (id: string, text: string): Promise<void> => {
+    const priorMessageId = get(id).live.messages.at(-1)?.id ?? null
     const userMsg: Message = { id: nextUserMessageId(), role: 'user', content: text }
+    const logical: RetryableSend = {
+      text,
+      idempotencyKey: crypto.randomUUID(),
+      userMessageId: userMsg.id,
+      priorMessageId,
+    }
     update(id, (s) => ({
       ...s,
       typing: true,
       busy: true,
       sendFailure: null,
+      retryableSend: null,
       live: { ...s.live, messages: [...s.live.messages, userMsg] },
     }))
-    return sendTurn(id, text)
+    return runSend(id, logical, false)
   }
 
   /** Stream one sent turn into the keyed entry. Serialized per session; the
    *  caller set the optimistic flags (typing/busy + the user message) at
    *  dispatch, possibly on a different (draft) id that `adopt` moved here. */
-  const sendTurn = (id: string, text: string): Promise<void> => {
+  const runSend = (id: string, logical: RetryableSend, retryLastUser: boolean): Promise<void> => {
     const since = epoch(id)
     const run = async () => {
       if (epoch(id) !== since) return // reset while queued — the send is moot
-      await transport.sendMessage(id, text, streamHandlers(id, since)).then(
+      await transport.sendMessage(id, logical.text, streamHandlers(id, since), {
+        idempotencyKey: logical.idempotencyKey,
+        retryLastUser,
+      }).then(
         () => settle(id, since),
-        (err: unknown) => settle(id, since, err instanceof Error && err.message ? err.message : null),
+        (err: unknown) => settle(id, since, err instanceof Error && err.message ? err.message : null, logical),
       )
     }
     const chain = (chains.get(id) ?? Promise.resolve()).then(run).catch(() => {})
@@ -369,15 +500,76 @@ export function createConversationStore(transport: ConversationTransport, empty:
     return chain
   }
 
+  const sendTurn = (id: string, text: string): Promise<void> => {
+    return runSend(id, logicalForLastUser(id, text) ?? { text, idempotencyKey: crypto.randomUUID() }, false)
+  }
+
+  /** Prepare a failed/orphaned turn for a clean replay: retain its one user row,
+   * remove any unpersisted assistant shell/partial after it, and raise the normal
+   * generation flags. Exposed for the draft host, which must re-run materialization
+   * before it can send again. */
+  const beginRetry = (id: string): RetryableSend | null => {
+    const state = get(id)
+    const remembered = state.retryableSend
+    let userIndex = remembered?.userMessageId
+      ? state.live.messages.findIndex((message) => message.id === remembered.userMessageId)
+      : -1
+    if (userIndex < 0) {
+      for (let index = state.live.messages.length - 1; index >= 0; index -= 1) {
+        const message = state.live.messages[index]
+        if (message?.role === 'user' && (!remembered || message.content === remembered.text)) {
+          userIndex = index
+          break
+        }
+      }
+    }
+    if (userIndex < 0) return null
+    const userMessage = state.live.messages[userIndex]!
+    const logical: RetryableSend = remembered ?? {
+      text: userMessage.content,
+      idempotencyKey: crypto.randomUUID(),
+      userMessageId: userMessage.id,
+      priorMessageId: state.live.messages[userIndex - 1]?.id ?? null,
+    }
+    update(id, (current) => ({
+      ...current,
+      typing: true,
+      busy: true,
+      liveTurn: null,
+      sendFailure: null,
+      retryableSend: null,
+      pendingEscalation: null,
+      live: { ...current.live, messages: current.live.messages.slice(0, userIndex + 1) },
+    }))
+    return logical
+  }
+
+  /** Retry is one logical turn, never a second visible prompt. In-memory
+   * failures retain their key for attach/replay; after a reload the server-owned
+   * final user row is retried with a new key plus `retryLastUser`. */
+  const retryTurn = (id: string): Promise<void> => {
+    const logical = beginRetry(id)
+    if (!logical) return Promise.resolve()
+    return logical.turnId ? reattach(id, logical.turnId) : runSend(id, logical, true)
+  }
+
   /** Resume rendering a turn still generating server-side (invariant I1's UI
    *  face) — replays from seq 0 through the same handlers. */
-  const reattach = (id: string, turnId: string): void => {
+  const reattach = (id: string, turnId: string): Promise<void> => {
     const since = epoch(id)
     patch(id, { typing: true, busy: true, liveTurn: { sessionId: id, turnId } })
-    void transport
-      .reattachTurn(id, turnId, 0, streamHandlers(id, since))
-      .catch(() => {})
-      .finally(() => settle(id, since))
+    return transport.reattachTurn(id, turnId, 0, streamHandlers(id, since)).then(
+      () => settle(id, since),
+      (err: unknown) => settle(
+        id,
+        since,
+        err instanceof Error && err.message ? err.message : null,
+        (() => {
+          const logical = logicalForLastUser(id)
+          return logical ? { ...logical, turnId } : undefined
+        })(),
+      ),
+    )
   }
 
   /** The deliberate stop: cancel the SERVER-owned turn — the stream's own end
@@ -404,6 +596,8 @@ export function createConversationStore(transport: ConversationTransport, empty:
     clearAll,
     sendTurn,
     dispatchTurn,
+    beginRetry,
+    retryTurn,
     nextUserMessageId,
     reattach,
     stop,

@@ -71,6 +71,12 @@ export interface SendMessageRequest {
   /** When true, generate the reply (the full model + tool round-trip) but do NOT
    *  persist the turn. Omitted = persist. */
   ephemeral?: boolean
+  /** Retry the thread's unresolved final user turn instead of appending that
+   *  same input again. The server reuses it only when the persisted tail is a
+   *  user message with exactly this `text`; otherwise the request remains an
+   *  ordinary send (the original attempt may have failed before persistence).
+   *  Omitted = always append a new user turn. */
+  retryLastUser?: true
 }
 
 /** Body of `POST /v1/sessions` — materialize a new persisted session (the desktop

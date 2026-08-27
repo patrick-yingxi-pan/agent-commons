@@ -76,6 +76,7 @@ import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
+import { readReplyEvents } from './replyStream.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -97,32 +98,48 @@ export interface SendHandlers {
   onEnd?: (message: Extract<ReplyStreamEvent, { type: 'message.end' }>['message']) => void
 }
 
-/** Send a turn and stream the reply. Resolves when the stream ends. `signal`
- *  cancels an in-flight turn (e.g. on session switch); `ephemeral` runs the full
- *  model + tool round-trip without persisting the turn. */
+/** Send one logical turn and stream the reply. The caller may retain the
+ *  `idempotencyKey` and pass it again after a transport failure; that is what
+ *  lets the server attach/replay instead of duplicating work. `retryLastUser`
+ *  additionally covers the process-restart/error case where the server kept
+ *  the user row but no longer has a live/completed turn handle. */
 export async function sendMessage(
   sessionId: string,
   text: string,
   handlers: SendHandlers,
-  opts: { signal?: AbortSignal; ephemeral?: boolean } = {},
+  opts: {
+    signal?: AbortSignal
+    ephemeral?: boolean
+    idempotencyKey?: string
+    retryLastUser?: boolean
+  } = {},
 ): Promise<void> {
-  const { signal, ephemeral } = opts
-  const body: SendMessageRequest = ephemeral ? { text, ephemeral: true } : { text }
-  const res = await fetch(`${API_BASE}${paths.sessionMessages(sessionId)}`, {
-    method: 'POST',
-    headers: {
-      // Identity rides the session cookie (P6) — the browser attaches it to
-      // this streamed fetch like any other request; nothing to inject.
-      'Content-Type': 'application/json',
-      // One key per LOGICAL send (design §5.4, invariant I4): a transport retry
-      // of this call can never double-append the user turn or double-generate —
-      // the server dedupes by (session, key) and attaches the retry to the live
-      // turn (or replays the persisted result).
-      'Idempotency-Key': crypto.randomUUID(),
-    },
-    body: JSON.stringify(body),
-    signal,
-  })
+  const { signal, ephemeral, retryLastUser } = opts
+  const body: SendMessageRequest = {
+    text,
+    ...(ephemeral ? { ephemeral: true } : {}),
+    ...(retryLastUser ? { retryLastUser: true as const } : {}),
+  }
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${paths.sessionMessages(sessionId)}`, {
+      method: 'POST',
+      headers: {
+        // Identity rides the session cookie (P6) — the browser attaches it to
+        // this streamed fetch like any other request; nothing to inject.
+        'Content-Type': 'application/json',
+        // One key per LOGICAL send (design §5.4, invariant I4): a transport retry
+        // of this call can never double-append the user turn or double-generate —
+        // the server dedupes by (session, key) and attaches the retry to the live
+        // turn (or replays the persisted result).
+        'Idempotency-Key': opts.idempotencyKey ?? crypto.randomUUID(),
+      },
+      body: JSON.stringify(body),
+      signal,
+    })
+  } catch {
+    throw new Error('Couldn’t reach Agent Commons. Your message is safe — retry when the connection returns.')
+  }
   if (!res.ok || !res.body) {
     // Surface the server's own refusal copy (the pre-persist gates: a spend limit's
     // 429, a Session provider's relay_offline / relay_busy 503) — those messages are
@@ -131,33 +148,10 @@ export async function sendMessage(
     const envelope = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
     throw new Error(envelope?.error?.message ?? `send failed: ${res.status}`)
   }
-  await readReplyStream(res.body, handlers)
-}
-
-/** Drain a reply-stream SSE body, dispatching each typed event — shared by the
- *  send and the reattach (they carry the same `ReplyStreamEvent` frames). */
-async function readReplyStream(body: ReadableStream<Uint8Array>, handlers: SendHandlers): Promise<void> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    // SSE frames are separated by a blank line.
-    const frames = buffer.split('\n\n')
-    buffer = frames.pop() ?? ''
-    for (const frame of frames) {
-      const line = frame.split('\n').find((l) => l.startsWith('data:'))
-      if (!line) continue
-      let event: ReplyStreamEvent
-      try {
-        event = JSON.parse(line.slice(5).trim()) as ReplyStreamEvent
-      } catch {
-        continue
-      }
-      dispatch(event, handlers)
-    }
+  try {
+    await readReplyEvents(res.body, (event) => dispatch(event, handlers))
+  } catch {
+    throw new Error('The connection closed before the reply finished. Your message is safe — retry to resume it.')
   }
 }
 
@@ -174,13 +168,22 @@ export async function reattachTurn(
   handlers: SendHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}${paths.turnStream(sessionId, turnId, after)}`, { signal })
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}${paths.turnStream(sessionId, turnId, after)}`, { signal })
+  } catch {
+    throw new Error('Couldn’t reconnect to the reply. Retry will reattach to the same generation.')
+  }
   if (res.status === 404) {
     invalidate(keys.session(sessionId)) // finished while we were away — re-read the record
     return
   }
   if (!res.ok || !res.body) throw new Error(`reattach failed: ${res.status}`)
-  await readReplyStream(res.body, handlers)
+  try {
+    await readReplyEvents(res.body, (event) => dispatch(event, handlers))
+  } catch {
+    throw new Error('The reply connection was interrupted. Retry will reattach to the same generation.')
+  }
 }
 
 /** Deliberately stop a live turn (multi-account §5.2 — the explicit cancel, as

@@ -137,6 +137,39 @@ test('a post-completion retry replays the persisted message.end without regenera
   assert.equal(store.generationOutcomes().ok, okBefore, 'no second generation ran')
 })
 
+test('an orphaned persisted user row is regenerated in place after transient turn state is gone', async () => {
+  const s = store.createSession('retry orphan in place')
+  const text = 'recover this exact prompt'
+  store.appendMessage(s.id, { id: store.mintMessageId('user'), role: 'user', content: text })
+  assert.deepEqual(userTurns(s.id).map((message) => message.content), [text])
+
+  // This is the post-restart/post-error shape: the transcript kept the user
+  // turn, while the transient live/completed idempotency registries know no key.
+  const retry = await callRawWithHeaders(
+    'POST',
+    `/sessions/${s.id}/messages`,
+    { text, retryLastUser: true },
+    { 'idempotency-key': 'idem-orphan-1' },
+  )
+  assert.equal(retry.status, 200)
+  assert.ok(frames(retry.body).some((event) => event.type === 'message.end'))
+  assert.equal(userTurns(s.id).length, 1, 'retry reused the unresolved user row')
+  assert.equal(assistantTurns(s.id).length, 1, 'one recovered reply persisted')
+})
+
+test('retryLastUser still appends once when the first attempt never persisted', async () => {
+  const s = store.createSession('retry before persistence')
+  const retry = await callRawWithHeaders(
+    'POST',
+    `/sessions/${s.id}/messages`,
+    { text: 'first accepted attempt', retryLastUser: true },
+    { 'idempotency-key': 'idem-before-persist-1' },
+  )
+  assert.equal(retry.status, 200)
+  assert.equal(userTurns(s.id).length, 1, 'absence of a matching user tail becomes one ordinary append')
+  assert.equal(assistantTurns(s.id).length, 1)
+})
+
 test('a DIFFERENT key mid-turn is still a genuine concurrent send — refused 409', async () => {
   const s = store.createSession('different key conflicts')
   const first = callRawWithHeaders('POST', `/sessions/${s.id}/messages`, { text: 'paced reply please' }, { 'idempotency-key': 'idem-a' })

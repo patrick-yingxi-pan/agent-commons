@@ -6,7 +6,8 @@
  *    local streaming state down — nothing is faked client-side.
  *  • INTERRUPTED — the thread's last word is the user's with nothing
  *    generating (a turn orphaned by a server restart, or a failed send): offer
- *    a retry. Deliberately a FRESH send — the record stays honest.
+ *    an in-place retry of that one logical turn. A retained transport key
+ *    attaches/replays; a reload reuses the server-owned final user row.
  *
  *  One component for both so the two states can't drift apart visually — the
  *  same slot, the same shape, opposite verbs. */
@@ -28,7 +29,11 @@ export function TurnControls({
 }) {
   const streaming = mode === 'streaming'
   return (
-    <div className="mb-2 flex items-center justify-center gap-2 text-[12px] text-ink-faint">
+    <div
+      role={streaming ? 'status' : 'alert'}
+      aria-live={streaming ? 'polite' : 'assertive'}
+      className="mb-2 flex items-center justify-center gap-2 text-[12px] text-ink-faint"
+    >
       <span>{streaming ? 'Claude is writing…' : (reason ?? 'Generation was interrupted.')}</span>
       <button
         onClick={streaming ? onStop : onRetry}

@@ -42,6 +42,7 @@ export function ConversationView({
   busy,
   streaming,
   sendFailure,
+  canRetry = false,
   pendingApproval,
   history,
   onLoadEarlier,
@@ -64,7 +65,8 @@ export function ConversationView({
   sessionId: string
   /** Open a session in this pane — a forked continuation lands here. */
   onOpenSession?: (id: string) => void
-  /** An unsent draft — no compaction, no interrupted-retry (nothing persisted). */
+  /** An unsent draft — no compaction; a failed first send may still retry the
+   *  materialization funnel without duplicating its optimistic user row. */
   draft?: boolean
   live: Live
   typing: boolean
@@ -72,6 +74,9 @@ export function ConversationView({
   /** A turn is streaming into THIS view right now (the stop affordance). */
   streaming: boolean
   sendFailure: string | null
+  /** This client retained the failed logical send (including its key). A
+   *  server-owned orphan after reload is derived from the final user row. */
+  canRetry?: boolean
   /** The held escalation, already projected for display (the one consent
    *  funnel — data/liveSession's approvalView). */
   pendingApproval: ReturnType<typeof approvalView> | null
@@ -216,9 +221,11 @@ export function ConversationView({
   )
 
   // An orphaned turn: the thread's last word is the user's with nothing
-  // generating — offer the fresh-send retry (multi-account §6.5).
+  // generating — offer the one-logical-turn retry (multi-account §6.5).
   const interrupted =
-    !busy && !typing && !draft && live.messages.length > 0 && live.messages[live.messages.length - 1].role === 'user'
+    !busy &&
+    !typing &&
+    (canRetry || (!draft && live.messages.length > 0 && live.messages[live.messages.length - 1].role === 'user'))
 
   return (
     <>
@@ -303,7 +310,7 @@ export function ConversationView({
       )}
 
       {/* Live-turn affordances (multi-account §6.5): the deliberate stop while a
-          turn streams; the fresh-send retry on an orphaned turn. */}
+          turn streams; the in-place retry on an orphaned turn. */}
       {streaming && <TurnControls mode="streaming" onStop={onStop} onRetry={onRetry} />}
       {interrupted && <TurnControls mode="interrupted" reason={sendFailure} onStop={onStop} onRetry={onRetry} />}
 
