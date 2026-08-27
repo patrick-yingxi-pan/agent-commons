@@ -20,26 +20,26 @@
    vivid #ef4444 ramp below).
    ------------------------------------------------------------------------- */
 @theme {
-  --color-canvas: #fbf9f8;
+  --color-canvas: #fbf9f9;
   /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
      it IS the canvas, and the hairline + spacing carry the boundary. Written
      as a reference, not a copied hex, so the two can never drift apart; a
      palette that ever wants a distinct rail overrides this with a literal. */
   --color-sidebar: var(--color-canvas);
-  --color-surface: #fbf9f8;
-  --color-panel: #f6f1ef;
-  --color-panel-2: #efe8e5;
+  --color-surface: #fbf9f9;
+  --color-panel: #f5f2f2;
+  --color-panel-2: #ede8e9;
 
-  --color-ink: #2a2426;
-  --color-ink-soft: #605658;
-  --color-ink-faint: #988a8a;
+  --color-ink: #2b2224;
+  --color-ink-soft: #655357;
+  --color-ink-faint: #9c8c90;
 
-  --color-line: #eae2df;
-  --color-line-strong: #d9cbc7;
+  --color-line: #dfd9da;
+  --color-line-strong: #cfc5c6;
 
-  --color-accent: #93353f;
-  --color-accent-strong: #7a2a33;
-  --color-accent-tint: #f6e7e6;
+  --color-accent: #9d2531;
+  --color-accent-strong: #8c212c;
+  --color-accent-tint: #eedfe1;
 
   /* The SOLID-FILL seat (invariant UI-20). `--color-accent` does double duty —
      it is read as TEXT on the canvas AND used as a FILL under `on-solid` — and
@@ -51,8 +51,8 @@
      modes — light keeps the palette's own deep value, dark takes the LIGHTEST
      value on the same hue ramp that still clears it (so the fill also holds a
      ~3:1 boundary against the dark canvas). */
-  --color-accent-solid: #93353f;
-  --color-accent-solid-strong: #7a2a33;
+  --color-accent-solid: #d13d4c;
+  --color-accent-solid-strong: #c22e3c;
 
   /* The CO-COLOR — the duet's second voice (owner directive 2026-08-03, the
      Bindery casting): Prussian-blue PLACES against claret VERBS. The accent
@@ -60,13 +60,13 @@
      the co family owns where you ARE (the rail's active pill, door hovers, the
      focus flash, selection cues, the user bubble). Verbs never wear co, places
      never wear accent — the seat law, locked by tests/theme.test.ts. */
-  --color-co: #1c4472;
-  --color-co-strong: #173a63;
-  --color-co-tint: #e7eef6;
+  --color-co: #255d9d;
+  --color-co-strong: #21538c;
+  --color-co-tint: #dfe6ee;
   /* The co family's solid seat — the checked checkbox, the toggled-on pill. */
-  --color-co-solid: #1c4472;
+  --color-co-solid: #2f75c6;
 
-  --color-userbubble: #e9eff6;
+  --color-userbubble: #e6eaef;
 
   --color-cap-chat: #8a877d;
 
@@ -159,26 +159,26 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --color-canvas: #272122;
+  --color-canvas: #251b1d;
   /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
      it IS the canvas, and the hairline + spacing carry the boundary. Written
      as a reference, not a copied hex, so the two can never drift apart; a
      palette that ever wants a distinct rail overrides this with a literal. */
   --color-sidebar: var(--color-canvas);
-  --color-surface: #272122;
-  --color-panel: #2d2627;
-  --color-panel-2: #352d2e;
+  --color-surface: #251b1d;
+  --color-panel: #322829;
+  --color-panel-2: #3d2f31;
 
-  --color-ink: #f0e9e7;
-  --color-ink-soft: #b8acab;
-  --color-ink-faint: #8a7d7c;
+  --color-ink: #ede8e9;
+  --color-ink-soft: #baabaf;
+  --color-ink-faint: #8e7b80;
 
-  --color-line: #3c3436;
-  --color-line-strong: #4c4143;
+  --color-line: #4e4244;
+  --color-line-strong: #635154;
 
-  --color-accent: #c96872;
-  --color-accent-strong: #dd8790;
-  --color-accent-tint: #402b2d;
+  --color-accent: #e2838d;
+  --color-accent-strong: #e89ca3;
+  --color-accent-tint: #4d2a2d;
 
   /* The solid seat does NOT follow the accent up into the light (UI-20): the
      accent lifts so it can be READ on this dark ground, which is precisely why
@@ -186,17 +186,17 @@
      values that still clear 4.5:1 against `on-solid`, so the fill stays a
      legible button and keeps a ~3:1 edge against the canvas. Hover darkens, the
      same direction as light mode, but only as far as the edge survives. */
-  --color-accent-solid: #c0505c;
-  --color-accent-solid-strong: #b2404c;
+  --color-accent-solid: #d13d4c;
+  --color-accent-solid-strong: #c22e3c;
 
   /* The co family lifted for dark ground — Prussian places read as moonlit
      blue against the wine-leather charcoals. */
-  --color-co: #7fa8d9;
-  --color-co-strong: #9dbde6;
-  --color-co-tint: #24313f;
-  --color-co-solid: #3176c6;
+  --color-co: #83afe2;
+  --color-co-strong: #9cbfe8;
+  --color-co-tint: #2a3a4d;
+  --color-co-solid: #2f75c6;
 
-  --color-userbubble: #24313f;
+  --color-userbubble: #2e3a48;
 
   --color-cap-chat: #a09c8f;
   --color-cap-workspace: #d9a45c;
@@ -246,213 +246,13 @@
   --color-on-solid: #ffffff;
 }
 
-/* ---- Color palettes ------------------------------------------------------
-   The second theming axis (src/lib/theme.ts): `data-palette` on <html> picks
-   one of these; `data-theme` picks the mode within it. Claret IS the base
-   blocks above, so it has no override. Each palette redefines EXACTLY the
-   palette-varying tokens (PALETTE_TOKENS in lib/theme.ts — neutrals, accent
-   family, userbubble) in BOTH modes; semantic ramps stay invariant. Order and
-   specificity: the light block (0,2,0) ties the base dark block (0,2,0) and
-   sits later in the sheet, so its paired dark block (0,3,0) must — and the
-   conformance lock ensures it does — restate the same full set, or a
-   palette-light value would leak into dark. Locked by
-   tests/spec-conformance.test.ts (per-palette completeness + swatch match).
+/* ---- Runtime palette recipes -----------------------------------------------
+   Named themes and sparse user tuning are resolved by src/lib/theme.ts, which
+   writes only PALETTE_TOKENS on the root element. Keeping recipes out of CSS
+   prevents a second, non-composable theme registry; these Claret declarations
+   remain solely as the no-script and pre-initialization fallback. Semantic
+   status, diff, and capability tokens stay in this sheet and never vary.
    ------------------------------------------------------------------------- */
-
-/* Terracotta — the warm Claude classic, flattened onto one ground. */
-:root[data-palette="terracotta"] {
-  --color-canvas: #faf9f5;
-  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
-     it IS the canvas, and the hairline + spacing carry the boundary. Written
-     as a reference, not a copied hex, so the two can never drift apart; a
-     palette that ever wants a distinct rail overrides this with a literal. */
-  --color-sidebar: var(--color-canvas);
-  --color-surface: #faf9f5;
-  --color-panel: #f2f0e9;
-  --color-panel-2: #ebe8dc;
-
-  --color-ink: #28261f;
-  --color-ink-soft: #5c584f;
-  --color-ink-faint: #908b7e;
-
-  --color-line: #e8e5db;
-  --color-line-strong: #dbd7ca;
-
-  --color-accent: #c15f3c;
-  --color-accent-strong: #a34d2e;
-  --color-accent-tint: #f6e9e1;
-  /* The one light-mode accent that had to move: #c15f3c carried white at only
-     4.23:1, so the FILL seat deepens a shade while the text seat stays put. */
-  --color-accent-solid: #b85a39;
-  --color-accent-solid-strong: #a34d2e;
-
-  /* Single-voice palette: co = the accent family, so no seat changes hue. */
-  --color-co: #c15f3c;
-  --color-co-strong: #a34d2e;
-  --color-co-tint: #f6e9e1;
-  --color-co-solid: #b85a39;
-
-  --color-userbubble: #efece3;
-}
-:root[data-palette="terracotta"][data-theme="dark"] {
-  --color-canvas: #262624;
-  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
-     it IS the canvas, and the hairline + spacing carry the boundary. Written
-     as a reference, not a copied hex, so the two can never drift apart; a
-     palette that ever wants a distinct rail overrides this with a literal. */
-  --color-sidebar: var(--color-canvas);
-  --color-surface: #262624;
-  --color-panel: #2b2a27;
-  --color-panel-2: #34332f;
-
-  --color-ink: #f0eee6;
-  --color-ink-soft: #b8b4a7;
-  --color-ink-faint: #8a8578;
-
-  --color-line: #3a3833;
-  --color-line-strong: #4a473f;
-
-  --color-accent: #d97757;
-  --color-accent-strong: #e08b6d;
-  --color-accent-tint: #453028;
-  --color-accent-solid: #b85a39;
-  --color-accent-solid-strong: #a25032;
-
-  --color-co: #d97757;
-  --color-co-strong: #e08b6d;
-  --color-co-tint: #453028;
-  --color-co-solid: #b85a39;
-
-  --color-userbubble: #33322c;
-}
-
-/* Indigo — cool ink on porcelain, the blueprint cast. */
-:root[data-palette="indigo"] {
-  --color-canvas: #fafbfd;
-  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
-     it IS the canvas, and the hairline + spacing carry the boundary. Written
-     as a reference, not a copied hex, so the two can never drift apart; a
-     palette that ever wants a distinct rail overrides this with a literal. */
-  --color-sidebar: var(--color-canvas);
-  --color-surface: #fafbfd;
-  --color-panel: #f1f3f8;
-  --color-panel-2: #e9ecf4;
-
-  --color-ink: #232630;
-  --color-ink-soft: #565b6b;
-  --color-ink-faint: #8d92a3;
-
-  --color-line: #e4e7ef;
-  --color-line-strong: #ced4e2;
-
-  --color-accent: #4353c8;
-  --color-accent-strong: #3644a6;
-  --color-accent-tint: #e9ecfa;
-  --color-accent-solid: #4353c8;
-  --color-accent-solid-strong: #3644a6;
-
-  --color-co: #4353c8;
-  --color-co-strong: #3644a6;
-  --color-co-tint: #e9ecfa;
-  --color-co-solid: #4353c8;
-
-  --color-userbubble: #eef1f9;
-}
-:root[data-palette="indigo"][data-theme="dark"] {
-  --color-canvas: #212330;
-  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
-     it IS the canvas, and the hairline + spacing carry the boundary. Written
-     as a reference, not a copied hex, so the two can never drift apart; a
-     palette that ever wants a distinct rail overrides this with a literal. */
-  --color-sidebar: var(--color-canvas);
-  --color-surface: #212330;
-  --color-panel: #272a3a;
-  --color-panel-2: #2f3246;
-
-  --color-ink: #e9ebf4;
-  --color-ink-soft: #acb0c2;
-  --color-ink-faint: #7e8296;
-
-  --color-line: #363950;
-  --color-line-strong: #464a68;
-
-  --color-accent: #8b96e8;
-  --color-accent-strong: #a3adf0;
-  --color-accent-tint: #2c3052;
-  --color-accent-solid: #5f6cd0;
-  --color-accent-solid-strong: #4d5dcb;
-
-  --color-co: #8b96e8;
-  --color-co-strong: #a3adf0;
-  --color-co-tint: #2c3052;
-  --color-co-solid: #5f6cd0;
-
-  --color-userbubble: #2b2e42;
-}
-
-/* Forest — deep green on sage, the field notebook. */
-:root[data-palette="forest"] {
-  --color-canvas: #f9fbf9;
-  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
-     it IS the canvas, and the hairline + spacing carry the boundary. Written
-     as a reference, not a copied hex, so the two can never drift apart; a
-     palette that ever wants a distinct rail overrides this with a literal. */
-  --color-sidebar: var(--color-canvas);
-  --color-surface: #f9fbf9;
-  --color-panel: #f0f4f0;
-  --color-panel-2: #e7ede8;
-
-  --color-ink: #232823;
-  --color-ink-soft: #56605a;
-  --color-ink-faint: #8a948b;
-
-  --color-line: #e2e8e3;
-  --color-line-strong: #cbd6cd;
-
-  --color-accent: #2e6b4a;
-  --color-accent-strong: #24543a;
-  --color-accent-tint: #e5f0e9;
-  --color-accent-solid: #2e6b4a;
-  --color-accent-solid-strong: #24543a;
-
-  --color-co: #2e6b4a;
-  --color-co-strong: #24543a;
-  --color-co-tint: #e5f0e9;
-  --color-co-solid: #2e6b4a;
-
-  --color-userbubble: #edf2ee;
-}
-:root[data-palette="forest"][data-theme="dark"] {
-  --color-canvas: #212623;
-  /* FLUSH (owner directive 2026-08-10): the rail has no fill of its own —
-     it IS the canvas, and the hairline + spacing carry the boundary. Written
-     as a reference, not a copied hex, so the two can never drift apart; a
-     palette that ever wants a distinct rail overrides this with a literal. */
-  --color-sidebar: var(--color-canvas);
-  --color-surface: #212623;
-  --color-panel: #272e29;
-  --color-panel-2: #2f3831;
-
-  --color-ink: #e9efe9;
-  --color-ink-soft: #aab5ac;
-  --color-ink-faint: #7c877e;
-
-  --color-line: #353f37;
-  --color-line-strong: #445147;
-
-  --color-accent: #6fbf8f;
-  --color-accent-strong: #8ed3a9;
-  --color-accent-tint: #24382c;
-  --color-accent-solid: #38835a;
-  --color-accent-solid-strong: #327450;
-
-  --color-co: #6fbf8f;
-  --color-co-strong: #8ed3a9;
-  --color-co-tint: #24382c;
-  --color-co-solid: #38835a;
-
-  --color-userbubble: #2b342d;
-}
 
 html,
 body,
@@ -601,8 +401,26 @@ body {
 @layer base {
   /* Keyboard focus is a PLACE cue (where you are), so it wears the co-color —
      which also gives the ring the conventional blue cast under Bindery. */
-  :where(button, a, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  :where(button, a, summary, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
     outline: 2px solid var(--color-co);
     outline-offset: 2px;
   }
+
+  /* Optical finish is intentionally a tiny, opt-in expression layer. It can
+     change focus choreography and registered ledger rules, never component
+     fills or semantic color meaning. No finish creates a resting shadow. */
+  :root[data-theme-finish="duotone"]
+    :where(button, a, summary, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+    outline-color: var(--color-accent);
+    box-shadow: 2px 2px 0 var(--color-co);
+  }
+
+  :root[data-theme-finish="halo"]
+    :where(button, a, summary, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+    box-shadow: 0 0 0 4px var(--color-co-tint);
+  }
+}
+
+:root[data-theme-finish="hairline"] [data-theme-rule] {
+  border-image: linear-gradient(90deg, var(--color-accent), var(--color-co), var(--color-line)) 1;
 }

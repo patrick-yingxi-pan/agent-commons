@@ -58,9 +58,10 @@ output, no DOM needed).
   that model; rail density reduction is a pure, non-mutating projection that
   preserves named groups and the addressed item. Components may specialize a
   row payload, never rebuild the group grammar.
-- **Theming goes through the one funnel** (`theme.ts`) — it alone stamps
-  `data-theme` / `data-palette`. Full rule + palette contract:
-  [`src/CLAUDE.md`](../CLAUDE.md).
+- **Theming goes through the one funnel** (`theme.ts`) — it alone persists and
+  derives the composable recipe, writes the palette token set, and stamps
+  `data-theme` / `data-palette` / finish. Full rationale and contract:
+  [`src/DESIGN.md`](../DESIGN.md).
 
 ## Verification
 

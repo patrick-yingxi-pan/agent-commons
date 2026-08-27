@@ -76,7 +76,26 @@ import {
 } from '../lib/cadence'
 import { composeModelLabel, displayModelLabel, isOpusModel, modelBlurb, parseModelChoice, type ModelPick } from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
-import { loadThemePref, saveThemePref, loadPalettePref, savePalettePref, PALETTES, type ThemePref, type PaletteId } from '../lib/theme'
+import {
+  PALETTES,
+  THEME_AXIS_GROUPS,
+  deriveThemeTokens,
+  effectiveThemeRecipe,
+  formatThemeAxisValue,
+  loadThemePref,
+  loadThemeSettings,
+  resetThemeAxis,
+  saveThemePref,
+  saveThemeSettings,
+  setThemeAxis,
+  themeOverrideCount,
+  themeSettingsForPreset,
+  type PaletteId,
+  type ThemeAxisDefinition,
+  type ThemePref,
+  type ThemeRecipe,
+  type ThemeSettings,
+} from '../lib/theme'
 import { ModelPickerMenu } from './ModelPickerMenu'
 import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
@@ -13697,72 +13716,224 @@ function CustomizeView() {
   )
 }
 
-/** The "Appearance" setting — two axes, both persisted + applied through the one
- *  theme funnel (lib/theme): Light / Dark / System stamps `data-theme`, the
- *  color palette stamps `data-palette`, and the CSS variable blocks in
- *  index.css do the rest. "System" follows the OS `prefers-color-scheme` live;
- *  every palette carries both modes, so the two picks compose freely. */
+/** Appearance is a preset plus orthogonal edits, never fourteen sealed skins.
+ *  The preset selector replaces edits deliberately; each advanced dimension
+ *  can then diverge and return to its preset value independently. lib/theme is
+ *  still the only persistence + DOM funnel, so this editor is just a view over
+ *  the recipe registry rather than a second theming system. */
 function AppearanceCard() {
   const [pref, setPref] = useState<ThemePref>(loadThemePref)
-  const [palette, setPalette] = useState<PaletteId>(loadPalettePref)
-  const commit = (next: ThemePref) => {
+  const [settings, setSettings] = useState<ThemeSettings>(loadThemeSettings)
+  const [pickingTheme, setPickingTheme] = useState(false)
+  const preset = PALETTES.find((option) => option.id === settings.preset)!
+  const recipe = effectiveThemeRecipe(settings)
+  const preview = deriveThemeTokens(recipe, 'light')
+  const overrideCount = themeOverrideCount(settings)
+
+  const commitMode = (next: ThemePref) => {
     setPref(next)
     saveThemePref(next)
   }
-  const commitPalette = (next: PaletteId) => {
-    setPalette(next)
-    savePalettePref(next)
+  const commitSettings = (next: ThemeSettings) => {
+    setSettings(next)
+    saveThemeSettings(next)
+  }
+  const commitPreset = (next: PaletteId) => {
+    commitSettings(themeSettingsForPreset(next))
+  }
+  const commitAxis = (axis: ThemeAxisDefinition, value: ThemeRecipe[typeof axis.key]) => {
+    commitSettings(setThemeAxis(settings, axis.key, value))
   }
   // Pref ids are lowercase; the chip label is just the capitalized id (and the
   // spelled-out record would trip INV-1's `dark:`-variant scan).
   const label = (opt: ThemePref) => opt[0].toUpperCase() + opt.slice(1)
   return (
-    <Card title="Appearance" desc="How the interface is lit and colored — or follow your device.">
-      <div role="radiogroup" aria-label="Theme" className="flex gap-1.5">
-        {(['light', 'system', 'dark'] as const).map((opt) => {
-          const active = opt === pref
-          return (
-            <button
-              key={opt}
-              role="radio"
-              aria-checked={active}
-              onClick={() => commit(opt)}
-              className={`rounded-lg px-3 py-1 text-[12px] font-medium transition ${
-                active ? 'bg-co-tint text-co-strong ring-1 ring-co/30' : 'bg-panel-2 text-ink-soft hover:text-ink'
-              }`}
-            >
-              {label(opt)}
-            </button>
-          )
-        })}
+    <FoldSection
+      title="Appearance"
+      summary={`${label(pref)} · ${preset.label}${overrideCount ? ` · ${overrideCount} tuned` : ''}`}
+      persist={false}
+    >
+      <div className="space-y-4">
+        <div className="grid gap-3 @xl:grid-cols-[minmax(0,1fr)_auto] @xl:items-center">
+          <div>
+            <p className="text-[12px] font-medium text-ink">Lighting</p>
+            <p className="mt-0.5 text-[12px] text-ink-faint">Choose a mode or follow this device.</p>
+          </div>
+          <div role="radiogroup" aria-label="Theme" className="flex flex-wrap gap-1.5">
+            {(['light', 'system', 'dark'] as const).map((opt) => {
+              const active = opt === pref
+              return (
+                <button
+                  key={opt}
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => commitMode(opt)}
+                  className={`rounded-lg px-3 py-1 text-[12px] font-medium transition ${
+                    active ? 'bg-co-tint text-co-strong ring-1 ring-co/30' : 'bg-panel-2 text-ink-soft hover:text-ink'
+                  }`}
+                >
+                  {label(opt)}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        <div className="grid gap-3 border-t border-line pt-4 @xl:grid-cols-[minmax(0,1fr)_minmax(180px,240px)] @xl:items-start">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <div aria-hidden className="flex -space-x-1">
+                {[
+                  preview['--color-canvas'],
+                  preview['--color-ink'],
+                  preview['--color-accent'],
+                  preview['--color-co'],
+                ].map((color, index) => (
+                  <span
+                    key={`${color}-${index}`}
+                    className="h-4 w-4 rounded-full ring-1 ring-ink/15"
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </div>
+              <p className="text-[12px] font-medium text-ink">{preset.label}</p>
+            </div>
+            <p className="mt-1 max-w-xl text-[12px] text-ink-faint">{preset.blurb}</p>
+          </div>
+          <div>
+            {pickingTheme ? (
+              <label className="block">
+                <span className="sr-only">Theme preset</span>
+                <select
+                  autoFocus
+                  aria-label="Theme preset"
+                  value={settings.preset}
+                  onBlur={() => setPickingTheme(false)}
+                  onChange={(event) => {
+                    commitPreset(event.currentTarget.value as PaletteId)
+                    setPickingTheme(false)
+                  }}
+                  className={`${FORM_INPUT_CLASS} w-full`}
+                >
+                  <optgroup label="Classic">
+                    {PALETTES.filter((option) => option.family === 'classic').map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Vivid">
+                    {PALETTES.filter((option) => option.family === 'vivid').map((option) => (
+                      <option key={option.id} value={option.id}>{option.label}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </label>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setPickingTheme(true)}
+                className={`${SECONDARY_BUTTON_CLASS} flex w-full items-center justify-between gap-2 px-3 py-1.5 text-[12px]`}
+                aria-label={`Change theme preset, current ${preset.label}`}
+              >
+                <span>{preset.label}</span>
+                <ChevronDown size={13} className="text-ink-faint" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <details className="group border-t border-line pt-3">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded-md py-1 text-[12px] font-medium text-ink-soft hover:text-ink [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-1.5">
+              <ChevronRight size={13} className="transition group-open:rotate-90" />
+              Tune palette
+            </span>
+            <span className="font-normal text-ink-faint">
+              {overrideCount ? `${overrideCount} override${overrideCount === 1 ? '' : 's'}` : 'Using preset values'}
+            </span>
+          </summary>
+          <div className="mt-3 grid gap-x-7 gap-y-5 @2xl:grid-cols-2">
+            {THEME_AXIS_GROUPS.map((group) => (
+              <fieldset key={group.id} className="min-w-0">
+                <legend className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{group.label}</legend>
+                <div className="space-y-3">
+                  {group.axes.map((axis) => (
+                    <ThemeAxisControl
+                      key={axis.key}
+                      axis={axis}
+                      value={recipe[axis.key]}
+                      overridden={Object.hasOwn(settings.overrides, axis.key)}
+                      onChange={(value) => commitAxis(axis, value)}
+                      onReset={() => commitSettings(resetThemeAxis(settings, axis.key))}
+                    />
+                  ))}
+                </div>
+              </fieldset>
+            ))}
+          </div>
+          {overrideCount > 0 && (
+            <div className="mt-4 border-t border-line pt-3 text-right">
+              <button onClick={() => commitSettings(themeSettingsForPreset(settings.preset))} className={INLINE_ACTION_CLASS}>
+                Reset all tuning
+              </button>
+            </div>
+          )}
+        </details>
       </div>
-      <div role="radiogroup" aria-label="Color theme" className="mt-2.5 flex flex-wrap gap-1.5">
-        {PALETTES.map((p) => {
-          const active = p.id === palette
-          return (
-            <button
-              key={p.id}
-              role="radio"
-              aria-checked={active}
-              title={p.blurb}
-              onClick={() => commitPalette(p.id)}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium transition ${
-                active ? 'bg-co-tint text-co-strong ring-1 ring-co/30' : 'bg-panel-2 text-ink-soft hover:text-ink'
-              }`}
-            >
-              {/* The dot paints the registry's swatch (the palette's own light
-                  accent), so every option shows its color without switching. */}
-              <span
-                aria-hidden
-                className="h-2.5 w-2.5 shrink-0 rounded-full ring-1 ring-ink/15"
-                style={{ backgroundColor: p.swatch }}
-              />
-              {p.label}
+    </FoldSection>
+  )
+}
+
+function ThemeAxisControl({
+  axis,
+  value,
+  overridden,
+  onChange,
+  onReset,
+}: {
+  axis: ThemeAxisDefinition
+  value: ThemeRecipe[typeof axis.key]
+  overridden: boolean
+  onChange: (value: ThemeRecipe[typeof axis.key]) => void
+  onReset: () => void
+}) {
+  const id = `theme-axis-${axis.key}`
+  return (
+    <div>
+      <div className="mb-1 flex min-h-5 items-center justify-between gap-2">
+        <label htmlFor={id} className="text-[12px] text-ink-soft">{axis.label}</label>
+        <span className="flex items-center gap-2">
+          <output htmlFor={id} className="tabular-nums text-[11px] text-ink-faint">
+            {formatThemeAxisValue(axis, value)}
+          </output>
+          {overridden && (
+            <button type="button" onClick={onReset} className={INLINE_ACTION_CLASS} aria-label={`Reset ${axis.label}`}>
+              Reset
             </button>
-          )
-        })}
+          )}
+        </span>
       </div>
-    </Card>
+      {axis.kind === 'range' ? (
+        <input
+          id={id}
+          type="range"
+          min={axis.min}
+          max={axis.max}
+          step={axis.step}
+          value={value as number}
+          onChange={(event) => onChange(Number(event.currentTarget.value))}
+          className="block h-5 w-full cursor-pointer accent-accent"
+        />
+      ) : (
+        <select
+          id={id}
+          value={value as string}
+          onChange={(event) => onChange(event.currentTarget.value as ThemeRecipe[typeof axis.key])}
+          className={`${FORM_INPUT_CLASS} w-full`}
+        >
+          {axis.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+      )}
+    </div>
   )
 }
 

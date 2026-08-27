@@ -173,40 +173,20 @@ test('INV-1: the dark block redefines every `--color-*` token @theme declares', 
   assert.deepEqual(missing, [], `dark block misses token(s) — a theme-invariant value must still be stated explicitly:\n${missing.join(', ')}`)
 })
 
-test('INV-1: every palette block redefines exactly the palette-varying tokens, both modes', async () => {
-  const { PALETTES, PALETTE_TOKENS, DEFAULT_PALETTE } = await import('../src/lib/theme.ts')
+test('INV-1: runtime recipes are the only palette registry and CSS fallback matches default', async () => {
+  const { PALETTE_TOKENS, DEFAULT_PALETTE, deriveThemeTokens, paletteById } = await import('../src/lib/theme.ts')
   const css = read(join(ROOT, 'src/index.css'))
-  const tokensIn = (block) => [...new Set([...block.matchAll(/--color-[\w-]+(?=:)/g)].map((m) => m[0]))]
   const valueOf = (block, token) => block.match(new RegExp(`${token}: *([^;\\n]+)`))?.[1]?.trim()
   const themeBlock = css.match(/@theme \{([\s\S]*?)\n\}/)?.[1] ?? ''
+  const darkBlock = css.match(/:root\[data-theme="dark"\] \{([\s\S]*?)\n\}/)?.[1] ?? ''
+  assert.ok(!/:root\[data-palette=/.test(css), 'CSS must not grow sealed per-palette blocks beside the recipe registry')
 
-  for (const p of PALETTES) {
-    if (p.id === DEFAULT_PALETTE) {
-      // Claret IS the base @theme block — an override block for it would fork
-      // the default into two homes.
-      assert.ok(!css.includes(`data-palette="${p.id}"`), 'the default palette has no override block')
-      assert.equal(valueOf(themeBlock, '--color-accent'), p.swatch, 'the default swatch matches the base accent')
-      continue
+  const recipe = paletteById(DEFAULT_PALETTE).recipe
+  for (const [mode, block] of [['light', themeBlock], ['dark', darkBlock]]) {
+    const expected = deriveThemeTokens(recipe, mode)
+    for (const token of PALETTE_TOKENS) {
+      assert.equal(valueOf(block, token), expected[token], `${mode} fallback matches derived ${DEFAULT_PALETTE} ${token}`)
     }
-    const light = css.match(new RegExp(`:root\\[data-palette="${p.id}"\\] \\{([\\s\\S]*?)\\n\\}`))?.[1]
-    const dark = css.match(
-      new RegExp(`:root\\[data-palette="${p.id}"\\]\\[data-theme="dark"\\] \\{([\\s\\S]*?)\\n\\}`),
-    )?.[1]
-    assert.ok(light, `${p.id}: index.css carries the light block`)
-    assert.ok(dark, `${p.id}: index.css carries the dark block`)
-    for (const [mode, block] of [['light', light], ['dark', dark]]) {
-      // EXACTLY the varying set: an omission leaks the base palette's value
-      // (in dark, source order makes the palette-light value leak instead);
-      // an extra token would let a palette restyle a semantic ramp.
-      assert.deepEqual(
-        tokensIn(block).sort(),
-        [...PALETTE_TOKENS].sort(),
-        `${p.id} ${mode}: the block must redefine exactly PALETTE_TOKENS (lib/theme.ts)`,
-      )
-    }
-    // The registry swatch the picker paints is the palette's own light accent —
-    // a duplicated literal, so the lock is what keeps it honest.
-    assert.equal(valueOf(light, '--color-accent'), p.swatch, `${p.id}: registry swatch matches the CSS accent`)
   }
 })
 

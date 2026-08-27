@@ -42,17 +42,21 @@ awkward to assert is usually a rule whose logic wants to move.
 
 - **One door to the backend.** UI components read through hooks (`src/api`);
   controllers issue commands. Nothing else should know a URL or an SSE event.
-- **Theming through tokens.** Appearance is two axes — Light / Dark / System
-  AND a color palette (Claret default · Terracotta · Indigo · Forest) — set in
-  Customize, persisted + applied by the ONE funnel `src/lib/theme.ts` (it alone
-  stamps `data-theme` and `data-palette` on `<html>`; "system" follows
-  `prefers-color-scheme` live). A palette is a CSS block pair in `index.css`
-  overriding EXACTLY the `PALETTE_TOKENS` set (neutrals + accent family +
-  userbubble) in both modes — semantic ramps are palette-invariant, and the
-  picker derives from the `PALETTES` registry, never a hand list (locked by
-  `src/lib/theme.test.ts` + the per-palette completeness scan in
-  `tests/spec-conformance.test.ts`). Every color is a `@theme` token in `src/index.css` and dark is a
-  single variable-override block there, so components carry **no `dark:`
+- **Theming through tokens.** Appearance composes three layers — Light / Dark /
+  System, a named starting preset (four classics + ten vivid additions), and a
+  sparse set of orthogonal recipe edits — in Customize. The ONE funnel
+  `src/lib/theme.ts` persists the versioned recipe, derives EXACTLY
+  `PALETTE_TOKENS`, writes those token values, and alone stamps `data-theme`,
+  `data-palette`, and the optical finish on `<html>` ("system" follows
+  `prefers-color-scheme` live). Presets and advanced controls derive from the
+  `PALETTES` / `THEME_AXIS_GROUPS` registries, never hand lists; changing a
+  preset clears edits, while any single dimension can reset independently.
+  Semantic status, diff, and capability ramps are absent from the varying set.
+  `index.css` carries only the derived default Claret values for both modes as
+  a no-flash fallback — per-palette CSS blocks would be a forbidden second
+  registry (locked by `src/lib/theme.test.ts`, `src/lib/contrast.test.ts`, and
+  `tests/spec-conformance.test.ts`). Every color is a `@theme` token in
+  `src/index.css`, so components carry **no `dark:`
   variants and no raw Tailwind palette classes** — status cues use the semantic
   `ok`/`warn`/`danger` ramps, text atop solid fills uses `on-solid`. Locked by
   `tests/spec-conformance.test.ts` (INV-1) + `src/lib/theme.test.ts`. (This
@@ -95,14 +99,16 @@ awkward to assert is usually a rule whose logic wants to move.
   claret means "go", bright signal-red means "danger", never both weights on one
   surface. This restyles but does not restructure — the rail, the split
   workspace, and every navigation rule below are unchanged.
-- **The rail is FLUSH** (owner directive 2026-08-10). `--color-sidebar` is
-  `var(--color-canvas)` in every palette and mode — a reference, not a copied
-  hex, so the two can never drift and a palette wanting a distinct rail
-  overrides it with a literal. The left panel has no fill of its own; the
+- **The default rail is FLUSH** (owner directive 2026-08-10).
+  `--color-sidebar` is `var(--color-canvas)` for the default recipe — a
+  reference, not a copied hex, so the two cannot drift. Appearance may
+  deliberately tune the rail to a mode-safe tonal, response-tint, or contrast
+  treatment; those choices reference existing surface tokens rather than
+  inventing a raw rail color. Untuned, the left panel has no fill of its own; the
   hairline and spacing carry the boundary, which is the flat-ledger rule applied
   to the one surface still exempt from it. It replaced a rail derived as *canvas
   darkened ~2% and nudged toward the accent hue* — a formula, run identically in
-  all four palettes, that could only ever produce a slightly dirty white
+  every old palette, that could only ever produce a slightly dirty white
   (owner: *"slightly oriented to the theme color, which is poor taste"*).
   **The consequence to remember:** a rail cue can no longer be painted in
   `surface`, because surface IS the rail now — `SIDEBAR_HOVER` and the active
@@ -135,8 +141,8 @@ awkward to assert is usually a rule whose logic wants to move.
   original "places wear co"): the rail's active row is a neutral fill plus a
   slim location marker (`SIDEBAR_ACTIVE`), because a blue pill made a NAVIGATION marker
   the loudest thing in the panel that had just given up its solid to stop
-  shouting — and three of the four palettes are single-voice anyway, so the
-  duet was never load-bearing. The sharper line: co means *the system just
+  shouting — and a preset may intentionally be single-voice, so the duet cannot
+  be load-bearing. The sharper line: co means *the system just
   responded*; fill and marker mean *you are here*. One active look serves every
   rail row kind (the section pill and the session rows had drifted into two).
   Locked by `src/lib/sidebar.test.ts`. Verbs never
@@ -151,7 +157,8 @@ awkward to assert is usually a rule whose logic wants to move.
   is what makes it unable to carry white. So a fill under `text-on-solid` wears
   its own token, `--color-*-solid(-strong)`; `--color-accent` / `*-strong` stay
   the text/dot/bar voice. Every solid seat clears 4.5:1 against `on-solid` in
-  all four palettes × both modes, and the text seat is separately held to 3:1
+  every registered preset and sampled customization extreme × both modes, and
+  the text seat is separately held to 3:1
   against the canvas so the two can't be collapsed back together. **Never pair
   `text-on-solid` with `bg-accent` / `bg-co` / `bg-danger` / `bg-*-strong`** —
   the dark-mode CTA shipped at 1.74:1 that way. Locked by

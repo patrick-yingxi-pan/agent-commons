@@ -1,20 +1,20 @@
-/** UI-20 — text on a solid fill is legible on that fill, in every palette and
- *  both modes.
+/** UI-20 — text on a solid fill is legible on that fill, in every registered
+ *  recipe, sampled customization extremes, and both modes.
  *
  *  Earned by a real escape (2026-08-07). `--color-accent` did two jobs: read as
  *  TEXT on the canvas, and used as a FILL under `--color-on-solid`. Light mode
  *  got away with it; dark mode cannot, because the accent is LIGHTENED there so
  *  it can be read on a dark ground — which makes it far too light to carry white
  *  text. The shipped dark CTA measured 3.68:1 on Claret and 2.20:1 on Forest,
- *  1.74:1 on Forest hover, against a 4.5:1 requirement. The palette axis (four
- *  palettes x two modes = 136 colour values) had multiplied a pairing nobody
+ *  1.74:1 on Forest hover, against a 4.5:1 requirement. The palette axis had
+ *  multiplied a pairing nobody
  *  could check by eye, and `--color-on-solid`'s own comment asserted the broken
  *  premise: "white in both themes (the fills stay vivid)".
  *
  *  The fix is a separate SEAT: `*-solid` tokens whose only job is carrying
  *  `on-solid`. This file is the oracle for both halves —
  *    1. the VALUES: every `*-solid` clears 4.5:1 against `on-solid`, resolved
- *       exactly as the browser cascades them, for all four palettes x both modes;
+ *       exactly as the browser resolves them, for all recipes x both modes;
  *    2. the CALL SITES: every `text-on-solid` in src/ sits on a solid seat, so a
  *       new surface cannot re-pair white with a text-tuned fill.
  *  A new palette therefore cannot ship an illegible fill, and a new component
@@ -23,7 +23,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, filesUnder, stripComments } from '../../tests/helpers/source.ts'
-import { PALETTES, PALETTE_TOKENS } from './theme.ts'
+import { PALETTES, PALETTE_TOKENS, THEME_AXIS_GROUPS, deriveThemeTokens, type ThemeRecipe } from './theme.ts'
 import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS } from './button.ts'
 import { CHECKBOX_BOX_ON_CLASS } from './checkbox.ts'
 
@@ -75,29 +75,19 @@ function blockOf(pattern: RegExp, label: string): Record<string, string> {
   return declarations(m![1])
 }
 
-const BASE = blockOf(/@theme\s*\{([\s\S]*?)\n\}/, '@theme (claret light)')
+const BASE = blockOf(/@theme\s*\{([\s\S]*?)\n\}/, '@theme (light fallback)')
 const DARK = blockOf(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\n\}/, 'dark')
-const PALETTE_BLOCKS: Record<string, { light: Record<string, string>; dark: Record<string, string> }> = {}
-for (const { id } of PALETTES) {
-  if (id === 'claret') continue // claret IS the base blocks
-  PALETTE_BLOCKS[id] = {
-    light: blockOf(new RegExp(`:root\\[data-palette="${id}"\\]\\s*\\{([\\s\\S]*?)\\n\\}`), `${id} light`),
-    dark: blockOf(new RegExp(`:root\\[data-palette="${id}"\\]\\[data-theme="dark"\\]\\s*\\{([\\s\\S]*?)\\n\\}`), `${id} dark`),
-  }
-}
 
-/** The cascade, in source order: base @theme, then the dark override, then the
- *  palette's light block, then its dark block. Mirrors real specificity because
- *  each palette block redeclares EXACTLY the palette tokens in both modes (the
- *  completeness rule that tests/spec-conformance.test.ts enforces). */
+/** Runtime resolution: invariant semantic values come from CSS; the recipe's
+ * exact PALETTE_TOKENS overlay comes from the one derivation function. */
 function resolve(palette: string, mode: string): Record<string, string> {
-  let t = { ...BASE }
-  if (mode === 'dark') t = { ...t, ...DARK }
-  if (palette !== 'claret') {
-    t = { ...t, ...PALETTE_BLOCKS[palette].light }
-    if (mode === 'dark') t = { ...t, ...PALETTE_BLOCKS[palette].dark }
-  }
-  return deref(t)
+  const preset = PALETTES.find((candidate) => candidate.id === palette)
+  assert.ok(preset, `known palette ${palette}`)
+  return deref({
+    ...BASE,
+    ...(mode === 'dark' ? DARK : {}),
+    ...deriveThemeTokens(preset.recipe, mode as 'light' | 'dark'),
+  })
 }
 
 /** Follow `var(--other-token)` references to the colour they land on, exactly as
@@ -125,7 +115,7 @@ const MODES = ['light', 'dark'] as const
 const COMBOS = PALETTES.flatMap(({ id }) => MODES.map((m) => [id, m] as const))
 
 test('every palette x mode resolves a complete token set', () => {
-  assert.equal(COMBOS.length, 8, 'four palettes in two modes')
+  assert.equal(COMBOS.length, PALETTES.length * 2)
   for (const [palette, mode] of COMBOS) {
     const t = resolve(palette, mode)
     for (const token of PALETTE_TOKENS) {
@@ -177,7 +167,7 @@ test('UI-20: every solid fill carries on-solid text at AA in every palette and m
       if (ratio < 4.5) failures.push(`${palette}/${mode} ${token} ${fill} vs ${onSolid} = ${ratio.toFixed(2)}:1`)
     }
   }
-  assert.ok(checked >= 64, `expected the full matrix, checked ${checked}`)
+  assert.equal(checked, COMBOS.length * SOLID_TOKENS.length, `checked the full registered matrix`)
   assert.deepEqual(failures, [], `solid fills below WCAG AA 4.5:1:\n  ${failures.join('\n  ')}`)
 })
 
@@ -193,6 +183,47 @@ test('UI-20: the text seat stays legible ON the canvas, in both modes', () => {
       assert.ok(ratio >= 3, `${palette}/${mode} ${token} reads on the canvas (${ratio.toFixed(2)}:1)`)
     }
   }
+})
+
+/** Customization widens the state space beyond named presets. Exhaustive hue
+ * combinations are continuous, so the lock samples every numeric boundary and
+ * every choice, plus the named recipes; derivation itself chooses lightness by
+ * contrast and is therefore hue-independent. */
+test('UI-20: sampled customization extremes preserve the contrast contract', () => {
+  const seed: ThemeRecipe = { ...PALETTES[0].recipe }
+  const recipes: { label: string; recipe: ThemeRecipe }[] = PALETTES.map((palette) => ({ label: palette.id, recipe: palette.recipe }))
+  for (const axis of THEME_AXIS_GROUPS.flatMap((group) => group.axes)) {
+    if (axis.kind === 'range') {
+      recipes.push({ label: `${axis.key}=min`, recipe: { ...seed, [axis.key]: axis.min } })
+      recipes.push({ label: `${axis.key}=max`, recipe: { ...seed, [axis.key]: axis.max } })
+    } else {
+      for (const option of axis.options) {
+        recipes.push({ label: `${axis.key}=${option.value}`, recipe: { ...seed, [axis.key]: option.value } as ThemeRecipe })
+      }
+    }
+  }
+
+  const failures: string[] = []
+  for (const { label, recipe } of recipes) {
+    for (const mode of MODES) {
+      const t = deref({ ...BASE, ...(mode === 'dark' ? DARK : {}), ...deriveThemeTokens(recipe, mode) })
+      const pairs = [
+        ['--color-ink', '--color-canvas', 4.5],
+        ['--color-accent', '--color-canvas', 3],
+        ['--color-co', '--color-canvas', 3],
+        ['--color-accent-strong', '--color-accent-tint', 4.5],
+        ['--color-co-strong', '--color-co-tint', 4.5],
+        ['--color-accent-solid', '--color-on-solid', 4.5],
+        ['--color-accent-solid-strong', '--color-on-solid', 4.5],
+        ['--color-co-solid', '--color-on-solid', 4.5],
+      ] as const
+      for (const [foreground, background, minimum] of pairs) {
+        const measured = contrast(t[foreground], t[background])
+        if (measured < minimum) failures.push(`${label}/${mode} ${foreground} on ${background} = ${measured.toFixed(2)}:1`)
+      }
+    }
+  }
+  assert.deepEqual(failures, [], `custom theme pairs below their contrast floor:\n  ${failures.join('\n  ')}`)
 })
 
 /* ── 2. The call sites ────────────────────────────────────────────────────── */
