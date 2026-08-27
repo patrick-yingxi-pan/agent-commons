@@ -11,7 +11,7 @@
  *  fold-all pair's work — are locked next to their code. */
 import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
-import { newUser } from './social-helpers.ts'
+import { createProject, newUser } from './social-helpers.ts'
 import { openOrganizePaneMenu, organizePane } from './pane-actions.ts'
 
 /** A project with everything on it: sessions, a discussion, a live grant, two
@@ -98,6 +98,48 @@ test('an unresolved project URL keeps an honest unavailable detail page', async 
   await expect(unavailable).toContainText('This project isn’t visible from this account (or no longer exists).')
   await expect(page).toHaveURL(/\/projects\/does-not-exist$/)
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toHaveCount(0)
+
+  await ada.context.close()
+})
+
+test('a failed project registry read is retryable and never masquerades as missing', async ({ browser }) => {
+  test.setTimeout(ms(80_000))
+  // A created project lives only in the relation graph, not the base Projects
+  // registry. Using one makes both deciding reads load-bearing: omitting either
+  // retry key strands this exact walk instead of passing through the seed list.
+  const setup = await newUser(browser)
+  const projectName = `Recovery project ${Date.now().toString(36)}`
+  await setup.page.goto('/projects')
+  await createProject(setup.page, projectName)
+  const projectUrl = new URL(setup.page.url()).pathname
+  await setup.context.close()
+
+  const ada = await newUser(browser)
+  const page = ada.page
+  let failRegistry = true
+  const attempts = { projects: 0, relations: 0 }
+  const gate = (key: keyof typeof attempts) => async (route: import('@playwright/test').Route) => {
+    attempts[key] += 1
+    if (failRegistry) await route.abort('connectionrefused')
+    else await route.continue()
+  }
+  await page.route('**/api/v1/projects', gate('projects'))
+  await page.route('**/api/v1/relations', gate('relations'))
+
+  await page.goto(projectUrl)
+  const failed = page.locator('[data-resource-unavailable="error"]')
+  await expect(failed).toBeVisible({ timeout: ms(20_000) })
+  await expect(failed.getByRole('alert')).toContainText('Couldn’t load this page')
+  await expect(failed).not.toContainText('isn’t visible from this account')
+  await expect(page).toHaveURL(new RegExp(`${projectUrl}$`))
+  expect(attempts.projects, 'the real project registry request failed').toBeGreaterThan(0)
+  expect(attempts.relations, 'the real relation registry request failed').toBeGreaterThan(0)
+
+  failRegistry = false
+  await failed.getByRole('button', { name: 'Try again' }).click()
+  await expect(failed).toHaveCount(0, { timeout: ms(20_000) })
+  await expect(page.getByRole('heading', { name: projectName })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`${projectUrl}$`))
 
   await ada.context.close()
 })

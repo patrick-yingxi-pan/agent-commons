@@ -167,9 +167,18 @@ test('every instance rail branch resolves to an honest canonical main page', () 
 
 test('a recognized detail URL that cannot resolve keeps one honest unavailable main page', () => {
   const unavailable = templateFn('ResourceUnavailablePage')
+  const resourceRead = stripComments(read(join(ROOT, 'src', 'api', 'resourceRead.ts')))
   assert.match(unavailable, /<AtomicResourcePage data-resource-unavailable=\{state\}>/,
     'the unavailable face is an atomic page and exposes its state to browser review')
-  assert.match(unavailable, /state: 'loading' \| 'missing'/, 'loading cannot flash the terminal missing copy')
+  assert.match(unavailable, /state: ResourceUnavailableState/, 'one API-owned state union drives the page')
+  assert.match(resourceRead, /'loading' \| 'error' \| 'missing'/,
+    'pending, failed, and absent reads remain distinct')
+  assert.match(unavailable, /role="status"[\s\S]*?aria-live="polite"/,
+    'loading is announced without pretending the page is absent')
+  assert.match(unavailable, /role="status"[\s\S]*?<Spinner\b/,
+    'the sparse loading page uses the shared motion-safe progress cue')
+  assert.match(unavailable, /role="alert"[\s\S]*?onClick=\{onRetry\}[\s\S]*?SOLID_BUTTON_CLASS/,
+    'a failed read is announced and offers the shared primary recovery action')
   assert.match(unavailable, /<BackButton to=\{backTo\} onBack=\{onBack\}/, 'the stranded address keeps an explicit way out')
 
   // These are the data-backed SECTION_INSTANCE_KEY leaves. A typo, stale link,
@@ -186,14 +195,51 @@ test('a recognized detail URL that cannot resolve keeps one honest unavailable m
     const source = fn(section)
     assert.match(source, new RegExp(`if \\(${id}\\)[\\s\\S]*?<UnavailableResourcePage[\\s\\S]*?title="${title}"`),
       `${section} owns an unavailable face for its unresolved detail id`)
-    assert.match(source, /state=\{[^}]*\? 'loading' : 'missing'\}/,
-      `${section} separates the pending and terminal states`)
+    assert.match(source, /state=\{resolveResourceUnavailable\(/,
+      `${section} derives pending, failure, and terminal absence from the shared policy`)
+    assert.match(source, /onRetry=\{\(\) => retryResourceQueries\(/,
+      `${section} retries every registry read needed to resolve its page`)
   }
   const discussion = fn('DiscussionPage')
   assert.match(discussion, /<UnavailableResourcePage[\s\S]*?title="Discussion"/,
     'the asynchronously fetched discussion leaf consumes the same unavailable face')
-  assert.match(discussion, /state=\{!d && q\.status === 'error' \? 'missing' : 'loading'\}/,
-    'the discussion keeps its feed-disambiguation wait distinct from a terminal miss')
+  assert.match(discussion, /resolveResourceUnavailable\(\[q\], \{ notFoundIsMissing: true \}\)/,
+    'the direct discussion read maps only its existence-hiding 404 to missing')
+  assert.match(discussion, /retryResourceQueries\(\[keys\.discussion\(discussionId\), keys\.commons\]\)/,
+    'discussion recovery reissues both the thread and its feed classification')
+})
+
+test('profile and agent-material deep links never render a blank or fixture-backed answer', () => {
+  const sectionView = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  for (const [name, title] of [
+    ['OwnerProfilePage', 'Profile'],
+    ['PromptDetailPage', 'Prompt'],
+    ['ToolDetailPage', 'Tool'],
+    ['AgentPublicPage', 'Agent'],
+  ] as const) {
+    const source = fn(name)
+    assert.match(source, new RegExp(`<UnavailableResourcePage[\\s\\S]*?title="${title}"`),
+      `${name} uses the canonical unavailable page instead of an empty atomic frame`)
+    assert.match(source, /onRetry=/, `${name} gives a failed read an in-place recovery path`)
+  }
+  const profile = fn('OwnerProfilePage')
+  assert.match(profile, /resolveResourceUnavailable\(\[state\], \{ notFoundIsMissing: true \}\)/,
+    'only the profile endpoint’s existence-hiding 404 earns its missing face')
+  const agent = fn('AgentPublicPage')
+  assert.match(agent, /resolveResourceUnavailable\(\[entries, agentsQ, meQ\]\)/,
+    'an agent deep link waits for every registry that can resolve its public or owned face')
+  assert.match(agent, /retryResourceQueries\(\[keys\.directoryAgents\(\), keys\.workerAgents, keys\.me\]\)/,
+    'agent recovery reissues that complete decision set')
+  const agentsRoot = fn('AgentCommonsSection')
+  assert.match(agentsRoot, /state=\{resolveResourceUnavailable\(\[promptsQ\]\)\}[\s\S]*?keys\.systemPrompts/,
+    'prompt detail state and retry share the prompt registry')
+  assert.match(agentsRoot, /state=\{resolveResourceUnavailable\(\[toolsQ\]\)\}[\s\S]*?keys\.agentTools/,
+    'tool detail state and retry share the tool registry')
+  assert.doesNotMatch(
+    sectionView,
+    /useSavedContexts\(\)\.data\?\.contexts \?\? SAVED_CONTEXTS|saved\.data\?\.contexts \?\? SAVED_CONTEXTS/,
+    'a failed context registry never reappears as the bundled demo fixture',
+  )
 })
 
 test('every detail page derives from the template matching its resource nature', () => {

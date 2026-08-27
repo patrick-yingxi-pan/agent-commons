@@ -342,6 +342,9 @@ import {
   adminRevokeInvite,
   invalidate,
   keys,
+  type ResourceUnavailableState,
+  resolveResourceUnavailable,
+  retryResourceQueries,
   useSavedContexts,
   useProjects,
   useArtifacts,
@@ -804,16 +807,14 @@ function ProjectsSection({
       />
     )
   if (projectId) {
-    const pending =
-      (projectsQ.data === undefined && projectsQ.status !== 'error') ||
-      (relationsQ.data === undefined && relationsQ.status !== 'error')
     return (
       <UnavailableResourcePage
         title="Project"
-        state={pending ? 'loading' : 'missing'}
+        state={resolveResourceUnavailable([projectsQ, relationsQ])}
         message="This project isn’t visible from this account (or no longer exists)."
         backTo={backTo ?? { kind: 'section', section: 'projects', projectId: null, scheduleId: null }}
         onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.projects, keys.relations])}
       />
     )
   }
@@ -1847,7 +1848,7 @@ function ProjectScheduleRow({
  *  registry-chip door — the project chip, the contributor reach, the routine toolbox. */
 function useContextDoor(): (name: string) => (() => void) | undefined {
   const rel = useRelations()
-  const items = useSavedContexts().data?.contexts ?? SAVED_CONTEXTS
+  const items = useSavedContexts().data?.contexts ?? []
   return (name: string) => {
     const n = name.trim().toLowerCase()
     const hit = items.find((c) => c.id.toLowerCase() === n || c.label.toLowerCase() === n)
@@ -4913,10 +4914,11 @@ function DiscussionPage({
     return (
       <UnavailableResourcePage
         title="Discussion"
-        state={!d && q.status === 'error' ? 'missing' : 'loading'}
+        state={d ? 'loading' : resolveResourceUnavailable([q], { notFoundIsMissing: true })}
         message="This discussion isn’t visible from this account (or no longer exists)."
         backTo={backTo}
         onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.discussion(discussionId), keys.commons])}
       />
     )
   }
@@ -6741,16 +6743,14 @@ function ArtifactsSection({
     )
   }
   if (artifactId) {
-    const pending =
-      (artifactsQ.data === undefined && artifactsQ.status !== 'error') ||
-      (artifactRelationsQ.data === undefined && artifactRelationsQ.status !== 'error')
     return (
       <UnavailableResourcePage
         title="Artifact"
-        state={pending ? 'loading' : 'missing'}
+        state={resolveResourceUnavailable([artifactsQ, artifactRelationsQ])}
         message="This artifact isn’t visible from this account (or no longer exists)."
         backTo={backTo ?? { kind: 'section', section: 'artifacts', projectId: null, scheduleId: null }}
         onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.artifacts, keys.relations])}
       />
     )
   }
@@ -7236,9 +7236,10 @@ function ContextsSection({
   const rel = useRelations()
   // The base list is server-owned: a connect / disconnect routes through the server,
   // which broadcasts `connector.status`, so the row's auth state reconciles here and
-  // on every other client. Fall back to the seed while the first fetch is in flight.
+  // on every other client. Until that first answer, the registry stays empty — a
+  // bundled demo row is not a truthful substitute for server-owned state.
   const saved = useSavedContexts()
-  const items = saved.data?.contexts ?? SAVED_CONTEXTS
+  const items = saved.data?.contexts ?? []
   const [query, setQuery] = useState('')
   const [filter] = useSectionFilter('contexts')
 
@@ -7277,10 +7278,11 @@ function ContextsSection({
     return (
       <UnavailableResourcePage
         title="Context"
-        state={saved.data === undefined && saved.status !== 'error' ? 'loading' : 'missing'}
+        state={resolveResourceUnavailable([saved])}
         message="This context isn’t available to this account (or no longer exists)."
         backTo={backTo ?? { kind: 'section', section: 'contexts', projectId: null, scheduleId: null }}
         onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.savedContexts])}
       />
     )
   }
@@ -7843,9 +7845,10 @@ function AgentCommonsSection({
     return (
       <PromptDetailPage
         prompt={prompt}
-        loaded={promptsQ.data !== undefined}
+        state={resolveResourceUnavailable([promptsQ])}
         onBack={onBack}
         backTo={backTo}
+        onRetry={() => retryResourceQueries([keys.systemPrompts])}
       />
     )
   }
@@ -7854,9 +7857,10 @@ function AgentCommonsSection({
       <ToolDetailPage
         tool={tool}
         toolId={toolId}
-        loaded={toolsQ.data !== undefined}
+        state={resolveResourceUnavailable([toolsQ])}
         onBack={onBack}
         backTo={backTo}
+        onRetry={() => retryResourceQueries([keys.agentTools])}
       />
     )
   }
@@ -9098,10 +9102,11 @@ function ModelsSection({
     return (
       <UnavailableResourcePage
         title="Provider"
-        state={providersQ.data === undefined && providersQ.status !== 'error' ? 'loading' : 'missing'}
+        state={resolveResourceUnavailable([providersQ])}
         message="This provider isn’t visible from this account (or no longer exists)."
         backTo={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }}
         onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.providers])}
       />
     )
   }
@@ -10421,16 +10426,14 @@ function OwnerProfilePage({
   const followBandRef = useRef<HTMLDivElement>(null)
   if (!profile) {
     return (
-      <AtomicResourcePage>
-        <div className="mb-4">
-          <BackButton to={backTo} onBack={onBack} />
-        </div>
-        {state.error ? (
-          // The 404 face: an owner that shares nothing is indistinguishable
-          // from one that doesn't exist (existence-hiding, D21).
-          <PageEmpty>“{name}” shares nothing publicly — or doesn’t exist.</PageEmpty>
-        ) : null}
-      </AtomicResourcePage>
+      <UnavailableResourcePage
+        title="Profile"
+        state={resolveResourceUnavailable([state], { notFoundIsMissing: true })}
+        message={`“${name}” shares nothing publicly — or doesn’t exist.`}
+        backTo={backTo}
+        onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.ownerProfile(name)])}
+      />
     )
   }
   const s = profile.stats
@@ -10763,24 +10766,30 @@ function AgentFactRow({ label, value, onOpen }: { label: string; value: string; 
 
 function PromptDetailPage({
   prompt,
-  loaded,
+  state,
   onBack,
   backTo,
+  onRetry,
 }: {
   prompt: SystemPromptEntry | null
-  loaded: boolean
+  state: ResourceUnavailableState
   onBack: () => void
   backTo: NavLocation | null
+  onRetry: () => void
 }) {
   const providers = useProviders().data ?? []
   const defaultFamily = defaultEntry(providers)?.modelFamily ?? 'claude'
   const [editing, setEditing] = useState(false)
   if (!prompt) {
     return (
-      <AtomicResourcePage>
-        {backTo && <div className="mb-4"><BackButton to={backTo} onBack={onBack} /></div>}
-        {loaded && <PageEmpty>This prompt does not exist.</PageEmpty>}
-      </AtomicResourcePage>
+      <UnavailableResourcePage
+        title="Prompt"
+        state={state}
+        message="This prompt does not exist."
+        backTo={backTo}
+        onBack={onBack}
+        onRetry={onRetry}
+      />
     )
   }
   const warning = promptFitWarning(prompt, defaultFamily)
@@ -10813,22 +10822,28 @@ function PromptDetailPage({
 function ToolDetailPage({
   tool,
   toolId,
-  loaded,
+  state,
   onBack,
   backTo,
+  onRetry,
 }: {
   tool: AgentToolEntry | null
   toolId: string
-  loaded: boolean
+  state: ResourceUnavailableState
   onBack: () => void
   backTo: NavLocation | null
+  onRetry: () => void
 }) {
   if (!tool) {
     return (
-      <AtomicResourcePage>
-        {backTo && <div className="mb-4"><BackButton to={backTo} onBack={onBack} /></div>}
-        {loaded && <PageEmpty>The tool “{agentToolLabel(toolId)}” is not available.</PageEmpty>}
-      </AtomicResourcePage>
+      <UnavailableResourcePage
+        title="Tool"
+        state={state}
+        message={`The tool “${agentToolLabel(toolId)}” is not available.`}
+        backTo={backTo}
+        onBack={onBack}
+        onRetry={onRetry}
+      />
     )
   }
   return (
@@ -10867,7 +10882,8 @@ function AgentPublicPage({
   const rel = useRelations()
   const entries = useAgentDirectory(undefined)
   const agentsQ = useAgents()
-  const me = useMe().data
+  const meQ = useMe()
+  const me = meQ.data
   const providers = useProviders().data ?? []
   const prompts = useSystemPrompts().data ?? []
   const registryAgent = (agentsQ.data ?? []).find((agent) => agent.id === agentId) ?? null
@@ -10923,16 +10939,14 @@ function AgentPublicPage({
 
   if (!entry) {
     return (
-      <AtomicResourcePage>
-        <div className="mb-4">
-          <BackButton to={backTo} onBack={onBack} />
-        </div>
-        {entries.data && agentsQ.data ? (
-          // The 404 face: another account's unpublished definition remains
-          // indistinguishable from one that never existed (existence-hiding, D18).
-          <PageEmpty>This definition isn’t in the directory — unpublished, or it never existed.</PageEmpty>
-        ) : null}
-      </AtomicResourcePage>
+      <UnavailableResourcePage
+        title="Agent"
+        state={resolveResourceUnavailable([entries, agentsQ, meQ])}
+        message="This definition isn’t in the directory — unpublished, or it never existed."
+        backTo={backTo}
+        onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.directoryAgents(), keys.workerAgents, keys.me])}
+      />
     )
   }
 
@@ -12193,10 +12207,11 @@ function ScheduledSection({
     return (
       <UnavailableResourcePage
         title="Routine"
-        state={schedulesQ.data === undefined && schedulesQ.status !== 'error' ? 'loading' : 'missing'}
+        state={resolveResourceUnavailable([schedulesQ])}
         message="This routine isn’t visible from this account (or no longer exists)."
         backTo={backTo ?? { kind: 'section', section: 'scheduled', projectId: null, scheduleId: null }}
         onBack={onBack}
+        onRetry={() => retryResourceQueries([keys.schedules])}
       />
     )
   }

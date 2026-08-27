@@ -20,8 +20,11 @@ import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS } from '../lib/ledger'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { DOOR_CLASS } from '../lib/textDoor'
+import { SOLID_BUTTON_CLASS } from '../lib/button'
 import { useSectionFold } from '../lib/useSectionFold'
+import type { ResourceUnavailableState } from '../api/resourceRead'
 import type { SectionId } from '../types'
+import { Spinner } from './Spinner'
 import { useFocusedCompositeFold, usePublishFocusedCompositeFold } from '../lib/useCompositeFeatures'
 import type { NavLocation } from '../lib/nav'
 import {
@@ -182,12 +185,14 @@ export function ResourceUnavailablePage({
   message,
   backTo,
   onBack,
+  onRetry,
 }: {
   title: string
-  state: 'loading' | 'missing'
+  state: ResourceUnavailableState
   message: string
   backTo: NavLocation | null
   onBack: () => void
+  onRetry: () => void
 }) {
   return (
     <AtomicResourcePage data-resource-unavailable={state}>
@@ -197,7 +202,30 @@ export function ResourceUnavailablePage({
           <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
         </div>
       </header>
-      <ResourcePageEmpty>{state === 'loading' ? 'Loading…' : message}</ResourcePageEmpty>
+      <ResourcePageEmpty>
+        {state === 'loading' ? (
+          <div role="status" aria-live="polite" aria-atomic="true" className="inline-flex items-center gap-2">
+            <Spinner size={13} />
+            Loading {title.toLowerCase()}…
+          </div>
+        ) : state === 'error' ? (
+          <div role="alert">
+            <p className="font-medium text-ink">Couldn’t load this page</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-ink-faint">
+              Check your connection, then try again.
+            </p>
+            <button
+              type="button"
+              onClick={onRetry}
+              className={`mt-4 inline-flex items-center justify-center ${SOLID_BUTTON_CLASS} px-4 py-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35`}
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          message
+        )}
+      </ResourcePageEmpty>
     </AtomicResourcePage>
   )
 }
