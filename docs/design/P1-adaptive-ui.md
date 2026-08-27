@@ -65,6 +65,13 @@ transitions), and WCAG-AA contrast (light-theme only, INV-1). Target WCAG 2.2 AA
   cursor (F3 PD14), with explicit newer / jump-to-latest controls. Unloaded-prefix
   tokens remain represented, deep turn doors page until their target mounts, and a
   held escalation is projected independently so pagination cannot strand consent.
+- **Delivery boundaries** — the shell and conversation path form the cold graph;
+  cross-cutting section pages load on first section navigation behind a page-shaped,
+  announced fallback. The production build enforces the full cold graph, every
+  physical chunk, and each incremental async graph independently (PD67), so vendor
+  caching cannot be mistaken for removing transfer cost. Loading and failed imports
+  remain inside the target pane; failure offers an explicit document retry rather
+  than crashing the workspace or entering an automatic reload loop.
 - **Lazy content** — panel bodies + images load on demand (image lazy-loading already
   in `PhotoThumb`); artifact bodies fetched per-open, cached.
 - **Optimistic writes** — the cache already supports optimistic updates; reconcile on

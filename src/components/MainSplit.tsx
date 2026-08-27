@@ -14,9 +14,8 @@
  *  pane (ADAPT-15). Dividers are the ONE keyboard-operable ResizeHandle,
  *  named per path (UI-11). The overlay tiers (ADAPT-11) render the focused
  *  pane alone via MainSplitGate; the tree persists and re-tiles on wide. */
-import { useCallback, useMemo, useRef, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { ResizeHandle } from './ResizeHandle'
-import { SectionPane } from './SectionPane'
 import { ConversationPane } from './ConversationPane'
 import { ContextPanelView } from './ContextPanelView'
 import { clampRatio, nodeAt, panes } from '../lib/splitFrame'
@@ -27,6 +26,12 @@ import type { PanelFocus, SectionId } from '../types'
 import { FocusContext, type PendingFocus } from '../lib/focusContext'
 import { SectionNavOverride } from '../controller/useRelations'
 import { seedFor, type PaneSeed } from '../lib/paneNav'
+import { SECTION_META } from '../lib/sections'
+
+/** Section pages pull the 14k-line cross-cutting feature surface. Keep that
+ * graph off a conversation boot; React.lazy caches the module after the first
+ * section navigation, so split panes share one download and one evaluation. */
+const SectionPane = lazy(() => import('./SectionPane').then((module) => ({ default: module.SectionPane })))
 
 /** The doors a pane hands to the SHELL — each lands its target in the FOCUSED
  *  pane, like every navigation (the equal-pages model has no primary). */
@@ -85,6 +90,62 @@ function Background() {
       </p>
     </div>
   )
+}
+
+/** A page-shaped fallback rather than a blank pane or global overlay. The rail,
+ * sibling panes, and navigation stay usable while the section feature loads. */
+function SectionLoadingState({ section }: { section: SectionId }) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-section-loading
+      className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-canvas px-6"
+    >
+      <p className="text-[13px] leading-relaxed text-ink-faint">Loading {SECTION_META[section].label}…</p>
+    </div>
+  )
+}
+
+/** A rejected dynamic import is usually a stale deploy or interrupted network
+ * request. Contain it to the pane and let the person choose a full reload: that
+ * refreshes the asset manifest without an automatic-reload loop, while the
+ * persisted split tree returns them to the same page. */
+class SectionLoadBoundary extends Component<
+  { section: SectionId; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children
+    const label = SECTION_META[this.props.section].label
+    return (
+      <div
+        role="alert"
+        data-section-load-error
+        className="flex min-h-0 min-w-0 flex-1 items-center justify-center bg-canvas px-6"
+      >
+        <div className="max-w-xs text-center">
+          <p className="text-[13px] font-medium leading-relaxed text-ink">Couldn’t load {label}</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-ink-faint">
+            The app may have updated, or the connection was interrupted.
+          </p>
+          <button
+            type="button"
+            className="mt-4 rounded-lg border border-line bg-raised px-3 py-1.5 text-[12px] font-medium text-ink transition-colors hover:bg-hover"
+            onClick={() => window.location.reload()}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
 }
 
 /** The gate App renders — panes are the ONLY render path (Phase 6, no
@@ -251,31 +312,38 @@ function PaneBody({
   }, [c, path, onFillPane])
 
   const body = c.kind === 'msection' ? (
-    <SectionPane
-      // Keyed on the full seed + the leaf revision so ANY re-route (a rail
-      // facet, a cross-section retarget, a same-section re-click) resets the
-      // pane-local nav cleanly. `at` (the pane's REPORTED live location) is
-      // deliberately NOT in the key — the pane must not remount from
-      // describing itself; a fresh mount initializes from it instead (a
-      // reload restores the pane to the same deep spot). `back` stays out
-      // too: history changes never remount the page carrying them.
+    <SectionLoadBoundary
       key={`${c.id}:${c.sub ?? ''}:${c.seed ? JSON.stringify(c.seed) : ''}:${rev ?? 0}`}
       section={c.id}
-      initialSub={c.at ? (c.at.sub ?? null) : (c.sub ?? null)}
-      initialFocus={c.at ? seedOfAt(c.at) : c.seed}
-      // A RESTORE mount (the reported `at` present — a reload, a tier hop)
-      // rehydrates the persisted in-section stack too, so the back walk
-      // survives; a door-seeded mount starts it empty.
-      initialStack={c.at ? c.hist : undefined}
-      nav={paneNav}
-      onRetarget={fillWith}
-      // Reports are stamped with the leaf revision this instance rendered
-      // under, so a stale instance's late report can't overwrite a route
-      // that already replaced the leaf (reportPaneAt drops mismatches).
-      onAt={(at, hist) => onReportAt(path, at, hist, rev ?? 0)}
-      backOut={backOut}
-      focused={focused}
-    />
+    >
+      <Suspense fallback={<SectionLoadingState section={c.id} />}>
+        <SectionPane
+          // Keyed on the full seed + the leaf revision so ANY re-route (a rail
+          // facet, a cross-section retarget, a same-section re-click) resets the
+          // pane-local nav cleanly. `at` (the pane's REPORTED live location) is
+          // deliberately NOT in the key — the pane must not remount from
+          // describing itself; a fresh mount initializes from it instead (a
+          // reload restores the pane to the same deep spot). `back` stays out
+          // too: history changes never remount the page carrying them.
+          key={`${c.id}:${c.sub ?? ''}:${c.seed ? JSON.stringify(c.seed) : ''}:${rev ?? 0}`}
+          section={c.id}
+          initialSub={c.at ? (c.at.sub ?? null) : (c.sub ?? null)}
+          initialFocus={c.at ? seedOfAt(c.at) : c.seed}
+          // A RESTORE mount (the reported `at` present — a reload, a tier hop)
+          // rehydrates the persisted in-section stack too, so the back walk
+          // survives; a door-seeded mount starts it empty.
+          initialStack={c.at ? c.hist : undefined}
+          nav={paneNav}
+          onRetarget={fillWith}
+          // Reports are stamped with the leaf revision this instance rendered
+          // under, so a stale instance's late report can't overwrite a route
+          // that already replaced the leaf (reportPaneAt drops mismatches).
+          onAt={(at, hist) => onReportAt(path, at, hist, rev ?? 0)}
+          backOut={backOut}
+          focused={focused}
+        />
+      </Suspense>
+    </SectionLoadBoundary>
   ) : c.kind === 'msession' ? (
     <ConversationPane sessionId={c.id} nav={paneNav} backOut={backOut} />
   ) : (

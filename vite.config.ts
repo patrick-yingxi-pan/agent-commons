@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { bundleBudgetPlugin } from './scripts/bundleBudget.ts'
 
 // Minimal ambient `process` so the config can read env-driven ports without
 // pulling in @types/node (the UI tsconfig ships no Node types by design).
@@ -14,7 +15,22 @@ declare const process: { env: Record<string, string | undefined> }
 // app's deploy shape — it could not serve the same-origin API in any case.
 export default defineConfig({
   base: '/',
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), bundleBudgetPlugin()],
+  build: {
+    rollupOptions: {
+      output: {
+        /** Stable framework chunks improve cross-release caching and keep one
+         * physical file from monopolising parse/evaluation. The bundle-budget
+         * plugin still sums these into the cold graph, so this cannot hide boot
+         * cost behind cosmetic chunk names. */
+        manualChunks(id) {
+          const path = id.split('\\').join('/')
+          if (/\/node_modules\/(?:react|react-dom|scheduler)\//.test(path)) return 'vendor-react'
+          if (/\/node_modules\/(?:framer-motion|motion-dom|motion-utils)\//.test(path)) return 'vendor-motion'
+        },
+      },
+    },
+  },
   // Bind to IPv4 loopback explicitly — on this host "localhost" resolves to
   // ::1 only, which the preview/browser (hitting 127.0.0.1) can't reach.
   server: {

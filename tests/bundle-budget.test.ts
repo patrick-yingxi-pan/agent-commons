@@ -1,0 +1,43 @@
+/** Production bundle budget (PD67): the build itself rejects an eager or lazy
+ * JavaScript payload large enough to recreate the one-megabyte boot bundle.
+ * Pure policy lives in scripts/bundleBudget.ts; Vite is only its adapter. */
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  ASYNC_GRAPH_BUDGET_BYTES,
+  CHUNK_BUDGET_BYTES,
+  INITIAL_GRAPH_BUDGET_BYTES,
+  bundleBudgetViolations,
+} from '../scripts/bundleBudget.ts'
+
+test('bundle budget measures physical chunks, the whole cold graph, and each lazy navigation graph', () => {
+  const violations = bundleBudgetViolations([
+    {
+      fileName: 'entry.js',
+      isEntry: true,
+      bytes: 400_000,
+      imports: ['boot-vendor.js'],
+      dynamicImports: ['feature.js'],
+    },
+    { fileName: 'boot-vendor.js', isEntry: false, bytes: 400_001, imports: [], dynamicImports: [] },
+    { fileName: 'feature.js', isEntry: false, bytes: 300_000, imports: ['feature-shared.js'], dynamicImports: [] },
+    { fileName: 'feature-shared.js', isEntry: false, bytes: 200_001, imports: [], dynamicImports: [] },
+    { fileName: 'chunk-heavy.js', isEntry: false, bytes: CHUNK_BUDGET_BYTES + 1, imports: [], dynamicImports: [] },
+  ])
+  assert.deepEqual(
+    violations.map((item) => [item.fileName, item.kind]),
+    [
+      ['chunk-heavy.js', 'chunk'],
+      ['entry.js', 'initial-graph'],
+      ['feature.js', 'async-graph'],
+    ],
+  )
+  assert.match(violations[1]?.reason ?? '', new RegExp(String(INITIAL_GRAPH_BUDGET_BYTES)))
+  assert.match(violations[2]?.reason ?? '', new RegExp(String(ASYNC_GRAPH_BUDGET_BYTES)))
+})
+
+test('the physical chunk budget stays at Vite’s warning line while graph budgets remain explicit', () => {
+  assert.equal(CHUNK_BUDGET_BYTES, 500_000)
+  assert.equal(INITIAL_GRAPH_BUDGET_BYTES, 800_000)
+  assert.equal(ASYNC_GRAPH_BUDGET_BYTES, 500_000)
+})

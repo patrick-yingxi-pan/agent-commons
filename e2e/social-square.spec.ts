@@ -33,9 +33,9 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
   await ada.page.goto('/commons/posted')
   await expect(ada.page.getByText(LENS_NOTE)).toBeVisible({ timeout: ms(20_000) })
   await grace.page.goto('/commons/posted')
-  // The empty state first: it proves the LENS rendered, so the absence below is
-  // a real absence and not a page that never loaded.
-  await expect(grace.page.getByText(/You haven’t published anything yet/)).toBeVisible({ timeout: ms(20_000) })
+  // Prove the lens rendered, then assert only on THIS act. Grace may already
+  // have published unrelated work earlier in the same persistent suite run.
+  await expect(grace.page.getByRole('heading', { name: 'Commons · Posted' })).toBeVisible({ timeout: ms(20_000) })
   await expect(grace.page.getByText(LENS_NOTE)).toHaveCount(0)
 
   // ── LIKED and WATCHED are filled by the card's two acts ───────────────────
@@ -50,10 +50,9 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
   await expect(card.getByRole('button', { name: 'Unlike this post' })).toBeVisible()
   await grace.page.goto('/commons/liked')
   await expect(grace.page.getByText(LENS_NOTE)).toBeVisible()
-  // Not yet watched — a lens must not hold what its act never touched (and the
-  // empty state proves the lens itself rendered).
+  // Not yet watched — a lens must not hold what THIS act never touched.
   await grace.page.goto('/commons/watched')
-  await expect(grace.page.getByText(/Nothing watched yet/)).toBeVisible({ timeout: ms(20_000) })
+  await expect(grace.page.getByRole('heading', { name: 'Commons · Watched' })).toBeVisible({ timeout: ms(20_000) })
   await expect(grace.page.getByText(LENS_NOTE)).toHaveCount(0)
 
   await grace.page.goto('/commons')
@@ -64,7 +63,8 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
 
   // ── RECENTLY VIEWED fills by OPENING the subject, not by any button ───────
   await grace.page.goto('/commons/viewed')
-  await expect(grace.page.getByText(/Nothing opened yet/)).toBeVisible()
+  await expect(grace.page.getByRole('heading', { name: 'Commons · Recently viewed' })).toBeVisible()
+  await expect(grace.page.getByText(LENS_NOTE)).toHaveCount(0)
   await grace.page.goto('/commons')
   await grace.page.getByRole('main').getByText(LENS_PROJECT).first().click()
   await expect(grace.page.getByRole('heading', { name: LENS_PROJECT })).toBeVisible()

@@ -60,8 +60,34 @@ const apiMethods = new Map<string, Method>([
   ['apiDelete', 'DELETE'],
 ])
 
+/** Literal static and dynamic module edges both ship product UI. Following the
+ * latter is load-boundary-aware without treating computed runtime imports as a
+ * hand-waved capability. */
+function relativeModuleSpecifiers(source: ts.SourceFile): Set<string> {
+  const found = new Set<string>()
+  const visit = (node: ts.Node): void => {
+    const declared = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
+      ? node.moduleSpecifier
+      : undefined
+    const loaded =
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword &&
+      node.arguments.length === 1
+        ? node.arguments[0]
+        : undefined
+    const specifier = declared ?? loaded
+    if (specifier && ts.isStringLiteral(specifier) && specifier.text.startsWith('.')) {
+      found.add(specifier.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  return found
+}
+
 /** The shipped module graph, rooted at the real browser entry. A component file
- * that exists but is no longer imported cannot prove UI reachability. */
+ * that exists but is no longer imported cannot prove UI reachability; a literal
+ * dynamic import remains reachable even though it is delivered later. */
 function reachableUiFiles(): Set<string> {
   const files = filesUnder('src')
   const byPath = new Map(files.map((file) => [normalize(file), file]))
@@ -74,11 +100,8 @@ function reachableUiFiles(): Set<string> {
     if (reached.has(file)) continue
     reached.add(file)
     const source = ts.createSourceFile(file, read(file), ts.ScriptTarget.Latest, true)
-    for (const statement of source.statements) {
-      if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) continue
-      const specifier = statement.moduleSpecifier
-      if (!specifier || !ts.isStringLiteral(specifier) || !specifier.text.startsWith('.')) continue
-      const base = join(dirname(file), specifier.text)
+    for (const specifier of relativeModuleSpecifiers(source)) {
+      const base = join(dirname(file), specifier)
       const target = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts'), join(base, 'index.tsx')]
         .map((candidate) => byPath.get(normalize(candidate)))
         .find((candidate): candidate is string => candidate !== undefined)
