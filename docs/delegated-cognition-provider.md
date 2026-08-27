@@ -669,9 +669,11 @@ protocol:
   relayed calls execute into the identical consent-gated proposals (relation
   cards / escalations / connector activities), and a follow-up entry carries the
   whole exchange (`toolCalls` + `toolResults` turns — the mailbox stays
-  stateless across entries). One `RELAY_TIMEOUT_MS` deadline spans all rounds; a
-  far session that never concludes stops at a round cap, and calls against a
-  tool-less prompt refuse honestly — both to the relay fallback, slot freed.
+  stateless across entries). One `RELAY_TIMEOUT_MS` deadline spans all rounds;
+  both provider transports share `MODEL_MAX_TOOL_ROUNDS` (executed batches,
+  default 4, hard ceiling 8), so a far session that never concludes stops before
+  the first over-budget batch executes. Calls against a tool-less prompt also
+  refuse honestly — both cases reach the relay fallback with the slot freed.
   **Relay-not-execute** is enforced structurally where possible (the calls ride
   `respond_and_wait`'s validated `toolCalls` argument — there is no prose channel
   to smuggle an "executed result" through) and instructed where not (the

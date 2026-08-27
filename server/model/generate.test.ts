@@ -11,6 +11,7 @@ import type { Server } from 'node:http'
 import { startModelServer } from './index.ts'
 import { generateReply, systemPrompt, type ReplySession } from '../generate.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
+import type { ApiToolRuntime } from './apiTools.ts'
 
 let server: Server
 const session: ReplySession = { id: 'auth-refactor', title: 'Refactor auth middleware' }
@@ -89,6 +90,100 @@ test('the dial-out path enforces the shared per-batch call ceiling without colla
   } finally {
     if (previous === undefined) delete process.env.MODEL_MAX_TOOL_CALLS
     else process.env.MODEL_MAX_TOOL_CALLS = previous
+  }
+})
+
+test('the endpoint loop can read through the API, then use the result turn to propose the requested action', async () => {
+  const dispatched: string[] = []
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async (method, path) => {
+      dispatched.push(`${method} ${path}`)
+      return {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+        body: Buffer.from('{"window":"healthy"}'),
+      }
+    },
+  }
+  const c = collect()
+  const { message: msg, outcome } = await generateReply(
+    session,
+    DEFAULT_AGENT,
+    'Check my usage, then create a project called Round Trip.',
+    c.handlers,
+    undefined,
+    {},
+    undefined,
+    [],
+    api,
+  )
+
+  assert.equal(outcome, 'ok')
+  assert.deepEqual(dispatched, ['GET /usage'], 'the dependent read ran exactly once')
+  assert.equal(msg.toolActivities?.[0]?.tool, 'api__get_usage', 'the read keeps its provenance')
+  assert.equal(msg.escalation?.kind, 'project', 'the second tool batch proposed the dependent action')
+  assert.ok(msg.escalation?.kind === 'project' && msg.escalation.project.name === 'Round Trip')
+  assert.ok(c.text.length > 0, 'a third model response concluded in prose')
+})
+
+test('completed tool provenance survives when a later endpoint call fails before streaming prose', async () => {
+  const liveBase = process.env.ANTHROPIC_BASE_URL
+  assert.ok(liveBase)
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => {
+      // The first model call already returned its tool_use. Move only the next
+      // loop call onto a closed endpoint after the admitted read settles.
+      process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1'
+      return {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+        body: Buffer.from('{"window":"healthy"}'),
+      }
+    },
+  }
+  try {
+    const c = collect()
+    const { message: msg, outcome } = await generateReply(
+      session,
+      DEFAULT_AGENT,
+      'Check my usage.',
+      c.handlers,
+      undefined,
+      {},
+      undefined,
+      [],
+      api,
+    )
+    assert.equal(outcome, 'fallback')
+    assert.equal(msg.toolActivities?.[0]?.tool, 'api__get_usage', 'settled provenance is not erased by the later failure')
+    assert.match(msg.content, /couldn’t finish that turn/i)
+    assert.equal(msg.content, c.text)
+  } finally {
+    process.env.ANTHROPIC_BASE_URL = liveBase
+  }
+})
+
+test('a non-concluding endpoint is stopped after the configured tool-batch budget', async () => {
+  const previous = process.env.MODEL_MAX_TOOL_ROUNDS
+  process.env.MODEL_MAX_TOOL_ROUNDS = '2'
+  try {
+    const c = collect()
+    const { message: msg, outcome } = await generateReply(
+      session,
+      DEFAULT_AGENT,
+      'Save this recap as runaway.md. Keep requesting tools forever.',
+      c.handlers,
+    )
+    assert.equal(outcome, 'fallback')
+    assert.match(msg.content, /kept requesting more tools/i)
+    assert.match(msg.content, /no further tools were run/i)
+    assert.equal(msg.relationActions?.length, 2, 'exactly the configured two batches executed; the third ran nothing')
+    assert.equal(msg.content, c.text, 'the honest stop is part of both the stream and persisted message')
+  } finally {
+    if (previous === undefined) delete process.env.MODEL_MAX_TOOL_ROUNDS
+    else process.env.MODEL_MAX_TOOL_ROUNDS = previous
   }
 })
 

@@ -16,7 +16,7 @@ import { deriveConnectorTools } from './model/connectorTools.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
-import { executeToolBatch } from './toolExecution.ts'
+import { executeToolBatch, toolLoopLimits } from './toolExecution.ts'
 
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
@@ -326,113 +326,92 @@ export async function generateReply(
   const relationOps: RelationOp[] = []
   const toolActivities: ToolActivity[] = []
   let escalation: EscalationProposal | undefined
+  const completedMessage = (content: string): Message => ({
+    id: assistantId,
+    role: 'assistant',
+    content,
+    relationActions: relationOps.length ? relationOps : undefined,
+    escalation,
+    toolActivities: toolActivities.length ? toolActivities : undefined,
+  })
 
   try {
-    // ── Turn 1: the model may answer with tool calls ─────────────────────────
-    const stream1 = clientFor(provider).messages.stream(
-      { model, max_tokens: 1024, system, ...toolsParam, messages: [{ role: 'user', content: userContent }] },
-      { signal: withDeadline(signal) },
-    )
-    stream1.on('streamEvent', (event) => {
-      if (event.type === 'message_start') onStartOnce(event.message.id)
-    })
-    stream1.on('text', (delta) => {
-      fullText += delta
-      handlers.onDelta(delta)
-    })
-    const first = await stream1.finalMessage()
-    onStartOnce(first.id) // safety net if message_start was missed
-    addUsage(first.usage)
-
-    const toolUses = first.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
-    if (toolUses.length === 0) {
-      return { message: { id: assistantId, role: 'assistant', content: fullText }, usage, outcome: 'ok' }
-    }
-
-    // ── Execute the tool calls — build the consent-gated proposals ───────────
-    // Defense in depth against a non-conformant endpoint: only EXECUTE a tool the
-    // turn actually declared. A real endpoint never emits an undeclared `tool_use`,
-    // but a buggy/hostile one could — and executing it would bypass the agent's
-    // tool-grant allowlist (the wall `agentTools` builds above). An undeclared name
-    // is refused back to the model, never run.
+    // A Messages turn is a document loop, not a fixed pair of calls. Each model
+    // response may conclude in prose or request another batch whose results become
+    // the next user message. The explicit batch budget bounds cost/liveness while
+    // permitting ordinary dependent plans (read a list, then act with what it found).
+    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userContent }]
     const declaredNames = new Set(tools.map((t) => t.name))
-    // One shared serial executor owns the transport-neutral safety/consent seam:
-    // same-turn chaining, batch cap, per-tool deadline, declared-name wall, and
-    // structured failure isolation. Every tool_use still receives one result.
-    const executed = await executeToolBatch(toolUses, {
-      declaredNames,
-      connectorBindings,
-      api,
-      context: ctx,
-      relationOps,
-      toolActivities,
-      signal,
-    })
-    escalation = executed.escalation
-    const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> =
-      executed.results.map((result) => ({
-        type: 'tool_result',
-        tool_use_id: result.callId,
-        content: result.content,
-        ...(result.isError ? { is_error: true } : {}),
-      }))
+    const { maxBatches } = toolLoopLimits()
+    let executedBatches = 0
 
-    // ── Turn 2: feed the results back, stream the final prose ────────────────
-    const stream2 = clientFor(provider).messages.stream(
-      {
-        model,
-        max_tokens: 1024,
-        system,
-        ...toolsParam,
-        messages: [
-          { role: 'user', content: userContent },
-          { role: 'assistant', content: first.content },
-          { role: 'user', content: toolResults },
-        ],
-      },
-      { signal: withDeadline(signal) },
-    )
-    stream2.on('text', (delta) => {
-      fullText += delta
-      handlers.onDelta(delta)
-    })
-    const second = await stream2.finalMessage()
-    addUsage(second.usage)
+    for (;;) {
+      const stream = clientFor(provider).messages.stream(
+        { model, max_tokens: 1024, system, ...toolsParam, messages },
+        { signal: withDeadline(signal) },
+      )
+      stream.on('streamEvent', (event) => {
+        if (event.type === 'message_start') onStartOnce(event.message.id)
+      })
+      stream.on('text', (delta) => {
+        fullText += delta
+        handlers.onDelta(delta)
+      })
+      const response = await stream.finalMessage()
+      onStartOnce(response.id) // safety net if message_start was missed
+      addUsage(response.usage)
 
-    return {
-      message: {
-        id: assistantId,
-        role: 'assistant',
-        content: fullText,
-        relationActions: relationOps.length ? relationOps : undefined,
+      const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+      if (toolUses.length === 0) {
+        return { message: completedMessage(fullText), usage, outcome: 'ok' }
+      }
+
+      // Observe the over-budget response but execute none of its calls. The
+      // local note is streamed and persisted, so the user and metrics see the
+      // same honest terminal state instead of a silent empty completion.
+      if (executedBatches >= maxBatches) {
+        const note = `${fullText ? '\n\n' : ''}_(I stopped this turn because the model kept requesting more tools. No further tools were run; try a narrower request.)_`
+        for (const c of chunkText(note)) handlers.onDelta(c)
+        fullText += note
+        return { message: completedMessage(fullText), usage, outcome: 'fallback' }
+      }
+
+      // Defense in depth against a non-conformant endpoint: only EXECUTE a tool
+      // declared for this turn. The shared serial executor also owns same-turn
+      // chaining, the per-batch call cap, per-tool deadlines, and failure isolation.
+      const executed = await executeToolBatch(toolUses, {
+        declaredNames,
+        connectorBindings,
+        api,
+        context: ctx,
+        relationOps,
+        toolActivities,
         escalation,
-        toolActivities: toolActivities.length ? toolActivities : undefined,
-      },
-      usage,
-      outcome: 'ok',
+        signal,
+      })
+      escalation = executed.escalation
+      const toolResults: Array<{ type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }> =
+        executed.results.map((result) => ({
+          type: 'tool_result',
+          tool_use_id: result.callId,
+          content: result.content,
+          ...(result.isError ? { is_error: true } : {}),
+        }))
+      messages.push({ role: 'assistant', content: response.content }, { role: 'user', content: toolResults })
+      executedBatches += 1
     }
   } catch (err) {
     if (signal?.aborted) throw err // the turn was cancelled — let the route persist the partial
-    // If prose ALREADY streamed to the live viewer (a turn-1 answer, or a partial
-    // turn-2) before the failure, the persisted message must CONTINUE it, not
-    // replace it with the bare apology — otherwise the live view (streamed prose +
-    // apology) and the system of record (apology only) diverge on reload. Append a
-    // short failure note to what streamed and keep the accumulated tool effects.
-    if (fullText) {
-      const note = '\n\n_(I couldn’t finish that turn — the model endpoint became unreachable. Please try again.)_'
+    // If prose ALREADY streamed, or a prior batch settled tool effects, the
+    // persisted message must CONTINUE that partial turn rather than replace it
+    // with the bare endpoint apology. Otherwise live and stored prose diverge,
+    // or completed consent proposals/provenance silently disappear. Append a
+    // short failure note and keep every admitted effect.
+    if (fullText || relationOps.length || escalation || toolActivities.length) {
+      const note = `${fullText ? '\n\n' : ''}_(I couldn’t finish that turn — the model endpoint became unreachable. Please try again.)_`
       for (const c of chunkText(note)) handlers.onDelta(c)
-      return {
-        message: {
-          id: assistantId,
-          role: 'assistant',
-          content: fullText + note,
-          relationActions: relationOps.length ? relationOps : undefined,
-          escalation,
-          toolActivities: toolActivities.length ? toolActivities : undefined,
-        },
-        usage,
-        outcome: 'fallback',
-      }
+      fullText += note
+      return { message: completedMessage(fullText), usage, outcome: 'fallback' }
     }
     return fallbackReply(assistantId, handlers)
   }

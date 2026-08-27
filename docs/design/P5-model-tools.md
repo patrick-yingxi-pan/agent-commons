@@ -33,11 +33,14 @@ A server-side **model gateway** (F6) sits between `generate.ts` and the Anthropi
 
 ### 2.2 Tool-use loop hardening
 
-The loop (model → `tool_use` → execute → `tool_result` → prose) gains: a **bounded
-iteration count**, **per-tool timeouts**, **structured tool errors** fed back so the
-model can adapt, idempotency (F3 PD15), and the **execute-vs-propose consent split**
-(P3 PD43). The tool schema is the resource-manipulation interface
-(`server/model/tools.ts`) — additive evolution (F3 PD17).
+The loop (model → `tool_use` → execute → `tool_result` → another batch or prose)
+now has a **bounded iteration count** shared by both provider transports
+(`MODEL_MAX_TOOL_ROUNDS`: four executed batches by default, hard-capped at eight),
+**per-tool timeouts**, **structured tool errors** fed back so the model can adapt,
+and the **execute-vs-propose consent split** (P3 PD43). The over-budget batch never
+executes and ends visibly rather than masquerading as success. Operation-level
+idempotency remains the F3 PD15 follow-on. The tool schema is the resource-
+manipulation interface (`server/model/tools.ts`) — additive evolution (F3 PD17).
 
 ### 2.3 Context-window management & compaction (BROKER-EXP-3)
 
@@ -104,5 +107,5 @@ is config, MOCK-1), **PD52** (context-window compaction: summarize older turns v
 call, preserve pinned context, reflect in the usage gauge — realizes BROKER-EXP-3),
 **PD53** (real per-turn token metering enforced against the D8 budget windows + per-tenant
 plan caps), **PD54** (multi-provider via the D9 abstraction; concrete model id + keys stay
-server-only off the contract), **PD55** (tool-use loop hardened: bounded iterations,
-per-tool timeouts, structured tool errors, idempotency, the consent split).
+server-only off the contract), **PD55** (tool-use loop hardening), and **PD69**
+(the built transport-neutral multi-round budget; operation idempotency remains).

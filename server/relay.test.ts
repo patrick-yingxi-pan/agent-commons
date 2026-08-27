@@ -854,26 +854,35 @@ test('an ambiguous or malformed reply is refused loudly (400) and settles nothin
   })
 })
 
-test('a far session that never concludes is stopped at the round cap — honest fallback, slot freed', async () => {
+test('a far session that never concludes is stopped at the shared tool-batch cap — honest fallback, slot freed', async () => {
   const p = await mintSessionProvider('Round cap')
   const { sessionId } = await sessionWithTools(p.id, ['create_project'])
-  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000' }, async () => {
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000', MODEL_MAX_TOOL_ROUNDS: '2' }, async () => {
     const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
     await sleep(10)
     const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'loop forever' })
     let pulled = await parked
-    // Rounds 0..2 accept relayed calls and re-offer; round 3's calls trip the cap.
-    for (let i = 0; i < 4; i += 1) {
+    // Two batches execute and re-offer; the third relayed batch trips the cap.
+    for (let i = 0; i < 3; i += 1) {
       const r = await call('POST', '/relay/reply', { entryId: pulled.json.entryId, toolCalls: [{ name: 'create_project', input: { name: `P${i}` } }] }, auth(p.secret))
       assert.equal(r.status, 200)
-      if (i < 3) {
+      if (i < 2) {
         pulled = await call('GET', '/relay/poll', undefined, auth(p.secret))
         assert.ok(pulled.json.entryId, `round ${i + 1} re-offered`)
       }
     }
-    assert.match((await send).body, /kept relaying tool calls/, 'the runaway loop degrades to the specific fallback')
-    // The one-live-turn slot released — a retry is not 409.
-    assert.notEqual((await callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'retry' })).status, 409)
+    const stopped = frames((await send).body)
+    const fallbackText = stopped.filter((f) => f.type === 'message.delta').map((f) => f.text).join('')
+    assert.match(fallbackText, /kept relaying tool calls/, 'the runaway loop degrades to the specific fallback')
+    const partial = stopped.find((f) => f.type === 'message.escalation')?.escalation
+    assert.equal(partial?.project.name, 'P1', 'two completed proposal batches survive; the over-budget P2 batch ran nothing')
+    // The one-live-turn slot released — settle a retry through that same slot
+    // instead of waiting out the test's whole relay deadline merely to inspect 409.
+    const retry = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'retry' })
+    const retried = await call('GET', '/relay/poll', undefined, auth(p.secret))
+    assert.ok(retried.json.entryId, 'the retry reached the now-free slot')
+    await call('POST', '/relay/reply', { entryId: retried.json.entryId, completion: 'Recovered.' }, auth(p.secret))
+    assert.notEqual((await retry).status, 409)
   })
 })
 

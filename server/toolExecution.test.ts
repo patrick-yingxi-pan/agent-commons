@@ -10,7 +10,7 @@ import type { RelationOp, ToolActivity } from '../contract/index.ts'
 import type { ApiOperation } from './apiSurface.ts'
 import type { ApiToolRuntime } from './model/apiTools.ts'
 import type { ToolContext } from './model/tools.ts'
-import { executeToolBatch, toolExecutionLimits } from './toolExecution.ts'
+import { executeToolBatch, toolExecutionLimits, toolLoopLimits } from './toolExecution.ts'
 
 const READ_USAGE: ApiOperation = {
   method: 'GET',
@@ -120,4 +120,7 @@ test('operator limits are safe by default and a batch-count misconfiguration can
     timeoutMs: 25,
   })
   assert.equal(toolExecutionLimits({ MODEL_MAX_TOOL_CALLS: '0' }).maxCalls, 0, 'operators may fail closed without hiding tools')
+  assert.deepEqual(toolLoopLimits({}), { maxBatches: 4 })
+  assert.deepEqual(toolLoopLimits({ MODEL_MAX_TOOL_ROUNDS: '999' }), { maxBatches: 8 })
+  assert.equal(toolLoopLimits({ MODEL_MAX_TOOL_ROUNDS: '0' }).maxBatches, 0, 'operators may fail closed before any tool batch executes')
 })

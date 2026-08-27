@@ -54,8 +54,11 @@ doc-lint and cross-layer locks with no single module to belong to.
 (Not an in-process fake.) `server/generate.ts` calls an
 Anthropic-compatible endpoint via `@anthropic-ai/sdk` — the one accepted server
 dependency — declaring the resource-manipulation tools (`server/model/tools.ts`)
-and running the **tool-use loop**: model → `tool_use` → backend executes →
-`tool_result` → final prose. The resource manipulations are therefore the
+and running the **bounded tool-use loop** as one growing Messages document:
+model → `tool_use` → backend executes → `tool_result` → another dependent batch
+or final prose. Endpoint and Session-provider transports share the executed-
+batch budget in `server/toolExecution.ts`; an over-budget request executes
+nothing and ends explicitly. The resource manipulations are therefore the
 model's *tool calls*, executed by the backend and surfaced as the consent-gated
 proposals the UI confirms (`message.relations` for relation edits,
 `message.escalation` for panel escalations) — they are part of the Messages API

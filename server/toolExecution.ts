@@ -23,10 +23,17 @@ import { executeTool, type ToolContext, type ToolEffect } from './model/tools.ts
 const DEFAULT_MAX_TOOL_CALLS = 16
 const HARD_MAX_TOOL_CALLS = 64
 const DEFAULT_TOOL_TIMEOUT_MS = 10_000
+const DEFAULT_MAX_TOOL_BATCHES = 4
+const HARD_MAX_TOOL_BATCHES = 8
 
 export interface ToolExecutionLimits {
   maxCalls: number
   timeoutMs: number
+}
+
+export interface ToolLoopLimits {
+  /** Tool-use batches the backend may execute before requiring final prose. */
+  maxBatches: number
 }
 
 /** Read per batch so operators and tests can tune the guard without a restart.
@@ -36,6 +43,18 @@ export function toolExecutionLimits(env: Record<string, string | undefined> = pr
   return {
     maxCalls: Math.min(HARD_MAX_TOOL_CALLS, nonNegativeIntEnv(env.MODEL_MAX_TOOL_CALLS, DEFAULT_MAX_TOOL_CALLS)),
     timeoutMs: positiveNumberEnv(env.MODEL_TOOL_TIMEOUT_MS, DEFAULT_TOOL_TIMEOUT_MS),
+  }
+}
+
+/** The transport-neutral liveness/cost boundary around repeated model→tool
+ *  exchanges. `MODEL_MAX_TOOL_ROUNDS` names the operator-facing concept while
+ *  `maxBatches` makes its semantics exact: this many batches may execute, then
+ *  a further tool request stops locally. Zero is a deliberate fail-closed mode;
+ *  the hard ceiling prevents a typo from manufacturing an effectively unbounded
+ *  turn. Read once per turn so every exchange in that turn shares one budget. */
+export function toolLoopLimits(env: Record<string, string | undefined> = process.env): ToolLoopLimits {
+  return {
+    maxBatches: Math.min(HARD_MAX_TOOL_BATCHES, nonNegativeIntEnv(env.MODEL_MAX_TOOL_ROUNDS, DEFAULT_MAX_TOOL_BATCHES)),
   }
 }
 

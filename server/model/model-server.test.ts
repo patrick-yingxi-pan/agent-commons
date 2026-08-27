@@ -1,7 +1,8 @@
 /** Integration tests for the mock model server (server/model) — it must speak the
- *  Anthropic Messages *tool-use* wire format: turn 1 answers a matched message with
- *  `tool_use` blocks + `stop_reason: "tool_use"`; turn 2 (after the tool_result)
- *  returns the final prose. Boots a real instance on an ephemeral port. */
+ *  Anthropic Messages *tool-use* wire format: a matched message answers with
+ *  `tool_use` blocks + `stop_reason: "tool_use"`; after a `tool_result` it may
+ *  request a dependent batch or return final prose. Boots a real instance on an
+ *  ephemeral port. */
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
@@ -48,7 +49,7 @@ test('turn 1, streaming: emits content_block_start tool_use + input_json_delta +
   assert.match(text, /"stop_reason":"tool_use"/)
 })
 
-test('turn 2: a tool_result message returns the final prose (end_turn)', async () => {
+test('a simple turn 2: a tool_result message returns the final prose (end_turn)', async () => {
   const { json } = await post({
     stream: false,
     messages: [
@@ -60,6 +61,27 @@ test('turn 2: a tool_result message returns the final prose (end_turn)', async (
   assert.equal(json.stop_reason, 'end_turn')
   assert.equal(json.content[0].type, 'text')
   assert.match(json.content[0].text, /spin up a project/)
+})
+
+test('a dependent plan may return another tool_use after the first tool_result', async () => {
+  const prompt = 'Check my usage, then create a project called Round Trip.'
+  const declared = [{ name: 'api__get_usage' }, { name: 'create_project' }]
+  const first = await post({ stream: false, tools: declared, messages: [{ role: 'user', content: prompt }] })
+  assert.equal(first.json.stop_reason, 'tool_use')
+  assert.equal(first.json.content[0].name, 'api__get_usage')
+
+  const second = await post({
+    stream: false,
+    tools: declared,
+    messages: [
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: first.json.content },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: first.json.content[0].id, content: '{"status":200}' }] },
+    ],
+  })
+  assert.equal(second.json.stop_reason, 'tool_use')
+  assert.equal(second.json.content[0].name, 'create_project')
+  assert.equal(second.json.content[0].input.name, 'Round Trip')
 })
 
 test('an unmatched message returns plain text (no tools)', async () => {

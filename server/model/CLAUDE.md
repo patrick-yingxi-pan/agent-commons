@@ -21,6 +21,7 @@ Read [`../DESIGN.md`](../DESIGN.md) for the Messages/tool-use boundary and
 | MODEL-D1 | data-access | In-session API tools are generated from route-owned product capabilities and intrinsic realizations. | [`apiTools.ts`](apiTools.ts) · [`../apiSurface.ts`](../apiSurface.ts) | [`api-tools.test.ts`](api-tools.test.ts) | refines SERVER-D3; requires SERVER-A2 |
 | MODEL-V1 | verification | Mock intent/reply behavior and provider catalogs stay explicit and independently locked. | [`intents.ts`](intents.ts) · [`replies.ts`](replies.ts) · [`catalog.ts`](catalog.ts) | [`model-intents.test.ts`](model-intents.test.ts) · [`provider-models.test.ts`](provider-models.test.ts) | refines ROOT-V1; requires ROOT-P2 |
 | MODEL-O1 | operations | Every model-emitted tool batch executes through one transport-neutral guard: declared names only, serial chaining, bounded call count, per-tool deadline, non-leaking structured failures, and terminal caller cancellation. | [`../toolExecution.ts`](../toolExecution.ts) · [`../generate.ts`](../generate.ts) · [`../relay.ts`](../relay.ts) | [`../toolExecution.test.ts`](../toolExecution.test.ts) · [`generate.test.ts`](generate.test.ts) · [`../relay.test.ts`](../relay.test.ts) | requires MODEL-A2 |
+| MODEL-O2 | operations | Endpoint and Session-provider turns may execute repeated dependent tool batches through one shared bounded document loop; the first over-budget batch executes nothing and ends in an explicit fallback. | [`../toolExecution.ts`](../toolExecution.ts) · [`../generate.ts`](../generate.ts) · [`../relay.ts`](../relay.ts) | [`model-server.test.ts`](model-server.test.ts) · [`generate.test.ts`](generate.test.ts) · [`../relay.test.ts`](../relay.test.ts) | requires MODEL-O1 |
 <!-- context-rules:end -->
 
 ## What lives here
@@ -51,7 +52,9 @@ the boundary is the point, so the two sides do not share a directory.
 - **Transport never changes execution policy.** Endpoint and Session providers
   both execute through `server/toolExecution.ts`; do not add a transport-local
   executor, timeout, limit, or error policy. Preserve serial same-turn chaining
-  and the execute-vs-propose consent split when extending the seam.
+  and the execute-vs-propose consent split when extending the seam. Repeated
+  batches share `MODEL_MAX_TOOL_ROUNDS`; its value means batches actually
+  executed, not model calls attempted or mailbox entries offered.
 - **The tool surface is GENERATED from the route table** (`server/apiSurface.ts`
   over `Router.list()`), so a new route is a new tool with no second list to
   update. Never hand-add a generated tool with its own logic. Non-product form,

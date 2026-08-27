@@ -44,7 +44,7 @@ import { deriveConnectorTools } from './model/connectorTools.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv } from './env.ts'
-import { executeToolBatch, toolExecutionLimits } from './toolExecution.ts'
+import { executeToolBatch, toolExecutionLimits, toolLoopLimits } from './toolExecution.ts'
 
 /** ── The rendezvous secret ───────────────────────────────────────────────────
  *  High-entropy bearer token, shown exactly once at mint/rotate. Only its SHA-256
@@ -419,16 +419,33 @@ const FALLBACK_BUSY = 'Your delegated session couldn’t take this turn — anot
 const FALLBACK_LOOP =
   'Your delegated session kept relaying tool calls without concluding — the turn was stopped. Try again, or simplify the request.'
 
-/** Tool rounds per turn (matching `generateReply`'s call→results→prose shape,
- *  with headroom) — a runaway far session can't spin the mailbox forever. */
-const MAX_TOOL_ROUNDS = 4
-
-/** Stream a local relay-fallback message — the relay mirror of `fallbackReply`. */
-function relayFallback(handlers: ReplyHandlers, content: string): ReplyResult {
+/** Stream a local relay-fallback message — the relay mirror of `fallbackReply`.
+ *  Completed consent proposals/provenance from earlier rounds remain reviewable:
+ *  a later timeout or runaway stop must not silently erase settled tool work. */
+function relayFallback(
+  handlers: ReplyHandlers,
+  content: string,
+  state?: {
+    relationOps: RelationOp[]
+    escalation?: EscalationProposal
+    toolActivities: ToolActivity[]
+  },
+): ReplyResult {
   const id = `msg_relay_fallback_${Date.now().toString(36)}`
   handlers.onStart(id)
   for (const c of chunkText(content)) handlers.onDelta(c)
-  return { message: { id, role: 'assistant', content }, usage: { inputTokens: 0, outputTokens: 0 }, outcome: 'fallback' }
+  return {
+    message: {
+      id,
+      role: 'assistant',
+      content,
+      relationActions: state?.relationOps.length ? state.relationOps : undefined,
+      escalation: state?.escalation,
+      toolActivities: state?.toolActivities.length ? state.toolActivities : undefined,
+    },
+    usage: { inputTokens: 0, outputTokens: 0 },
+    outcome: 'fallback',
+  }
 }
 
 const estimateTokens = (s: string): number => Math.ceil(s.length / 4)
@@ -493,6 +510,9 @@ export async function relayReply(
   // session can't stretch a turn to rounds × timeout.
   const timeoutMs = positiveNumberEnv(process.env.RELAY_TIMEOUT_MS, 120_000)
   const startedAt = Date.now()
+  const { maxBatches } = toolLoopLimits()
+  let executedBatches = 0
+  const fallback = (content: string) => relayFallback(handlers, content, { relationOps, escalation, toolActivities })
 
   for (let round = 0; ; round += 1) {
     // Check the one whole-turn deadline BEFORE offering an entry. Otherwise a
@@ -500,7 +520,7 @@ export async function relayReply(
     // a parked connector and immediately clear it; the far side then wastes work
     // answering an entry guaranteed to receive 410.
     const remaining = timeoutMs - (Date.now() - startedAt)
-    if (remaining <= 0) return relayFallback(handlers, FALLBACK_TIMEOUT)
+    if (remaining <= 0) return fallback(FALLBACK_TIMEOUT)
     // Rounds past the first are CONTINUATIONS: the channel held a slot until its
     // previous round settled, so they bypass the concurrency ceiling — a rival
     // channel grabbing the last slot between rounds must not fail a conversation
@@ -508,7 +528,7 @@ export async function relayReply(
     const offer = relay.offer(providerId, { system, systemHash, channel, messages: turns, ...(tools.length ? { tools, toolsHash } : {}) }, round > 0)
     // The pre-turn gate refused busy before anything persisted; this catches only
     // the enqueue race behind it.
-    if (!offer) return relayFallback(handlers, FALLBACK_BUSY)
+    if (!offer) return fallback(FALLBACK_BUSY)
 
     const raced = await new Promise<RelayOutcome | 'timeout' | 'cancelled'>((resolve) => {
       const timer = setTimeout(() => resolve('timeout'), remaining)
@@ -528,18 +548,18 @@ export async function relayReply(
     }
     if (raced === 'timeout') {
       relay.clear(providerId, offer.entryId)
-      return relayFallback(handlers, FALLBACK_TIMEOUT)
+      return fallback(FALLBACK_TIMEOUT)
     }
     // An explicit connector error, and an empty/whitespace completion normalised to
     // one, both fall back — final, no redelivery (§7.6). A refusal is a completion.
     if (raced.kind === 'error' || (raced.kind === 'completion' && !raced.text.trim())) {
-      return relayFallback(handlers, FALLBACK_DEGENERATE)
+      return fallback(FALLBACK_DEGENERATE)
     }
 
     if (raced.kind === 'toolCalls') {
       // Relayed calls against a tool-less prompt, or a far session that never
       // concludes, both stop the turn honestly rather than spinning the slot.
-      if (!tools.length || round >= MAX_TOOL_ROUNDS - 1) return relayFallback(handlers, FALLBACK_LOOP)
+      if (!tools.length || executedBatches >= maxBatches) return fallback(FALLBACK_LOOP)
       // Defense in depth, same as `generateReply`'s: only EXECUTE a tool this
       // turn actually declared. Mailbox text is untrusted input — a far session
       // relaying an undeclared curated tool must not bypass the Agent's grant.
@@ -566,6 +586,7 @@ export async function relayReply(
         ...(result.isError ? { isError: true } : {}),
       }))
       turns.push({ role: 'assistant', toolCalls: raced.calls }, { role: 'user', toolResults: results })
+      executedBatches += 1
       continue
     }
 

@@ -7,11 +7,12 @@
  *  around them (replies.ts). The app backend talks to it through the real
  *  Anthropic SDK; to go live you repoint `ANTHROPIC_BASE_URL` at the real API.
  *
- *  It implements the real tool-use loop: on the first turn it answers a matched
- *  message with `tool_use` blocks and `stop_reason: "tool_use"`; once the backend
- *  has executed the tools and sent the `tool_result`s back, the second turn
- *  returns the final prose. Run standalone with `npm run model`; the main backend
- *  also boots it in-process in mock mode (see server/index.ts). */
+ *  It implements the real tool-use loop: a matched message answers with
+ *  `tool_use` blocks and `stop_reason: "tool_use"`; once the backend has executed
+ *  the tools and sent the `tool_result`s back, the model may call another tool
+ *  whose input depends on those results, or return final prose. Run standalone
+ *  with `npm run model`; the main backend also boots it in-process in mock mode
+ *  (see server/index.ts). */
 import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
@@ -58,15 +59,28 @@ function lastUserText(messages: ReqMessage[]): string {
     .join('')
 }
 
-/** Whether this is the *second* turn of a tool-use loop — the last user message
- *  carries `tool_result` blocks (the backend reporting what the tools did). */
+/** The initiating user's text survives every tool round. The deterministic mock
+ *  reads it when exercising a dependent read→act plan; a real model would reason
+ *  over the same complete `messages` document. */
+function firstUserText(messages: ReqMessage[]): string {
+  const first = messages.find((m) => m.role === 'user')
+  if (!first) return ''
+  if (typeof first.content === 'string') return first.content
+  return first.content
+    .filter((b): b is { type: 'text'; text?: string } => b.type === 'text')
+    .map((b) => b.text ?? '')
+    .join('')
+}
+
+/** Whether this is a post-tool exchange — the last user message carries
+ *  `tool_result` blocks (the backend reporting what the tools did). */
 function isToolResultTurn(messages: ReqMessage[]): boolean {
   const last = [...messages].reverse().find((m) => m.role === 'user')
   return !!last && Array.isArray(last.content) && last.content.some((b) => b.type === 'tool_result')
 }
 
-/** The tool names called earlier in the conversation — read from the most recent
- *  assistant message's `tool_use` blocks, so the second turn can pick its prose. */
+/** The tool names called in the most recent batch — read from the latest
+ *  assistant message's `tool_use` blocks so the next exchange can continue. */
 function priorToolNames(messages: ReqMessage[]): string[] {
   const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant')
   if (!lastAssistant || !Array.isArray(lastAssistant.content)) return []
@@ -77,8 +91,8 @@ function priorToolNames(messages: ReqMessage[]): string[] {
 }
 
 /** The `tool_result` texts the backend fed back — a real model reads these before
- *  its final prose (an executor REFUSAL must not be narrated as a proposal), so
- *  the mock does too. */
+ *  continuing (an executor REFUSAL must not be narrated as a proposal), so the
+ *  mock does too. */
 function priorToolResults(messages: ReqMessage[]): string[] {
   const last = [...messages].reverse().find((m) => m.role === 'user')
   if (!last || !Array.isArray(last.content)) return []
@@ -107,7 +121,36 @@ function sse(res: import('node:http').ServerResponse, type: string, data: unknow
  *  a connector/MCP tool declared in *this* request (P6 — per-session tools the backend
  *  derived from the attached contexts). */
 function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[], toolsDeclared: boolean): Array<{ id: string; name: string; input: unknown }> | null {
-  if (isToolResultTurn(messages)) return null // second turn → prose
+  if (isToolResultTurn(messages)) {
+    const original = firstUserText(messages)
+    const prior = priorToolNames(messages)
+    const declared = new Set(availableToolNames)
+    const mayCall = (name: string) => !toolsDeclared || declared.has(name)
+
+    // A deterministic dependent plan for the real multi-round wire shape: the
+    // first request reads usage; only after receiving that result does the mock
+    // propose the requested project. This is intentionally a normal prompt
+    // behavior, not a hidden test endpoint.
+    const project = original.match(
+      /\bthen\s+create\s+(?:a\s+)?project\s+(?:called\s+)?["“]?([A-Za-z0-9][A-Za-z0-9 -]*?)["”]?(?:[.,!]|$)/i,
+    )?.[1]?.trim()
+    if (project && prior.includes('api__get_usage') && mayCall('create_project')) {
+      return [{ id: nextToolId(), name: 'create_project', input: { name: project, file_session: 'true' } }]
+    }
+
+    // Dev-mock liveness probe: a non-concluding model keeps requesting a valid
+    // tool so the backend's bounded-loop stop is executable and regression-tested.
+    if (/\bkeep requesting tools forever\b/i.test(original) && prior.includes('save_artifact') && mayCall('save_artifact')) {
+      return [
+        {
+          id: nextToolId(),
+          name: 'save_artifact',
+          input: { name: 'runaway.md', kind: 'doc', meta: '1 page', excerpt: 'Runaway loop probe.' },
+        },
+      ]
+    }
+    return null
+  }
   const text = lastUserText(messages)
   // Wire fidelity: a real Anthropic endpoint only emits `tool_use` for tools the
   // request DECLARED. When the caller sent a `tools` array (the generate.ts path
@@ -124,7 +167,7 @@ function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[], too
   return all.map((c) => ({ id: nextToolId(), name: c.name, input: c.input }))
 }
 
-/** The prose for a text turn (no tools, or the post-tool second turn). */
+/** The prose for a text turn (no tools, or a post-tool concluding turn). */
 function replyText(messages: ReqMessage[]): string {
   if (isToolResultTurn(messages)) return finalReplyText(priorToolNames(messages), priorToolResults(messages))
   return plainReplyText(lastUserText(messages))

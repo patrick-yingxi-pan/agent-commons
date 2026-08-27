@@ -50,7 +50,10 @@ sidecar or a remote server; `GET /v1/capabilities` describes which host-bound
 operations are available, and unsupported native operations return
 `409 capability_unavailable` rather than being guessed from the environment.
 
-Generation runs through `@anthropic-ai/sdk` and a real Messages tool-use loop.
+Generation runs through `@anthropic-ai/sdk` and a real, bounded Messages tool-use
+loop, including result-dependent follow-up tool batches. `MODEL_MAX_TOOL_ROUNDS`
+sets the executed-batch budget (default 4, hard ceiling 8); the first over-budget
+request runs nothing and ends visibly.
 Development boots an Anthropic-compatible deterministic model server at `:8788`.
 Set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and optionally `ANTHROPIC_MODEL` to
 point the same seam at a live provider.
