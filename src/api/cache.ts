@@ -128,6 +128,17 @@ export function resetAll(): void {
   }
 }
 
+/** Refetch every query that has been read while retaining its current data.
+ * Use for a world WIDENING that does not change identity (accepting an org
+ * seat): every projection may gain rows, but the current shell and account are
+ * still truthful. Identity/session/epoch transitions use `resetAll` instead —
+ * their old data is no longer safe to render even briefly. */
+export function revalidateAll(): void {
+  for (const [key, e] of entries) {
+    if (e.fetcher) run(key, e.fetcher)
+  }
+}
+
 /** Read a query reactively: triggers the fetch on first use, re-renders when the
  *  data changes (whether from the fetch or an SSE push). Pass `enabled: false` to
  *  hold off the fetch (e.g. a source-keyed query whose source is client-side / not

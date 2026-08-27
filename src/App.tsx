@@ -5,7 +5,6 @@ import { SIDEBAR_ICON_BUTTON } from './lib/sidebar'
 import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
 import { setUiPrefScope } from './lib/uiPrefs'
-import type { Capabilities, Identity } from '../contract/index.ts'
 import type { PaneContent } from './lib/splitFrame'
 import { seedFor } from './lib/paneNav'
 import { MainSplitGate, type MainPaneNav } from './components/MainSplit'
@@ -16,7 +15,18 @@ import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
 import { setRailSplitScope, type RailViewRoot } from './lib/railSplit'
 import { SearchPanel } from './components/SearchPanel'
-import { keys, onSessionRemoved, peek, useCapabilities, useMe, useSessions, useServerEvents } from './api'
+import {
+  keys,
+  onSessionRemoved,
+  peek,
+  redeemShareLink,
+  resolveAppBootstrap,
+  retryAppBootstrap,
+  useCapabilities,
+  useMe,
+  useSessions,
+  useServerEvents,
+} from './api'
 import { conversations, useConversation } from './controller/conversationStore'
 import { sameFocus } from './lib/focus'
 import { setPanelPref } from './lib/panelPrefs'
@@ -27,10 +37,10 @@ import { canSplitRow, railWidthCss, useViewport } from './lib/viewport'
 import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SyncHealthNotice } from './components/SyncHealthNotice'
+import { AppBootstrapScreen } from './components/AppBootstrapScreen'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
-import { redeemShareLink } from './api'
 import type { RoutedView } from './lib/urlRoutes'
 import { requestCompositeCommand, requestCompositeFold } from './lib/compositeFeatures'
 import { useFocusedCompositeFoldAvailability } from './lib/useCompositeFeatures'
@@ -54,23 +64,28 @@ let sharedBootConsumed = false
  *  add account / after sign-out — useAuthScreen). It REPLACES the workspace
  *  frame — a dedicated onboarding surface, not a dialog over the product. */
 export default function App() {
-  const caps = useCapabilities().data
-  const me = useMe().data
+  const capabilities = useCapabilities()
+  const identity = useMe()
   const authView = useAuthScreen()
-  // An account switch resets the whole cache (useMe momentarily undefined) —
-  // hold the last known answers so the workspace doesn't unmount mid-switch.
-  const lastCaps = useRef<Capabilities | undefined>(undefined)
-  const lastMe = useRef<Identity | undefined>(undefined)
-  if (caps) lastCaps.current = caps
-  if (me) lastMe.current = me
-  const cap = caps ?? lastCaps.current
-  const ident = me ?? lastMe.current
 
-  // Boot: until the backend says who we are and whether the gate applies,
-  // render nothing rather than flash the wrong surface (one local round-trip).
-  if (!cap || !ident) return null
+  // Boot is a two-read decision barrier: until the backend says who we are and
+  // whether the auth gate applies, show an identity-neutral progress surface;
+  // if either missing read fails, explain it and retry BOTH. Ordinary refetches
+  // retain query data; deliberate cache resets must earn a fresh pair.
+  const bootstrap = resolveAppBootstrap(
+    capabilities.data,
+    identity.data,
+    capabilities.status,
+    identity.status,
+  )
+  if (bootstrap.status !== 'ready') {
+    return <AppBootstrapScreen status={bootstrap.status} onRetry={retryAppBootstrap} />
+  }
 
-  const gated = cap.features.authGate && ident.via !== 'session'
+  const resolvedCapabilities = bootstrap.capabilities
+  const resolvedIdentity = bootstrap.identity
+
+  const gated = resolvedCapabilities.features.authGate && resolvedIdentity.via !== 'session'
   if (gated || authView) {
     // Gated with no explicit view: land on the picker — it falls through to
     // the sign-in form when no account is remembered on this browser.
@@ -87,13 +102,13 @@ export default function App() {
   // Workspace is KEYED by the account, so a switch remounts it: every
   // mount-time read (rail width, pane folds/heights, panel width, the
   // persisted split TREE — which IS the account's view memory since Phase 6)
-  // re-runs against the account's own blobs. `ident` holds the last-known
-  // identity mid-switch, so the remount fires exactly when the NEW /me
-  // resolves — the old account's instance never renders as the new one.
-  setUiPrefScope(ident.user.id)
-  setMainSplitScope(ident.user.id) // the main split tree is per account, like the layout blob
-  setRailSplitScope(ident.user.id)
-  return <Workspace key={ident.user.id} />
+  // re-runs against the account's own blobs. A switch reset clears the gate
+  // reads, so bootstrap waits for the NEW /me; no ad-hoc last-identity cache can
+  // label the new cookie with the previous account.
+  setUiPrefScope(resolvedIdentity.user.id)
+  setMainSplitScope(resolvedIdentity.user.id) // the main split tree is per account, like the layout blob
+  setRailSplitScope(resolvedIdentity.user.id)
+  return <Workspace key={resolvedIdentity.user.id} />
 }
 
 /** The View: composes the product chrome from three controllers — the main

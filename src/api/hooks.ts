@@ -4,7 +4,7 @@
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
 import { useSyncExternalStore } from 'react'
-import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
+import { useQuery, resetAll, revalidateAll, invalidate, type QueryState } from './cache.ts'
 import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
@@ -258,7 +258,7 @@ export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<
 export async function resolveMyInvite(inviteId: string, action: 'accept' | 'decline'): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
     await apiPost(action === 'accept' ? paths.myInviteAccept(inviteId) : paths.myInviteDecline(inviteId))
-    if (action === 'accept') resetAll() // a new seat widens the walls — re-read everything
+    if (action === 'accept') revalidateAll() // a new seat widens every read; identity stays the same
     else invalidate(keys.meInvites)
     return { ok: true }
   } catch (err) {
