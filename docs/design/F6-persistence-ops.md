@@ -3,7 +3,7 @@
 > **Foundation.** The concrete storage tiers, the durable-vs-transient split, and how
 > the system is deployed, observed, backed up, and scaled — the production form of
 > `server/persistence/` (JSON + embedded SQLite behind one port) and the run scripts. Serves spec
-> PERSIST-1..6, MOCK-5/6, and grounds [F1](F1-domain-model.md)/[F4](F4-broker-runners.md).
+> PERSIST-1..7, MOCK-5/6, and grounds [F1](F1-domain-model.md)/[F4](F4-broker-runners.md).
 
 ## 1. Problem & scope
 
@@ -101,6 +101,10 @@ neighbors. The reply stream is the only sticky path.
   commit failure returns `storage_unavailable`, flips readiness, and fail-closes product
   traffic until the shell/service supervisor restarts from the last durable snapshot;
   a process whose memory may have advanced past disk never resumes in place (PD76).
+  On startup, only genuine store absence seeds: existing unreadable, malformed,
+  unrecognized or incompatible storage stops the process before live state is
+  rewritten; orphan atomic-temp/WAL/journal companions also prevent a false first
+  boot, preserving the recovery source for explicit restore/repair (PD77).
 
 ## 4. Security & multi-tenancy
 
@@ -129,4 +133,5 @@ addressed, per-tenant prefix, short-lived signed URLs, lifecycle-expired), **PD3
 sidecar), **PD31** (OpenTelemetry logs/metrics/traces + SLOs/error budgets), **PD32**
 (durable = DB + object store, backed up/PITR; transient stores rebuildable, not backed
 up — the prototype's persist/transient line held), and **PD76** (no commit means no
-acknowledgement; a failed writer is product-walled until restart).
+acknowledgement; a failed writer is product-walled until restart), and **PD77** (only
+genuine first boot seeds; unusable existing storage fails startup closed).

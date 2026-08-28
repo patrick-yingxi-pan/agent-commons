@@ -31,7 +31,7 @@ test('migrateState passes a current-version snapshot straight through', () => {
   assert.equal(migrateState(s), s)
 })
 
-test('migrateState discards garbage / versionless input', () => {
+test('migrateState rejects garbage / versionless input', () => {
   assert.equal(migrateState(null), null)
   assert.equal(migrateState({} as PersistedState), null)
 })
@@ -52,16 +52,16 @@ test('migrateState applies a chain, stamping the version and preserving/transfor
   assert.equal(out.seq.message, 2, 'second migration applied')
 })
 
-test('migrateState discards when a step in the chain is missing (gap ⇒ reseed)', () => {
+test('migrateState rejects when a step in the chain is missing', () => {
   const migrations: DataMigration[] = [{ to: 3, migrate: (s) => s }] // no to:2
   assert.equal(migrateState(at(1), migrations, 3), null)
 })
 
-test('migrateState: current version passes through; a version with no migration path is discarded', () => {
+test('migrateState: current version passes through; a version with no migration path is rejected', () => {
   const current = at(STORE_VERSION)
   assert.equal(migrateState(current), current, 'current version passes straight through')
-  // v3 would need a to:4 step, which doesn't exist (only v4→v5 is registered), so it's discarded.
-  assert.equal(migrateState(at(STORE_VERSION - 2)), null, 'a version with no registered path is discarded')
+  // v3 would need a to:4 step, which doesn't exist (only v4→v5 is registered).
+  assert.equal(migrateState(at(STORE_VERSION - 2)), null, 'a version with no registered path is rejected')
 })
 
 // ── The real registered migration (v4 → v5: backfill AuditEntry.tenantId) ─────

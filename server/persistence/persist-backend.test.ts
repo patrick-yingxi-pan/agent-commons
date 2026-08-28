@@ -2,12 +2,12 @@
  *  SQLite backends behind server/persistence/persist.ts. The headline invariant: **both
  *  backends preserve the exact JSON-canonical snapshot**, so swapping
  *  `PERSIST_BACKEND` can never change what the store rehydrates. Plus the SQLite
- *  specifics: version-mismatch / fresh-db → null, forward-only migrations are
- *  idempotent, and an uncategorized slice fails loudly (it would silently lose data).
+ *  specifics: fresh-db → null while existing invalid state throws, forward-only
+ *  migrations are idempotent, and an uncategorized slice fails loudly.
  *  Everything runs against `:memory:` or a throwaway temp file — never the real store. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { JsonFileBackend, SqliteBackend } from './index.ts'
@@ -109,18 +109,50 @@ test('SQLite load returns null for a fresh database (caller seeds fresh)', () =>
   db.close()
 })
 
-test('SQLite load returns null on a version mismatch so an old db cannot crash a new build', () => {
+test('SQLite load refuses an existing version mismatch', () => {
   const db = new SqliteBackend(':memory:')
   db.save({ ...sample, version: STORE_VERSION + 999 })
-  assert.equal(db.load(), null)
+  assert.throws(() => db.load(), /unsupported|migration path/)
   db.close()
 })
 
-test('SQLite load returns null for a current-version state missing required core slices', () => {
+test('SQLite load refuses a current-version state missing required core slices', () => {
   const db = new SqliteBackend(':memory:')
   db.save({ version: STORE_VERSION } as PersistedState)
-  assert.equal(db.load(), null)
+  assert.throws(() => db.load(), /missing required core slices/)
   db.close()
+})
+
+test('SQLite distinguishes a newly-created database from an existing manifest-less file', () => {
+  const file = tempDbFile()
+  const first = new SqliteBackend(file)
+  assert.equal(first.load(), null, 'the backend that created the database sees genuine first boot')
+  first.close()
+
+  const reopened = new SqliteBackend(file)
+  assert.throws(() => reopened.load(), /manifest is missing/, 'an existing unexplained database never reseeds')
+  reopened.close()
+  cleanup(file)
+})
+
+test('SQLite refuses an existing non-application database before adding its schema', () => {
+  const file = tempDbFile()
+  const bytes = 'not-an-agent-commons-database'
+  writeFileSync(file, bytes)
+  assert.throws(() => new SqliteBackend(file), /file is not a database|schema marker/)
+  assert.equal(readFileSync(file, 'utf8'), bytes, 'startup leaves an unrecognized recovery source intact')
+  cleanup(file)
+})
+
+test('SQLite refuses first-boot initialization while an orphan recovery companion remains', () => {
+  const file = tempDbFile()
+  const wal = `${file}-wal`
+  const bytes = 'orphaned-recovery-data'
+  writeFileSync(wal, bytes)
+  assert.throws(() => new SqliteBackend(file), /recovery data remains/)
+  assert.equal(existsSync(file), false, 'the missing main database is not recreated')
+  assert.equal(readFileSync(wal, 'utf8'), bytes, 'the recovery companion remains intact')
+  cleanup(file)
 })
 
 test('SQLite save throws on an uncategorized slice (silent data-loss guard)', () => {

@@ -9,12 +9,13 @@
 > versioned state contract; canonical portable exports cross that backend boundary and
 > restore only after validation + migration. A write acknowledgement means the selected
 > backend committed; commit failure makes the process unready and product-walled until
-> restart. (AGENTS "Created state is persisted to
+> restart. At boot, only genuine absence may seed; existing unusable storage stops the
+> process before any replacement write. (AGENTS "Created state is persisted to
 > the filesystem"; README repo map.)
 
 ## Requirements (L2) → [`server/persistence/SPEC.md`](../../server/persistence/SPEC.md)
 
-This pillar's leaf requirements — **PERSIST-1 … PERSIST-6** — live next to the
+This pillar's leaf requirements — **PERSIST-1 … PERSIST-7** — live next to the
 code that satisfies them and the suites that lock them, in
 [`server/persistence/SPEC.md`](../../server/persistence/SPEC.md). One module,
 one home: rows, implementation, and locks are all readable without leaving the

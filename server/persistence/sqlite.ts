@@ -15,9 +15,10 @@
  *  the schema is migration-managed from day one. Per-entity rows (vs one blob) are
  *  the point: real updates/deletes and a place to index by id as the store grows.
  *
- *  `load()` returns null on unusable state; `save()` throws on any failed transaction
- *  so the caller cannot acknowledge an undurable mutation. An uncategorized slice is
- *  also loud: it means a new `PersistedState` field was left out of the manifest. */
+ *  `load()` returns null only for a database created by this backend on first boot;
+ *  existing unreadable/incompatible state throws so it cannot be silently replaced.
+ *  `save()` throws on any failed transaction so the caller cannot acknowledge an
+ *  undurable mutation. An uncategorized slice is also loud. */
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { createRequire } from 'node:module'
@@ -51,6 +52,8 @@ interface SqliteModule {
  *  saved state, so load reconstructs exactly the JSON-canonical shape (an absent
  *  optional slice stays absent; a present-but-empty array comes back as `[]`). */
 const SLICES_KEY = '__slices__'
+const SQLITE_COMPANION_SUFFIXES = ['-wal', '-shm', '-journal'] as const
+const APPLICATION_TABLES = ['schema_migrations', 'kv', 'entities', 'map_entries'] as const
 
 /** Forward-only, ordered schema migrations (F6 PD28). Each runs once, in a
  *  transaction, recorded in `schema_migrations`. Append new migrations; never edit a
@@ -95,12 +98,21 @@ function idOf(value: unknown): string | null {
 export class SqliteBackend implements PersistenceBackend {
   readonly name = 'sqlite'
   readonly #db: SqliteDatabase
+  readonly #path: string
+  readonly #freshAtOpen: boolean
 
   /** Opens (creating if absent) the database at `path` and brings its schema up to
    *  date. `path` defaults to `databaseFile()`; tests pass `':memory:'` or a temp
    *  file. Throws if `node:sqlite` is unavailable or the file can't be opened —
    *  sqlite is opt-in, so a misconfiguration should fail loudly, not silently. */
   constructor(path: string = databaseFile()) {
+    this.#path = path
+    const mainExists = path !== ':memory:' && existsSync(path)
+    const orphan = path === ':memory:' || mainExists
+      ? undefined
+      : SQLITE_COMPANION_SUFFIXES.map((suffix) => `${path}${suffix}`).find(existsSync)
+    this.#freshAtOpen = path === ':memory:' || (!mainExists && !orphan)
+    if (orphan) throw new Error(`[persist] SQLite store is missing while recovery data remains at ${orphan}`)
     if (path !== ':memory:') {
       const dir = dirname(path)
       if (dir && !existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -110,10 +122,29 @@ export class SqliteBackend implements PersistenceBackend {
     const require = createRequire(import.meta.url)
     const { DatabaseSync } = require('node:sqlite') as SqliteModule
     this.#db = new DatabaseSync(path)
-    // WAL: concurrent readers + a single writer, and better crash recovery than the
-    // rollback journal. (No `foreign_keys` pragma — the schema declares no FKs yet.)
-    this.#db.exec('PRAGMA journal_mode = WAL;')
-    this.#migrate()
+    try {
+      // A pre-existing SQLite file must first prove it belongs to this application.
+      // Otherwise #migrate would CREATE our schema inside an unrelated/partially
+      // corrupted database before startup eventually refused it.
+      if (!this.#freshAtOpen) {
+        const tables = new Set(
+          this.#db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => String(row.name)),
+        )
+        const missing = APPLICATION_TABLES.filter((table) => !tables.has(table))
+        if (missing.length) throw new Error(`existing database has no complete Agent Commons schema marker (${missing.join(', ')} missing)`)
+      }
+      // WAL: concurrent readers + a single writer, and better crash recovery than the
+      // rollback journal. (No `foreign_keys` pragma — the schema declares no FKs yet.)
+      this.#db.exec('PRAGMA journal_mode = WAL;')
+      this.#migrate()
+    } catch (error) {
+      try {
+        this.#db.close()
+      } catch {
+        /* preserve the original startup failure */
+      }
+      throw error
+    }
   }
 
   /** Apply any unapplied migrations in order, each in its own transaction. */
@@ -142,13 +173,17 @@ export class SqliteBackend implements PersistenceBackend {
     }
   }
 
-  /** Reconstruct `PersistedState` from the three tables, or null when there's no
-   *  usable state — no `__slices__` row (fresh db), a version mismatch, or any read
-   *  failure — so the caller seeds fresh. */
+  /** Reconstruct `PersistedState` from the three tables. A database created by this
+   *  backend with no manifest is genuine first boot and returns null. Missing state
+   *  in an existing file, incompatible versions, invalid shape, and read failures
+   *  throw so startup cannot replace acknowledged data with seeds. */
   load(): PersistedState | null {
     try {
       const slicesRow = this.#db.prepare('SELECT json FROM kv WHERE key = ?').get(SLICES_KEY)
-      if (!slicesRow) return null
+      if (!slicesRow) {
+        if (this.#freshAtOpen) return null
+        throw new Error('store manifest is missing from an existing database')
+      }
       const present = JSON.parse(String(slicesRow.json)) as (keyof PersistedState)[]
 
       const result: Record<string, unknown> = {}
@@ -171,12 +206,14 @@ export class SqliteBackend implements PersistenceBackend {
         }
       }
 
-      // Bring an older snapshot up to the current version (F1 PD6); a newer or
-      // un-migratable one ⇒ null ⇒ reseed.
+      // Bring a supported older snapshot up to the current version (F1 PD6).
       const migrated = migrateState(result as unknown as PersistedState)
-      return hasCorePersistedShape(migrated) ? migrated : null
-    } catch {
-      return null
+      if (!migrated) throw new Error('store version is unsupported or has no migration path')
+      if (!hasCorePersistedShape(migrated)) throw new Error('store snapshot is missing required core slices')
+      return migrated
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(`[persist] existing SQLite store at ${this.#path} is unreadable or incompatible: ${detail}`)
     }
   }
 

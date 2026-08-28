@@ -2634,10 +2634,11 @@ export const store = {
 
   /** Turn on filesystem persistence and rehydrate from the last snapshot (if any).
    *  Called once by the real server entrypoint; tests leave it off and run
-   *  in-memory. On first boot (no snapshot) the seed is written out as the baseline. */
+   *  in-memory. On first boot (no snapshot) the seed is written out as the baseline.
+   *  Existing unusable state throws before persistence is enabled or memory mutates. */
   initPersistence(): void {
-    persistEnabled = true
     const loaded = loadState()
+    persistEnabled = true
     if (loaded) rehydrate(loaded)
     else {
       // First boot (no snapshot): the commons showcase seeds THROUGH the real

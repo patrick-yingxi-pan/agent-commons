@@ -3,10 +3,10 @@
  *  Points DATA_FILE at a throwaway temp path so it never touches the real store. */
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { rmSync, existsSync, writeFileSync } from 'node:fs'
+import { rmSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { loadState, saveState, STORE_VERSION } from './persist.ts'
+import { loadState, PersistenceLoadError, saveState, STORE_VERSION } from './persist.ts'
 
 const FILE = join(tmpdir(), `claude-ui-persist-test-${process.pid}.json`)
 process.env.DATA_FILE = FILE
@@ -76,19 +76,32 @@ test('loadState returns null when the file is absent (caller seeds fresh)', () =
   assert.equal(loadState(), null)
 })
 
-test('loadState ignores a version mismatch so an old snapshot cannot crash a new build', () => {
-  saveState({ ...sample, version: STORE_VERSION + 999 })
-  assert.equal(loadState(), null)
+test('loadState refuses to seed while an orphan atomic-write temp remains', () => {
+  const recovery = JSON.stringify(sample)
+  writeFileSync(`${FILE}.tmp`, recovery)
+  assert.throws(() => loadState(), /recovery data remains/)
+  assert.equal(existsSync(FILE), false, 'the missing live path is not recreated by load')
+  assert.equal(readFileSync(`${FILE}.tmp`, 'utf8'), recovery, 'the recovery candidate remains intact')
 })
 
-test('loadState rejects a current-version snapshot missing required core slices', () => {
-  writeFileSync(FILE, JSON.stringify({ version: STORE_VERSION }))
-  const report = console.error
-  console.error = () => {}
-  try {
-    assert.equal(loadState(), null)
-  } finally {
-    console.error = report
-  }
-  assert.ok(existsSync(FILE + '.corrupt'), 'the invalid live bytes are preserved for recovery')
+test('loadState refuses an existing version mismatch without changing its bytes', () => {
+  const future = JSON.stringify({ ...sample, version: STORE_VERSION + 999 })
+  writeFileSync(FILE, future)
+  assert.throws(() => loadState(), PersistenceLoadError)
+  assert.equal(readFileSync(FILE, 'utf8'), future)
+})
+
+test('loadState refuses a structurally invalid existing snapshot in place', () => {
+  const invalid = JSON.stringify({ version: STORE_VERSION })
+  writeFileSync(FILE, invalid)
+  assert.throws(() => loadState(), PersistenceLoadError)
+  assert.equal(readFileSync(FILE, 'utf8'), invalid, 'the recovery source remains byte-for-byte intact')
+  assert.equal(existsSync(FILE + '.corrupt'), false, 'startup does not rename or otherwise mutate live storage')
+})
+
+test('loadState refuses malformed existing JSON in place', () => {
+  const malformed = '{"version":'
+  writeFileSync(FILE, malformed)
+  assert.throws(() => loadState(), PersistenceLoadError)
+  assert.equal(readFileSync(FILE, 'utf8'), malformed)
 })

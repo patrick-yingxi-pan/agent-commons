@@ -30,6 +30,21 @@ export class PersistenceWriteError extends Error {
   }
 }
 
+/** Startup integrity failure. Only a genuinely absent backend may seed. Existing
+ * unreadable or incompatible state is never converted into an empty world. */
+export class PersistenceLoadError extends Error {
+  readonly backend: BackendKind
+  readonly detail: unknown
+
+  constructor(backend: BackendKind, detail: unknown) {
+    const reason = detail instanceof Error ? detail.message : String(detail)
+    super(`Durable ${backend} storage could not be loaded. Refusing to replace existing data. ${reason}`)
+    this.name = 'PersistenceLoadError'
+    this.backend = backend
+    this.detail = detail
+  }
+}
+
 // Re-export the persisted shape + format primitives so existing importers
 // (server/store/index.ts, scripts/snapshot.ts, tests/) keep their import paths.
 export { STORE_VERSION, dataFile, databaseFile, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from './format.ts'
@@ -47,10 +62,17 @@ function backend(): PersistenceBackend {
   return active.backend
 }
 
-/** Read the snapshot, or null when there's no usable persisted state, so the caller
- *  seeds fresh. (Delegates to the selected backend.) */
+/** Read the snapshot. Null means genuine first boot only. Any existing unreadable,
+ * malformed, structurally invalid, or incompatible state becomes a recognizable
+ * startup error so the process exits before it can seed or listen. */
 export function loadState(): PersistedState | null {
-  return backend().load()
+  const kind = backendKind()
+  try {
+    return backend().load()
+  } catch (error) {
+    if (error instanceof PersistenceLoadError) throw error
+    throw new PersistenceLoadError(kind, error)
+  }
 }
 
 /** Write the snapshot. A failure is a product acknowledgement boundary: wrap it

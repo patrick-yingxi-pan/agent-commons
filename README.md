@@ -122,6 +122,12 @@ does not resume merely because disk access returns—the in-memory graph may hav
 advanced past the last durable snapshot. `/healthz` and `/metrics` remain available
 for the desktop shell or service supervisor to diagnose and restart safely.
 
+Startup distinguishes a genuinely absent store from an unusable existing one. Only
+absence creates the seeded baseline; malformed, structurally invalid, unrecognized,
+newer, or un-migratable JSON/SQLite storage stops the process before replacement.
+An orphan atomic temp, WAL, or journal also counts as recovery data—not absence.
+Repair or restore the preserved store explicitly, then restart.
+
 ## Stack
 
 - React + TypeScript + Vite, Tailwind CSS v4, Framer Motion, Lucide

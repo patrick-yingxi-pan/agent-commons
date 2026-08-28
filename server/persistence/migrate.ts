@@ -5,8 +5,9 @@
  *  instead of dropping it. Both persistence backends route their `load()` through
  *  `migrateState`, so the rule is identical across JSON and SQLite.
  *
- *  The v2/v3/v4 historical bumps were intentionally discard-and-reseed (no path
- *  registered, so those still reseed). The v5 bump is the first to migrate in place:
+ *  The v2/v3/v4 historical bumps have no registered path. `migrateState` reports
+ *  them unusable; live startup now fails closed while explicit restore rejects them.
+ *  The v5 bump is the first to migrate in place:
  *  it backfills the `AuditEntry.tenantId` added for tenant-scoped audit (F5/PD9). On
  *  the *next* `STORE_VERSION` bump, append one more `DataMigration` here. */
 import { STORE_VERSION, type PersistedState } from './format.ts'
@@ -39,7 +40,8 @@ export const DATA_MIGRATIONS: DataMigration[] = [
 
 /** Bring a loaded snapshot up to `target` (default `STORE_VERSION`), or return null
  *  when it can't be used — absent/garbage, newer than this build (no downgrade), or
- *  missing a migration step (a gap ⇒ discard, safe). A snapshot already at `target`
+ *  missing a migration step. Callers decide whether absence means first boot or an
+ *  existing invalid resource means failure. A snapshot already at `target`
  *  passes straight through. Pure (the `migrations`/`target` params are injectable for
  *  tests). */
 export function migrateState(
@@ -52,7 +54,7 @@ export function migrateState(
   let cur = state
   while (cur.version < target) {
     const step = migrations.find((m) => m.to === cur.version + 1)
-    if (!step) return null // no path to the next version — discard (reseed)
+    if (!step) return null // no path to the next version
     cur = { ...step.migrate(cur), version: step.to }
   }
   return cur.version === target ? cur : null

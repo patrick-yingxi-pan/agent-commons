@@ -47,7 +47,7 @@ the design is anchored to the seam it would replace/extend.
 - [x] **F6 — Persistence, storage & ops** (`F6-persistence-ops.md`). Real datastore
   choice + object storage for files/artifacts, the durable-vs-transient split, backup/
   restore, observability, deployment topology (desktop sidecar vs web), scaling, SLOs.
-  Serves PERSIST-1..6, MOCK-5/6.
+  Serves PERSIST-1..7, MOCK-5/6.
 
 ## Pillars (build on the foundations)
 

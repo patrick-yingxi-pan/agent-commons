@@ -3,7 +3,7 @@
  *  (`json.ts`, `sqlite.ts`) and the facade (`server/persistence/persist.ts`) can all import it
  *  without an import cycle. It defines:
  *    • `PersistedState` — the store's mutable, UI-owned state on disk,
- *    • `STORE_VERSION` — the data-schema version (mismatch ⇒ the store re-seeds),
+ *    • `STORE_VERSION` — the data-schema version (unsupported ⇒ startup refuses),
  *    • `SLICE_KIND` — how each top-level slice maps onto a relational shape
  *      (singleton / array / map-entries), shared by every backend,
  *    • `dataFile()` / `databaseFile()` — where each backend keeps its bytes,
@@ -44,25 +44,25 @@ import type { ProviderConfig } from '../data/providers.ts'
 import type { AccountUser, AccountTenant, Membership, StoredOrgInvite } from '../accounts.ts'
 import { join } from 'node:path'
 
-/** On-disk schema version. A snapshot whose version doesn't match is ignored (the
- *  store re-seeds), so an incompatible older file can't crash a newer build.
+/** On-disk schema version. A supported older snapshot migrates forward; an
+ *  unsupported/newer snapshot stops startup without changing its bytes.
  *  v2: the "time ago" stamps moved from frozen display strings to absolute epoch-ms
  *  timestamps (artifact.editedAt, project.updatedAt, savedContext.lastUsedAt) and
  *  session.updatedLabel was dropped.
  *  v3: ScheduledRun followed suit — `when`/`absolute` strings dropped and `at`
- *  changed from minutes-ago to an absolute epoch-ms; a v2 snapshot's runs would
- *  render as "Jan 1 1970", so it's discarded and the store re-seeds.
+ *  changed from minutes-ago to an absolute epoch-ms; a v2 snapshot has no safe
+ *  automatic migration and now requires explicit recovery rather than reseeding.
  *  v4: the Agent Commons registries (providers + their server-only configs, the
  *  system-prompt library, worker agents, commissions) and their id counters joined
  *  the snapshot, so an agent / provider / prompt / commission created or edited
  *  through the Agents hub (or proposed by Claude and confirmed) survives a restart
- *  rather than reverting to the seed; a v3 snapshot lacks them, so it's discarded.
+ *  rather than reverting to the seed; a v3 snapshot lacks them and requires recovery.
  *  v5: `AuditEntry` gained a required `tenantId` (the audit trail is tenant-scoped,
  *  F5/PD9). A v4 snapshot's audit entries predate the field, so a forward-only data
  *  migration (`DATA_MIGRATIONS`, server/persistence/migrate.ts) backfills them to the
  *  personal tenant on load — the first real migration, replacing discard-and-reseed for
  *  this bump so a restored store keeps its audit history.
- *  Older versions without a migration path remain discard-and-reseed.
+ *  Older versions without a migration path fail startup closed.
  *  (Dispatch runs joined as an *additive optional* slice — `dispatch?` + `seq.dispatch?` —
  *  so a v5 snapshot without them loads cleanly (rehydrate keeps the seed feed); no bump,
  *  matching how `savedContexts?` / `auditLog?` were added.) */
@@ -454,10 +454,10 @@ export function databaseFile(): string {
   return process.env.DATABASE_PATH ?? join(process.cwd(), '.data', 'store.db')
 }
 
-/** The persistence port: load the last snapshot (or null to seed fresh) and save a
- *  new one. `load()` returns null for absent / unreadable / malformed / incompatible
- *  state so the caller can seed. `save()` MUST throw when it cannot commit: a product
- *  mutation may be acknowledged only after durable storage accepts it. `close()`
+/** The persistence port: load the last snapshot (or null only on genuine first boot)
+ *  and save a new one. `load()` MUST throw for existing unreadable, malformed,
+ *  structurally invalid, or incompatible state; `save()` MUST throw when it cannot
+ *  commit. This makes both boot and mutation acknowledgements fail closed. `close()`
  *  releases a backend's resources (a DB handle); the JSON backend has none. */
 export interface PersistenceBackend {
   readonly name: string
