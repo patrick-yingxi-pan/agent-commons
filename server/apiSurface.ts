@@ -91,7 +91,7 @@ export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, u
     },
   ],
   ['PATCH /saved-contexts/:id', { status: 'connected' }],
-  ['PATCH /schedules/:id', { enabled: false }],
+  ['PATCH /schedules/:id', { enabled: false, expectedRevision: 0 }],
   [
     'POST /schedules',
     {

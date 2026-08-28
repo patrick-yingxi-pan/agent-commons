@@ -140,6 +140,12 @@ export interface ScheduledRun {
  *  delivers the result somewhere. */
 export interface ScheduledTask {
   id: string
+  /** Monotonic server-owned revision of the routine's editable definition
+   *  (name, prompt, cadence, workflow, delivery, model, and enabled state).
+   *  Run progress/history is deliberately orthogonal, so a routine firing does
+   *  not manufacture a conflict with a human definition edit. Absent on a
+   *  legacy snapshot is revision 0. */
+  revision?: number
   /** The tenant this routine belongs to — the isolation boundary on the web
    *  (F2/PD9). Unset on a legacy routine ⇒ the backend's default tenant; the
    *  six demo accounts' seed routines are stamped (docs/demo-accounts.md).

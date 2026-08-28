@@ -43,6 +43,63 @@ test('PATCH /schedules/:id with no enabled key leaves enabled unchanged (no impl
   assert.equal(res.json.enabled, task.enabled, 'a patch without `enabled` never flips it — the UI sends the resolved value')
 })
 
+test('routine definition PATCH refuses stale revisions and replays one logical retry', async () => {
+  const list = await call('GET', '/schedules')
+  const task = list.json[0]
+  const revision = task.revision ?? 0
+  const headers = { 'idempotency-key': `schedule-definition-${task.id}-${revision}` }
+
+  const renamed = await call('PATCH', `/schedules/${task.id}`, {
+    name: 'Revision-safe routine',
+    expectedRevision: revision,
+  }, headers)
+  assert.equal(renamed.status, 200)
+  assert.equal(renamed.json.revision, revision + 1)
+
+  const replay = await call('PATCH', `/schedules/${task.id}`, {
+    name: 'Revision-safe routine',
+    expectedRevision: revision,
+  }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.revision, revision + 1, 'the same logical retry advances once')
+
+  const stale = await call('PATCH', `/schedules/${task.id}`, {
+    enabled: !renamed.json.enabled,
+    expectedRevision: revision,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.json.error.code, 'conflict')
+
+  const after = (await call('GET', '/schedules')).json.find((candidate: { id: string }) => candidate.id === task.id)
+  assert.equal(after.enabled, renamed.json.enabled, 'a refused patch changes no field')
+  assert.equal(after.revision, revision + 1)
+
+  const current = await call('PATCH', `/schedules/${task.id}`, {
+    enabled: !renamed.json.enabled,
+    expectedRevision: revision + 1,
+  })
+  assert.equal(current.status, 200)
+  assert.equal(current.json.revision, revision + 2)
+})
+
+test('routine definition revision is independent of run history and validates its precondition', async () => {
+  const list = await call('GET', '/schedules')
+  const task = list.json[0]
+  const revision = task.revision ?? 0
+
+  const run = await call('POST', `/schedules/${task.id}/run`)
+  assert.equal(run.status, 200)
+  const afterRun = (await call('GET', '/schedules')).json.find((candidate: { id: string }) => candidate.id === task.id)
+  assert.equal(afterRun.revision, revision, 'run activity does not manufacture a definition conflict')
+
+  const malformed = await call('PATCH', `/schedules/${task.id}`, { name: 'No', expectedRevision: -1 })
+  assert.equal(malformed.status, 400)
+
+  const legacy = await call('PATCH', `/schedules/${task.id}`, { name: 'Legacy routine client' })
+  assert.equal(legacy.status, 200)
+  assert.equal(legacy.json.revision, revision + 1, 'a legacy unconditional write still advances ordering')
+})
+
 test('PATCH /schedules/:id 404s for an unknown routine', async () => {
   const res = await call('PATCH', '/schedules/s-does-not-exist', { name: 'x' })
   assert.equal(res.status, 404)

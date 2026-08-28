@@ -12,14 +12,14 @@ import {
   peek,
 } from '../api'
 import {
-  createSessionMetadataMutationController,
-  IDLE_SESSION_METADATA_MUTATION,
-  type SessionMetadataMutationFailure,
-  type SessionMetadataMutationOutcome,
-  type SessionMetadataMutationStatus,
-} from './sessionMetadataMutationsCore'
+  createRevisionedMutationController,
+  IDLE_REVISIONED_MUTATION,
+  type RevisionedMutationFailure,
+  type RevisionedMutationOutcome,
+  type RevisionedMutationStatus,
+} from './revisionedMutationCore'
 
-function describeFailure(error: unknown): SessionMetadataMutationFailure {
+function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
     return { message: 'That conversation change belonged to the previous account. Dismiss it to continue.', retryable: false }
   }
@@ -43,9 +43,9 @@ function describeFailure(error: unknown): SessionMetadataMutationFailure {
   return { message: 'Couldn’t confirm the conversation change. Your request is still here—retry when the connection recovers.', retryable: true }
 }
 
-let status: SessionMetadataMutationStatus = IDLE_SESSION_METADATA_MUTATION
+let status: RevisionedMutationStatus = IDLE_REVISIONED_MUTATION
 const listeners = new Set<() => void>()
-const publish = (next: SessionMetadataMutationStatus): void => {
+const publish = (next: RevisionedMutationStatus): void => {
   status = next
   for (const listener of listeners) listener()
 }
@@ -64,9 +64,10 @@ const reconcile = async (sessionId: string): Promise<Session> => {
   return session
 }
 
-const controller = createSessionMetadataMutationController({
+const controller = createRevisionedMutationController<Session, SessionMetadataPatch>({
   snapshot: cachedSession,
   reconcile,
+  revision: (session) => session.metadataRevision ?? 0,
   mutate: patchSession,
   describeFailure,
   setStatus: publish,
@@ -78,20 +79,20 @@ onAccountSwitch(() => controller.clearAll())
 export function enqueueSessionMetadataMutation(
   sessionId: string,
   patch: SessionMetadataPatch,
-): Promise<SessionMetadataMutationOutcome> {
+): Promise<RevisionedMutationOutcome> {
   return controller.enqueue(sessionId, patch)
 }
 
 export const retrySessionMetadataMutation = controller.retry
 export const discardSessionMetadataMutation = controller.discard
 
-export function useSessionMetadataMutationStatus(): SessionMetadataMutationStatus {
+export function useSessionMetadataMutationStatus(): RevisionedMutationStatus {
   return useSyncExternalStore(
     (listener) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
     () => status,
-    () => IDLE_SESSION_METADATA_MUTATION,
+    () => IDLE_REVISIONED_MUTATION,
   )
 }

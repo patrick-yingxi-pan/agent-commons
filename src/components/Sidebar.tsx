@@ -63,12 +63,12 @@ import {
 import {
   removeSchedule,
   runScheduleNow,
-  toggleScheduleEnabled,
   useMe,
   useDiscussions,
   useNotifications,
   useSchedules,
 } from '../api'
+import { toggleScheduleEnabled } from '../controller/scheduleMutations'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'

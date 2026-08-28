@@ -58,6 +58,7 @@ import {
   type SavedContext,
   type SavedContextsSnapshot,
   type CreateDispatchRequest,
+  type SchedulePatch,
   type ScheduledTask,
   type SendMessageRequest,
   type SetConnectorStatusRequest,
@@ -78,7 +79,8 @@ import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { readReplyEvents } from './replyStream.ts'
 import { shouldAcceptRelationGraph } from './relationRevision.ts'
-import { shouldAcceptSessionMetadata } from './sessionMetadataRevision.ts'
+import { shouldAcceptEntityRevision } from './entityRevision.ts'
+import { mergeScheduleDefinition } from './scheduleRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -282,25 +284,56 @@ export async function runScheduleNow(id: string): Promise<void> {
   invalidate(keys.schedules)
 }
 
-/** Set a routine's enabled state. The caller passes the resolved value — the
- *  server applies the patch field verbatim (it doesn't infer a toggle), so the UI
- *  reads the current state and sends its negation. */
-export async function toggleScheduleEnabled(id: string, enabled: boolean): Promise<void> {
-  await apiPatch(paths.schedule(id), { enabled } satisfies UpdateScheduleRequest)
-  invalidate(keys.schedules)
+/** Project an acknowledged routine-definition response without replacing run
+ * progress/history that a newer ambient fetch may already have published. */
+export function acceptScheduleDefinition(task: ScheduledTask): void {
+  mutate<ScheduledTask[]>(keys.schedules, (list) =>
+    (list ?? []).map((candidate) =>
+      candidate.id === task.id ? mergeScheduleDefinition(candidate, task) : candidate,
+    ),
+  )
 }
 
-/** Patch a routine's own fields (name, prompt, cadence, model, notify-on-failure,
- *  …) — the entity edits behind the detail page. Optimistically merges the patch
- *  into the cached routine so the field updates instantly, then PATCHes and
- *  re-reads. Cross-entity bindings (deliver-to, add-tool) are NOT here — those go
- *  through applyRelationOp. */
-export async function updateSchedule(id: string, patch: UpdateScheduleRequest): Promise<void> {
+/** Reconcile one routine definition after a conflict or uncertain
+ * acknowledgement. The v1 surface has no by-id read, so we fetch the registry
+ * but project only the addressed row: replacing the whole list here could let
+ * this response rewind unrelated definition or run updates that landed while
+ * the request was in flight. */
+export async function reconcileScheduleDefinition(id: string): Promise<ScheduledTask | undefined> {
+  const tasks = await apiGet<ScheduledTask[]>(paths.schedules)
+  const incoming = tasks.find((candidate) => candidate.id === id)
+  const currentList = peek<ScheduledTask[]>(keys.schedules)
+  if (!currentList) {
+    setData(keys.schedules, tasks)
+    return incoming
+  }
+  if (!incoming) {
+    mutate<ScheduledTask[]>(keys.schedules, (list) => (list ?? []).filter((task) => task.id !== id))
+    return undefined
+  }
+  const current = currentList.find((candidate) => candidate.id === id)
+  const accepted = current ? mergeScheduleDefinition(current, incoming) : incoming
   mutate<ScheduledTask[]>(keys.schedules, (list) =>
-    (list ?? []).map((t) => (t.id === id ? { ...t, ...patch } : t)),
+    (list ?? []).map((candidate) => candidate.id === id ? accepted : candidate),
   )
-  await apiPatch(paths.schedule(id), patch)
-  invalidate(keys.schedules)
+  return accepted
+}
+
+/** Transport one revision-checked routine definition edit. The controller owns
+ * serialization and recovery; this door publishes only the acknowledgement. */
+export async function patchSchedule(
+  id: string,
+  patch: SchedulePatch,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<ScheduledTask> {
+  const task = await apiPatch<ScheduledTask>(
+    paths.schedule(id),
+    { ...patch, expectedRevision } satisfies UpdateScheduleRequest,
+    { idempotencyKey },
+  )
+  acceptScheduleDefinition(task)
+  return task
 }
 
 /** Add a routine from a template's seed (lands paused); returns the new routine. */
@@ -918,7 +951,7 @@ export async function releaseSubGoal(reservationId: string, projectId: string): 
  * without replacing the bounded transcript/workspace carried by a by-id read. */
 export function acceptSessionMetadata(session: Session): void {
   const merge = (current: Session): Session =>
-    shouldAcceptSessionMetadata(current, session)
+    shouldAcceptEntityRevision(current.metadataRevision, session.metadataRevision)
       ? {
           ...current,
           title: session.title,

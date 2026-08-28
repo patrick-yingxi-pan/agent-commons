@@ -17,7 +17,7 @@ export const API_VERSION = 'v1'
  *  double-submit or a retried-after-timeout request can't create a duplicate or
  *  advance a metadata revision twice. Honoured on the non-streaming create
  *  routes (`POST /sessions`, `/dispatch`, `/schedules`, `/relations/ops`) and
- *  revision-checked `PATCH /sessions/:id`. */
+ *  revision-checked `PATCH /sessions/:id` and `PATCH /schedules/:id`. */
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 /** The path the UI talks to. Dev: Vite proxies `/api` → the mock server. Native:
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
@@ -181,12 +181,9 @@ export interface CreateDispatchRequest {
   detail?: string
 }
 
-/** Body of `PATCH /v1/schedules/:id` — a partial patch of a routine's own
- *  (entity-intrinsic) fields. Cross-entity bindings (deliver to an artifact /
- *  session, add a tool) are NOT here — those are standing relation ops applied via
- *  `POST /relations/ops`. The server merges only the fields present; it never
- *  touches a routine's id, runs, or run-derived state. */
-export interface UpdateScheduleRequest {
+/** The editable definition fields of a routine. Kept separate from the
+ * precondition so a controller can retain and rebase one human intent. */
+export interface SchedulePatch {
   enabled?: boolean
   name?: string
   prompt?: string
@@ -198,6 +195,17 @@ export interface UpdateScheduleRequest {
   notifyOnFailure?: boolean
   delivery?: import('./cowork.ts').ScheduledDelivery
   steps?: import('./cowork.ts').WorkflowStep[]
+}
+
+/** Body of `PATCH /v1/schedules/:id` — a partial patch of a routine's own
+ *  (entity-intrinsic) fields. Cross-entity bindings (deliver to an artifact /
+ *  session, add a tool) are NOT here — those are standing relation ops applied via
+ *  `POST /relations/ops`. The server merges only the fields present; it never
+ *  touches a routine's id, runs, or run-derived state. A supplied
+ *  `expectedRevision` is compare-and-swap; absence preserves the v1 legacy
+ *  unconditional-write meaning, while first-party editors always supply it. */
+export interface UpdateScheduleRequest extends SchedulePatch {
+  expectedRevision?: number
 }
 
 /** A relation-graph snapshot: the editable edges, seeded from the catalog and

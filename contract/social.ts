@@ -382,7 +382,7 @@ export type ProposalDelta =
    *  the same one the owner's editor calls. Only valid on a `schedule` subject;
    *  the offer is refused otherwise (INV-9: a delta that can't apply to its
    *  subject is a malformed request, never a silently-inert record). */
-  | { kind: 'schedule-patch'; patch: import('./api.ts').UpdateScheduleRequest }
+  | { kind: 'schedule-patch'; patch: import('./api.ts').SchedulePatch }
   /** An artifact's BODY — landing rewrites ONE addressed prose block through
    *  `updateArtifactBlock`, the REAL mutator the owner's own editor calls. Only
    *  valid on an `artifact` subject whose body is a doc and whose block at
@@ -410,7 +410,7 @@ export type ProposableScheduleField = (typeof PROPOSABLE_SCHEDULE_FIELDS)[number
  *  relation-op equivalent) so a card, a consent prompt and a server-side
  *  notification all read the same words. Consent has to be to something
  *  SPECIFIC: "a routine change" is not something an owner can agree to. */
-export function describeSchedulePatch(patch: import('./api.ts').UpdateScheduleRequest): string {
+export function describeSchedulePatch(patch: import('./api.ts').SchedulePatch): string {
   const say = (k: string, v: unknown): string => {
     if (k === 'enabled') return v === true ? 'turn it on' : 'turn it off'
     if (k === 'notifyOnFailure') return v === true ? 'notify on failure' : 'stop notifying on failure'

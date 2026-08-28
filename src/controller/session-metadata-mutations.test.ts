@@ -2,9 +2,9 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Session, SessionMetadataPatch } from '../../contract/index.ts'
 import {
-  createSessionMetadataMutationController,
-  type SessionMetadataMutationStatus,
-} from './sessionMetadataMutationsCore.ts'
+  createRevisionedMutationController,
+  type RevisionedMutationStatus,
+} from './revisionedMutationCore.ts'
 
 interface Call {
   sessionId: string
@@ -28,9 +28,9 @@ function harness() {
   const records = new Map<string, Session>([['s1', session('s1', 0)]])
   const calls: Call[] = []
   const reconciles: string[] = []
-  const statuses: SessionMetadataMutationStatus[] = []
+  const statuses: RevisionedMutationStatus[] = []
   let seq = 0
-  const controller = createSessionMetadataMutationController({
+  const controller = createRevisionedMutationController<Session, SessionMetadataPatch>({
     snapshot: (id) => records.get(id),
     reconcile: async (id) => {
       reconciles.push(id)
@@ -38,6 +38,7 @@ function harness() {
       if (!current) throw new Error('gone')
       return current
     },
+    revision: (current) => current.metadataRevision ?? 0,
     mutate: (sessionId, patch, expectedRevision, idempotencyKey) =>
       new Promise<Session>((resolve, reject) => {
         calls.push({ sessionId, patch, expectedRevision, idempotencyKey, resolve, reject })
@@ -105,11 +106,54 @@ test('Dismiss reconciles uncertain state and advances the held queue', async () 
   await tick()
   h.controller.discard()
   assert.equal(await first, 'discarded')
+  await tick()
   assert.equal(h.calls.length, 2, 'later intent waits for explicit dismissal')
   h.calls[1]!.resolve(session('s1', 1))
   await tick()
   assert.equal(await second, 'applied')
   assert.ok(h.reconciles.length >= 2, 'failure and dismissal both distrust uncertain local state')
+})
+
+test('Dismiss does not release later intent until its reconciliation settles', async () => {
+  let record = session('s1', 0)
+  let reconcileCount = 0
+  let releaseDismissReconcile!: (value: Session) => void
+  const calls: Call[] = []
+  const controller = createRevisionedMutationController<Session, SessionMetadataPatch>({
+    snapshot: () => record,
+    reconcile: async () => {
+      reconcileCount += 1
+      if (reconcileCount === 1) return record // the failure-path reconciliation
+      return new Promise<Session>((resolve) => {
+        releaseDismissReconcile = resolve
+      })
+    },
+    revision: (current) => current.metadataRevision ?? 0,
+    mutate: (sessionId, patch, expectedRevision, idempotencyKey) =>
+      new Promise<Session>((resolve, reject) => {
+        calls.push({ sessionId, patch, expectedRevision, idempotencyKey, resolve, reject })
+      }),
+    describeFailure: () => ({ message: 'offline', retryable: true }),
+    setStatus: () => {},
+    mintIdempotencyKey: () => crypto.randomUUID(),
+  })
+
+  const first = controller.enqueue('s1', { title: 'One' })
+  const second = controller.enqueue('s1', { pinned: true })
+  calls[0]!.reject(new Error('offline'))
+  await tick()
+  controller.discard()
+  assert.equal(await first, 'discarded')
+  assert.equal(calls.length, 1, 'the next mutation remains held while truth is uncertain')
+
+  record = session('s1', 3, 'Server truth')
+  releaseDismissReconcile(record)
+  await tick()
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1]!.expectedRevision, 3, 'the released intent pins reconciled truth')
+  calls[1]!.resolve(session('s1', 4, 'Server truth'))
+  await tick()
+  assert.equal(await second, 'applied')
 })
 
 test('account clearing drops late acknowledgements without projecting success', async () => {

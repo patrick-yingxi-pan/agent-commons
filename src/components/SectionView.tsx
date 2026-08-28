@@ -234,8 +234,6 @@ import {
   addSavedContext,
   removeSavedContext,
   setConnectorStatus,
-  toggleScheduleEnabled,
-  updateSchedule,
   createCommission,
   createProvider,
   updateProvider,
@@ -356,6 +354,7 @@ import {
   useNotifications,
   markNotificationsRead,
 } from '../api'
+import { toggleScheduleEnabled, updateSchedule } from '../controller/scheduleMutations'
 import {
   promptFitWarning,
   defaultEntry,

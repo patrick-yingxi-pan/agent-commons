@@ -42,6 +42,7 @@ import type {
   RunSessionEntry,
   SavedContext,
   SavedContextsSnapshot,
+  SchedulePatch,
   ScheduledRun,
   ScheduledTask,
   ScheduleTemplate,
@@ -57,7 +58,6 @@ import type {
   SocialEntityRef,
   SocialEntityKind,
   ToolActivity,
-  UpdateScheduleRequest,
   UsageSnapshot,
 } from '../../contract/index.ts'
 import {
@@ -7461,7 +7461,7 @@ export const store = {
     // question for a routine, and the UI must be told which one it has.
     return schedules
       .filter((t) => this.scheduleVisibleToTenant(t, tenantId))
-      .map((t) => ({ ...t, own: this.scheduleOwnedBy(t, tenantId) }))
+      .map((t) => ({ ...t, revision: t.revision ?? 0, own: this.scheduleOwnedBy(t, tenantId) }))
   },
   /** Whether a routine is visible to `tenantId` — the route-level guard for the
    *  by-id reads/mutations, mirroring sessionVisibleToTenant. Social S1: a grant
@@ -7560,6 +7560,7 @@ export const store = {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
     task.enabled = enabled ?? !task.enabled
+    task.revision = (task.revision ?? 0) + 1
     emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
     persist()
     return task
@@ -7569,9 +7570,19 @@ export const store = {
    *  in the patch are written; id / runs / run-derived state are never touched
    *  (cross-entity bindings live in the relation graph, not here). Returns the
    *  updated task, or undefined if no routine has that id. */
-  updateSchedule(id: string, patch: UpdateScheduleRequest): ScheduledTask | undefined {
+  updateSchedule(
+    id: string,
+    patch: SchedulePatch,
+    expectedRevision?: number,
+  ): ScheduledTask | undefined {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
+    const currentRevision = task.revision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This routine changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     if (patch.enabled !== undefined) task.enabled = patch.enabled
     if (patch.name !== undefined) {
       task.name = patch.name
@@ -7599,13 +7610,14 @@ export const store = {
     if (patch.notifyOnFailure !== undefined) task.notifyOnFailure = patch.notifyOnFailure
     if (patch.delivery !== undefined) task.delivery = patch.delivery
     if (patch.steps !== undefined) task.steps = patch.steps
+    task.revision = currentRevision + 1
     emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
     persist()
     return task
   },
   /** Add a routine from a template (lands paused), return it. */
   addSchedule(seed: Omit<ScheduledTask, 'id'>): ScheduledTask {
-    const task: ScheduledTask = { ...seed, id: `s-new-${(scheduleSeq += 1)}` }
+    const task: ScheduledTask = { ...seed, id: `s-new-${(scheduleSeq += 1)}`, revision: 0 }
     schedules.unshift(task)
     // A seed can carry run history — capped, and every run gets its session row
     // through the same funnel (the one-funnel invariant holds wherever runs

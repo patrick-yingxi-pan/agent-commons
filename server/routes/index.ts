@@ -3574,13 +3574,25 @@ export function buildRouter(): Router {
   // Patch a routine's own fields — enabled, name, prompt, cadence, model, … (the
   // entity edits behind the detail page). Cross-entity bindings (deliver to an
   // artifact/session, add a tool) go through POST /relations/ops instead.
-  r.patch('/schedules/:id', async ({ req, res, params, body }) => {
+  r.patch('/schedules/:id', idempotent(async ({ req, res, params, body }) => {
     if (notMySchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
-    const patch = await body<UpdateScheduleRequest>()
-    const task = store.updateSchedule(params.id, patch)
-    if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
-    sendJson(res, task)
-  })
+    const input = await body<UpdateScheduleRequest>()
+    const { expectedRevision, ...patch } = input ?? {}
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
+    try {
+      const task = store.updateSchedule(params.id, patch, expectedRevision)
+      if (!task) return sendError(res, 'not_found', `No schedule '${params.id}'`)
+      sendJson(res, task)
+    } catch (err) {
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  }))
   // Add a routine from a template's seed (lands paused, stamped with the caller's tenant).
   r.post('/schedules', idempotent(async ({ req, res, body }) => {
     const { seed } = await body<{ seed?: Omit<import('../../contract/index.ts').ScheduledTask, 'id'> }>()
