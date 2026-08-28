@@ -1,4 +1,28 @@
-import type { Locator, Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
+import { ms } from './budget.ts'
+
+/** A repo/workspace session can briefly auto-tile its context pane before the
+ * durable explicit-close preference reconciles. Focus and close it when still
+ * present; if it disappears between probes, cleanup has already succeeded. */
+export async function clearAutoPanel(page: Page): Promise<void> {
+  const ctx = page.locator('[data-context-pane]')
+  const contextPane = page.locator('[data-main-pane]').filter({ has: ctx }).first()
+  if ((await contextPane.count()) === 0) return
+  let ownsClose = false
+  try {
+    await contextPane.dispatchEvent('pointerdown', undefined, { timeout: ms(1_000) })
+    await expect(contextPane).toHaveAttribute('data-focused', 'true', { timeout: ms(1_000) })
+    ownsClose = true
+  } catch {
+    // Durable panel-preference reconciliation may remove this transient pane
+    // between probes. Never let an unproven focus act close the conversation.
+  }
+  if (ownsClose && (await contextPane.count()) > 0) {
+    await page.locator('[data-close-view]').click({ timeout: ms(1_000) }).catch(() => {})
+  }
+  await expect(ctx).toHaveCount(0)
+  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
+}
 
 /** The expanded rail adapts the two split directions to one compact menu so
  * Close pane can remain a direct, unclipped action at the minimum rail width.

@@ -6,10 +6,6 @@ import { ms } from './budget.ts'
 
 test('a failed relation create stays in place and retries the same logical mutation', async ({ page }) => {
   test.setTimeout(ms(45_000))
-  // Exercise the whole flow in the smallest supported tier. Switching tiers
-  // mid-dialog deliberately remounts the focused pane and is a different
-  // (pane-state restoration) contract from mutation recovery.
-  await page.setViewportSize({ width: 320, height: 700 })
   const name = `Acknowledged project ${Date.now().toString(36)}`
   const keys: string[] = []
   let attempts = 0
@@ -30,9 +26,7 @@ test('a failed relation create stays in place and retries the same logical mutat
 
   await page.goto('/')
   await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
-  await page.getByRole('button', { name: 'Expand sidebar' }).click()
   await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
-  await page.getByRole('button', { name: 'Collapse sidebar' }).click()
   await page.getByRole('button', { name: 'New project' }).click()
   const dialog = page.getByRole('dialog', { name: 'New project' })
   await dialog.getByPlaceholder('e.g. Insights dashboard').fill(name)
@@ -47,6 +41,11 @@ test('a failed relation create stays in place and retries the same logical mutat
   const before = await (await page.request.get('/api/v1/relations')).json()
   expect(before.extraProjects.some((project: { name: string }) => project.name === name)).toBe(false)
 
+  // A desktop window can cross layout tiers while a request is unresolved. The
+  // pane tree must reflow without remounting away the initiating form.
+  await page.setViewportSize({ width: 320, height: 700 })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByPlaceholder('e.g. Insights dashboard')).toHaveValue(name)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   await failed.getByRole('button', { name: 'Retry' }).click()
   await expect(dialog).toHaveCount(0)

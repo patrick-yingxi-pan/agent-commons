@@ -5,19 +5,8 @@
  *  pane's own history; refocus the pane a focus-hop entry names; never clobber
  *  a pane with a duplicate). The model is locked by src/lib/pane-history.test.ts;
  *  this locks the wiring end to end. */
-import { test, expect, type Page } from '@playwright/test'
-import { splitPane } from './pane-actions.ts'
-
-/** Close the auto-tiled context panel so scenarios start from one clean pane
- *  (same helper as main-split.spec.ts). */
-async function clearAutoPanel(page: Page) {
-  const ctx = page.locator('[data-context-pane]')
-  if ((await ctx.count()) === 0) return
-  await ctx.first().dispatchEvent('pointerdown')
-  await page.locator('[data-close-view]').click()
-  await expect(page.locator('[data-context-pane]')).toHaveCount(0)
-  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
-}
+import { test, expect } from '@playwright/test'
+import { clearAutoPanel, splitPane } from './pane-actions.ts'
 
 test('a session opened from a project page carries a back CHAIN — to the page, and through it to the list', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })

@@ -8,29 +8,10 @@
  *  page pane rewrites the URL to its canonical location; a focused NON-page
  *  pane (a context panel) defers to the page you're on. The tree math is
  *  locked by src/lib/main-split.test.ts; this locks the wiring. */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
-import { openSplitPaneMenu, splitPane } from './pane-actions.ts'
+import { clearAutoPanel, openSplitPaneMenu, splitPane } from './pane-actions.ts'
 import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
-
-/** A repo / workspace session auto-tiles its context PANEL as a pane in the
- *  universal tree on the wide tier (ADAPT-16 folded into ADAPT-17). Close it so
- *  the split mechanics below start from a clean single conversation pane
- *  (Phase 6: ONE pane is a normal tree — the container remains). */
-async function clearAutoPanel(page: Page) {
-  const ctx = page.locator('[data-context-pane]')
-  if ((await ctx.count()) === 0) return
-  // The seed can paint the default panel before the durable explicit-close
-  // preference arrives. If reconciliation removes it between count and focus,
-  // cleanup has already succeeded; the terminal count assertion still keeps
-  // this helper honest when a real panel remains.
-  await ctx.first().dispatchEvent('pointerdown', undefined, { timeout: ms(1_000) }).catch(() => {})
-  if ((await ctx.count()) > 0) {
-    await page.locator('[data-close-view]').click({ timeout: ms(1_000) }).catch(() => {})
-  }
-  await expect(ctx).toHaveCount(0)
-  await expect(page.locator('[data-main-pane]')).toHaveCount(1)
-}
 
 test('split duplicates the focused conversation; the rail retargets the focused pane; close dissolves', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })

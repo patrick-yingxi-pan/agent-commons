@@ -12,8 +12,9 @@
  *  close rule covers every pane (the sibling inherits the slot; closing the
  *  last pane leaves the background). The address bar projects the focused
  *  pane (ADAPT-15). Dividers are the ONE keyboard-operable ResizeHandle,
- *  named per path (UI-11). The overlay tiers (ADAPT-11) render the focused
- *  pane alone via MainSplitGate; the tree persists and re-tiles on wide. */
+ *  named per path (UI-11). The overlay tiers (ADAPT-11) keep the same mounted
+ *  tree but hide every branch outside the focused path, so the focused pane
+ *  fills the surface without losing in-flight pane state on a tier hop. */
 import { Component, lazy, Suspense, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import { ResizeHandle } from './ResizeHandle'
 import { ConversationPane } from './ConversationPane'
@@ -149,10 +150,11 @@ class SectionLoadBoundary extends Component<
 }
 
 /** The gate App renders — panes are the ONLY render path (Phase 6, no
- *  privileged surface): `null` tree = the background; the overlay tiers
- *  (medium/narrow — no room to tile, ADAPT-11) render the FOCUSED pane alone,
- *  full-surface (the tree persists and re-tiles on return to wide); the wide
- *  tier tiles the whole tree. */
+ *  privileged surface): `null` tree = the background. Every responsive tier
+ *  keeps ONE mounted Branch tree. Medium/narrow hide branches outside the
+ *  focused path and let its wrappers flex full-surface; wide reveals the same
+ *  instances as tiles. Keeping identity through the tier hop is load-bearing:
+ *  an unresolved form or editor may not evaporate because the window resized. */
 export function MainSplitGate({
   tree,
   overlay,
@@ -174,26 +176,16 @@ export function MainSplitGate({
   onRatio: (path: string, ratio: number) => void
 }) {
   if (!tree) return <Background />
-  if (overlay) {
-    const focusedNode = nodeAt(tree, focusedPane)
-    const fallback = panes(tree)[0]
-    const leaf =
-      focusedNode?.kind === 'pane'
-        ? { content: focusedNode.content, path: focusedPane, rev: focusedNode.rev }
-        : fallback
-          ? { ...fallback, rev: (nodeAt(tree, fallback.path) as { rev?: number } | null)?.rev }
-          : null
-    if (!leaf) return <Background />
-    return (
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas" data-main-pane={leaf.path || 'root'} data-focused>
-        <PaneBody content={leaf.content} path={leaf.path} rev={leaf.rev} focused nav={nav} onFillPane={onFillPane} onReportAt={onReportAt} />
-      </div>
-    )
-  }
+  // A restored/just-collapsed tree can briefly carry a stale focus path. Wide
+  // would still show its panes, but overlay path-hiding would otherwise hide
+  // every branch. Resolve the same first-leaf fallback the old overlay renderer
+  // used, without forking into a second rendered tree.
+  const focused = nodeAt(tree, focusedPane)?.kind === 'pane' ? focusedPane : (panes(tree)[0]?.path ?? '')
   return (
     <MainSplit
       tree={tree}
-      focusedPane={focusedPane}
+      overlay={overlay}
+      focusedPane={focused}
       nav={nav}
       onFocusPane={onFocusPane}
       onFillPane={onFillPane}
@@ -205,6 +197,7 @@ export function MainSplitGate({
 
 export function MainSplit({
   tree,
+  overlay = false,
   focusedPane,
   nav,
   onFocusPane,
@@ -213,6 +206,8 @@ export function MainSplit({
   onRatio,
 }: {
   tree: MainSplitNode
+  /** Preserve the tree but show only the focused path at overlay tiers. */
+  overlay?: boolean
   focusedPane: string
   nav: MainPaneNav
   onFocusPane: (path: string) => void
@@ -221,10 +216,15 @@ export function MainSplit({
   onRatio: (path: string, ratio: number) => void
 }) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-1" data-main-split>
+    <div
+      className="flex min-h-0 min-w-0 flex-1"
+      data-main-split={overlay ? undefined : ''}
+      data-main-overlay={overlay || undefined}
+    >
       <Branch
         node={tree}
         path=""
+        overlay={overlay}
         focusedPane={focusedPane}
         nav={nav}
         onFocusPane={onFocusPane}
@@ -329,9 +329,10 @@ function PaneBody({
           section={c.id}
           initialSub={c.at ? (c.at.sub ?? null) : (c.sub ?? null)}
           initialFocus={c.at ? seedOfAt(c.at) : c.seed}
-          // A RESTORE mount (the reported `at` present — a reload, a tier hop)
+          // A RESTORE mount (the reported `at` present — reload or tree restore)
           // rehydrates the persisted in-section stack too, so the back walk
-          // survives; a door-seeded mount starts it empty.
+          // survives; tier hops keep this instance mounted. A door-seeded mount
+          // starts with an empty local stack.
           initialStack={c.at ? c.hist : undefined}
           nav={paneNav}
           onRetarget={fillWith}
@@ -369,6 +370,7 @@ function PaneBody({
 interface BranchProps {
   node: MainSplitNode
   path: string
+  overlay: boolean
   focusedPane: string
   nav: MainPaneNav
   onFocusPane: (path: string) => void
@@ -378,7 +380,7 @@ interface BranchProps {
 }
 
 function Branch(props: BranchProps) {
-  const { node, path, focusedPane, onFocusPane, onRatio } = props
+  const { node, path, overlay, focusedPane, onFocusPane, onRatio } = props
   const ref = useRef<HTMLDivElement>(null)
 
   if (node.kind === 'pane') {
@@ -421,30 +423,39 @@ function Branch(props: BranchProps) {
   // The same absolute floors the right-panel frame earned (rulebook finding):
   // percentage bases never shrink a pane under a usable minimum.
   const minStyle = row ? { minWidth: 320 } : { minHeight: 160 }
+  const aPath = `${path}a`
+  const bPath = `${path}b`
+  const onFocusedPath = (childPath: string) => !overlay || focusedPane.startsWith(childPath)
+  const childStyle = (childRatio: number, visible: boolean) =>
+    overlay
+      ? { flex: '1 1 0%', minWidth: 0, minHeight: 0, ...(visible ? {} : { display: 'none' }) }
+      : { flex: `${childRatio} 1 0%`, ...minStyle }
   const child = (n: MainSplitNode, p: string) => <Branch {...props} node={n} path={p} />
   return (
     <div ref={ref} className={`flex min-h-0 min-w-0 flex-1 ${row ? 'flex-row' : 'flex-col'}`}>
-      <div className="flex min-h-0 min-w-0" style={{ flex: `${ratio} 1 0%`, ...minStyle }}>
-        {child(node.a, `${path}a`)}
+      <div className="flex min-h-0 min-w-0" style={childStyle(ratio, onFocusedPath(aPath))}>
+        {child(node.a, aPath)}
       </div>
       <div
         className="relative flex min-h-0 min-w-0"
-        style={{ flex: `${1 - ratio} 1 0%`, ...minStyle }}
+        style={childStyle(1 - ratio, onFocusedPath(bPath))}
       >
-        <ResizeHandle
-          side={row ? 'left' : 'top'}
-          ownsEdge
-          label={`Resize view panes (${path || 'root'})`}
-          value={Math.round((1 - ratio) * 100)}
-          min={15}
-          max={85}
-          onMove={(client) => {
-            const rect = ref.current?.getBoundingClientRect()
-            if (!rect) return
-            onRatio(path, row ? (client - rect.left) / Math.max(1, rect.width) : (client - rect.top) / Math.max(1, rect.height))
-          }}
-        />
-        {child(node.b, `${path}b`)}
+        <div className={overlay ? 'hidden' : 'contents'}>
+          <ResizeHandle
+            side={row ? 'left' : 'top'}
+            ownsEdge
+            label={`Resize view panes (${path || 'root'})`}
+            value={Math.round((1 - ratio) * 100)}
+            min={15}
+            max={85}
+            onMove={(client) => {
+              const rect = ref.current?.getBoundingClientRect()
+              if (!rect) return
+              onRatio(path, row ? (client - rect.left) / Math.max(1, rect.width) : (client - rect.top) / Math.max(1, rect.height))
+            }}
+          />
+        </div>
+        {child(node.b, bPath)}
       </div>
     </div>
   )

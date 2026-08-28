@@ -810,8 +810,9 @@ split tree is the ONLY render path — no privileged pane kind: conversations
 section pages, and context panels are equal store-backed panes; a `null` tree
 is the BACKGROUND, repopulated by the rail's doors. Every navigation lands in
 the FOCUSED pane, and **the address bar projects the focused pane**. Wide tiles
-the tree; the overlay tiers render the focused pane alone with the
-`OverlayPanelDock` docked panel (ADAPT-11). `useSessionWorkspace.ts` is only
+the tree; the overlay tiers preserve that same mounted tree while exposing the
+focused path alone with the `OverlayPanelDock` docked panel (ADAPT-11), so a
+window resize cannot erase pane-local in-flight state. `useSessionWorkspace.ts` is only
 the SHELL's nav controller; conversations live in `usePaneConversation` +
 `ConversationPane`, context mutations in `useSessionContextCommands`, and the
 per-account view memory IS the persisted split tree. Deleting a session evicts

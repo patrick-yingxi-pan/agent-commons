@@ -662,9 +662,9 @@ function Workspace() {
               <NarrowBar title={narrowBarTitle} onOpenRail={openLeft} />
             )}
             {/* The universal main split — panes are the ONLY render path
-                (Phase 6, the owner's equal-pages model): the wide tier tiles
-                the tree; the overlay tiers render the FOCUSED pane alone
-                (ADAPT-11); no tree = the background. */}
+                (Phase 6, the owner's equal-pages model): wide tiles the tree;
+                overlay tiers keep those pane instances mounted but expose only
+                the FOCUSED path (ADAPT-11); no tree = the background. */}
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
               {/* While the docked panel overlays the focused pane (medium
                   drawer / narrow takeover), the covered content is inert

@@ -125,8 +125,10 @@ now via the universal split).
 
 ### 2.5 Degradation (ADAPT-11)
 
-The overlay tiers cannot tile: medium/narrow render the **focused pane only**,
-full-surface; the tree persists and re-tiles on return to wide. The `short:`
+The overlay tiers cannot tile: medium/narrow expose the **focused pane only**,
+full-surface, by hiding branches outside its path in the same mounted tree. The
+pane instances persist and re-tile on return to wide; responsive reflow therefore
+cannot discard a draft, editor, or unresolved form. The `short:`
 axis and every existing ladder rule apply inside each pane (container queries
 — UI-9 — govern pane-internal responsive behavior, since a pane's width is not
 the viewport's).
