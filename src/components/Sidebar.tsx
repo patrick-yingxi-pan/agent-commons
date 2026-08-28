@@ -139,6 +139,7 @@ export function Sidebar({
   onSplitRow,
   onSplitCol,
   onCloseView,
+  paneCloseTarget,
   paneActionTarget,
   railTree,
   focusedRailPane,
@@ -204,6 +205,8 @@ export function Sidebar({
   /** Close the focused main pane or a rooted secondary rail view. The rail's
    *  complete resource forest is a permanent recovery anchor. */
   onCloseView?: () => void
+  /** Exact pane path captured by this render's Close action. */
+  paneCloseTarget?: string
   /** Main-page disclosure acts reported by the focused composite projection. */
   onFoldAll?: () => void
   onUnfoldAll?: () => void
@@ -547,6 +550,7 @@ export function Sidebar({
               onSplitRow={onSplitRow}
               onSplitCol={onSplitCol}
               onCloseView={onCloseView}
+              closeTarget={paneCloseTarget}
               compact
             />
           </div>
@@ -802,6 +806,7 @@ export function PaneActionButtons({
   onSplitRow,
   onSplitCol,
   onCloseView,
+  closeTarget,
   compact = false,
 }: {
   onFoldAll?: () => void
@@ -809,6 +814,8 @@ export function PaneActionButtons({
   onSplitRow?: () => void
   onSplitCol?: () => void
   onCloseView?: () => void
+  /** Exact target carried by Close so a stale control cannot hit its successor. */
+  closeTarget?: string
   compact?: boolean
 }) {
   const organizeItems: RowMenuItem[] = []
@@ -877,6 +884,7 @@ export function PaneActionButtons({
             title="Close pane"
             aria-label="Close pane"
             data-close-view
+            data-close-target={closeTarget}
             className={SIDEBAR_TOOLBAR_BUTTON}
           >
             <X size={17} />
@@ -917,6 +925,7 @@ export function PaneActionButtons({
           title="Close pane"
           aria-label="Close pane"
           data-close-view
+          data-close-target={closeTarget}
           className={SIDEBAR_ICON_BUTTON}
         >
           <X size={18} />

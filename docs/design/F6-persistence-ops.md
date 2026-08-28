@@ -2,15 +2,16 @@
 
 > **Foundation.** The concrete storage tiers, the durable-vs-transient split, and how
 > the system is deployed, observed, backed up, and scaled — the production form of
-> `server/persistence/persist.ts` (the JSON snapshot) and the run scripts. Serves spec
+> `server/persistence/` (JSON + embedded SQLite behind one port) and the run scripts. Serves spec
 > PERSIST-1..6, MOCK-5/6, and grounds [F1](F1-domain-model.md)/[F4](F4-broker-runners.md).
 
 ## 1. Problem & scope
 
-The prototype persists one atomic JSON snapshot (`server/persistence/persist.ts`) and runs as one
-Node process (`server/index.ts`) that serves the built UI + API + an in-process mock
-model. Production needs real storage tiers, durability/backup, observability, and two
-very different deployment topologies sharing one image of the UI + contract.
+The implementation persists one versioned state contract through JSON or embedded
+SQLite (`server/persistence/`) and runs as one Node process (`server/index.ts`) that
+serves the built UI + API + an in-process mock model. Production still needs the
+native shell, secrets boundary, object storage and operational packaging, while both
+deployment topologies continue sharing one UI + contract.
 
 ## 2. Design
 
@@ -48,8 +49,10 @@ snapshot of prod-shaped data, and are reversible-by-compensation where feasible.
 - DB: automated backups + point-in-time recovery; replicas for read scale + failover.
 - Object storage: versioning + cross-region replication (web); periodic local export
   (desktop).
-- The prototype's `scripts/snapshot.ts` (save/restore) is the spiritual ancestor of the
-  desktop export/import.
+- `scripts/snapshot.ts` now provides the desktop export/import core: canonical
+  backend-neutral JSON, atomic export, validation + forward migration before restore,
+  and read-back verification. A JSON export restores into SQLite and vice versa.
+  The native shell still needs to present this through a safe picker and app lifecycle.
 
 ### 2.5 Deployment topology
 
@@ -93,8 +96,8 @@ neighbors. The reply stream is the only sticky path.
   gradient/scaffold fallback generalizes); writes retry/queue.
 - **Migration failure** — halt deploy, roll back the API image, fix forward; never
   partially-migrate prod (transactional DDL where supported).
-- **Desktop disk full / corruption** — atomic writes (the prototype's temp-file+rename
-  already), local backup, re-sync from web if linked.
+- **Desktop disk full / corruption** — atomic JSON/export replacement, transactional
+  SQLite under WAL, verified local backup/restore, re-sync from web if linked.
 
 ## 4. Security & multi-tenancy
 

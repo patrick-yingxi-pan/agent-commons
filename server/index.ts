@@ -20,6 +20,7 @@ import { buildRouter } from './routes/index.ts'
 import { store, startRunDaemon } from './store/index.ts'
 import { startModelServer } from './model/index.ts'
 import { positiveNumberEnv } from './env.ts'
+import { closePersistence } from './persistence/persist.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const HOST = process.env.HOST ?? '127.0.0.1'
@@ -41,6 +42,10 @@ process.env.AUTH_GATE ??= 'require'
 // recents, relation edits) survive a restart. Only the real server does this;
 // tests import the router directly and stay in-memory.
 store.initPersistence()
+// Release/checkpoint the embedded database on every orderly exit, including the
+// graceful signal path below and its bounded hard-exit fallback. A crash still
+// relies on SQLite WAL recovery; an ordinary app quit should not.
+process.on('exit', closePersistence)
 
 const router = buildRouter()
 

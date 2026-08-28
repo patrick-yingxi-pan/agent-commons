@@ -3,10 +3,11 @@
 > **Intent.** The frontend is a cache of the backend, so the state the UI owns
 > (sent messages, created sessions, attached context + its panels, schedules,
 > recents, relation edits, the Agent Commons registries) is the *server's*, and it
-> must survive a restart — snapshotted to the filesystem on each mutation and
-> rehydrated on boot. Transient state (reservations, the live runner registry) is
-> deliberately *not* persisted. The format is the simplest viable one (a single JSON
-> snapshot, atomic write). Tests run in-memory. (AGENTS "Created state is persisted to
+> must survive a restart — committed through the configured local backend on each
+> mutation and rehydrated on boot. Transient state (reservations, the live runner
+> registry) is deliberately *not* persisted. JSON and embedded SQLite implement one
+> versioned state contract; canonical portable exports cross that backend boundary and
+> restore only after validation + migration. (AGENTS "Created state is persisted to
 > the filesystem"; README repo map.)
 
 ## Requirements (L2) → [`server/persistence/SPEC.md`](../../server/persistence/SPEC.md)

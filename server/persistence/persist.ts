@@ -7,8 +7,8 @@
  *  This file is the stable facade the rest of the server (and the snapshot tool)
  *  imports. The actual format lives behind a `PersistenceBackend` port under
  *  `server/persistence/`:
- *    • `json`   — ONE atomic JSON snapshot (the original; default; tests; desktop),
- *    • `sqlite` — an embedded relational store via core `node:sqlite` (design F6 PD28).
+ *    • `json`   — ONE atomic JSON snapshot (the development/test default),
+ *    • `sqlite` — the desktop production store via core `node:sqlite` (design F6 PD28).
  *  `PERSIST_BACKEND` selects between them; the backend is chosen lazily and memoized
  *  (re-selected only if the env flips, which lets a test switch backends).
  *
@@ -44,4 +44,12 @@ export function loadState(): PersistedState | null {
 /** Write the snapshot (best-effort; a failure is logged, not thrown). */
 export function saveState(state: PersistedState): void {
   backend().save(state)
+}
+
+/** Release the active backend handle. The server normally owns it for the
+ * process lifetime; recovery/build tooling closes it before repointing storage so
+ * SQLite checkpoints its WAL and no late call keeps writing to the old path. */
+export function closePersistence(): void {
+  active?.backend.close()
+  active = null
 }

@@ -466,3 +466,21 @@ export interface PersistenceBackend {
   save(state: PersistedState): void
   close(): void
 }
+
+/** Runtime guard for the core slices every rehydrate reads unconditionally.
+ * TypeScript cannot protect a filesystem/import boundary; optional additive
+ * slices deliberately stay optional for backward compatibility. */
+export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  const record = (value: unknown) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+  return Boolean(
+    state
+      && Array.isArray(state.sessions)
+      && Array.isArray(state.bindings)
+      && Array.isArray(state.workspaces)
+      && Array.isArray(state.schedules)
+      && record(state.recents)
+      && record(state.graph)
+      && record(state.seq),
+  )
+}

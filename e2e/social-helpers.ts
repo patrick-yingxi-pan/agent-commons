@@ -62,6 +62,11 @@ export async function createProject(page: Page, name: string) {
   await page.getByPlaceholder('e.g. Insights dashboard').fill(name)
   await page.getByRole('button', { name: 'Create project' }).click()
   await expect(page.getByRole('heading', { name })).toBeVisible()
+  // The detail can paint one commit before the split-tree address is reflected
+  // into browser history. Callers that capture `page.url()` need the canonical
+  // resource address, not the Projects list they came from (a full-sweep flake
+  // otherwise reopened the list and waited for a detail-only error forever).
+  await expect(page).toHaveURL(/\/projects\/[^/?#]+$/)
 }
 
 /** Open one of the entity page's sections, if it is not open already.

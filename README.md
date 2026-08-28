@@ -90,6 +90,32 @@ npm run verify       # typecheck + Node suite + build + sharded E2E
 
 Run the remote-web capability profile with `BACKEND=remote npm run server`.
 
+## Persistence and recovery
+
+JSON is the development default. The desktop production topology uses the same
+state contract through embedded SQLite:
+
+```bash
+PERSIST_BACKEND=sqlite npm run start        # defaults to .data/store.db
+DATABASE_PATH=/path/to/store.db PERSIST_BACKEND=sqlite npm run start
+```
+
+Backups are portable across both backends. `save` can run against the selected
+live store; stop the server before `restore` so the old process cannot overwrite
+the recovered state, then restart it.
+
+```bash
+npm run snapshot:save -- before-update
+npm run snapshot:list
+npm run snapshot:restore -- before-update
+```
+
+`SNAPSHOT_DIR` can place exports outside the store directory. Imports are parsed,
+forward-migrated, and checked before mutation, then read back from the selected
+backend; a restore that cannot be proven fails loudly. An export contains the full
+application state (including credential hashes and private content), so keep it in
+access-controlled storage.
+
 ## Stack
 
 - React + TypeScript + Vite, Tailwind CSS v4, Framer Motion, Lucide

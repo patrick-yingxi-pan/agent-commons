@@ -61,6 +61,33 @@ test('the expanded rail groups split directions but keeps Close pane direct', ()
   assert.match(compactBody, /data-close-view/, 'the direct Close action keeps its shared behavior stamp')
 })
 
+test('Close pane carries an exact target and the controller closes that path, not later focus', () => {
+  const app = read('src/App.tsx')
+  const sidebar = read('src/components/Sidebar.tsx')
+  const mainController = read('src/controller/useMainSplit.ts')
+  const railController = read('src/controller/useRailSplit.ts')
+  assert.equal(
+    (sidebar.match(/data-close-target=\{closeTarget\}/g) ?? []).length,
+    2,
+    'both density variants stamp the action target',
+  )
+  assert.ok(app.includes('paneCloseTarget={paneCloseTarget}'), 'expanded rail receives the exact target')
+  assert.ok(app.includes('closeTarget={mainCloseTarget}'), 'mini rail receives the exact main-pane target')
+  const mainCloseBody = mainController.slice(
+    mainController.indexOf('const closePaneFromAction'),
+    mainController.indexOf('// Whether the rail', mainController.indexOf('const closePaneFromAction')),
+  )
+  assert.ok(mainCloseBody.includes('nodeAt(t, path)'), 'the main action resolves its captured path')
+  assert.ok(!mainCloseBody.includes('focusedRef.current'), 'later main focus cannot redirect the close')
+  const railCloseBody = railController.slice(
+    railController.indexOf('const closeRailFromAction'),
+    railController.indexOf('const setRailRatio'),
+  )
+  assert.ok(railCloseBody.includes('canCloseRailView(tree, path)'), 'the rail action validates its captured path')
+  assert.ok(railCloseBody.includes('closeRailView(tree, path)'), 'the rail action closes its captured path')
+  assert.ok(!railCloseBody.includes('focusedRef.current'), 'later rail focus cannot redirect the close')
+})
+
 test('no surface indents for floating chrome — the pl-14 convention stays dead', async () => {
   // The old exemption: a title indented `pl-14` so a floating control could sit
   // in the gap. Reservation now lives in the shell's gutter column; any pl-14

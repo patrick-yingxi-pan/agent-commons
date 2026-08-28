@@ -1,8 +1,8 @@
-/** Tests for the backup/restore tool (scripts/snapshot.ts).
+/** Tests for the portable backup/restore tool (scripts/snapshot.ts).
  *
  *  Two things to lock:
- *   1. save → break → restore round-trips the live store file byte-for-byte (the
- *      whole point: click around, then roll back). Pure fs, no store.
+ *   1. save → break → restore round-trips canonical state, including across the
+ *      JSON ↔ SQLite backend boundary (the whole point: click, then roll back).
  *   2. The COMPREHENSIVENESS INVARIANT: `build` produces a snapshot that populates
  *      EVERY persisted slice — every graph sub-map, plus sessions/bindings/
  *      workspaces/schedules/recents/savedContexts/seq. If a future field is added
@@ -16,12 +16,32 @@ import assert from 'node:assert/strict'
 import { rmSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
-import { saveSnapshot, restoreSnapshot, listSnapshots, buildComprehensive } from '../../scripts/snapshot.ts'
+import { saveSnapshot, restoreSnapshot, listSnapshots, snapshotPath, buildComprehensive } from '../../scripts/snapshot.ts'
+import { STORE_VERSION, type PersistedState } from './persist.ts'
+import { SqliteBackend } from './sqlite.ts'
 import { accounts } from '../accounts.ts'
 
 const TMP = join(tmpdir(), `claude-ui-snapshot-test-${process.pid}`)
 const FS_STORE = join(TMP, 'fs', '.data', 'store.json')
 const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
+const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
+
+function stateNamed(title: string): PersistedState {
+  return {
+    version: STORE_VERSION,
+    sessions: [{ id: 's1', title, caps: ['chat'], preview: title, messages: [] }],
+    bindings: [],
+    workspaces: [],
+    schedules: [],
+    recents: { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] },
+    graph: {
+      sessionProject: {}, artifactProject: {}, scheduleProject: {}, projectContexts: {},
+      artifactSource: {}, scheduleArtifact: {}, scheduleSession: {}, scheduleExtraTools: {},
+      extraArtifacts: [], extraProjects: [], standingApprovals: {},
+    },
+    seq: { session: 1, message: 0, schedule: 0, run: 0, artifact: 0, provider: 0, systemPrompt: 0, agent: 0, commission: 0 },
+  } as PersistedState
+}
 
 after(() => {
   try {
@@ -31,20 +51,21 @@ after(() => {
   }
 })
 
-test('save → break → restore round-trips the live store byte-for-byte', () => {
+test('save → break → restore round-trips canonical live state', () => {
+  process.env.PERSIST_BACKEND = 'json'
   process.env.DATA_FILE = FS_STORE
   mkdirSync(dirname(FS_STORE), { recursive: true })
-  const original = JSON.stringify({ marker: 'original', n: 1 })
-  writeFileSync(FS_STORE, original)
+  const original = stateNamed('original')
+  writeFileSync(FS_STORE, JSON.stringify(original))
 
   const { to } = saveSnapshot('rt')
   assert.ok(existsSync(to), 'the snapshot file is written')
 
   // "Click around and break things."
-  writeFileSync(FS_STORE, JSON.stringify({ marker: 'broken' }))
+  writeFileSync(FS_STORE, JSON.stringify(stateNamed('broken')))
   restoreSnapshot('rt')
 
-  assert.equal(readFileSync(FS_STORE, 'utf8'), original, 'restore brings back the exact bytes')
+  assert.deepEqual(JSON.parse(readFileSync(FS_STORE, 'utf8')), original, 'restore brings back the canonical state')
 })
 
 test('listSnapshots reports the saved snapshot', () => {
@@ -64,6 +85,47 @@ test('a name that escapes the snapshots dir is rejected', () => {
 test('restore fails clearly when the snapshot does not exist', () => {
   process.env.DATA_FILE = FS_STORE
   assert.throws(() => restoreSnapshot('does-not-exist'), /no snapshot named/)
+})
+
+test('one portable snapshot restores across JSON and SQLite in both directions', () => {
+  const portableDir = join(TMP, 'portable-snapshots')
+  process.env.SNAPSHOT_DIR = portableDir
+  process.env.DATA_FILE = FS_STORE
+  process.env.DATABASE_PATH = SQLITE_STORE
+
+  process.env.PERSIST_BACKEND = 'json'
+  const jsonState = stateNamed('from JSON')
+  writeFileSync(FS_STORE, JSON.stringify(jsonState))
+  saveSnapshot('json-export')
+
+  process.env.PERSIST_BACKEND = 'sqlite'
+  restoreSnapshot('json-export')
+  const sqlite = new SqliteBackend(SQLITE_STORE)
+  assert.deepEqual(sqlite.load(), jsonState, 'a JSON export restores into SQLite')
+  const sqliteState = stateNamed('from SQLite')
+  sqlite.save(sqliteState)
+  sqlite.close()
+  saveSnapshot('sqlite-export')
+
+  process.env.PERSIST_BACKEND = 'json'
+  restoreSnapshot('sqlite-export')
+  assert.deepEqual(JSON.parse(readFileSync(FS_STORE, 'utf8')), sqliteState, 'a SQLite export restores into JSON')
+
+  delete process.env.SNAPSHOT_DIR
+  delete process.env.DATABASE_PATH
+})
+
+test('an invalid portable snapshot is rejected before live storage changes', () => {
+  process.env.PERSIST_BACKEND = 'json'
+  process.env.DATA_FILE = FS_STORE
+  const original = stateNamed('still live')
+  writeFileSync(FS_STORE, JSON.stringify(original))
+  const invalid = snapshotPath('invalid')
+  mkdirSync(dirname(invalid), { recursive: true })
+  writeFileSync(invalid, '{not json')
+
+  assert.throws(() => restoreSnapshot('invalid'), /not readable JSON/)
+  assert.deepEqual(JSON.parse(readFileSync(FS_STORE, 'utf8')), original)
 })
 
 test('build produces a snapshot covering every persisted slice', async () => {

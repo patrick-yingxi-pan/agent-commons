@@ -77,10 +77,12 @@ export function useRailSplit() {
     setSelectedEntry(selectedRef.current)
   }, [commit])
 
-  const closeFocusedRail = useCallback(() => {
+  /** Close the pane captured by the action's render. Focus may move between
+   * pointer-down and click; that must not redirect a destructive command. */
+  const closeRailFromAction = useCallback((path: string) => {
     const tree = treeRef.current
-    if (!canCloseRailView(tree, focusedRef.current)) return
-    commit(closeRailView(tree, focusedRef.current))
+    if (!canCloseRailView(tree, path)) return
+    commit(closeRailView(tree, path))
     selectedRef.current = null
     setSelectedEntry(null)
   }, [commit])
@@ -99,7 +101,7 @@ export function useRailSplit() {
     focusRailPane,
     selectRailEntry,
     splitFocusedRail,
-    closeFocusedRail,
+    closeRailFromAction,
     setRailRatio,
   }
 }

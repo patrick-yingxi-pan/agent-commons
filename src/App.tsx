@@ -156,7 +156,7 @@ function Workspace() {
     pruneMainPanes,
     fillMainPane,
     closeMainPane,
-    closeFocused,
+    closePaneFromAction,
     setMainRatio,
   } = useMainSplit({ sessionTitle: sessionLabel })
 
@@ -171,7 +171,7 @@ function Workspace() {
     focusRailPane,
     selectRailEntry,
     splitFocusedRail,
-    closeFocusedRail,
+    closeRailFromAction,
     setRailRatio,
   } = useRailSplit()
   const focusedFoldAvailability = useFocusedCompositeFoldAvailability()
@@ -190,10 +190,6 @@ function Workspace() {
     },
     [selectRailEntry],
   )
-
-  // Mirror for stable callbacks (mainPaneNav must not rebuild per focus hop).
-  const focusedContentRef = useRef(focusedContent)
-  focusedContentRef.current = focusedContent
 
   // The focused pane's canonical path (the ONE content→address rule,
   // paneLocationPath): a conversation or section pane has its own; a CONTEXT
@@ -487,18 +483,15 @@ function Workspace() {
   const mainCloseAct =
     (mainSplitRowAct || mainSplitColAct) && focusedClosable
       ? () =>
-          closeFocused(() => {
+          closePaneFromAction(focusedPane, (sessionId) => {
             // The focus-driven context panel: clear its OWNING session's STORE
             // focus so the projection removes the pane (panelPref remembers it
             // closed, FWD-2).
-            const c = focusedContentRef.current
-            const sid = c?.kind === 'context-panel' ? c.sessionId : null
-            if (sid) {
-              conversations.setFocus(sid, null)
-              if (sid !== DRAFT_ID) rememberPanelPreference(sid, null)
-            }
+            conversations.setFocus(sessionId, null)
+            if (sessionId !== DRAFT_ID) rememberPanelPreference(sessionId, null)
           })
       : undefined
+  const mainCloseTarget = mainCloseAct ? `main:${focusedPane}` : undefined
   const focusedMainFold =
     focusedContent?.kind === 'msection' && focusedFoldAvailability?.section === focusedContent.id
       ? focusedFoldAvailability
@@ -524,9 +517,13 @@ function Workspace() {
   const paneCloseAct =
     focusedArea === 'rail'
       ? railCanClose
-        ? closeFocusedRail
+        ? () => closeRailFromAction(focusedRailPane)
         : undefined
       : mainCloseAct
+  const paneCloseTarget =
+    focusedArea === 'rail'
+      ? railCanClose ? `rail:${focusedRailPane}` : undefined
+      : mainCloseTarget
 
   return (
     <RelationsProvider navigate={navigateToSection}>
@@ -597,6 +594,7 @@ function Workspace() {
                 onSplitRow={paneSplitRowAct}
                 onSplitCol={paneSplitColAct}
                 onCloseView={paneCloseAct}
+                paneCloseTarget={paneCloseTarget}
                 onFoldAll={focusedArea === 'main' ? mainFoldAllAct : undefined}
                 onUnfoldAll={focusedArea === 'main' ? mainUnfoldAllAct : undefined}
                 paneActionTarget={focusedArea}
@@ -636,6 +634,7 @@ function Workspace() {
               onSplitRow={mainSplitRowAct}
               onSplitCol={mainSplitColAct}
               onCloseView={mainCloseAct}
+              closeTarget={mainCloseTarget}
               onFoldAll={mainFoldAllAct}
               onUnfoldAll={mainUnfoldAllAct}
             />
@@ -734,6 +733,7 @@ function MiniRail({
   onSplitRow,
   onSplitCol,
   onCloseView,
+  closeTarget,
   onFoldAll,
   onUnfoldAll,
 }: {
@@ -743,6 +743,7 @@ function MiniRail({
   onSplitRow?: () => void
   onSplitCol?: () => void
   onCloseView?: () => void
+  closeTarget?: string
   onFoldAll?: () => void
   onUnfoldAll?: () => void
 }) {
@@ -764,6 +765,7 @@ function MiniRail({
         onSplitRow={onSplitRow}
         onSplitCol={onSplitCol}
         onCloseView={onCloseView}
+        closeTarget={closeTarget}
       />
     </div>
   )

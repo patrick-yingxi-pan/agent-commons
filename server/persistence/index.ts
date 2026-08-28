@@ -1,7 +1,7 @@
 /** ── Persistence backend selection ───────────────────────────────────────────
  *  One place that maps `PERSIST_BACKEND` to a concrete backend. Default is `json`
- *  (the prototype's original behaviour — desktop + the in-memory test suite are
- *  unchanged); `sqlite` opts into the embedded relational store (design F6 PD28).
+ *  for development compatibility; the desktop production topology selects the
+ *  embedded SQLite store explicitly (design F6 PD28/PD74).
  *
  *  Importing this module is cheap and does NOT load `node:sqlite`: `SqliteBackend`'s
  *  `require('node:sqlite')` lives inside its constructor, so the experimental SQLite

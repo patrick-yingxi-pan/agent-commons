@@ -3,7 +3,7 @@
  *  Points DATA_FILE at a throwaway temp path so it never touches the real store. */
 import { test, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { rmSync, existsSync } from 'node:fs'
+import { rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadState, saveState, STORE_VERSION } from './persist.ts'
@@ -52,7 +52,7 @@ const sample = {
 }
 
 afterEach(() => {
-  for (const f of [FILE, FILE + '.tmp']) {
+  for (const f of [FILE, FILE + '.tmp', FILE + '.corrupt']) {
     try {
       rmSync(f)
     } catch {
@@ -79,4 +79,16 @@ test('loadState returns null when the file is absent (caller seeds fresh)', () =
 test('loadState ignores a version mismatch so an old snapshot cannot crash a new build', () => {
   saveState({ ...sample, version: STORE_VERSION + 999 })
   assert.equal(loadState(), null)
+})
+
+test('loadState rejects a current-version snapshot missing required core slices', () => {
+  writeFileSync(FILE, JSON.stringify({ version: STORE_VERSION }))
+  const report = console.error
+  console.error = () => {}
+  try {
+    assert.equal(loadState(), null)
+  } finally {
+    console.error = report
+  }
+  assert.ok(existsSync(FILE + '.corrupt'), 'the invalid live bytes are preserved for recovery')
 })

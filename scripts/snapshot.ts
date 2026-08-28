@@ -1,9 +1,9 @@
-/** ── Backup / restore the mock backend's storage state ─────────────────────
- *  A play-and-roll-back tool for the persisted store (`.data/store.json`, see
- *  server/persistence/persist.ts). Four subcommands:
+/** ── Portable backup / restore for either persistence backend ──────────────
+ *  A play-and-roll-back tool for the durable store (JSON or SQLite). Four
+ *  subcommands:
  *
  *    save  [name]   live store  → .data/snapshots/<name>.json   (default: backup)
- *    restore [name] snapshot    → live store     (+ restart the server to load it)
+ *    restore [name] snapshot    → live store     (stop server first; then restart)
  *    list           show every snapshot with size + date
  *    build [--activate]  manufacture a CLEAN, COMPREHENSIVE snapshot that exercises
  *                   every persisted slice once → .data/snapshots/comprehensive.json
@@ -14,27 +14,32 @@
  *  it re-seeds from the source-controlled fixtures (server/data/*), then drives the
  *  REAL store mutators + relation reducer — so the snapshot can't drift from the
  *  contract, and `npm run snapshot:build` reproduces the identical playground in any
- *  clone. The `.json` outputs stay gitignored under `.data/`; only this generator
- *  is checked in.
+ *  clone. Snapshot files are canonical portable JSON, independent of the live
+ *  backend, and stay gitignored under `.data/`; only this generator is checked in.
  *
  *  Persistence loads ONCE on boot (store.initPersistence), so a `restore` only
- *  takes effect after the server restarts — the commands say so. Pure `node:fs`
- *  for save/restore/list; the store is imported lazily, only for `build`. */
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+ *  takes effect after the server restarts — the commands say so. The store is
+ *  imported lazily, only for `build`. */
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { dataFile, type PersistedState } from '../server/persistence/persist.ts'
-import { backendKind } from '../server/persistence/index.ts'
+import { dataFile, databaseFile, type PersistedState } from '../server/persistence/persist.ts'
+import { backendKind, selectBackend, type BackendKind } from '../server/persistence/index.ts'
+import {
+  exportBackendSnapshot,
+  readPortableSnapshot,
+  restoreBackendState,
+  writePortableSnapshot,
+} from '../server/persistence/portable.ts'
 
-/** The live store path — the SAME resolver the server reads/writes through
- *  (persist.ts owns the DATA_FILE-or-`.data/store.json` rule), imported rather
- *  than re-derived so this tool can't drift from where the store actually lives. */
-export function dataFilePath(): string {
-  return dataFile()
+/** The live store path — the SAME resolvers the server backends use, imported
+ * rather than re-derived so recovery cannot drift from the active storage. */
+export function storageFilePath(kind: BackendKind = backendKind()): string {
+  return kind === 'sqlite' ? databaseFile() : dataFile()
 }
 
 /** Snapshots live next to the live store, in a `snapshots/` sibling. */
 export function snapshotsDir(): string {
-  return join(dirname(dataFilePath()), 'snapshots')
+  return process.env.SNAPSHOT_DIR ?? join(dirname(storageFilePath()), 'snapshots')
 }
 
 /** A snapshot's path from its name. Names are restricted to a safe charset so a
@@ -46,27 +51,38 @@ export function snapshotPath(name: string): string {
   return join(snapshotsDir(), `${name}.json`)
 }
 
-/** Copy the live store → a named snapshot. */
+/** Export the live backend → a named portable snapshot. */
 export function saveSnapshot(name = 'backup'): { from: string; to: string } {
-  const from = dataFilePath()
+  const from = storageFilePath()
   if (!existsSync(from)) {
     throw new Error(`no live store at ${from} — run the server once (npm run dev) so it writes one`)
   }
   const to = snapshotPath(name)
-  mkdirSync(snapshotsDir(), { recursive: true })
-  copyFileSync(from, to)
+  const selected = selectBackend()
+  try {
+    exportBackendSnapshot(selected, to)
+  } finally {
+    selected.close()
+  }
   return { from, to }
 }
 
-/** Copy a named snapshot → the live store. Caller must restart the server. */
+/** Restore a portable snapshot → the live backend. Caller must restart server. */
 export function restoreSnapshot(name = 'backup'): { from: string; to: string } {
   const from = snapshotPath(name)
   if (!existsSync(from)) {
     throw new Error(`no snapshot named "${name}" at ${from} — run \`snapshot list\` to see what exists`)
   }
-  const to = dataFilePath()
-  mkdirSync(dirname(to), { recursive: true })
-  copyFileSync(from, to)
+  const to = storageFilePath()
+  // Validate before selecting the backend: opening SQLite creates the DB file,
+  // and a malformed import must not touch live storage at all.
+  const state = readPortableSnapshot(from)
+  const selected = selectBackend()
+  try {
+    restoreBackendState(selected, state)
+  } finally {
+    selected.close()
+  }
   return { from, to }
 }
 
@@ -86,7 +102,7 @@ export function listSnapshots(): { name: string; sizeKB: number; modified: Date 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /** Manufacture the comprehensive playground by driving the real store. Assumes
- *  `process.env.DATA_FILE` already points at a FRESH (absent) path: the store
+ *  the configured backend path already points at a FRESH (absent) store: the store
  *  re-seeds from the fixtures, then every mutator below persists to that file.
  *  Returns the resulting snapshot (for the test's coverage invariant). Run once
  *  per process — the store is a singleton, so a second call would layer on the
@@ -95,7 +111,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
   const { store } = await import('../server/store/index.ts')
   const { loadState } = await import('../server/persistence/persist.ts')
 
-  // Re-seed from the source-controlled fixtures (no file at DATA_FILE → seed,
+  // Re-seed from the source-controlled fixtures (no configured store → seed,
   // then write the baseline). Every store mutation from here persists.
   store.initPersistence()
 
@@ -446,7 +462,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
   }
 
   const state = loadState()
-  if (!state) throw new Error('buildComprehensive: the snapshot did not persist (no file at DATA_FILE)')
+  if (!state) throw new Error('buildComprehensive: the snapshot did not persist to the configured backend')
   return state
 }
 
@@ -466,7 +482,7 @@ function cmdSave(name: string): void {
 function cmdRestore(name: string): void {
   const { from, to } = restoreSnapshot(name)
   console.log(`Restored  ${fmt(from)}  →  ${fmt(to)}`)
-  console.log('↻  Restart the server (it loads the store once on boot) to see it.')
+  console.log('↻  Keep the old server stopped during restore, then restart it to load the recovered state.')
 }
 
 function cmdList(): void {
@@ -482,25 +498,38 @@ function cmdList(): void {
 }
 
 async function cmdBuild(activate: boolean): Promise<void> {
+  const kind = backendKind()
   const dir = snapshotsDir()
   mkdirSync(dir, { recursive: true })
-  const tmp = join(dir, '.build-tmp.json')
-  rmSync(tmp, { force: true })
+  const tmp = join(dir, kind === 'sqlite' ? `.build-tmp-${process.pid}.db` : `.build-tmp-${process.pid}.json`)
+  const target = snapshotPath('comprehensive')
+  const tempFiles = kind === 'sqlite'
+    ? [tmp, `${tmp}-wal`, `${tmp}-shm`, `${tmp}-journal`]
+    : [tmp, `${tmp}.tmp`]
+  for (const file of tempFiles) rmSync(file, { force: true })
 
   // Build against a fresh temp path so the store seeds clean, then promote it.
-  const prev = process.env.DATA_FILE
-  process.env.DATA_FILE = tmp
+  const pathKey = kind === 'sqlite' ? 'DATABASE_PATH' : 'DATA_FILE'
+  const prev = process.env[pathKey]
+  process.env[pathKey] = tmp
   let state: PersistedState
   try {
     state = await buildComprehensive()
   } finally {
-    if (prev === undefined) delete process.env.DATA_FILE
-    else process.env.DATA_FILE = prev
+    // SQLite must checkpoint/close before its temp files are removed. Closing
+    // the facade also prevents it retaining the temporary location after env is
+    // restored (the store normally owns this handle for the process lifetime).
+    try {
+      const { closePersistence } = await import('../server/persistence/persist.ts')
+      closePersistence()
+    } finally {
+      if (prev === undefined) delete process.env[pathKey]
+      else process.env[pathKey] = prev
+      for (const file of tempFiles) rmSync(file, { force: true })
+    }
   }
 
-  const target = snapshotPath('comprehensive')
-  copyFileSync(tmp, target)
-  rmSync(tmp, { force: true })
+  writePortableSnapshot(target, state)
 
   const g = state.graph
   console.log(`Built comprehensive playground  →  ${fmt(target)}`)
@@ -517,13 +546,15 @@ async function cmdBuild(activate: boolean): Promise<void> {
   )
 
   if (activate) {
-    const live = dataFilePath()
-    if (existsSync(live)) {
+    try {
       const { to } = saveSnapshot('pre-build-backup')
       console.log(`Backed up the current live store  →  ${fmt(to)}`)
+    } catch (err) {
+      // A new install has no live state to protect; every other failure is a
+      // hard stop rather than activating without a proven pre-build backup.
+      if (!/no live store|no live persisted state/.test((err as Error).message)) throw err
     }
-    mkdirSync(dirname(live), { recursive: true })
-    copyFileSync(target, live)
+    const { to: live } = restoreSnapshot('comprehensive')
     console.log(`Activated as the live store  →  ${fmt(live)}`)
     console.log('↻  Restart the server to load it.')
   } else {
@@ -535,17 +566,6 @@ async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2)
   const args = rest.filter((a) => !a.startsWith('-'))
   const flags = rest.filter((a) => a.startsWith('-'))
-  // This tool operates on the JSON store file directly. Under a non-JSON backend
-  // (`PERSIST_BACKEND=sqlite`) the server never reads that file, so save/restore
-  // are misleading no-ops and `build` is WORSE — it boots the store against the
-  // live SQLite DB (only `DATA_FILE` is repointed, not `DATABASE_PATH`) and
-  // persists its playground mutations INTO the live DB before failing. Refuse up
-  // front rather than corrupt the live store.
-  if (backendKind() !== 'json' && (cmd === 'save' || cmd === 'restore' || cmd === 'build')) {
-    console.error(`snapshot: this tool is JSON-backend only, but PERSIST_BACKEND=${process.env.PERSIST_BACKEND}. Unset it to operate on .data/store.json.`)
-    process.exitCode = 1
-    return
-  }
   try {
     switch (cmd) {
       case 'save':
@@ -562,8 +582,8 @@ async function main(): Promise<void> {
         break
       default:
         console.log('Usage: node scripts/snapshot.ts <save|restore|list|build> [name] [--activate]')
-        console.log('  save  [name]        live store  → .data/snapshots/<name>.json   (default: backup)')
-        console.log('  restore [name]      snapshot    → live store   (restart the server after)')
+        console.log('  save  [name]        live backend → portable snapshot   (default: backup)')
+        console.log('  restore [name]      portable snapshot → live backend   (restart server after)')
         console.log('  list                show every snapshot')
         console.log('  build [--activate]  build the comprehensive playground (--activate makes it live)')
         process.exitCode = cmd ? 1 : 0

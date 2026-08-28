@@ -25,6 +25,7 @@ import { createRequire } from 'node:module'
 import {
   SLICE_KIND,
   databaseFile,
+  hasCorePersistedShape,
   type PersistedState,
   type PersistenceBackend,
 } from './format.ts'
@@ -173,7 +174,8 @@ export class SqliteBackend implements PersistenceBackend {
 
       // Bring an older snapshot up to the current version (F1 PD6); a newer or
       // un-migratable one ⇒ null ⇒ reseed.
-      return migrateState(result as unknown as PersistedState)
+      const migrated = migrateState(result as unknown as PersistedState)
+      return hasCorePersistedShape(migrated) ? migrated : null
     } catch {
       return null
     }

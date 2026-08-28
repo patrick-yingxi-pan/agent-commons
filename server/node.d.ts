@@ -52,6 +52,7 @@ declare module 'node:fs' {
   export function writeFileSync(path: string, data: string): void
   export function renameSync(oldPath: string, newPath: string): void
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void
+  export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void
 }
 
 declare module 'node:path' {
@@ -105,6 +106,7 @@ declare const process: {
   env: Record<string, string | undefined>
   argv: string[]
   cwd(): string
+  pid: number
   platform: string
   exit(code?: number): never
   on(event: string, listener: (...args: unknown[]) => void): void

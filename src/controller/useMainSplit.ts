@@ -158,22 +158,22 @@ export function useMainSplit(opts?: {
     [commit],
   )
 
-  /** Close the FOCUSED pane — the rail's close button, ONE rule for every
+  /** Close the pane the action explicitly TARGETED — the rail's close button,
+   *  ONE rule for every
    *  pane (the owner's equal-pages model): the sibling inherits the slot;
    *  closing the LAST pane leaves the background. The one special case is
    *  the `focusDriven` CONTEXT pane — a transient projection of its session's
    *  `focus`, so closing it clears the DRIVER via `onCloseActiveContext` (the
    *  caller's `closePanel`) and the sync effect removes the pane — keeping
    *  `focus` and the tree in step (detected off the pane's MARKER). */
-  const closeFocused = useCallback(
-    (onCloseActiveContext?: () => void) => {
+  const closePaneFromAction = useCallback(
+    (path: string, onCloseActiveContext?: (sessionId: string) => void) => {
       const t = treeRef.current
       if (!t) return
-      const path = focusedRef.current
       const node = nodeAt(t, path)
       if (node?.kind !== 'pane') return
       if (node.content.kind === 'context-panel' && node.content.focusDriven) {
-        onCloseActiveContext?.()
+        onCloseActiveContext?.(node.content.sessionId)
       } else {
         commit(closeMain(t, path))
       }
@@ -282,7 +282,7 @@ export function useMainSplit(opts?: {
     pruneMainPanes,
     fillMainPane,
     closeMainPane,
-    closeFocused,
+    closePaneFromAction,
     setMainRatio,
   }
 }
