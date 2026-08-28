@@ -13,7 +13,7 @@ export type DocBlock =
 
 export type FigureShape = 'hero' | 'bars' | 'line' | 'funnel'
 
-export type ArtifactContent =
+export type ArtifactContent = (
   | { type: 'doc'; title: string; blocks: DocBlock[] }
   | { type: 'sheet'; columns: string[]; rows: string[][]; note?: string }
   | { type: 'slides'; slides: { title: string; bullets: string[] }[] }
@@ -27,8 +27,17 @@ export type ArtifactContent =
       series2?: number[]
       legend?: [string, string]
     }
+) & {
+  /** Monotonic server-owned revision of this artifact's editable body. The
+   *  authored fixture and legacy persisted overlays omit it and therefore read
+   *  as revision 0. Metadata, grants, filing, and discussion activity are
+   *  deliberately separate domains and do not advance it. */
+  revision?: number
+}
 
-/** The whole artifact-body library, keyed by file name. */
+/** The artifact-body library. Authored fixtures are keyed by file name; an
+ * edited projection additionally carries its exact artifact-id key so two
+ * same-named artifacts can never share mutable state. */
 export type ArtifactContentLibrary = Record<string, ArtifactContent>
 
 /** ── The addressable unit of a body edit (social S3, `artifact-patch`) ───────

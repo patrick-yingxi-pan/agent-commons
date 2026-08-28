@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'routine'
+  kind: 'conversation' | 'routine' | 'artifact'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -25,6 +25,7 @@ export function RevisionedMutationNotice({
       data-mutation-status={phase}
       data-session-metadata-mutation={kind === 'conversation' ? phase : undefined}
       data-schedule-mutation={kind === 'routine' ? phase : undefined}
+      data-artifact-content-mutation={kind === 'artifact' ? phase : undefined}
       className="relative z-[60] shrink-0 border-b border-line bg-panel-2/95 px-2 pt-2"
     >
       {mutation.busy ? (

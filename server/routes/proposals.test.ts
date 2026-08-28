@@ -245,6 +245,8 @@ test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator',
   const owner = store.defaultTenantId()
   const before = store.artifactBlockText(artifactId, 1)
   assert.ok(before, 'a seeded document with an addressable prose block')
+  const beforeBody = store.artifactContent(owner)[artifactId] ?? store.artifactContent(owner)['insights-onepager.md']
+  const beforeRevision = beforeBody?.revision ?? 0
 
   // Shared at `propose` so the audience may offer — the SOCIAL-4 read widening
   // for artifacts is what makes the whole social surface reachable here.
@@ -278,6 +280,11 @@ test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator',
   assert.equal(landed.status, 200)
   assert.equal(landed.json.state, 'landed')
   assert.equal(store.artifactBlockText(artifactId, 1), text, 'landing ran the real mutator')
+  assert.equal(
+    store.artifactContent(owner)[artifactId]?.revision,
+    beforeRevision + 1,
+    'proposal landing advances the same body revision as the owner editor',
+  )
 
   // …and the change is what the READERS see: the name-keyed library the previews
   // render carries it for the owner AND the granted audience, nobody else.

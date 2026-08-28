@@ -39,6 +39,7 @@ import type {
   SendMessageRequest,
   SetRunnerCapabilitiesRequest,
   SetConnectorStatusRequest,
+  UpdateArtifactContentRequest,
   UpdateScheduleRequest,
   UpdateSessionRequest,
   UpdateSessionPreferencesRequest,
@@ -3519,7 +3520,7 @@ export function buildRouter(): Router {
    *  visitor who wants a change offers an `artifact-patch` proposal instead —
    *  which lands through this very mutator, so there is one write path.
    *  Existence-hiding: an artifact the caller can't own 404s like a missing id. */
-  r.patch('/artifacts/:id/content', async ({ req, res, params, body }) => {
+  r.patch('/artifacts/:id/content', idempotent(async ({ req, res, params, body }) => {
     const tenantId = store.identity(req.headers).tenant.id
     // Resolved across BOTH homes (seeded + graph-created), then walled on
     // OWNERSHIP — `listArtifacts` would silently 404 every created artifact.
@@ -3527,16 +3528,27 @@ export function buildRouter(): Router {
     if (!artifact || !store.artifactOwnedBy(artifact, tenantId)) {
       return sendError(res, 'not_found', `No artifact '${params.id}'`)
     }
-    const patch = await body<{ block?: number; text?: string }>()
+    const patch = await body<UpdateArtifactContentRequest>()
     if (typeof patch.block !== 'number' || typeof patch.text !== 'string') {
       return sendError(res, 'bad_request', 'block (number) and text (string) are required')
     }
-    const updated = store.updateArtifactBlock(params.id, patch.block, patch.text)
-    // The mutator refuses anything it could not honestly apply (non-doc body,
-    // unaddressable block, empty text) — a 400, not a silent no-op.
-    if (!updated) return sendError(res, 'bad_request', 'That block cannot be edited')
-    sendJson(res, updated)
-  })
+    if (
+      patch.expectedRevision !== undefined &&
+      (!Number.isSafeInteger(patch.expectedRevision) || patch.expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
+    try {
+      const updated = store.updateArtifactBlock(params.id, patch.block, patch.text, patch.expectedRevision)
+      // The mutator refuses anything it could not honestly apply (non-doc body,
+      // unaddressable block, empty text) — a 400, not a silent no-op.
+      if (!updated) return sendError(res, 'bad_request', 'That block cannot be edited')
+      sendJson(res, updated)
+    } catch (err) {
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  }))
   r.get('/schedule-templates', ({ res }) => {
     sendJson(res, store.scheduleTemplates())
   })

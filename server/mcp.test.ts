@@ -185,11 +185,16 @@ test('curated body examples: every key is a real mutation route, the spine is co
     200,
     'PATCH /schedules/:id example applies',
   )
+  assert.equal(
+    (await toolCall('patch_artifacts_by_id_content', { id: 'a1', ...ex('PATCH /artifacts/:id/content') }, seam)).status,
+    200,
+    'PATCH /artifacts/:id/content example applies',
+  )
   assert.equal((await toolCall('post_notifications_read', ex('POST /notifications/read'), seam)).status, 200, 'POST /notifications/read example applies')
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 10, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 11, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

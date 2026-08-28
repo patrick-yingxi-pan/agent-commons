@@ -17,7 +17,8 @@ export const API_VERSION = 'v1'
  *  double-submit or a retried-after-timeout request can't create a duplicate or
  *  advance a metadata revision twice. Honoured on the non-streaming create
  *  routes (`POST /sessions`, `/dispatch`, `/schedules`, `/relations/ops`) and
- *  revision-checked `PATCH /sessions/:id` and `PATCH /schedules/:id`. */
+ *  revision-checked `PATCH /sessions/:id`, `PATCH /schedules/:id`, and
+ *  `PATCH /artifacts/:id/content`. */
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 /** The path the UI talks to. Dev: Vite proxies `/api` → the mock server. Native:
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
@@ -205,6 +206,21 @@ export interface SchedulePatch {
  *  `expectedRevision` is compare-and-swap; absence preserves the v1 legacy
  *  unconditional-write meaning, while first-party editors always supply it. */
 export interface UpdateScheduleRequest extends SchedulePatch {
+  expectedRevision?: number
+}
+
+/** One owner's intent to rewrite one addressable prose block. The block index
+ * and replacement stay separate from the precondition so the client can hold
+ * and rebase the exact edit after a conflict. */
+export interface ArtifactContentPatch {
+  block: number
+  text: string
+}
+
+/** Body of `PATCH /v1/artifacts/:id/content`. Supplying the current body
+ * revision gives compare-and-swap semantics; absence preserves the v1 legacy
+ * unconditional-write meaning used by older clients and proposal landing. */
+export interface UpdateArtifactContentRequest extends ArtifactContentPatch {
   expectedRevision?: number
 }
 

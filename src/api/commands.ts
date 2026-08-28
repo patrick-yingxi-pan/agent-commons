@@ -4,6 +4,10 @@
  *  itself a stream (the assistant turn), mirroring the Anthropic Messages API. */
 import {
   type ApplyOpRequest,
+  type ArtifactContent,
+  type ArtifactContentLibrary,
+  type ArtifactContentPatch,
+  type ArtifactItem,
   type CapabilityEffect,
   type CapabilityRequest,
   type Agent,
@@ -68,6 +72,7 @@ import {
   type SessionPreferences,
   type ToolActivity,
   type UpdateScheduleRequest,
+  type UpdateArtifactContentRequest,
   type UpdateSessionPreferencesRequest,
   type UpdateSessionRequest,
   type UpdateSessionContextStateRequest,
@@ -81,6 +86,7 @@ import { readReplyEvents } from './replyStream.ts'
 import { shouldAcceptRelationGraph } from './relationRevision.ts'
 import { shouldAcceptEntityRevision } from './entityRevision.ts'
 import { mergeScheduleDefinition } from './scheduleRevision.ts'
+import { mergeArtifactContent } from './artifactContentRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -713,12 +719,71 @@ export async function openWallPost(body: string): Promise<Discussion> {
   return d
 }
 
-/** Rewrite one addressed prose block of an artifact's body — the OWNER's own
- *  editing door (social S3). The same mutator a landed `artifact-patch` runs,
- *  reached from the other side: the owner needs no consent from themselves. */
-export async function updateArtifactBlock(artifactId: string, block: number, text: string): Promise<void> {
-  await apiPatch(paths.artifactContentEdit(artifactId), { block, text })
-  invalidate(keys.artifactContent)
+const cachedArtifactRows = (): ArtifactItem[] => [
+  ...(peek<RelationGraph>(keys.relations)?.extraArtifacts ?? []),
+  ...(peek<ArtifactItem[]>(keys.artifacts) ?? []),
+]
+
+function cachedArtifactBody(
+  artifactId: string,
+  library: ArtifactContentLibrary | undefined = peek<ArtifactContentLibrary>(keys.artifactContent),
+): ArtifactContent | undefined {
+  if (!library) return undefined
+  const artifact = cachedArtifactRows().find((row) => row.id === artifactId)
+  return library[artifactId] ?? (artifact ? library[artifact.name] : undefined)
+}
+
+/** Controller snapshot of the body currently projected for one artifact. */
+export const peekArtifactContent = (artifactId: string): ArtifactContent | undefined =>
+  cachedArtifactBody(artifactId)
+
+/** Publish one acknowledged body without replacing unrelated bodies from the
+ * full library. The exact id key is authoritative; the legacy name key is safe
+ * to update only when it names one visible artifact. */
+export function acceptArtifactContent(artifactId: string, incoming: ArtifactContent): ArtifactContent {
+  const rows = cachedArtifactRows()
+  const artifact = rows.find((row) => row.id === artifactId)
+  const current = cachedArtifactBody(artifactId)
+  const accepted = current ? mergeArtifactContent(current, incoming) : incoming
+  const uniqueName = artifact
+    ? rows.filter((row) => row.name === artifact.name).length === 1
+    : false
+  mutate<ArtifactContentLibrary>(keys.artifactContent, (library) => ({
+    ...(library ?? {}),
+    [artifactId]: accepted,
+    ...(artifact && uniqueName ? { [artifact.name]: accepted } : {}),
+  }))
+  return accepted
+}
+
+/** Re-read the library after a conflict but project only this artifact. A full
+ * response must not rewind a different body that moved while it was in flight. */
+export async function reconcileArtifactContent(artifactId: string): Promise<ArtifactContent | undefined> {
+  const incomingLibrary = await apiGet<ArtifactContentLibrary>(paths.artifactContent)
+  const incoming = cachedArtifactBody(artifactId, incomingLibrary)
+  if (!incoming) return undefined
+  if (!peek<ArtifactContentLibrary>(keys.artifactContent)) {
+    setData(keys.artifactContent, incomingLibrary)
+    return incoming
+  }
+  return acceptArtifactContent(artifactId, incoming)
+}
+
+/** Transport one revision-checked block rewrite. The controller owns ordering,
+ * retained intent, and retry; this door publishes only the acknowledgement. */
+export async function patchArtifactContent(
+  artifactId: string,
+  patch: ArtifactContentPatch,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<ArtifactContent> {
+  const body = await apiPatch<ArtifactContent>(
+    paths.artifactContentEdit(artifactId),
+    { ...patch, expectedRevision } satisfies UpdateArtifactContentRequest,
+    { idempotencyKey },
+  )
+  acceptArtifactContent(artifactId, body)
+  return body
 }
 
 /** Decline an offered proposal — the owner's polite no. */

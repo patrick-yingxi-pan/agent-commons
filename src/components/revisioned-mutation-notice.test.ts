@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { read, ROOT } from '../../tests/helpers/source.ts'
 
-test('conversation and routine recovery share one accessible shell-notice primitive', () => {
+test('durable entity recovery shares one accessible shell-notice primitive', () => {
   const shared = read(join(ROOT, 'src', 'components', 'RevisionedMutationNotice.tsx'))
   const session = read(join(ROOT, 'src', 'components', 'SessionMetadataMutationNotice.tsx'))
   const schedule = read(join(ROOT, 'src', 'components', 'ScheduleMutationNotice.tsx'))
+  const artifact = read(join(ROOT, 'src', 'components', 'ArtifactContentMutationNotice.tsx'))
   const app = read(join(ROOT, 'src', 'App.tsx'))
 
   assert.match(shared, /<InlineOperationStatus/, 'pending and failure share the established status anatomy')
@@ -15,6 +16,8 @@ test('conversation and routine recovery share one accessible shell-notice primit
   assert.match(shared, /label: 'Dismiss'/, 'the user can release a failed queue head')
   assert.match(session, /<RevisionedMutationNotice/, 'conversation metadata uses the shared funnel')
   assert.match(schedule, /<RevisionedMutationNotice/, 'routine definition edits use the shared funnel')
+  assert.match(artifact, /<RevisionedMutationNotice/, 'artifact body edits use the shared funnel')
   assert.match(app, /<SessionMetadataMutationNotice\s*\/>/, 'conversation recovery is mounted once')
   assert.match(app, /<ScheduleMutationNotice\s*\/>/, 'routine recovery is mounted once')
+  assert.match(app, /<ArtifactContentMutationNotice\s*\/>/, 'artifact recovery is mounted once')
 })

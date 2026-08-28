@@ -4433,17 +4433,28 @@ export const store = {
    *  a block that carries no single editable string (`docBlockText`), or empty
    *  text. Ownership is the CALLER's business — the route and the landing path
    *  each gate before calling, exactly as they do for a routine. */
-  updateArtifactBlock(artifactId: string, block: number, text: string): ArtifactContent | undefined {
+  updateArtifactBlock(
+    artifactId: string,
+    block: number,
+    text: string,
+    expectedRevision?: number,
+  ): ArtifactContent | undefined {
     const body = artifactBodyOf(artifactId)
     if (!body || body.type !== 'doc') return undefined
     if (artifactBlockTextOf(artifactId, block) === undefined) return undefined
+    const currentRevision = body.revision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This artifact changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     // Clamped like every other free-text field the layer stores: this string is
     // written into a body that GET /artifact-content hands to every reader of
     // the document, so an unbounded one is an unbounded broadcast.
     const next = text.trim().slice(0, MAX_ARTIFACT_BLOCK_CHARS)
     if (!next) return undefined
     const blocks = body.blocks.map((b, i) => (i === block ? withDocBlockText(b, next) : b))
-    const updated: ArtifactContent = { ...body, blocks }
+    const updated: ArtifactContent = { ...body, blocks, revision: currentRevision + 1 }
     artifactBodies.set(artifactId, updated)
     emit({ type: 'artifact.changed', artifactId })
     persist()

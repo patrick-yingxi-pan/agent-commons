@@ -40,6 +40,7 @@ import { SyncHealthNotice } from './components/SyncHealthNotice'
 import { RelationMutationNotice } from './components/RelationMutationNotice'
 import { SessionMetadataMutationNotice } from './components/SessionMetadataMutationNotice'
 import { ScheduleMutationNotice } from './components/ScheduleMutationNotice'
+import { ArtifactContentMutationNotice } from './components/ArtifactContentMutationNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
@@ -534,6 +535,7 @@ function Workspace() {
       <RelationMutationNotice />
       <SessionMetadataMutationNotice />
       <ScheduleMutationNotice />
+      <ArtifactContentMutationNotice />
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim

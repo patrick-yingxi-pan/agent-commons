@@ -20,7 +20,8 @@ import type { SocialEntityRef } from '../../contract/index.ts'
 import { docBlockText } from '../../contract/index.ts'
 import { LocusGutter } from './LocusGutter'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
-import { useArtifactContent, useFsText, fsContentUrl, updateArtifactBlock } from '../api'
+import { useArtifactContent, useFsText, fsContentUrl } from '../api'
+import { updateArtifactBlock } from '../controller/artifactContentMutations'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { ProposalsPanel, type MainPageSectionComponent } from './ProposalsPanel'
@@ -193,6 +194,7 @@ function DocView({
                 aria-label={`Rewrite block ${i + 1}`}
                 value={edit.draft}
                 onChange={(e) => edit.onDraft(e.target.value)}
+                disabled={edit.saving}
                 rows={3}
                 autoFocus
                 className={`${FORM_INPUT_CLASS} w-full resize-y`}
@@ -201,7 +203,7 @@ function DocView({
                 <button onClick={() => void edit.onSave()} disabled={!edit.draft.trim() || edit.saving} className={INLINE_ACTION_CLASS}>
                   {edit.saving ? 'Saving…' : 'Save'}
                 </button>
-                <button onClick={edit.onCancel} className={INLINE_ACTION_CLASS}>
+                <button onClick={edit.onCancel} disabled={edit.saving} className={INLINE_ACTION_CLASS}>
                   Cancel
                 </button>
                 {edit.error && <span className="min-w-0 truncate text-[11px] text-danger">{edit.error}</span>}
@@ -788,8 +790,9 @@ export function ArtifactDetailPage({
           setSaving(true)
           setSaveError(null)
           try {
-            await updateArtifactBlock(artifact.id, index, draft)
-            setEditing(null)
+            const outcome = await updateArtifactBlock(artifact.id, index, draft)
+            if (outcome === 'applied') setEditing(null)
+            else setSaveError('Edit dismissed. Your draft is still here; cancel to review the latest text.')
           } catch (e) {
             setSaveError(e instanceof Error ? e.message : 'Could not save that edit.')
           } finally {

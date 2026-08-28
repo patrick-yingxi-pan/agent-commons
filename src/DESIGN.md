@@ -453,17 +453,19 @@ composer quick list's fabricated green dot). Locked by
 ## Mutation truth — intent may wait; persisted state may not pretend
 
 Authority-bearing context and relation changes publish only after the server
-acknowledges them. Conversation row metadata and routine definitions follow the
-same truth rule: each has a server-owned revision independent of its moving
-content (transcript activity or routine run history), every first-party edit
-carries the revision it read, and a stale cross-device write becomes a 409
-question instead of silently overwriting newer state. One transport-neutral
-FIFO keeps the logical idempotency key across Retry, reconciles before rebasing,
-and does not release later intent on Dismiss until uncertain truth has been
-re-read. Conversation and routine adapters expose their held intent through the
-same shell-notice grammar. The contract keeps an absent precondition as the
-explicit v1 legacy unconditional-write form; new first-party paths never use
-that escape hatch.
+acknowledges them. Conversation row metadata, routine definitions, and artifact
+bodies follow the same truth rule: each has a server-owned revision independent
+of its separately moving activity (transcript, run history, or artifact
+metadata/filing/discussion), every first-party edit carries the revision it
+read, and a stale cross-device write becomes a 409 question instead of silently
+overwriting newer state. One transport-neutral FIFO keeps the logical
+idempotency key across Retry, reconciles before rebasing, and does not release
+later intent on Dismiss until uncertain truth has been re-read. Their adapters
+expose held intent through the same shell-notice grammar. An artifact conflict
+keeps the exact block draft mounted and disabled while the refreshed body is
+visible behind it, so neither the draft nor the other device's edit disappears.
+The contract keeps an absent precondition as the explicit v1 legacy
+unconditional-write form; new first-party paths never use that escape hatch.
 
 A relation edit enters one account-scoped FIFO with one
 idempotency key for its logical lifetime: a failed head stays visible, later
