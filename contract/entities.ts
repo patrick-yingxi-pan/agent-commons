@@ -342,6 +342,12 @@ export interface Session {
   title: string
   caps: Capability[]
   preview: string
+  /** Monotonic server-owned revision of the session's editable row metadata
+   *  (title / lifecycle / pin / model routing / driver). Message activity has
+   *  its own ordering and deliberately does not advance this value, so a new
+   *  turn cannot manufacture an edit conflict. Absent on legacy snapshots is
+   *  revision 0. */
+  metadataRevision?: number
   /** The worker Agent (docs/agent-commons.md, D6) driving this Conversation. Unset =
    *  the seeded default Agent — the degenerate N=1 case. */
   agentId?: string

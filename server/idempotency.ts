@@ -1,9 +1,10 @@
 /** ── Idempotency keys for mutations (design F3 PD15) ─────────────────────────
- *  A retried create (double-click, a network retry after a dropped response) must
- *  not produce a second resource. A client opts in by sending an `Idempotency-Key`
- *  header; the first response for that (tenant, key) is recorded and replayed on any
- *  retry — the handler runs exactly once. Keying includes the tenant (identity F2),
- *  so two tenants' keys can't collide.
+ *  A retried create must not produce a second resource, and a retried
+ *  revision-checked edit must not advance ordering twice. A client opts in by
+ *  sending an `Idempotency-Key` header; the first successful response for that
+ *  (tenant, key) is recorded and replayed on any retry — a completed mutation's
+ *  handler runs exactly once, while failures remain retryable.
+ *  Keying includes the tenant (identity F2), so two tenants' keys can't collide.
  *
  *  Transient by design: this is a short-lived dedup cache (like reservations), TTL'd
  *  and never persisted. Production would back it with the shared store (F6) so it

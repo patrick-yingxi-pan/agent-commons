@@ -62,11 +62,13 @@ import {
   type SendMessageRequest,
   type SetConnectorStatusRequest,
   type Session,
+  type SessionMetadataPatch,
   type SessionContextState,
   type SessionPreferences,
   type ToolActivity,
   type UpdateScheduleRequest,
   type UpdateSessionPreferencesRequest,
+  type UpdateSessionRequest,
   type UpdateSessionContextStateRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
@@ -76,6 +78,7 @@ import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { readReplyEvents } from './replyStream.ts'
 import { shouldAcceptRelationGraph } from './relationRevision.ts'
+import { shouldAcceptSessionMetadata } from './sessionMetadataRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -911,33 +914,48 @@ export async function releaseSubGoal(reservationId: string, projectId: string): 
 
 // ── Sessions (the sidebar row menu's edits) ─────────────────────────────────
 
-/** Patch a session's row fields — rename / pin / archive, or the composer's model
- *  pick (`providerId` + `modelId`; empty string clears each back to inherit).
- *  Optimistically patches the cached list (the row updates instantly), then PATCHes;
- *  the server's `session.updated` event reconciles every client. */
+/** Project an acknowledged session-metadata response into every live cache
+ * without replacing the bounded transcript/workspace carried by a by-id read. */
+export function acceptSessionMetadata(session: Session): void {
+  const merge = (current: Session): Session =>
+    shouldAcceptSessionMetadata(current, session)
+      ? {
+          ...current,
+          title: session.title,
+          status: session.status,
+          pinned: session.pinned,
+          agentId: session.agentId,
+          providerId: session.providerId,
+          modelId: session.modelId,
+          updatedAt: session.updatedAt,
+          metadataRevision: session.metadataRevision,
+        }
+      : current
+  mutate<Session[]>(keys.sessions, (list) =>
+    (list ?? []).map((candidate) => (candidate.id === session.id ? merge(candidate) : candidate)),
+  )
+  mutate<Session>(keys.session(session.id), (current) => merge(current ?? session))
+}
+
+/** Patch a session's row fields with the revision the controller read. The
+ * controller owns serialization/retry; this backend door transports one
+ * logical mutation and publishes only its acknowledged response. */
 export async function patchSession(
   id: string,
-  patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string; modelId?: string },
-): Promise<void> {
-  // The optimistic row mirrors the server's clear semantics: '' deletes the pick,
-  // and a provider change clears the model pick (its namespace changed).
-  const optimistic = {
-    ...patch,
-    ...(patch.providerId === '' ? { providerId: undefined } : {}),
-    ...(patch.providerId !== undefined && patch.modelId === undefined ? { modelId: undefined } : {}),
-    ...(patch.modelId === '' ? { modelId: undefined } : {}),
-  }
-  mutate<Session[]>(keys.sessions, (list) =>
-    (list ?? []).map((s) => (s.id === id ? { ...s, ...optimistic } : s)),
+  patch: SessionMetadataPatch,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<Session> {
+  const session = await apiPatch<Session>(
+    paths.session(id),
+    { ...patch, expectedRevision } satisfies UpdateSessionRequest,
+    { idempotencyKey },
   )
-  try {
-    await apiPatch(paths.session(id), patch)
-  } catch {
-    invalidate(keys.sessions)
-  }
+  acceptSessionMetadata(session)
   // A model pick changes what the usage gauge measures against (the provider-
   // sourced context window) — refresh the snapshot the composer strip reads.
   if (patch.providerId !== undefined || patch.modelId !== undefined) invalidate(keys.usage(id))
+  return session
 }
 
 /** Delete a session (the row menu's "Delete"). Optimistically drops it from the

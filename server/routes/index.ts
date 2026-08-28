@@ -40,6 +40,7 @@ import type {
   SetRunnerCapabilitiesRequest,
   SetConnectorStatusRequest,
   UpdateScheduleRequest,
+  UpdateSessionRequest,
   UpdateSessionPreferencesRequest,
   UpdateSessionContextStateRequest,
   OpsSummary,
@@ -264,8 +265,8 @@ export function buildRouter(): Router {
   // ── Idempotency (design F3 PD15) ────────────────────────────────────────────
   // Opt-in per route: a handler wrapped here replays the first response for a given
   // (tenant, `Idempotency-Key`) instead of running twice, so a retried create can't
-  // duplicate. Transparent when the header is absent (the request runs normally),
-  // and only applied to non-streaming create-mutations — never the SSE reply route.
+  // duplicate and a retried metadata update can't advance its revision twice.
+  // Transparent when the header is absent; never applied to the SSE reply route.
   const idem = new IdempotencyCache()
   const idempotent =
     (handler: (ctx: Ctx) => void | Promise<void>) =>
@@ -2860,9 +2861,16 @@ export function buildRouter(): Router {
   }))
   // Edit a session's row fields (rename / pin / archive / model pick) from the
   // sidebar menu and the composer's model selector.
-  r.patch('/sessions/:id', async ({ req, res, params, body }) => {
+  r.patch('/sessions/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
-    const patch = await body<{ title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string; modelId?: string }>()
+    const input = await body<UpdateSessionRequest>()
+    const { expectedRevision, ...patch } = input ?? {}
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
     // Empty string clears back to the Agent's provider — always a valid reference.
     const callerTenant = store.identity(req.headers).tenant.id
     const bad = badSessionProvider(patch?.providerId || undefined, callerTenant)
@@ -2880,15 +2888,16 @@ export function buildRouter(): Router {
       }
     }
     try {
-      const session = store.patchSession(params.id, patch)
+      const session = store.patchSession(params.id, patch, expectedRevision)
       if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
       sendJson(res, sessionWithoutHistory(session))
     } catch (err) {
       // A model pick outside the effective provider's catalog — refused, never normalized.
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   // Viewer presentation intent is UI form, not a workspace capability: it
   // changes how this browser/person lays out a readable conversation, never the
   // shared conversation or what a model/MCP caller can do within it.

@@ -4,16 +4,17 @@
  *  conversation store. Every host of the draft — the singleton surface today,
  *  a ConversationPane hosting the draft after the primary dissolves — drives
  *  materialization ONLY through here (one funnel, no fork). */
-import { createSession, keys, patchSession, peek, updateSessionContextState } from '../api'
+import { createSession, keys, peek, updateSessionContextState } from '../api'
 import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../../contract/index'
 import { rememberPanelPreference } from './panelPreferences'
 import { conversations } from './conversationStore'
 import { createDraftController } from './draftCore'
+import { enqueueSessionMetadataMutation } from './sessionMetadataMutations'
 
 export const draft = createDraftController({
   createSession,
   updateContextState: updateSessionContextState,
-  patchSession: (sessionId, patch) => patchSession(sessionId, patch),
+  patchSession: enqueueSessionMetadataMutation,
   setPanelPref: rememberPanelPreference,
   knownProviders: () => peek<ModelProvider[]>(keys.providers),
   defaultProviderId: DEFAULT_PROVIDER_ID,

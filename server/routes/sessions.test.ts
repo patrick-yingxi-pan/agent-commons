@@ -27,6 +27,61 @@ test('POST /sessions with no firstMessage falls back to a neutral title', async 
   assert.equal(create.json.title, 'New session')
 })
 
+test('session metadata PATCH refuses stale revisions and replays one logical retry', async () => {
+  const { json: created } = await call('POST', '/sessions', { firstMessage: 'revision target' })
+  assert.equal(created.metadataRevision, 0)
+
+  // Transcript activity is intentionally orthogonal to row metadata: a reply
+  // must not make a harmless rename look stale.
+  await callRaw('POST', `/sessions/${created.id}/messages`, { text: 'one turn first' })
+  const afterTurn = await call('GET', `/sessions/${created.id}`)
+  assert.equal(afterTurn.json.metadataRevision, 0)
+
+  const headers = { 'idempotency-key': `session-metadata-${created.id}` }
+  const renamed = await call('PATCH', `/sessions/${created.id}`, {
+    title: 'Revision-safe title',
+    expectedRevision: 0,
+  }, headers)
+  assert.equal(renamed.status, 200)
+  assert.equal(renamed.json.metadataRevision, 1)
+  assert.equal(renamed.json.messages, undefined, 'the acknowledgement stays transcript-bounded')
+
+  const replay = await call('PATCH', `/sessions/${created.id}`, {
+    title: 'Revision-safe title',
+    expectedRevision: 0,
+  }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.metadataRevision, 1, 'the same logical retry does not advance twice')
+
+  const stale = await call('PATCH', `/sessions/${created.id}`, {
+    pinned: true,
+    expectedRevision: 0,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.json.error.code, 'conflict')
+  assert.equal(store.getSession(created.id)?.pinned, undefined, 'a refused patch changes nothing')
+  assert.equal(store.getSession(created.id)?.metadataRevision, 1)
+
+  const current = await call('PATCH', `/sessions/${created.id}`, {
+    pinned: true,
+    expectedRevision: 1,
+  })
+  assert.equal(current.status, 200)
+  assert.equal(current.json.metadataRevision, 2)
+  assert.equal(current.json.pinned, true)
+})
+
+test('session metadata PATCH validates its precondition and preserves legacy unconditional writes', async () => {
+  const { json: created } = await call('POST', '/sessions', { firstMessage: 'legacy patch' })
+  const malformed = await call('PATCH', `/sessions/${created.id}`, { title: 'No', expectedRevision: -1 })
+  assert.equal(malformed.status, 400)
+  assert.equal(store.getSession(created.id)?.title, created.title)
+
+  const legacy = await call('PATCH', `/sessions/${created.id}`, { title: 'Legacy client title' })
+  assert.equal(legacy.status, 200)
+  assert.equal(legacy.json.metadataRevision, 1, 'an unconditional v1 write still advances canonical ordering')
+})
+
 test('a sent turn is persisted (user + assistant) and read back from the server', async () => {
   const { json: session } = await call('POST', '/sessions', { firstMessage: 'hello' })
   const before = (await call('GET', `/sessions/${session.id}`)).json.messages.length

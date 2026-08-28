@@ -32,9 +32,10 @@ import { DRAFT_ID } from '../data/liveSession'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { pathForView, viewForPath, type RoutedView } from '../lib/urlRoutes'
-import { deleteSession as deleteSessionCmd, loadSession, patchSession, onAccountSwitch } from '../api'
+import { deleteSession as deleteSessionCmd, loadSession, onAccountSwitch } from '../api'
 import { conversations } from './conversationStore'
 import { draft } from './draftController'
+import { enqueueSessionMetadataMutation } from './sessionMetadataMutations'
 import type { SectionId } from '../types'
 
 /** ── Boot address (src/lib/urlRoutes.ts) ─────────────────────────────────────
@@ -343,13 +344,13 @@ export function useSessionWorkspace(split?: {
   // feed. Delete's pane eviction (a pane hosting the removed session) is the
   // caller's concern — the tree is the split controller's.
   const pinSession = useCallback((id: string, pinned: boolean) => {
-    void patchSession(id, { pinned })
+    void enqueueSessionMetadataMutation(id, { pinned })
   }, [])
   const renameSession = useCallback((id: string, title: string) => {
-    void patchSession(id, { title })
+    void enqueueSessionMetadataMutation(id, { title })
   }, [])
   const archiveSession = useCallback((id: string, archived: boolean) => {
-    void patchSession(id, { status: archived ? 'archived' : 'active' })
+    void enqueueSessionMetadataMutation(id, { status: archived ? 'archived' : 'active' })
   }, [])
   const deleteSession = useCallback((id: string) => {
     void deleteSessionCmd(id)

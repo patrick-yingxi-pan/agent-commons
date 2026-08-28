@@ -14,13 +14,14 @@ import { EmptyState } from './EmptyState'
 import { AtomicResourcePage } from './ResourcePage'
 import type { MainPaneNav, PaneBackOut } from './MainSplit'
 import { navLocationOfLoc } from '../lib/paneHistory'
-import { useSessions, useSchedules, useProviders, compactSession, keys, patchSession, peek } from '../api'
+import { useSessions, useSchedules, useProviders, compactSession, keys, peek } from '../api'
 import { runSessionId } from '../../contract/ids.ts'
 import { pickedModel, pickedProvider, type ModelPick } from '../lib/models'
 import { loadModelPrefs } from '../lib/modelPrefs'
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { enqueueSessionMetadataMutation } from '../controller/sessionMetadataMutations'
 import { retryContextMutation } from '../controller/contextMutations'
 import { useSessionEscalation } from '../controller/useSessionEscalation'
 import { draft } from '../controller/draftController'
@@ -157,7 +158,7 @@ export function ConversationPane({
   const selectModel = useCallback(
     (pick: ModelPick) => {
       if (sessionId === DRAFT_ID) setDraftPick(pick)
-      else void patchSession(sessionId, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
+      else void enqueueSessionMetadataMutation(sessionId, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
     },
     [sessionId],
   )

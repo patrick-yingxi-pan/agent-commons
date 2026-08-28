@@ -453,7 +453,16 @@ composer quick list's fabricated green dot). Locked by
 ## Mutation truth — intent may wait; persisted state may not pretend
 
 Authority-bearing context and relation changes publish only after the server
-acknowledges them. A relation edit enters one account-scoped FIFO with one
+acknowledges them. Conversation row metadata follows the same truth rule: its
+server-owned revision is independent of transcript activity, every first-party
+edit carries the revision it read, and a stale cross-device write becomes a 409
+question instead of silently overwriting newer state. The global FIFO keeps one
+idempotency key across Retry, reconciles before rebasing, and exposes the held
+intent through one shell notice. The contract keeps an absent precondition as
+the explicit v1 legacy unconditional-write form; new first-party paths never use
+that escape hatch.
+
+A relation edit enters one account-scoped FIFO with one
 idempotency key for its logical lifetime: a failed head stays visible, later
 intent waits, Retry retransmits the same act, and Dismiss reconciles because a
 lost acknowledgement cannot prove the server did not commit. A full graph

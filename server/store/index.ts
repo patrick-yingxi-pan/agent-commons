@@ -50,6 +50,7 @@ import type {
   SessionContext,
   SessionContextOperation,
   SessionContextState,
+  SessionMetadataPatch,
   SessionPreferences,
   SessionWorkspace,
   ShareTier,
@@ -1483,6 +1484,7 @@ function sweepSessionModelPicks(): void {
     const provider = effectiveProviderOf(s)
     if (provider.kind !== 'session' && provider.models?.some((m) => m.id === s.modelId)) continue
     delete s.modelId
+    s.metadataRevision = (s.metadataRevision ?? 0) + 1
     emit({ type: 'session.updated', session: s })
   }
 }
@@ -1726,6 +1728,7 @@ function mintSession(
     environment: 'local',
     createdAt: now,
     updatedAt: now,
+    metadataRevision: 0,
   }
   // Agent sessions append (the sessions LIST excludes them — they surface through
   // the Scheduled rail/feed — so seed-list order must not shift under them);
@@ -2992,6 +2995,7 @@ export const store = {
       updatedAt: s.updatedAt,
       createdAt: s.createdAt,
       pinned: s.pinned,
+      metadataRevision: s.metadataRevision ?? 0,
       // The driving Agent (D16 current-driver binding) — the client resolves it to a
       // provider kind for the relay affordances ("Waiting on your session…", §7.8).
       agentId: s.agentId,
@@ -3716,6 +3720,7 @@ export const store = {
     for (const s of SESSIONS.filter((s) => s.providerId === id)) {
       delete s.providerId
       delete s.modelId // the model pick named the deleted provider's catalog — same cascade
+      s.metadataRevision = (s.metadataRevision ?? 0) + 1
       emit({ type: 'session.updated', session: s })
     }
     MODEL_PROVIDERS.delete(id)
@@ -4113,11 +4118,15 @@ export const store = {
     if (!WORKER_AGENTS.has(agentId)) {
       throw new ConflictError(`No agent '${agentId}' to hand off to — it may have been removed.`)
     }
+    const currentRevision = session.metadataRevision ?? 0
     session.agentId = agentId
     session.updatedAt = Date.now()
     // The hand-off may change the session's effective provider (the new Agent's
     // binding) — a held model pick whose namespace moved must clear with it.
     sweepSessionModelPicks()
+    // One user-level hand-off advances one revision even when the invariant
+    // sweep also had to clear this row's now-invalid model pick.
+    session.metadataRevision = currentRevision + 1
     emit({ type: 'session.updated', session })
     persist()
     return session
@@ -4128,10 +4137,17 @@ export const store = {
    *  `session.updated` so every client's list refreshes. */
   patchSession(
     id: string,
-    patch: { title?: string; status?: 'active' | 'archived'; pinned?: boolean; providerId?: string; modelId?: string },
+    patch: SessionMetadataPatch,
+    expectedRevision?: number,
   ): Session | undefined {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
+    const currentRevision = session.metadataRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This conversation changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     // Validate the model pick BEFORE anything mutates (a refused patch must change
     // nothing): it must name an entry in the catalog of the provider this patch
     // leaves the session on — the incoming providerId when the patch carries one,
@@ -4160,6 +4176,7 @@ export const store = {
       if (patch.modelId) session.modelId = patch.modelId
       else delete session.modelId
     }
+    session.metadataRevision = currentRevision + 1
     emit({ type: 'session.updated', session })
     persist()
     return session
@@ -7570,6 +7587,7 @@ export const store = {
         if (s.scheduledRunOf?.taskId !== task.id) continue
         s.title = patch.name
         s.scheduledRunOf = { ...s.scheduledRunOf, taskName: patch.name }
+        s.metadataRevision = (s.metadataRevision ?? 0) + 1
       }
     }
     if (patch.prompt !== undefined) task.prompt = patch.prompt

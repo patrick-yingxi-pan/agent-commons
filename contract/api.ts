@@ -13,10 +13,11 @@ export const API_VERSION = 'v1'
 
 /** Opt-in request header for safe retries of create-mutations (design F3 PD15). A
  *  client sets it to a unique value per logical operation; the backend records the
- *  first response for that (tenant, key) and replays it on any retry, so a
- *  double-submit or a retried-after-timeout request can't create a duplicate.
- *  Honoured on the non-streaming create routes (`POST /sessions`, `/dispatch`,
- *  `/schedules`, `/relations/ops`). */
+ *  first successful response for that (tenant, key) and replays it on any retry, so a
+ *  double-submit or a retried-after-timeout request can't create a duplicate or
+ *  advance a metadata revision twice. Honoured on the non-streaming create
+ *  routes (`POST /sessions`, `/dispatch`, `/schedules`, `/relations/ops`) and
+ *  revision-checked `PATCH /sessions/:id`. */
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 /** The path the UI talks to. Dev: Vite proxies `/api` → the mock server. Native:
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
@@ -92,6 +93,25 @@ export interface CreateSessionRequest {
    *  `modelId`. Must name an entry in the effective provider's catalog (refused
    *  otherwise); unset = inherit the provider's configured model. */
   modelId?: string
+}
+
+/** The shared row fields `PATCH /v1/sessions/:id` can change. Kept separate
+ * from the precondition so controllers can retain and rebase one user intent. */
+export interface SessionMetadataPatch {
+  title?: string
+  status?: 'active' | 'archived'
+  pinned?: boolean
+  providerId?: string
+  modelId?: string
+}
+
+/** Body of `PATCH /v1/sessions/:id`. A caller that supplies
+ * `expectedRevision` gets compare-and-swap semantics: a newer metadata edit is
+ * refused with 409 rather than overwritten. Absence preserves the v1 legacy
+ * unconditional-write meaning for older clients; first-party clients always
+ * send the revision they read. */
+export interface UpdateSessionRequest extends SessionMetadataPatch {
+  expectedRevision?: number
 }
 
 /** Body of `PATCH /v1/sessions/:id/preferences`. The property is required so

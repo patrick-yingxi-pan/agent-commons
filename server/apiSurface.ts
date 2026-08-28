@@ -75,7 +75,7 @@ export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, u
   ['POST /auth/token', { label: 'my MCP client' }],
   ['POST /sessions', { firstMessage: 'Draft a launch plan for the insights dashboard' }],
   ['POST /sessions/:id/messages', { text: 'Summarize what changed in this workspace since yesterday.' }],
-  ['PATCH /sessions/:id', { title: 'Launch planning', status: 'archived' }],
+  ['PATCH /sessions/:id', { title: 'Launch planning', status: 'archived', expectedRevision: 0 }],
   [
     'PATCH /sessions/:id/context-state',
     {

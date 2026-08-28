@@ -38,6 +38,7 @@ import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SyncHealthNotice } from './components/SyncHealthNotice'
 import { RelationMutationNotice } from './components/RelationMutationNotice'
+import { SessionMetadataMutationNotice } from './components/SessionMetadataMutationNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
@@ -530,6 +531,7 @@ function Workspace() {
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
       <SyncHealthNotice />
       <RelationMutationNotice />
+      <SessionMetadataMutationNotice />
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim
