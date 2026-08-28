@@ -10,11 +10,11 @@ import { call } from '../testkit/http.ts'
 // The seeded local runner grants fs.read/fs.write over ~/projects and terminal/process over *.
 // Every invoke now names a session + an attached context (the mediation handle): the broker
 // checks target ∈ context.scope, then the runtime checks the runner's host grant.
-before(async () => {
+before(() => {
   // `ctx-any` (scope '*') passes mediation so tests can exercise the grant / liveness
   // paths; `ctx-projects` (scope ~/projects) exercises mediation itself.
-  await call('POST', '/sessions/inv/contexts', { id: 'ctx-any', type: 'folder', label: 'any', scope: '*' })
-  await call('POST', '/sessions/inv/contexts', { id: 'ctx-projects', type: 'repo', label: 'projects', scope: '~/projects' })
+  store.attachContext('inv', { id: 'ctx-any', type: 'folder', label: 'any', scope: '*' })
+  store.attachContext('inv', { id: 'ctx-projects', type: 'repo', label: 'projects', scope: '~/projects' })
 })
 
 test('invoke within the context scope and host grant returns output', async () => {
@@ -72,7 +72,7 @@ test('a commission-scoped invoke is walled to the Project-admitted file scopes (
     id: 'runner-commissioned', label: 'C', host: 'h',
     capabilities: [{ type: 'fs.read', scopes: ['~/code'] }],
   })
-  await call('POST', '/sessions/cmsn/contexts', { id: 'ctx-code', type: 'folder', label: 'code', scope: '~/code' })
+  store.attachContext('cmsn', { id: 'ctx-code', type: 'folder', label: 'code', scope: '~/code' })
   const base = { sessionId: 'cmsn', contextId: 'ctx-code', capability: 'fs.read' as const }
   const id = 'commission-insights-default'
 
@@ -108,7 +108,7 @@ test('a reader commission may read but not fire a write on the invoke path (D14)
     id: 'runner-rw', label: 'RW', host: 'h',
     capabilities: [{ type: 'fs.write', scopes: ['~/code'] }, { type: 'fs.read', scopes: ['~/code'] }],
   })
-  await call('POST', '/sessions/role/contexts', { id: 'ctx-rw', type: 'folder', label: 'rw', scope: '~/code' })
+  store.attachContext('role', { id: 'ctx-rw', type: 'folder', label: 'rw', scope: '~/code' })
   const base = { sessionId: 'role', contextId: 'ctx-rw' }
   const target = '~/code/insights-web/x.ts' // within the reader's Project-admitted scope
 
@@ -195,8 +195,8 @@ test('invoke without sessionId/contextId is 400 bad_request (missing mediation h
 
 test('a non-monotonic write is escrow-blocked for a second session, freed on release', async () => {
   // Two sessions bound to the SAME shared resource id ('shared-res').
-  await call('POST', '/sessions/gX/contexts', { id: 'shared-res', type: 'repo', label: 'shared', scope: '*' })
-  await call('POST', '/sessions/gY/contexts', { id: 'shared-res', type: 'repo', label: 'shared', scope: '*' })
+  store.attachContext('gX', { id: 'shared-res', type: 'repo', label: 'shared', scope: '*' })
+  store.attachContext('gY', { id: 'shared-res', type: 'repo', label: 'shared', scope: '*' })
 
   // Session X writes — acquires + holds the resource.
   const wx = await call('POST', '/runners/runner-local/invoke', {
@@ -223,8 +223,8 @@ test('a non-monotonic write is escrow-blocked for a second session, freed on rel
 })
 
 test('a monotonic read is coordination-free — allowed while another session holds the write lock', async () => {
-  await call('POST', '/sessions/gP/contexts', { id: 'res-ro', type: 'repo', label: 'ro', scope: '*' })
-  await call('POST', '/sessions/gQ/contexts', { id: 'res-ro', type: 'repo', label: 'ro', scope: '*' })
+  store.attachContext('gP', { id: 'res-ro', type: 'repo', label: 'ro', scope: '*' })
+  store.attachContext('gQ', { id: 'res-ro', type: 'repo', label: 'ro', scope: '*' })
   // P holds the write lock on the resource.
   const wp = await call('POST', '/runners/runner-local/invoke', {
     sessionId: 'gP', contextId: 'res-ro', capability: 'fs.write', target: '~/projects/r.ts', args: { content: 'p' },
@@ -238,7 +238,7 @@ test('a monotonic read is coordination-free — allowed while another session ho
 })
 
 test('the same session may write a resource repeatedly (re-entrant)', async () => {
-  await call('POST', '/sessions/gR/contexts', { id: 'res-re', type: 'repo', label: 're', scope: '*' })
+  store.attachContext('gR', { id: 'res-re', type: 'repo', label: 're', scope: '*' })
   for (const content of ['a', 'b']) {
     const w = await call('POST', '/runners/runner-local/invoke', {
       sessionId: 'gR', contextId: 'res-re', capability: 'fs.write', target: '~/projects/re.ts', args: { content },
@@ -248,7 +248,7 @@ test('the same session may write a resource repeatedly (re-entrant)', async () =
 })
 
 test('a failed invoke does not release a session’s pre-existing explicit reservation', async () => {
-  await call('POST', '/sessions/gZ/contexts', { id: 'res-hold', type: 'repo', label: 'h', scope: '*' })
+  store.attachContext('gZ', { id: 'res-hold', type: 'repo', label: 'h', scope: '*' })
   // gZ holds the resource explicitly (e.g. across a consent gate).
   assert.equal((await call('POST', '/resources/res-hold/reserve', { holder: 'gZ' })).status, 200)
   // A non-monotonic invoke that FAILS at the host grant (target outside ~/projects).

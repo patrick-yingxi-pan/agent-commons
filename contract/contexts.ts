@@ -8,6 +8,11 @@ import type { FsSource } from './fs.ts'
 
 export type ContextTypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector' | 'mcp'
 
+/** Runtime twin of `ContextTypeId` for request validation. Keeping the closed
+ * set beside the union prevents a newly-added kind from being accepted by one
+ * backend door and refused by another. */
+export const CONTEXT_TYPE_IDS: readonly ContextTypeId[] = ['files', 'photos', 'folder', 'repo', 'connector', 'mcp']
+
 /** A set-up context's kind on the Contexts page. */
 export type SavedContextKind = 'connector' | 'mcp' | 'repo'
 

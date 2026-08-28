@@ -82,16 +82,18 @@ transitions), and WCAG-AA contrast (light-theme only, INV-1). Target WCAG 2.2 AA
   than crashing the workspace or entering an automatic reload loop.
 - **Lazy content** — panel bodies + images load on demand (image lazy-loading already
   in `PhotoThumb`); artifact bodies fetched per-open, cached.
-- **Optimistic writes** — the cache already supports optimistic updates; reconcile on
-  the server echo, roll back on error.
+- **Writes by risk** — low-risk presentation intent may paint optimistically and
+  reconcile on the server echo. Authorization-affecting context changes are
+  acknowledgement-gated instead: bindings + panels commit atomically, serialize per
+  session, and keep a failed head available for explicit retry.
 
 ### 2.6 Offline & error states
 
 SSE reconnect + epoch reset already exist (`src/api/events.ts`); production adds an
-**offline indicator**, queued optimistic writes that flush on reconnect (desktop is
+**offline indicator**, queued low-risk writes that flush on reconnect (desktop is
 fully offline-capable; web degrades gracefully), and per-query loading/error surfaces
-(the cache's `QueryState`). A failed mutation rolls back the optimistic state and
-surfaces a retry.
+(the cache's `QueryState`). A failed authorization-affecting context mutation leaves
+the acknowledged state in place and surfaces a retry.
 
 ## 3. Failure modes & edge cases
 

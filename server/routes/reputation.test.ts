@@ -32,7 +32,7 @@ test('a commissioned host invoke credits the Contributor on success (D13)', asyn
     id: 'runner-rep', label: 'Rep', host: 'h',
     capabilities: [{ type: 'fs.read', scopes: ['~/code'] }],
   })
-  await call('POST', '/sessions/rep/contexts', { id: 'ctx-rep', type: 'folder', label: 'code', scope: '~/code' })
+  store.attachContext('rep', { id: 'ctx-rep', type: 'folder', label: 'code', scope: '~/code' })
   const before = store.getAgent('agent-default').contributions ?? 0
 
   const ok = await call('POST', '/runners/runner-rep/invoke', {
@@ -48,7 +48,7 @@ test('a NON-commissioned (legacy single-tenant) invoke credits nobody', async ()
     id: 'runner-rep2', label: 'Rep2', host: 'h',
     capabilities: [{ type: 'fs.read', scopes: ['~/code'] }],
   })
-  await call('POST', '/sessions/rep2/contexts', { id: 'ctx-rep2', type: 'folder', label: 'code', scope: '~/code' })
+  store.attachContext('rep2', { id: 'ctx-rep2', type: 'folder', label: 'code', scope: '~/code' })
   const before = store.getAgent('agent-default').contributions ?? 0
 
   const ok = await call('POST', '/runners/runner-rep2/invoke', {

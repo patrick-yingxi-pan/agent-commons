@@ -6,7 +6,7 @@
  *  changes which panel opens (or lingers) on a context change. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { focusForAdded, focusValidIn, addContextToLive, EMPTY_LIVE, WS_ID, repoIdForLabel } from './liveSession.ts'
+import { detachOperationsForFocuses, focusForAdded, focusValidIn, addContextToLive, EMPTY_LIVE, WS_ID, repoIdForLabel } from './liveSession.ts'
 import type { AddedContext, PanelFocus } from '../types.ts'
 import type { Live } from './liveSession.ts'
 
@@ -57,4 +57,23 @@ test('focusValidIn: present contexts validate, absent ones do not — every pane
     { kind: 'photo', id: 'a2' },
   ]
   for (const f of no) assert.equal(focusValidIn(live, f), false, `${f.kind}:${f.id} is absent`)
+})
+
+test('removing a shared workspace detaches every source-folder binding, not only its panel id', () => {
+  const live = {
+    ...EMPTY_LIVE,
+    workspaces: [{
+      id: WS_ID,
+      label: 'Workspace',
+      artifacts: [
+        { id: 'a1', name: 'one', kind: 'doc', meta: '', source: { id: 'cloud::one', label: 'one/' } },
+        { id: 'a2', name: 'two', kind: 'doc', meta: '', source: { id: 'runner::two', label: 'two/' } },
+      ],
+    }],
+  } as unknown as Live
+  assert.deepEqual(detachOperationsForFocuses(live, [{ kind: 'workspace', id: WS_ID }]), [
+    { action: 'detach', contextId: WS_ID },
+    { action: 'detach', contextId: 'cloud::one' },
+    { action: 'detach', contextId: 'runner::two' },
+  ])
 })

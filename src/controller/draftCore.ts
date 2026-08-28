@@ -21,7 +21,7 @@
  *  What stays with the host: the draft's model-pick STATE (the composer
  *  renders it), handed in via `getPick` so the funnel reads dispatch-time and
  *  post-materialize values without owning the state. */
-import type { Session } from '../../contract/index'
+import type { Session, UpdateSessionContextStateRequest } from '../../contract/index'
 import type { AddedContext, PanelFocus } from '../types'
 import type { ModelPick } from '../lib/models'
 // Extension-qualified: this module is node-tested (src/controller/draft-core.test.ts),
@@ -46,8 +46,7 @@ import {
  *  the app, a fake in tests. */
 export interface DraftDeps {
   createSession: (firstMessage: string, providerId?: string, modelId?: string) => Promise<Session>
-  attachContext: (sessionId: string, binding: ReturnType<typeof bindingsFor>[number]) => Promise<unknown>
-  persistWorkspace: (sessionId: string, workspace: ReturnType<typeof workspaceOf>) => Promise<unknown>
+  updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest) => Promise<unknown>
   patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
   /** FWD-2: remember the draft's panel choice on the real session. */
   setPanelPref: (sessionId: string, focus: PanelFocus | null, ready?: Promise<unknown>) => void
@@ -219,10 +218,12 @@ export function createDraftController(deps: DraftDeps) {
     const draftModel = sanitizePick(getPick())
     const genAtDispatch = resetGen
     let sid: string = DRAFT_ID
+    let createdSession: Session | null = null
     try {
       const pending = materializing ?? deps.createSession(text, draftModel.providerId, draftModel.modelId)
       materializing = pending
       const created = await pending
+      createdSession = created
       sid = created.id
       // The draft was RESET while materializing (New session / a seed launch /
       // the root route): this send is orphaned — still land its turn on the
@@ -240,20 +241,20 @@ export function createDraftController(deps: DraftDeps) {
       // could have replaced the live state), keeping binding-of-record and
       // panels in lock-step.
       const seeded = pendingContexts
-      let panelReady: Promise<unknown> | undefined
       if (seeded.length) {
-        await Promise.all(seeded.flatMap((ctx) => bindingsFor(ctx).map((b) => deps.attachContext(sid, b).catch(() => {}))))
         const seededLive = seeded.reduce((l, ctx) => addContextToLive(l, ctx), EMPTY_LIVE)
-        // The panel queue waits behind this write because the server validates
-        // focus against the workspace. Generation need not: its tool boundary
-        // reads the bindings already awaited above.
-        panelReady = deps.persistWorkspace(sid, workspaceOf(seededLive)).catch(() => {})
+        await deps.updateContextState(sid, {
+          operations: seeded.flatMap((ctx) =>
+            bindingsFor(ctx).map((context) => ({ action: 'attach' as const, context })),
+          ),
+          workspace: workspaceOf(seededLive),
+        })
         pendingContexts = []
       }
       // Carry the draft's panel choice onto the real session (FWD-2): the
       // draft couldn't persist a pref (no server id), so an explicitly-closed
       // panel would otherwise be re-opened by strongestFocus on reopen.
-      deps.setPanelPref(sid, draftFocus, panelReady)
+      deps.setPanelPref(sid, draftFocus)
       // A model pick changed WHILE materializing went to the draft slot after
       // the capture above — flush it, sanitized the same way (a stale pref the
       // dispatch dropped must not re-PATCH and 404 every fresh-draft send).
@@ -269,7 +270,10 @@ export function createDraftController(deps: DraftDeps) {
     } catch {
       // Couldn't materialize (server unreachable) — stream against the draft
       // id; the reply still renders, it just isn't persisted.
-      materializing = null // let a retry re-materialize
+      // If session creation itself failed, retry the mint. If the session was
+      // created but its atomic context transaction failed, retain that row and
+      // retry against it — never mint a trail of blank duplicate sessions.
+      if (!createdSession) materializing = null
       sid = DRAFT_ID
     }
     await deps.store.sendTurn(sid, text)

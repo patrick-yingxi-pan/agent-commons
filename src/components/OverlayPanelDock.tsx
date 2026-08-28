@@ -8,12 +8,14 @@
 import { AnimatePresence } from 'framer-motion'
 import { conversations, useConversation } from '../controller/conversationStore'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { retryContextMutation } from '../controller/contextMutations'
 import { rememberPanelPreference } from '../controller/panelPreferences'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DRAFT_ID } from '../data/liveSession'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
 import { AttachmentPanel } from './AttachmentPanel'
+import { ContextMutationNotice } from './ContextMutationNotice'
 
 export function OverlayPanelDock({
   sessionId,
@@ -28,7 +30,7 @@ export function OverlayPanelDock({
 }
 
 function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow' }) {
-  const { live, focus } = useConversation(sessionId)
+  const { live, focus, contextMutation } = useConversation(sessionId)
   const { removeContexts, removeFolder } = useSessionContextCommands(sessionId)
 
   const closePanel = () => {
@@ -102,6 +104,13 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
             />
           )}
         </AnimatePresence>
+        {panelOpen && (
+          <ContextMutationNotice
+            state={contextMutation}
+            onRetry={() => retryContextMutation(sessionId)}
+            floating
+          />
+        )}
       </div>
     </>
   )

@@ -3,7 +3,8 @@
  *  Versioned so the UI can target one stable surface whether the backend is the
  *  local mock, a native sidecar, or a remote web server. */
 import type { RelationOp } from './relations.ts'
-import type { ContextStatus, ContextTypeId } from './contexts.ts'
+import type { ContextStatus, ContextTypeId, SessionContext } from './contexts.ts'
+import type { SessionWorkspace } from './entities.ts'
 import type { FsSource } from './fs.ts'
 import type { Identity } from './identity.ts'
 
@@ -99,9 +100,31 @@ export interface UpdateSessionPreferencesRequest {
   panelFocus: import('./entities.ts').PanelFocus | null
 }
 
-/** Body of `POST /v1/sessions/:id/contexts` — attach a context to a session (the
- *  attachment of record; see docs/shared-resource-coordination.md). The persisted
- *  binding is a `SessionContext`; `scope` defaults to `'*'` (unscoped) when omitted. */
+/** One binding edit inside the atomic session-context transaction. Detach is
+ * deliberately idempotent: a response can be lost after the server commits,
+ * and replaying the same transaction must remain safe. */
+export type SessionContextOperation =
+  | { action: 'attach'; context: AttachContextRequest }
+  | { action: 'detach'; contextId: string }
+
+/** Body of `PATCH /v1/sessions/:id/context-state`. The authorization bindings
+ * and the visible workspace are one invariant, so they cross the wire and
+ * commit together. `operations` is required (an empty list is allowed for an
+ * explicit workspace-only repair); `workspace` is always the complete next
+ * panel projection, never a partial merge. */
+export interface UpdateSessionContextStateRequest {
+  operations: SessionContextOperation[]
+  workspace: SessionWorkspace
+}
+
+/** Canonical acknowledgement of the atomic context transaction. */
+export interface SessionContextState {
+  contexts: SessionContext[]
+  workspace: SessionWorkspace
+}
+
+/** The attach half of a session context transaction. The persisted binding is
+ * a `SessionContext`; `scope` defaults to `'*'` (unscoped) when omitted. */
 export interface AttachContextRequest {
   id: string
   type: ContextTypeId

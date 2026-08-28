@@ -33,7 +33,7 @@ test('a freshly created session starts with an empty workspace', async () => {
   assert.deepEqual(json.workspace, { workspaces: [], repos: [], connectors: [], attachments: [] })
 })
 
-test('PATCH /sessions/:id/workspace persists the panels and reads them back', async () => {
+test('PATCH /sessions/:id/context-state persists the panels and reads them back', async () => {
   const { json: s } = await call('POST', '/sessions', { firstMessage: 'attach a repo here' })
   const workspace = {
     workspaces: [{ id: 'ws-active', label: 'launch/', artifacts: [{ id: 'a1', name: 'brief.md', kind: 'doc', meta: 'draft' }] }],
@@ -41,24 +41,24 @@ test('PATCH /sessions/:id/workspace persists the panels and reads them back', as
     connectors: [{ id: 'c1', label: 'GitHub', kind: 'github' }],
     attachments: [{ id: 'f1', label: 'logo.png', kind: 'photo' }],
   }
-  const patched = await call('PATCH', `/sessions/${s.id}/workspace`, workspace)
+  const patched = await call('PATCH', `/sessions/${s.id}/context-state`, { operations: [], workspace })
   assert.equal(patched.status, 200)
   assert.deepEqual(patched.json.workspace, workspace, 'the response carries the stored workspace')
-  assert.equal(patched.json.messages, undefined, 'a workspace mutation never echoes an unbounded transcript')
+  assert.equal(patched.json.messages, undefined, 'a context mutation never echoes an unbounded transcript')
 
   // It survives a re-read (the system of record) — a runtime attach persists.
   const reread = await call('GET', `/sessions/${s.id}`)
   assert.deepEqual(reread.json.workspace, workspace)
 })
 
-test('PATCH workspace rejects a malformed body and an unknown session', async () => {
+test('PATCH context-state rejects a malformed body and an unknown session', async () => {
   const { json: s } = await call('POST', '/sessions', {})
-  const bad = await call('PATCH', `/sessions/${s.id}/workspace`, { workspaces: [] })
+  const bad = await call('PATCH', `/sessions/${s.id}/context-state`, { operations: [], workspace: { workspaces: [] } })
   assert.equal(bad.status, 400)
   assert.equal(bad.json.error.code, 'bad_request')
 
-  const ghost = await call('PATCH', '/sessions/ghost-xyz/workspace', {
-    workspaces: [], repos: [], connectors: [], attachments: [],
+  const ghost = await call('PATCH', '/sessions/ghost-xyz/context-state', {
+    operations: [], workspace: { workspaces: [], repos: [], connectors: [], attachments: [] },
   })
   assert.equal(ghost.status, 404)
   assert.equal(ghost.json.error.code, 'not_found')

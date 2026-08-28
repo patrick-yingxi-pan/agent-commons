@@ -21,6 +21,7 @@ import { MessageRow, TypingRow } from './Message'
 import { Spinner } from './Spinner'
 import { CompactionAffordance } from './CompactionAffordance'
 import { TurnControls } from './TurnControls'
+import { ContextMutationNotice } from './ContextMutationNotice'
 import { EscalationPrompt } from './EscalationPrompt'
 import { estimateTokens } from '../../contract/index.ts'
 import { useAgents, useProviders, useSessions } from '../api'
@@ -30,6 +31,7 @@ import { messageWindow } from '../lib/messageWindow'
 import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
 import type { AddedContext, PanelFocus, UsageModelRef } from '../types'
+import type { ContextMutationStatus } from '../controller/conversationCore'
 
 const RELAY_WAIT = 'Waiting on your session…'
 
@@ -43,6 +45,7 @@ export function ConversationView({
   streaming,
   sendFailure,
   canRetry = false,
+  contextMutation,
   pendingApproval,
   history,
   onLoadEarlier,
@@ -50,6 +53,7 @@ export function ConversationView({
   onSend,
   onStop,
   onRetry,
+  onRetryContext,
   onCompact,
   modelPick,
   onSelectModel,
@@ -77,6 +81,8 @@ export function ConversationView({
   /** This client retained the failed logical send (including its key). A
    *  server-owned orphan after reload is derived from the final user row. */
   canRetry?: boolean
+  /** The serialized binding+workspace transaction state. */
+  contextMutation: ContextMutationStatus
   /** The held escalation, already projected for display (the one consent
    *  funnel — data/liveSession's approvalView). */
   pendingApproval: ReturnType<typeof approvalView> | null
@@ -88,6 +94,7 @@ export function ConversationView({
   onSend: (text: string) => void
   onStop: () => void
   onRetry: () => void
+  onRetryContext: () => void
   /** Absent = not compactable (a draft, or a host that can't persist). */
   onCompact?: () => Promise<void>
   modelPick?: ModelPick
@@ -313,6 +320,7 @@ export function ConversationView({
           turn streams; the in-place retry on an orphaned turn. */}
       {streaming && <TurnControls mode="streaming" onStop={onStop} onRetry={onRetry} />}
       {interrupted && <TurnControls mode="interrupted" reason={sendFailure} onStop={onStop} onRetry={onRetry} />}
+      <ContextMutationNotice state={contextMutation} onRetry={onRetryContext} />
 
       <Composer
         sessionId={sessionId}

@@ -70,12 +70,21 @@ test('removing a context from the session workspace prunes its durable focus to 
     connectors: [],
     attachments: [],
   }
-  assert.equal((await call('PATCH', `/sessions/${created.json.id}/workspace`, workspace)).status, 200)
+  assert.equal((await call('PATCH', `/sessions/${created.json.id}/context-state`, {
+    operations: [{
+      action: 'attach',
+      context: { id: 'repo-prune', type: 'repo', label: 'me/prune', scope: '*' },
+    }],
+    workspace,
+  })).status, 200)
   assert.equal((await call('PATCH', `/sessions/${created.json.id}/preferences`, {
     panelFocus: { kind: 'repo', id: 'repo-prune' },
   })).status, 200)
 
-  assert.equal((await call('PATCH', `/sessions/${created.json.id}/workspace`, { ...workspace, repos: [] })).status, 200)
+  assert.equal((await call('PATCH', `/sessions/${created.json.id}/context-state`, {
+    operations: [{ action: 'detach', contextId: 'repo-prune' }],
+    workspace: { ...workspace, repos: [] },
+  })).status, 200)
   const reread = await call('GET', `/sessions/${created.json.id}`)
   assert.deepEqual(reread.json.viewerPreferences, { panelFocus: null })
 })

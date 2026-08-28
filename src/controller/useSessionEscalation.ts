@@ -13,15 +13,13 @@
  *  resolves against, and the panel content — or a reload would silently drop
  *  what the user just consented to grow. */
 import { useCallback } from 'react'
-import { applyRelationOp, attachContext, persistWorkspace } from '../api'
+import { applyRelationOp } from '../api'
 import { conversations } from './conversationStore'
-import { rememberPanelPreference } from './panelPreferences'
+import { enqueueContextMutation } from './contextMutations'
 import {
-  DRAFT_ID,
   applyEscalationToLive,
   escalationBinding,
   folderLabel,
-  workspaceOf,
 } from '../data/liveSession'
 import type { PanelFocus } from '../types'
 
@@ -45,8 +43,6 @@ export function useSessionEscalation(
         })
       } else {
         const label = workspaceRoot ? folderLabel(workspaceRoot) : `${sessionLabel(sessionId)} files`
-        const next = applyEscalationToLive(conversations.get(sessionId).live, esc, label)
-        conversations.setLive(sessionId, next)
         // The escalation's payoff: the GROWN context's panel opens (the wide
         // tier tiles it beside the conversation; the overlay tiers dock it) —
         // and the choice is remembered (FWD-2).
@@ -56,13 +52,14 @@ export function useSessionEscalation(
             : esc.kind === 'repo'
               ? { kind: 'repo', id: 'repo-demo' }
               : null
-        if (grown) {
-          conversations.setFocus(sessionId, grown)
-        }
         const binding = escalationBinding(esc, label, workspaceRoot)
-        if (binding) void attachContext(sessionId, binding).catch(() => {})
-        const workspaceWrite = persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-        if (grown && sessionId !== DRAFT_ID) rememberPanelPreference(sessionId, grown, workspaceWrite)
+        enqueueContextMutation(sessionId, {
+          plan: (snapshot) => ({
+            live: applyEscalationToLive(snapshot.live, esc, label),
+            focus: grown ?? snapshot.focus,
+            operations: binding ? [{ action: 'attach', context: binding }] : [],
+          }),
+        })
       }
       conversations.patch(sessionId, { pendingEscalation: null })
     },

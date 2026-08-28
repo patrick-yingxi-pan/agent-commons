@@ -48,6 +48,8 @@ import type {
   ServerEvent,
   Session,
   SessionContext,
+  SessionContextOperation,
+  SessionContextState,
   SessionPreferences,
   SessionWorkspace,
   ShareTier,
@@ -3128,7 +3130,7 @@ export const store = {
   getSession(id: string): Session | undefined {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
-    return { ...session, workspace: this.sessionWorkspace(id) }
+    return { ...session, workspace: this.sessionWorkspace(id), contexts: this.sessionContexts(id) }
   },
   /** Confirm or decline a proposed connector *action* (P6 §2.1, PD43 — the consent gate
    *  for connector/MCP writes). A read runs at generation time; an action is surfaced as
@@ -4183,6 +4185,41 @@ export const store = {
     emit({ type: 'session.contexts.changed', sessionId, contexts: next })
     persist()
     return next
+  },
+  /** Commit the attachment-of-record and its visible workspace as one unit.
+   * Every operation is idempotent so a client may safely replay after losing
+   * the acknowledgement. Validation happens at the route boundary before this
+   * mutator touches either map; observers therefore see both new values or
+   * neither, and persistence snapshots them together. */
+  updateSessionContextState(
+    sessionId: string,
+    operations: SessionContextOperation[],
+    workspace: SessionWorkspace,
+  ): SessionContextState {
+    let contexts = sessionContextBindings.get(sessionId) ?? []
+    for (const operation of operations) {
+      if (operation.action === 'detach') {
+        contexts = contexts.filter((context) => context.id !== operation.contextId)
+        continue
+      }
+      const input = operation.context
+      const context: SessionContext = {
+        id: input.id,
+        type: input.type,
+        label: input.label,
+        scope: input.scope ?? '*',
+        ...(input.source ? { source: input.source } : {}),
+      }
+      contexts = [...contexts.filter((candidate) => candidate.id !== context.id), context]
+    }
+    sessionContextBindings.set(sessionId, contexts)
+    sessionWorkspaces.set(sessionId, workspace)
+    pruneSessionPreferences(sessionId, workspace)
+    emit({ type: 'session.contexts.changed', sessionId, contexts })
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (session) emit({ type: 'session.updated', session })
+    persist()
+    return { contexts, workspace }
   },
 
   // ── Dispatch ──

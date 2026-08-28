@@ -9,6 +9,7 @@ import type {
   RelationGraph,
   Repo,
   Session,
+  SessionContextOperation,
   Workspace,
 } from '../types'
 import { opAppliedInGraph } from '../../contract/graph.ts'
@@ -396,6 +397,21 @@ export function bucketFocuses(focuses: PanelFocus[]): {
 } {
   const ids = (kind: PanelFocus['kind']) => new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
   return { wsIds: ids('workspace'), repoIds: ids('repo'), connIds: ids('connector'), attIds: new Set([...ids('file'), ...ids('photo')]) }
+}
+
+/** Resolve visible panel targets back to their authorization bindings. A
+ * workspace panel may merge several source folders, whose binding ids are the
+ * source ids rather than the shared panel id; include both so seeded/escalated
+ * workspaces and multi-folder workspaces are each detached correctly. */
+export function detachOperationsForFocuses(live: Live, focuses: PanelFocus[]): SessionContextOperation[] {
+  const { wsIds, repoIds, connIds, attIds } = bucketFocuses(focuses)
+  const ids = new Set<string>([...repoIds, ...connIds, ...attIds])
+  for (const workspace of live.workspaces) {
+    if (!wsIds.has(workspace.id)) continue
+    ids.add(workspace.id)
+    for (const artifact of workspace.artifacts) if (artifact.source?.id) ids.add(artifact.source.id)
+  }
+  return [...ids].map((contextId) => ({ action: 'detach' as const, contextId }))
 }
 
 /** Remove one or more attached contexts in a single update (a repo + its orphaned

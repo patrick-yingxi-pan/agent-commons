@@ -127,13 +127,10 @@ test('an approved escalation on a real session persists BOTH facets, like a manu
   // live with the controllers).
   const funnel = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionEscalation.ts')))
   assert.match(funnel, /esc\.kind === 'project'/, 'project escalations take the relation-op path instead')
-  assert.match(funnel, /void attachContext\(sessionId, binding\)/, 'the binding-of-record is written')
-  assert.match(funnel, /workspaceWrite = persistWorkspace\(sessionId, workspaceOf\(next\)\)/, 'the panels write through')
-  assert.match(
-    funnel,
-    /rememberPanelPreference\(sessionId, grown, workspaceWrite\)/,
-    'the durable focus waits for the workspace that makes it valid',
-  )
+  assert.match(funnel, /enqueueContextMutation\(sessionId/, 'approval enters the serialized context queue')
+  assert.match(funnel, /live: applyEscalationToLive\(snapshot\.live, esc, label\)/, 'the visible panel is in the transaction plan')
+  assert.match(funnel, /operations: binding \? \[\{ action: 'attach', context: binding \}\]/, 'the binding-of-record is in that same plan')
+  assert.match(funnel, /focus: grown \?\? snapshot\.focus/, 'the grown panel opens only with the acknowledged plan')
   const pane = stripComments(read(join(ROOT, 'src', 'components', 'ConversationPane.tsx')))
   assert.match(pane, /useSessionEscalation\(sessionId, nav\.sessionLabel\)/, 'the pane approves through the funnel')
 })

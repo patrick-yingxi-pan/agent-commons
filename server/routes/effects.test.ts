@@ -2,13 +2,14 @@
  *  the effect-log read-through, and the outbox sync — through the real router. */
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
+import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
 
 // Effects are context-mediated (D5): each invoke names a session + an attached
 // context. A permissive context (scope '*') keeps these system-of-record tests
 // focused on journaling rather than on the mediation check.
-before(async () => {
-  await call('POST', '/sessions/seff/contexts', { id: 'cx-all', type: 'folder', label: 'all', scope: '*' })
+before(() => {
+  store.attachContext('seff', { id: 'cx-all', type: 'folder', label: 'all', scope: '*' })
 })
 
 test('invoke records an effect with a commandId and runnerSeq', async () => {

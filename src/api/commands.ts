@@ -6,7 +6,6 @@ import {
   applyGraphOp,
   emptyGraph,
   type ApplyOpRequest,
-  type AttachContextRequest,
   type CapabilityEffect,
   type CapabilityRequest,
   type Agent,
@@ -65,12 +64,12 @@ import {
   type SendMessageRequest,
   type SetConnectorStatusRequest,
   type Session,
-  type SessionContext,
+  type SessionContextState,
   type SessionPreferences,
-  type SessionWorkspace,
   type ToolActivity,
   type UpdateScheduleRequest,
   type UpdateSessionPreferencesRequest,
+  type UpdateSessionContextStateRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, invalidatePrefix, mutate, setData } from './cache.ts'
@@ -222,18 +221,20 @@ export function loadEarlierSession(id: string, cursor: string): Promise<Session>
   return apiGet<Session>(paths.session(id, { limit: MESSAGE_PAGE_SIZE, cursor }))
 }
 
-/** Write a session's live workspace through to the server — the panels it has
- *  grown (the *content* of its attached contexts), assembled by the controller
- *  from the server-owned context catalogs. The server is the system of record, so
- *  a runtime attach survives a reload / shows on another client. Fire-and-forget
- *  (the optimistic `live` is the panel's instant driver); invalidates the bounded
- *  session projection so ownership/read consumers reconcile. */
-export async function persistWorkspace(id: string, workspace: SessionWorkspace): Promise<void> {
-  await apiPatch<Session>(paths.sessionWorkspace(id), workspace)
-  // The open controller already carries the optimistic workspace. Re-read the
-  // bounded by-id projection instead of caching this mutation's legacy full
-  // Session response (which may contain an arbitrarily long message array).
+/** Commit a session's effect-mediation bindings and visible workspace through
+ * one atomic server transaction. The controller acknowledgement-gates its local
+ * projection and owns serialized retry; this door only transports the contract
+ * and refreshes the two read projections. */
+export async function updateSessionContextState(
+  id: string,
+  request: UpdateSessionContextStateRequest,
+): Promise<SessionContextState> {
+  const next = await apiPatch<SessionContextState>(paths.sessionContextState(id), request)
+  setData(keys.sessionContexts(id), next.contexts)
+  // The open controller lands the acknowledged workspace directly. Other
+  // readers reconcile through the bounded session projection / ambient event.
   invalidate(keys.session(id))
+  return next
 }
 
 /** Persist this viewer's panel intent. Presentation preferences are deliberately
@@ -1012,27 +1013,6 @@ export async function resolveMessageRelation(
   verdict: 'confirmed' | 'skipped',
 ): Promise<void> {
   await apiPost(paths.messageRelations(sessionId, messageId), { key, verdict })
-}
-
-// ── Session contexts (the attachment of record) ─────────────────────────────
-
-/** Attach a context to a session — the persisted binding every effect routed
- *  through this session is mediated against (Primitive 1 of
- *  docs/shared-resource-coordination.md). Returns the new list; the
- *  `session.contexts.changed` event reconciles any other client. */
-export async function attachContext(
-  sessionId: string,
-  context: AttachContextRequest,
-): Promise<SessionContext[]> {
-  const next = await apiPost<SessionContext[]>(paths.sessionContexts(sessionId), context)
-  setData(keys.sessionContexts(sessionId), next)
-  return next
-}
-
-/** Detach a context from a session. */
-export async function detachContext(sessionId: string, contextId: string): Promise<void> {
-  await apiDelete(paths.sessionContext(sessionId, contextId))
-  invalidate(keys.sessionContexts(sessionId))
 }
 
 // ── Saved contexts (the Contexts page) ──────────────────────────────────────

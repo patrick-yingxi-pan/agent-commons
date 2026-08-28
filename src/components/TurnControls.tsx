@@ -12,6 +12,7 @@
  *  One component for both so the two states can't drift apart visually — the
  *  same slot, the same shape, opposite verbs. */
 import { CircleStop, RotateCcw } from 'lucide-react'
+import { InlineOperationStatus } from './InlineOperationStatus'
 
 export function TurnControls({
   mode,
@@ -29,19 +30,14 @@ export function TurnControls({
 }) {
   const streaming = mode === 'streaming'
   return (
-    <div
-      role={streaming ? 'status' : 'alert'}
-      aria-live={streaming ? 'polite' : 'assertive'}
-      className="mb-2 flex items-center justify-center gap-2 text-[12px] text-ink-faint"
-    >
-      <span>{streaming ? 'Claude is writing…' : (reason ?? 'Generation was interrupted.')}</span>
-      <button
-        onClick={streaming ? onStop : onRetry}
-        className="flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 text-ink-soft transition hover:bg-panel-2 hover:text-ink"
-      >
-        {streaming ? <CircleStop size={12} /> : <RotateCcw size={12} />}
-        {streaming ? 'Stop' : 'Retry'}
-      </button>
-    </div>
+    <InlineOperationStatus
+      tone={streaming ? 'status' : 'alert'}
+      message={streaming ? 'Claude is writing…' : (reason ?? 'Generation was interrupted.')}
+      action={{
+        label: streaming ? 'Stop' : 'Retry',
+        icon: streaming ? <CircleStop size={12} /> : <RotateCcw size={12} />,
+        onClick: streaming ? onStop : onRetry,
+      }}
+    />
   )
 }

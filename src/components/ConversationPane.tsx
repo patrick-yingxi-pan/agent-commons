@@ -21,6 +21,7 @@ import { loadModelPrefs } from '../lib/modelPrefs'
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { retryContextMutation } from '../controller/contextMutations'
 import { useSessionEscalation } from '../controller/useSessionEscalation'
 import { draft } from '../controller/draftController'
 import { DRAFT_ID, approvalView } from '../data/liveSession'
@@ -191,6 +192,7 @@ export function ConversationPane({
         streaming={!!(conv.busy && conv.liveTurn)}
         sendFailure={conv.sendFailure}
         canRetry={conv.retryableSend !== null}
+        contextMutation={conv.contextMutation}
         pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
         history={conv.history}
         onLoadEarlier={isDraft ? undefined : conv.loadEarlier}
@@ -198,6 +200,7 @@ export function ConversationPane({
         onSend={isDraft ? sendDraft : (text) => void conversations.dispatchTurn(sessionId, text)}
         onStop={() => conversations.stop(sessionId)}
         onRetry={retry}
+        onRetryContext={() => retryContextMutation(sessionId)}
         onCompact={row ? compact : undefined}
         modelPick={modelPick}
         onSelectModel={isDraft || row ? selectModel : undefined}

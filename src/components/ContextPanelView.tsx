@@ -19,6 +19,8 @@ import { ConnectorPanel } from './ConnectorPanel'
 import { AttachmentPanel } from './AttachmentPanel'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { retryContextMutation } from '../controller/contextMutations'
+import { ContextMutationNotice } from './ContextMutationNotice'
 import { contextPaneId } from '../lib/mainSplit'
 import type { PaneContent } from '../lib/splitFrame'
 
@@ -44,7 +46,7 @@ export function ContextPanelView({
 }) {
   // Ensure the OWNING session's live is loaded (the pane's open recipe — guarded
   // and deduped, so it never stomps a conversation pane already showing it).
-  const { live, reconciled } = usePaneConversation(sessionId)
+  const { live, reconciled, contextMutation } = usePaneConversation(sessionId)
   const { removeContexts, removeFolder, removeAttachment } = useSessionContextCommands(sessionId)
 
   const body = (() => {
@@ -90,7 +92,7 @@ export function ContextPanelView({
 
   return (
     <PaneChromeContext.Provider value={EMBEDDED}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col" data-context-pane={contextPaneId(sessionId, panel)}>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-context-pane={contextPaneId(sessionId, panel)}>
         {/* A pane whose content was just detached (before the tree prunes it a
             frame later) shows a quiet placeholder rather than a blank pane. */}
         {body ?? (
@@ -98,6 +100,11 @@ export function ContextPanelView({
             This context is no longer attached.
           </div>
         )}
+        <ContextMutationNotice
+          state={contextMutation}
+          onRetry={() => retryContextMutation(sessionId)}
+          floating
+        />
       </div>
     </PaneChromeContext.Provider>
   )

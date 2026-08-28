@@ -282,12 +282,15 @@ Tiers **A–C** are the surface full mediation must cover; **D–E** largely don
 > What of this note is **built** in the repo now, vs. forward-looking. Each slice ships
 > with tests (`npm test`) and keeps `npm run typecheck` + `build` green.
 
-- **Primitive 1 — session↔context binding. ✅ Built (slice 5).** A server-owned,
-  persisted `SessionContext` per session — the *attachment of record*, replacing the
-  ephemeral client-side attach (`SessionContext` in
-  [`../contract/contexts.ts`](../contract/contexts.ts); `GET`/`POST /sessions/:id/contexts`,
-  `DELETE …/:contextId`; the `session.contexts.changed` event; `useSessionContexts` +
-  `attachContext`/`detachContext`). This is the object a guardian hangs off, and it fixes
+- **Primitive 1 — session↔context binding. ✅ Built (slice 5; atomic in the
+  production-readiness pass).** A server-owned, persisted `SessionContext` per
+  session — the *attachment of record*, replacing the ephemeral client-side
+  attach (`SessionContext` in [`../contract/contexts.ts`](../contract/contexts.ts);
+  `GET /sessions/:id/contexts`; atomic, idempotent
+  `PATCH /sessions/:id/context-state`; the `session.contexts.changed` event;
+  `useSessionContexts` + `updateSessionContextState`). The transaction commits the
+  mediation bindings and the visible workspace together; the former independent
+  POST/DELETE binding and PATCH workspace doors are retired. This is the object a guardian hangs off, and it fixes
   Tier B's structural root (attach is now a real, mediated write) while giving Tier C a
   referent.
 - **Primitive 2 — context handle on the effect path. ✅ Built (slice 6).**

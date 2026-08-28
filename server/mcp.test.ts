@@ -164,6 +164,11 @@ test('curated body examples: every key is a real mutation route, the spine is co
     200,
     'PATCH /sessions/:id example applies',
   )
+  assert.equal(
+    (await toolCall('patch_sessions_by_id_context_state', { id: sid, ...ex('PATCH /sessions/:id/context-state') }, seam)).status,
+    200,
+    'PATCH /sessions/:id/context-state example applies atomically',
+  )
 
   const contexts = await toolCall('get_saved_contexts', {}, seam)
   const ctxId = contexts.body.contexts[0].id
@@ -184,7 +189,7 @@ test('curated body examples: every key is a real mutation route, the spine is co
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 9, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 10, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

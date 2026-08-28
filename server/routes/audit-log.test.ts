@@ -39,7 +39,7 @@ test('runProjectEffect logs a fulfilled project-effect entry attributed to the C
 
 test('the host-invoke route logs a commissioned success and a D12-denied attempt', async () => {
   await call('POST', '/runners', { id: 'runner-audit', label: 'A', host: 'h', capabilities: [{ type: 'fs.read', scopes: ['~/code'] }] })
-  await call('POST', '/sessions/aud/contexts', { id: 'ctx-aud', type: 'folder', label: 'code', scope: '~/code' })
+  store.attachContext('aud', { id: 'ctx-aud', type: 'folder', label: 'code', scope: '~/code' })
   const base = { sessionId: 'aud', contextId: 'ctx-aud', capability: 'fs.read' as const, commissionId: 'commission-insights-default' }
 
   // In-reach commissioned success → a fulfilled host-invoke entry.
@@ -60,7 +60,7 @@ test('the host-invoke route logs a commissioned success and a D12-denied attempt
 
 test('a legacy (no-commission) invoke is NOT audited — it is not a cross-user channel', async () => {
   await call('POST', '/runners', { id: 'runner-audit2', label: 'A2', host: 'h', capabilities: [{ type: 'fs.read', scopes: ['~/code'] }] })
-  await call('POST', '/sessions/aud2/contexts', { id: 'ctx-aud2', type: 'folder', label: 'code', scope: '~/code' })
+  store.attachContext('aud2', { id: 'ctx-aud2', type: 'folder', label: 'code', scope: '~/code' })
   const before = store.listAuditLog().length
   await call('POST', '/runners/runner-audit2/invoke', { sessionId: 'aud2', contextId: 'ctx-aud2', capability: 'fs.read', target: '~/code/insights-web/main.ts' })
   assert.equal(store.listAuditLog().length, before, 'no commissionId ⇒ no audit entry')

@@ -3,7 +3,6 @@
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import type {
   ApplyOpRequest,
-  AttachContextRequest,
   Message,
   ReplyStreamEvent,
   CreateCommissionRequest,
@@ -42,9 +41,10 @@ import type {
   SetConnectorStatusRequest,
   UpdateScheduleRequest,
   UpdateSessionPreferencesRequest,
+  UpdateSessionContextStateRequest,
   OpsSummary,
 } from '../../contract/index.ts'
-import { SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
+import { CONTEXT_TYPE_IDS, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -2899,44 +2899,47 @@ export function buildRouter(): Router {
   // Attach/detach broadcast `session.contexts.changed`.
   r.aliasGet('/sessions/:id/contexts', 'GET /sessions/:id', 'session context is already projected as part of the session detail shown in the UI', ({ req, res, params }) => {
     if (denyForeignSession(req, res, params.id)) return
+    if (!store.getSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
     sendJson(res, store.sessionContexts(params.id))
   })
-  r.post('/sessions/:id/contexts', async ({ req, res, params, body }) => {
+  // One mutation door for both halves of attached context: the authorization
+  // bindings every effect is mediated against and the workspace users can see.
+  // The old independent POST/DELETE context + PATCH workspace doors allowed a
+  // request failure to commit only one half; this complete-state transaction is
+  // deliberately idempotent so a lost acknowledgement can be retried safely.
+  r.patch('/sessions/:id/context-state', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
-    const input = await body<AttachContextRequest>()
-    if (!input?.id || !input?.type || !input?.label) {
-      return sendError(res, 'bad_request', 'id, type, and label are required')
+    const input = await body<UpdateSessionContextStateRequest>()
+    const ws = input?.workspace
+    if (!input || !Array.isArray(input.operations)) {
+      return sendError(res, 'bad_request', 'operations and workspace are required')
     }
-    sendJson(res, store.attachContext(params.id, {
-      id: input.id,
-      type: input.type,
-      label: input.label,
-      scope: input.scope ?? '*',
-      source: input.source,
-    }))
-  })
-  r.delete('/sessions/:id/contexts/:contextId', ({ req, res, params }) => {
-    if (denyForeignSession(req, res, params.id)) return
-    const next = store.detachContext(params.id, params.contextId)
-    if (!next) return sendError(res, 'not_found', `No context '${params.contextId}' on session '${params.id}'`)
-    sendJson(res, next)
-  })
-
-  // The session's live workspace — its panels (workspaces / repos / connectors /
-  // attachments). Server-owned so a runtime attach survives a reload, the way the
-  // conversation does. The client write-throughs the merged panels it assembled
-  // from the (server-owned) context catalogs; the server stores them as the system
-  // of record and returns the changed session projection without its transcript.
-  // Broadcasts `session.updated`.
-  r.patch('/sessions/:id/workspace', async ({ req, res, params, body }) => {
-    if (denyForeignSession(req, res, params.id)) return
-    const ws = await body<import('../../contract/index.ts').SessionWorkspace>()
     if (!ws || !Array.isArray(ws.workspaces) || !Array.isArray(ws.repos) || !Array.isArray(ws.connectors) || !Array.isArray(ws.attachments)) {
       return sendError(res, 'bad_request', 'workspaces, repos, connectors, and attachments arrays are required')
     }
     if (!store.getSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
-    store.setSessionWorkspace(params.id, ws)
-    sendJson(res, sessionWithoutHistory(store.getSession(params.id)!))
+    for (const operation of input.operations) {
+      if (!operation || (operation.action !== 'attach' && operation.action !== 'detach')) {
+        return sendError(res, 'bad_request', 'each operation must attach or detach')
+      }
+      if (operation.action === 'detach') {
+        if (typeof operation.contextId !== 'string' || operation.contextId.length === 0) {
+          return sendError(res, 'bad_request', 'detach contextId is required')
+        }
+        continue
+      }
+      const context = operation.context
+      if (
+        !context ||
+        typeof context.id !== 'string' || context.id.length === 0 ||
+        typeof context.label !== 'string' || context.label.length === 0 ||
+        !CONTEXT_TYPE_IDS.includes(context.type) ||
+        (context.scope !== undefined && typeof context.scope !== 'string')
+      ) {
+        return sendError(res, 'bad_request', 'attach context requires a valid id, type, label, and optional scope')
+      }
+    }
+    sendJson(res, store.updateSessionContextState(params.id, input.operations, ws))
   })
 
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic

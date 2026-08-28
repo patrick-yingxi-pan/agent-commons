@@ -284,9 +284,7 @@ export const paths = {
   },
   sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`,
   sessionContexts: (id: string) => `/sessions/${encodeURIComponent(id)}/contexts`,
-  sessionContext: (id: string, contextId: string) =>
-    `/sessions/${encodeURIComponent(id)}/contexts/${encodeURIComponent(contextId)}`,
-  sessionWorkspace: (id: string) => `/sessions/${encodeURIComponent(id)}/workspace`,
+  sessionContextState: (id: string) => `/sessions/${encodeURIComponent(id)}/context-state`,
   sessionPreferences: (id: string) => `/sessions/${encodeURIComponent(id)}/preferences`,
   toolActivity: (id: string, activityId: string) =>
     `/sessions/${encodeURIComponent(id)}/tool-activities/${encodeURIComponent(activityId)}`,

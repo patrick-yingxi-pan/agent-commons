@@ -65,6 +65,15 @@ export interface RetryableSend {
   turnId?: string
 }
 
+/** Delivery state for the session's authorization-affecting context queue.
+ * Context mutations are acknowledged before their panels land locally; a
+ * failed head remains retryable and later intents wait behind it. */
+export interface ContextMutationStatus {
+  busy: boolean
+  error: string | null
+  retryable: boolean
+}
+
 /** One session's conversation state — everything a pane needs to render a
  *  thread and its composer affordances. */
 export interface ConversationState {
@@ -79,6 +88,7 @@ export interface ConversationState {
    * logical operation. A reload can still retry the server-owned final user row
    * through `retryLastUser`, but naturally has no prior transport key. */
   retryableSend: RetryableSend | null
+  contextMutation: ContextMutationStatus
   pendingEscalation: PendingEscalation | null
   history: ConversationHistory
   /** Which attached context this session's right panel is showing (null = closed).
@@ -137,6 +147,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     liveTurn: null,
     sendFailure: null,
     retryableSend: null,
+    contextMutation: { busy: false, error: null, retryable: false },
     pendingEscalation: null,
     history: { olderTokens: 0, loading: false, error: null },
     focus: null,

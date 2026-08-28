@@ -75,17 +75,17 @@ test("a relation card's attach-context op attaches to ITS OWN session (no root b
 
 test('the shared attach funnel opens the panel; every remove funnel clears a dangling focus', () => {
   const cmds = stripComments(read(join(ROOT, 'src', 'controller', 'useSessionContextCommands.ts')))
-  assert.match(cmds, /focusForAdded\(ctx, next\)/, 'attach derives the panel to open (you see what you added)')
-  assert.match(cmds, /workspaceWrite = persistWorkspace\(sessionId, workspaceOf\(next\)\)/, 'the attached panel writes through')
-  assert.match(
-    cmds,
-    /rememberPanelPreference\(sessionId, f, workspaceWrite\)/,
-    'the opened panel is remembered only after its workspace becomes valid (FWD-2)',
-  )
-  // All three remove commands run the dangling-focus guard.
-  const clears = cmds.split('clearDanglingFocus(sessionId, next)').length - 1
+  assert.match(cmds, /focusForAdded\(ctx, live\)/, 'attach derives the panel to open (you see what you added)')
+  assert.match(cmds, /operations: bindingsFor\(ctx\)\.map/, 'binding edits ride the same atomic plan as the panel')
+  // All three remove commands run the dangling-focus guard before their plan commits.
+  const clears = cmds.split('!focusValidIn(live, snapshot.focus)').length - 1
   assert.equal(clears, 3, 'removeContexts, removeFolder and removeAttachment all clear a dangling focus')
-  assert.match(cmds, /focusValidIn\(next, focus\)/, 'the guard is the shared pure rule')
+  const commit = stripComments(read(join(ROOT, 'src', 'controller', 'contextMutations.ts')))
+  assert.match(
+    commit,
+    /if \(decision\.remember\) rememberPanelPreference\(sessionId, decision\.focus\)/,
+    'the acknowledgement-derived focus is remembered without overwriting a later user choice (FWD-2)',
+  )
 })
 
 test('the notification-door focus target is PER PANE — only the landing pane sees it', () => {

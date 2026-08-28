@@ -4,6 +4,7 @@
  *  backend, which seeds the co-located `runner-local` mapped to `sample-runner-host/`. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
 
 test('GET /fs/sources includes the seeded runner', async () => {
@@ -36,13 +37,12 @@ test('an unknown / offline runner source 404s', async () => {
 test('mediated invoke: fs.read on the runner returns REAL host bytes + journals the effect', async () => {
   // Attach a folder context (scope = the runner's granted root) so the effect can
   // be mediated through it (D5), then invoke a read within that scope.
-  const attach = await call('POST', '/sessions/auth-refactor/contexts', {
+  store.attachContext('auth-refactor', {
     id: 'ctx-runner-fs',
     type: 'folder',
     label: 'projects',
     scope: '~/projects',
   })
-  assert.equal(attach.status, 200)
 
   const r = await call('POST', '/runners/runner-local/invoke', {
     sessionId: 'auth-refactor',
@@ -62,7 +62,7 @@ test('mediated invoke: fs.read on the runner returns REAL host bytes + journals 
 })
 
 test('mediated invoke: fs.list (the new monotonic capability) lists a real host directory + journals', async () => {
-  await call('POST', '/sessions/auth-refactor/contexts', {
+  store.attachContext('auth-refactor', {
     id: 'ctx-runner-list',
     type: 'folder',
     label: 'projects',
@@ -85,7 +85,7 @@ test('mediated invoke: fs.list (the new monotonic capability) lists a real host 
 })
 
 test('context mediation still bounds the effect: a target outside the context scope is forbidden', async () => {
-  await call('POST', '/sessions/auth-refactor/contexts', {
+  store.attachContext('auth-refactor', {
     id: 'ctx-runner-fs2',
     type: 'folder',
     label: 'projects',

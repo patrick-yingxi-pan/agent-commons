@@ -15,26 +15,28 @@ import type { PanelFocus } from '../types.ts'
 const session = (id: string): Session => ({ id, title: 'T', updatedAt: '', preview: '' }) as unknown as Session
 
 /** Scripted deps + a call log so ORDER is assertable. */
-function fakeDeps(opts?: { failCreate?: boolean }) {
+function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   const log: string[] = []
   const focuses = new Map<string, PanelFocus | null>()
   const lives = new Map<string, Live>()
   const prefs: Array<{ id: string; focus: PanelFocus | null }> = []
   const patches: Array<{ id: string; providerId: string; modelId: string }> = []
   let created = 0
+  let contextAttempts = 0
+  const contextRequests: Array<{ sid: string; operations: number }> = []
   const deps: DraftDeps = {
     createSession: (text) => {
       created += 1
       log.push(`create:${text}`)
       return opts?.failCreate ? Promise.reject(new Error('unreachable')) : Promise.resolve(session(`real-${created}`))
     },
-    attachContext: (sid, b) => {
-      log.push(`attach:${sid}:${(b as { kind?: string }).kind ?? '?'}`)
-      return Promise.resolve()
-    },
-    persistWorkspace: (sid) => {
-      log.push(`persist:${sid}`)
-      return Promise.resolve()
+    updateContextState: (sid, request) => {
+      contextAttempts += 1
+      contextRequests.push({ sid, operations: request.operations.length })
+      log.push(`context:${sid}:${request.operations.length}`)
+      return opts?.failContextOnce && contextAttempts === 1
+        ? Promise.reject(new Error('context unavailable'))
+        : Promise.resolve()
     },
     patchSession: (sid, p) => {
       patches.push({ id: sid, ...p })
@@ -62,7 +64,7 @@ function fakeDeps(opts?: { failCreate?: boolean }) {
       },
     },
   }
-  return { deps, log, prefs, patches, focuses, createdCount: () => created }
+  return { deps, log, prefs, patches, focuses, contextRequests, createdCount: () => created }
 }
 
 test('first send materializes, adopts, then streams under the real id — in that order', async () => {
@@ -112,35 +114,33 @@ test('FWD-1 seeds flush BEFORE the turn streams (P6: tools derive from server-si
   const draft = createDraftController(deps)
   draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
   await draft.sendDraftTurn('go', () => ({}))
-  const attachAt = log.findIndex((l) => l.startsWith('attach:real-1'))
+  const attachAt = log.findIndex((l) => l.startsWith('context:real-1'))
   const sendAt = log.findIndex((l) => l.startsWith('send:real-1'))
   assert.ok(attachAt !== -1, 'the buffered context was attached to the real session')
   assert.ok(attachAt < sendAt, 'binding lands BEFORE the turn streams')
   // A second send has nothing left to flush (the buffer cleared).
   await draft.sendDraftTurn('again', () => ({}))
-  assert.equal(log.filter((l) => l.startsWith('attach:')).length, 1)
+  assert.equal(log.filter((l) => l.startsWith('context:')).length, 1)
 })
 
-test('draft generation does not wait for workspace paint, while panel persistence does', async () => {
+test('draft generation waits for the atomic binding + workspace acknowledgement', async () => {
   const { deps, log } = fakeDeps()
-  let releaseWorkspace!: () => void
-  const workspaceWrite = new Promise<void>((resolve) => { releaseWorkspace = resolve })
-  deps.persistWorkspace = (sid) => {
-    log.push(`persist:${sid}`)
-    return workspaceWrite
+  let releaseContext!: () => void
+  const contextWrite = new Promise<void>((resolve) => { releaseContext = resolve })
+  deps.updateContextState = (sid, request) => {
+    log.push(`context:${sid}:${request.operations.length}`)
+    return contextWrite
   }
-  let panelBarrier: Promise<unknown> | undefined
-  deps.setPanelPref = (_sid, _focus, ready) => { panelBarrier = ready }
   const draft = createDraftController(deps)
   draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
 
   const sending = draft.sendDraftTurn('go', () => ({}))
   await new Promise<void>((resolve) => setTimeout(resolve, 0))
-  assert.ok(log.includes('send:real-1:go'), 'tool-ready generation is not delayed by a presentation write')
-  assert.ok(panelBarrier, 'the panel write receives the still-pending workspace prerequisite')
+  assert.equal(log.includes('send:real-1:go'), false, 'generation cannot outrun its authorization binding')
 
-  releaseWorkspace()
+  releaseContext()
   await sending
+  assert.ok(log.includes('send:real-1:go'), 'the turn streams after both context facets commit')
 })
 
 test('clearBuffer abandons staged contexts (navigating away from the draft)', async () => {
@@ -149,7 +149,7 @@ test('clearBuffer abandons staged contexts (navigating away from the draft)', as
   draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
   draft.clearBuffer()
   await draft.sendDraftTurn('go', () => ({}))
-  assert.equal(log.some((l) => l.startsWith('attach:')), false, 'nothing flushed onto the new session')
+  assert.equal(log.some((l) => l.startsWith('context:')), false, 'nothing flushed onto the new session')
 })
 
 test('the draft panel choice carries onto the real session (FWD-2), read from the STORE focus', async () => {
@@ -187,15 +187,27 @@ test('unreachable server: the turn streams against the draft id, and a retry re-
   assert.equal(log.filter((l) => l.startsWith('create:')).length, 2)
 })
 
+test('a failed context transaction retries against the already-created session instead of minting a duplicate', async () => {
+  const { deps, log, createdCount } = fakeDeps({ failContextOnce: true })
+  const draft = createDraftController(deps)
+  draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.ok(log.includes(`send:${DRAFT_ID}:go`), 'the first attempt degrades without lying about durability')
+  await draft.sendDraftTurn('retry', () => ({}))
+  assert.equal(createdCount(), 1, 'retry reuses the materialized server row')
+  assert.equal(log.filter((line) => line.startsWith('context:real-1')).length, 2, 'the idempotent transaction retries')
+  assert.ok(log.includes('send:real-1:retry'), 'the recovered turn streams from the durable session')
+})
+
 test('addSeed STACKS onto a fresh seeded draft (several picks build ONE thread) and all flush on send', async () => {
   const { deps, log } = fakeDeps()
   const draft = createDraftController(deps)
   draft.addSeed({ kind: 'repo', label: 'acme/api' } as never) // fresh blank → reset+seed
   draft.addSeed({ kind: 'connector', connector: { id: 'c1', kind: 'connector', name: 'Slack' } } as never) // stacks
   await draft.sendDraftTurn('go', () => ({}))
-  const attaches = log.filter((l) => l.startsWith('attach:real-1'))
-  assert.equal(attaches.length >= 2, true, `both seeds flushed before the turn (${attaches.join(', ')})`)
-  assert.ok(log.indexOf(attaches[0]!) < log.indexOf('send:real-1:go'), 'flush precedes the stream')
+  const transaction = log.find((l) => l === 'context:real-1:2')
+  assert.ok(transaction, 'both seeds flush in one atomic transaction')
+  assert.ok(log.indexOf(transaction) < log.indexOf('send:real-1:go'), 'flush precedes the stream')
 })
 
 test('reset seeds the draft entry and opens the seed panel; blank reset closes it', () => {
@@ -223,7 +235,7 @@ test('attach (the composer semantic) STACKS and never resets — a mid-thread dr
   assert.ok(!log.some((l) => l.startsWith('reset:')), 'attach never routes through reset')
   // …and the attach buffered, so it flushes onto the materialized session.
   await draft.sendDraftTurn('go', () => ({}))
-  assert.ok(log.some((l) => l.startsWith('attach:real-1')), 'the attach flushed at materialization')
+  assert.ok(log.some((l) => l.startsWith('context:real-1')), 'the attach flushed at materialization')
 })
 
 test('removeContexts purges the FWD-1 buffer — a removed chip never re-attaches at materialization', async () => {
@@ -235,7 +247,7 @@ test('removeContexts purges the FWD-1 buffer — a removed chip never re-attache
   assert.equal(deps.store.get(DRAFT_ID).live.connectors.length, 0, 'the chip is gone from the live')
   assert.equal(focuses.get(DRAFT_ID), null, 'the dangling panel cleared (focusValidIn)')
   await draft.sendDraftTurn('go', () => ({}))
-  assert.equal(log.some((l) => l.startsWith('attach:')), false, 'nothing stale flushed onto the real session')
+  assert.equal(log.some((l) => l.startsWith('context:')), false, 'nothing stale flushed onto the real session')
 })
 
 test('removeFolder purges exactly the removed folder seed; other seeds still flush', async () => {
@@ -249,6 +261,5 @@ test('removeFolder purges exactly the removed folder seed; other seeds still flu
   draft.attach({ kind: 'connector', connector: { id: 'c1', kind: 'connector', name: 'Slack' } } as never)
   draft.removeFolder('src-docs')
   await draft.sendDraftTurn('go', () => ({}))
-  const attaches = log.filter((l) => l.startsWith('attach:real-1'))
-  assert.equal(attaches.length, 1, 'only the surviving connector seed flushed')
+  assert.deepEqual(log.filter((l) => l.startsWith('context:real-1')), ['context:real-1:1'], 'only the surviving connector seed flushed')
 })

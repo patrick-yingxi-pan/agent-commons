@@ -9,6 +9,8 @@
 
 /** Capability is conversation state, not application identity. A conversation
  *  may carry chat, workspace, and repository capability at the same time. */
+import type { SessionContext } from './contexts.ts'
+
 export type Capability = 'chat' | 'workspace' | 'repo'
 
 /** An account-resource root in the rail. Each opens as an equal main-workspace
@@ -416,6 +418,9 @@ export interface Session {
   /** The live, server-owned workspace (runtime attaches persist here). Populated
    *  by the backend on read; the flat seed fields below seed it. */
   workspace?: SessionWorkspace
+  /** The effect-mediation bindings behind that workspace. By-id reads project
+   * both facets; list rows omit them. */
+  contexts?: SessionContext[]
   artifacts?: Artifact[]
   files?: FileNode[]
   diff?: DiffLine[]

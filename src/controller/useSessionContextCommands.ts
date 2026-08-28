@@ -3,10 +3,9 @@
  *  change a session's context — a conversation pane's composer (add context,
  *  remove a chip / folder), a context-panel pane's remove affordances
  *  (disconnect a connector, drop an attachment / folder), and a relation card's
- *  confirmed attach-context op alike. Each command is the exact building block
- *  the pre-split controller composed: the persistent binding-of-record
- *  (Primitive 1) written through, the optimistic `live` as the instant driver,
- *  and the workspace persisted so a runtime change survives a reload. A pane
+ *  confirmed attach-context op alike. Every command enters the per-session FIFO
+ *  and commits the binding-of-record + visible workspace through one atomic
+ *  server mutation before projecting it locally. A pane
  *  session is always real, so there is no draft-buffering branch (a DRAFT
  *  host routes to the draft funnel instead — draft.addSeed).
  *  One hook, so the mapping can't fork per host (the "one door" rule).
@@ -19,20 +18,17 @@
  *     removed (focusValidIn) — an open panel never dangles on a detached
  *     context. */
 import { useCallback } from 'react'
-import { attachContext, detachContext, persistWorkspace } from '../api'
-import { conversations } from './conversationStore'
 import { rememberAttached } from '../lib/contextShortcuts'
-import { rememberPanelPreference } from './panelPreferences'
+import { enqueueContextMutation } from './contextMutations'
 import {
   addContextToLive,
   bindingsFor,
+  detachOperationsForFocuses,
   focusForAdded,
   focusValidIn,
   removeAttachmentFromLive,
   removeContextsFromLive,
   removeFolderFromLive,
-  workspaceOf,
-  type Live,
 } from '../data/liveSession'
 import type { AddedContext, PanelFocus } from '../types'
 
@@ -43,69 +39,65 @@ export interface SessionContextCommands {
   removeAttachment: (attId: string) => void
 }
 
-/** Post-remove guard: a focus pointing at a context no longer in `next` clears
- *  (and the cleared state is remembered, FWD-2 — reopening must not resurrect
- *  a panel whose subject is gone). The draft funnel applies the same RULE
- *  (focusValidIn — the one shared source) in its own `reconcileFocus`; the
- *  appliers stay separate deliberately: draftCore is pure/dependency-injected
- *  and a draft has no panel pref to remember, so unifying them would couple
- *  the pure core to app modules for a four-line wrapper. */
-function clearDanglingFocus(sessionId: string, next: Live) {
-  const focus = conversations.get(sessionId).focus
-  if (focus && !focusValidIn(next, focus)) {
-    conversations.setFocus(sessionId, null)
-    rememberPanelPreference(sessionId, null)
-  }
-}
-
 export function useSessionContextCommands(sessionId: string): SessionContextCommands {
   const addContext = useCallback(
     (ctx: AddedContext) => {
-      rememberAttached(ctx)
-      for (const b of bindingsFor(ctx)) void attachContext(sessionId, b).catch(() => {})
-      const next = addContextToLive(conversations.get(sessionId).live, ctx)
-      conversations.setLive(sessionId, next)
-      const workspaceWrite = persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-      // Open the newly attached context's panel so you see what you added —
-      // and remember it (FWD-2). The wide tier tiles it beside the
-      // conversation (the focus projection); the overlay tiers dock it.
-      const f = focusForAdded(ctx, next)
-      if (f) {
-        conversations.setFocus(sessionId, f)
-        rememberPanelPreference(sessionId, f, workspaceWrite)
-      }
+      enqueueContextMutation(sessionId, {
+        plan: (snapshot) => {
+          const live = addContextToLive(snapshot.live, ctx)
+          return {
+            live,
+            focus: focusForAdded(ctx, live) ?? snapshot.focus,
+            operations: bindingsFor(ctx).map((context) => ({ action: 'attach' as const, context })),
+          }
+        },
+        afterCommit: () => rememberAttached(ctx),
+      })
     },
     [sessionId],
   )
   const removeContexts = useCallback(
     (focuses: PanelFocus[]) => {
-      for (const f of focuses) void detachContext(sessionId, f.id).catch(() => {})
-      const next = removeContextsFromLive(conversations.get(sessionId).live, focuses)
-      conversations.setLive(sessionId, next)
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-      clearDanglingFocus(sessionId, next)
+      enqueueContextMutation(sessionId, {
+        plan: (snapshot) => {
+          const live = removeContextsFromLive(snapshot.live, focuses)
+          return {
+            live,
+            focus: snapshot.focus && !focusValidIn(live, snapshot.focus) ? null : snapshot.focus,
+            operations: detachOperationsForFocuses(snapshot.live, focuses),
+          }
+        },
+      })
     },
     [sessionId],
   )
   const removeFolder = useCallback(
     (sourceId: string) => {
-      // Detach this folder's own binding-of-record — keyed by its source id, the
-      // same id attach used — so it goes away even when other folders remain.
-      void detachContext(sessionId, sourceId).catch(() => {})
-      const next = removeFolderFromLive(conversations.get(sessionId).live, sourceId)
-      conversations.setLive(sessionId, next)
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-      clearDanglingFocus(sessionId, next)
+      enqueueContextMutation(sessionId, {
+        plan: (snapshot) => {
+          const live = removeFolderFromLive(snapshot.live, sourceId)
+          return {
+            live,
+            focus: snapshot.focus && !focusValidIn(live, snapshot.focus) ? null : snapshot.focus,
+            operations: [{ action: 'detach', contextId: sourceId }],
+          }
+        },
+      })
     },
     [sessionId],
   )
   const removeAttachment = useCallback(
     (attId: string) => {
-      void detachContext(sessionId, attId).catch(() => {})
-      const next = removeAttachmentFromLive(conversations.get(sessionId).live, attId)
-      conversations.setLive(sessionId, next)
-      void persistWorkspace(sessionId, workspaceOf(next)).catch(() => {})
-      clearDanglingFocus(sessionId, next)
+      enqueueContextMutation(sessionId, {
+        plan: (snapshot) => {
+          const live = removeAttachmentFromLive(snapshot.live, attId)
+          return {
+            live,
+            focus: snapshot.focus && !focusValidIn(live, snapshot.focus) ? null : snapshot.focus,
+            operations: [{ action: 'detach', contextId: attId }],
+          }
+        },
+      })
     },
     [sessionId],
   )

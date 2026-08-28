@@ -76,6 +76,20 @@ export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, u
   ['POST /sessions', { firstMessage: 'Draft a launch plan for the insights dashboard' }],
   ['POST /sessions/:id/messages', { text: 'Summarize what changed in this workspace since yesterday.' }],
   ['PATCH /sessions/:id', { title: 'Launch planning', status: 'archived' }],
+  [
+    'PATCH /sessions/:id/context-state',
+    {
+      operations: [
+        { action: 'attach', context: { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' } },
+      ],
+      workspace: {
+        workspaces: [],
+        repos: [],
+        connectors: [{ id: 'conn-slack', label: 'Slack', kind: 'connector' }],
+        attachments: [],
+      },
+    },
+  ],
   ['PATCH /saved-contexts/:id', { status: 'connected' }],
   ['PATCH /schedules/:id', { enabled: false }],
   [
