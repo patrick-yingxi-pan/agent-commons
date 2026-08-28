@@ -22,6 +22,10 @@ Both deployments the architecture commits to, sharing one contract:
 - **Remote web** — the same UI over a **multi-tenant web server** (many users/orgs,
   isolation, scale, runners connecting from elsewhere).
 
+**Delivery order (PD74): desktop first, web service later.** The next production
+milestone is the native desktop deployment. Web-only scale and anonymous-public
+work do not outrank the local capability loop yet, but remote and multi-tenant
+contract tests remain required so desktop progress cannot create a later rewrite.
 Each design doc calls out what is shared vs deployment-specific.
 
 ## How to read it (progressive disclosure)

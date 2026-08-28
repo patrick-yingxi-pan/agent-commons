@@ -53,6 +53,21 @@ snapshot of prod-shaped data, and are reversible-by-compensation where feasible.
 
 ### 2.5 Deployment topology
 
+**Delivery sequence (PD74): desktop first, web service later.** The first
+production milestone is the native desktop topology. Its acceptance path is a
+bundled, updateable shell + sidecar; forward-only SQLite migrations; OS-keychain
+secrets; atomic app-data storage with export/restore; co-located runner/MCP
+lifecycle; and crash/update recovery that preserves acknowledged work. These are
+the near-term deployment priorities because they make the local files/git/tool
+workflow real end to end.
+
+The hosted multi-tenant service follows by replacing topology adapters with
+Postgres, object storage, pub/sub, KMS and OIDC—not by replacing the UI, contract,
+domain model, consent rules, or mutation semantics. Remote-backend tenancy and
+access-parity suites therefore stay mandatory throughout desktop work. Web-only
+horizontal scaling, anonymous indexing/CDN policy, and service billing/abuse
+operations remain designed but do not displace the desktop milestone.
+
 - **Desktop** — one bundled artifact: the app shell + the sidecar (Node) + embedded
   SQLite + a co-located runner; the model call goes out to the Anthropic API (or a
   configured gateway). Loopback-bound (INV-3). Updates ship the migration.
@@ -99,7 +114,9 @@ DB/object-store region per tenant (web). Audit storage is tamper-evident (F5).
 
 ## 6. Open questions & decisions
 
-See [`DECISIONS.md`](DECISIONS.md): **PD28** (Postgres on web / embedded SQLite on
+See [`DECISIONS.md`](DECISIONS.md): **PD74** (desktop is the first production
+release target; hosted multi-tenant web follows without a product/contract fork),
+**PD28** (Postgres on web / embedded SQLite on
 desktop, forward-only migrations), **PD29** (S3-compatible object storage, content-
 addressed, per-tenant prefix, short-lived signed URLs, lifecycle-expired), **PD30**
 (stateless autoscaled web API; sticky only for the reply stream; desktop = one bundled
