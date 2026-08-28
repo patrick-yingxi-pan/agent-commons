@@ -6,18 +6,20 @@ export function InlineOperationStatus({
   message,
   leading,
   action,
+  secondaryAction,
 }: {
   tone: 'status' | 'alert'
   message: string
   leading?: ReactNode
   action?: { label: string; icon?: ReactNode; onClick: () => void }
+  secondaryAction?: { label: string; icon?: ReactNode; onClick: () => void }
 }) {
   return (
     <div
       role={tone}
       aria-live={tone === 'status' ? 'polite' : 'assertive'}
       aria-atomic="true"
-      className="mb-2 flex items-center justify-center gap-2 px-3 text-center text-[12px] text-ink-faint"
+      className="mb-2 flex flex-wrap items-center justify-center gap-2 px-3 text-center text-[12px] text-ink-faint"
     >
       <span className="inline-flex min-w-0 items-center gap-1.5">
         {leading}
@@ -31,6 +33,16 @@ export function InlineOperationStatus({
         >
           {action.icon}
           {action.label}
+        </button>
+      )}
+      {secondaryAction && (
+        <button
+          type="button"
+          onClick={secondaryAction.onClick}
+          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+        >
+          {secondaryAction.icon}
+          {secondaryAction.label}
         </button>
       )}
     </div>

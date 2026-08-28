@@ -3,8 +3,6 @@
  *  Phase 3 starts with the streaming send — the one command whose response is
  *  itself a stream (the assistant turn), mirroring the Anthropic Messages API. */
 import {
-  applyGraphOp,
-  emptyGraph,
   type ApplyOpRequest,
   type CapabilityEffect,
   type CapabilityRequest,
@@ -72,12 +70,12 @@ import {
   type UpdateSessionContextStateRequest,
 } from '../../contract/index.ts'
 import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
-import { invalidate, invalidatePrefix, mutate, setData } from './cache.ts'
+import { invalidate, invalidatePrefix, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
-import { OPTIMISTIC_ID_PREFIX } from './ids.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { readReplyEvents } from './replyStream.ts'
+import { shouldAcceptRelationGraph } from './relationRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -247,27 +245,29 @@ export function patchSessionPreferences(
   return apiPatch<SessionPreferences>(paths.sessionPreferences(id), request)
 }
 
-let optSeq = 0
+/** Send one relation edit without projecting it. The controller serializes
+ * these calls and retains `idempotencyKey` across an uncertain retry; only its
+ * acknowledgement path may publish the returned full graph. */
+export function applyRelationOp(op: RelationOp, idempotencyKey: string): Promise<RelationGraph> {
+  const body: ApplyOpRequest = { op }
+  return apiPost<RelationGraph>(paths.relationOps, body, { idempotencyKey })
+}
 
-/** Apply a confirmed relation edit. Optimistically patches the cached graph so
- *  the card flips instantly, then reconciles with the server's authoritative
- *  graph (which also broadcasts the change to other clients). `attach-context`
- *  is a live-session effect, not a graph edit, and is handled by the caller. */
-export async function applyRelationOp(op: RelationOp): Promise<void> {
-  mutate<RelationGraph>(keys.relations, (g) =>
-    applyGraphOp(g ?? emptyGraph(), op, () => `${OPTIMISTIC_ID_PREFIX}${(optSeq += 1)}`, Date.now()),
-  )
-  try {
-    const body: ApplyOpRequest = { op }
-    const updated = await apiPost<RelationGraph>(paths.relationOps, body)
+/** Project an acknowledged relation mutation without letting an older full
+ * response roll back a newer graph already obtained through ambient sync. */
+export function acceptRelationOp(op: RelationOp, updated: RelationGraph): void {
+  if (shouldAcceptRelationGraph(peek<RelationGraph>(keys.relations), updated)) {
     setData(keys.relations, updated)
-    // An Agent Commons CRUD op edits a registry, not the graph (the patch above was a
-    // no-op for it) — refresh the registry caches the Agents hub reads.
-    invalidateForCommonsOp(op)
-  } catch {
-    // The POST failed — drop the optimistic patch by re-reading the server truth.
-    invalidate(keys.relations)
   }
+  // Agent Commons CRUD ops edit registries rather than graph slices.
+  invalidateForCommonsOp(op)
+}
+
+/** Re-read after a discarded/uncertain relation mutation. The server may have
+ * committed even when the acknowledgement was lost. */
+export function reconcileRelationOp(op: RelationOp): void {
+  invalidate(keys.relations)
+  invalidateForCommonsOp(op)
 }
 
 // ── Scheduled routines ──────────────────────────────────────────────────────
@@ -1004,8 +1004,8 @@ export async function compactSession(sessionId: string): Promise<Session> {
 
 /** Record the user's verdict on one proposed relation edit (the consent card's
  *  confirm / "not now") on the message that carried it — server-owned, so the
- *  card's resolution survives reloads and later superseding ops. Fire-and-forget
- *  shape: the card flips optimistically; the session push reconciles. */
+ *  card's resolution survives reloads and later superseding ops. The controller
+ *  waits for this acknowledgement before showing the card as resolved. */
 export async function resolveMessageRelation(
   sessionId: string,
   messageId: string,

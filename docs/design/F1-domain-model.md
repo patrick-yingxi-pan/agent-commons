@@ -63,11 +63,13 @@ relationship in the platform catalog is a **typed edge**, enforced by FKs and un
 | `standingApprovals` | `standing_approval(schedule_id, op_key, granted_by, granted_at)` rows |
 
 The pure reducer `applyGraphOp` (`contract/graph.ts`) is **kept**, but its role
-changes: it remains the client-side optimistic projection and the *validation* of a
-proposed op, while the server applies the confirmed op as a **transaction** over these
-tables (and emits `relation.applied`). The contract `RelationGraph` shape becomes a
-**read projection** assembled from the edges for the UI cache — type-identity (PORT-1)
-is preserved; only the storage behind it normalizes.
+changes: it validates/projects a proposed op inside the authoritative transaction and
+remains a deterministic domain oracle for pure callers. The client does not turn that
+projection into persisted truth before acknowledgement. The server applies the
+confirmed op as a **transaction** over these tables (and emits `relation.applied`). The
+contract `RelationGraph` shape becomes a monotonic-versioned **read projection**
+assembled from the edges for the UI cache — type-identity (PORT-1) is preserved; only
+the storage behind it normalizes.
 
 ### 2.3 Derived / projected (not system of record)
 

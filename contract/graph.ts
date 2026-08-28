@@ -2,8 +2,8 @@
  *  The relationship graph (RelationGraph) is the editable join-state between the
  *  five entities. This module is the single source of truth for how it's seeded
  *  and how a confirmed `RelationOp` changes it — used by BOTH the server (the
- *  canonical apply, which persists + broadcasts) and the client (an optimistic
- *  apply, so a confirmed card feels instant). One reducer, two callers. */
+ *  canonical apply, which persists + broadcasts) and pure client projections /
+ *  tests. The live client publishes only acknowledged edits. */
 import type { RelationGraph } from './api.ts'
 import type { ArtifactItem, Project, ScheduledTask } from './cowork.ts'
 import { artifactFromDraft, opKey, type RelationOp } from './relations.ts'
@@ -11,6 +11,7 @@ import { artifactFromDraft, opKey, type RelationOp } from './relations.ts'
 /** A graph with every slice empty. */
 export function emptyGraph(): RelationGraph {
   return {
+    revision: 0,
     sessionProject: {},
     artifactProject: {},
     scheduleProject: {},
@@ -49,8 +50,8 @@ export function seedGraph(
 /** Apply a confirmed op to the graph, returning a NEW graph (immutable). The
  *  `attach-context` op isn't a graph edit (it attaches to the live session), so
  *  it leaves the graph unchanged here; the caller handles that side effect.
- *  `mintArtifactId` lets the server mint a stable id while the client uses a
- *  temporary one (replaced when the server's authoritative graph comes back).
+ *  `mintArtifactId` lets the server mint a stable id while pure callers inject
+ *  deterministic ids.
  *  `now` (epoch ms) stamps the edit time of a freshly-saved artifact — injected,
  *  not read here, so the reducer stays pure; callers pass `Date.now()` and tests
  *  a fixed value (the default 0 is a deterministic sentinel for the ops that

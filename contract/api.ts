@@ -184,6 +184,10 @@ export interface UpdateScheduleRequest {
  *  then mutated by confirmed ops. The client reads through this instead of
  *  re-deriving from frozen consts. */
 export interface RelationGraph {
+  /** Monotonic server-owned revision. Clients use it to reject an older full
+   * mutation response that arrives after a newer ambient refetch. Optional only
+   * for wire compatibility with pre-revision snapshots/backends. */
+  revision?: number
   /** session id → project id (or null when explicitly unfiled). */
   sessionProject: Record<string, string | null>
   /** artifact id → project id (overrides the seed). */

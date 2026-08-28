@@ -35,7 +35,13 @@ export class AccountSwitchedError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export interface ApiMutationOptions {
+  /** One key per logical mutation. A caller that retries after an uncertain
+   * acknowledgement reuses it so an idempotent route can replay, not reapply. */
+  idempotencyKey?: string
+}
+
+async function request<T>(method: string, path: string, body?: unknown, options: ApiMutationOptions = {}): Promise<T> {
   // Staleness fence (multi-account §6.2): identity rides the session cookie
   // (P6 — the browser attaches it; nothing to inject here); the generation
   // captured HERE decides, after the await, whether the world this response
@@ -46,7 +52,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   try {
     res = await fetch(`${API_BASE}${path}`, {
       method,
-      headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+      headers:
+        body !== undefined || options.idempotencyKey
+          ? {
+              ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+              ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+            }
+          : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     })
   } catch (err) {
@@ -74,9 +86,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const apiGet = <T>(path: string) => request<T>('GET', path)
-export const apiPost = <T>(path: string, body?: unknown) => request<T>('POST', path, body)
-export const apiPatch = <T>(path: string, body?: unknown) => request<T>('PATCH', path, body)
-export const apiDelete = <T>(path: string, body?: unknown) => request<T>('DELETE', path, body)
+export const apiPost = <T>(path: string, body?: unknown, options?: ApiMutationOptions) => request<T>('POST', path, body, options)
+export const apiPatch = <T>(path: string, body?: unknown, options?: ApiMutationOptions) => request<T>('PATCH', path, body, options)
+export const apiDelete = <T>(path: string, body?: unknown, options?: ApiMutationOptions) => request<T>('DELETE', path, body, options)
 
 /** Absolute URL for a raw-bytes endpoint (a served image / binary), to use as an
  *  `<img src>` — the browser fetches it through the same proxy the API uses. Bytes

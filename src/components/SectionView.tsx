@@ -229,7 +229,6 @@ import {
 import {
   addScheduleFromSeed,
   createDispatch,
-  isOptimisticId,
   removeSchedule,
   runScheduleNow,
   addSavedContext,
@@ -747,6 +746,7 @@ function ProjectsSection({
   // synchronized views, never the old independent page-sort / rail-facet split.
   const [filter] = useSectionFilter('projects')
   const [creating, setCreating] = useState(false)
+  const [creatingProject, setCreatingProject] = useState(false)
   const rel = useRelations()
   const projectsQ = useProjects()
   const relationsQ = useRelationGraph()
@@ -761,21 +761,26 @@ function ProjectsSection({
 
   // Create a project from the dialog: mint a unique id (across seed + created
   // ones, so a duplicate name can't re-file into an existing project), apply the
-  // sessionless create-project op (optimistic + persisted + broadcast), then open
-  // the new project — it's already in `projects` via the optimistic graph patch.
+  // sessionless create-project op, then open only after the server acknowledges
+  // it. The dialog stays put across failure so a missing project never flashes.
   // `ownerTenantId` (FWD-6 O-D4): undefined = the caller's own namespace (the
   // fixed absence, INV-9); an org id = the picker's explicit, validated choice.
   const createProject = (name: string, description: string, ownerTenantId?: string) => {
+    if (creatingProject) return
     const id = uniqueProjectId(name, new Set(projects.map((p) => p.id)))
-    rel.applyOp({
+    setCreatingProject(true)
+    void rel.applyOp({
       kind: 'create-project',
       projectId: id,
       projectName: name,
       projectDescription: description,
       ...(ownerTenantId ? { ownerTenantId } : {}),
+    }).then((outcome) => {
+      setCreatingProject(false)
+      if (outcome !== 'applied') return
+      setCreating(false)
+      onOpenProject(id)
     })
-    setCreating(false)
-    onOpenProject(id)
   }
 
   const open = projectId ? (projects.find((p) => p.id === projectId) ?? null) : null
@@ -894,7 +899,15 @@ function ProjectsSection({
           />
         )}
       />
-      {creating && <NewProjectDialog orgs={myOrgs} onCreate={createProject} onClose={() => setCreating(false)} />}
+      {creating && (
+        <NewProjectDialog
+          orgs={myOrgs}
+          busy={creatingProject}
+          waitingForRecovery={creatingProject && !!rel.mutation.error}
+          onCreate={createProject}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </CompositeResourcePage>
   )
 }
@@ -931,10 +944,14 @@ function uniqueProjectId(name: string, taken: Set<string>): string {
  *  orgs (the request carries the concrete, validated id). */
 function NewProjectDialog({
   orgs,
+  busy,
+  waitingForRecovery,
   onCreate,
   onClose,
 }: {
   orgs: MyOrg[]
+  busy: boolean
+  waitingForRecovery: boolean
   onCreate: (name: string, description: string, ownerTenantId?: string) => void
   onClose: () => void
 }) {
@@ -942,7 +959,7 @@ function NewProjectDialog({
   const [description, setDescription] = useState('')
   const [owner, setOwner] = useState('') // '' = You (the person namespace)
 
-  const canCreate = name.trim().length > 0
+  const canCreate = name.trim().length > 0 && !busy
   const submit = () => {
     if (canCreate) onCreate(name.trim(), description.trim(), owner || undefined)
   }
@@ -951,15 +968,17 @@ function NewProjectDialog({
     <FormDialog
       title="New project"
       icon={<Box size={18} className="text-cap-workspace" />}
-      submitLabel="Create project"
+      submitLabel={waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : 'Create project'}
       submitIcon={<Plus size={15} />}
       canSubmit={canCreate}
       onSubmit={submit}
-      onClose={onClose}
+      onClose={busy ? () => {} : onClose}
+      busy={busy}
     >
       <FormField label="Name">
         <input
           value={name}
+          disabled={busy}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit()
@@ -978,6 +997,7 @@ function NewProjectDialog({
       <FormField label="Description" optional>
         <textarea
           value={description}
+          disabled={busy}
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
           placeholder="What is this project, and how does one contribute? (public — every viewer reads this)"
@@ -989,6 +1009,7 @@ function NewProjectDialog({
           <select
             aria-label="Project owner"
             value={owner}
+            disabled={busy}
             onChange={(e) => setOwner(e.target.value)}
             className={FORM_INPUT_CLASS}
           >
@@ -1093,8 +1114,8 @@ function ProjectDetail({
   // relation graph; delete destroys the routine globally.
   const createSchedule = async (tpl: ScheduleTemplate) => {
     const task = await addScheduleFromSeed(tpl.seed)
-    linkSchedule(task)
-    rel.navigate('scheduled', task.id)
+    const outcome = await linkSchedule(task)
+    if (outcome === 'applied') rel.navigate('scheduled', task.id)
   }
   const linkSchedule = (task: ScheduledTask) =>
     rel.applyOp({ kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId: project.id, projectName: project.name })
@@ -1120,7 +1141,7 @@ function ProjectDetail({
 
   // The permission split (shared-surface UI model): this ONE page serves owner and
   // visitor alike — what changes is which affordances exist, never the location.
-  // `own !== false` covers seeds/optimistic rows the projection hasn't stamped yet.
+  // `own !== false` covers legacy/seed rows whose projection predates the stamp.
   const own = project.own !== false
   const selectedSection = projectSection(sectionId)
   const sectionAllowed = selectedSection?.visibility !== 'owner' || own
@@ -1608,6 +1629,7 @@ function ProjectAbout({
   // what hub search matches. One read, one value, everywhere.
   const current = project.description
   const [draft, setDraft] = useState(current)
+  const [saving, setSaving] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   // The draft is seeded when the EDITOR opens, not when this mounts: the verb
   // that opens it is a page away now, so "on mount" would capture a stale value
@@ -1619,13 +1641,17 @@ function ProjectAbout({
   }, [editing, current])
   if (!current && !own) return null
   const save = () => {
-    rel.applyOp({
+    if (saving) return
+    setSaving(true)
+    void rel.applyOp({
       kind: 'set-project-description',
       projectId: project.id,
       projectName: project.name,
       description: draft.trim(),
+    }).then((outcome) => {
+      setSaving(false)
+      if (outcome === 'applied') onDone()
     })
-    onDone()
   }
   return (
     <div>
@@ -1638,6 +1664,7 @@ function ProjectAbout({
           <textarea
             ref={taRef}
             value={draft}
+            disabled={saving}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') onDone()
@@ -1651,16 +1678,18 @@ function ProjectAbout({
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
               onClick={onDone}
+              disabled={saving}
               className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink"
             >
               Cancel
             </button>
             <button
               onClick={save}
+              disabled={saving}
               className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
             >
               <Check size={13} />
-              Save
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -1690,6 +1719,7 @@ function ProjectInstructions({ project }: { project: Project }) {
   const current = rel.instructionsForProject(project.id) ?? project.instructions
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(current)
+  const [saving, setSaving] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   const startEdit = () => {
@@ -1697,13 +1727,17 @@ function ProjectInstructions({ project }: { project: Project }) {
     setEditing(true)
   }
   const save = () => {
-    rel.applyOp({
+    if (saving) return
+    setSaving(true)
+    void rel.applyOp({
       kind: 'set-project-instructions',
       projectId: project.id,
       projectName: project.name,
       instructions: draft.trim(),
+    }).then((outcome) => {
+      setSaving(false)
+      if (outcome === 'applied') setEditing(false)
     })
-    setEditing(false)
   }
 
   useEffect(() => {
@@ -1730,6 +1764,7 @@ function ProjectInstructions({ project }: { project: Project }) {
           <textarea
             ref={taRef}
             value={draft}
+            disabled={saving}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setEditing(false)
@@ -1742,16 +1777,18 @@ function ProjectInstructions({ project }: { project: Project }) {
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
               onClick={() => setEditing(false)}
+              disabled={saving}
               className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink"
             >
               Cancel
             </button>
             <button
               onClick={save}
+              disabled={saving}
               className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
             >
               <Check size={13} />
-              Save
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
@@ -6638,6 +6675,7 @@ function ArtifactsSection({
 }) {
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
+  const [creatingArtifact, setCreatingArtifact] = useState(false)
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
   const artifactsQ = useArtifacts()
@@ -6692,25 +6730,27 @@ function ArtifactsSection({
 
   // Create an artifact straight from the index (no session): a sessionless
   // save-artifact op, optionally filed under a project. Server-owned + persisted
-  // via the same /relations/ops path; not auto-opened because the server mints
-  // its id (the optimistic id would be replaced on reconcile).
+  // via the same /relations/ops path. The dialog closes only after the server
+  // acknowledges the stable id-bearing graph snapshot.
   const createArtifact = (draft: { name: string; kind: ArtifactKind; excerpt: string }, projectId: string | null) => {
+    if (creatingArtifact) return
     const project = projectId ? projects.find((p) => p.id === projectId) : undefined
-    rel.applyOp({
+    setCreatingArtifact(true)
+    void rel.applyOp({
       kind: 'save-artifact',
       artifact: { name: draft.name, kind: draft.kind, meta: KIND_LABEL[draft.kind], excerpt: draft.excerpt || undefined },
       projectId: project?.id,
       projectName: project?.name,
+    }).then((outcome) => {
+      setCreatingArtifact(false)
+      if (outcome === 'applied') setCreating(false)
     })
-    setCreating(false)
   }
 
   // Assign an artifact to a project (or unfile it, projectId null) — re-files via
-  // the relation graph, re-grouping the index live for every client. A not-yet-
-  // reconciled artifact has no server id to re-file (its optimistic id is about to
-  // be replaced), so skip it — the index already prevents opening one.
+  // the relation graph, re-grouping the index live for every client. Only
+  // acknowledged, server-minted artifacts ever enter this list.
   const assignProject = (artifact: ArtifactItem, projectId: string | null) => {
-    if (isOptimisticId(artifact.id)) return
     const project = projectId ? projects.find((p) => p.id === projectId) : undefined
     rel.applyOp({
       kind: 'refile-artifact',
@@ -6793,25 +6833,23 @@ function ArtifactsSection({
 
       <MainCollectionTemplate
         projection={projection}
-        renderItem={(item) => {
-          // A just-created artifact carries a temporary optimistic id until the
-          // server's authoritative id replaces it; do not door to a phantom id.
-          const pending = isOptimisticId(item.value.id)
-          return (
-            <ArtifactPreviewRow
-              artifact={item.value}
-              source={rel.artifactSourceFor(item.value.id)}
-              pending={pending}
-              onOpen={() => {
-                if (!pending) rel.navigate('artifacts', item.value.id)
-              }}
-            />
-          )
-        }}
+        renderItem={(item) => (
+          <ArtifactPreviewRow
+            artifact={item.value}
+            source={rel.artifactSourceFor(item.value.id)}
+            onOpen={() => rel.navigate('artifacts', item.value.id)}
+          />
+        )}
       />
 
       {creating && (
-        <NewArtifactDialog projects={projects} onCreate={createArtifact} onClose={() => setCreating(false)} />
+        <NewArtifactDialog
+          projects={projects}
+          busy={creatingArtifact}
+          waitingForRecovery={creatingArtifact && !!rel.mutation.error}
+          onCreate={createArtifact}
+          onClose={() => setCreating(false)}
+        />
       )}
     </CompositeResourcePage>
   )
@@ -6822,10 +6860,14 @@ function ArtifactsSection({
  *  Mirrors NewProjectDialog's modal idiom. */
 function NewArtifactDialog({
   projects,
+  busy,
+  waitingForRecovery,
   onCreate,
   onClose,
 }: {
   projects: Project[]
+  busy: boolean
+  waitingForRecovery: boolean
   onCreate: (draft: { name: string; kind: ArtifactKind; excerpt: string }, projectId: string | null) => void
   onClose: () => void
 }) {
@@ -6838,9 +6880,10 @@ function NewArtifactDialog({
 
   // Focus the name field on open, trap Tab within the dialog, close on Escape,
   // restore focus on close.
-  useFocusTrap(dialogRef, onClose, { initialFocus: nameRef })
+  const close = busy ? () => {} : onClose
+  useFocusTrap(dialogRef, close, { initialFocus: nameRef })
 
-  const canCreate = name.trim().length > 0
+  const canCreate = name.trim().length > 0 && !busy
   const submit = () => {
     if (canCreate) onCreate({ name: name.trim(), kind, excerpt: excerpt.trim() }, projectId)
   }
@@ -6850,10 +6893,11 @@ function NewArtifactDialog({
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex justify-center px-4 pt-[12dvh]"
-      onMouseDown={onClose}
+      onMouseDown={close}
       role="dialog"
       aria-modal="true"
       aria-label="New artifact"
+      aria-busy={busy}
     >
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
@@ -6867,7 +6911,8 @@ function NewArtifactDialog({
             <span className="text-[15px] font-semibold text-ink">New artifact</span>
           </div>
           <button
-            onClick={onClose}
+            onClick={close}
+            disabled={busy}
             title="Close"
             aria-label="Close"
             className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
@@ -6882,6 +6927,7 @@ function NewArtifactDialog({
             <input
               ref={nameRef}
               value={name}
+              disabled={busy}
               onChange={(e) => setName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') submit()
@@ -6900,6 +6946,7 @@ function NewArtifactDialog({
                 return (
                   <button
                     key={k}
+                    disabled={busy}
                     onClick={() => setKind(k)}
                     aria-pressed={on}
                     className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition ${
@@ -6922,6 +6969,7 @@ function NewArtifactDialog({
             </span>
             <textarea
               value={excerpt}
+              disabled={busy}
               onChange={(e) => setExcerpt(e.target.value)}
               rows={2}
               placeholder="A one-line synopsis shown in the index."
@@ -6935,6 +6983,7 @@ function NewArtifactDialog({
             </span>
             <select
               value={projectId ?? ''}
+              disabled={busy}
               onChange={(e) => setProjectId(e.target.value || null)}
               className="w-full rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none transition focus:border-co"
             >
@@ -6950,18 +6999,19 @@ function NewArtifactDialog({
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
-            onClick={onClose}
+            onClick={close}
+            disabled={busy}
             className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
           >
             Cancel
           </button>
           <button
             onClick={submit}
-            disabled={!canCreate}
+            disabled={!canCreate || busy}
             className={`flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
           >
             <Plus size={15} />
-            Create artifact
+            {waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : 'Create artifact'}
           </button>
         </div>
       </div>
@@ -6977,15 +7027,10 @@ function NewArtifactDialog({
 function ArtifactPreviewRow({
   artifact,
   source,
-  pending = false,
   onOpen,
 }: {
   artifact: ArtifactItem
   source?: string
-  /** A just-created artifact still reconciling to its server id — shown saving and
-   *  not openable until its real id lands (so it can't be opened or re-filed by a
-   *  temporary id the server won't recognize). */
-  pending?: boolean
   onOpen: () => void
 }) {
   const Icon = KIND_ICON[artifact.kind]
@@ -6996,21 +7041,17 @@ function ArtifactPreviewRow({
     // Nested metadata stays descriptive rather than becoming extra controls.
     <div
       data-artifact-preview-row={artifact.kind}
-      aria-busy={pending}
-      onClick={pending ? undefined : cardDoorClick(onOpen)}
-      className={`flex items-start gap-3 py-3 ${pending ? 'cursor-default opacity-60' : ROW_DOOR_CLASS}`}
+      onClick={cardDoorClick(onOpen)}
+      className={`flex items-start gap-3 py-3 ${ROW_DOOR_CLASS}`}
     >
       <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-cap-workspace">
         <Icon size={16} />
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          {/* Disabled while pending: a temporary id the server won't recognize
-              must not be openable. */}
           <button
             onClick={onOpen}
-            disabled={pending}
-            className={`min-w-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS} disabled:cursor-default`}
+            className={`min-w-0 truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
           >
             {artifact.name}
           </button>
@@ -7033,7 +7074,7 @@ function ArtifactPreviewRow({
             </>
           )}
           <span aria-hidden="true">·</span>
-          <span>{pending ? 'Saving…' : `Edited ${relativeTime(artifact.editedAt)}`}</span>
+          <span>{`Edited ${relativeTime(artifact.editedAt)}`}</span>
         </div>
       </div>
     </div>
@@ -7245,8 +7286,8 @@ function ContextsSection({
 
   // Add / remove / connect all route through the SERVER (the registry is the
   // system of record — these once lived in component state and silently
-  // evaporated when the section unmounted): the optimistic cache write makes the
-  // row flip instantly, the broadcast reconciles every other client.
+  // evaporated when the section unmounted). Their existing command path updates
+  // the local cache, while the broadcast reconciles every other client.
   const toggle = (id: string) => {
     const item = items.find((c) => c.id === id)
     if (item) void setConnectorStatus(id, item.status === 'connected' ? 'needs-auth' : 'connected')
@@ -8166,6 +8207,7 @@ function FormDialog({
   onSubmit,
   onClose,
   error,
+  busy = false,
   children,
 }: {
   title: string
@@ -8176,6 +8218,7 @@ function FormDialog({
   onSubmit: () => void
   onClose: () => void
   error?: string | null
+  busy?: boolean
   children: ReactNode
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -8192,6 +8235,7 @@ function FormDialog({
       role="dialog"
       aria-modal="true"
       aria-label={title}
+      aria-busy={busy}
     >
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
@@ -8206,6 +8250,7 @@ function FormDialog({
           </div>
           <button
             onClick={onClose}
+            disabled={busy}
             title="Close"
             aria-label="Close"
             className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
@@ -8222,13 +8267,14 @@ function FormDialog({
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
             onClick={onClose}
+            disabled={busy}
             className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
           >
             Cancel
           </button>
           <button
             onClick={onSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || busy}
             className={`flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
           >
             {submitIcon}
@@ -13350,6 +13396,7 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   const rel = useRelations()
   const contextDoor = useContextDoor()
   const [picking, setPicking] = useState(false)
+  const [adding, setAdding] = useState(false)
   const seen = new Set<string>()
   const tools: StepTool[] = []
   // Steps + delivery, plus any tool-context a "let it use X each run" edit added
@@ -13362,8 +13409,12 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   // Offer only connectors not already present (claude/web aren't context tools).
   const addable = STEP_TOOLS.filter((t) => t.tone !== 'claude' && t.tone !== 'web' && !seen.has(t.id))
   const addTool = (tool: StepTool) => {
-    rel.applyOp({ kind: 'schedule-add-tool', scheduleId: task.id, scheduleName: task.name, cadence: task.cadence, tool })
-    setPicking(false)
+    if (adding) return
+    setAdding(true)
+    void rel.applyOp({ kind: 'schedule-add-tool', scheduleId: task.id, scheduleName: task.name, cadence: task.cadence, tool }).then((outcome) => {
+      setAdding(false)
+      if (outcome === 'applied') setPicking(false)
+    })
   }
 
   return (

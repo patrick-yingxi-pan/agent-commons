@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type {
   ArtifactItem,
   Project,
@@ -13,13 +13,19 @@ import type {
 import { emptyGraph, opAppliedInGraph } from '../../contract/index.ts'
 import { OWNER_SECTION } from '../lib/paneNav'
 import {
-  applyRelationOp,
   useArtifacts,
   useProjects,
   useRelationGraph,
   useSchedules,
   useSessions,
 } from '../api'
+import {
+  createRelationMutationController,
+  IDLE_RELATION_MUTATION,
+  type RelationMutationOutcome,
+  type RelationMutationStatus,
+} from './relationMutationsCore.ts'
+import { clearRelationMutationsOnAccountSwitch, relationMutationDeps } from './relationMutations.ts'
 
 /** ── Controller: the relationship overlay ──────────────────────────────────
  *  The editable graph between Session / Project / Artifact / Context / Schedule
@@ -29,9 +35,10 @@ import {
  *  that relationship is drawn — only now it's server-owned and survives a reload
  *  (and, via the event stream, syncs across clients).
  *
- *  `applyOp` patches the cached graph optimistically (the card flips instantly)
- *  and POSTs the canonical write; `attach-context` is a live-session effect, so
- *  it's handed to the session controller instead of the graph. */
+ *  `applyOp` enters one account-scoped FIFO. It projects only the authoritative
+ *  acknowledgement, exposes failure/retry honestly, and prevents overlapping
+ *  full-graph responses from rewinding the cache. `attach-context` remains a
+ *  live-session effect handed to the session controller. */
 
 // Stable empty fallbacks so the selectors' useMemo deps don't churn while loading.
 const NO_PROJECTS: Project[] = []
@@ -41,7 +48,10 @@ const NO_SESSIONS: Session[] = []
 const EMPTY_GRAPH: RelationGraph = emptyGraph()
 
 export interface RelationsValue {
-  applyOp: (op: RelationOp) => void
+  applyOp: (op: RelationOp) => Promise<RelationMutationOutcome>
+  mutation: RelationMutationStatus
+  retryMutation: () => void
+  discardMutation: () => void
   // ── Projects ──
   /** The seed projects plus any created by a confirmed proposal (graph extras). */
   allProjects: () => Project[]
@@ -138,6 +148,20 @@ export function RelationsProvider({
   const schedules = useSchedules().data ?? NO_SCHEDULES
   const sessions = useSessions().data ?? NO_SESSIONS
   const graph = useRelationGraph().data ?? EMPTY_GRAPH
+  const [mutation, setMutation] = useState<RelationMutationStatus>(IDLE_RELATION_MUTATION)
+  const mutationControllerRef = useRef<ReturnType<typeof createRelationMutationController> | null>(null)
+  if (!mutationControllerRef.current) {
+    mutationControllerRef.current = createRelationMutationController({
+      ...relationMutationDeps,
+      setStatus: setMutation,
+    })
+  }
+  const mutationController = mutationControllerRef.current
+
+  useEffect(
+    () => clearRelationMutationsOnAccountSwitch(mutationController.clearAll),
+    [mutationController],
+  )
 
   const applyOp = useCallback(
     (op: RelationOp) => {
@@ -145,12 +169,10 @@ export function RelationsProvider({
       // attaches it to its OWN session (useSessionContextCommands — the
       // equal-panes model has no "active session" for a root bridge to guess).
       // Reaching here without one is a wiring error; never POST it as a graph op.
-      if (op.kind === 'attach-context') return
-      // Optimistic + canonical; a failed POST leaves the optimistic patch, which
-      // the next /relations fetch (or a server event) reconciles.
-      void applyRelationOp(op)
+      if (op.kind === 'attach-context') return Promise.resolve('discarded' as const)
+      return mutationController.enqueue(op)
     },
-    [],
+    [mutationController],
   )
 
   const value = useMemo<ProvidedRelations>(() => {
@@ -184,6 +206,9 @@ export function RelationsProvider({
 
     return {
       applyOp,
+      mutation,
+      retryMutation: mutationController.retry,
+      discardMutation: mutationController.discard,
       allProjects: merged,
       isCreatedProject: (pid) => graph.extraProjects.some((p) => p.id === pid),
       projectIdForSession,
@@ -215,7 +240,7 @@ export function RelationsProvider({
       descriptionForProject: (pid) => merged().find((p) => p.id === pid)?.description,
       navigate: (section, id, subId) => navigate?.(section, id, subId),
     }
-  }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, navigate])
+  }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, mutationController, mutation, navigate])
 
   return <RelationsContext.Provider value={value}>{children}</RelationsContext.Provider>
 }

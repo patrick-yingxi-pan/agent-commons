@@ -22,6 +22,20 @@ test('create-provider op registers a provider through the funnel (a proper casca
   assert.deepEqual(provider?.authority, { tools: ['*'], connectors: ['*'], scopes: ['*'] }, 'granted everything — the cascade root')
 })
 
+test('relation writes return monotonic revisions and replay one logical retry', async () => {
+  const label = 'Idempotent revision provider'
+  const before = store.relationGraph().revision ?? 0
+  const body = { op: { kind: 'create-provider', label, modelFamily: 'claude' } }
+  const headers = { 'idempotency-key': 'relation-revision-provider-1' }
+  const first = await call('POST', '/relations/ops', body, headers)
+  const replay = await call('POST', '/relations/ops', body, headers)
+
+  assert.equal(first.status, 200)
+  assert.ok(first.json.revision > before, 'an acknowledged mutation advances the full graph')
+  assert.equal(replay.json.revision, first.json.revision, 'retry replays the original acknowledgement')
+  assert.equal(store.listProviders().filter((provider) => provider.label === label).length, 1, 'the effect applied once')
+})
+
 test('create-prompt op adds a library entry', async () => {
   const res = await apply({ kind: 'create-prompt', label: 'Wire prompt', body: 'Be terse.', targetFamily: 'claude' })
   assert.equal(res.status, 200)

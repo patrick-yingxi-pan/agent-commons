@@ -450,6 +450,24 @@ composer quick list's fabricated green dot). Locked by
 `src/api/connectivity-freshness.test.ts` + `server/store/event-tenancy.test.ts` (the
 2026-07 connectivity audit's ratchet).
 
+## Mutation truth — intent may wait; persisted state may not pretend
+
+Authority-bearing context and relation changes publish only after the server
+acknowledges them. A relation edit enters one account-scoped FIFO with one
+idempotency key for its logical lifetime: a failed head stays visible, later
+intent waits, Retry retransmits the same act, and Dismiss reconciles because a
+lost acknowledgement cannot prove the server did not commit. A full graph
+response carries a monotonic server revision so it cannot rewind a newer ambient
+read. Consent history records `confirmed` only after the effect lands.
+
+The initiating surface stays coherent while it waits: transient create dialogs
+and editors remain open and disabled, consent cards show their own delivery
+state, and one shell-level `RelationMutationNotice` owns Retry/Dismiss for edits
+from any pane. That notice remains above a retained modal layer; a visible
+recovery action that the scrim intercepts is not recovery (UI-54). Context
+bindings use the same applied/discarded outcome contract through their
+session-scoped atomic queue.
+
 ## Navigation structure — the rail is an inline disclosure tree
 
 Sections render as a VSCode-explorer

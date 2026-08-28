@@ -1,9 +1,8 @@
 /** The shared-module boundary: contract/graph.ts (the relationship-graph reducer)
- *  and contract/ids.ts (id-derivation) are imported VERBATIM by both ends — the
- *  client applies an op optimistically, the server applies the same op canonically.
- *  Type-identity guarantees they call the same function; these lock its BEHAVIOR, so
- *  an optimistic client patch can never diverge from the server's authoritative one,
- *  and so the ids each side derives for the other stay byte-identical. */
+ *  and contract/ids.ts (id-derivation) are imported VERBATIM by both ends. The
+ *  server uses the reducer for authoritative application; pure callers use it to
+ *  validate/project operations without creating persisted client truth. These
+ *  locks keep reducer behavior and cross-boundary id derivation byte-identical. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -24,7 +23,7 @@ const mintIds = () => {
   return () => `art-test-${(n += 1)}`
 }
 
-test('applyGraphOp returns a NEW graph and never mutates the input (immutability the optimistic path relies on)', () => {
+test('applyGraphOp returns a NEW graph and never mutates the input', () => {
   const g0 = emptyGraph()
   const g1 = applyGraphOp(g0, { kind: 'file-session', sessionId: 's1', sessionTitle: 'S', projectId: 'p1', projectName: 'P' }, mintIds())
   assert.notEqual(g1, g0, 'a new graph object is returned')
@@ -44,7 +43,7 @@ test('create-project is idempotent: a replayed op re-files the session, never du
   let g = applyGraphOp(emptyGraph(), op, mintIds())
   assert.equal(g.extraProjects.length, 1)
   assert.equal(g.sessionProject.s1, 'p-new')
-  // Replay (e.g. the server re-applies what the client already optimistically did).
+  // Replay (e.g. an idempotency boundary invokes the reducer again).
   g = applyGraphOp(g, op, mintIds())
   assert.equal(g.extraProjects.length, 1, 'the project is not duplicated on replay')
 })
@@ -80,16 +79,16 @@ test('create-project with a SEED project id is a no-op — never mints a duplica
   assert.equal(g.extraProjects.length, 0, 'no duplicate project is minted for a seed-project id')
 })
 
-test('create-project uses op.projectId verbatim — the minter never influences it (the no-flicker invariant)', () => {
-  // Unlike save-artifact (server-minted id), create-project carries a client-chosen
-  // id used as-is by BOTH ends, so the optimistic and canonical projects share an id
-  // and the freshly-created project's detail opens without a reconcile flicker.
+test('create-project uses op.projectId verbatim — the artifact minter never influences it', () => {
+  // Unlike save-artifact (server-minted id), create-project carries a proposed id
+  // that the authoritative apply uses as-is. Replaying the same accepted operation
+  // therefore addresses the same project regardless of the injected artifact minter.
   const op = { kind: 'create-project', projectId: 'p-fixed', projectName: 'X', projectDescription: 'd' }
-  const clientPatch = applyGraphOp(emptyGraph(), op, () => 'art-opt-1')
-  const serverPatch = applyGraphOp(emptyGraph(), op, () => 'art-live-1')
-  assert.equal(clientPatch.extraProjects[0].id, 'p-fixed')
-  assert.equal(serverPatch.extraProjects[0].id, 'p-fixed', 'the injected minter does not influence a create-project id')
-  assert.equal(clientPatch.extraProjects[0].id, serverPatch.extraProjects[0].id)
+  const firstProjection = applyGraphOp(emptyGraph(), op, () => 'art-unused-1')
+  const secondProjection = applyGraphOp(emptyGraph(), op, () => 'art-unused-2')
+  assert.equal(firstProjection.extraProjects[0].id, 'p-fixed')
+  assert.equal(secondProjection.extraProjects[0].id, 'p-fixed', 'the injected minter does not influence a create-project id')
+  assert.equal(firstProjection.extraProjects[0].id, secondProjection.extraProjects[0].id)
 })
 
 test('create-project stamps updatedAt from the injected clock (a fresh project shows a live "Updated …", not a frozen string)', () => {
@@ -131,7 +130,7 @@ test('save-artifact mints a fresh id, prepends the artifact, and files it under 
   assert.equal(g.extraArtifacts.length, 1)
   const art = g.extraArtifacts[0]
   assert.equal(art.name, 'Brief')
-  assert.equal(art.id, 'art-test-1', 'the injected minter assigns the id (server uses a stable one, client a temp)')
+  assert.equal(art.id, 'art-test-1', 'the injected authoritative minter assigns the id')
   assert.equal(g.artifactProject[art.id], 'p1', 'filed under the project when one is given')
 })
 
@@ -273,6 +272,16 @@ test('opKey is stable + distinct for the project-context ops (per-project, per-l
     opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Linear' }),
     'unscope-context:p1:Linear',
   )
+})
+
+test('the pure reducer preserves the server-owned graph revision', () => {
+  const current = { ...emptyGraph(), revision: 7 }
+  const next = applyGraphOp(
+    current,
+    { kind: 'file-session', sessionId: 's-rev', sessionTitle: 'S', projectId: null, projectName: '' },
+    mintIds(),
+  )
+  assert.equal(next.revision, 7, 'only the canonical store advances revisions')
 })
 
 test("attach-context is a no-op on the graph (it's a live-session effect, applied by the caller)", () => {

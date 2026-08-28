@@ -575,8 +575,8 @@ export function relationContentPreview(
 
 /** A new artifact materialised from a `save-artifact` op. The store mints the id
  *  and stamps the edit time (`editedAt`); everything else comes from the draft +
- *  the session. The caller injects `editedAt` (the server its own clock, the
- *  client an optimistic one replaced on reconcile) so the reducer stays pure. */
+ *  the session. The caller injects `editedAt` (the authoritative server clock,
+ *  or a deterministic pure-test value) so the reducer stays pure. */
 export function artifactFromDraft(
   draft: ArtifactDraft,
   id: string,

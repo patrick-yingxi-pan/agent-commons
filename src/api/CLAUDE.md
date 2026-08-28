@@ -20,7 +20,7 @@ Read [`contract/CLAUDE.md`](../../contract/CLAUDE.md) for wire types,
 | API-A1 | architecture | Hooks are the component read door and command senders are the controller write door. | [`hooks.ts`](hooks.ts) · [`commands.ts`](commands.ts) | [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | refines UI-A1 |
 | API-D1 | data-access | Cache and events project server-owned truth; the client invents no entities. | [`cache.ts`](cache.ts) · [`events.ts`](events.ts) | [`connectivity-freshness.test.ts`](connectivity-freshness.test.ts) | refines UI-D1 |
 | API-D2 | data-access | Every UI operation uses a declared `paths.*` builder visible to the parity scanner. | [`keys.ts`](keys.ts) · [`hooks.ts`](hooks.ts) · [`commands.ts`](commands.ts) | [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines UI-D2; requires API-A1 |
-| API-D3 | data-access | Optimistic IDs reconcile on acknowledgement and every server event has producer and consumer. | [`cache.ts`](cache.ts) · [`events.ts`](events.ts) | [`optimistic-id.test.ts`](optimistic-id.test.ts) · [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | requires API-D1; refines ROOT-A1 |
+| API-D3 | data-access | Relation edits publish only acknowledged server snapshots; one logical retry carries one idempotency header, monotonic revisions prevent an older full response from rewinding a newer projection, and every server event has a producer and consumer. | [`client.ts`](client.ts) · [`commands.ts`](commands.ts) · [`relationRevision.ts`](relationRevision.ts) · [`events.ts`](events.ts) | [`relation-command.test.ts`](relation-command.test.ts) · [`relation-revision.test.ts`](relation-revision.test.ts) · [`../controller/relation-mutations.test.ts`](../controller/relation-mutations.test.ts) · [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | requires API-D1; refines ROOT-A1 |
 | API-D4 | data-access | Browser session reads share one bounded message-page budget; older continuations belong to the conversation controller and never replace the newest by-id cache projection. | [`sessionPaging.ts`](sessionPaging.ts) · [`commands.ts`](commands.ts) · [`hooks.ts`](hooks.ts) | [`../controller/conversation-store.test.ts`](../controller/conversation-store.test.ts) · [`../../e2e/history-pagination.spec.ts`](../../e2e/history-pagination.spec.ts) | refines UI-E6; requires API-A1 |
 | API-D5 | data-access | Ambient sync is live only after the stream's identity-validated, continuity-checked hello; any stream error remains recovering across reconnect construction until the next hello. | [`syncHealth.ts`](syncHealth.ts) · [`events.ts`](events.ts) · [`hooks.ts`](hooks.ts) | [`sync-health.test.ts`](sync-health.test.ts) · [`connectivity-freshness.test.ts`](connectivity-freshness.test.ts) · [`../../e2e/sync-health.spec.ts`](../../e2e/sync-health.spec.ts) | refines API-D1; requires API-D3 |
 | API-D6 | data-access | Identity and capabilities form one first-paint barrier: partial answers select no product surface, a failed missing answer is retryable, retry invalidates the complete pair, and only cache-owned answers survive refetch—an explicit identity/epoch reset preserves no ad-hoc identity snapshot, while identity-stable authorization widening revalidates every live query in place. | [`appBootstrap.ts`](appBootstrap.ts) · [`cache.ts`](cache.ts) · [`hooks.ts`](hooks.ts) · [`../App.tsx`](../App.tsx) | [`app-bootstrap.test.ts`](app-bootstrap.test.ts) · [`cache-refresh.test.ts`](cache-refresh.test.ts) · [`../../e2e/bootstrap-recovery.spec.ts`](../../e2e/bootstrap-recovery.spec.ts) · [`../../e2e/orgs.spec.ts`](../../e2e/orgs.spec.ts) | refines API-D1; requires API-A1 |
@@ -37,8 +37,8 @@ model), `events.ts` (the SSE router), `hooks.ts` (what components consume),
 and the command senders. Wire types come from
 [`contract/`](../../contract/CLAUDE.md) verbatim — never re-declared here.
 
-Beside them, the suites that lock the door's contract: optimistic-id
-reconciliation, the account guard, freshness/refetch behavior.
+Beside them, the suites that lock the door's contract: acknowledged relation
+snapshot ordering, the account guard, freshness/refetch behavior.
 
 ## Rules
 
@@ -53,9 +53,9 @@ reconciliation, the account guard, freshness/refetch behavior.
   used by the shipped UI must pass a declared `paths.*` entry through this
   funnel. The cross-layer parity lock follows imports into real consumers; an
   unused wrapper cannot pretend the UI has a capability.
-- **Optimistic ids reconcile, never leak.** A locally-minted id must be replaced
-  by the server's on ack; the lock beside this file exists because a leaked one
-  looks correct until a reload.
+- **Relation entities are server-owned.** A relation edit does not paint a local
+  graph or invent an entity id before acknowledgement. Its full returned graph
+  is accepted only when its server revision cannot rewind a newer projection.
 - **Every declared `ServerEvent` has a producer and a consumer.** The
   contract-level scan (`tests/contract-boundaries.test.ts`) fails on a stale
   handler or an unhandled event — so adding an event means wiring both ends.

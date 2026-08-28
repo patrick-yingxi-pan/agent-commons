@@ -20,6 +20,7 @@
 import { useCallback } from 'react'
 import { rememberAttached } from '../lib/contextShortcuts'
 import { enqueueContextMutation } from './contextMutations'
+import type { ContextMutationOutcome } from './contextMutationsCore'
 import {
   addContextToLive,
   bindingsFor,
@@ -33,16 +34,16 @@ import {
 import type { AddedContext, PanelFocus } from '../types'
 
 export interface SessionContextCommands {
-  addContext: (ctx: AddedContext) => void
-  removeContexts: (focuses: PanelFocus[]) => void
-  removeFolder: (sourceId: string) => void
-  removeAttachment: (attId: string) => void
+  addContext: (ctx: AddedContext) => Promise<ContextMutationOutcome>
+  removeContexts: (focuses: PanelFocus[]) => Promise<ContextMutationOutcome>
+  removeFolder: (sourceId: string) => Promise<ContextMutationOutcome>
+  removeAttachment: (attId: string) => Promise<ContextMutationOutcome>
 }
 
 export function useSessionContextCommands(sessionId: string): SessionContextCommands {
   const addContext = useCallback(
     (ctx: AddedContext) => {
-      enqueueContextMutation(sessionId, {
+      return enqueueContextMutation(sessionId, {
         plan: (snapshot) => {
           const live = addContextToLive(snapshot.live, ctx)
           return {
@@ -58,7 +59,7 @@ export function useSessionContextCommands(sessionId: string): SessionContextComm
   )
   const removeContexts = useCallback(
     (focuses: PanelFocus[]) => {
-      enqueueContextMutation(sessionId, {
+      return enqueueContextMutation(sessionId, {
         plan: (snapshot) => {
           const live = removeContextsFromLive(snapshot.live, focuses)
           return {
@@ -73,7 +74,7 @@ export function useSessionContextCommands(sessionId: string): SessionContextComm
   )
   const removeFolder = useCallback(
     (sourceId: string) => {
-      enqueueContextMutation(sessionId, {
+      return enqueueContextMutation(sessionId, {
         plan: (snapshot) => {
           const live = removeFolderFromLive(snapshot.live, sourceId)
           return {
@@ -88,7 +89,7 @@ export function useSessionContextCommands(sessionId: string): SessionContextComm
   )
   const removeAttachment = useCallback(
     (attId: string) => {
-      enqueueContextMutation(sessionId, {
+      return enqueueContextMutation(sessionId, {
         plan: (snapshot) => {
           const live = removeAttachmentFromLive(snapshot.live, attId)
           return {

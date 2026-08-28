@@ -22,6 +22,7 @@ Read [`../api/CLAUDE.md`](../api/CLAUDE.md) for the write door and
 | CONTROLLER-E2 | experience | Retrying an interrupted turn preserves its one user row and logical key, discards only unpersisted assistant output, reattaches a known server turn before any regeneration, and reruns draft materialization when durability was never established; authoritative reconciliation clears Retry only when the captured pre-send transcript boundary proves that turn completed. | [`conversationCore.ts`](conversationCore.ts) · [`../components/ConversationPane.tsx`](../components/ConversationPane.tsx) | [`conversation-store.test.ts`](conversation-store.test.ts) · [`../../e2e/turn-controls.spec.ts`](../../e2e/turn-controls.spec.ts) | refines UI-E6; requires API-D8 |
 | CONTROLLER-E3 | experience | Panel writes serialize per account/session; dirty local intent wins stale reads, matching acknowledgements alone clear it in the account scope that began the request, newly attached focuses wait for workspace persistence, and later authoritative reads retry failure without a hot loop. | [`panelPreferencesCore.ts`](panelPreferencesCore.ts) · [`panelPreferences.ts`](panelPreferences.ts) · [`usePaneConversation.ts`](usePaneConversation.ts) | [`panel-preferences.test.ts`](panel-preferences.test.ts) · [`../../e2e/panel-preferences.spec.ts`](../../e2e/panel-preferences.spec.ts) | refines UI-E11; requires API-D9 |
 | CONTROLLER-E4 | experience | Context mutations are FIFO per session: the head plans from the latest acknowledgement, binding operations and the complete workspace share one request, failure blocks later intent behind explicit Retry, account switches drop late acknowledgements, and draft retries reuse the session row already minted. | [`contextMutationsCore.ts`](contextMutationsCore.ts) · [`contextMutations.ts`](contextMutations.ts) · [`draftCore.ts`](draftCore.ts) | [`context-mutations.test.ts`](context-mutations.test.ts) · [`draft-core.test.ts`](draft-core.test.ts) | refines UI-E12; requires API-D10 |
+| CONTROLLER-E5 | experience | Relation mutations are one acknowledgement-gated FIFO per account: later intent cannot pass a failed head, Retry reuses the logical idempotency key, Dismiss reconciles uncertain server truth, and account switches discard late acknowledgements. | [`relationMutationsCore.ts`](relationMutationsCore.ts) · [`relationMutations.ts`](relationMutations.ts) · [`useRelations.tsx`](useRelations.tsx) | [`relation-mutations.test.ts`](relation-mutations.test.ts) · [`../api/relation-revision.test.ts`](../api/relation-revision.test.ts) | refines UI-E13; requires API-D3 |
 | CONTROLLER-D1 | data-access | Authorization is the server's answer; no controller-only permission wall exists. | [`conversationStore.ts`](conversationStore.ts) · [`../api/commands.ts`](../api/commands.ts) | [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines ROOT-D2; requires CONTROLLER-A1 |
 <!-- context-rules:end -->
 
@@ -44,8 +45,9 @@ Beside them, the suites that lock those sequences (`conversation-store`,
   project — each appears in the SAME conversation after the user confirms a
   card; nothing switches modes behind them. The funnel's shape is locked in
   [`../data/`](../data/CLAUDE.md) (`escalation-funnel`).
-- **Optimistic state is a promise the server keeps.** Anything applied locally
-  before the ack must reconcile with what comes back, including the id.
+- **Authority-bearing state waits for acknowledgement.** Context bindings and
+  relation entities do not become visible on a transport promise. Their
+  controllers preserve intent, expose recovery, and project server truth once.
 
 ## Verification
 

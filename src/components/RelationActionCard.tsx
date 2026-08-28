@@ -13,6 +13,7 @@ import {
   Link2,
   Plug,
   Repeat,
+  RotateCcw,
   ScrollText,
   Sparkles,
   UserPlus,
@@ -22,13 +23,17 @@ import {
 import { describeOp, opKey, relationContentPreview, type RelationContentPreview, type RelationOp } from '../data/relations'
 import { useRelations } from '../controller/useRelations'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { retryContextMutation } from '../controller/contextMutations'
+import { useConversation } from '../controller/conversationStore'
+import { recordRelationVerdict } from '../controller/relationMutations'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { DRAFT_ID } from '../data/liveSession'
-import { resolveMessageRelation } from '../api'
 import { SECTION_LABELS } from '../lib/nav'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { renderRich } from '../lib/rich'
 import { TextDiff } from './TextDiff'
+import { InlineOperationStatus } from './InlineOperationStatus'
+import { Spinner } from './Spinner'
 
 /** The lead glyph for an op, by the relationship it edits. */
 const RELATION_ICON: Record<string, LucideIcon> = {
@@ -75,31 +80,68 @@ export function RelationActionCard({
   /** The persisted verdicts (`Message.relationsResolved`), when loaded. */
   resolved?: Record<string, 'confirmed' | 'skipped'>
 }) {
-  const { applyOp, navigate, isStandingApproved, appliedInGraph, descriptionForProject, instructionsForProject } =
-    useRelations()
+  const {
+    applyOp,
+    mutation,
+    retryMutation,
+    discardMutation,
+    navigate,
+    isStandingApproved,
+    appliedInGraph,
+    descriptionForProject,
+    instructionsForProject,
+  } = useRelations()
   // An attach-context op attaches to THIS card's session (the message it rode
   // in on names it) through the session-parametric funnel — the pre-split root
   // bridge attached to "the active session", an authority the equal-panes model
   // dissolved (universal split Phase 6). A card always rides a real message,
   // so sessionId is present in practice; DRAFT_ID only anchors the hook call.
   const { addContext } = useSessionContextCommands(sessionId ?? DRAFT_ID)
+  const contextMutation = useConversation(sessionId ?? DRAFT_ID).contextMutation
   const [done, setDone] = useState<Set<string>>(new Set())
   const [skipped, setSkipped] = useState<Set<string>>(new Set())
+  const [decisions, setDecisions] = useState<Record<string, { verdict: 'confirmed' | 'skipped'; error?: string }>>({})
 
+  const clearDecision = (key: string) => {
+    setDecisions((current) => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
   const persistVerdict = (key: string, verdict: 'confirmed' | 'skipped') => {
-    if (sessionId && messageId) void resolveMessageRelation(sessionId, messageId, key, verdict).catch(() => {})
+    setDecisions((current) => ({ ...current, [key]: { verdict } }))
+    const committed = () => {
+      if (verdict === 'confirmed') setDone((current) => new Set(current).add(key))
+      else setSkipped((current) => new Set(current).add(key))
+      clearDecision(key)
+    }
+    if (!sessionId || !messageId) {
+      committed()
+      return
+    }
+    void recordRelationVerdict(sessionId, messageId, key, verdict).then(committed, () => {
+      setDecisions((current) => ({
+        ...current,
+        [key]: { verdict, error: 'Couldn’t record your decision. Retry when the connection recovers.' },
+      }))
+    })
   }
   const confirm = (op: RelationOp) => {
+    const key = opKey(op)
+    setDecisions((current) => ({ ...current, [key]: { verdict: 'confirmed' } }))
+    let result: Promise<'applied' | 'discarded'>
     if (op.kind === 'attach-context' && sessionId) {
-      addContext({ kind: op.connectorKind === 'mcp' ? 'mcp' : 'connector', connector: { id: op.connectorId, label: op.connectorLabel, kind: op.connectorKind } })
+      result = addContext({ kind: op.connectorKind === 'mcp' ? 'mcp' : 'connector', connector: { id: op.connectorId, label: op.connectorLabel, kind: op.connectorKind } })
     } else {
-      applyOp(op)
+      result = applyOp(op)
     }
-    setDone((prev) => new Set(prev).add(opKey(op)))
-    persistVerdict(opKey(op), 'confirmed')
+    void result.then((outcome) => {
+      if (outcome === 'applied') persistVerdict(key, 'confirmed')
+      else clearDecision(key)
+    })
   }
   const skip = (key: string) => {
-    setSkipped((prev) => new Set(prev).add(key))
     persistVerdict(key, 'skipped')
   }
 
@@ -117,6 +159,7 @@ export function RelationActionCard({
           const desc = describeOp(op)
           const Icon = RELATION_ICON[desc.relationId] ?? Link2
           const standing = desc.approval === 'standing'
+          const decision = decisions[key]
           // A standing approval lives in the store, so an already-approved
           // recurring op renders as done even in a freshly-mounted card —
           // "approved once, then unprompted" holds across re-proposals. One-off
@@ -129,9 +172,17 @@ export function RelationActionCard({
           const isDone =
             resolved?.[key] === 'confirmed' ||
             done.has(key) ||
-            (standing && isStandingApproved(key)) ||
-            appliedInGraph(op) === true
+            (!decision && ((standing && isStandingApproved(key)) || appliedInGraph(op) === true))
           const isSkipped = !isDone && (resolved?.[key] === 'skipped' || skipped.has(key))
+          const effectFailure =
+            decision?.verdict === 'confirmed'
+              ? op.kind === 'attach-context'
+                ? contextMutation.error
+                : mutation.failedKey === key
+                  ? mutation.error
+                  : null
+              : null
+          const decisionFailure = decision?.error ?? effectFailure
           const cadence = 'cadence' in op ? op.cadence : ''
           // S2 — for a content-bearing op (description / instructions / prompt / agent /
           // project body), the actual text being written, so consent isn't given blind.
@@ -174,7 +225,7 @@ export function RelationActionCard({
               {preview && !isDone && !isSkipped && <ProposedBody preview={preview} />}
 
               {/* The confirmation controls — the prompt itself. */}
-              {!isDone && !isSkipped && (
+              {!isDone && !isSkipped && !decision && (
                 <div className="flex items-center gap-2 pl-[34px]">
                   <button
                     onClick={() => confirm(op)}
@@ -188,6 +239,44 @@ export function RelationActionCard({
                   >
                     Not now
                   </button>
+                </div>
+              )}
+
+              {!isDone && !isSkipped && decision && (
+                <div className="pl-[22px]">
+                  {decisionFailure ? (
+                    <InlineOperationStatus
+                      tone="alert"
+                      message={decisionFailure}
+                      action={{
+                        label:
+                          decision.error || op.kind === 'attach-context' || mutation.retryable
+                            ? 'Retry'
+                            : 'Dismiss',
+                        icon:
+                          decision.error || op.kind === 'attach-context' || mutation.retryable
+                            ? <RotateCcw size={12} />
+                            : <X size={12} />,
+                        onClick: () => {
+                          if (decision.error) persistVerdict(key, decision.verdict)
+                          else if (op.kind === 'attach-context' && sessionId) retryContextMutation(sessionId)
+                          else if (mutation.retryable) retryMutation()
+                          else discardMutation()
+                        },
+                      }}
+                      secondaryAction={
+                        !decision.error && op.kind !== 'attach-context' && mutation.retryable
+                          ? { label: 'Dismiss', icon: <X size={12} />, onClick: discardMutation }
+                          : undefined
+                      }
+                    />
+                  ) : (
+                    <InlineOperationStatus
+                      tone="status"
+                      message={decision.verdict === 'confirmed' ? 'Applying change…' : 'Recording “Not now”…'}
+                      leading={<Spinner size={12} />}
+                    />
+                  )}
                 </div>
               )}
 

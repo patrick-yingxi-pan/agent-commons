@@ -34,6 +34,8 @@ export interface ContextMutationIntent {
   afterCommit?: () => void
 }
 
+export type ContextMutationOutcome = 'applied' | 'discarded'
+
 export interface ContextMutationDeps {
   snapshot: (sessionId: string) => ContextMutationSnapshot
   mutate: (sessionId: string, request: UpdateSessionContextStateRequest) => Promise<SessionContextState>
@@ -47,7 +49,10 @@ export interface ContextMutationDeps {
 }
 
 interface QueueEntry {
-  intents: ContextMutationIntent[]
+  intents: Array<{
+    intent: ContextMutationIntent
+    settle: (outcome: ContextMutationOutcome) => void
+  }>
   running: boolean
   failed: boolean
 }
@@ -85,7 +90,8 @@ export function createContextMutationController(deps: ContextMutationDeps) {
 
   const drain = (sessionId: string, entry: QueueEntry): void => {
     if (entry.running || entry.failed || entry.intents.length === 0 || queues.get(sessionId) !== entry) return
-    const intent = entry.intents[0]!
+    const queued = entry.intents[0]!
+    const intent = queued.intent
     const before = deps.snapshot(sessionId)
     let planned: ContextMutationPlan
     try {
@@ -114,6 +120,7 @@ export function createContextMutationController(deps: ContextMutationDeps) {
           } catch {
             // The next authoritative session read still reconciles the result.
           }
+          queued.settle('applied')
           if (entry.intents.length === 0) {
             queues.delete(sessionId)
             deps.setStatus(sessionId, idle())
@@ -130,16 +137,19 @@ export function createContextMutationController(deps: ContextMutationDeps) {
       )
   }
 
-  const enqueue = (sessionId: string, intent: ContextMutationIntent): void => {
+  const enqueue = (sessionId: string, intent: ContextMutationIntent): Promise<ContextMutationOutcome> => {
     let entry = queues.get(sessionId)
     if (!entry) {
       entry = { intents: [], running: false, failed: false }
       queues.set(sessionId, entry)
     }
-    entry.intents.push(intent)
+    const result = new Promise<ContextMutationOutcome>((settle) => {
+      entry!.intents.push({ intent, settle })
+    })
     // A failed head stays visible and explicit; this new intent waits behind it
     // until Retry, preserving user order instead of skipping the failed act.
     if (!entry.failed) drain(sessionId, entry)
+    return result
   }
 
   const retry = (sessionId: string): void => {
@@ -150,6 +160,9 @@ export function createContextMutationController(deps: ContextMutationDeps) {
   }
 
   const clearAll = (): void => {
+    for (const entry of queues.values()) {
+      for (const queued of entry.intents) queued.settle('discarded')
+    }
     queues.clear()
   }
 

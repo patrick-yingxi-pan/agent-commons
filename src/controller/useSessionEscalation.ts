@@ -7,15 +7,16 @@
  *  A `project` escalation applies the create-project relation op and STAYS in
  *  the thread (C29 — approval never navigates away; the message's confirmed
  *  card carries the "Open project" jump link to follow at will). A workspace /
- *  repo escalation lands the panels optimistically, opens the GROWN context's
- *  panel (remembered, FWD-2), and persists BOTH server-owned facets exactly
+ *  repo escalation plans the grown panels, then publishes them only after the
+ *  server acknowledges both facets; it opens the GROWN context's panel
+ *  (remembered, FWD-2), and persists BOTH server-owned facets exactly
  *  like a manual attach (C27): the binding-of-record the effect-mediation path
  *  resolves against, and the panel content — or a reload would silently drop
  *  what the user just consented to grow. */
 import { useCallback } from 'react'
-import { applyRelationOp } from '../api'
 import { conversations } from './conversationStore'
 import { enqueueContextMutation } from './contextMutations'
+import { useRelations } from './useRelations'
 import {
   applyEscalationToLive,
   escalationBinding,
@@ -28,13 +29,15 @@ export function useSessionEscalation(
   /** The session's display title (labels the default workspace). */
   sessionLabel: (id: string) => string,
 ): (workspaceRoot?: string) => void {
+  const { applyOp } = useRelations()
   return useCallback(
     (workspaceRoot?: string) => {
       const pending = conversations.get(sessionId).pendingEscalation
       if (!pending) return
       const esc = pending.escalation
+      let result: Promise<'applied' | 'discarded'>
       if (esc.kind === 'project') {
-        applyRelationOp({
+        result = applyOp({
           kind: 'create-project',
           projectId: esc.project.id,
           projectName: esc.project.name,
@@ -53,7 +56,7 @@ export function useSessionEscalation(
               ? { kind: 'repo', id: 'repo-demo' }
               : null
         const binding = escalationBinding(esc, label, workspaceRoot)
-        enqueueContextMutation(sessionId, {
+        result = enqueueContextMutation(sessionId, {
           plan: (snapshot) => ({
             live: applyEscalationToLive(snapshot.live, esc, label),
             focus: grown ?? snapshot.focus,
@@ -61,8 +64,15 @@ export function useSessionEscalation(
           }),
         })
       }
-      conversations.patch(sessionId, { pendingEscalation: null })
+      void result.then((outcome) => {
+        if (outcome !== 'applied') return
+        conversations.update(sessionId, (current) =>
+          current.pendingEscalation?.messageId === pending.messageId
+            ? { ...current, pendingEscalation: null }
+            : current,
+        )
+      })
     },
-    [sessionId, sessionLabel],
+    [sessionId, sessionLabel, applyOp],
   )
 }

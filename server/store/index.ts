@@ -2568,6 +2568,7 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
   } else {
     graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
   }
+  graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
   // A standing (schedule-driven) effect belongs to the default tenant in this prototype
   // (schedules aren't tenant-scoped yet) — stamped explicitly so the SSE gate is unambiguous.
   emit({ type: 'relation.applied', op, by: 'standing', tenantId: defaultTenantId() })
@@ -7698,11 +7699,14 @@ export const store = {
           if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
         }
     }
+    // Version the complete snapshot before broadcasting/responding. A client's
+    // own HTTP response can cross a newer ambient refetch on the wire; revision
+    // comparison prevents the older full graph from rewinding that newer view.
+    graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
     // Stamp the acting tenant so the SSE fan-out delivers this only to that tenant (F2/PD9).
     emit({ type: 'relation.applied', op, by: 'user', tenantId: tenantId ?? defaultTenantId() })
     persist()
-    // Return the caller's projected view (F2/PD9) so the client's optimistic graph matches
-    // what a subsequent GET /relations would return; no tenant ⇒ the full graph.
+    // Return the caller's projected view (F2/PD9); no tenant ⇒ the full graph.
     return tenantId ? projectGraphForTenant(graph, tenantId) : graph
   },
   /** Whether a relation op must be REFUSED for `tenantId` (F2/PD9). The route rejects it

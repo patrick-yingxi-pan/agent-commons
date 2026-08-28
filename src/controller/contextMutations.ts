@@ -2,7 +2,12 @@
 import { onAccountSwitch, updateSessionContextState } from '../api'
 import type { Live } from '../data/liveSession'
 import { conversations } from './conversationStore'
-import { contextFocusAfterCommit, createContextMutationController, type ContextMutationIntent } from './contextMutationsCore'
+import {
+  contextFocusAfterCommit,
+  createContextMutationController,
+  type ContextMutationIntent,
+  type ContextMutationOutcome,
+} from './contextMutationsCore'
 import { rememberPanelPreference } from './panelPreferences'
 
 const controller = createContextMutationController({
@@ -35,8 +40,11 @@ const controller = createContextMutationController({
 // same staleness fence or a late acknowledgement could resurrect old-account UI.
 onAccountSwitch(() => controller.clearAll())
 
-export function enqueueContextMutation(sessionId: string, intent: ContextMutationIntent): void {
-  controller.enqueue(sessionId, intent)
+export function enqueueContextMutation(
+  sessionId: string,
+  intent: ContextMutationIntent,
+): Promise<ContextMutationOutcome> {
+  return controller.enqueue(sessionId, intent)
 }
 
 export function retryContextMutation(sessionId: string): void {

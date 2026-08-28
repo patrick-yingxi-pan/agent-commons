@@ -55,7 +55,7 @@ const tick = async (): Promise<void> => {
 
 test('context state is acknowledgement-gated and carries bindings + workspace in one request', async () => {
   const h = harness()
-  h.controller.enqueue('s1', addConnector('slack'))
+  const outcome = h.controller.enqueue('s1', addConnector('slack'))
   assert.equal(h.calls.length, 1)
   assert.deepEqual(h.calls[0]!.request.operations, [
     { action: 'attach', context: { id: 'slack', type: 'connector', label: 'slack' } },
@@ -64,6 +64,7 @@ test('context state is acknowledgement-gated and carries bindings + workspace in
   assert.deepEqual(h.statuses.at(-1), { busy: true, error: null, retryable: false })
   ack(h.calls[0]!)
   await tick()
+  assert.equal(await outcome, 'applied')
   assert.deepEqual(h.snapshot().live.connectors.map((connector) => connector.id), ['slack'])
   assert.deepEqual(h.statuses.at(-1), { busy: false, error: null, retryable: false })
 })
@@ -109,8 +110,9 @@ test('a failed head stays retryable and blocks later intents until explicit retr
 
 test('clearing on account switch drops a late acknowledgement', async () => {
   const h = harness()
-  h.controller.enqueue('s1', addConnector('slack'))
+  const outcome = h.controller.enqueue('s1', addConnector('slack'))
   h.controller.clearAll()
+  assert.equal(await outcome, 'discarded', 'the waiting UI is released without claiming success')
   ack(h.calls[0]!)
   await tick()
   assert.equal(h.snapshot().live.connectors.length, 0)

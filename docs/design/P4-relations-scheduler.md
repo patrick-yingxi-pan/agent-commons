@@ -20,7 +20,8 @@ job system, the desktop a single-process scheduler (same contract).
 ### 2.1 Graph edits — transactional + concurrent
 
 Confirmed relation ops apply as **transactions** over the typed edge tables (F1 PD2);
-the pure reducer is **kept** as the client's optimistic projection + the op validator.
+the pure reducer is **kept** as the transaction validator/projector and deterministic
+domain oracle. The client publishes only an acknowledged read projection (PD75).
 For concurrency:
 
 - A relation op carries the base **version** of the rows it touches; the server applies
@@ -28,6 +29,11 @@ For concurrency:
   different sessions don't conflict); a same-edge conflict returns `409`, and the client
   re-reads and **re-proposes** — surfacing the consent card again with fresh state (the
   prototype's confirm flow, now conflict-aware).
+- One client/account FIFO preserves user intent order. Each logical edit retains one
+  idempotency key through an explicit retry; failure blocks later edits, and dismissal
+  reconciles because a missing acknowledgement cannot prove the server did not commit.
+  A monotonic full-graph revision prevents a crossed HTTP response from rewinding a
+  newer ambient read. Consent history is written only after the effect is acknowledged.
 - Each applied op emits `relation.applied` (`by: 'user' | 'standing'`) over SSE (F3) so
   every device converges.
 
@@ -92,7 +98,8 @@ application volume. Alert on fire lag + run failure spikes.
 ## 6. Open questions & decisions
 
 See [`DECISIONS.md`](DECISIONS.md): **PD47** (graph edits as transactions with optimistic
-concurrency; conflict → `409` → re-propose; reducer kept for optimistic + validation),
+concurrency; conflict → `409` → re-propose; reducer kept for transaction validation),
+**PD75** (acknowledgement-gated client FIFO, stable retry key, monotonic snapshot revision),
 **PD48** (durable scheduler replaces `setInterval`: runs idempotent by
 `(schedule,fire_time)`, retried with backoff, timezone-correct, configurable missed-fire
 policy), **PD49** (a run executes the real model+tool loop under the schedule's bound
