@@ -455,11 +455,10 @@ export function databaseFile(): string {
 }
 
 /** The persistence port: load the last snapshot (or null to seed fresh) and save a
- *  new one. Both faces follow the prototype's best-effort contract — `load()`
- *  returns null on *any* failure (absent / unreadable / malformed / version
- *  mismatch) so the caller seeds, and `save()` never throws (a write failure is
- *  logged; the in-memory store stays authoritative until the next write catches up).
- *  `close()` releases a backend's resources (a DB handle); the JSON backend has none. */
+ *  new one. `load()` returns null for absent / unreadable / malformed / incompatible
+ *  state so the caller can seed. `save()` MUST throw when it cannot commit: a product
+ *  mutation may be acknowledged only after durable storage accepts it. `close()`
+ *  releases a backend's resources (a DB handle); the JSON backend has none. */
 export interface PersistenceBackend {
   readonly name: string
   load(): PersistedState | null

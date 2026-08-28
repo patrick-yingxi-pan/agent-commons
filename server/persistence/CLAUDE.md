@@ -20,6 +20,7 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
 | PERSIST-A1 | architecture | JSON and SQLite implement one store-facing persistence interface and versioned state; portable exports never expose backend-private bytes. | [`index.ts`](index.ts) · [`format.ts`](format.ts) · [`persist.ts`](persist.ts) · [`portable.ts`](portable.ts) | [`persist-backend.test.ts`](persist-backend.test.ts) · [`portable.test.ts`](portable.test.ts) · [`snapshot.test.ts`](snapshot.test.ts) | refines SERVER-D4 |
 | PERSIST-D1 | data-access | Live writes are atomic/transactional; explicit restore validates and migrates before mutation, then read-back proves it landed. | [`atomicFile.ts`](atomicFile.ts) · [`json.ts`](json.ts) · [`sqlite.ts`](sqlite.ts) · [`portable.ts`](portable.ts) | [`persist.test.ts`](persist.test.ts) · [`portable.test.ts`](portable.test.ts) · [`snapshot.test.ts`](snapshot.test.ts) | refines SERVER-D4 |
 | PERSIST-D2 | data-access | Snapshot coverage equals durable UI-owned state and excludes truly transient state. | [`format.ts`](format.ts) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`dispatch-durability.test.ts`](dispatch-durability.test.ts) | requires PERSIST-A1; refines ROOT-A1 |
+| PERSIST-D3 | data-access | Backend commit failure propagates across the acknowledgement boundary; the store becomes unready and product-walled until restart, existing sync streams close, and liveness/diagnostics remain available. | [`persist.ts`](persist.ts) · [`../store/index.ts`](../store/index.ts) · [`../routes/index.ts`](../routes/index.ts) | [`acknowledgement.test.ts`](acknowledgement.test.ts) · [`persist-backend.test.ts`](persist-backend.test.ts) | refines SERVER-D4; requires PERSIST-D1 |
 | PERSIST-V1 | verification | Every new durable slice updates local requirements, round-trip coverage, and migration behavior. | [`SPEC.md`](SPEC.md) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`persist-migrate.test.ts`](persist-migrate.test.ts) | refines SERVER-V1; requires PERSIST-D2 |
 <!-- context-rules:end -->
 
@@ -42,6 +43,11 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
 - **Writes are atomic** (temp file + rename), so a crash mid-write cannot leave
   a corrupt JSON/export file; SQLite replaces its snapshot in one transaction
   and uses WAL recovery.
+- **No durable commit, no acknowledgement.** Backend save errors throw. The
+  originating route returns `503 storage_unavailable`; the store latches unready
+  and all later product reads/writes fail until restart, even if disk access
+  recovers. Existing ambient streams close so clients reconnect through that
+  wall. A process whose memory may have advanced past disk never self-heals.
 - **Exports contain canonical `PersistedState`, never backend-private bytes.** A
   backup made from JSON must restore into SQLite and vice versa. Restore validates
   + migrates before mutation and fails unless backend read-back matches.

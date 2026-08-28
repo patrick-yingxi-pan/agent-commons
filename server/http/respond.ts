@@ -130,6 +130,7 @@ const STATUS_FOR: Record<ApiErrorCode, number> = {
   limit_exceeded: 429,
   relay_offline: 503,
   relay_busy: 503,
+  storage_unavailable: 503,
   internal: 500,
 }
 

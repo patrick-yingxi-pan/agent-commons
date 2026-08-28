@@ -7,7 +7,7 @@
  *  Everything runs against `:memory:` or a throwaway temp file — never the real store. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { JsonFileBackend, SqliteBackend } from './index.ts'
@@ -128,6 +128,25 @@ test('SQLite save throws on an uncategorized slice (silent data-loss guard)', ()
   const rogue = { ...sample, somethingNew: [1, 2, 3] } as unknown as PersistedState
   assert.throws(() => db.save(rogue), /uncategorized slice/)
   db.close()
+})
+
+test('both backends throw when a durable write cannot commit', () => {
+  const blockedJsonPath = join(tmpdir(), `claude-ui-json-write-blocked-${process.pid}`)
+  const previous = process.env.DATA_FILE
+  mkdirSync(blockedJsonPath, { recursive: true })
+  process.env.DATA_FILE = blockedJsonPath // a directory cannot be replaced by the snapshot file
+  try {
+    assert.throws(() => new JsonFileBackend().save(sample), 'JSON propagates its atomic replace failure')
+  } finally {
+    if (previous === undefined) delete process.env.DATA_FILE
+    else process.env.DATA_FILE = previous
+    rmSync(blockedJsonPath, { recursive: true, force: true })
+    rmSync(`${blockedJsonPath}.tmp`, { force: true })
+  }
+
+  const closed = new SqliteBackend(':memory:')
+  closed.close()
+  assert.throws(() => closed.save(sample), 'SQLite propagates a failed transaction after rollback')
 })
 
 test('SQLite migrations are idempotent — reopening the same file re-applies cleanly', () => {

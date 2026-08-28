@@ -6,10 +6,9 @@
  * reverse), and a future schema implementation does not strand older exports.
  *
  * Restore validates and forward-migrates the export *before* it writes anything,
- * then reads the selected backend back and compares its canonical form. That
- * read-back matters because runtime persistence is intentionally best-effort and
- * logs I/O errors; an explicit recovery command must instead fail loudly when it
- * cannot prove the acknowledged restore landed. */
+ * then reads the selected backend back and compares its canonical form. Backends
+ * must throw on I/O failure; read-back additionally catches a logically incomplete
+ * or non-conforming backend so recovery cannot claim success without proof. */
 import {
   readFileSync,
 } from 'node:fs'

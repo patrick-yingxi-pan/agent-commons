@@ -114,7 +114,7 @@ import { ResourceGuardian, GuardianError } from '../guardian.ts'
 import { LOCAL_RUNNER_ID, LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from '../data/runners.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from '../workspace.ts'
-import { STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
+import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
 import {
@@ -130,6 +130,7 @@ import {
  *  (server/eventlog.ts — the SSE `id:` field that makes the stream resumable);
  *  optional so existing single-arg subscribers stay valid. */
 type Listener = (e: ServerEvent, seq?: number) => void
+type PersistenceFaultListener = () => void
 
 /** A monotonic-ish boot id. Math.random/Date are fine here (server side, not in
  *  the resumable-workflow sandbox); a fresh value each boot signals a reseed. */
@@ -199,6 +200,7 @@ const cloudReader = fsReader(CLOUD_ROOT)
 const CLOUD_SOURCE: FsSource = { id: 'cloud', kind: 'cloud', label: 'Cloud storage' }
 
 const listeners = new Set<Listener>()
+const persistenceFaultListeners = new Set<PersistenceFaultListener>()
 
 // The canonical relationship graph — seeded from the entities' join fields, then
 // mutated by confirmed ops (the one place a relation edit lands server-side).
@@ -1960,6 +1962,10 @@ guardian.reserve(subGoalKey('p-insights', 'auth-refactor'), 'commission-insights
 // persisted: they're live/transient (a stale lock or a phantom offline runner must
 // not outlive the process).
 let persistEnabled = false
+/** One-way durability fault. Once a commit fails, this process can no longer
+ * prove its in-memory graph matches disk; only a restart from the last durable
+ * snapshot may clear the condition. */
+let persistenceFault: PersistenceWriteError | null = null
 
 /** Draining latch (F6 graceful shutdown): set on SIGTERM so `/readyz` fails while the
  *  process winds down. Transient — never persisted. */
@@ -2053,9 +2059,29 @@ function snapshot(): PersistedState {
   }
 }
 
-/** Persist the current state (no-op until enabled). Called after every mutation. */
+/** Persist the current state (no-op until enabled). Called after every mutation.
+ * A failed commit is one-way for this process: latch unready + draining before
+ * throwing, so the originating route cannot return 2xx and later routes cannot
+ * acknowledge the already-mutated in-memory graph. */
 function persist(): void {
-  if (persistEnabled) saveState(snapshot())
+  if (!persistEnabled) return
+  if (persistenceFault) throw persistenceFault
+  try {
+    saveState(snapshot())
+  } catch (error) {
+    persistenceFault =
+      error instanceof PersistenceWriteError ? error : new PersistenceWriteError(error)
+    draining = true
+    for (const listener of persistenceFaultListeners) {
+      try {
+        listener()
+      } catch {
+        /* a dead transport shouldn't mask the durability failure */
+      }
+    }
+    persistenceFaultListeners.clear()
+    throw persistenceFault
+  }
 }
 
 /** ── A stored display name is a CACHE of its authority id ────────────────────
@@ -2829,6 +2855,19 @@ export const store = {
   },
   isDraining(): boolean {
     return draining
+  },
+  /** False after the first failed durable commit. The latch never self-heals:
+   * reopening traffic against a divergent in-memory store would turn a transient
+   * disk problem into acknowledged data loss. */
+  persistenceHealthy(): boolean {
+    return persistenceFault === null
+  },
+  /** Subscribe a live transport to the one-way durability latch. Existing
+   * ambient streams close on fault so clients reconnect through the product
+   * wall instead of remaining attached to non-authoritative memory. */
+  subscribePersistenceFault(fn: PersistenceFaultListener): () => void {
+    persistenceFaultListeners.add(fn)
+    return () => persistenceFaultListeners.delete(fn)
   },
 
   // ── Identity & tenancy (who's talking, which tenant — design F2) ──

@@ -18,6 +18,18 @@
 import { selectBackend, backendKind, type BackendKind } from './index.ts'
 import type { PersistedState, PersistenceBackend } from './format.ts'
 
+/** Cross-layer durability failure. The router recognizes this exact class and
+ * returns a non-leaking 503; `detail` stays server-side for diagnostics. */
+export class PersistenceWriteError extends Error {
+  readonly detail: unknown
+
+  constructor(detail: unknown) {
+    super('Durable storage could not commit this change.')
+    this.name = 'PersistenceWriteError'
+    this.detail = detail
+  }
+}
+
 // Re-export the persisted shape + format primitives so existing importers
 // (server/store/index.ts, scripts/snapshot.ts, tests/) keep their import paths.
 export { STORE_VERSION, dataFile, databaseFile, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from './format.ts'
@@ -41,9 +53,15 @@ export function loadState(): PersistedState | null {
   return backend().load()
 }
 
-/** Write the snapshot (best-effort; a failure is logged, not thrown). */
+/** Write the snapshot. A failure is a product acknowledgement boundary: wrap it
+ * in one recognizable error and let the store fail closed. */
 export function saveState(state: PersistedState): void {
-  backend().save(state)
+  try {
+    backend().save(state)
+  } catch (error) {
+    if (error instanceof PersistenceWriteError) throw error
+    throw new PersistenceWriteError(error)
+  }
 }
 
 /** Release the active backend handle. The server normally owns it for the

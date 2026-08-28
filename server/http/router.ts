@@ -3,6 +3,7 @@
  *  (`/static/*`). Dispatches to the first matching route, with captured params. */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { type Ctx, readBody, sendError } from './respond.ts'
+import { PersistenceWriteError } from '../persistence/persist.ts'
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 type Handler = (ctx: Ctx) => void | Promise<void>
@@ -163,7 +164,13 @@ export class Router {
       } catch (err) {
         // Log the detail server-side; don't leak internals to the client.
         console.error('[mock-backend] route error:', err)
-        if (!res.writableEnded) sendError(res, 'internal', 'Internal error')
+        if (!res.writableEnded) {
+          if (err instanceof PersistenceWriteError) {
+            sendError(res, 'storage_unavailable', 'Durable storage is unavailable. Restart the app after checking disk access.')
+          } else {
+            sendError(res, 'internal', 'Internal error')
+          }
+        }
       }
       return true
     }

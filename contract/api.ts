@@ -259,6 +259,10 @@ export type ApiErrorCode =
    *  in-flight on the relay (`relay_busy`). Retry is free; nothing half-wrote. */
   | 'relay_offline'
   | 'relay_busy'
+  /** 503 — durable storage failed while committing a mutation. The process
+   *  fails closed until restart so no later request can acknowledge state that
+   *  diverges from the last durable snapshot. */
+  | 'storage_unavailable'
   | 'internal'
 
 /** Body of `POST /v1/auth/signup` (P7 onboarding) — creates a real, persisted

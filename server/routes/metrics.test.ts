@@ -17,6 +17,7 @@ test('GET /metrics exposes per-method counters, uptime, and the epoch in Prometh
   assert.match(res.body, /http_requests_total\{method="GET"\} \d+/)
   assert.match(res.body, /process_uptime_seconds \d/, 'uptime is reported')
   assert.match(res.body, /store_epoch_info\{epoch="[^"]+"\} 1/, 'the epoch is an info label')
+  assert.match(res.body, /persistence_healthy 1/, 'the normal process reports durable writes healthy')
 })
 
 test('GET /metrics includes runner status gauges (F4 registry)', async () => {

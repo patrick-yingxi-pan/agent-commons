@@ -97,7 +97,10 @@ neighbors. The reply stream is the only sticky path.
 - **Migration failure** — halt deploy, roll back the API image, fix forward; never
   partially-migrate prod (transactional DDL where supported).
 - **Desktop disk full / corruption** — atomic JSON/export replacement, transactional
-  SQLite under WAL, verified local backup/restore, re-sync from web if linked.
+  SQLite under WAL, verified local backup/restore, re-sync from web if linked. A live
+  commit failure returns `storage_unavailable`, flips readiness, and fail-closes product
+  traffic until the shell/service supervisor restarts from the last durable snapshot;
+  a process whose memory may have advanced past disk never resumes in place (PD76).
 
 ## 4. Security & multi-tenancy
 
@@ -125,4 +128,5 @@ addressed, per-tenant prefix, short-lived signed URLs, lifecycle-expired), **PD3
 (stateless autoscaled web API; sticky only for the reply stream; desktop = one bundled
 sidecar), **PD31** (OpenTelemetry logs/metrics/traces + SLOs/error budgets), **PD32**
 (durable = DB + object store, backed up/PITR; transient stores rebuildable, not backed
-up — the prototype's persist/transient line held).
+up — the prototype's persist/transient line held), and **PD76** (no commit means no
+acknowledgement; a failed writer is product-walled until restart).

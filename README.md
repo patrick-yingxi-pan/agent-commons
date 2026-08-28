@@ -116,6 +116,12 @@ backend; a restore that cannot be proven fails loudly. An export contains the fu
 application state (including credential hashes and private content), so keep it in
 access-controlled storage.
 
+A live write failure is also loud: the mutation returns `503 storage_unavailable`,
+`/readyz` fails, and the process refuses further product traffic until restart. It
+does not resume merely because disk access returns—the in-memory graph may have
+advanced past the last durable snapshot. `/healthz` and `/metrics` remain available
+for the desktop shell or service supervisor to diagnose and restart safely.
+
 ## Stack
 
 - React + TypeScript + Vite, Tailwind CSS v4, Framer Motion, Lucide

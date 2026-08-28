@@ -7,7 +7,9 @@
 > mutation and rehydrated on boot. Transient state (reservations, the live runner
 > registry) is deliberately *not* persisted. JSON and embedded SQLite implement one
 > versioned state contract; canonical portable exports cross that backend boundary and
-> restore only after validation + migration. (AGENTS "Created state is persisted to
+> restore only after validation + migration. A write acknowledgement means the selected
+> backend committed; commit failure makes the process unready and product-walled until
+> restart. (AGENTS "Created state is persisted to
 > the filesystem"; README repo map.)
 
 ## Requirements (L2) → [`server/persistence/SPEC.md`](../../server/persistence/SPEC.md)

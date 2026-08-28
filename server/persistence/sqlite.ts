@@ -15,10 +15,9 @@
  *  the schema is migration-managed from day one. Per-entity rows (vs one blob) are
  *  the point: real updates/deletes and a place to index by id as the store grows.
  *
- *  Best-effort, like the JSON backend: `load()` returns null on any failure and
- *  `save()` swallows I/O errors. It *does* throw if asked to persist a slice that
- *  isn't in the manifest — that's a coding error (a new `PersistedState` field left
- *  uncategorized) that would silently lose data, so it must be loud, not swallowed. */
+ *  `load()` returns null on unusable state; `save()` throws on any failed transaction
+ *  so the caller cannot acknowledge an undurable mutation. An uncategorized slice is
+ *  also loud: it means a new `PersistedState` field was left out of the manifest. */
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { createRequire } from 'node:module'
@@ -183,7 +182,7 @@ export class SqliteBackend implements PersistenceBackend {
 
   /** Replace the whole snapshot in one transaction (a full rewrite, mirroring the
    *  JSON backend — the state is small and this keeps "no stale rows" trivially
-   *  true). Throws on an uncategorized slice (a coding error); swallows I/O errors. */
+   *  true). Any failed transaction throws after rollback. */
   save(state: PersistedState): void {
     const present = (Object.keys(state) as (keyof PersistedState)[]).filter(
       (k) => state[k] !== undefined,
@@ -229,7 +228,7 @@ export class SqliteBackend implements PersistenceBackend {
       } catch {
         /* nothing to roll back */
       }
-      console.error('[persist] failed to write store snapshot (sqlite):', err)
+      throw err
     }
   }
 

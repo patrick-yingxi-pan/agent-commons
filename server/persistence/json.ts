@@ -45,17 +45,12 @@ export class JsonFileBackend implements PersistenceBackend {
     }
   }
 
-  /** Write the snapshot atomically (temp file + rename). Best-effort, but the
-   *  rename is RETRIED on a transient Windows EPERM/EBUSY (an AV/indexer holding
-   *  the target) — without the retry, the failed write is dropped and, since
-   *  persistence has no shutdown flush, the last write before exit could be lost. */
+  /** Write the snapshot atomically (temp file + rename). Rename is retried on a
+   *  transient Windows EPERM/EBUSY; every terminal failure propagates because
+   *  the caller may not acknowledge an undurable mutation. */
   save(state: PersistedState): void {
-    try {
-      const file = dataFile()
-      writeTextFileAtomically(file, JSON.stringify(state))
-    } catch (err) {
-      console.error('[persist] failed to write store snapshot:', err)
-    }
+    const file = dataFile()
+    writeTextFileAtomically(file, JSON.stringify(state))
   }
 
   /** No handle to release — the file is opened per call. */

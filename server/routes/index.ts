@@ -195,6 +195,20 @@ export function buildRouter(): Router {
     return true
   })
 
+  // ── Durable-storage fault wall ────────────────────────────────────────────
+  // A failed commit means memory may have advanced past the last durable state.
+  // The originating handler throws (Router maps it to storage_unavailable); every
+  // later product request is refused until process restart so a recovered disk
+  // path cannot make the divergent process start acknowledging work again. Keep
+  // only the three operator probes open: liveness, the failing readiness reason,
+  // and the persistence-health metric needed to diagnose/restart the sidecar.
+  const STORAGE_FAULT_OPEN = new Set(['/healthz', '/readyz', '/metrics'])
+  r.use((ctx) => {
+    if (store.persistenceHealthy() || STORAGE_FAULT_OPEN.has(ctx.url.pathname)) return true
+    sendError(ctx.res, 'storage_unavailable', 'Durable storage is unavailable. Restart the app after checking disk access.')
+    return false
+  })
+
   // ── The auth gate as a WALL (multi-account §12, hardened 2026-07) ───────────
   // When the gate applies (`features.authGate`), an ANONYMOUS request — no
   // verified session, no dev-seam header assertion (store.identity already
@@ -725,6 +739,7 @@ export function buildRouter(): Router {
     sendJson(res, { status: 'ok', epoch: store.epoch })
   })
   r.formGet('/readyz', 'deployment readiness probe — transport operations, not workspace capability', ({ res }) => {
+    if (!store.persistenceHealthy()) return sendJson(res, { status: 'storage_unavailable' }, 503)
     // Draining (post-SIGTERM): report unready so the load balancer stops routing new
     // traffic here while in-flight work finishes — but the process stays alive (/healthz ok).
     if (store.isDraining()) return sendJson(res, { status: 'draining' }, 503)
@@ -779,6 +794,9 @@ export function buildRouter(): Router {
       '# HELP store_epoch_info The store epoch (changes on reseed); always 1.',
       '# TYPE store_epoch_info gauge',
       `store_epoch_info{epoch="${ops.epoch}"} 1`,
+      '# HELP persistence_healthy Whether durable storage can still acknowledge mutations.',
+      '# TYPE persistence_healthy gauge',
+      `persistence_healthy ${store.persistenceHealthy() ? 1 : 0}`,
     ]
     sendText(res, lines.join('\n') + '\n')
   })
@@ -2746,10 +2764,14 @@ export function buildRouter(): Router {
     const unsubscribe = store.subscribe((e, seq) => {
       if (store.eventVisibleToTenant(e, tenantId)) channel.send(e, seq)
     })
-    req.on('close', () => {
+    let unsubscribeFault = () => {}
+    const close = () => {
       unsubscribe()
+      unsubscribeFault()
       channel.close()
-    })
+    }
+    unsubscribeFault = store.subscribePersistenceFault(close)
+    req.on('close', close)
   })
 
   // ── Sessions ──────────────────────────────────────────────────────────────
