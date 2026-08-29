@@ -153,6 +153,20 @@ test('probeProviderEndpoint refuses an out-of-policy credential reference before
   assert.equal(seen.length, hitsBefore, 'the endpoint was never contacted — the referenced secret never left the server')
 })
 
+test('probeProviderEndpoint refuses a missing declared credential before any request leaves', async () => {
+  const hitsBefore = seen.length
+  delete process.env.PROVIDER_MISSING_KEY
+  await assert.rejects(
+    probeProviderEndpoint({ baseURL: recorderUrl, apiKeyEnv: 'PROVIDER_MISSING_KEY' }),
+    (err: unknown) => {
+      assert.ok(err instanceof ProviderProbeError)
+      assert.match(err.message, /not available to this server/)
+      return true
+    },
+  )
+  assert.equal(seen.length, hitsBefore, 'a missing credential is diagnosed without contacting the endpoint')
+})
+
 test('a custom-endpoint provider NEVER inherits the ambient ANTHROPIC_API_KEY (credential exfiltration wall)', async () => {
   // With the real key present, a config that supplies its own baseURL but no
   // apiKeyEnv must NOT send the platform's key to that caller-supplied endpoint.

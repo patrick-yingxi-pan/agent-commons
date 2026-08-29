@@ -55,6 +55,7 @@ export function resolveRuntimeProfile(
       AUTH_COOKIE_SECURE: 'off',
       PERSIST_BACKEND: 'sqlite',
       INITIAL_WORLD: 'clean',
+      MODEL_INLINE: '0',
       CORS_ORIGIN: corsOrigin,
     }
   }
@@ -82,6 +83,7 @@ export function resolveRuntimeProfile(
     AUTH_COOKIE_SECURE: 'on',
     PERSIST_BACKEND: persistence === 'json' ? 'json' : 'sqlite',
     INITIAL_WORLD: 'clean',
+    MODEL_INLINE: '0',
     CORS_ORIGIN: corsOrigin,
   }
 }

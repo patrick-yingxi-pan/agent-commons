@@ -23,7 +23,7 @@ import { CompactionAffordance } from './CompactionAffordance'
 import { TurnControls } from './TurnControls'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { EscalationPrompt } from './EscalationPrompt'
-import { estimateTokens } from '../../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, estimateTokens } from '../../contract/index.ts'
 import { useAgents, useProviders, useSessions } from '../api'
 import { MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
 import { usePendingFocus } from '../lib/focusContext'
@@ -32,6 +32,7 @@ import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
 import type { AddedContext, PanelFocus, UsageModelRef } from '../types'
 import type { ContextMutationStatus } from '../controller/conversationCore'
+import { composerExecutionState } from '../lib/modelExecution'
 
 const RELAY_WAIT = 'Waiting on your session…'
 
@@ -218,8 +219,10 @@ export function ConversationView({
   const agents = useAgents().data ?? []
   const providers = useProviders().data ?? []
   const agent = agents.find((a) => a.id === (row?.agentId ?? 'agent-default'))
-  const providerId = modelPick?.providerId ?? row?.providerId ?? agent?.providerId
+  const providerId = modelPick?.providerId ?? row?.providerId ?? agent?.providerId ?? DEFAULT_PROVIDER_ID
   const onRelay = providers.find((p) => p.id === providerId)?.kind === 'session'
+  const provider = providers.find((p) => p.id === providerId)
+  const execution = composerExecutionState(provider?.execution, onRelay ? provider?.online === true : undefined)
 
   // Live token count of the thread, so the usage gauge fills as it grows.
   const messageTokens = useMemo(
@@ -333,8 +336,10 @@ export function ConversationView({
         connectors={live.connectors}
         attachments={live.attachments}
         focus={focus}
-        disabled={busy}
-        disabledLabel={onRelay ? RELAY_WAIT : undefined}
+        disabled={busy || execution.blocked}
+        disabledLabel={execution.blocked ? execution.placeholder : onRelay ? RELAY_WAIT : undefined}
+        modelExecution={provider?.execution}
+        sessionProviderOnline={onRelay ? provider?.online === true : undefined}
         onSend={sendAtLatest}
         onAddContext={onAddContext}
         onOpenContext={onOpenContext}

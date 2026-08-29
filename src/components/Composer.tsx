@@ -19,7 +19,7 @@ import type {
   Repo,
   Workspace,
 } from '../types'
-import type { UsageModelRef } from '../../contract/index.ts'
+import type { ModelExecution, UsageModelRef } from '../../contract/index.ts'
 import type { ModelPick } from '../lib/models'
 import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
@@ -39,6 +39,7 @@ import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
+import { composerExecutionState } from '../lib/modelExecution'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
 
@@ -88,6 +89,8 @@ export function Composer({
   onSelectModel,
   usageModel,
   messageTokens,
+  modelExecution,
+  sessionProviderOnline,
 }: {
   workspaces: Workspace[]
   repos: Repo[]
@@ -114,6 +117,11 @@ export function Composer({
   /** Live Messages token count of the open thread, so the usage gauge + its
    *  context breakdown fill in real time as the conversation grows. */
   messageTokens?: number
+  /** Server-computed endpoint posture; absent for Session providers. */
+  modelExecution?: ModelExecution
+  /** Present only for a Session provider; its relay liveness is a separate
+   * transport state from endpoint configuration. */
+  sessionProviderOnline?: boolean
   onSend: (text: string) => void
   onAddContext: (ctx: AddedContext) => void
   onOpenContext: (focus: PanelFocus) => void
@@ -123,6 +131,7 @@ export function Composer({
    *  one-folder workspace chip's ✕ so it matches the panel's per-folder delete. */
   onRemoveFolder?: (sourceId: string) => void
 }) {
+  const execution = composerExecutionState(modelExecution, sessionProviderOnline)
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
   // "Don't ask again" — tracked per context type, so opting out of (say)
@@ -411,9 +420,7 @@ export function Composer({
         </div>
 
         {/* The disclaimer is chrome a landscape phone can't afford. */}
-        <p className="mt-2 text-center text-[11px] text-ink-faint short:hidden">
-          Prototype · the model is a local mock, but every turn is a real round-trip through the tool interface.
-        </p>
+        <p className="mt-2 text-center text-[11px] text-ink-faint short:hidden">{execution.note}</p>
       </div>
     </div>
   )
@@ -722,4 +729,3 @@ function RemoveConfirm({
     </div>
   )
 }
-

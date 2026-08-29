@@ -9,7 +9,8 @@
 
 The implementation persists one versioned state contract through JSON or embedded
 SQLite (`server/persistence/`) and runs as one Node process (`server/index.ts`) that
-serves the built UI + API + an in-process mock model. Production still needs the
+serves the built UI + API. Development also boots an in-process mock model; release
+profiles deliberately disable it and require a configured provider. Production still needs the
 native shell, secrets boundary, object storage and operational packaging, while both
 deployment topologies continue sharing one UI + contract.
 

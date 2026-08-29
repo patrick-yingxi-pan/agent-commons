@@ -21,6 +21,13 @@ import type { Authority } from './authority.ts'
  *  Claude models (an unset session pick) rather than as a duplicate list entry. */
 export const DEFAULT_PROVIDER_ID = 'provider-anthropic'
 
+/** Server-computed execution posture for an endpoint provider. `mock` is the
+ * deliberate development model; `configured` means the provider has a usable
+ * connection definition; `unconfigured` means a turn is refused before it can
+ * be written. This is status only — endpoint and credential values never cross
+ * the read boundary. Session providers keep their separate `online` signal. */
+export type ModelExecution = 'mock' | 'configured' | 'unconfigured'
+
 /** ── One model in a provider's catalog ────────────────────────────────────────
  *  The flexible, provider-agnostic projection of "a model this provider serves".
  *  Real providers disagree wildly about what a model-list API returns — Anthropic
@@ -66,6 +73,9 @@ export interface ModelProvider {
    *  at a rendezvous secret. Session providers are prose-only in v1 (no tool use, so
    *  no relation-edit cards or escalations on their turns — declared, not discovered). */
   kind?: 'endpoint' | 'session'
+  /** Endpoint kind only, computed at read time from server-side configuration.
+   * Never accepted as caller truth or persisted on the provider row. */
+  execution?: ModelExecution
   /** Session kind only: the tail of the rendezvous secret for the masked
    *  `rv_live_••••3f9a` fingerprint. Never the secret (one-time-shown at mint/rotate). */
   secretHint?: string

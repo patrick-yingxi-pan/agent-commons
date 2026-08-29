@@ -97,7 +97,9 @@ boots use explicit profiles:
   device owner, client-asserted identity disabled, and an exact loopback origin.
   A fresh signing secret is generated for the process when none is supplied. A
   genuinely new database starts clean: no fictional conversations, projects,
-  artifacts, routines, accounts, connections, or usage history.
+  artifacts, routines, accounts, connections, or usage history. Release profiles
+  also disable the inline mock: without a configured endpoint, the composer says
+  so and the API refuses a turn before writing it.
 - `npm run start:web` preserves the later hosted boundary: remote capabilities,
   required sign-in, client-asserted identity disabled, Secure cookies, and SQLite
   by default. It refuses to boot without a 32+ character `AUTH_SECRET` and exact
@@ -113,6 +115,19 @@ file (or first preserve the old store with the snapshot tooling below).
 For example: `AUTH_SECRET=replace-with-32-plus-random-characters CORS_ORIGIN=https://app.example npm run start:web`.
 For remote-capability development without the release checks, use
 `BACKEND=remote npm run server`.
+
+To run the built-in provider in a release profile, supply the live connection:
+
+```bash
+npm run build
+ANTHROPIC_BASE_URL=https://api.anthropic.com ANTHROPIC_API_KEY=… npm run start
+```
+
+The Models page can register another Messages-compatible endpoint. Its optional
+credential is a `PROVIDER_*` environment-variable reference: launch the server
+with the variable already set, then enter only that variable's name. The endpoint
+is probed before it is saved; endpoint URLs and secret values never appear on the
+provider read shape.
 
 ## Persistence and recovery
 

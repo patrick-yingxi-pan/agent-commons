@@ -51,3 +51,33 @@ test('the composer gates BOTH pick levels on the session write path (no silent p
   assert.match(src, /onPickModel=\{onSelectModel &&/, 'the model rows are gated on the write path')
   assert.match(src, /onPickProvider=\{onSelectModel &&/, 'the provider rows are gated on the write path')
 })
+
+test('the API-endpoint provider form collects and sends the connection it claims to create', () => {
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  for (const field of ['Messages API URL', 'Model ID (optional)', 'Credential variable (optional)']) {
+    assert.ok(src.includes(field), `the endpoint form exposes ${field}`)
+  }
+  assert.ok(
+    src.includes('config: {') && src.includes('baseURL: baseURL.trim()') && src.includes('apiKeyEnv: apiKeyEnv.trim()'),
+    'the endpoint fields travel through the write-only provider config',
+  )
+  assert.ok(src.includes('The connection is verified before it is saved.'), 'the form explains its probe boundary')
+})
+
+test('composer and provider surfaces project the server-computed execution posture', () => {
+  const conversation = stripComments(read(join(ROOT, 'src', 'components', 'ConversationView.tsx')))
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenu.tsx')))
+  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.ok(conversation.includes('composerExecutionState('), 'the selected provider gates composition')
+  assert.ok(conversation.includes('modelExecution={'), 'the same posture feeds the composer explanation')
+  assert.ok(menu.includes("p.execution === 'unconfigured'"), 'the shared picker explains blocked providers')
+  assert.ok(section.includes("provider.execution === 'unconfigured'"), 'the canonical Models surfaces show status')
+})
+
+test('the longer endpoint workflow stays inside the shared scroll-bounded form dialog', () => {
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.ok(src.includes('max-h-[calc(100dvh-2rem)]'), 'the dialog is bounded to the visible viewport')
+  assert.ok(src.includes('min-h-0 flex-1 space-y-4 overflow-y-auto'), 'only the form body scrolls')
+  assert.ok(src.includes('flex shrink-0 items-center justify-between border-b'), 'the dialog header remains visible')
+  assert.ok(src.includes('flex shrink-0 items-center justify-end gap-2 border-t'), 'the dialog actions remain visible')
+})

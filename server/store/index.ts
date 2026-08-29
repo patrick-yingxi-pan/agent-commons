@@ -105,6 +105,7 @@ import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
+import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
 import { SEED_COMMISSIONS } from '../data/commissions.ts'
 import { TOOL_DEFINITIONS } from '../model/tools.ts'
@@ -3736,10 +3737,14 @@ export const store = {
             // in-flight turn, and the negotiated admission window. Kept live by
             // `relay.activity` events; never stored, stripped at every patch.
             { ...p, online: relay.online(p.id), activeConversations: relay.activeConversations(p.id), conversationWindow: relay.window(p.id) }
-          : // What an UNSET pick resolves to — the configured model (serve-time
-            // stamp, like `online`), so the client's inherit display matches
-            // what a turn actually runs (never `catalog[0]` guesswork).
-            { ...p, defaultModelId: resolvedModelId(PROVIDER_CONFIGS.get(p.id)) },
+          : // What an UNSET pick resolves to and whether its server-only endpoint
+            // can honestly execute. Both are serve-time stamps, never caller or
+            // snapshot truth.
+            {
+              ...p,
+              defaultModelId: resolvedModelId(PROVIDER_CONFIGS.get(p.id)),
+              execution: endpointExecution(PROVIDER_CONFIGS.get(p.id)),
+            },
       )
       .map((p) => (p.id === defaultId ? { ...p, isDefault: true } : p))
   },
@@ -3817,7 +3822,7 @@ export const store = {
     // `isDefault` and `defaultModelId` are stripped: both are serve-time stamps
     // (the per-tenant pointer; the config-resolved model) — stored on the entity
     // they would leak across tenants / drift from the config they mirror.
-    const { isDefault: _default, defaultModelId: _dm, ...fields } = input
+    const { isDefault: _default, defaultModelId: _dm, execution: _execution, ...fields } = input
     const provider: ModelProvider = { ...fields, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
     if (!provider.models) delete provider.catalogSource
     else provider.catalogSource ??= 'static'
@@ -3857,6 +3862,7 @@ export const store = {
       conversationWindow: _window,
       isDefault: _default,
       defaultModelId: _dm,
+      execution: _execution,
       models: patchModels,
       catalogSource: _src,
       ...safe

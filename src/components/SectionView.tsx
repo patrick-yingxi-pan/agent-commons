@@ -8259,7 +8259,7 @@ function FormDialog({
   }, [])
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]"
+      className="fixed inset-0 z-50 flex justify-center overflow-y-auto px-4 py-4 sm:pt-[8dvh]"
       onMouseDown={onClose}
       role="dialog"
       aria-modal="true"
@@ -8270,9 +8270,9 @@ function FormDialog({
       <div
         ref={dialogRef}
         onMouseDown={(e) => e.stopPropagation()}
-        className={`relative flex h-fit w-[460px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
+        className={`relative flex h-fit max-h-[calc(100dvh-2rem)] w-[460px] max-w-full flex-col sm:max-h-[84dvh] ${DIALOG_SURFACE_CLASS}`}
       >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+        <div className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
           <div className="flex items-center gap-2">
             {icon}
             <span className="text-[15px] font-semibold text-ink">{title}</span>
@@ -8288,7 +8288,7 @@ function FormDialog({
           </button>
         </div>
 
-        <div className="space-y-4 p-5">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
           {children}
           {error && <p className="text-[12px] text-removed">{error}</p>}
         </div>
@@ -9292,7 +9292,11 @@ function ProviderRow({ provider, onOpen }: { provider: ModelProvider; onOpen: ()
     ? provider.online
       ? 'connected'
       : 'offline'
-    : `${modelCount} model${modelCount === 1 ? '' : 's'}`
+    : provider.execution === 'unconfigured'
+      ? 'not configured'
+      : provider.execution === 'mock'
+        ? 'development mock'
+        : `${modelCount} model${modelCount === 1 ? '' : 's'}`
 
   return (
     <SynopsisRow
@@ -9384,6 +9388,21 @@ function ProviderDetailSections({
           </span>
         )}
         {isSession && <RelayBadge />}
+        {!isSession && (
+          <span
+            className={`rounded px-1.5 py-0.5 text-[10px] ${
+              provider.execution === 'unconfigured'
+                ? 'bg-warn/10 text-warn-strong'
+                : 'bg-panel-2 text-ink-faint'
+            }`}
+          >
+            {provider.execution === 'unconfigured'
+              ? 'Not configured'
+              : provider.execution === 'mock'
+                ? 'Development mock'
+                : 'Connected endpoint'}
+          </span>
+        )}
         {provider.effortLevels.map((effort) => (
           <span key={effort} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
             {effort}
@@ -9392,6 +9411,12 @@ function ProviderDetailSections({
       </div>
       <p className="mt-2 text-[12px] text-ink-soft">Grants {authorityLabel(provider.authority)}</p>
       <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
+      {provider.execution === 'unconfigured' && (
+        <p className="mt-2 text-[12px] text-warn-strong">
+          Turns are blocked before they are written. Add a configured endpoint provider, or launch the built-in
+          provider with <span className="font-mono">ANTHROPIC_BASE_URL</span> and <span className="font-mono">ANTHROPIC_API_KEY</span>.
+        </p>
+      )}
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
     </>
   )
@@ -9896,6 +9921,9 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
   const [label, setLabel] = useState(provider?.label ?? '')
   const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
   const [kind, setKind] = useState<'endpoint' | 'session'>(provider?.kind ?? 'endpoint')
+  const [baseURL, setBaseURL] = useState('')
+  const [model, setModel] = useState('')
+  const [apiKeyEnv, setApiKeyEnv] = useState('')
   // The default flag (the UI shortcut — spec: agents always bind explicitly; this only
   // pre-selects the New-agent picker). Sent only when it changed, so an unrelated edit
   // can't move another entry's flag.
@@ -9906,7 +9934,10 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
   // the user confirms they saved it — only then does the dialog resolve.
   const [minted, setMinted] = useState<CreatedProvider | null>(null)
   const isSession = kind === 'session'
-  const canSubmit = label.trim().length > 0 && (isSession || family.trim().length > 0) && !busy
+  const canSubmit =
+    label.trim().length > 0 &&
+    (isSession || (family.trim().length > 0 && (provider !== null || baseURL.trim().length > 0))) &&
+    !busy
 
   const submit = async () => {
     if (!canSubmit) return
@@ -9935,6 +9966,11 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
           label: label.trim(),
           modelFamily: family.trim(),
           effortLevels: ['Low', 'Medium', 'High'],
+          config: {
+            baseURL: baseURL.trim(),
+            ...(model.trim() ? { model: model.trim() } : {}),
+            ...(apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
+          },
           ...(isDefault ? { isDefault } : {}),
         })
         onClose()
@@ -9956,6 +9992,7 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
       onSubmit={submit}
       onClose={onClose}
       error={error}
+      busy={busy}
     >
       {!provider && (
         <FormField label="Kind">
@@ -10001,18 +10038,55 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
         />
       </FormField>
       {!isSession && (
-        <FormField label="Model family">
-          <input
-            value={family}
-            onChange={(e) => setFamily(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="claude"
-            className={FORM_INPUT_CLASS}
-          />
-          <span className="mt-1 block text-[11px] text-ink-faint">
-            A system prompt tuned for a different family shows a fit warning when picked.
-          </span>
-        </FormField>
+        <>
+          <FormField label="Model family">
+            <input
+              value={family}
+              onChange={(e) => setFamily(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && submit()}
+              placeholder="claude"
+              className={FORM_INPUT_CLASS}
+            />
+            <span className="mt-1 block text-[11px] text-ink-faint">
+              A system prompt tuned for a different family shows a fit warning when picked.
+            </span>
+          </FormField>
+          {!provider && (
+            <>
+              <FormField label="Messages API URL">
+                <input
+                  type="url"
+                  value={baseURL}
+                  onChange={(e) => setBaseURL(e.target.value)}
+                  placeholder="https://models.example.com/v1"
+                  className={FORM_INPUT_CLASS}
+                />
+                <span className="mt-1 block text-[11px] text-ink-faint">
+                  Must answer the Anthropic Messages protocol. The connection is verified before it is saved.
+                </span>
+              </FormField>
+              <FormField label="Model ID (optional)">
+                <input
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder="provider-model-id"
+                  className={FORM_INPUT_CLASS}
+                />
+              </FormField>
+              <FormField label="Credential variable (optional)">
+                <input
+                  value={apiKeyEnv}
+                  onChange={(e) => setApiKeyEnv(e.target.value.toUpperCase())}
+                  placeholder="PROVIDER_TEAM_KEY"
+                  className={FORM_INPUT_CLASS}
+                />
+                <span className="mt-1 block text-[11px] text-ink-faint">
+                  Enter a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Only its name is stored; the secret never enters this app.
+                </span>
+              </FormField>
+            </>
+          )}
+        </>
       )}
       <DefaultToggle checked={isDefault} onChange={setIsDefault} entity="provider" />
     </FormDialog>

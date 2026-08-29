@@ -15,10 +15,12 @@ test('POST creates a provider; GET lists it; PATCH edits its fields', async () =
     label: 'Wire provider',
     modelFamily: 'open',
     effortLevels: ['Low', 'High'],
+    execution: 'configured',
   })
   assert.equal(created.status, 200)
   assert.ok(created.json.id.startsWith('provider-'))
   assert.equal(created.json.modelFamily, 'open')
+  assert.equal(created.json.execution, 'mock', 'execution is computed from server config, never caller-stamped')
 
   const one = await call('GET', `/providers/${created.json.id}`)
   assert.equal(one.status, 200)
@@ -27,12 +29,14 @@ test('POST creates a provider; GET lists it; PATCH edits its fields', async () =
   const patched = await call('PATCH', `/providers/${created.json.id}`, {
     label: 'Renamed',
     modelFamily: 'claude',
+    execution: 'configured',
   })
   assert.equal(patched.status, 200)
   assert.equal(patched.json.label, 'Renamed')
   assert.equal(patched.json.modelFamily, 'claude')
   // The patch is a real merge — the untouched effort levels survive.
   assert.deepEqual(patched.json.effortLevels, ['Low', 'High'])
+  assert.equal(patched.json.execution, 'mock', 'PATCH cannot forge the serve-time execution status')
 })
 
 test('POST without required fields is a 400; PATCH of an unknown id is a 404', async () => {
@@ -62,6 +66,7 @@ test('POST with an endpoint config probes it, mints, and never echoes the endpoi
   await new Promise<void>((r) => mock.on('listening', () => r()))
   const addr = mock.address()
   const baseURL = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
+  process.env.PROVIDER_ENDPOINT_KEY = 'endpoint-test-secret'
   try {
     const created = await call('POST', '/providers', {
       label: 'Endpoint provider',
@@ -94,6 +99,7 @@ test('POST with an endpoint config probes it, mints, and never echoes the endpoi
     assert.equal(forged.status, 200)
     assert.equal(store.providerConfig(forged.json.id).capabilities, undefined)
   } finally {
+    delete process.env.PROVIDER_ENDPOINT_KEY
     mock.close()
   }
 })

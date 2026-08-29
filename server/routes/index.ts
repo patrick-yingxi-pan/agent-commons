@@ -1169,7 +1169,7 @@ export function buildRouter(): Router {
     // per-tenant pointer move below, never a stored field.)
     // (`catalogSource` is server-derived too — stripped so a request can't claim a
     // 'listed' catalog it declared by hand; the mint funnel stamps 'static'.)
-    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, isDefault, catalogSource: _src, defaultModelId: _dm, ...fields } = input
+    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, isDefault, catalogSource: _src, defaultModelId: _dm, execution: _execution, ...fields } = input
     // Pick the three known endpoint fields explicitly (strings only) — a raw spread
     // would let arbitrary unknown JSON ride into the persisted server-only config
     // (including a forged `capabilities` record).
@@ -3073,6 +3073,7 @@ export function buildRouter(): Router {
     // provenance stamp below always names a real provider (never "implicit").
     const turnProviderId = known?.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
     const provider = store.providerConfig(turnProviderId)
+    const providerFace = store.listProviders(tenantId).find((candidate) => candidate.id === turnProviderId)
     // The session's concrete model pick (`session.modelId`, catalog-validated at
     // write time) overrides the provider's configured model for THIS session's
     // turns — riding the same server-only `model` field a turn already resolves
@@ -3081,6 +3082,18 @@ export function buildRouter(): Router {
     // model is whatever session drains its mailbox, so its turns carry none.
     const turnConfig = known?.modelId ? { ...provider, model: known.modelId } : provider
     const turnModelId = provider.kind === 'session' ? undefined : resolvedModelId(turnConfig)
+    // Release profiles never silently fall back to the deterministic mock. An
+    // endpoint whose server-owned connection is incomplete refuses before the
+    // user row, spend, or live-turn slot changes — the same fail-before-write
+    // posture as relay liveness and plan limits. UI affordances mirror this
+    // status, but this wall also protects MCP and older clients.
+    if (provider.kind !== 'session' && providerFace?.execution === 'unconfigured') {
+      return sendError(
+        res,
+        'capability_unavailable',
+        `The '${providerFace.label}' model provider is not configured. Choose a connected provider or add one in Models.`,
+      )
+    }
     // The relay pre-turn gate (docs/delegated-cognition-provider.md §7.2): a turn on a
     // Session provider refuses BEFORE the user turn persists — the spend gate's shape —
     // when no drain loop is bound (offline), when THIS conversation's previous turn is

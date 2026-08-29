@@ -106,6 +106,9 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
   if (!validApiKeyEnv(config.apiKeyEnv)) {
     throw new ProviderProbeError(`A provider credential must reference a '${PROVIDER_KEY_ENV_PREFIX}*' env var, not '${config.apiKeyEnv}'.`)
   }
+  if (config.apiKeyEnv && !process.env[config.apiKeyEnv]?.trim()) {
+    throw new ProviderProbeError(`The provider credential '${config.apiKeyEnv}' is not available to this server.`)
+  }
   const probe = (withTools: boolean) =>
     clientFor(config).messages.create(
       {
