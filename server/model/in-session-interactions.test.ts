@@ -66,7 +66,7 @@ for (const c of REMOVE_CASES) {
 // ── I2 — every name-taking tool resolves the LIVE registry (runtime entities) ──
 const LIVE_RESOLUTION: Array<{ tool: string; input: Record<string, unknown>; expect: (op: Record<string, unknown>) => void }> = [
   { tool: 'file_session', input: { project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
-  { tool: 'save_artifact', input: { name: 'n.md', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
+  { tool: 'save_artifact', input: { name: 'n.md', body: 'A real body.', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'refile_artifact', input: { artifact: 'vibe-outline.md', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.artifactId, 'art-x') },
   { tool: 'attach_context', input: { connector: 'My Custom MCP' }, expect: (op) => assert.equal(op.connectorId, 'mcp-custom') },
   { tool: 'scope_context', input: { connector: 'My Custom MCP', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
@@ -94,7 +94,7 @@ for (const c of LIVE_RESOLUTION) {
 const REFUSALS: Array<{ tool: string; input: Record<string, unknown> }> = [
   { tool: 'file_session', input: { project: 'No Such Project' } },
   { tool: 'file_session', input: { project: 'No Such Project', remove: 'true' } },
-  { tool: 'save_artifact', input: { name: 'n.md', project: 'No Such Project' } },
+  { tool: 'save_artifact', input: { name: 'n.md', body: 'A real body.', project: 'No Such Project' } },
   { tool: 'refile_artifact', input: { artifact: 'no-such.md', project: 'Vibe Coding Guide' } },
   { tool: 'refile_artifact', input: { artifact: 'vibe-outline.md', project: 'No Such Project' } },
   { tool: 'scope_context', input: { connector: 'My Custom MCP', project: 'No Such Project' } },
@@ -144,7 +144,10 @@ test('the regression itself: unfile from a runtime project proposes THAT unfile 
 let server: Server
 before(async () => {
   server = startModelServer(0, '127.0.0.1')
-  await new Promise<void>((r) => server.on('listening', () => r()))
+  // `listen(0)` may reach listening before this hook resumes on a fast host.
+  // Observe the current state as well as the future event so the suite cannot
+  // strand every route test behind a missed one-shot notification.
+  if (!server.listening) await new Promise<void>((resolve) => server.once('listening', resolve))
   const addr = server.address()
   const port = typeof addr === 'object' && addr ? addr.port : 0
   process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`

@@ -64,24 +64,45 @@ function runOnce(taskId) {
 
 test('a standing "save artifact each run" approval saves an artifact unprompted (relation.applied by standing)', async () => {
   const task = steppedTask()
+  const standingName = 'Standing digest'
+  const standingSource = `Scheduled run of ${task.name}`
+  // A foreign tenant may use the same human name + source without capturing or
+  // being refreshed by the desktop/default tenant's standing approval.
+  store.applyRelationOp(
+    {
+      kind: 'save-artifact',
+      artifact: { name: standingName, kind: 'doc', meta: 'Foreign tenant copy' },
+      sessionTitle: standingSource,
+    },
+    'tenant-foreign-standing',
+  )
+  const foreignBefore = store
+    .relationGraph('tenant-foreign-standing')
+    .extraArtifacts.find((artifact) => artifact.name === standingName && artifact.source === standingSource)
+  assert.ok(foreignBefore, 'the cross-tenant collision fixture exists')
   // Approve once, in advance: this routine saves an artifact every run.
   store.applyRelationOp({
     kind: 'set-schedule-artifact',
     scheduleId: task.id,
     scheduleName: task.name,
     cadence: task.cadence,
-    artifactName: 'Standing digest',
+    artifactName: standingName,
   })
   const before = store.relationGraph().extraArtifacts.length
 
   const op1 = await runOnce(task.id)
   assert.ok(op1, 'a relation.applied by:standing fired on the run')
   assert.equal(op1.kind, 'save-artifact', 'the standing effect is the artifact save')
+  assert.equal(op1.ownerTenantId, 'tenant-personal', 'the server stamps the standing effect owner')
   assert.equal(
     store.relationGraph().extraArtifacts.length,
     before + 1,
     'the first run mints the routine’s one delivered artifact — no confirmation card',
   )
+  const foreignAfter = store
+    .relationGraph('tenant-foreign-standing')
+    .extraArtifacts.find((artifact) => artifact.id === foreignBefore.id)
+  assert.equal(foreignAfter?.editedAt, foreignBefore.editedAt, 'the same-name foreign artifact was not refreshed')
 })
 
 test('a second standing run refreshes the same artifact, not appends one (bounded growth)', async () => {

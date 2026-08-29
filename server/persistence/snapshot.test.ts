@@ -307,6 +307,12 @@ test('build produces a snapshot covering every persisted slice', async () => {
     ),
     'updateArtifactBlock → artifactBodies (S3, the artifact-patch body overlay), keyed by artifact id',
   )
+  assert.ok(
+    s.artifactBodies?.some(
+      ([id, body]) => id.length > 0 && body.type === 'doc' && JSON.stringify(body.blocks).includes('portable snapshot path'),
+    ),
+    'save-artifact with a body → artifactBodies in the same portable snapshot',
+  )
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {
@@ -331,6 +337,12 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   // (Acme, Inc. → Ada Lovelace) booted the flagship demo half-renamed, its
   // seeded DM anchored on a name nobody bears.
   const stale = JSON.parse(readFileSync(BUILD_STORE, 'utf8'))
+  // A runtime artifact from before tenant stamping must not come back as a
+  // globally replayable row. Rehydrate owns this compatibility boundary rather
+  // than requiring an old snapshot to be rewritten by hand.
+  const legacyRuntimeArtifact = stale.graph.extraArtifacts.find((artifact: any) => artifact.name === 'Launch one-pager')
+  assert.ok(legacyRuntimeArtifact, 'the snapshot carries a runtime-created artifact to de-stamp')
+  delete legacyRuntimeArtifact.tenantId
   const dm = stale.discussions.find((d: any) => d.anchor.ref.kind === 'principal' && d.targetTenant)
   assert.ok(dm, 'the snapshot carries a principal-anchored thread to go stale')
   dm.anchor.ref.id = 'Stale, Inc.'
@@ -406,6 +418,11 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   assert.ok(projectIds.includes('p-playground'), 'the created project survives a boot')
   assert.ok(store.listSchedules().some((t) => t.id.startsWith('s-new-')), 'the created schedule survives a boot')
   assert.ok(store.relationGraph().extraArtifacts.length >= 3, 'the created artifacts survive a boot')
+  assert.equal(
+    store.relationGraph().extraArtifacts.find((artifact) => artifact.id === legacyRuntimeArtifact.id)?.tenantId,
+    'tenant-personal',
+    'a tenant-less legacy runtime artifact is restored into the default namespace',
+  )
 
   const created = store.listSessions().find((x) => x.id.startsWith('sess-'))
   assert.ok(created, 'the created session is listed after a boot')

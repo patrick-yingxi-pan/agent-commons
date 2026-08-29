@@ -8,10 +8,14 @@ import type { RelationOp } from '../../contract/index.ts'
 import { invalidate, invalidatePrefix } from './cache.ts'
 import { keys } from './keys.ts'
 
-/** Refresh the registry caches a confirmed CRUD op touched. A relationship-graph op
- *  (file/save/scope/…) edits no registry, so it falls through to a no-op. */
+/** Refresh the non-graph projections a confirmed op touched. Most relationship
+ * ops need only the graph acknowledgement; an authored artifact save also mints
+ * its body in the separate content projection. */
 export function invalidateForCommonsOp(op: RelationOp): void {
   switch (op.kind) {
+    case 'save-artifact':
+      invalidate(keys.artifactContent)
+      break
     case 'create-provider':
       invalidate(keys.providers)
       break

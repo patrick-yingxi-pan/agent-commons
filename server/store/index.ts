@@ -19,6 +19,7 @@ import type {
   Artifact,
   ArtifactContent,
   ArtifactContentLibrary,
+  AuthoredDocument,
   ArtifactItem,
   ArtifactKind,
   Capabilities,
@@ -89,7 +90,7 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from '../fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../../contract/index.ts'
-import { fsRecentKey, docBlockText, withDocBlockText } from '../../contract/index.ts'
+import { authoredDocument, fsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from '../env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts.ts'
@@ -793,8 +794,6 @@ const MAX_PROPOSAL_CHARS = 2000
 /** One prose block's ceiling — the `artifact-patch` delta's text and the owner's
  *  own edit share it, because both end in the same body. Same order as the other
  *  free-text caps; the point is a bound, not a precise budget. */
-const MAX_ARTIFACT_BLOCK_CHARS = 2000
-
 /** A patch is offerable when it is a non-empty object naming only proposable
  *  fields, each of the right primitive type. */
 function isSchedulePatch(patch: unknown): boolean {
@@ -2468,8 +2467,20 @@ function rehydrate(s: PersistedState): void {
   }
   recents = s.recents
   // Merge over an empty graph so a snapshot written before a slice existed (e.g.
-  // projectInstructions) gains it as an empty map rather than `undefined`.
-  graph = { ...emptyGraph(), ...s.graph }
+  // projectInstructions) gains it as an empty map rather than `undefined`. Runtime
+  // artifacts persisted before tenant stamping belong to the default namespace;
+  // code-owned demo seeds intentionally remain unstamped because `seedVisibleTo`
+  // exposes that flagship dataset to both faces of the default seat.
+  const seedArtifactIds = new Set(baseArtifacts().map((artifact) => artifact.id))
+  graph = {
+    ...emptyGraph(),
+    ...s.graph,
+    extraArtifacts: (s.graph.extraArtifacts ?? []).map((artifact) =>
+      artifact.tenantId === undefined && !seedArtifactIds.has(artifact.id)
+        ? { ...artifact, tenantId: defaultTenantId() }
+        : artifact,
+    ),
+  }
   // Restore saved-context auth status (default to the seed for a pre-field snapshot).
   if (s.savedContexts) savedCtxs.splice(0, savedCtxs.length, ...s.savedContexts)
   sessionContextBindings.clear()
@@ -2772,14 +2783,21 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
   const artifactName = graph.scheduleArtifact[task.id]
   if (!artifactName) return
   const source = `Scheduled run of ${task.name}`
+  const ownerTenantId = defaultTenantId()
   const op: RelationOp = {
     kind: 'save-artifact',
     artifact: { name: artifactName, kind: 'doc', meta: `Saved by ${task.name}` },
     sessionId,
     sessionTitle: source,
     projectId: task.projectId,
+    ownerTenantId,
   }
-  const existing = graph.extraArtifacts.find((a) => a.source === source && a.name === artifactName)
+  const existing = graph.extraArtifacts.find(
+    (artifact) =>
+      artifact.source === source &&
+      artifact.name === artifactName &&
+      artifact.tenantId === ownerTenantId,
+  )
   if (existing) {
     graph = {
       ...graph,
@@ -2793,7 +2811,7 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
   graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
   // A standing (schedule-driven) effect belongs to the default tenant in this prototype
   // (schedules aren't tenant-scoped yet) — stamped explicitly so the SSE gate is unambiguous.
-  emit({ type: 'relation.applied', op, by: 'standing', tenantId: defaultTenantId() })
+  emit({ type: 'relation.applied', op, by: 'standing', tenantId: ownerTenantId })
 }
 
 export const store = {
@@ -7928,6 +7946,57 @@ export const store = {
    *   • Every other op is a relationship-graph edit, applied by the pure reducer.
    *  All three broadcast `relation.applied` and persist. */
   applyRelationOp(op: RelationOp, tenantId?: string): RelationGraph {
+    // A current document save is one compound durable act: validate and
+    // normalize its authored body before the graph can mint metadata, then lay
+    // the body under the minted id before the single persist below. Historical
+    // metadata-only saves remain replayable; new producers always supply body.
+    let authored: AuthoredDocument | undefined
+    let existingArtifactId: string | undefined
+    if (op.kind === 'save-artifact') {
+      if (!op.artifact || typeof op.artifact.name !== 'string') {
+        throw new ValidationError('Document name (string) is required.')
+      }
+      // Replay identity is tenant-scoped. The incoming owner stamp is never
+      // trusted: the authenticated caller (or fixed desktop tenant) supplies it
+      // here before the tenant-agnostic shared reducer sees the operation.
+      const ownerTenantId = tenantId ?? defaultTenantId()
+      op = { ...op, ownerTenantId }
+      const source = op.sessionTitle ?? 'Created here'
+      const artifactName = op.artifact.body === undefined ? op.artifact.name : op.artifact.name.trim()
+      if (op.artifact.body !== undefined && !artifactName) {
+        throw new ValidationError('Document name must contain text.')
+      }
+      if (artifactName !== op.artifact.name) {
+        op = { ...op, artifact: { ...op.artifact, name: artifactName } }
+      }
+      existingArtifactId = graph.extraArtifacts.find(
+        (candidate) =>
+          candidate.name === artifactName &&
+          candidate.source === source &&
+          candidate.tenantId === ownerTenantId,
+      )?.id
+      if (op.artifact.body !== undefined) {
+        if (op.artifact.kind !== 'doc') {
+          throw new ValidationError('An authored body is supported only for a document artifact.')
+        }
+        authored = authoredDocument(artifactName, op.artifact.body)
+        if (!authored) throw new ValidationError('Document body must contain text.')
+        if (existingArtifactId) {
+          const existingBody = artifactBodies.get(existingArtifactId)
+          if (!existingBody || JSON.stringify(existingBody) !== JSON.stringify(authored.body)) {
+            throw new ConflictError(`A document named '${artifactName}' already exists here.`)
+          }
+        }
+        op = {
+          ...op,
+          artifact: {
+            ...op.artifact,
+            body: authored.text,
+            excerpt: op.artifact.excerpt?.trim() || authored.excerpt,
+          },
+        }
+      }
+    }
     switch (op.kind) {
       case 'create-provider':
         // A user-confirmed provider is a proper cascade root: grant everything (the
@@ -8014,8 +8083,18 @@ export const store = {
         } else if (op.kind === 'save-artifact') {
           // The reducer unshifts the new artifact to extraArtifacts[0] (its id is minted
           // internally). Stamp the creating tenant so the projection scopes it (F2/PD9).
-          const created = graph.extraArtifacts[0]
+          const source = op.sessionTitle ?? 'Created here'
+          const created = graph.extraArtifacts.find(
+            (candidate) =>
+              candidate.name === op.artifact.name &&
+              candidate.source === source &&
+              candidate.tenantId === op.ownerTenantId,
+          )
           if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
+          if (created && authored && !existingArtifactId) {
+            artifactBodies.set(created.id, authored.body)
+            emit({ type: 'artifact.changed', artifactId: created.id })
+          }
         }
     }
     // Version the complete snapshot before broadcasting/responding. A client's

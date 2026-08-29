@@ -570,8 +570,8 @@ test('rail composite controls invoke the same page action and search without dup
   await artifactsRow.hover()
   await controls.click()
   controlsMenu = page.getByRole('menu', { name: 'Controls for Artifacts' })
-  await controlsMenu.getByRole('menuitem', { name: 'New artifact', exact: true }).click()
-  await expect(page.getByRole('dialog', { name: 'New artifact' })).toBeVisible()
+  await controlsMenu.getByRole('menuitem', { name: 'New document', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'New document' })).toBeVisible()
   await page.keyboard.press('Escape')
 
   await expect(page.getByRole('button', { name: 'Organize pane', exact: true })).toBeVisible()

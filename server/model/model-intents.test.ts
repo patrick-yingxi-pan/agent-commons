@@ -83,7 +83,9 @@ test('the escalation patterns do not misfire on messages that merely mention the
 })
 
 test('keyword matching: free-typed organizing requests pick the right tools', () => {
-  assert.equal(matchIntents('Please save a recap of this as recap.md').at(0)?.name, 'save_artifact')
+  const save = matchIntents('Please save a recap of this as recap.md').at(0)
+  assert.equal(save?.name, 'save_artifact')
+  assert.match(String(save?.input.body), /current conversation/, 'the mock exercises an authored save, not metadata only')
   assert.equal(matchIntents('Have the “Triage new GitHub issues” schedule save a digest each run').at(0)?.name, 'set_schedule_artifact')
   assert.equal(matchIntents('attach Linear to this session').at(0)?.name, 'attach_context')
   assert.equal(matchIntents('file this under the Growth experiments project').at(0)?.name, 'file_session')

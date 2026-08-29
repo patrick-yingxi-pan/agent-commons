@@ -72,3 +72,27 @@ test('a stale body edit loads the other device change and retries one held draft
   expect(docBlockText(landed.blocks[remote.index]!)).toBe(remoteText)
   expect(docBlockText(landed.blocks[local.index]!)).toBe(localText)
 })
+
+test('New document persists authored content and reopens it after reload', async ({ page }) => {
+  test.setTimeout(ms(30_000))
+  const stamp = Date.now().toString(36)
+  const name = `release-note-${stamp}.md`
+  const first = `Release checkpoint ${stamp}.`
+  const second = 'This content belongs to the document, not only its index synopsis.'
+
+  await page.goto('/artifacts')
+  await page.getByRole('button', { name: 'New document' }).click()
+  const dialog = page.getByRole('dialog', { name: 'New document' })
+  await dialog.getByLabel('Name').fill(name)
+  await dialog.getByLabel('Content').fill(`${first}\n\n${second}`)
+  await dialog.getByRole('button', { name: 'Create document' }).click()
+  await expect(dialog).toHaveCount(0)
+
+  const artifactPage = page.locator('[data-artifact-page]')
+  await expect(page).toHaveURL(/\/artifacts\/[^/]+$/)
+  await expect(artifactPage.locator('p', { hasText: first })).toBeVisible()
+  await expect(artifactPage.locator('p', { hasText: second })).toBeVisible()
+  await page.reload()
+  await expect(artifactPage.locator('p', { hasText: first })).toBeVisible()
+  await expect(artifactPage.locator('p', { hasText: second })).toBeVisible()
+})

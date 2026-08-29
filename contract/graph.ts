@@ -109,13 +109,18 @@ export function applyGraphOp(
       // one pending card before the SSE invalidate lands, distinct request ids)
       // must not mint a duplicate. Identity = the (name + source) `opAppliedInGraph`
       // already defines.
-      if (graph.extraArtifacts.some((a) => a.name === op.artifact.name && a.source === source)) return graph
+      if (graph.extraArtifacts.some(
+        (a) =>
+          a.name === op.artifact.name &&
+          a.source === source &&
+          (op.ownerTenantId === undefined || a.tenantId === op.ownerTenantId),
+      )) return graph
       const id = mintArtifactId()
       const pid = op.projectId ?? ''
       // A user-created artifact (no session) cites a neutral source rather than a
       // conversation title; an AI save-out passes the real session title + id (the
       // id is the stable join the gallery's "From ‹conversation›" door resolves by).
-      const item = artifactFromDraft(op.artifact, id, source, pid, now, op.sessionId)
+      const item = artifactFromDraft(op.artifact, id, source, pid, now, op.sessionId, op.ownerTenantId)
       return {
         ...graph,
         extraArtifacts: [item, ...graph.extraArtifacts],
@@ -250,7 +255,10 @@ export function opAppliedInGraph(graph: RelationGraph, op: RelationOp): boolean 
       // name + the citing source. Same-session re-proposals read applied; a same-name
       // save from a DIFFERENT session stays pending (distinct source).
       return graph.extraArtifacts.some(
-        (a) => a.name === op.artifact.name && a.source === (op.sessionTitle ?? 'Created here'),
+        (a) =>
+          a.name === op.artifact.name &&
+          a.source === (op.sessionTitle ?? 'Created here') &&
+          (op.ownerTenantId === undefined || a.tenantId === op.ownerTenantId),
       )
     case 'scope-context':
       return (graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.context.label)

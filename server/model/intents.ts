@@ -117,7 +117,15 @@ function matchKeywords(text: string): ToolCall[] {
   // ── Save a draft out of this session ──────────────────────────────────────
   if (/\bsave\b/.test(t) && /\b(artifact|draft|doc|note|recap|summary)\b/.test(t)) {
     const name = grab(/\bsave\b.*?\bas\s+([\w.-]+)/i) ?? 'session-recap.md'
-    calls.push({ name: 'save_artifact', input: { name, kind: 'doc', meta: '1 page', excerpt: 'Saved from this session.', ...(project ? { project } : {}) } })
+    calls.push({
+      name: 'save_artifact',
+      input: {
+        name,
+        body: 'This recap was saved from the current conversation.\n\nReview and refine it from the document page.',
+        meta: 'Document',
+        ...(project ? { project } : {}),
+      },
+    })
   }
 
   // ── Schedule-centric ──────────────────────────────────────────────────────

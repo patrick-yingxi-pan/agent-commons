@@ -16,10 +16,9 @@
 import { ALL_ARTIFACTS, PROJECTS, SCHEDULED_TASKS } from '../data/cowork.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { slug } from '../../contract/ids.ts'
-import { PROJECT_ROLES, defaultEntry } from '../../contract/index.ts'
+import { PROJECT_ROLES, authoredDocument, defaultEntry } from '../../contract/index.ts'
 import type {
   Artifact,
-  ArtifactKind,
   Connector,
   DiffLine,
   EscalationProposal,
@@ -141,12 +140,6 @@ function resolveConnector(name: string, ctx: ToolContext): { id: string; label: 
   const list = ctx.commons?.connectors ?? CONNECTOR_OPTIONS
   return list.find((c) => c.label.toLowerCase() === n) ?? list.find((c) => c.label.toLowerCase().includes(n))
 }
-const ARTIFACT_KINDS: ArtifactKind[] = ['doc', 'email', 'image', 'slide', 'sheet']
-function resolveKind(v: unknown): ArtifactKind {
-  const k = str(v).toLowerCase()
-  return (ARTIFACT_KINDS as string[]).includes(k) ? (k as ArtifactKind) : 'doc'
-}
-
 // Resolve a named Agent Commons entity against the LIVE registry the route passed in
 // (ctx.commons). Exact label first, then a contains-match; undefined when nothing
 // matches (unlike the seed resolvers, which fall back to [0] — a wrong provider/agent
@@ -281,29 +274,31 @@ const TOOLS: ToolSpec[] = [
   },
   {
     name: 'save_artifact',
-    description: 'Save a draft from this session as an artifact, optionally filing it under a project. Edits the session ↔ artifact relation.',
+    description: 'Save an authored document from this session, optionally filing it under a project. The user reviews its actual content before confirming.',
     properties: {
       name: { type: 'string', description: 'The artifact file name, e.g. "launch-recap.md".' },
-      kind: { type: 'string', description: 'One of doc, email, image, slide, sheet.' },
+      body: { type: 'string', description: 'The complete document text to save. Separate editable paragraphs with blank lines.' },
       meta: { type: 'string', description: 'A short meta line, e.g. "1 page".' },
-      excerpt: { type: 'string', description: 'A one-line excerpt of the artifact.' },
       project: { type: 'string', description: 'Optional project to file the new artifact under.' },
     },
-    required: ['name'],
+    required: ['name', 'body'],
     build: (input, ctx) => {
+      const name = str(input.name, 'session-recap.md')
+      const authored = authoredDocument(name, input.body)
+      if (!authored) return { summary: 'No document content was supplied — proposed nothing. Draft the body, then try again.' }
       // An optional-but-NAMED project must still resolve — saving without the
       // project the caller asked for would be a silent normalization (INV-9).
       const project = str(input.project) ? resolveProject(str(input.project), ctx) : undefined
       if (str(input.project) && !project) return noMatch('project', str(input.project))
       const op: RelationOp = {
         kind: 'save-artifact',
-        artifact: { name: str(input.name, 'session-recap.md'), kind: resolveKind(input.kind), meta: str(input.meta, '1 page'), excerpt: str(input.excerpt) || undefined },
+        artifact: { name, kind: 'doc', meta: str(input.meta, 'Document'), body: authored.text },
         sessionId: ctx.session.id,
         sessionTitle: ctx.session.title,
         projectId: project?.id,
         projectName: project?.name,
       }
-      return { relationOps: [op], summary: `Proposed saving ${str(input.name, 'an artifact')}${project ? ` under ${project.name}` : ''}; awaiting confirmation.` }
+      return { relationOps: [op], summary: `Proposed saving ${name}${project ? ` under ${project.name}` : ''}; awaiting confirmation.` }
     },
   },
   {

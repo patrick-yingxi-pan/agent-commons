@@ -8,10 +8,12 @@
 ## 1. Problem & scope
 
 The implementation persists one versioned state contract through JSON or embedded
-SQLite (`server/persistence/`) and runs as one Node process (`server/index.ts`) that
-serves the built UI + API. Development also boots an in-process mock model; release
-profiles deliberately disable it and require a configured provider. Production still needs the
-native shell, secrets boundary, object storage and operational packaging, while both
+SQLite (`server/persistence/`), including newly authored document bodies keyed by
+artifact id, and runs as one Node process (`server/index.ts`) that serves the built
+UI + API. Development also boots an in-process mock model; release profiles
+deliberately disable it and require a configured provider. Production still needs
+the native shell, secrets boundary, object storage for large and binary bodies, and
+operational packaging, while both
 deployment topologies continue sharing one UI + contract.
 
 ## 2. Design

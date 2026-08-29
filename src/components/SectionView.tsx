@@ -372,6 +372,7 @@ import {
   type SocialEntityRef,
   ENVELOPE_HARNESSES,
   CHANGE_ENTRY_KINDS,
+  MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
   AUDIT_CHANNEL_LABEL,
   type EnvelopeHarness,
   type ChangeEntryKind,
@@ -6663,6 +6664,7 @@ function ArtifactsSection({
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
   const [creatingArtifact, setCreatingArtifact] = useState(false)
+  const [createdDocumentName, setCreatedDocumentName] = useState<string | null>(null)
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
   const artifactsQ = useArtifacts()
@@ -6670,6 +6672,21 @@ function ArtifactsSection({
   const artifacts = rel.allArtifacts()
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
+
+  // `applyOp` resolves after the authoritative graph enters the cache, but
+  // React may publish that graph on the render after its promise continuation.
+  // Hold the acknowledged name until the minted id is visible, then open the
+  // canonical page through the pane-local navigation funnel. Replaying the
+  // same sessionless save opens the existing Created-here document.
+  useEffect(() => {
+    if (!createdDocumentName) return
+    const created = artifacts.find(
+      (artifact) => artifact.name === createdDocumentName && artifact.source === 'Created here',
+    )
+    if (!created) return
+    setCreatedDocumentName(null)
+    rel.navigate('artifacts', created.id)
+  }, [artifacts, createdDocumentName, rel])
   // Resolve an artifact's producing conversation for "From ‹conversation›": by its
   // stable `sourceSessionId` when stamped (runtime saves), else by the `source`
   // TITLE (seed/legacy artifacts — a best-effort fallback: a title is mutable and
@@ -6720,18 +6737,21 @@ function ArtifactsSection({
   // save-artifact op, optionally filed under a project. Server-owned + persisted
   // via the same /relations/ops path. The dialog closes only after the server
   // acknowledges the stable id-bearing graph snapshot.
-  const createArtifact = (draft: { name: string; kind: ArtifactKind; excerpt: string }, projectId: string | null) => {
+  const createArtifact = (draft: { name: string; body: string }, projectId: string | null) => {
     if (creatingArtifact) return
     const project = projectId ? projects.find((p) => p.id === projectId) : undefined
     setCreatingArtifact(true)
     void rel.applyOp({
       kind: 'save-artifact',
-      artifact: { name: draft.name, kind: draft.kind, meta: KIND_LABEL[draft.kind], excerpt: draft.excerpt || undefined },
+      artifact: { name: draft.name, kind: 'doc', meta: 'Document', body: draft.body },
       projectId: project?.id,
       projectName: project?.name,
     }).then((outcome) => {
       setCreatingArtifact(false)
-      if (outcome === 'applied') setCreating(false)
+      if (outcome === 'applied') {
+        setCreating(false)
+        setCreatedDocumentName(draft.name)
+      }
     })
   }
 
@@ -6810,7 +6830,7 @@ function ArtifactsSection({
           mirrorsRailFor="artifacts"
           onRailInvoke={() => setCreating(true)}
         >
-          New artifact
+          New document
         </PageActionButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" mirrorsRailFor="artifacts" />
@@ -6831,7 +6851,7 @@ function ArtifactsSection({
       />
 
       {creating && (
-        <NewArtifactDialog
+        <NewDocumentDialog
           projects={projects}
           busy={creatingArtifact}
           waitingForRecovery={creatingArtifact && !!rel.mutation.error}
@@ -6843,10 +6863,11 @@ function ArtifactsSection({
   )
 }
 
-/** The "New artifact" form — name, a kind picker (doc / sheet / image / slide /
- *  email), an optional one-line excerpt, and an optional project to file it under.
- *  Mirrors NewProjectDialog's modal idiom. */
-function NewArtifactDialog({
+/** Direct creation is intentionally one honest authoring workflow: a document
+ * with real content. Sheets, images, slides and email remain valid imported or
+ * generated artifact kinds, but a format picker that minted only metadata made
+ * five promises this surface could not keep. */
+function NewDocumentDialog({
   projects,
   busy,
   waitingForRecovery,
@@ -6856,155 +6877,69 @@ function NewArtifactDialog({
   projects: Project[]
   busy: boolean
   waitingForRecovery: boolean
-  onCreate: (draft: { name: string; kind: ArtifactKind; excerpt: string }, projectId: string | null) => void
+  onCreate: (draft: { name: string; body: string }, projectId: string | null) => void
   onClose: () => void
 }) {
   const [name, setName] = useState('')
-  const [kind, setKind] = useState<ArtifactKind>('doc')
-  const [excerpt, setExcerpt] = useState('')
+  const [body, setBody] = useState('')
   const [projectId, setProjectId] = useState<string | null>(null)
-  const dialogRef = useRef<HTMLDivElement>(null)
-  const nameRef = useRef<HTMLInputElement>(null)
-
-  // Focus the name field on open, trap Tab within the dialog, close on Escape,
-  // restore focus on close.
   const close = busy ? () => {} : onClose
-  useFocusTrap(dialogRef, close, { initialFocus: nameRef })
-
-  const canCreate = name.trim().length > 0 && !busy
+  const canCreate = name.trim().length > 0 && body.trim().length > 0 && !busy
   const submit = () => {
-    if (canCreate) onCreate({ name: name.trim(), kind, excerpt: excerpt.trim() }, projectId)
+    if (canCreate) onCreate({ name: name.trim(), body: body.trim() }, projectId)
   }
 
-  const KINDS: ArtifactKind[] = ['doc', 'sheet', 'image', 'slide', 'email']
-
-  return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[12dvh]"
-      onMouseDown={close}
-      role="dialog"
-      aria-modal="true"
-      aria-label="New artifact"
-      aria-busy={busy}
+  return (
+    <FormDialog
+      title="New document"
+      icon={<FileText size={18} className="text-cap-workspace" />}
+      submitLabel={waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : 'Create document'}
+      submitIcon={<Plus size={15} />}
+      canSubmit={canCreate}
+      onSubmit={submit}
+      onClose={close}
+      busy={busy}
     >
-      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
-      <div
-        ref={dialogRef}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={`relative flex h-fit w-[480px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
-      >
-        <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
-          <div className="flex items-center gap-2">
-            <FileText size={18} className="text-cap-workspace" />
-            <span className="text-[15px] font-semibold text-ink">New artifact</span>
-          </div>
-          <button
-            onClick={close}
-            disabled={busy}
-            title="Close"
-            aria-label="Close"
-            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-5">
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Name</span>
-            <input
-              ref={nameRef}
-              value={name}
-              disabled={busy}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') submit()
-              }}
-              placeholder="e.g. launch-brief.md"
-              className={FORM_INPUT_CLASS}
-            />
-          </label>
-
-          <div>
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">Type</span>
-            <div className="flex flex-wrap gap-1.5">
-              {KINDS.map((k) => {
-                const KIcon = KIND_ICON[k]
-                const on = kind === k
-                return (
-                  <button
-                    key={k}
-                    disabled={busy}
-                    onClick={() => setKind(k)}
-                    aria-pressed={on}
-                    className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] font-medium transition ${
-                      on
-                        ? 'border-accent bg-accent-tint text-accent-strong'
-                        : 'border-line bg-surface text-ink-soft hover:border-line-strong'
-                    }`}
-                  >
-                    <KIcon size={14} />
-                    {KIND_LABEL[k]}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
-              Excerpt <span className="font-normal text-ink-faint">(optional)</span>
-            </span>
-            <textarea
-              value={excerpt}
-              disabled={busy}
-              onChange={(e) => setExcerpt(e.target.value)}
-              rows={2}
-              placeholder="A one-line synopsis shown in the index."
-              className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
-              Project <span className="font-normal text-ink-faint">(optional)</span>
-            </span>
-            <select
-              value={projectId ?? ''}
-              disabled={busy}
-              onChange={(e) => setProjectId(e.target.value || null)}
-              className="w-full rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none transition focus:border-co"
-            >
-              <option value="">No project</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
-          <button
-            onClick={close}
-            disabled={busy}
-            className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={submit}
-            disabled={!canCreate || busy}
-            className={`flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            <Plus size={15} />
-            {waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : 'Create artifact'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
+      <FormField label="Name">
+        <input
+          value={name}
+          disabled={busy}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. launch-brief.md"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      <FormField label="Content">
+        <textarea
+          value={body}
+          disabled={busy}
+          onChange={(e) => setBody(e.target.value)}
+          maxLength={MAX_AUTHORED_DOCUMENT_SOURCE_CHARS}
+          rows={9}
+          placeholder="Write the document. Separate paragraphs with a blank line."
+          className="w-full resize-y rounded-md border border-line bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
+        />
+        <span className="mt-1 block text-[11px] text-ink-faint">
+          Blank lines become independently editable paragraphs. The index synopsis is derived from this content. About 20,000
+          characters maximum.
+        </span>
+      </FormField>
+      <FormField label="Project" optional>
+        <select
+          value={projectId ?? ''}
+          disabled={busy}
+          onChange={(e) => setProjectId(e.target.value || null)}
+          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none transition focus:border-co"
+        >
+          <option value="">No project</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </FormField>
+    </FormDialog>
   )
 }
 
@@ -8223,7 +8158,7 @@ function FormField({ label, optional, children }: { label: string; optional?: bo
   )
 }
 
-/** The shared create / edit modal shell for the Agents hub — portal + focus trap, a
+/** The shared create / edit modal shell for resource forms — portal + focus trap, a
  *  titled header, a body of fields, an inline error slot, and a Cancel / submit footer.
  *  One primitive so every concept's dialog looks and behaves identically (form follows
  *  function); each dialog supplies only its own fields + submit handler. */

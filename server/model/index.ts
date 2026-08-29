@@ -145,7 +145,7 @@ function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[], too
         {
           id: nextToolId(),
           name: 'save_artifact',
-          input: { name: 'runaway.md', kind: 'doc', meta: '1 page', excerpt: 'Runaway loop probe.' },
+          input: { name: 'runaway.md', body: 'Runaway loop probe.', meta: 'Document' },
         },
       ]
     }

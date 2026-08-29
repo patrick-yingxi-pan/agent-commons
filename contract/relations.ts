@@ -106,6 +106,12 @@ export interface ArtifactDraft {
   kind: ArtifactKind
   meta: string
   excerpt?: string
+  /** Plain authored text for a new document. Optional only for compatibility
+   * with historical metadata-only saves and non-document imported artifacts;
+   * every current direct/model document producer supplies it. The server turns
+   * it into the revisioned structured body in the same durable mutation that
+   * mints the artifact metadata. */
+  body?: string
 }
 
 /** Whether an edit is confirmed each time (an interactive one-off) or approved
@@ -131,10 +137,11 @@ export type RelationOp =
   // Project ↔ Artifact — move an artifact into a project (null = unfile, back to
   // the gallery's "Unfiled" bucket).
   | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string | null; projectName: string }
-  // Session ↔ Artifact — save a draft as an artifact. Optionally files it under a
+  // Session ↔ Artifact — save an authored document. Optionally files it under a
   // project (projectId), and optionally cites the session it came from — a user
-  // creating one from the Artifacts index passes neither session field.
-  | { kind: 'save-artifact'; artifact: ArtifactDraft; sessionId?: string; sessionTitle?: string; projectId?: string; projectName?: string }
+  // creating one from the Artifacts index passes neither session field. Legacy
+  // non-document/metadata-only saves remain readable through ArtifactDraft.
+  | { kind: 'save-artifact'; artifact: ArtifactDraft; sessionId?: string; sessionTitle?: string; projectId?: string; projectName?: string; /** Server-stamped replay namespace; callers cannot choose ownership. */ ownerTenantId?: string }
   // Session ↔ Context — attach a connector/context to the live session.
   | { kind: 'attach-context'; sessionTitle: string; connectorId: string; connectorLabel: string; connectorKind?: 'github' | 'connector' | 'mcp' }
   // Project ↔ Context — scope a context to a project.
@@ -568,6 +575,10 @@ export function relationContentPreview(
           : null
     case 'create-project':
       return op.projectDescription ? { label: 'Description', proposed: op.projectDescription } : null
+    case 'save-artifact':
+      return op.artifact.body?.trim()
+        ? { label: 'Document content', proposed: op.artifact.body }
+        : null
     default:
       return null
   }
@@ -584,6 +595,7 @@ export function artifactFromDraft(
   projectId: string,
   editedAt: number,
   sourceSessionId?: string,
+  ownerTenantId?: string,
 ): ArtifactItem {
   return {
     id,
@@ -597,5 +609,6 @@ export function artifactFromDraft(
     projectId,
     excerpt: draft.excerpt,
     editedAt,
+    ...(ownerTenantId === undefined ? {} : { tenantId: ownerTenantId }),
   }
 }

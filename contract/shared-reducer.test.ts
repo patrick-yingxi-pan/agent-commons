@@ -142,6 +142,18 @@ test('save-artifact is REPLAY-SAFE: re-applying the same save (a concurrent doub
   assert.equal(g2, g1, 'and returns the same graph reference (no needless churn)')
 })
 
+test('save-artifact replay identity is tenant-scoped when the server stamps an owner namespace', () => {
+  const base = { kind: 'save-artifact', artifact: { name: 'Brief', kind: 'doc', meta: 'm' }, sessionTitle: 'S' } as const
+  const a = { ...base, ownerTenantId: 'tenant-a' }
+  const b = { ...base, ownerTenantId: 'tenant-b' }
+  const g1 = applyGraphOp(emptyGraph(), a, mintIds())
+  const g2 = applyGraphOp(g1, b, mintIds())
+  assert.equal(g2.extraArtifacts.length, 2)
+  assert.deepEqual(new Set(g2.extraArtifacts.map((artifact) => artifact.tenantId)), new Set(['tenant-a', 'tenant-b']))
+  assert.equal(opAppliedInGraph(g2, a), true)
+  assert.equal(opAppliedInGraph(g2, b), true)
+})
+
 test('opAppliedInGraph: unscope-context reads APPLIED on a runtime-created project that never scoped anything (the vacuous case)', () => {
   // A create-project seeds no projectContexts key; an unscope on it is vacuously
   // satisfied (the label is absent). The old `in` guard held it pending forever,
@@ -153,7 +165,7 @@ test('opAppliedInGraph: unscope-context reads APPLIED on a runtime-created proje
   assert.equal(opAppliedInGraph(scoped, { kind: 'unscope-context', projectId: 'p-new', contextLabel: 'Figma' }), false)
 })
 
-test('a sessionless save-artifact (the "New artifact" button) mints with a neutral source and files under a project', () => {
+test('a sessionless save-artifact (the "New document" button) mints with a neutral source and files under a project', () => {
   const g = applyGraphOp(
     emptyGraph(),
     { kind: 'save-artifact', artifact: { name: 'Brief', kind: 'doc', meta: 'Document' }, projectId: 'p1', projectName: 'P' },

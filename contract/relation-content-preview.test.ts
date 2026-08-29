@@ -58,11 +58,21 @@ test('create ops preview the proposed body alone (no prior value to diff)', () =
     preview({ kind: 'create-project', projectId: 'p2', projectName: 'P2', projectDescription: 'a new project' }),
     { label: 'Description', proposed: 'a new project' },
   )
+  assert.deepEqual(
+    preview({ kind: 'save-artifact', artifact: { name: 'brief.md', kind: 'doc', meta: 'Document', body: 'The actual brief.' } }),
+    { label: 'Document content', proposed: 'The actual brief.' },
+    'saving a document is never a blind metadata-only confirmation',
+  )
 })
 
 test('a content op with an EMPTY body previews nothing (no blank disclosure)', () => {
   assert.equal(preview({ kind: 'create-agent', label: 'A' }), null, 'agent with no instructions')
   assert.equal(preview({ kind: 'create-project', projectId: 'p2', projectName: 'P2', projectDescription: '' }), null)
+  assert.equal(
+    preview({ kind: 'save-artifact', artifact: { name: 'legacy.md', kind: 'doc', meta: 'Document' } }),
+    null,
+    'legacy metadata-only saves remain readable without inventing content',
+  )
 })
 
 test('pure-reference ops preview nothing — there is no body to show', () => {

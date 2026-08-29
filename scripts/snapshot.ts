@@ -192,7 +192,12 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // ── Artifacts ── created (filed + unfiled), and seed artifacts moved around.
   store.applyRelationOp({
     kind: 'save-artifact',
-    artifact: { name: 'Launch one-pager', kind: 'doc', meta: 'Created here', excerpt: 'Metric-led summary of the insights launch.' },
+    artifact: {
+      name: 'Launch one-pager',
+      kind: 'doc',
+      meta: 'Created here',
+      body: 'Metric-led summary of the insights launch.\n\nThis authored body must survive the portable snapshot path.',
+    },
     projectId: PROJECT_ID,
     projectName: PROJECT_NAME,
   })

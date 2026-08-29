@@ -10,7 +10,7 @@ const EMPTY_COLLECTION_COPY: Record<FirstRunCollection, { firstRun: string; filt
     filtered: 'No sessions match these filters.',
   },
   artifacts: {
-    firstRun: 'No artifacts yet — choose New artifact or save work from a conversation.',
+    firstRun: 'No artifacts yet — choose New document or save work from a conversation.',
     filtered: 'No artifacts match.',
   },
   routines: {

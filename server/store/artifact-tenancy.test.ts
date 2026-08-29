@@ -31,6 +31,14 @@ test('a created artifact is stamped with the caller tenant; relationGraph projec
   assert.ok(b.extraArtifacts.some((x) => x.name === 'beta.md') && !b.extraArtifacts.some((x) => x.name === 'alpha.md'))
 })
 
+test('same name + source remains independent across tenant namespaces', () => {
+  const name = `same-name-${Date.now().toString(36)}.md`
+  store.applyRelationOp(mkSave(name), 'tenant-same-a')
+  store.applyRelationOp(mkSave(name), 'tenant-same-b')
+  assert.equal(store.relationGraph('tenant-same-a').extraArtifacts.filter((a) => a.name === name).length, 1)
+  assert.equal(store.relationGraph('tenant-same-b').extraArtifacts.filter((a) => a.name === name).length, 1)
+})
+
 test('the default-tenant reader sees seed + default artifacts (backward-compatible)', () => {
   store.applyRelationOp(mkSave('default-art.md')) // no tenant ⇒ default
   const def = store.relationGraph('tenant-personal')

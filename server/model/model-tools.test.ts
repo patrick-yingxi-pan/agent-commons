@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { TOOL_DEFINITIONS, TOOL_NAMES, executeTool, type ToolContext } from './tools.ts'
-import type { RelationOp } from '../../contract/index.ts'
+import { MAX_AUTHORED_DOCUMENT_CHARS, authoredDocument, type RelationOp } from '../../contract/index.ts'
 
 const ctx: ToolContext = { session: { id: 'auth-refactor', title: 'Refactor auth middleware' } }
 
@@ -58,7 +58,16 @@ test('create_project: defaults to filing the session, and mints an id for a free
 // Each relation-op tool resolves its named args to the right RelationOp kind.
 const RELATION_CASES: Array<{ tool: string; input: Record<string, unknown>; kind: RelationOp['kind']; check?: (op: RelationOp) => void }> = [
   { tool: 'file_session', input: { project: 'Insights dashboard' }, kind: 'file-session', check: (op) => assert.equal((op as any).projectId, 'p-insights') },
-  { tool: 'save_artifact', input: { name: 'r.md', project: 'Insights dashboard' }, kind: 'save-artifact', check: (op) => assert.equal((op as any).projectName, 'Insights dashboard') },
+  {
+    tool: 'save_artifact',
+    input: { name: 'r.md', body: 'The actual recap.', project: 'Insights dashboard' },
+    kind: 'save-artifact',
+    check: (op) => {
+      assert.equal((op as any).projectName, 'Insights dashboard')
+      assert.equal((op as any).artifact.body, 'The actual recap.')
+      assert.equal((op as any).artifact.kind, 'doc')
+    },
+  },
   { tool: 'refile_artifact', input: { artifact: 'insights-onepager.md', project: 'Insights dashboard' }, kind: 'refile-artifact' },
   { tool: 'attach_context', input: { connector: 'Linear' }, kind: 'attach-context', check: (op) => assert.equal((op as any).connectorLabel, 'Linear') },
   { tool: 'scope_context', input: { connector: 'Figma', project: 'Insights dashboard' }, kind: 'scope-context' },
@@ -82,6 +91,22 @@ for (const c of RELATION_CASES) {
     c.check?.(op)
   })
 }
+
+test('save_artifact refuses blank content and bounds proposal text before it reaches consent history', () => {
+  const blank = executeTool('save_artifact', { name: 'blank.md', body: ' \n ' }, ctx)
+  assert.equal(blank.relationOps, undefined)
+  assert.match(blank.summary, /proposed nothing/i)
+
+  const raw = `${'a'.repeat(MAX_AUTHORED_DOCUMENT_CHARS)}\n\nnever reaches consent`
+  const bounded = authoredDocument('bounded.md', raw)
+  assert.ok(bounded)
+  const effect = executeTool('save_artifact', { name: 'bounded.md', body: raw }, ctx)
+  const op = effect.relationOps?.[0]
+  assert.equal(op?.kind, 'save-artifact')
+  if (op?.kind !== 'save-artifact') return
+  assert.equal(op.artifact.body, bounded.text)
+  assert.ok((op.artifact.body?.length ?? Infinity) <= MAX_AUTHORED_DOCUMENT_CHARS)
+})
 
 test('an unknown tool degrades gracefully (no throw, no effect)', () => {
   const e = executeTool('nonexistent_tool', {}, ctx)
