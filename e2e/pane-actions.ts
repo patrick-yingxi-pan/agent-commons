@@ -16,12 +16,6 @@ export async function clearAutoPanel(page: Page): Promise<void> {
   })
   if (panePath === null) return
   const contextPane = page.locator(`[data-main-pane="${panePath}"]`)
-  // Target is part of the action contract. If preference reconciliation removes
-  // this pane between focus and click, this locator stops matching; it can never
-  // fall through to a newly retargeted Close button and delete the conversation.
-  const closeThisPane = page.locator(
-    `[data-close-view][data-close-target="main:${panePath}"]`,
-  )
   let ownsClose = false
   try {
     await contextPane.dispatchEvent('pointerdown', undefined, { timeout: ms(1_000) })
@@ -31,8 +25,22 @@ export async function clearAutoPanel(page: Page): Promise<void> {
     // Durable panel-preference reconciliation may remove this transient pane
     // between probes. Never let an unproven focus act close the conversation.
   }
-  if (ownsClose && (await contextPane.count()) > 0) {
-    await closeThisPane.click({ timeout: ms(1_000) }).catch(() => {})
+  if (ownsClose) {
+    // Reconciliation can collapse the split and reuse `panePath` for the
+    // surviving conversation between the focus check and a Playwright click.
+    // Verify identity + multiplicity and dispatch the exact button in one
+    // browser task, so a stale cleanup can never close the last real page.
+    await page.evaluate((targetPath) => {
+      const panes = [...document.querySelectorAll<HTMLElement>('[data-main-pane]')]
+      const target = panes.find((pane) =>
+        pane.dataset.mainPane === targetPath &&
+        pane.dataset.focused === 'true' &&
+        pane.querySelector('[data-context-pane]') !== null)
+      if (!target || panes.length < 2) return
+      const close = [...document.querySelectorAll<HTMLButtonElement>('[data-close-view]')]
+        .find((button) => button.dataset.closeTarget === `main:${targetPath}`)
+      close?.click()
+    }, panePath)
   }
   await expect(ctx).toHaveCount(0)
   await expect(page.locator('[data-main-pane]')).toHaveCount(1)

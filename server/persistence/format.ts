@@ -206,8 +206,13 @@ export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine'> {
 
 /** A social Proposal as STORED (S3) — the wire row plus the OFFERER's raw
  *  tenant id (authorization compares raw ids). `publicSocialProposal` strips it. */
-export interface StoredSocialProposal extends Omit<SocialProposal, 'mine' | 'deltaBase'> {
+export interface StoredSocialProposal extends Omit<SocialProposal, 'mine' | 'deltaBase' | 'stale'> {
   offererTenant: string
+  /** Applying deltas freeze the target domain's revision at offer time. Absent
+   *  is the legacy unconditional form for snapshots written before PD80. */
+  baseRevision?: number
+  /** `artifact-patch` only: the reviewed block pre-image at offer time. */
+  offeredBase?: string
   /** `artifact-patch` only: the block's text as it stood the instant this
    *  proposal LANDED — the pre-image, frozen because a landed row is history
    *  and the body has since moved on. Serves as `SocialProposal.deltaBase` for

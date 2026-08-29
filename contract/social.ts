@@ -390,9 +390,9 @@ export type ProposalDelta =
    *  door like every applying kind, never stored as an inert record (INV-9).
    *  The address is a BLOCK INDEX because these bodies are structured, not
    *  linear — the reasoning lives with `docBlockText` in `contract/content.ts`.
-   *  The delta carries only the AFTER text: the before is resolved at serve
-   *  time onto `SocialProposal.deltaBase` (the Commons-embed rule), so the diff
-   *  an owner consents to is always against what landing would really replace.
+   *  The delta carries only the AFTER text: the server freezes the before-side
+   *  at offer time onto `SocialProposal.deltaBase`, so the diff an owner reviews
+   *  cannot move underneath that consent while the artifact changes elsewhere.
    *  `text` is clamped to `MAX_PROPOSAL_CHARS` like every other free-text field
    *  the layer stores — landing writes it into a body every reader fetches. */
   | { kind: 'artifact-patch'; block: number; text: string }
@@ -434,14 +434,17 @@ export interface SocialProposal {
   landingNumber?: number
   /** The review thread — a Discussion anchored to THIS proposal. */
   discussionId: string
-  /** `artifact-patch` deltas only: the addressed block's text AS IT STANDS NOW,
-   *  resolved at serve time and never stored (the Commons-embed rule). So the
-   *  diff on the card is always against what landing would really replace —
-   *  if another proposal lands on the same block first, this one's before-side
-   *  moves with it rather than showing a base that no longer exists. Absent
-   *  when the block no longer resolves (INV-9: the card degrades to the
-   *  after-text alone rather than inventing a base). */
+  /** `artifact-patch` deltas only: the addressed block's text as it stood when
+   *  the proposal was offered. The server freezes this reviewed pre-image
+   *  and refuses landing after the artifact's body revision moves, so the diff
+   *  cannot silently rebase into a different consent question. Older persisted
+   *  proposals may omit it (INV-9: the card degrades to the after-text alone). */
   deltaBase?: string
+  /** An applying proposal whose target changed after it was offered. Such a
+   *  proposal remains reviewable and declineable, but cannot land: a new offer
+   *  must be made against current state. Absent = not known stale, preserving
+   *  compatibility with pre-guard persisted proposals and suggestion deltas. */
+  stale?: boolean
   /** Viewer-relative: the caller offered it (the projects `own` pattern). */
   mine?: boolean
 }

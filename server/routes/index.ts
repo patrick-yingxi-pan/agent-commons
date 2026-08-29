@@ -2172,20 +2172,22 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     sendJson(res, out)
   })
-  r.post('/proposals/:pid/land', ({ req, res, params }) => {
+  r.post('/proposals/:pid/land', idempotent(({ req, res, params }) => {
     const out = store.landSocialProposal(params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the subject’s owner lands a proposal')
     if (out === 'closed') return sendError(res, 'conflict', 'Only an offered proposal can land')
+    if (out === 'inapplicable') return sendError(res, 'conflict', 'This proposal cannot be applied safely with the current access. Review it and ask for a new proposal.')
+    if (out === 'stale') return sendError(res, 'conflict', 'This proposal is outdated because its target changed after it was offered. Review the current version and ask for a new proposal.')
     sendJson(res, out)
-  })
-  r.post('/proposals/:pid/decline', ({ req, res, params }) => {
+  }))
+  r.post('/proposals/:pid/decline', idempotent(({ req, res, params }) => {
     const out = store.declineSocialProposal(params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the subject’s owner declines a proposal')
     if (out === 'closed') return sendError(res, 'conflict', 'Only an offered proposal can be declined')
     sendJson(res, out)
-  })
+  }))
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────
   // Visibility mirrors the Project's exactly (the open-subgoals wall — owner or

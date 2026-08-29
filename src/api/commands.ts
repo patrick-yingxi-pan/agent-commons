@@ -696,14 +696,39 @@ export async function openSocialProposal(req: OpenProposalRequest): Promise<Soci
   return p
 }
 
-/** Land an offered proposal — the subject owner's consent (applies the delta). */
-export async function landSocialProposal(pid: string, subject: { kind: string; id: string }): Promise<SocialProposal> {
-  const p = await apiPost<SocialProposal>(paths.socialProposalLand(pid), {})
+/** Publish one acknowledged proposal verdict into the addressed list without
+ * waiting for its ambient echo. */
+function acceptSocialProposal(subject: { kind: string; id: string }, proposal: SocialProposal): void {
+  mutate<SocialProposal[]>(keys.socialProposals(subject.kind, subject.id), (list) => {
+    if (!list) return [proposal]
+    return list.map((candidate) => candidate.id === proposal.id ? proposal : candidate)
+  })
+}
+
+/** Re-read one subject's proposal ledger after an uncertain verdict. */
+export async function reconcileSocialProposals(subject: { kind: string; id: string }): Promise<SocialProposal[]> {
+  const list = await apiGet<SocialProposal[]>(paths.socialProposals(subject.kind, subject.id))
+  setData(keys.socialProposals(subject.kind, subject.id), list)
+  return list
+}
+
+/** Land an offered proposal — the subject owner's consent (applies the frozen
+ * reviewed delta). The controller retains `idempotencyKey` across Retry. */
+export async function landSocialProposal(
+  pid: string,
+  subject: { kind: string; id: string },
+  idempotencyKey: string,
+): Promise<SocialProposal> {
+  const p = await apiPost<SocialProposal>(paths.socialProposalLand(pid), {}, { idempotencyKey })
+  acceptSocialProposal(subject, p)
+  // Landing can make sibling proposals stale; retain this acknowledgement for
+  // immediate paint, then reconcile the whole reviewed ledger.
   invalidate(keys.socialProposals(subject.kind, subject.id))
   invalidate(keys.relations)
   invalidate(keys.projects)
-  // An `artifact-patch` landing rewrote a body — the acting client invalidates
-  // locally too, exactly as the schedule path does (the SSE arm heals the others).
+  // Applying deltas can rewrite a routine or artifact body. Heal the acting
+  // client immediately; the advisory SSE arms do the same for other clients.
+  invalidate(keys.schedules)
   invalidate(keys.artifactContent)
   return p
 }
@@ -787,8 +812,13 @@ export async function patchArtifactContent(
 }
 
 /** Decline an offered proposal — the owner's polite no. */
-export async function declineSocialProposal(pid: string, subject: { kind: string; id: string }): Promise<SocialProposal> {
-  const p = await apiPost<SocialProposal>(paths.socialProposalDecline(pid), {})
+export async function declineSocialProposal(
+  pid: string,
+  subject: { kind: string; id: string },
+  idempotencyKey: string,
+): Promise<SocialProposal> {
+  const p = await apiPost<SocialProposal>(paths.socialProposalDecline(pid), {}, { idempotencyKey })
+  acceptSocialProposal(subject, p)
   invalidate(keys.socialProposals(subject.kind, subject.id))
   return p
 }

@@ -219,7 +219,8 @@ export interface ArtifactContentPatch {
 
 /** Body of `PATCH /v1/artifacts/:id/content`. Supplying the current body
  * revision gives compare-and-swap semantics; absence preserves the v1 legacy
- * unconditional-write meaning used by older clients and proposal landing. */
+ * unconditional-write meaning used by older clients. New proposal landings
+ * carry the server-frozen offer revision through the same mutator. */
 export interface UpdateArtifactContentRequest extends ArtifactContentPatch {
   expectedRevision?: number
 }

@@ -43,6 +43,12 @@
  *      every later cell in the column. Cells return to a neutral address, and
  *      the rail helper dismisses a covering dock before it reaches for the
  *      toggle (`[data-overlay-dock]` is the stamp that makes it detectable).
+ *    • ENUMERATE LIVE TRIGGERS, not indexes captured before interaction. Opening
+ *      a rail menu can reconcile/collapse that rail branch, so later triggers
+ *      move to lower indexes. A fixed `count` + increasing `nth(i)` silently
+ *      skipped those moved controls and eventually tried to click a vanished
+ *      last index. Each pass now selects the first still-live accessible label
+ *      it has not exercised; DOM movement cannot turn coverage into a skip.
  *    • COVERAGE BOUNDARY: this sweep drives ONE account (Ada, whose world is
  *      populated), so it exercises full surfaces, never EMPTY ones. A sparse
  *      world is a different layout path — verified 2026-07-22 for Rei's Lab
@@ -289,15 +295,24 @@ function assertInside(cell, label, b, vp) {
  *  each surfaced popover is inside the viewport; Escape to close. */
 async function sweepTriggers(page, vp, cell, scope = page) {
   const triggers = scope.locator('[aria-haspopup]:visible')
-  const n = await triggers.count()
   const seen = new Set()
-  for (let i = 0; i < n; i++) {
-    const t = triggers.nth(i)
-    const label =
-      (await t.getAttribute('aria-label').catch(() => null)) ||
-      (await t.textContent().catch(() => null))?.trim().slice(0, 40) ||
-      `trigger#${i}`
-    if (seen.has(label)) continue
+  while (true) {
+    let t = null
+    let label = null
+    const liveCount = await triggers.count()
+    for (let i = 0; i < liveCount; i++) {
+      const candidate = triggers.nth(i)
+      const candidateLabel =
+        (await candidate.getAttribute('aria-label').catch(() => null)) ||
+        (await candidate.getAttribute('title').catch(() => null)) ||
+        (await candidate.textContent().catch(() => null))?.trim().slice(0, 40) ||
+        `unnamed-trigger#${i}`
+      if (seen.has(candidateLabel)) continue
+      t = candidate
+      label = candidateLabel
+      break
+    }
+    if (!t || !label) break
     seen.add(label)
     try {
       await t.click({ timeout: 1500, force: true })

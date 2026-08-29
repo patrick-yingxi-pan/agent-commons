@@ -100,6 +100,56 @@ test('land: owner-only consent, monotonic per-subject L#, a relation-op delta ac
   assert.deepEqual(list.json.map((p: any) => p.landingNumber), [2, 1], 'ledger read: landed L{n} descending')
 })
 
+test('land: a relation proposal is outdated after the reviewed graph revision moves', async () => {
+  const { projectId, subject } = await arena('propose')
+  const offered = await call(
+    'POST', '/proposals',
+    {
+      subject,
+      delta: { kind: 'relation-op', op: { kind: 'share-project', projectId, projectName: `Prop ${n}`, shared: true } },
+      rationale: 'Publish it.',
+    },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  assert.equal(offered.status, 200)
+  store.applyRelationOp(
+    { kind: 'set-project-description', projectId, projectName: `Prop ${n}`, description: 'The owner changed the graph during review.' },
+    OWNER,
+  )
+  const reread = await call('GET', `/proposals?kind=project&id=${projectId}`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(reread.json.find((proposal) => proposal.id === offered.json.id)?.stale, true)
+  const refused = await call('POST', `/proposals/${offered.json.id}/land`, {}, { 'x-tenant-id': OWNER })
+  assert.equal(refused.status, 409)
+  assert.equal((await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': BYSTANDER })).status, 404, 'the stale share never applied')
+  await call('POST', `/proposals/${offered.json.id}/decline`, {}, { 'x-tenant-id': OWNER })
+})
+
+test('land: subject ownership never bypasses the relation op tenant wall', async () => {
+  const { subject } = await arena('propose')
+  const foreignProjectId = `p-foreign-proposal-${++n}`
+  store.applyRelationOp(
+    { kind: 'create-project', projectId: foreignProjectId, projectName: 'Foreign proposal target', projectDescription: '' },
+    BYSTANDER,
+  )
+  const offered = await call(
+    'POST', '/proposals',
+    {
+      subject,
+      delta: {
+        kind: 'relation-op',
+        op: { kind: 'share-project', projectId: foreignProjectId, projectName: 'Foreign proposal target', shared: true },
+      },
+      rationale: 'Try to smuggle an unrelated authority target through this ledger.',
+    },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  assert.equal(offered.status, 200, 'the review row itself reveals no foreign target authority')
+  const refused = await call('POST', `/proposals/${offered.json.id}/land`, {}, { 'x-tenant-id': OWNER })
+  assert.equal(refused.status, 409, 'the actual landing principal is checked at effect time')
+  const foreign = store.relationGraph(BYSTANDER).extraProjects.find((project) => project.id === foreignProjectId)
+  assert.notEqual(foreign?.shared, true, 'the foreign project was not changed')
+})
+
 test('the ONE landing ledger: contributions and proposals share a project’s L# sequence', async () => {
   // The Changes/Improvements consolidation (2026-07-21): both landing paths on
   // a project draw one-past-the-highest across BOTH ledgers, so the merged
@@ -165,6 +215,40 @@ test('decline: owner-only, polite, and terminal; the rationale-less offer is ref
   assert.equal(probe.status, 404, 'to third parties the whole lifecycle is the same 404')
 })
 
+test('proposal verdicts replay one logical idempotency key without a second landing or bell', async () => {
+  const { projectId, subject } = await arena('propose')
+  const offered = await call(
+    'POST', '/proposals',
+    { subject, delta: { kind: 'suggestion', text: 'Keep the accepted wording.' }, rationale: 'Ready.' },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  const bellsBefore = store.listNotifications(AUDIENCE)
+    .filter((notification) => notification.kind === 'social.landed' && notification.subjectId === projectId).length
+  const headers = { 'x-tenant-id': OWNER, 'idempotency-key': `land-${offered.json.id}` }
+  const first = await call('POST', `/proposals/${offered.json.id}/land`, {}, headers)
+  const replay = await call('POST', `/proposals/${offered.json.id}/land`, {}, headers)
+  assert.equal(first.status, 200)
+  assert.deepEqual(replay.json, first.json, 'a lost acknowledgement replays the exact terminal response')
+  assert.equal(replay.json.landingNumber, first.json.landingNumber, 'the ledger advances once')
+  assert.equal(
+    store.listNotifications(AUDIENCE)
+      .filter((notification) => notification.kind === 'social.landed' && notification.subjectId === projectId).length,
+    bellsBefore + 1,
+    'idempotent replay rings the offerer exactly once',
+  )
+
+  const next = await call(
+    'POST', '/proposals',
+    { subject, delta: { kind: 'suggestion', text: 'Do not take this one.' }, rationale: 'Alternative.' },
+    { 'x-tenant-id': AUDIENCE },
+  )
+  const declineHeaders = { 'x-tenant-id': OWNER, 'idempotency-key': `decline-${next.json.id}` }
+  const declined = await call('POST', `/proposals/${next.json.id}/decline`, {}, declineHeaders)
+  const declineReplay = await call('POST', `/proposals/${next.json.id}/decline`, {}, declineHeaders)
+  assert.equal(declined.status, 200)
+  assert.deepEqual(declineReplay.json, declined.json, 'decline is the same one-logical-verdict contract')
+})
+
 test('SOCIAL-7: a schedule-patch delta lands by running the REAL updateSchedule', async () => {
   // The second APPLYING delta kind. Its value is that landing is not a record of
   // agreement — it is the same mutator the owner's own editor calls.
@@ -208,6 +292,36 @@ test('SOCIAL-7: a schedule-patch delta lands by running the REAL updateSchedule'
     'Every 4 hours',
     'landing ran the real mutator',
   )
+})
+
+test('SOCIAL-7: a schedule proposal cannot silently rebase after its reviewed definition changes', async () => {
+  const owner = store.defaultTenantId()
+  const taskId = 's-issue-triage'
+  const before = store.listSchedules(owner).find((task) => task.id === taskId)
+  assert.ok(before)
+  const proposedCadence = `${before.cadence} (reviewed alternative)`
+  const offered = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'schedule', id: taskId }, delta: { kind: 'schedule-patch', patch: { cadence: proposedCadence } }, rationale: 'Tune it.' },
+    { 'x-tenant-id': owner },
+  )
+  assert.equal(offered.status, 200)
+
+  const moved = await call(
+    'PATCH', `/schedules/${taskId}`,
+    { notifyOnFailure: !before.notifyOnFailure, expectedRevision: before.revision ?? 0 },
+    { 'x-tenant-id': owner },
+  )
+  assert.equal(moved.status, 200)
+  const reread = await call('GET', `/proposals?kind=schedule&id=${taskId}`, undefined, { 'x-tenant-id': owner })
+  assert.equal(reread.json.find((proposal) => proposal.id === offered.json.id)?.stale, true, 'staleness is visible before consent')
+
+  const refused = await call('POST', `/proposals/${offered.json.id}/land`, {}, { 'x-tenant-id': owner })
+  assert.equal(refused.status, 409)
+  assert.match(refused.json.error.message, /outdated/)
+  assert.equal(store.listSchedules(owner).find((task) => task.id === taskId)?.cadence, before.cadence, 'the reviewed patch did not overwrite current state')
+  assert.equal((await call('POST', `/proposals/${offered.json.id}/decline`, {}, { 'x-tenant-id': owner })).status, 200, 'an outdated row remains declineable')
+  store.updateSchedule(taskId, { notifyOnFailure: before.notifyOnFailure })
 })
 
 test('SOCIAL-7: a schedule-patch that could not apply is REFUSED at the door (INV-9)', async () => {
@@ -264,9 +378,7 @@ test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator',
     { 'x-tenant-id': AUDIENCE },
   )
   assert.equal(offered.status, 200)
-  // The diff's before-side is resolved at SERVE time, so a reviewer always sees
-  // what landing would really replace.
-  assert.equal(offered.json.deltaBase, before, 'the wire face carries the current base')
+  assert.equal(offered.json.deltaBase, before, 'the wire face carries the frozen reviewed base')
 
   // The audience may NOT rewrite the body directly — the read widened, the write did not.
   assert.equal(
@@ -276,9 +388,23 @@ test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator',
   )
 
   // The OWNER lands it, and the document actually changes.
+  const observedStates: string[] = []
+  const off = store.subscribe((event) => {
+    if (
+      (event.type === 'artifact.changed' && event.artifactId === artifactId) ||
+      (event.type === 'social-proposal.changed' && event.proposalId === offered.json.id)
+    ) {
+      const state = store.listSocialProposals({ kind: 'artifact', id: artifactId }, owner)
+        .find((proposal) => proposal.id === offered.json.id)?.state
+      observedStates.push(`${event.type}:${state}`)
+    }
+  })
   const landed = await call('POST', `/proposals/${offered.json.id}/land`, undefined, { 'x-tenant-id': owner })
+  off()
   assert.equal(landed.status, 200)
   assert.equal(landed.json.state, 'landed')
+  assert.ok(observedStates.length >= 2, 'resource and proposal invalidations both publish')
+  assert.ok(observedStates.every((row) => row.endsWith(':landed')), 'ambient observers never see a half-landed proposal')
   assert.equal(store.artifactBlockText(artifactId, 1), text, 'landing ran the real mutator')
   assert.equal(
     store.artifactContent(owner)[artifactId]?.revision,
@@ -298,6 +424,40 @@ test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator',
 
   // Restore, so the seeded demo world is unchanged for other suites.
   store.updateArtifactBlock(artifactId, 1, before)
+})
+
+test('SOCIAL-7: an artifact proposal preserves its reviewed diff and refuses a stale landing', async () => {
+  const owner = store.defaultTenantId()
+  const artifactId = 'a18'
+  const block = 1
+  const before = store.artifactBlockText(artifactId, block)
+  assert.ok(before)
+  const body = store.artifactContent(owner)[artifactId] ?? store.artifactContent(owner)['refresh-session-notes.md']
+  assert.ok(body)
+  const offered = await call(
+    'POST', '/proposals',
+    { subject: { kind: 'artifact', id: artifactId }, delta: { kind: 'artifact-patch', block, text: 'The reviewed replacement.' }, rationale: 'Clearer.' },
+    { 'x-tenant-id': owner },
+  )
+  assert.equal(offered.status, 200)
+
+  const current = 'A direct owner edit that arrived during review.'
+  const moved = await call(
+    'PATCH', `/artifacts/${artifactId}/content`,
+    { block, text: current, expectedRevision: body.revision ?? 0 },
+    { 'x-tenant-id': owner },
+  )
+  assert.equal(moved.status, 200)
+  const reread = await call('GET', `/proposals?kind=artifact&id=${artifactId}`, undefined, { 'x-tenant-id': owner })
+  const row = reread.json.find((proposal) => proposal.id === offered.json.id)
+  assert.equal(row.deltaBase, before, 'the before-side does not move into a different consent question')
+  assert.equal(row.stale, true)
+
+  const refused = await call('POST', `/proposals/${offered.json.id}/land`, {}, { 'x-tenant-id': owner })
+  assert.equal(refused.status, 409)
+  assert.equal(store.artifactBlockText(artifactId, block), current, 'the newer accepted edit survives')
+  assert.equal((await call('POST', `/proposals/${offered.json.id}/decline`, {}, { 'x-tenant-id': owner })).status, 200)
+  store.updateArtifactBlock(artifactId, block, before)
 })
 
 test('SOCIAL-7: the owner’s own body-edit door runs the same mutator (one write path)', async () => {
@@ -381,9 +541,8 @@ test('SOCIAL-7: artifact.changed is gated to the artifact’s own read wall', ()
 test('SOCIAL-7: a landed artifact-patch shows the pre-image it replaced, not the text it became', async () => {
   // Found in the running app: the diff's before-side was resolved live for
   // EVERY state, so the moment a proposal landed its own row re-rendered as
-  // "− X / + X" — a no-op where a change had happened. An open row wants the
-  // LIVE base (what landing would replace); a landed row is history and wants
-  // the pre-image, frozen at the instant it applied.
+  // "− X / + X" — a no-op where a change had happened. Both review and history
+  // now keep the same frozen pre-image.
   const owner = store.defaultTenantId()
   const before = store.artifactBlockText('a17', 1)
   assert.ok(before, 'a seeded document block')
@@ -395,7 +554,7 @@ test('SOCIAL-7: a landed artifact-patch shows the pre-image it replaced, not the
     { 'x-tenant-id': owner },
   )
   assert.equal(offered.status, 200)
-  assert.equal(offered.json.deltaBase, before, 'while OPEN the base is live — what landing would replace')
+  assert.equal(offered.json.deltaBase, before, 'while OPEN the base is the reviewed pre-image')
 
   const landed = await call('POST', `/proposals/${offered.json.id}/land`, undefined, { 'x-tenant-id': owner })
   assert.equal(landed.status, 200)
@@ -471,4 +630,34 @@ test('SOCIAL-7: a same-named artifact in the SAME workspace never inherits a bod
     'and never under a name two artifacts share — the impostor cannot inherit it',
   )
   store.updateArtifactBlock('a17', 1, before)
+})
+
+test('a compound landing that throws after a child mutation fails closed instead of serving half-state', async () => {
+  // `create-agent` with a bundled prompt mutates the prompt registry first, then
+  // validates the provider binding. This deliberately invalid binding proves a
+  // late child failure cannot leave the process serving an uncommitted prompt.
+  // Keep this test last: the one-way fault wall is the behavior under test.
+  const { subject } = await arena('propose')
+  const offered = await call(
+    'POST', '/proposals',
+    {
+      subject,
+      delta: {
+        kind: 'relation-op',
+        op: {
+          kind: 'create-agent',
+          label: `Half agent ${++n}`,
+          providerId: 'provider-that-does-not-exist',
+          newPrompt: { label: `Half prompt ${n}`, body: 'Must never become served half-state.', targetFamily: 'claude' },
+        },
+      },
+      rationale: 'Exercise the compound failure boundary.',
+    },
+    { 'x-tenant-id': OWNER },
+  )
+  assert.equal(offered.status, 200)
+  const failed = await call('POST', `/proposals/${offered.json.id}/land`, {}, { 'x-tenant-id': OWNER })
+  assert.equal(failed.status, 503, 'the ambiguous compound state is never acknowledged')
+  const laterRead = await call('GET', '/system-prompts', undefined, { 'x-tenant-id': OWNER })
+  assert.equal(laterRead.status, 503, 'the process remains product-walled until restart')
 })

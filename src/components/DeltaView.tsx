@@ -28,10 +28,11 @@ function DeltaTag({ children }: { children: string }) {
  *  (the semantic added/removed ramps). Wrapped rather than monospaced: an
  *  artifact block is prose, and a reviewer reads it as prose.
  *
- *  The base is the server's serve-time answer (`SocialProposal.deltaBase`) — what
- *  landing would ACTUALLY replace, not what the text said when it was offered.
- *  Absent means the address stopped resolving, so the after-line stands alone
- *  rather than the card inventing a before (INV-9). */
+ *  The base is the server-frozen offer-time answer
+ *  (`SocialProposal.deltaBase`) — the exact before-side the reviewer was shown.
+ *  A later body revision makes the proposal stale instead of moving this diff.
+ *  Absent on a legacy row means the after-line stands alone rather than the
+ *  card inventing a before (INV-9). */
 function ProseDiff({ before, after }: { before?: string; after: string }) {
   return (
     <div className="overflow-hidden rounded-md border border-line text-[12px] leading-snug">

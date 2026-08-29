@@ -109,6 +109,9 @@ function route(e: ServerEvent): void {
     // branch and its main page read the same list, so one refetch heals both.
     case 'schedule.changed':
       invalidate(keys.schedules)
+      // Applying proposals freeze the routine definition revision at offer
+      // time; refresh their derived `stale` flag when that target moves.
+      invalidatePrefix(keys.socialProposals())
       break
     // An artifact's BODY changed — its owner edited a block, or an
     // `artifact-patch` proposal landed (social S3). Every rich body projection
@@ -118,12 +121,14 @@ function route(e: ServerEvent): void {
     // not a second rendering of the mutable body.
     case 'artifact.changed':
       invalidate(keys.artifactContent)
+      invalidatePrefix(keys.socialProposals())
       break
     // A relation edit was applied (by another client, or this one's standing
     // approval acting on a run) — re-read the graph. An Agent Commons CRUD op edits a
     // registry, not the graph, so also refresh the registry caches the Agents hub reads.
     case 'relation.applied':
       invalidate(keys.relations)
+      invalidatePrefix(keys.socialProposals())
       invalidateForCommonsOp(e.op)
       // A relation op can create/share/rename what profiles + search serve (D21/D22)
       // — refresh any OPEN profile/search views (mounts revalidate on their own).

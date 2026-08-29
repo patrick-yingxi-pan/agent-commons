@@ -118,6 +118,7 @@ import { FollowButton } from './FollowButton'
 import { MessageButton } from './MessageButton'
 import { ProposalsPanel } from './ProposalsPanel'
 import { ProposalDeltaView } from './DeltaView'
+import { ProposalVerdictActions } from './ProposalVerdictActions'
 import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -293,8 +294,6 @@ import {
   useSocialCapability,
   useGrants,
   openSocialProposal,
-  landSocialProposal,
-  declineSocialProposal,
   createGrant,
   revokeGrant,
   reactToDiscussionPost,
@@ -5486,15 +5485,6 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
       setBusy(false)
     }
   }
-  const consent = async (act: 'land' | 'decline', pid: string) => {
-    setError(null)
-    try {
-      if (act === 'land') await landSocialProposal(pid, subject)
-      else await declineSocialProposal(pid, subject)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : `Could not ${act}.`)
-    }
-  }
   const rows = [
     ...contributionList.map((c) => ({
       key: c.id,
@@ -5633,16 +5623,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
                       <button onClick={() => rel.navigate('discussions', p.discussionId)} className={INLINE_ACTION_CLASS}>
                         Review thread
                       </button>
-                      {own && p.state === 'offered' && (
-                        <>
-                          <button onClick={() => void consent('land', p.id)} className={INLINE_ACTION_CLASS}>
-                            Land
-                          </button>
-                          <button onClick={() => void consent('decline', p.id)} className={INLINE_ACTION_CLASS}>
-                            Decline
-                          </button>
-                        </>
-                      )}
+                      <ProposalVerdictActions proposal={p} subject={subject} own={own} />
                     </div>
                   </div>
                 </div>

@@ -26,8 +26,6 @@ import {
   type SocialProposal,
 } from '../../contract/index.ts'
 import {
-  declineSocialProposal,
-  landSocialProposal,
   openSocialProposal,
   useArtifactContent,
   useSocialCapability,
@@ -46,6 +44,7 @@ import {
 } from '../lib/proposalForm'
 import { useRelations } from '../controller/useRelations'
 import { SectionAction } from './SectionAction'
+import { ProposalVerdictActions } from './ProposalVerdictActions'
 
 /** The one main-page section surface, injected by the page owner to avoid a
  * circular dependency on SectionView. Requiring it here closes the old escape:
@@ -254,16 +253,7 @@ export function ProposalsPanel({
                 <ProposalDeltaView proposal={p} />
                 <p className="mt-0.5 text-[11px] text-ink-faint">offered by {p.offeredBy}</p>
               </div>
-              {own && p.state === 'offered' && (
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button onClick={() => void landSocialProposal(p.id, subject)} className={INLINE_ACTION_CLASS}>
-                    Land
-                  </button>
-                  <button onClick={() => void declineSocialProposal(p.id, subject)} className={INLINE_ACTION_CLASS}>
-                    Decline
-                  </button>
-                </div>
-              )}
+              <ProposalVerdictActions proposal={p} subject={subject} own={own} />
             </li>
           ))}
         </ul>

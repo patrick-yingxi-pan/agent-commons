@@ -379,6 +379,17 @@ export async function buildComprehensive(): Promise<PersistedState> {
     .map((a) => ({ id: a.id, block: [0, 1, 2, 3].find((i) => store.artifactBlockText(a.id, i) !== undefined) }))
     .find((x) => x.block !== undefined)
   if (editable?.block !== undefined) {
+    // An applying proposal freezes both the target revision and reviewed block
+    // pre-image. Move the body after offering so the snapshot also exercises the
+    // durable stale-proposal form (PD80), not only suggestion rows.
+    store.openSocialProposal(
+      {
+        subject: { kind: 'artifact', id: editable.id },
+        delta: { kind: 'artifact-patch', block: editable.block, text: 'Playground proposed body edit — snapshot coverage.' },
+        rationale: 'Exercise the proposal precondition in the snapshot.',
+      },
+      store.defaultTenantId(),
+    )
     store.updateArtifactBlock(editable.id, editable.block, 'Playground body edit — snapshot coverage.')
   }
   // ── Social S6 link grants ── exercise the link-token path through the real

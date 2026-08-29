@@ -122,6 +122,19 @@ test('a cell is never downgraded to a skip — skip() is for sub-checks only', (
   assert.ok(SWEEP.includes("'COVERAGE'"), 'the sweep raises COVERAGE violations')
 })
 
+test('popover enumeration follows the live DOM instead of stale numeric indexes', () => {
+  // Opening a trigger can reconcile or collapse its rail branch. A count taken
+  // before the first click plus monotonically increasing nth(i) then skips the
+  // controls that shifted left and eventually points past the live list. The
+  // 1280px project/artifact/agent cells exposed that as three tolerated skips.
+  const fn = SWEEP.slice(SWEEP.indexOf('async function sweepTriggers'))
+  const body = fn.slice(0, fn.indexOf('\nconst shot'))
+  assert.ok(body.includes('while (true)'), 'trigger selection repeats against the current DOM')
+  assert.ok(body.includes('const liveCount = await triggers.count()'), 'each pass recounts live triggers')
+  assert.ok(body.includes('if (seen.has(candidateLabel)) continue'), 'a stable label prevents repeat clicks')
+  assert.doesNotMatch(body, /const n = await triggers\.count\(\)/, 'no pre-interaction count controls the loop')
+})
+
 test('a failed rail-drawer open is reported and returns — it never throws', () => {
   const fn = SWEEP.slice(SWEEP.indexOf('async function openRailIfNarrow'))
   const body = fn.slice(0, fn.indexOf('\nasync function closeRailIfNarrow'))

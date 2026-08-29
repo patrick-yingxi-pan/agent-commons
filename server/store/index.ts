@@ -801,35 +801,45 @@ function isSchedulePatch(patch: unknown): boolean {
   })
 }
 
-/** Wire face: strip the raw offerer anchor; `mine` is viewer-relative. */
+/** Whether an applying proposal's reviewed target has moved since it was
+ * offered. A missing precondition is a legacy row and remains landable under
+ * its original unconditional semantics; new applying rows always carry one. */
+function socialProposalIsStale(p: StoredSocialProposal): boolean {
+  if (p.state !== 'offered' || p.baseRevision === undefined) return false
+  switch (p.delta.kind) {
+    case 'relation-op':
+      return (graph.revision ?? 0) !== p.baseRevision
+    case 'schedule-patch': {
+      const task = schedules.find((candidate) => candidate.id === p.subject.id)
+      return !task || (task.revision ?? 0) !== p.baseRevision
+    }
+    case 'artifact-patch': {
+      const body = artifactBodyOf(p.subject.id)
+      return !body || (body.revision ?? 0) !== p.baseRevision
+    }
+    case 'suggestion':
+      return false
+  }
+}
+
+/** Wire face: strip server-only preconditions/raw authority; `mine` is
+ * viewer-relative and `stale` is derived from current server truth. */
 function publicSocialProposal(p: StoredSocialProposal, viewerTenant?: string): SocialProposal {
-  // `appliedBase` is a STORED pre-image, not a wire field — it reaches the
-  // client only through `deltaBase` below, so strip it here rather than letting
-  // the spread ship an undeclared name.
-  const { offererTenant, appliedBase, ...pub } = p
-  // The diff's before-side answers ONE question — what does this change
-  // replace? — whose answer depends on whether it still could:
-  //
-  //  · while OPEN, it is resolved live at serve time (the Commons-embed rule),
-  //    so if another proposal lands on the same block first, this one's base
-  //    moves with it and the owner consents to the change landing would really
-  //    make;
-  //  · once LANDED it is history, frozen at the moment it applied. Resolving a
-  //    landed row live would diff the text against ITSELF — the row read
-  //    "− What this is / + What this is", a no-op where a change had happened
-  //    (found in the running app, not by a test).
-  //
-  // Absent when the address stopped resolving (INV-9 — the card degrades to the
-  // after-text alone rather than inventing a base).
+  const { offererTenant, appliedBase, offeredBase, baseRevision: _baseRevision, ...pub } = p
+  // New proposals retain the exact before-side the offerer reviewed. A legacy
+  // open row has no frozen base, so it keeps the prior live fallback rather than
+  // inventing history during migration.
   const base =
     p.delta.kind !== 'artifact-patch'
       ? undefined
       : p.state === 'landed'
         ? appliedBase
-        : artifactBlockTextOf(p.subject.id, p.delta.block)
+        : offeredBase ?? artifactBlockTextOf(p.subject.id, p.delta.block)
+  const stale = socialProposalIsStale(p)
   return {
     ...pub,
     ...(base !== undefined ? { deltaBase: base } : {}),
+    ...(stale ? { stale: true } : {}),
     ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, offererTenant) ? { mine: true } : {}),
   }
 }
@@ -1666,7 +1676,7 @@ function eventForSubscribers(e: ServerEvent): ServerEvent {
 /** Publish a domain event to every open ambient SSE channel. The single publish
  *  point, so payload projection and the event log's global seq happen exactly
  *  once (the resumable-stream backbone — server/eventlog.ts, design §5.3). */
-function emit(e: ServerEvent): void {
+function publishEvent(e: ServerEvent): void {
   const projected = eventForSubscribers(e)
   const seq = eventlog.record(projected)
   for (const fn of listeners) {
@@ -1676,6 +1686,23 @@ function emit(e: ServerEvent): void {
       /* a dead channel shouldn't break the others */
     }
   }
+}
+
+// A compound domain mutation may call several existing canonical mutators.
+// Defer their persistence and events until the complete state transition is
+// ready, so the durable snapshot and ambient observers never see a half-landed
+// proposal. Node drives store mutations synchronously, so one module-level
+// nesting depth is the narrowest honest transaction boundary here.
+let mutationBatchDepth = 0
+let mutationBatchNeedsPersist = false
+let mutationBatchEvents: ServerEvent[] = []
+
+function emit(e: ServerEvent): void {
+  if (mutationBatchDepth > 0) {
+    mutationBatchEvents.push(e)
+    return
+  }
+  publishEvent(e)
 }
 
 // ── The one session mint funnel ──────────────────────────────────────────────
@@ -2062,18 +2089,13 @@ function snapshot(): PersistedState {
   }
 }
 
-/** Persist the current state (no-op until enabled). Called after every mutation.
- * A failed commit is one-way for this process: latch unready + draining before
- * throwing, so the originating route cannot return 2xx and later routes cannot
- * acknowledge the already-mutated in-memory graph. */
-function persist(): void {
-  if (!persistEnabled) return
-  if (persistenceFault) throw persistenceFault
-  try {
-    saveState(snapshot())
-  } catch (error) {
-    persistenceFault =
-      error instanceof PersistenceWriteError ? error : new PersistenceWriteError(error)
+/** Latch one unrecoverable in-memory/durable divergence and notify every
+ * supervising transport exactly once. A compound mutation that throws after a
+ * canonical child already changed state is just as unsafe to keep serving as a
+ * backend commit failure: only restart can restore the last known snapshot. */
+function latchPersistenceFault(detail: unknown): PersistenceWriteError {
+  if (!persistenceFault) {
+    persistenceFault = detail instanceof PersistenceWriteError ? detail : new PersistenceWriteError(detail)
     draining = true
     for (const listener of persistenceFaultListeners) {
       try {
@@ -2083,8 +2105,62 @@ function persist(): void {
       }
     }
     persistenceFaultListeners.clear()
-    throw persistenceFault
   }
+  return persistenceFault
+}
+
+/** Persist the current state (no-op until enabled). Called after every mutation.
+ * A failed commit is one-way for this process: latch unready + draining before
+ * throwing, so the originating route cannot return 2xx and later routes cannot
+ * acknowledge the already-mutated in-memory graph. */
+function persist(): void {
+  if (mutationBatchDepth > 0) {
+    mutationBatchNeedsPersist = true
+    return
+  }
+  if (!persistEnabled) return
+  if (persistenceFault) throw persistenceFault
+  try {
+    saveState(snapshot())
+  } catch (error) {
+    throw latchPersistenceFault(error)
+  }
+}
+
+/** Commit one synchronous compound mutation as a single durable snapshot, then
+ * publish its queued events. A commit failure therefore exposes neither a 2xx
+ * nor ambient half-state; the existing durability latch walls the process. */
+function commitMutationBatch<T>(work: () => T): T {
+  const outer = mutationBatchDepth === 0
+  mutationBatchDepth += 1
+  let result: T
+  try {
+    result = work()
+  } catch (error) {
+    mutationBatchDepth -= 1
+    const tainted = mutationBatchNeedsPersist || mutationBatchEvents.length > 0
+    if (outer) {
+      mutationBatchNeedsPersist = false
+      mutationBatchEvents = []
+    }
+    // Canonical mutators change memory before calling persist(). If one of them
+    // then throws, this process cannot prove the compound transition rolled
+    // back. Fail closed instead of serving or later persisting half-state.
+    if (outer && tainted) throw latchPersistenceFault(error)
+    throw error
+  }
+  mutationBatchDepth -= 1
+  if (!outer) return result
+
+  const needsPersist = mutationBatchNeedsPersist
+  const events = mutationBatchEvents
+  mutationBatchNeedsPersist = false
+  mutationBatchEvents = []
+  // Leave commit errors to `persist`: it latches the process unready. The batch
+  // depth is already restored, so its save is the one real durable write.
+  if (needsPersist) persist()
+  for (const event of events) publishEvent(event)
+  return result
 }
 
 /** ── A stored display name is a CACHE of its authority id ────────────────────
@@ -6465,6 +6541,23 @@ export const store = {
       if (base === undefined || !next || next === base) return 'invalid'
       req.delta = { kind: 'artifact-patch', block: req.delta.block, text: next }
     }
+    // Freeze the target domain at OFFER time. Landing is consent to this
+    // reviewed change, not permission to silently rebase it over whatever a
+    // second device wrote during review. Suggestions have no machine target and
+    // therefore need no precondition. Additive-optional storage keeps older
+    // snapshots landable under their historical unconditional behavior.
+    const baseRevision =
+      req.delta.kind === 'relation-op'
+        ? (graph.revision ?? 0)
+        : req.delta.kind === 'schedule-patch'
+          ? (schedules.find((task) => task.id === req.subject.id)?.revision ?? 0)
+          : req.delta.kind === 'artifact-patch'
+            ? (artifactBodyOf(req.subject.id)?.revision ?? 0)
+            : undefined
+    const offeredBase =
+      req.delta.kind === 'artifact-patch'
+        ? artifactBlockTextOf(req.subject.id, req.delta.block)
+        : undefined
     const rows = socialProposals.filter((p) => p.subject.kind === req.subject.kind && p.subject.id === req.subject.id)
     if (rows.length >= MAX_PROPOSALS_PER_SUBJECT) return 'capped'
     const p: StoredSocialProposal = {
@@ -6476,71 +6569,83 @@ export const store = {
       offeredAt: Date.now(),
       discussionId: '', // set below — the thread anchors to the proposal, so the row must exist first
       offererTenant: tenantId,
+      ...(baseRevision !== undefined ? { baseRevision } : {}),
+      ...(offeredBase !== undefined ? { offeredBase } : {}),
     }
-    socialProposals.push(p)
-    const review = this.openDiscussion(
-      { anchor: { ref: { kind: 'proposal', id: p.id } }, firstPost: req.rationale.slice(0, MAX_PROPOSAL_CHARS) },
-      tenantId,
-    )
-    if (typeof review !== 'object') {
-      socialProposals.pop() // roll back the half-made proposal; refusals surface as invalid
-      return 'invalid'
-    }
-    p.discussionId = review.id
-    emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
-    // S5 — an offered improvement rings the subject's OWNER (the consent-holder).
-    const subjRow = this.grantSubjectRow(p.subject)
-    if (subjRow !== undefined && subjRow !== 'unsupported') {
-      const face = this.commonsSubjectFace(p.subject)
-      notifyTenants([subjRow.tenantId ?? defaultTenantId()], tenantId, {
-        kind: 'social.offered',
-        actor: p.offeredBy,
-        subjectKind: p.subject.kind,
-        subjectId: p.subject.id,
-        subjectName: face.name,
-      })
-    }
-    persist()
-    return publicSocialProposal(p, tenantId)
+    return commitMutationBatch(() => {
+      socialProposals.push(p)
+      const review = this.openDiscussion(
+        { anchor: { ref: { kind: 'proposal', id: p.id } }, firstPost: req.rationale.slice(0, MAX_PROPOSAL_CHARS) },
+        tenantId,
+      )
+      if (typeof review !== 'object') {
+        socialProposals.pop() // roll back the half-made proposal; refusals surface as invalid
+        return 'invalid'
+      }
+      p.discussionId = review.id
+      emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+      // S5 — an offered improvement rings the subject's OWNER (the consent-holder).
+      const subjRow = this.grantSubjectRow(p.subject)
+      if (subjRow !== undefined && subjRow !== 'unsupported') {
+        const face = this.commonsSubjectFace(p.subject)
+        notifyTenants([subjRow.tenantId ?? defaultTenantId()], tenantId, {
+          kind: 'social.offered',
+          actor: p.offeredBy,
+          subjectKind: p.subject.kind,
+          subjectId: p.subject.id,
+          subjectName: face.name,
+        })
+      }
+      persist()
+      return publicSocialProposal(p, tenantId)
+    })
   },
   /** Land — the subject OWNER's consent: assign the next per-subject ledger
    *  number (monotonic, derived from the ledger itself) and APPLY the delta
    *  through its applier (relation ops run the real reducer; a suggestion's
    *  landing is the acceptance record). */
-  landSocialProposal(id: string, tenantId: string): SocialProposal | 'forbidden' | 'closed' | undefined {
+  landSocialProposal(id: string, tenantId: string): SocialProposal | 'forbidden' | 'closed' | 'stale' | 'inapplicable' | undefined {
     const p = socialProposals.find((x) => x.id === id)
     if (!p || !this.grantSubjectVisible(p.subject, tenantId)) return undefined
     const row = this.grantSubjectRow(p.subject)
     if (row === undefined || row === 'unsupported' || !ownsGrantSubject(row, tenantId)) return 'forbidden'
     if (p.state !== 'offered') return 'closed'
-    // Landing runs the REAL mutator for every applying kind — the same call the
-    // owner's own editor makes, never a parallel write path.
-    if (p.delta.kind === 'relation-op') this.applyRelationOp(p.delta.op, tenantId)
-    if (p.delta.kind === 'schedule-patch') this.updateSchedule(p.subject.id, p.delta.patch)
-    if (p.delta.kind === 'artifact-patch') {
-      // Freeze the pre-image BEFORE applying: once landed the row is history,
-      // and history cannot be recomputed from a body that has since moved on.
-      p.appliedBase = artifactBlockTextOf(p.subject.id, p.delta.block)
-      this.updateArtifactBlock(p.subject.id, p.delta.block, p.delta.text)
-    }
-    p.state = 'landed'
-    // ONE landing ledger per subject (the consolidation, 2026-07-21): a project's
-    // L# sequence is shared with its contribution ledger — both landing paths
-    // derive one-past-the-highest across BOTH, so the merged Changes panel reads
-    // as a single history. Derived from the ledgers themselves (never a counter),
-    // so a restored snapshot can't double-assign.
-    p.landingNumber = nextLandingNumber(p.subject)
-    emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
-    // S5 — the verdict rings the OFFERER (the D25 two-party loop).
-    notifyTenants([p.offererTenant], tenantId, {
-      kind: 'social.landed',
-      actor: tenantName(tenantId),
-      subjectKind: p.subject.kind,
-      subjectId: p.subject.id,
-      subjectName: this.commonsSubjectFace(p.subject).name,
+    // The proposal's subject wall grants the consent decision, not arbitrary
+    // authority over every id embedded in a relation op. Re-run the canonical
+    // cross-tenant op wall for the actual landing principal.
+    if (p.delta.kind === 'relation-op' && this.opDeniedForTenant(p.delta.op, tenantId)) return 'inapplicable'
+    if (socialProposalIsStale(p)) return 'stale'
+    return commitMutationBatch(() => {
+      // Landing runs the REAL mutator for every applying kind — the same call the
+      // owner's own editor makes, never a parallel write path. The batch folds
+      // its resource write, ledger verdict, bell, and events into one snapshot.
+      if (p.delta.kind === 'relation-op') this.applyRelationOp(p.delta.op, tenantId)
+      if (p.delta.kind === 'schedule-patch') this.updateSchedule(p.subject.id, p.delta.patch, p.baseRevision)
+      if (p.delta.kind === 'artifact-patch') {
+        // Freeze the pre-image BEFORE applying: once landed the row is history,
+        // and history cannot be recomputed from a body that has since moved on.
+        p.appliedBase = p.offeredBase ?? artifactBlockTextOf(p.subject.id, p.delta.block)
+        this.updateArtifactBlock(p.subject.id, p.delta.block, p.delta.text, p.baseRevision)
+      }
+      p.state = 'landed'
+      // ONE landing ledger per subject (the consolidation, 2026-07-21): a project's
+      // L# sequence is shared with its contribution ledger — both landing paths
+      // derive one-past-the-highest across BOTH, so the merged Changes panel reads
+      // as a single history. Derived from the ledgers themselves (never a counter),
+      // so a restored snapshot can't double-assign.
+      p.landingNumber = nextLandingNumber(p.subject)
+      emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+      // S5 — the verdict rings the OFFERER (the D25 two-party loop).
+      notifyTenants([p.offererTenant], tenantId, {
+        kind: 'social.landed',
+        actor: tenantName(tenantId),
+        subjectKind: p.subject.kind,
+        subjectId: p.subject.id,
+        subjectName: this.commonsSubjectFace(p.subject).name,
+      })
+      persist()
+      return publicSocialProposal(p, tenantId)
     })
-    persist()
-    return publicSocialProposal(p, tenantId)
   },
   /** Decline — the owner's polite no. To third parties the proposal stays the
    *  existence-hiding 404 either way. */
@@ -6550,18 +6655,20 @@ export const store = {
     const row = this.grantSubjectRow(p.subject)
     if (row === undefined || row === 'unsupported' || !ownsGrantSubject(row, tenantId)) return 'forbidden'
     if (p.state !== 'offered') return 'closed'
-    p.state = 'declined'
-    emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
-    // S5 — the polite no rings the offerer too.
-    notifyTenants([p.offererTenant], tenantId, {
-      kind: 'social.declined',
-      actor: tenantName(tenantId),
-      subjectKind: p.subject.kind,
-      subjectId: p.subject.id,
-      subjectName: this.commonsSubjectFace(p.subject).name,
+    return commitMutationBatch(() => {
+      p.state = 'declined'
+      emit({ type: 'social-proposal.changed', proposalId: p.id, subject: p.subject })
+      // S5 — the polite no rings the offerer too.
+      notifyTenants([p.offererTenant], tenantId, {
+        kind: 'social.declined',
+        actor: tenantName(tenantId),
+        subjectKind: p.subject.kind,
+        subjectId: p.subject.id,
+        subjectName: this.commonsSubjectFace(p.subject).name,
+      })
+      persist()
+      return publicSocialProposal(p, tenantId)
     })
-    persist()
-    return publicSocialProposal(p, tenantId)
   },
 
   // ── The Commons feed (S4) — a projection over the primitives ────────────────

@@ -238,6 +238,12 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'openSocialProposal → socialProposals (S3, with its review thread minted)',
   )
   assert.ok(
+    s.socialProposals?.some(
+      (p) => p.delta.kind === 'artifact-patch' && Number.isSafeInteger(p.baseRevision) && typeof p.offeredBase === 'string',
+    ),
+    'applying proposal → durable offer revision + reviewed pre-image (PD80)',
+  )
+  assert.ok(
     s.grants?.some((g) => g.audience.kind === 'link' && g.audience.token.length > 0 && g.redeemedBy?.includes('tenant-playground-watcher')),
     'createGrant(link) + redeemGrant → the server-private redemption roster persists (S6)',
   )
