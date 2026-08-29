@@ -15,7 +15,7 @@
 
 ## Requirements (L2) → [`server/persistence/SPEC.md`](../../server/persistence/SPEC.md)
 
-This pillar's leaf requirements — **PERSIST-1 … PERSIST-7** — live next to the
+This pillar's leaf requirements — **PERSIST-1 … PERSIST-8** — live next to the
 code that satisfies them and the suites that lock them, in
 [`server/persistence/SPEC.md`](../../server/persistence/SPEC.md). One module,
 one home: rows, implementation, and locks are all readable without leaving the

@@ -54,6 +54,7 @@ export function resolveRuntimeProfile(
       AUTH_SECRET: env.AUTH_SECRET || freshSecret(),
       AUTH_COOKIE_SECURE: 'off',
       PERSIST_BACKEND: 'sqlite',
+      INITIAL_WORLD: 'clean',
       CORS_ORIGIN: corsOrigin,
     }
   }
@@ -80,6 +81,7 @@ export function resolveRuntimeProfile(
     AUTH_SECRET: secret,
     AUTH_COOKIE_SECURE: 'on',
     PERSIST_BACKEND: persistence === 'json' ? 'json' : 'sqlite',
+    INITIAL_WORLD: 'clean',
     CORS_ORIGIN: corsOrigin,
   }
 }

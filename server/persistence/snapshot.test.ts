@@ -133,6 +133,7 @@ test('build produces a snapshot covering every persisted slice', async () => {
   process.env.DATA_FILE = BUILD_STORE
   const s = await buildComprehensive()
   const g = s.graph
+  assert.equal(s.initialWorld, 'demo', 'development snapshot records its authored world')
 
   // ── every graph sub-map exercised (one relation op per pair) ──
   assert.ok(g.extraProjects.some((p) => p.id === 'p-playground'), 'create-project → extraProjects')

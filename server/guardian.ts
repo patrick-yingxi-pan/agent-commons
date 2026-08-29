@@ -166,4 +166,12 @@ export class ResourceGuardian {
   resourceIds(): string[] {
     return [...this.resources.keys()]
   }
+
+  /** Drop every transient reservation. First-boot clean-world installation uses
+   * this after module evaluation constructed the review showcase's one held
+   * sub-goal; durable user data never rides this ledger. */
+  clear(): void {
+    this.resources.clear()
+    this.seq = 0
+  }
 }

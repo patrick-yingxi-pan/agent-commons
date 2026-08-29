@@ -39,6 +39,7 @@ not to the transport it happens to drive through.
 | SERVER-V1 | verification | Code, requirements, and behavioral locks live with the module they govern; only cross-layer locks stay in `tests/`. | [`routes/`](routes/) · [`store/`](store/) · [`persistence/`](persistence/) | [`tests/suite-paths.test.ts`](../tests/suite-paths.test.ts) | refines ROOT-V1 |
 | SERVER-O1 | operations | Demo fixtures are deterministic, tenant-complete declared mock worlds and use the real mutators. | [`data/`](data/) | [`data/demo-accounts.test.ts`](data/demo-accounts.test.ts) | refines ROOT-P2; requires SERVER-D4 |
 | SERVER-O2 | operations | Release-shaped boots resolve one explicit desktop or web profile before server modules evaluate; desktop is loopback/native/SQLite and web fails closed on its secret and HTTPS origin. | [`runtimeProfile.ts`](runtimeProfile.ts) · [`../scripts/start.mjs`](../scripts/start.mjs) | [`runtimeProfile.test.ts`](runtimeProfile.test.ts) | refines ROOT-A1; requires SERVER-D2; requires SERVER-D4 |
+| SERVER-O3 | operations | Release profiles install a clean world only into genuinely absent storage; the persisted world discriminator governs every restart. | [`initialWorld.ts`](initialWorld.ts) · [`identity.ts`](identity.ts) · [`store/index.ts`](store/index.ts) · [`persistence/format.ts`](persistence/format.ts) | [`initialWorld.test.ts`](initialWorld.test.ts) · [`persistence/initial-world.test.ts`](persistence/initial-world.test.ts) | refines SERVER-D4; requires SERVER-O1; requires SERVER-O2 |
 <!-- context-rules:end -->
 
 ## Verification

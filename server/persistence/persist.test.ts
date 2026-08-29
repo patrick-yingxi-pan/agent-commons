@@ -99,6 +99,13 @@ test('loadState refuses a structurally invalid existing snapshot in place', () =
   assert.equal(existsSync(FILE + '.corrupt'), false, 'startup does not rename or otherwise mutate live storage')
 })
 
+test('loadState refuses an unknown persisted initial world in place', () => {
+  const invalid = JSON.stringify({ ...sample, initialWorld: 'mystery' })
+  writeFileSync(FILE, invalid)
+  assert.throws(() => loadState(), PersistenceLoadError)
+  assert.equal(readFileSync(FILE, 'utf8'), invalid, 'the unknown discriminator is not normalized or rewritten')
+})
+
 test('loadState refuses malformed existing JSON in place', () => {
   const malformed = '{"version":'
   writeFileSync(FILE, malformed)

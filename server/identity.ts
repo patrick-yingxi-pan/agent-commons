@@ -102,10 +102,15 @@ const isRole = (v: string | undefined): v is TenantRole =>
 
 /** The DEV HEADER path's web resolution — registry-backed where the ids are
  *  known, historically loose where they aren't: an unknown user falls back to
- *  the default principal (the mock has no auth flow to 401), an unknown tenant
- *  is synthesized as an org (the cross-tenant suites lean on this). */
+ *  the authored default principal when one exists (the demo mock has no auth
+ *  flow to 401); a clean hosted world has no default and stays anonymous. An
+ *  unknown tenant is synthesized as an org (the cross-tenant suites lean on this). */
 function webIdentityFromHeaders(userId?: string, tenantId?: string, roleOverride?: string): Identity {
-  const user = (userId && accounts.users.get(userId)) || accounts.users.get(WEB_DEFAULT.userId)!
+  const user = (userId && accounts.users.get(userId)) || accounts.users.get(WEB_DEFAULT.userId)
+  // A clean hosted database has no principal until signup. The auth gate will
+  // project this same guest face, but identity resolution itself must be total:
+  // `/me` and the response-tenant header run before the route gate.
+  if (!user) return ANONYMOUS_IDENTITY
   const wantedTenant = tenantId ?? WEB_DEFAULT.tenantId
   const known = accounts.tenants.get(wantedTenant)
   const tenant: Tenant = known
@@ -188,4 +193,3 @@ export function resolveIdentity(backend: Backend, headers?: Headers): Identity {
 export function userPrincipal(identity: Identity): PrincipalRef {
   return { kind: 'user', id: identity.user.id }
 }
-

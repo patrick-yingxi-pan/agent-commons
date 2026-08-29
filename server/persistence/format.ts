@@ -42,6 +42,7 @@ import type {
 } from '../../contract/index.ts'
 import type { ProviderConfig } from '../data/providers.ts'
 import type { AccountUser, AccountTenant, Membership, StoredOrgInvite } from '../accounts.ts'
+import type { InitialWorld } from '../initialWorld.ts'
 import { join } from 'node:path'
 
 /** On-disk schema version. A supported older snapshot migrates forward; an
@@ -232,6 +233,10 @@ export interface StoredA2aPeer extends A2aPeer {
  *  collide with persisted ones after a restart. */
 export interface PersistedState {
   version: number
+  /** Which authored baseline this database began from. Additive-optional so
+   * historical snapshots (all demo worlds) remain readable; every new writer
+   * stamps it. The stored value, never today's environment, governs rehydrate. */
+  initialWorld?: InitialWorld
   sessions: Session[]
   bindings: [string, SessionContext[]][]
   workspaces: [string, SessionWorkspace][]
@@ -339,8 +344,9 @@ export interface PersistedState {
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
-   *  cleanly; rehydrate keeps the seeds); the seeds are re-ensured on load so a
-   *  snapshot can never lose the dev-switcher directory. */
+   *  cleanly; rehydrate keeps the seeds); demo snapshots re-ensure the switcher
+   *  directory; clean desktop snapshots re-ensure only the local device owner,
+   *  while clean hosted snapshots begin accountless until signup. */
   accountUsers?: [string, AccountUser][]
   accountTenants?: [string, AccountTenant][]
   memberships?: Membership[]
@@ -401,6 +407,7 @@ export interface PersistedState {
 export type SliceKind = 'singleton' | 'array' | 'mapEntries'
 export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   version: 'singleton',
+  initialWorld: 'singleton',
   sessions: 'array',
   bindings: 'mapEntries',
   workspaces: 'mapEntries',
@@ -479,6 +486,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     value !== null && typeof value === 'object' && !Array.isArray(value)
   return Boolean(
     state
+      && (state.initialWorld === undefined || state.initialWorld === 'demo' || state.initialWorld === 'clean')
       && Array.isArray(state.sessions)
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)

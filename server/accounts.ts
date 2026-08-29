@@ -116,7 +116,7 @@ export class AccountRegistry {
     this.seed()
   }
 
-  /** The seeds — the desktop's local user and the SIX demo accounts
+  /** The seeds — the desktop's local user when selected, optionally the SIX demo accounts
    *  (docs/demo-accounts.md): each a themed principal with a documented demo
    *  credential and exactly ONE namespace (FWD-5 Phase 2 — the workspace
    *  collapse: account = namespace, 1:1). Ada's namespace is the flagship
@@ -141,18 +141,26 @@ export class AccountRegistry {
    *  ownership is by id, so a rename moves no rows and keeps every persisted
    *  snapshot readable. "Acme" survives where it was always true — Ada's email
    *  domain and her connector fixtures name the company she works at. */
-  seed(): void {
+  seed(includeDemo = true, includeLocal = true): void {
     this.users.clear()
     this.tenants.clear()
     this.memberships = []
+    this.orgInvites = []
+    this.apiTokens.clear()
+    this.userSeq = 0
+    this.tenantSeq = 0
+    this.inviteSeq = 0
     const put = (u: AccountUser, t: AccountTenant, role: TenantRole) => {
       if (!this.users.has(u.id)) this.users.set(u.id, u)
       if (!this.tenants.has(t.id)) this.tenants.set(t.id, t)
       // Every seed membership IS the user's namespace (FWD-6: `home`).
       this.memberships.push({ userId: u.id, tenantId: t.id, role, home: true, seeded: true })
     }
-    const local: AccountUser = { id: 'user-local', name: 'You', seeded: true }
-    put(local, { id: 'tenant-personal', name: 'Personal', kind: 'personal', seeded: true }, 'owner')
+    if (includeLocal) {
+      const local: AccountUser = { id: 'user-local', name: 'You', seeded: true }
+      put(local, { id: 'tenant-personal', name: 'Personal', kind: 'personal', seeded: true }, 'owner')
+    }
+    if (!includeDemo) return
     // The web principals carry DEMO CREDENTIALS (P9 — the dev enumeration
     // directory retired): since multi-account went real, the only way to act
     // as a seed is the same way as any account — sign in. The hashes are
@@ -550,7 +558,7 @@ export class AccountRegistry {
     orgInvites?: StoredOrgInvite[]
     apiTokens?: [string, ApiToken[]][]
     seq?: { user?: number; tenant?: number; orgInvite?: number }
-  }): void {
+  }, options: { demoSeeds?: boolean; localSeed?: boolean } = {}): void {
     // Replace wholesale when the snapshot carries the slices, then re-ensure the
     // seeds. The CODE's seed rows stay authoritative over their snapshot echoes:
     // a snapshot written by an older build carries the OLD seed shape (e.g.
@@ -561,7 +569,9 @@ export class AccountRegistry {
     const snapshotUsers = new Map(s.users ?? [])
     const snapshotTenants = new Map(s.tenants ?? [])
     const snapshotMemberships = s.memberships ?? []
-    this.seed() // baseline: the seeds
+    // One account baseline: none (clean hosted), local-only (clean desktop), or
+    // the complete demo directory. Snapshot rows merge after this code-owned floor.
+    this.seed(options.demoSeeds ?? true, options.localSeed ?? true)
     for (const [id, u] of snapshotUsers) if (!this.users.get(id)?.seeded) this.users.set(id, u)
     for (const [id, t] of snapshotTenants) if (!this.tenants.get(id)?.seeded) this.tenants.set(id, t)
     // Memberships restore under the FWD-6 shape: exactly one HOME per user (the

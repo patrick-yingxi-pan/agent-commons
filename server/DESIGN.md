@@ -98,6 +98,15 @@ router-reentry traffic. This is a DNS-rebinding boundary for a local sidecar,
 not merely a response header. Native clients and machine callers send no
 `Origin` and remain valid. Spec row PORT-10.
 
+Both release profiles request `INITIAL_WORLD=clean`, but only genuine persistence
+absence consumes that input. The resulting snapshot stamps its world mode and
+every restart obeys the stored value instead of today's environment. Development
+therefore retains the deterministic proposal showcase; a new desktop/web install
+contains only essential provider/prompt/Agent infrastructure (plus the desktop's
+device principal; hosted remains anonymous until signup); and neither historical
+demo databases nor user databases can be reinterpreted by changing a launch flag.
+Spec row PERSIST-8.
+
 ## Capability parity — three access doors, one wall
 
 The product is reachable by the browser UI, the in-app session, and the **MCP

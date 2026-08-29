@@ -22,6 +22,7 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
 | PERSIST-D2 | data-access | Snapshot coverage equals durable UI-owned state and excludes truly transient state. | [`format.ts`](format.ts) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`dispatch-durability.test.ts`](dispatch-durability.test.ts) | requires PERSIST-A1; refines ROOT-A1 |
 | PERSIST-D3 | data-access | Backend commit failure or an ambiguous partial compound mutation propagates across the acknowledgement boundary; the store becomes unready and product-walled until restart, existing sync streams close, and liveness/diagnostics remain available. | [`persist.ts`](persist.ts) · [`../store/index.ts`](../store/index.ts) · [`../routes/index.ts`](../routes/index.ts) | [`acknowledgement.test.ts`](acknowledgement.test.ts) · [`persist-backend.test.ts`](persist-backend.test.ts) · [`../routes/proposals.test.ts`](../routes/proposals.test.ts) | refines SERVER-D4; requires PERSIST-D1 |
 | PERSIST-D4 | data-access | Only genuine first boot may seed. Existing unreadable, malformed, invalid, unrecognized, or incompatible storage stops startup before persistence is enabled or live state is replaced. | [`json.ts`](json.ts) · [`sqlite.ts`](sqlite.ts) · [`persist.ts`](persist.ts) · [`../store/index.ts`](../store/index.ts) | [`startup-integrity.test.ts`](startup-integrity.test.ts) · [`persist.test.ts`](persist.test.ts) · [`persist-backend.test.ts`](persist-backend.test.ts) | refines SERVER-D4; requires PERSIST-A1 |
+| PERSIST-D5 | data-access | First boot records its demo/clean world; later boots obey that stored discriminator and never reinterpret established data from the environment. | [`format.ts`](format.ts) · [`../initialWorld.ts`](../initialWorld.ts) · [`../store/index.ts`](../store/index.ts) | [`initial-world.test.ts`](initial-world.test.ts) | refines PERSIST-D4; requires PERSIST-D2 |
 | PERSIST-V1 | verification | Every new durable slice updates local requirements, round-trip coverage, and migration behavior. | [`SPEC.md`](SPEC.md) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`persist-migrate.test.ts`](persist-migrate.test.ts) | refines SERVER-V1; requires PERSIST-D2 |
 <!-- context-rules:end -->
 
@@ -44,6 +45,10 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
   structurally invalid, unrecognized, newer, or un-migratable storage fails startup
   without a seed write; recovery bytes remain in place. A supported older version
   migrates forward before rehydrate.
+- **First boot chooses once.** Development defaults to the authored demo; release
+  profiles request a clean baseline. The snapshot records that choice and owns it
+  thereafter, so a changed environment can neither clean a demo store nor re-seed
+  a clean/user store.
 - **Writes are atomic** (temp file + rename), so a crash mid-write cannot leave
   a corrupt JSON/export file; SQLite replaces its snapshot in one transaction
   and uses WAL recovery.

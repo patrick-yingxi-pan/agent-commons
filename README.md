@@ -95,12 +95,20 @@ boots use explicit profiles:
 - `npm run start` (also `start:desktop`) is the near-term desktop profile:
   native capabilities, loopback-only binding, embedded SQLite, the credential-less
   device owner, client-asserted identity disabled, and an exact loopback origin.
-  A fresh signing secret is generated for the process when none is supplied.
+  A fresh signing secret is generated for the process when none is supplied. A
+  genuinely new database starts clean: no fictional conversations, projects,
+  artifacts, routines, accounts, connections, or usage history.
 - `npm run start:web` preserves the later hosted boundary: remote capabilities,
   required sign-in, client-asserted identity disabled, Secure cookies, and SQLite
   by default. It refuses to boot without a 32+ character `AUTH_SECRET` and exact
   HTTPS `CORS_ORIGIN`. The current persistence engine is single-process; a managed
   multi-instance store remains a web-service follow-on.
+
+The initial-world choice applies only to absent storage and is then recorded in
+the snapshot. An existing demo database remains a demo database under a release
+profile, and an existing clean/user database is never repopulated from fixtures.
+To evaluate a clean first run after using the demo, point `DATABASE_PATH` at a new
+file (or first preserve the old store with the snapshot tooling below).
 
 For example: `AUTH_SECRET=replace-with-32-plus-random-characters CORS_ORIGIN=https://app.example npm run start:web`.
 For remote-capability development without the release checks, use

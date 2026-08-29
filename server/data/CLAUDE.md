@@ -47,8 +47,9 @@ Beside the fixtures, the suites that hold them to their standard —
 - **Seed through the real mutators.** Showcase data is created by driving the
   same code paths a user would, never by hand-assembling store internals — that
   is what keeps fixtures from drifting away from the contract.
-- **An existing snapshot is never re-seeded.** Delete `.data/store.json` to
-  regenerate.
+- **The showcase is development-only first-run content.** Release profiles install
+  a clean baseline. An existing snapshot is never reinterpreted: use a new
+  `DATA_FILE`/`DATABASE_PATH` to exercise a different first-run world.
 
 ## Verification
 

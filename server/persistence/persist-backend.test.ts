@@ -19,6 +19,7 @@ import { STORE_VERSION, type PersistedState } from './persist.ts'
 // the Agent Commons registries, commissionCaps).
 const sample: PersistedState = {
   version: STORE_VERSION,
+  initialWorld: 'demo',
   sessions: [
     // s1 carries a tenantId — the F2/PD9 isolation key. The byte-for-byte round-trip
     // assertions below therefore also prove tenantId survives persistence on BOTH

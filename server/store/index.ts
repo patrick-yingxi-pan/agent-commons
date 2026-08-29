@@ -6,8 +6,9 @@
  *  When the real server runs, the UI-owned state is also durable: it's snapshotted
  *  to the filesystem on every mutation and rehydrated on boot (server/persistence/persist.ts),
  *  so a sent message / attached context / created session survives a restart. The
- *  seed is the *baseline*, written out on first boot; a later boot loads the
- *  snapshot. Tests leave persistence off and run purely in-memory. (Transient
+ *  selected world is the *baseline*, written on genuine first boot; development
+ *  selects the showcase while release profiles select clean. A later boot loads
+ *  the snapshot's stored choice. Tests leave persistence off and run purely in-memory. (Transient
  *  state — reservations, the live runner registry — is deliberately not persisted.)
  *
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
@@ -118,6 +119,7 @@ import { EMPTY_WORKSPACE, workspaceFromSeed } from '../workspace.ts'
 import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
+import { resolveInitialWorld, type InitialWorld } from '../initialWorld.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
   persistedSessionPreferences,
@@ -143,6 +145,11 @@ const EPOCH = `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toSt
 // how the one UI runs in both scenarios without env-sniffing (it reads the flags).
 const BACKEND_MODE: 'mock' | 'remote' = process.env.BACKEND === 'remote' ? 'remote' : 'mock'
 const NATIVE = BACKEND_MODE !== 'remote'
+/** The baseline this process is serving. Historical snapshots predate the
+ * discriminator and are therefore demo worlds; new release stores stamp clean. */
+let worldMode: InitialWorld = 'demo'
+const baseProjects = (): Project[] => worldMode === 'demo' ? PROJECTS : []
+const baseArtifacts = (): ArtifactItem[] => worldMode === 'demo' ? ALL_ARTIFACTS : []
 
 /** The tenant a tenant-scoped entity belongs to when it carries none — the backend's
  *  default principal's tenant (personal on desktop/mock; the web tenant on remote). Used
@@ -1220,7 +1227,7 @@ let messageSeq = 0
 // constant ceilings remain the mint-time cascade root); every other tenant gets its own
 // *fresh* meter, created lazily, so one tenant's spend can't deplete another's window or
 // leak into another's gauge. `meterFor(t)` resolves the right meter for a caller.
-const usageMeter = createUsageMeter(() => Date.now())
+let usageMeter = createUsageMeter(() => Date.now())
 const tenantMeters = new Map<string, ReturnType<typeof createUsageMeter>>()
 const meterFor = (tenantId?: string): ReturnType<typeof createUsageMeter> => {
   const t = tenantId ?? defaultTenantId()
@@ -1256,7 +1263,7 @@ let workerAgentSeq = 0
  *  created at runtime (`graph.extraProjects`). The single lookup behind the D13 cap so it
  *  works regardless of where a Project came from. */
 const findProject = (id: string): Project | undefined =>
-  PROJECTS.find((p) => p.id === id) ?? graph.extraProjects.find((p) => p.id === id)
+  baseProjects().find((p) => p.id === id) ?? graph.extraProjects.find((p) => p.id === id)
 
 /** The tenant a project belongs to (F2/PD9) — a seed/legacy or unknown project has no
  *  `tenantId`, so it belongs to the backend's default tenant. */
@@ -1282,7 +1289,7 @@ const tenantIdForName = (name: string): string | undefined => {
 /** Resolve an artifact across both homes — seeded (`ALL_ARTIFACTS`) + created
  *  (`graph.extraArtifacts`) — mirroring `findProject`. */
 const findArtifact = (id: string): ArtifactItem | undefined =>
-  ALL_ARTIFACTS.find((a) => a.id === id) ?? graph.extraArtifacts.find((a) => a.id === id)
+  baseArtifacts().find((a) => a.id === id) ?? graph.extraArtifacts.find((a) => a.id === id)
 
 /** Agent-Commons registry visibility (F2/PD9). Unlike CONTENT (sessions/projects/artifacts,
  *  where a seed row belongs to the default tenant and is private to it), a registry entry is
@@ -2006,6 +2013,7 @@ function snapshot(): PersistedState {
   const persistedAccounts = accounts.toPersisted()
   return {
     version: STORE_VERSION,
+    initialWorld: worldMode,
     sessions: SESSIONS,
     bindings: [...sessionContextBindings.entries()],
     workspaces: [...sessionWorkspaces.entries()],
@@ -2024,12 +2032,12 @@ function snapshot(): PersistedState {
     commissions: [...COMMISSIONS.entries()],
     // D13 commission caps — only Projects that carry one (the seed Projects are otherwise
     // not persisted); rehydrate re-applies them onto the matching seed Project.
-    commissionCaps: PROJECTS.filter((p) => p.commissionCap !== undefined).map(
+    commissionCaps: baseProjects().filter((p) => p.commissionCap !== undefined).map(
       (p) => [p.id, p.commissionCap!] as [string, number],
     ),
     // D14 default contributor roles — the same seed-overlay shape as the caps (a
     // created Project's defaultRole rides the graph slice on its own object).
-    projectDefaultRoles: PROJECTS.filter((p) => p.defaultRole !== undefined).map(
+    projectDefaultRoles: baseProjects().filter((p) => p.defaultRole !== undefined).map(
       (p) => [p.id, p.defaultRole!] as [string, ProjectRole],
     ),
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
@@ -2087,6 +2095,89 @@ function snapshot(): PersistedState {
       orgInvite: persistedAccounts.seq.orgInvite,
     },
   }
+}
+
+/** Construct the baseline for a release install from the same canonical snapshot
+ * contract used by every later commit, then remove every authored-person/user-data
+ * slice. Product infrastructure remains: one provider, one prompt, one Agent;
+ * desktop also keeps its local device principal, while hosted starts accountless
+ * until signup.
+ * Keeping this here beside `snapshot` makes a newly durable slice conspicuous in
+ * the first-run policy review instead of hiding a second persistence shape. */
+function cleanFirstBootState(): PersistedState {
+  const clean = snapshot()
+  const persistedAccounts = accounts.toPersisted()
+  const defaultPrompt = SYSTEM_PROMPTS.find((prompt) => prompt.id === SP_DEFAULT_ID)
+  if (!defaultPrompt) throw new Error(`Missing required system prompt '${SP_DEFAULT_ID}'.`)
+
+  clean.initialWorld = 'clean'
+  clean.sessions = []
+  clean.bindings = []
+  clean.workspaces = []
+  clean.sessionPreferences = []
+  clean.schedules = []
+  clean.recents = { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] }
+  clean.graph = emptyGraph()
+  clean.savedContexts = []
+  clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
+  clean.providerConfigs = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]]
+  clean.systemPrompts = [[defaultPrompt.id, defaultPrompt]]
+  clean.registryDefaults = []
+  clean.agents = [[DEFAULT_AGENT.id, DEFAULT_AGENT]]
+  clean.commissions = []
+  clean.commissionCaps = []
+  clean.projectDefaultRoles = []
+  clean.auditLog = []
+  clean.dispatch = []
+  clean.openSubGoals = []
+  clean.contributions = []
+  clean.delegations = []
+  clean.grants = []
+  clean.discussions = []
+  clean.socialProposals = []
+  clean.artifactBodies = []
+  clean.mutes = []
+  clean.follows = []
+  clean.discussionReads = []
+  clean.watches = []
+  clean.commonsLikes = []
+  clean.views = []
+  clean.notifications = []
+  clean.agentProposals = []
+  clean.a2aPeers = []
+  clean.accountUsers = NATIVE ? persistedAccounts.users.filter(([id]) => id === 'user-local') : []
+  clean.accountTenants = NATIVE ? persistedAccounts.tenants.filter(([id]) => id === 'tenant-personal') : []
+  clean.memberships = NATIVE
+    ? persistedAccounts.memberships.filter(
+        (membership) => membership.userId === 'user-local' && membership.tenantId === 'tenant-personal',
+      )
+    : []
+  clean.apiTokens = []
+  clean.orgInvites = []
+  clean.seq = {
+    session: 0,
+    message: 0,
+    schedule: 0,
+    run: 0,
+    artifact: 0,
+    provider: 0,
+    systemPrompt: 0,
+    agent: 0,
+    commission: 0,
+    audit: 0,
+    dispatch: 0,
+    openSubGoal: 0,
+    contribution: 0,
+    delegation: 0,
+    grant: 0,
+    discussion: 0,
+    socialProposal: 0,
+    notification: 0,
+    user: 0,
+    tenant: 0,
+    orgInvite: 0,
+  }
+  return clean
 }
 
 /** Latch one unrecoverable in-memory/durable divergence and notify every
@@ -2349,6 +2440,15 @@ function retractOrphanedBells(): void {
  *  bindings), the rest reassigned, and the id counters restored so freshly minted
  *  ids continue past the persisted ones. */
 function rehydrate(s: PersistedState): void {
+  // The snapshot owns its world after first boot. Missing means historical demo;
+  // the current environment must never reinterpret an established database.
+  worldMode = s.initialWorld ?? 'demo'
+  const demoWorld = worldMode === 'demo'
+  if (!demoWorld) {
+    guardian.clear()
+    usageMeter = createUsageMeter(() => Date.now(), false)
+    tenantMeters.clear()
+  }
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
   schedules.splice(0, schedules.length, ...s.schedules)
   // A live-minted run ('run-live-*') mints as 'running' and finishes a beat later
@@ -2387,14 +2487,18 @@ function rehydrate(s: PersistedState): void {
   // catalog (a runtime refresh) or runtime edits wins over the seed; a runtime
   // DELETE of a seed therefore lasts only until the next restart — the same
   // mock semantics as seed sessions.
-  for (const seed of SEED_PROVIDERS) {
+  const providerSeeds = demoWorld ? SEED_PROVIDERS : [DEFAULT_PROVIDER]
+  for (const seed of providerSeeds) {
     const restored = MODEL_PROVIDERS.get(seed.id)
     if (!restored) MODEL_PROVIDERS.set(seed.id, seed)
     else if (!restored.models && seed.models) {
       MODEL_PROVIDERS.set(seed.id, { ...restored, models: seed.models, catalogSource: seed.catalogSource })
     }
   }
-  for (const [id, config] of SEED_PROVIDER_CONFIGS) {
+  const providerConfigSeeds = demoWorld
+    ? SEED_PROVIDER_CONFIGS
+    : [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG] as [string, ProviderConfig]]
+  for (const [id, config] of providerConfigSeeds) {
     if (!PROVIDER_CONFIGS.has(id) && MODEL_PROVIDERS.has(id)) PROVIDER_CONFIGS.set(id, config)
   }
   // A relay's tool-use capability is the MAILBOX's — code-owned, like the seed
@@ -2413,19 +2517,19 @@ function rehydrate(s: PersistedState): void {
   replaceMap(COMMISSIONS, s.commissions)
   // D13 commission caps overlay onto the (re-seeded) Projects: clear any seed cap, then
   // re-apply the snapshot's, so a cap that was removed at runtime stays removed.
-  for (const p of PROJECTS) p.commissionCap = undefined
+  for (const p of baseProjects()) p.commissionCap = undefined
   if (s.commissionCaps) {
     for (const [id, cap] of s.commissionCaps) {
-      const p = PROJECTS.find((x) => x.id === id)
+      const p = baseProjects().find((x) => x.id === id)
       if (p) p.commissionCap = cap
     }
   }
   // D14 default contributor roles — the caps' twin overlay (cleared, then re-applied,
   // so a preference cleared at runtime stays cleared).
-  for (const p of PROJECTS) p.defaultRole = undefined
+  for (const p of baseProjects()) p.defaultRole = undefined
   if (s.projectDefaultRoles) {
     for (const [id, role] of s.projectDefaultRoles) {
-      const p = PROJECTS.find((x) => x.id === id)
+      const p = baseProjects().find((x) => x.id === id)
       if (p) p.defaultRole = role
     }
   }
@@ -2448,9 +2552,11 @@ function rehydrate(s: PersistedState): void {
   // accounts' tenant stamps, or missing rows a newer build added. Re-ensure every
   // code-seed row exists and wears the code's tenant; everything else the
   // snapshot says about a seed row (messages, appended runs, toggles) is kept.
-  reconcileSeedTenancy(SESSIONS, SEED_SESSIONS)
-  reconcileSeedTenancy(schedules, SCHEDULED_TASKS)
-  reconcileSeedTenancy(dispatch, DISPATCH_RUNS)
+  if (demoWorld) {
+    reconcileSeedTenancy(SESSIONS, SEED_SESSIONS)
+    reconcileSeedTenancy(schedules, SCHEDULED_TASKS)
+    reconcileSeedTenancy(dispatch, DISPATCH_RUNS)
+  }
   // Same P9 rule for the default Agent's explicit provider binding: a snapshot
   // written before the seed carried `providerId` restores it unbound (the card
   // would read "no provider bound"); the code seed is authoritative — backfill.
@@ -2458,16 +2564,20 @@ function rehydrate(s: PersistedState): void {
   if (seededAgent && !seededAgent.providerId) {
     WORKER_AGENTS.set(DEFAULT_AGENT.id, { ...seededAgent, providerId: DEFAULT_AGENT.providerId })
   }
-  // The account registry (multi-account P7): restore onboarded accounts (the
-  // seeds are re-ensured inside — a snapshot can't lose the switcher directory).
-  accounts.rehydrate({
-    users: s.accountUsers,
-    tenants: s.accountTenants,
-    memberships: s.memberships,
-    orgInvites: s.orgInvites,
-    apiTokens: s.apiTokens,
-    seq: { user: s.seq.user, tenant: s.seq.tenant, orgInvite: s.seq.orgInvite },
-  })
+  // The account registry (multi-account P7): restore onboarded accounts. A demo
+  // snapshot re-ensures its switcher directory; a clean snapshot re-ensures only
+  // the local device owner.
+  accounts.rehydrate(
+    {
+      users: s.accountUsers,
+      tenants: s.accountTenants,
+      memberships: s.memberships,
+      orgInvites: s.orgInvites,
+      apiTokens: s.apiTokens,
+      seq: { user: s.seq.user, tenant: s.seq.tenant, orgInvite: s.seq.orgInvite },
+    },
+    { demoSeeds: demoWorld, localSeed: demoWorld || NATIVE },
+  )
   const knownUsers = new Set(accounts.toPersisted().users.map(([id]) => id))
   rehydrateSessionPreferences(s.sessionPreferences, (userId, sessionId) => {
     if (!knownUsers.has(userId)) return undefined
@@ -2513,17 +2623,21 @@ function rehydrate(s: PersistedState): void {
   // until the next restart (the seed-sessions mock semantics), and a snapshot
   // written by a pre-seed build can't erase the demo scene.
   grants.splice(0, grants.length, ...(s.grants ?? []))
-  for (const seed of SEED_GRANTS) {
-    if (!grants.some((g) => g.id === seed.id)) grants.push({ ...seed })
+  if (demoWorld) {
+    for (const seed of SEED_GRANTS) {
+      if (!grants.some((g) => g.id === seed.id)) grants.push({ ...seed })
+    }
   }
   grantSeq = s.seq.grant ?? grants.filter((g) => !g.id.startsWith('grant-seed-')).length
   // Social S2 discussions — same restore shape (ids consume the shared counter),
   // and seed threads are CODE-owned exactly like the seed grants above: a
   // snapshot written by a pre-seed build can't leave the demo scene mute.
   discussions.splice(0, discussions.length, ...(s.discussions ?? []))
-  for (const seed of SEED_DISCUSSIONS) {
-    if (!discussions.some((d) => d.id === seed.id)) {
-      discussions.push({ ...seed, posts: seed.posts.map((p) => ({ ...p, reactedBy: [...p.reactedBy] })) })
+  if (demoWorld) {
+    for (const seed of SEED_DISCUSSIONS) {
+      if (!discussions.some((d) => d.id === seed.id)) {
+        discussions.push({ ...seed, posts: seed.posts.map((p) => ({ ...p, reactedBy: [...p.reactedBy] })) })
+      }
     }
   }
   discussionSeq =
@@ -2547,10 +2661,12 @@ function rehydrate(s: PersistedState): void {
   // snapshot written before S7 must not boot into a world where the demo's one
   // follow relationship silently vanished. Additive — a runtime unfollow of a
   // seeded name is the one thing this would undo, and a cold start is a reset.
-  for (const [t, names] of SEED_FOLLOWS) {
-    const set = follows.get(t) ?? new Set<string>()
-    for (const n of names) set.add(n)
-    follows.set(t, set)
+  if (demoWorld) {
+    for (const [t, names] of SEED_FOLLOWS) {
+      const set = follows.get(t) ?? new Set<string>()
+      for (const n of names) set.add(n)
+      follows.set(t, set)
+    }
   }
   discussionReads.clear()
   for (const [t, marks] of s.discussionReads ?? []) discussionReads.set(t, new Map(marks))
@@ -2713,13 +2829,20 @@ export const store = {
 
   /** Turn on filesystem persistence and rehydrate from the last snapshot (if any).
    *  Called once by the real server entrypoint; tests leave it off and run
-   *  in-memory. On first boot (no snapshot) the seed is written out as the baseline.
+   *  in-memory. On first boot (no snapshot) the selected initial world is written
+   *  as the baseline; after that the stored discriminator owns the choice.
    *  Existing unusable state throws before persistence is enabled or memory mutates. */
   initPersistence(): void {
     const loaded = loadState()
     persistEnabled = true
     if (loaded) rehydrate(loaded)
-    else {
+    else if (resolveInitialWorld() === 'clean') {
+      // Release first boot: replace every authored-person slice with the minimal
+      // product infrastructure, then persist that canonical state. Rehydrate is
+      // deliberately reused so first boot and every later boot take one path.
+      rehydrate(cleanFirstBootState())
+      persist()
+    } else {
       // First boot (no snapshot): the commons showcase seeds THROUGH the real
       // mutators before the baseline snapshot is written — the demo is the
       // argument, and every workflow stage should be visible on first sign-in.
@@ -3237,7 +3360,7 @@ export const store = {
         // while shared, owner-only while private; an unresolvable guardian (a bare
         // context-element key with no project) stays flagship-scoped.
         const guardianId = e.resourceId.split(':')[0]
-        const p = PROJECTS.find((x) => x.guardianId === guardianId) ?? graph.extraProjects.find((x) => x.guardianId === guardianId)
+        const p = baseProjects().find((x) => x.guardianId === guardianId) ?? graph.extraProjects.find((x) => x.guardianId === guardianId)
         if (!p) return seedVisibleTo(tenantId)
         return p.shared === true || rowVisibleTo(p, tenantId)
       }
@@ -4478,7 +4601,7 @@ export const store = {
     // artifacts called `notes.md`, and writing an edit under the shared name
     // would show one document's revision inside the other.
     const byName = new Map<string, number>()
-    for (const a of ALL_ARTIFACTS) {
+    for (const a of baseArtifacts()) {
       if (this.artifactVisibleToTenant(a, tenantId)) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
     }
     for (const a of graph.extraArtifacts) {
@@ -4646,8 +4769,9 @@ export const store = {
    *  the six demo accounts holds its own themed set, docs/demo-accounts.md).
    *  Created projects live in `graph.extraProjects` (see relationGraph). */
   listProjects(tenantId?: string): Project[] {
-    if (!tenantId) return PROJECTS
-    return PROJECTS.flatMap((p) => {
+    const projects = baseProjects()
+    if (!tenantId) return projects
+    return projects.flatMap((p) => {
       if (rowVisibleTo(p, tenantId)) return [p]
       // Social S1: a granted seed project rides as its redacted public face
       // with visitor affordances (own: false) — the shared-with-me band.
@@ -7543,8 +7667,9 @@ export const store = {
   /** The base artifacts (the relation graph carries any saved-out extras),
    *  scoped to the caller's tenant when given (F2/PD9). */
   listArtifacts(tenantId?: string): ArtifactItem[] {
-    if (!tenantId) return ALL_ARTIFACTS
-    return ALL_ARTIFACTS.filter((a) => this.artifactVisibleToTenant(a, tenantId)).map((a) => ({
+    const artifacts = baseArtifacts()
+    if (!tenantId) return artifacts
+    return artifacts.filter((a) => this.artifactVisibleToTenant(a, tenantId)).map((a) => ({
       // Viewer-relative ownership, like every other shared subject: a granted
       // reader opens the artifact and never gets its filing controls.
       ...a,
