@@ -85,6 +85,7 @@ import {
   type CollectionProjectionGroup,
   type CollectionProjectionItem,
 } from '../lib/collectionProjection'
+import { collectionEmptyCopy } from '../lib/collectionEmpty'
 
 /** Stable, path-shaped identity for one canonical rail node. A split stores
  * this key rather than a row ordinal, so filtering, capping, and async arrival
@@ -1496,8 +1497,9 @@ function CollectionSectionRows({
 function ArtifactChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
-  const rows = listArtifacts(rel.allArtifacts(), filter)
-  const allGroups = artifactCollectionSections(rel.allArtifacts(), rel.allProjects(), rel.artifactProjectId)
+  const artifacts = rel.allArtifacts()
+  const rows = listArtifacts(artifacts, filter)
+  const allGroups = artifactCollectionSections(artifacts, rel.allProjects(), rel.artifactProjectId)
   const groups = artifactCollectionSections(rows, rel.allProjects(), rel.artifactProjectId)
   const activeGroup = props.activeSeed?.collectionSectionId
     ? allGroups.find((group) => group.id === props.activeSeed?.collectionSectionId)
@@ -1516,7 +1518,7 @@ function ArtifactChildren({ foldSignal, ...props }: InstanceChildProps & { foldS
         ...group,
         items: group.items.map((artifact) => ({ id: artifact.id, label: artifact.name, seed: { artifactId: artifact.id } })),
       }))}
-      empty="No artifacts here yet."
+      empty={collectionEmptyCopy('artifacts', artifacts.length)}
       foldSignal={foldSignal}
       {...props}
     />

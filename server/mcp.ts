@@ -195,21 +195,27 @@ export const MCP_UI_COPY = {
   tokenPanel: 'This account is an MCP server',
 } as const
 
-const INSTRUCTIONS = [
+const SHARED_INSTRUCTIONS = [
   'Every tool is one HTTP operation of this workspace, dispatched through the same route table, auth wall, and tenancy checks as the web UI (access-parity INV-11) — the three access methods (UI, in-app session, MCP) differ in form, never in capability or policy.',
-  `To authenticate, call post_auth_login with {"body": {"email": "...", "password": "...", "transport": "bearer"}} — the result's body.token is a session credential; present it on subsequent requests as an "Authorization: Bearer <token>" HTTP header. The user can also mint a token in the UI (${MCP_UI_COPY.section} → "${MCP_UI_COPY.tokenPanel}") and revoke any token there later.`,
-  'Unauthenticated calls see exactly what a signed-out browser sees (the front door; 401 elsewhere when the auth gate is on).',
   'Tool results are the JSON {status, body} of the underlying HTTP response; the send-message tool returns the reply stream as a parsed event array.',
   "Connecting with ?toolset=core on the endpoint URL lists only the curated everyday subset (sessions, messages, projects, artifacts, schedules, search, usage) — tools/call still accepts the full catalog either way, so any operation remains callable by name.",
   'Tool annotations mark reads (readOnlyHint) and deletes (destructiveHint) mechanically; where a mutation has a curated body example it rides in the input schema (properties.body.examples) — bodies follow the HTTP contract, and a malformed one is refused, never guessed at.',
   'For live push, keep the Mcp-Session-Id this initialize returned and open GET /mcp with it (SSE): ambient workspace events arrive as notifications/message frames, and subscribed resources signal notifications/resources/updated.',
   'Resources mirror the parameterless reads (workspace://… uris; parameterized reads are resource templates); prompts mirror the system-prompt library — both tenant-scoped by your credential.',
-].join(' ')
+] as const
+
+const AUTHENTICATED_ACCESS_INSTRUCTION = `To authenticate, call post_auth_login with {"body": {"email": "...", "password": "...", "transport": "bearer"}} — the result's body.token is a session credential; present it on subsequent requests as an "Authorization: Bearer <token>" HTTP header. The user can also mint a token in the UI (${MCP_UI_COPY.section} → "${MCP_UI_COPY.tokenPanel}") and revoke any token there later. Unauthenticated calls see exactly what a signed-out browser sees (the front door; 401 elsewhere when the auth gate is on).`
+
+const LOCAL_ACCESS_INSTRUCTION = `This server is running in device-local mode. A machine client on this device connects to the loopback endpoint directly; no access token or post_auth_login call is required. The endpoint and a copy-ready client config are shown in the UI (${MCP_UI_COPY.section} → "${MCP_UI_COPY.tokenPanel}"). Browser requests remain pinned to the desktop app's exact Origin.`
 
 /** The `initialize` instructions — exported so `server/mcp-ui-sync.test.ts` can
  *  read what the door ACTUALLY says, not just what the registry declares. */
-export function mcpInstructions(): string {
-  return INSTRUCTIONS
+export function mcpInstructions(authGate = store.capabilities().features.authGate): string {
+  return [
+    SHARED_INSTRUCTIONS[0],
+    authGate ? AUTHENTICATED_ACCESS_INSTRUCTION : LOCAL_ACCESS_INSTRUCTION,
+    ...SHARED_INSTRUCTIONS.slice(1),
+  ].join(' ')
 }
 
 // ── MCP sessions (the stateful half: subscriptions + the GET stream) ─────────
@@ -401,7 +407,7 @@ export function registerMcp(router: Router): void {
             logging: {},
           },
           serverInfo: { name: 'universal-workspace', title: 'Universal Workspace (adaptive-conversation prototype)', version: '1.0.0' },
-          instructions: INSTRUCTIONS,
+          instructions: mcpInstructions(),
         }),
       )
     }

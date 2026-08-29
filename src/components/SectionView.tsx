@@ -61,6 +61,7 @@ import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedConte
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
+import { collectionEmptyCopy } from '../lib/collectionEmpty'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
@@ -667,7 +668,7 @@ function SessionsSection({
   const projection = partitionedCollectionProjection({
     section: 'sessions',
     fallbackLabel: 'Sessions',
-    empty: 'No sessions match these filters.',
+    empty: collectionEmptyCopy('sessions', sessions.length),
     itemNoun: 'session',
     presentation: 'static',
     groups: groups.map((group) => ({
@@ -6666,6 +6667,7 @@ function ArtifactsSection({
   const rel = useRelations()
   const artifactsQ = useArtifacts()
   const artifactRelationsQ = useRelationGraph()
+  const artifacts = rel.allArtifacts()
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
   // Resolve an artifact's producing conversation for "From ‹conversation›": by its
@@ -6686,7 +6688,7 @@ function ArtifactsSection({
   const needle = query.trim().toLowerCase()
   // The SAME list the rail's artifact children show, through the same function
   // (type facet + order), narrowed by this page's own search.
-  const matches = listArtifacts(rel.allArtifacts(), filter).filter(
+  const matches = listArtifacts(artifacts, filter).filter(
     (a) =>
       needle === '' ||
       a.name.toLowerCase().includes(needle) ||
@@ -6697,7 +6699,7 @@ function ArtifactsSection({
   // The grouping is shared with the rail: project section → artifact. The
   // unfiltered registry resolves a selected section even if a transient search
   // currently leaves it empty; the visible list supplies that section's rows.
-  const allGroups = artifactCollectionSections(rel.allArtifacts(), projects, rel.artifactProjectId)
+  const allGroups = artifactCollectionSections(artifacts, projects, rel.artifactProjectId)
   const groups = artifactCollectionSections(matches, projects, rel.artifactProjectId)
   const selectedMeta = collectionSectionId
     ? allGroups.find((group) => group.id === collectionSectionId) ?? null
@@ -6709,7 +6711,7 @@ function ArtifactsSection({
 
   // An id the registry doesn't know (a stale link, a deleted artifact) degrades
   // to the plain index — the same graceful read every detail page gives.
-  const openArtifact = artifactId ? (rel.allArtifacts().find((a) => a.id === artifactId) ?? null) : null
+  const openArtifact = artifactId ? (artifacts.find((a) => a.id === artifactId) ?? null) : null
   // The open artifact IS this section's detail page now, so it records a view
   // like every other one (only when it actually resolved).
   useRecordView('artifact', openArtifact?.id)
@@ -6784,7 +6786,7 @@ function ArtifactsSection({
   const projection = structuralCollectionProjection({
     section: 'artifacts',
     fallbackLabel: 'Artifacts',
-    empty: 'No artifacts match.',
+    empty: collectionEmptyCopy('artifacts', artifacts.length),
     itemNoun: 'artifact',
     groups: shownGroups.map((group) => ({
       key: group.id,
@@ -7397,19 +7399,35 @@ function ContextsSection({
 
 /** The other direction of the Contexts page (access-parity INV-11): the rows
  *  above are what THIS account connects to; this card is how other agents
- *  connect to IT — the account as an auth-gated MCP server. The mint is a
- *  one-time reveal (the server keeps only the signed token's verifiability,
- *  and this panel keeps nothing); the copy IS the save, same as the relay
- *  secret panel's rule. */
+ *  connect to IT. Hosted accounts mint a one-time-reveal credential; the
+ *  desktop's device-local principal needs none because non-browser callers
+ *  reach the origin-pinned loopback service directly. */
 function McpAccessCard() {
   const me = useMe()
   const signedIn = me.data?.via === 'session'
+  const localDesktop = me.data?.local === true && me.data.via === 'default'
+  const identityKey = me.data
+    ? `${me.data.user.id}:${me.data.tenant.id}:${me.data.via ?? 'unsigned'}`
+    : null
+  const identityKeyRef = useRef(identityKey)
+  identityKeyRef.current = identityKey
   const tokens = useApiTokens(signedIn)
-  const [minted, setMinted] = useState<{ token: string; tokenId?: string } | null>(null)
+  const [minted, setMinted] = useState<{ token: string; tokenId?: string; identityKey: string } | null>(null)
   const [label, setLabel] = useState('')
   const [core, setCore] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // A token is a one-time credential reveal, not account-agnostic component
+  // state. Hide it synchronously when identity changes, clear the remaining
+  // draft state after commit, and fence a slow mint response from the old
+  // principal before it can paint in the new account.
+  const visibleMinted = minted?.identityKey === identityKey ? minted : null
+  useEffect(() => {
+    setMinted(null)
+    setLabel('')
+    setBusy(false)
+    setError(null)
+  }, [identityKey])
   // The externally dialable endpoint, derived from API_BASE like the relay
   // panel's URLs — right in EVERY deploy shape (dev's Vite proxy forwards
   // /api, not the root `/mcp` alias, so the base-path form is the one that
@@ -7420,32 +7438,46 @@ function McpAccessCard() {
   // every operation stays callable by name on either URL (INV-11).
   const mcpUrl = core ? `${baseUrl}?toolset=core` : baseUrl
   const mint = async () => {
+    const requestedFor = identityKey
+    if (!requestedFor) return
     setBusy(true)
     setError(null)
     try {
       const session = await mintApiToken(label.trim() || undefined)
-      setMinted({ token: session.token, tokenId: session.tokenId })
+      if (identityKeyRef.current !== requestedFor) return
+      setMinted({ token: session.token, tokenId: session.tokenId, identityKey: requestedFor })
       setLabel('')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not mint a token.')
+      if (identityKeyRef.current === requestedFor) {
+        setError(e instanceof Error ? e.message : 'Could not mint a token.')
+      }
     } finally {
-      setBusy(false)
+      if (identityKeyRef.current === requestedFor) setBusy(false)
     }
   }
   // Ready-to-paste client wiring (the generic `mcpServers` shape MCP clients
   // share — deliberately no harness-specific install recipe: that design
   // lesson is locked by server/routes/connector-serve.test.ts). Computed for the COPY
   // ACTION only, never rendered — the credential shows in exactly one place.
-  const jsonConfig = minted
-    ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${minted.token}` } } } }, null, 2)
+  const jsonConfig = visibleMinted
+    ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${visibleMinted.token}` } } } }, null, 2)
     : null
+  const localJsonConfig = JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl } } }, null, 2)
   return (
     <div className="space-y-3 py-3.5 text-[13px] leading-relaxed text-ink-soft">
-        <p>
-          Any MCP client — another Claude, an agent, a script — can drive everything this UI can:
-          same account, same walls, by construction. Point it at the endpoint and authenticate with
-          a minted token.
-        </p>
+        {localDesktop ? (
+          <p>
+            Any device-local MCP client — another Claude, an agent, a script — can drive everything
+            this UI can through the loopback endpoint. No access token is required; browser requests
+            remain pinned to this desktop app's exact origin.
+          </p>
+        ) : (
+          <p>
+            Any MCP client — another Claude, an agent, a script — can drive everything this UI can:
+            same account, same walls, by construction. Point it at the endpoint and authenticate with
+            a minted token.
+          </p>
+        )}
         <div className="flex items-center gap-2">
           <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{mcpUrl}</span>
           <CopyButton text={mcpUrl} ariaLabel="Copy the MCP endpoint URL" />
@@ -7456,11 +7488,22 @@ function McpAccessCard() {
             projects, schedules…), so an AI client's tool context stays small. Every operation remains callable either way.
           </span>
         </CheckboxRow>
-        {minted ? (
+        {localDesktop ? (
+          <div className="flex items-center gap-2 text-[11px] text-ink-faint">
+            <CopyButton
+              text={localJsonConfig}
+              label="Copy client config"
+              ariaLabel="Copy the device-local MCP client JSON config"
+            />
+            <span>
+              the <span className="font-mono">mcpServers</span> JSON block most MCP clients accept — loopback endpoint wired in, no credential to store.
+            </span>
+          </div>
+        ) : visibleMinted ? (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{minted.token}</span>
-              <CopyButton text={minted.token} label="Copy token" ariaLabel="Copy the access token" />
+              <span className="min-w-0 flex-1 truncate rounded-lg bg-panel-2/50 px-2.5 py-1.5 font-mono text-[12px] text-ink">{visibleMinted.token}</span>
+              <CopyButton text={visibleMinted.token} label="Copy token" ariaLabel="Copy the access token" />
             </div>
             <p className="text-[11px] text-ink-faint">
               Shown once — send it as <span className="font-mono">Authorization: Bearer …</span>. It authenticates as you; treat it
@@ -7507,14 +7550,14 @@ function McpAccessCard() {
                 <span className="min-w-0 flex-1 truncate text-ink">
                   {t.label ?? 'Unlabeled token'}
                   <span className="text-ink-faint"> · minted {new Date(t.createdAt).toLocaleDateString()}</span>
-                  {minted?.tokenId === t.id && <span className="text-ok-strong"> · just minted</span>}
+                  {visibleMinted?.tokenId === t.id && <span className="text-ok-strong"> · just minted</span>}
                 </span>
                 <button
                   onClick={() =>
                     revokeApiToken(t.id)
                       // Revoking the just-minted token retires its reveal too —
                       // a dead credential must not linger on screen as copyable.
-                      .then(() => setMinted((m) => (m?.tokenId === t.id ? null : m)))
+                      .then(() => setMinted((m) => (m?.identityKey === identityKey && m.tokenId === t.id ? null : m)))
                       .catch(() => {})
                   }
                   className="rounded-lg px-2 py-0.5 text-[11px] font-medium text-ink-faint transition hover:bg-danger-tint hover:text-danger-strong"
@@ -12270,7 +12313,7 @@ function ScheduledSection({
   const projection = partitionedCollectionProjection({
     section: 'scheduled',
     fallbackLabel: 'Routines',
-    empty: 'No routines match.',
+    empty: collectionEmptyCopy('routines', items.length),
     itemNoun: 'routine',
     presentation: 'foldable',
     groups: groups.map((group) => ({

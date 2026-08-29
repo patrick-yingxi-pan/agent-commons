@@ -76,7 +76,18 @@ limits are the same policies as the UI. Form may differ; capability and policy
 may not. The send-message remote tool parses its finite reply stream into an
 event array, while open-ended push remains a transport form.
 
-## 3. One credential, two transports
+## 3. Credentials follow the deployment posture
+
+The hosted service uses one signed session credential over two transports. The
+desktop release deliberately does not manufacture a session token for its
+credential-less device owner: a machine client on that device connects directly
+to the loopback endpoint without an `Authorization` header. Browser requests
+remain pinned to the desktop app's exact Origin, so this convenience does not
+turn an arbitrary webpage into the local principal. The Contexts panel and MCP
+`initialize` instructions derive the same posture: local desktop offers a
+credential-free client config; hosted offers sign-in and token mint/revoke.
+
+### Hosted: one credential, two transports
 
 Authentication is the **same signed session token** the browser uses, over a
 second transport:
@@ -117,12 +128,13 @@ machine callers at places in the human UI. Every UI string they quote lives in
 panel below and left this door naming the old words, with every suite green.
 
 **The one-click path:** the Contexts page's **"This account is an MCP
-server"** panel shows the endpoint, mints an (optionally labeled) access
-token for the signed-in user (`POST /auth/token`, strictly session-verified;
-shown once), and offers a **copy-ready `mcpServers` JSON block** with the
-endpoint and token wired in — the generic shape MCP clients accept (the UI
-deliberately prescribes no harness-specific install command; that design
-lesson is locked by `server/routes/connector-serve.test.ts`).
+server"** panel always shows the endpoint and a copy-ready `mcpServers` JSON
+block. On desktop the block needs no credential. On hosted deployments the
+panel mints an optionally labeled access token for the signed-in user
+(`POST /auth/token`, strictly session-verified; shown once) and wires it into
+the block. This is the generic shape MCP clients accept; the UI deliberately
+prescribes no harness-specific install command (the design lesson is locked by
+`server/routes/connector-serve.test.ts`).
 
 **Token lifecycle:** every bearer mint is **registry-backed** (`jti` claim →
 an `ApiToken` row, `server/accounts.ts`): `GET /auth/tokens` lists your rows

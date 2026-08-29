@@ -104,6 +104,7 @@ import {
   collectionProjectionItems,
   partitionedCollectionProjection,
 } from '../lib/collectionProjection'
+import { collectionEmptyCopy } from '../lib/collectionEmpty'
 
 
 /** Does this section's row expand? Every child kind counts (UI-19) — fixed
@@ -662,6 +663,7 @@ export function Sidebar({
                   {id === 'sessions' ? (
                     <SessionTreeChildren
                       groups={groups}
+                      empty={collectionEmptyCopy('sessions', sessions.length)}
                       renderSession={(session) => (
                         <SessionRow
                           key={session.id}
@@ -691,6 +693,7 @@ export function Sidebar({
                   ) : id === 'scheduled' ? (
                     <ScheduledTreeChildren
                       groups={routineGroups}
+                      empty={collectionEmptyCopy('routines', routines.length)}
                       foldSignal={foldSignalForPane(path)}
                       renderRoutine={(t) => (
                         <RoutineRow
@@ -1153,15 +1156,17 @@ function SessionRow({
  * partitions selected by its filter, not structural navigation nodes. */
 function SessionTreeChildren({
   groups,
+  empty,
   renderSession,
 }: {
   groups: SessionGroup[]
+  empty: string
   renderSession: (session: Session) => ReactNode
 }) {
   const projection = partitionedCollectionProjection({
     section: 'sessions',
     fallbackLabel: 'Sessions',
-    empty: 'No sessions match these filters.',
+    empty,
     itemNoun: 'session',
     presentation: 'static',
     groups: groups.map((group) => ({
@@ -1186,17 +1191,19 @@ function SessionTreeChildren({
  * even when the chosen grouping divides the list into several visual bands. */
 function ScheduledTreeChildren({
   groups,
+  empty,
   renderRoutine,
   foldSignal,
 }: {
   groups: RoutineGroup[]
+  empty: string
   renderRoutine: (task: ScheduledTask) => ReactNode
   foldSignal?: RailFoldSignal | null
 }) {
   const projection = partitionedCollectionProjection({
     section: 'scheduled',
     fallbackLabel: 'Routines',
-    empty: 'No routines match these filters.',
+    empty,
     itemNoun: 'routine',
     presentation: 'foldable',
     groups: groups.map((group) => ({

@@ -31,6 +31,30 @@ test('initialize declares the stateful capabilities and mints a session id', asy
   assert.ok(caps.logging, 'the event bridge is declared as logging')
 })
 
+test('initialize serves auth instructions for hosted mode and direct loopback instructions for desktop mode', async () => {
+  const previous = process.env.AUTH_GATE
+  process.env.AUTH_GATE = 'require'
+  try {
+    const hosted = await rpc('initialize')
+    assert.match(hosted.json.result.instructions, /post_auth_login/)
+    assert.match(hosted.json.result.instructions, /Authorization: Bearer/)
+  } finally {
+    if (previous === undefined) delete process.env.AUTH_GATE
+    else process.env.AUTH_GATE = previous
+  }
+
+  process.env.AUTH_GATE = 'off'
+  try {
+    const desktop = await rpc('initialize')
+    assert.match(desktop.json.result.instructions, /device-local mode/)
+    assert.match(desktop.json.result.instructions, /no access token/i)
+    assert.doesNotMatch(desktop.json.result.instructions, /call post_auth_login/)
+  } finally {
+    if (previous === undefined) delete process.env.AUTH_GATE
+    else process.env.AUTH_GATE = previous
+  }
+})
+
 test('resources: parameterless reads are static resources, parameterized reads are templates; streams are neither', async () => {
   const list = await rpc('resources/list')
   const uris = list.json.result.resources.map((r: { uri: string }) => r.uri)

@@ -47,13 +47,26 @@ test('every UI string the MCP door quotes still exists in the UI', () => {
 test('the declared copy is what the instructions actually say', () => {
   // Without this the registry could sit correct-but-unused beside a bare
   // literal that drifted — the failure mode a one-home rule exists to prevent.
-  const text = mcpInstructions()
-  for (const [key, value] of Object.entries(MCP_UI_COPY)) {
-    assert.ok(text.includes(value), `MCP_UI_COPY.${key} is declared but not quoted in the instructions`)
+  for (const text of [mcpInstructions(true), mcpInstructions(false)]) {
+    for (const [key, value] of Object.entries(MCP_UI_COPY)) {
+      assert.ok(text.includes(value), `MCP_UI_COPY.${key} is declared but not quoted in the instructions`)
+    }
+    // And no stale spelling survives beside the live one.
+    assert.ok(
+      !text.includes('This workspace is an MCP server'),
+      'the pre-2026-08-09 panel title is gone from the door’s prose',
+    )
   }
-  // And no stale spelling survives beside the live one.
-  assert.ok(
-    !text.includes('This workspace is an MCP server'),
-    'the pre-2026-08-09 panel title is gone from the door’s prose',
-  )
+})
+
+test('initialize guidance follows the deployment auth posture', () => {
+  const gated = mcpInstructions(true)
+  assert.match(gated, /post_auth_login/)
+  assert.match(gated, /Authorization: Bearer/)
+  assert.doesNotMatch(gated, /device-local mode/)
+
+  const local = mcpInstructions(false)
+  assert.match(local, /device-local mode/)
+  assert.match(local, /no access token/i)
+  assert.doesNotMatch(local, /call post_auth_login/)
 })

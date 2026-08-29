@@ -23,15 +23,22 @@ const toolCall = async (name: string, args?: Record<string, unknown>, headers?: 
   return { isError: result.isError === true, ...(JSON.parse(text) as { status: number; body: any }) }
 }
 
-test('initialize: protocol version, tools capability, and instructions that teach the auth flow', async () => {
-  const r = await rpc('initialize', { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 't', version: '0' } })
-  assert.equal(r.status, 200)
-  const result = r.json.result
-  assert.equal(result.protocolVersion, MCP_PROTOCOL_VERSION)
-  assert.equal(result.serverInfo.name, 'universal-workspace')
-  assert.ok(result.capabilities.tools, 'tools are the advertised capability')
-  assert.match(result.instructions, /post_auth_login/, 'the instructions teach signing in through the same front door')
-  assert.match(result.instructions, /Bearer/, '…and presenting the credential as a bearer header')
+test('hosted initialize: protocol version, tools capability, and instructions that teach the auth flow', async () => {
+  const previous = process.env.AUTH_GATE
+  process.env.AUTH_GATE = 'require'
+  try {
+    const r = await rpc('initialize', { protocolVersion: MCP_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 't', version: '0' } })
+    assert.equal(r.status, 200)
+    const result = r.json.result
+    assert.equal(result.protocolVersion, MCP_PROTOCOL_VERSION)
+    assert.equal(result.serverInfo.name, 'universal-workspace')
+    assert.ok(result.capabilities.tools, 'tools are the advertised capability')
+    assert.match(result.instructions, /post_auth_login/, 'the instructions teach signing in through the same front door')
+    assert.match(result.instructions, /Bearer/, '…and presenting the credential as a bearer header')
+  } finally {
+    if (previous === undefined) delete process.env.AUTH_GATE
+    else process.env.AUTH_GATE = previous
+  }
 })
 
 test('notifications are accepted with 202 and no body', async () => {
