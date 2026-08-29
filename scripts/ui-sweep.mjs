@@ -598,12 +598,41 @@ for (const vp of VIEWPORTS) {
       }
     } else unreachable(cell, 'no project exists for this account')
 
+    // A canonical act page must expose the act itself at every tier. The
+    // overview above intentionally keeps this form disclosed (UI-18); measuring
+    // only that host is how the formerly blank direct page escaped the matrix.
+    cell = at('project-sharing')
+    if (ids.projectId) {
+      if (await goTo(page, `/projects/${ids.projectId}/sharing`, cell)) {
+        await noHScroll(page, cell)
+        if (!(await page.getByLabel('Audience kind').isVisible().catch(() => false))) {
+          note(cell, 'UI-E19', 'the canonical project Sharing page did not expose its sharing act')
+        }
+        await shot(page, cell.replace('/', '_'))
+        await sweepTriggers(page, vp, cell, page.locator('main'))
+        covered(cell)
+      }
+    } else unreachable(cell, 'no project exists for this account')
+
     // The routine page carries the social panels: the Sharing rail's grant form,
     // Improvements, Discussion, and the per-run locus gutters.
     cell = at('scheduled-detail')
     if (ids.scheduleId) {
       if (await goTo(page, `/scheduled/${ids.scheduleId}`, cell)) {
         await noHScroll(page, cell)
+        await shot(page, cell.replace('/', '_'))
+        await sweepTriggers(page, vp, cell, page.locator('main'))
+        covered(cell)
+      }
+    } else unreachable(cell, 'no routine exists for this account')
+
+    cell = at('scheduled-sharing')
+    if (ids.scheduleId) {
+      if (await goTo(page, `/scheduled/${ids.scheduleId}/sharing`, cell)) {
+        await noHScroll(page, cell)
+        if (!(await page.getByLabel('Audience kind').isVisible().catch(() => false))) {
+          note(cell, 'UI-E19', 'the canonical routine Sharing page did not expose its sharing act')
+        }
         await shot(page, cell.replace('/', '_'))
         await sweepTriggers(page, vp, cell, page.locator('main'))
         covered(cell)

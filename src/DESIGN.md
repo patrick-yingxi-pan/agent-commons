@@ -373,7 +373,9 @@ locked by `src/components/thread-composer.test.ts`, which allows exactly one cal
 `postToDiscussion`/`openDiscussion` — the discussion page hand-rolled a second
 composer for as long as this rule went unlocked. Inside a SECTION the composer is
 **disclosed by the header's verb**, never left standing open (invariant UI-18);
-a standing composer is only for a surface whose whole subject IS the thread)
+a standing composer is only for a surface whose whole subject IS the act. That
+includes an addressed Sharing subpage, which opens `GrantsPanel` directly and
+omits the overview's now-redundant disclosure verb (PD81))
 and `src/lib/useMentionPicker.tsx` (the ONE `@`-mention completion — the thread
 composer, the square, and both work-item comment fields; the roster is each
 surface's own supplier in `lib/mentionPicker.ts`, never a directory. Two rules

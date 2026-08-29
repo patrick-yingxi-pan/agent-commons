@@ -245,6 +245,20 @@ test('the fold DEFAULTS are the composite-page split: configuration folded, cont
   }
 })
 
+test('a canonical Sharing subpage is the share act; its overview form remains disclosed', () => {
+  // The overview is a reading surface, so UI-18 keeps its grant form behind the
+  // section verb. The canonical /sharing subpage has no other payload: carrying
+  // the overview's closed state there produced a title and an empty rule with
+  // the useful control hidden until hover. Both composite hosts must make the
+  // same host-vs-payload distinction.
+  for (const name of ['ProjectDetail', 'ScheduledDetail']) {
+    const body = fn(name)
+    assert.match(body, /const sharingPage = selectedSection\?\.id === 'sharing'/, `${name} recognizes the act surface`)
+    assert.match(body, /actions=\{!sharingPage \?/, `${name} has no redundant disclosure button on that surface`)
+    assert.match(body, /composing=\{sharingPage \|\| sharing(?:Schedule)?\}/, `${name} opens the real grant composer there`)
+  }
+})
+
 test('a PAGE with nothing on it is not a section row — the two empty states stay apart', () => {
   // Both lost the dashed frame (owner directive 2026-08-12 — it was the noisier
   // of the two shapes this pass removed, at 39 call sites against the lists' 17).

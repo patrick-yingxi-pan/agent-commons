@@ -83,9 +83,9 @@ const SUITE = suiteFiles()
  *  waiting on an app), so it oversubscribes cores happily, but each shard also
  *  boots a full stack — past a handful the boots cost more than the split
  *  saves. Capped by cores so a small machine does not thrash. */
-/** Measured ONCE, before anything competes for the machine — a shard that
- *  calibrated mid-sweep would read the sweep's own load as the host's slowness
- *  and inflate every budget on top of the contention term. Passed down. */
+/** Measured ONCE and passed down. The CPU-time clock excludes scheduler wait,
+ *  while one shared sample also prevents JIT/cache noise from giving sibling
+ *  shards different ideas of the same host. */
 const HOST_FACTOR = hostFactor()
 
 /** How many E2E processes. Derived from the host rather than from `cores / 2`:

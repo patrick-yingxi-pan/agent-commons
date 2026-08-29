@@ -21,11 +21,13 @@
  *     bug in the test, and a suite that fails on a slower laptop teaches people
  *     to re-run rather than to read. Budgets scale with the machine.
  *
- *  The calibration is a fixed integer loop, not a wall-clock sleep or an I/O
- *  probe: it measures the thing that actually varies between hosts and under
- *  contention (available CPU), it costs single-digit milliseconds, and it needs
- *  no network, no disk and no state. Pure and deterministic in shape, so a node
- *  test can pin its properties — `tests/host-speed.test.ts`.
+ *  The calibration is a fixed integer loop measured in PROCESS CPU TIME, not a
+ *  wall-clock sleep or an I/O probe: it measures execution throughput without
+ *  mistaking another process's time slice for this host being 5× slower. Sweep
+ *  contention is already modeled separately by `budget`; counting scheduler
+ *  delay here would apply it twice. The probe needs no network, disk, or state.
+ *  Pure and deterministic in shape, so a node test can pin its properties —
+ *  `tests/host-speed.test.ts`.
  */
 
 /** Iterations chosen so the loop takes ~5–15ms on a modern core: long enough to
@@ -33,8 +35,8 @@
 const CALIBRATION_ITERATIONS = 4_000_000
 
 /** The reference machine: the 12-core Windows box every timing in
- *  `verify.mjs`'s header was measured on, calibrated at **15.2ms** (best-of-5,
- *  eight samples, 1.17× spread — stable enough to divide by).
+ *  `verify.mjs`'s header was measured on, calibrated at **15.2ms** over this
+ *  same integer workload (best-of-5, eight samples, 1.17× spread).
  *
  *  A factor of 1 means "as fast as that"; 2 means half the speed, and every
  *  budget doubles. Recorded as a measured constant rather than re-derived at
@@ -42,29 +44,31 @@ const CALIBRATION_ITERATIONS = 4_000_000
  *  header unreadable — and re-deriving it on a busy machine would quietly
  *  redefine "normal" as "whatever today is".
  *
- *  **Measured on a BUSY machine** (a dev server and ~30 node processes were
- *  running), so it reads slow, and a quiet run of the same box calibrates
- *  faster and floors to 1. That is the safe direction — budgets never tighten —
- *  but it means the constant is "this box under load", not "this box". Anyone
- *  re-deriving it on an idle machine will get a materially smaller number; the
- *  question to ask before changing it is whether every budget should shrink,
- *  since that is what lowering this does. */
+ *  The historical sample used wall time on a busy machine. We retain the
+ *  baseline while hardening the CLOCK to CPU time: changing both the measuring
+ *  instrument and the reference in one patch would invent a new scale without
+ *  the reference host. The loop workload is unchanged, fast hosts remain
+ *  floored at 1, and a future re-baseline should be a like-for-like measurement
+ *  on that machine rather than a number inferred from this one. */
 export const REFERENCE_MS = 15.2
 
-/** Milliseconds for the calibration loop on this host, right now.
+/** Milliseconds of CPU consumed by the calibration loop on this host, right now.
  *
  *  Best-of-N, not a mean: the minimum is the closest thing to "what this
- *  machine can do", while a mean is dragged around by whatever else is
- *  running — and a budget that inflates because a build happened to be running
- *  during calibration would hide the very slowness it is meant to absorb. */
+ *  machine can do", while a mean is dragged around by JIT and GC warmup. The
+ *  clock is deliberately `cpuUsage`, not `hrtime`: the full verification lane
+ *  runs thousands of tests in parallel, where wall time can jump 5× solely
+ *  because this process was descheduled. That is contention, not host speed,
+ *  and `budget` already accounts for it explicitly. */
 export function calibrationMs(rounds = 5, iterations = CALIBRATION_ITERATIONS) {
   let best = Infinity
   for (let r = 0; r < rounds; r++) {
-    const t = process.hrtime.bigint()
+    const started = process.cpuUsage()
     // Data-dependent arithmetic so the optimiser cannot lift it out of the loop.
     let acc = 0
     for (let i = 1; i <= iterations; i++) acc = (acc + (i % 7) * (i % 13)) % 1_000_003
-    const ms = Number(process.hrtime.bigint() - t) / 1e6
+    const elapsed = process.cpuUsage(started)
+    const ms = (elapsed.user + elapsed.system) / 1_000
     if (acc === -1) throw new Error('unreachable — keeps `acc` live')
     if (ms < best) best = ms
   }
@@ -100,13 +104,12 @@ export function shardCount(cores, factor = 1) {
 /** The host factor to USE — the runner's measurement if it made one, else a
  *  fresh one.
  *
- *  Measuring inside each shard would measure the sweep, not the machine: by
- *  then two sibling stacks are compiling, so the loop reads slow, and that
- *  slowness is then multiplied AGAIN by the contention term below. The runner
- *  calibrates once before it launches anything and passes the number down, so
- *  the two factors stay what they claim to be — one about the host, one about
- *  the load the sweep adds. A direct `npx playwright test` has no runner, so it
- *  measures for itself and its contention term is 1. */
+ *  Every shard must share one factor: independent samples can still see
+ *  different JIT, frequency, and cache states even though scheduler wait no
+ *  longer contaminates them. The runner calibrates once and passes the number
+ *  down, so the two factors stay what they claim to be — one about the host,
+ *  one about the load the sweep adds. A direct `npx playwright test` has no
+ *  runner, so it measures for itself and its contention term is 1. */
 export function resolvedFactor(env = process.env) {
   const passed = Number(env.E2E_HOST_FACTOR)
   if (Number.isFinite(passed) && passed >= 1) return Math.min(4, passed)

@@ -19,6 +19,14 @@ import { ROOT, read } from './helpers/source.ts'
 import { budget, calibrationMs, hostFactor, REFERENCE_MS, resolvedFactor, shardCount } from '../scripts/hostSpeed.mjs'
 
 test('the calibration measures something real and repeatable', () => {
+  const source = read(join(ROOT, 'scripts/hostSpeed.mjs'))
+  assert.match(
+    source,
+    /const started = process\.cpuUsage\(\)/,
+    'the calibration measures consumed CPU, not scheduler-contaminated wall time',
+  )
+  assert.match(source, /process\.cpuUsage\(started\)/, 'the sample closes against the same CPU-usage baseline')
+
   const a = calibrationMs()
   const b = calibrationMs()
   assert.ok(Number.isFinite(a) && a > 0, `calibration returned ${a}`)

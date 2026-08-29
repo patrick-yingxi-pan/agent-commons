@@ -1142,6 +1142,11 @@ function ProjectDetail({
   // `own !== false` covers legacy/seed rows whose projection predates the stamp.
   const own = project.own !== false
   const selectedSection = projectSection(sectionId)
+  // The composite overview DISCLOSES its grant form; the canonical Sharing
+  // subpage IS that act surface and therefore opens the same form immediately.
+  // Reusing the overview's closed state on the subpage produced a real blank
+  // page: title + rule, with the only useful control hidden until hover.
+  const sharingPage = selectedSection?.id === 'sharing'
   const sectionAllowed = selectedSection?.visibility !== 'owner' || own
   const showProjectSection = (id: ProjectSectionId) =>
     sectionAllowed && (!selectedSection || selectedSection.id === id)
@@ -1430,20 +1435,21 @@ function ProjectDetail({
             // a form field at all — five of them, where every other section held
             // zero. The grant composer stood permanently open; every other
             // section's form hangs off its header verb.
-            actions={
+            actions={!sharingPage ?
               <SectionAction
                 label="Share with an audience"
                 icon={<Plus size={14} />}
                 onClick={() => setSharing((v) => !v)}
                 expanded={sharing}
               />
+              : undefined
             }
           >
             {rel.isCreatedProject(project.id) && <ShareToggle project={project} />}
             {/* The grants roster (social S1) — audience-scoped shares over the
                 generic subject ref; org-wide `shared` above stays the legacy
                 everyone-switch. */}
-            <GrantsPanel subject={{ kind: 'project', id: project.id }} composing={sharing} />
+            <GrantsPanel subject={{ kind: 'project', id: project.id }} composing={sharingPage || sharing} />
             <DefaultRolePicker project={project} />
           </FoldSection>}
 
@@ -12565,6 +12571,9 @@ function ScheduledDetail({
   // …and its grant composer's disclosure, the same as the project page's.
   const [sharingSchedule, setSharingSchedule] = useState(false)
   const selectedSection = scheduleSection(sectionId)
+  // A direct Sharing address is the share act itself, not an overview section
+  // waiting for a second disclosure click (UI-18's host-vs-payload distinction).
+  const sharingPage = selectedSection?.id === 'sharing'
   const own = task.own !== false
   const sectionAllowed = selectedSection?.visibility !== 'owner' || own
   const showScheduleSection = (id: ScheduleSectionId) =>
@@ -12703,16 +12712,17 @@ function ScheduledDetail({
             // SOME disclosure gate appeared before the field, and this component
             // has an unrelated one (the name editor) hundreds of lines earlier.
             // A gate is not a gate for every field in the file.
-            actions={
+            actions={!sharingPage ?
               <SectionAction
                 label="Share with an audience"
                 icon={<Plus size={14} />}
                 onClick={() => setSharingSchedule((v) => !v)}
                 expanded={sharingSchedule}
               />
+              : undefined
             }
           >
-            <GrantsPanel subject={{ kind: 'schedule', id: task.id }} composing={sharingSchedule} />
+            <GrantsPanel subject={{ kind: 'schedule', id: task.id }} composing={sharingPage || sharingSchedule} />
           </FoldSection>}
 
           {showScheduleSection('schedule') && <SchedulePanel task={task} />}

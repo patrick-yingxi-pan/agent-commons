@@ -8,6 +8,42 @@ import { test, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { ms } from './budget.ts'
 import { API, ARTIFACT, CHANGE, COMMENT, GUEST_POST, LINK_PROJECT, NEW_CADENCE, NOTE, PROJECT, ROUTINE, ROUTINE_CHANGE, STAMP, TURN_SESSION, createProject, gotoSection, newUser, openProject, projectId, openSection, openShareForm } from './social-helpers.ts'
+
+test('canonical Sharing pages open the act while composite overviews stay quiet', async ({ browser }) => {
+  const ada = await newUser(browser)
+  const grace = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
+
+  // The project overview is a reading surface: the grant composer remains one
+  // explicit section act away, preserving the quiet composite-page rhythm.
+  await ada.page.goto('/projects/p-insights')
+  await expect(ada.page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
+  await expect(ada.page.getByLabel('Audience kind')).toHaveCount(0)
+  await expect(ada.page.getByRole('button', { name: 'Share with an audience' })).toHaveAttribute('aria-expanded', 'false')
+
+  // The canonical subpage IS that act. It must never render the old empty
+  // title-and-rule frame or ask for a redundant second disclosure click.
+  await ada.page.goto('/projects/p-insights/sharing')
+  await expect(ada.page.getByLabel('Audience kind')).toBeVisible({ timeout: ms(20_000) })
+  await expect(ada.page.getByLabel('Tier')).toBeVisible()
+  await expect(ada.page.getByRole('button', { name: 'Share', exact: true })).toBeVisible()
+  await expect(ada.page.getByRole('button', { name: 'Share with an audience' })).toHaveCount(0)
+
+  // Routine Sharing follows the exact same canonical-page grammar.
+  await ada.page.goto('/scheduled/s-issue-triage')
+  await expect(ada.page.getByLabel('Audience kind')).toHaveCount(0)
+  await ada.page.goto('/scheduled/s-issue-triage/sharing')
+  await expect(ada.page.getByLabel('Audience kind')).toBeVisible({ timeout: ms(20_000) })
+  await expect(ada.page.getByRole('button', { name: 'Share with an audience' })).toHaveCount(0)
+
+  // Address parity does not widen authority: a granted visitor can read the
+  // project, but the owner-only Sharing subpage remains a private section.
+  await grace.page.goto('/projects/p-insights/sharing')
+  await expect(grace.page.getByText('This Project section is private to its owner.')).toBeVisible({ timeout: ms(20_000) })
+  await expect(grace.page.getByLabel('Audience kind')).toHaveCount(0)
+
+  await ada.context.close()
+  await grace.context.close()
+})
 test('share → feed → discuss → improve: one thread, one ledger, across two tenants', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser) // seeded default: user-ada / tenant-acme (owner)
