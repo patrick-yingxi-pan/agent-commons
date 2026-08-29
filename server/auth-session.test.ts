@@ -9,7 +9,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './testkit/http.ts'
-import { signSession, verifySession, assertAuthConfig, SESSION_COOKIE } from './auth.ts'
+import {
+  signSession,
+  verifySession,
+  assertAuthConfig,
+  SESSION_COOKIE,
+  sessionSetCookie,
+  sessionClearCookie,
+  stackSetCookie,
+  stackClearCookie,
+} from './auth.ts'
 
 const cookieOf = (setCookie: string | undefined) => setCookie?.split(';')[0] ?? ''
 
@@ -50,6 +59,15 @@ test('a credentialed sign-in mints a hardened cookie and answers with the resolv
   assert.equal(res.json.user.id, 'user-grace')
   assert.equal(res.json.role, 'owner', 'role comes from the directory, never from the client')
   assert.equal(res.headers['x-resolved-tenant'], 'tenant-beta', 'the echo already speaks as the new identity')
+})
+
+test('the hosted cookie posture adds Secure to every session and account-stack write', (t) => {
+  process.env.AUTH_COOKIE_SECURE = 'on'
+  t.after(() => delete process.env.AUTH_COOKIE_SECURE)
+  const stack = [{ userId: 'user-grace', tenantId: 'tenant-beta', iat: Date.now() }]
+  for (const cookie of [sessionSetCookie('token'), sessionClearCookie(), stackSetCookie(stack), stackClearCookie()]) {
+    assert.match(cookie, /; Secure$/, cookie)
+  }
 })
 
 test('the cookie IS the identity on later requests — and it beats client-asserted headers', async () => {

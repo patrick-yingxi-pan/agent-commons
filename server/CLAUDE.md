@@ -38,6 +38,7 @@ not to the transport it happens to drive through.
 | SERVER-D5 | data-access | Viewer presentation intent is keyed by user and resource, never stored on the shared entity or broadcast in event bodies. | [`sessionPreferences.ts`](sessionPreferences.ts) · [`routes/index.ts`](routes/index.ts) | [`sessionPreferences.test.ts`](sessionPreferences.test.ts) · [`routes/session-preferences.test.ts`](routes/session-preferences.test.ts) | refines SERVER-D4; requires CONTRACT-D4 |
 | SERVER-V1 | verification | Code, requirements, and behavioral locks live with the module they govern; only cross-layer locks stay in `tests/`. | [`routes/`](routes/) · [`store/`](store/) · [`persistence/`](persistence/) | [`tests/suite-paths.test.ts`](../tests/suite-paths.test.ts) | refines ROOT-V1 |
 | SERVER-O1 | operations | Demo fixtures are deterministic, tenant-complete declared mock worlds and use the real mutators. | [`data/`](data/) | [`data/demo-accounts.test.ts`](data/demo-accounts.test.ts) | refines ROOT-P2; requires SERVER-D4 |
+| SERVER-O2 | operations | Release-shaped boots resolve one explicit desktop or web profile before server modules evaluate; desktop is loopback/native/SQLite and web fails closed on its secret and HTTPS origin. | [`runtimeProfile.ts`](runtimeProfile.ts) · [`../scripts/start.mjs`](../scripts/start.mjs) | [`runtimeProfile.test.ts`](runtimeProfile.test.ts) | refines ROOT-A1; requires SERVER-D2; requires SERVER-D4 |
 <!-- context-rules:end -->
 
 ## Verification

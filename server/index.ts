@@ -21,6 +21,7 @@ import { store, startRunDaemon } from './store/index.ts'
 import { startModelServer } from './model/index.ts'
 import { positiveNumberEnv } from './env.ts'
 import { closePersistence } from './persistence/persist.ts'
+import { enforceOrigin } from './http/origin.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
 const HOST = process.env.HOST ?? '127.0.0.1'
@@ -62,6 +63,11 @@ const MIME: Record<string, string> = {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`)
+
+  // With an exact deployment origin, browser traffic from anywhere else is
+  // refused before static, API, MCP, or preflight handling. This is especially
+  // load-bearing for the desktop sidecar: loopback is reachable from webpages.
+  if (!enforceOrigin(req, res)) return
 
   // CORS preflight.
   if (req.method === 'OPTIONS') {

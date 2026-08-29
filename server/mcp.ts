@@ -40,10 +40,8 @@
  *  form or semantic alias carries its reason beside the route declaration.
  *  There is no MCP-private exclusion list that can drift from the UI.
  *
- *  Transport hardening (MCP spec, DNS rebinding): when a deployment pins
- *  `CORS_ORIGIN`, a browser-sent `Origin` that doesn't match is refused (403)
- *  on every `/mcp` method — origin validation, not authorization (non-browser
- *  clients send no Origin and are untouched; the dev default stays open). */
+ *  Transport hardening (MCP spec, DNS rebinding) is shared by every route in
+ *  `server/http/origin.ts`; MCP has no private policy branch. */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { formOnly, type Router } from './http/router.ts'
@@ -349,18 +347,6 @@ async function listPrompts(router: Router, req: IncomingMessage, origin: string)
 export function registerMcp(router: Router): void {
   const timeoutMs = () => positiveNumberEnv(process.env.MCP_TOOL_TIMEOUT_MS, 120_000)
 
-  // DNS-rebinding hardening (MCP spec): with a pinned CORS_ORIGIN, a browser
-  // Origin that doesn't match is refused. Origin validation, not authz — the
-  // dev default (`*`) stays open and non-browser clients send no Origin.
-  const originRefused = (req: IncomingMessage, res: ServerResponse): boolean => {
-    const pinned = process.env.CORS_ORIGIN
-    const origin = headerValue(req.headers, 'origin')
-    if (!pinned || pinned === '*' || !origin || origin === pinned) return false
-    res.writeHead(403, { ...BASE_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' })
-    res.end(`Forbidden: Origin ${origin} does not match this deployment's pinned origin.`)
-    return true
-  }
-
   // The auth gate for the DIRECT-SERVED MCP surfaces — the GET stream and
   // resources/subscribe, which do NOT re-enter the router (so its 401 wall
   // can't see them). They deal in ambient events, and `eventVisibleToTenant`
@@ -374,7 +360,6 @@ export function registerMcp(router: Router): void {
     store.capabilities().features.authGate && store.identity(req.headers).via === 'default'
 
   router.post('/mcp', async ({ req, res, url, body }) => {
-    if (originRefused(req, res)) return
     let msg: any
     try {
       msg = await body<any>()
@@ -571,7 +556,6 @@ export function registerMcp(router: Router): void {
   // updated — COARSE on purpose: in this product events are invalidation
   // hints, and re-reading is the sync model on every door (UI cache included).
   router.get('/mcp', ({ req, res }) => {
-    if (originRefused(req, res)) return
     if (gateRefusesStream(req)) return plain(res, 401, 'Sign in to open the event stream (AUTH_GATE is on).')
     const sid = headerValue(req.headers, 'mcp-session-id')
     if (!sid) return plain(res, 400, 'The stream needs a session: initialize first and send Mcp-Session-Id.')
@@ -616,7 +600,6 @@ export function registerMcp(router: Router): void {
   // End a session: subscriptions drop, its stream closes. Idempotent-ish: an
   // unknown id is an honest 404 (initialize again), absence a 400.
   router.delete('/mcp', ({ req, res }) => {
-    if (originRefused(req, res)) return
     const sid = headerValue(req.headers, 'mcp-session-id')
     if (!sid) return plain(res, 400, 'Send the Mcp-Session-Id of the session to terminate.')
     const session = mcpSessions.get(sid)

@@ -165,8 +165,9 @@ templates (`workspace://sessions/{id}`); prompts mirror the system-prompt
 library. All of it reads through the router with your credential.
 
 **Origin pinning:** a deployment that sets `CORS_ORIGIN` refuses mismatched
-browser `Origin`s on `/mcp` with 403 (the MCP spec's DNS-rebinding posture);
-non-browser clients are unaffected.
+browser `Origin`s with 403 at the shared HTTP boundary—ordinary API routes,
+preflight, static/UI requests, and every `/mcp` method share the MCP spec's
+DNS-rebinding posture. Non-browser clients send no Origin and are unaffected.
 
 ```bash
 # 1. Sign in (any demo account — docs/demo-accounts.md):

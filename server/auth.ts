@@ -9,7 +9,8 @@
  *  Why a cookie (not a bearer header): it rides automatically on every transport
  *  the client uses — fetch, `EventSource` (which cannot set headers), and `<img>`
  *  byte fetches — closing the two asymmetries the header seam had. HttpOnly keeps
- *  it out of script reach; SameSite=Lax bounds cross-site sends.
+ *  it out of script reach; SameSite=Lax bounds cross-site sends; the hosted
+ *  profile also requires Secure so the credential never rides plain HTTP.
  *
  *  The token is claims + HMAC, not an encrypted JWT: the claims aren't secret
  *  (userId/tenantId), only UNFORGEABLE. In a real deployment the IdP's verified
@@ -107,17 +108,19 @@ export function parseCookies(header: string | undefined): Record<string, string>
   return out
 }
 
+const secureCookie = (): string => (process.env.AUTH_COOKIE_SECURE === 'on' ? '; Secure' : '')
+
 /** The `Set-Cookie` value that installs a session. HttpOnly (no script access),
  *  SameSite=Lax (rides same-site navigations + all same-origin requests, not
- *  cross-site POSTs), Path=/. `Secure` is added by the HTTPS edge in production —
- *  the dev server is plain HTTP on loopback. */
+ *  cross-site POSTs), Path=/. The web profile adds `Secure`; dev and the
+ *  loopback-HTTP desktop profile intentionally omit it. */
 export function sessionSetCookie(token: string): string {
-  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_S}`
+  return `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_S}${secureCookie()}`
 }
 
 /** The `Set-Cookie` value that signs out (expires the cookie immediately). */
 export function sessionClearCookie(): string {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie()}`
 }
 
 /* ── The account stack (multi-account §12 — GitHub-style multi-account) ───────
@@ -201,11 +204,11 @@ export function stackWithout(entries: StackEntry[], userId: string): StackEntry[
 /** `Set-Cookie` for the stack — same posture as the session cookie. */
 export function stackSetCookie(entries: StackEntry[]): string {
   if (entries.length === 0) return stackClearCookie()
-  return `${STACK_COOKIE}=${signStack(entries)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_S}`
+  return `${STACK_COOKIE}=${signStack(entries)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${MAX_AGE_S}${secureCookie()}`
 }
 
 export function stackClearCookie(): string {
-  return `${STACK_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`
+  return `${STACK_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureCookie()}`
 }
 
 /** Whether the legacy client-asserted identity seam (x-user-id/x-tenant-id

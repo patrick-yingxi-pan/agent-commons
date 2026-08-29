@@ -79,7 +79,8 @@ npm run dev:ui       # Vite only; expects the backend on :8787
 npm run server       # backend only
 npm run model        # deterministic model server only
 npm run connector    # session-relay connector
-npm run start        # serve the built UI and API in one process
+npm run start        # desktop profile: built UI + loopback API + SQLite
+npm run start:web    # hosted profile (required env below)
 npm run typecheck
 npm run build
 npm test             # Node behavior and repository locks
@@ -88,16 +89,30 @@ npm run ui:sweep     # signed-in surface × viewport review harness
 npm run verify       # typecheck + Node suite + build + sharded E2E
 ```
 
-Run the remote-web capability profile with `BACKEND=remote npm run server`.
+`npm run dev` and `npm run server` retain the review/demo posture. Release-shaped
+boots use explicit profiles:
+
+- `npm run start` (also `start:desktop`) is the near-term desktop profile:
+  native capabilities, loopback-only binding, embedded SQLite, the credential-less
+  device owner, client-asserted identity disabled, and an exact loopback origin.
+  A fresh signing secret is generated for the process when none is supplied.
+- `npm run start:web` preserves the later hosted boundary: remote capabilities,
+  required sign-in, client-asserted identity disabled, Secure cookies, and SQLite
+  by default. It refuses to boot without a 32+ character `AUTH_SECRET` and exact
+  HTTPS `CORS_ORIGIN`. The current persistence engine is single-process; a managed
+  multi-instance store remains a web-service follow-on.
+
+For example: `AUTH_SECRET=replace-with-32-plus-random-characters CORS_ORIGIN=https://app.example npm run start:web`.
+For remote-capability development without the release checks, use
+`BACKEND=remote npm run server`.
 
 ## Persistence and recovery
 
-JSON is the development default. The desktop production topology uses the same
-state contract through embedded SQLite:
+JSON is the development default. The desktop profile selects embedded SQLite:
 
 ```bash
-PERSIST_BACKEND=sqlite npm run start        # defaults to .data/store.db
-DATABASE_PATH=/path/to/store.db PERSIST_BACKEND=sqlite npm run start
+npm run build && npm run start              # defaults to .data/store.db
+DATABASE_PATH=/path/to/store.db npm run start
 ```
 
 Backups are portable across both backends. `save` can run against the selected

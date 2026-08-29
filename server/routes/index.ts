@@ -88,6 +88,7 @@ import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
+import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
@@ -179,6 +180,10 @@ export function buildRouter(): Router {
   // log-injection / unbounded-cardinality vector. Otherwise mint a per-process id.
   let requestSeq = 0
   const SAFE_REQUEST_ID = /^[A-Za-z0-9._-]{1,128}$/
+  // The real socket applies this before preflight/static routing; keep it in the
+  // router as well so every re-entry door and handler-level test traverses the
+  // same browser-origin wall. No Origin means a native/machine caller.
+  r.use((ctx) => enforceOrigin(ctx.req, ctx.res))
   r.use((ctx) => {
     const inbound = headerValue(ctx.req.headers, 'x-request-id')
     const id = inbound && SAFE_REQUEST_ID.test(inbound) ? inbound : `req-${store.epoch}-${++requestSeq}`

@@ -73,10 +73,10 @@ the backend; the backend is a client of the model; the model manipulates
 resources through tools), not prototype shortcuts a production system would have
 to unwind.
 
-## Authentication — front door by default
+## Authentication and deployment profiles
 
-Real boots default the
-auth gate ON (`server/index.ts` sets `AUTH_GATE ??= 'require'`): pre-sign-in,
+Development and direct server boots default the auth gate ON
+(`server/index.ts` sets `AUTH_GATE ??= 'require'`): pre-sign-in,
 the UI shows the auth surface and the API refuses data routes with 401 — the
 gate is a server-side WALL (one router middleware + the ANONYMOUS principal in
 `store.identity`), not client chrome. The open set is only the front door
@@ -85,6 +85,18 @@ machine edges (`/a2a/*`, `/relay/*`, `/connector`). `AUTH_GATE=off` opts a
 boot out (the E2E stack and `scripts/ui-sweep.mjs`'s target may run either
 way — the sweep signs in as Ada first). Locked by `server/routes/auth-gate.test.ts`;
 spec row SYNC-8.
+
+Release-shaped boots resolve before any server module evaluates
+(`server/runtimeProfile.ts` → `scripts/start.mjs`). The desktop-first profile
+binds only `127.0.0.1`, selects native capabilities + SQLite, denies asserted
+identity, and lands as the credential-less device owner; it generates an
+ephemeral HMAC secret when none is configured. The later hosted profile keeps
+the tenant/auth wall, remote capabilities, and Secure cookies, and refuses to
+boot without a strong secret and exact HTTPS app origin. Both profiles pin
+`CORS_ORIGIN`; `server/http/origin.ts` enforces it on all socket, preflight, and
+router-reentry traffic. This is a DNS-rebinding boundary for a local sidecar,
+not merely a response header. Native clients and machine callers send no
+`Origin` and remain valid. Spec row PORT-10.
 
 ## Capability parity — three access doors, one wall
 

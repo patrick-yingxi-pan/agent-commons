@@ -21,6 +21,7 @@ access metadata.
 | HTTP-A2 | architecture | Shared response and security policy is applied in one transport funnel. | [`respond.ts`](respond.ts) | [`security-headers.test.ts`](security-headers.test.ts) | refines ROOT-A1; requires HTTP-A1 |
 | HTTP-D1 | data-access | Non-HTTP doors re-enter the router without private policy branches. | [`dispatch.ts`](dispatch.ts) | [`../mcp-parity.test.ts`](../mcp-parity.test.ts) | refines SERVER-D3 |
 | HTTP-D2 | data-access | Access classification is route-owned metadata exposed by `Router.list()`. | [`router.ts`](router.ts) | [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines SERVER-A2; requires HTTP-D1 |
+| HTTP-D3 | data-access | An exact deployment origin is an enforcement wall on socket traffic, preflight, and router re-entry; missing Origin remains valid for native/machine callers. | [`origin.ts`](origin.ts) · [`../index.ts`](../index.ts) · [`../routes/index.ts`](../routes/index.ts) | [`origin.test.ts`](origin.test.ts) · [`../routes/mcp-stateful.test.ts`](../routes/mcp-stateful.test.ts) | refines HTTP-A2; requires SERVER-D2 |
 <!-- context-rules:end -->
 
 ## What lives here
@@ -47,6 +48,9 @@ Beside them, the suites that lock the transport contract.
 - **Headers are set in one place.** A handler that hand-writes a security or
   cache header is a bug waiting for the second handler that forgets;
   `security-headers.test.ts` is what makes that non-negotiable.
+- **Pinned CORS is enforced, not advertised.** `CORS_ORIGIN=*` is the explicit
+  development posture. An exact origin refuses every mismatched browser request
+  before resource policy; requests with no Origin are native/machine callers.
 - **`dispatch.ts` must not grow a policy branch.** The moment a door gets its
   own conditional, access parity stops being structural and becomes a promise.
 - **Access classification belongs to the route.** Product is the default.
