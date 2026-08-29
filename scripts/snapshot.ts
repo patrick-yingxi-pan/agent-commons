@@ -99,8 +99,6 @@ export function listSnapshots(): { name: string; sizeKB: number; modified: Date 
     .sort((a, b) => b.modified.getTime() - a.modified.getTime())
 }
 
-const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
-
 /** Manufacture the comprehensive playground by driving the real store. Assumes
  *  the configured backend path already points at a FRESH (absent) store: the store
  *  re-seeds from the fixtures, then every mutator below persists to that file.
@@ -461,22 +459,27 @@ export async function buildComprehensive(): Promise<PersistedState> {
   const watchedItem = store.postOpenSubGoal(PROJECT_ID, { subGoal: 'playground-watched-item', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
   store.commentOnOpenSubGoal(PROJECT_ID, watchedItem.id, 'playground discussion — still needed?', store.defaultTenantId(), builder)
 
-  // Run the created routine and wait for it to finish (it steps one beat at a
-  // time, then a final beat applies the standing-approved artifact save). Poll the
-  // REAL run record for a terminal state rather than hard-coding the store's step
-  // cadence — so this stays correct if that timing constant ever changes.
+  // Run the created routine through the worker-facing durable transition seam.
+  // Snapshot manufacture stays deterministic and offline; the routine worker's
+  // model-loop behavior has its own tests and the real server wires it at boot.
   if (createdScheduleId) {
     const scheduledFor = store.listSchedules().find((task) => task.id === createdScheduleId)?.nextFireAt
-    store.runSchedule(createdScheduleId, scheduledFor === undefined ? undefined : { scheduledFor })
-    const settled = () => {
-      const run = store
-        .listSchedules()
-        .find((t) => t.id === createdScheduleId)
-        ?.runs.find((r) => r.id.startsWith('run-live-'))
-      return run !== undefined && run.status !== 'running'
+    const run = store.runSchedule(createdScheduleId, scheduledFor === undefined ? undefined : { scheduledFor })
+    if (run) {
+      const context = store.routineExecutionContext(createdScheduleId, run.id)
+      store.markScheduleRunAttempt(createdScheduleId, run.id, 1, run.at + 100)
+      store.completeScheduleRun(
+        createdScheduleId,
+        run.id,
+        { id: `m-${run.id}`, role: 'assistant', content: 'Playground weekly digest — deterministic snapshot output.' },
+        {
+          agentId: context?.agent.id ?? 'agent-default',
+          providerId: context?.provider.id ?? 'provider-anthropic',
+          ...(context?.modelId ? { modelId: context.modelId } : {}),
+        },
+        run.at + 1_000,
+      )
     }
-    const deadline = Date.now() + 15_000
-    while (!settled() && Date.now() < deadline) await delay(50)
   }
 
   const state = loadState()

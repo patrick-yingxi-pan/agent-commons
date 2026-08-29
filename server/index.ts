@@ -17,8 +17,9 @@ import { API_BASE_PATH } from '../contract/index.ts'
 import { CORS_HEADERS, SECURITY_HEADERS, sendError, sendJson } from './http/respond.ts'
 import { platformCard } from './a2a.ts'
 import { buildRouter } from './routes/index.ts'
-import { store } from './store/index.ts'
+import { configureScheduleExecutor, store } from './store/index.ts'
 import { startRoutineScheduler } from './scheduler.ts'
+import { createRoutineRunner } from './routineRunner.ts'
 import { startModelServer } from './model/index.ts'
 import { positiveNumberEnv } from './env.ts'
 import { closePersistence } from './persistence/persist.ts'
@@ -50,6 +51,8 @@ store.initPersistence()
 process.on('exit', closePersistence)
 
 const router = buildRouter()
+const routineRunner = createRoutineRunner(store)
+configureScheduleExecutor((taskId, runId) => routineRunner.enqueue(taskId, runId))
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -147,6 +150,9 @@ server.listen(PORT, HOST, () => {
   const baseUrl = process.env.ANTHROPIC_BASE_URL
   const usingMockModel = !baseUrl || /\/\/(127\.0\.0\.1|localhost|0\.0\.0\.0)/.test(baseUrl)
   if (usingMockModel && process.env.MODEL_INLINE !== '0') startModelServer()
+  // Reclaim any execution-aware run left in-flight by the previous process
+  // before the cadence producer admits new work.
+  routineRunner.start()
   // One desktop process owns the durable routine cursor. The same narrow port
   // can later sit behind a hosted queue/leader without changing run identity.
   const stopScheduler = startRoutineScheduler({
@@ -169,6 +175,7 @@ server.listen(PORT, HOST, () => {
     shuttingDown = true
     store.beginDraining()
     stopScheduler()
+    routineRunner.stop()
     server.close(() => process.exit(0)) // exits once all connections have closed
     // Let normal in-flight requests finish, then force-close lingering streams so close()
     // can complete; a hard fallback guarantees exit even then. Both unref'd so they never

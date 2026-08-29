@@ -168,10 +168,18 @@ test('build produces a snapshot covering every persisted slice', async () => {
   const scheduled = s.schedules.find((t) => t.id.startsWith('s-new-'))
   assert.ok(Number.isFinite(scheduled?.nextFireAt), 'the enabled routine carries its durable next-fire cursor')
   assert.equal(scheduled?.missedFirePolicy, 'catch-up-once', 'the per-routine downtime policy is persisted')
+  const completedRoutineRun = s.schedules.flatMap((t) => t.runs)
+    .find((r) => r.id.startsWith('run-live-') && r.status === 'ok' && Number.isFinite(r.scheduledFor))
   assert.ok(
-    s.schedules.some((t) => t.runs.some((r) => r.id.startsWith('run-live-') && r.status === 'ok' && Number.isFinite(r.scheduledFor))),
+    completedRoutineRun,
     'a fire-time-keyed live run ran to completion (so its standing artifact was delivered)',
   )
+  assert.equal(completedRoutineRun?.attempts, 1, 'the durable run preserves its completed attempt count')
+  assert.equal(completedRoutineRun?.maxAttempts, 3, 'the durable run preserves its retry budget')
+  assert.equal(completedRoutineRun?.nextAttemptAt, undefined, 'terminal completion clears the retry cursor')
+  assert.ok(completedRoutineRun?.execution?.prompt, 'the durable run preserves its frozen executable definition')
+  assert.ok(completedRoutineRun?.execution?.agentId && completedRoutineRun.execution.providerId,
+    'the durable run preserves its frozen identity and endpoint binding')
   assert.ok(s.schedules.some((t) => t.enabled === false), 'a paused schedule for variety')
   assert.ok((s.savedContexts?.length ?? 0) > 0, 'saved contexts present (auth status flipped)')
   assert.ok(s.recents.repo.includes('repo-playground'), 'a recent was promoted')

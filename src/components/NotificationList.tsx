@@ -5,7 +5,7 @@
  *  like, and the kind→icon / kind→sentence maps below are total over
  *  `NotificationKind` — a new kind fails the build here rather than rendering
  *  blank. */
-import { AtSign, Award, Bell, GitFork, GitMerge, GitPullRequest, Hammer, ListChecks, Mail, MessageSquare, MessagesSquare, Share2, Sparkles, UserPlus, XCircle, type LucideIcon } from 'lucide-react'
+import { AlertTriangle, AtSign, Award, Bell, GitFork, GitMerge, GitPullRequest, Hammer, ListChecks, Mail, MessageSquare, MessagesSquare, Share2, Sparkles, UserPlus, XCircle, type LucideIcon } from 'lucide-react'
 import type { AppNotification, NotificationKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import { relativeTime } from '../lib/relativeTime'
@@ -14,6 +14,7 @@ import { ROW_DOOR_CLASS, cardDoorClick } from '../lib/cardDoor'
 
 
 const KIND_ICON: Record<NotificationKind, LucideIcon> = {
+  'schedule.failed': AlertTriangle,
   'work.posted': ListChecks,
   'work.resolved': Hammer,
   'work.commented': MessageSquare,
@@ -43,6 +44,8 @@ const KIND_ICON: Record<NotificationKind, LucideIcon> = {
 /** The row's one-line sentence — actor + verb + object (all public-face fields). */
 function describe(n: AppNotification): string {
   switch (n.kind) {
+    case 'schedule.failed':
+      return `${n.actor} couldn’t complete “${n.scheduleName ?? 'Routine'}”`
     case 'work.posted':
       return `${n.actor} posted “${n.subGoal}” on ${n.projectName}`
     case 'work.resolved':
@@ -102,6 +105,7 @@ function describe(n: AppNotification): string {
  *  per-prop wiring is exactly where one of them would quietly get the wrong
  *  flavour. */
 export interface NotificationDoors {
+  openSchedule: (scheduleId: string, runId?: string) => void
   openProject: (id: string) => void
   openSection: (s: SectionId) => void
   openWorkItem: (projectId: string, workItemId: string, commentId?: string) => void

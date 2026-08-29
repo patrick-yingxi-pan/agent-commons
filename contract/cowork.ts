@@ -115,6 +115,21 @@ export interface ScheduledDelivery {
   note?: string
 }
 
+/** The authored definition frozen when a durable run is queued. Later routine
+ *  edits apply to the next run; live registry/authority/budget state is still
+ *  resolved at each attempt so revocation remains immediate. */
+export interface ScheduledExecution {
+  definitionRevision: number
+  trigger: string
+  prompt: string
+  steps: WorkflowStep[]
+  delivery: ScheduledDelivery
+  agentId: string
+  providerId: string
+  modelId?: string
+  effort?: string
+}
+
 /** One past execution of a scheduled task. `reachedStep` is how far the run got
  *  (drives the detail rail's relight: steps 0..reachedStep-1 turn green; a failed
  *  run stops red at `reachedStep`). `summary` is the one line of what it produced. */
@@ -132,6 +147,20 @@ export interface ScheduledRun {
    *  scheduler-fired runs and absent for manual run-now. Together with the
    *  routine id this is the durable idempotency key. */
   scheduledFor?: number
+  /** Durable execution state. A running row survives process restart and the
+   *  routine worker resumes at `nextAttemptAt`; absence marks a legacy synthetic
+   *  run, which the rehydrate sweep may safely fail closed. */
+  attempts?: number
+  maxAttempts?: number
+  nextAttemptAt?: number
+  execution?: ScheduledExecution
+  failureCode?:
+    | 'model_unavailable'
+    | 'model_loop_limit'
+    | 'context_unavailable'
+    | 'authority_denied'
+    | 'budget_exceeded'
+    | 'execution_error'
   /** The output this specific run produced — the body of its session thread, so
    *  two runs of the same routine read as distinct history (the briefing it
    *  wrote, the digest it posted, what tripped a failure). Optional: a run
@@ -183,6 +212,13 @@ export interface ScheduledTask {
   runs: ScheduledRun[]
   /** Model + effort the task runs on, e.g. "Claude Opus 4.8 · High". */
   model: string
+  /** The worker identity and endpoint/model binding used by headless runs.
+   *  Optional only for snapshots written before real routine execution; legacy
+   *  rows resolve to the shared default Agent and their label is backfilled. */
+  agentId?: string
+  providerId?: string
+  modelId?: string
+  effort?: string
   /** Whether a failed run pings the owner. A routine-local setting (like
    *  `enabled`), not a cross-entity relation. Absent = on (the prior UI default). */
   notifyOnFailure?: boolean

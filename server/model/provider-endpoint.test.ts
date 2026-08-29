@@ -110,6 +110,26 @@ test('a turn on a provider with its own endpoint reaches THAT endpoint, carrying
   assert.equal(hit.apiKey, 'provider-b-secret', 'authenticated with the referenced credential, not the ambient key')
 })
 
+test('a routine effort pick reaches the Messages output_config on every model round', async () => {
+  const model = 'claude-routine-effort'
+  const { outcome } = await generateReply(
+    session,
+    DEFAULT_AGENT,
+    'Prepare the scheduled briefing.',
+    collect().handlers,
+    undefined,
+    { baseURL: recorderUrl, model, capabilities: { toolUse: true } },
+    undefined,
+    [],
+    undefined,
+    { effort: 'xHigh' },
+  )
+  assert.equal(outcome, 'ok')
+  const hits = seen.filter((request) => request.body?.model === model)
+  assert.ok(hits.length > 0)
+  assert.ok(hits.every((request) => request.body.output_config?.effort === 'xhigh'))
+})
+
 test('an empty config (the default provider) stays on the ambient endpoint — per-provider clients coexist', async () => {
   const hitsBefore = seen.length
   const { outcome } = await generateReply(session, DEFAULT_AGENT, 'Help me think through the launch.', collect().handlers)

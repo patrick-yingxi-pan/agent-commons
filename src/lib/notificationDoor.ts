@@ -45,6 +45,7 @@ export interface FocusTarget {
  *  row missing its id, or a kind with no sub-entity) land on the page, then section —
  *  always somewhere, never a no-op. */
 export type NavIntent =
+  | { kind: 'schedule'; scheduleId: string; runId?: string }
   | { kind: 'workItem'; projectId: string; workItemId: string; commentId?: string }
   | { kind: 'project'; projectId: string }
   // No commentId: a proposal's thread renders open in both review surfaces (a short
@@ -63,6 +64,9 @@ export type NavIntent =
 /** The door for one notification — total over `NotificationKind`. */
 export function doorFor(n: AppNotification): NavIntent {
   switch (n.kind) {
+    case 'schedule.failed':
+      if (n.scheduleId) return { kind: 'schedule', scheduleId: n.scheduleId, runId: n.runId }
+      return { kind: 'section', section: 'scheduled' }
     // Work-item lifecycle + @mention → the item's thread on the project page.
     case 'work.posted':
     case 'work.resolved':

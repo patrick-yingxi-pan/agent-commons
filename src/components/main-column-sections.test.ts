@@ -233,7 +233,7 @@ test('the fold DEFAULTS are the composite-page split: configuration folded, cont
   const folded = [...new Set(tags.filter((t) => /\bdefaultFolded\b/.test(t)).map(titleOf))].sort()
   assert.deepEqual(
     folded,
-    ['Building blocks', 'Context', 'Context & tools', 'Danger zone', 'Delegation', 'Delivers to', 'Instructions', 'Model', 'Routines', 'Schedule', 'Sharing'],
+    ['Agent & model', 'Building blocks', 'Context', 'Context & tools', 'Danger zone', 'Delegation', 'Delivers to', 'Instructions', 'Routines', 'Schedule', 'Sharing'],
     'exactly the composite pages’ configuration sections open folded',
   )
   // The complement, named rather than implied: these are what a project page is

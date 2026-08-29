@@ -230,6 +230,29 @@ const schedules: ScheduledTask[] = JSON.parse(JSON.stringify(SCHEDULED_TASKS))
 let runSeq = 0
 let scheduleSeq = 0
 
+/** The store owns durable run state; the server's routine worker owns model I/O.
+ *  Configured once by the real entrypoint. Tests that exercise state in isolation
+ *  can begin/settle runs explicitly without accidentally dialing an endpoint. */
+type ScheduleExecutor = (taskId: string, runId: string) => void
+let scheduleExecutor: ScheduleExecutor | undefined
+export function configureScheduleExecutor(executor: ScheduleExecutor | undefined): void {
+  scheduleExecutor = executor
+}
+
+export interface RoutineExecutionContext {
+  task: ScheduledTask
+  run: ScheduledRun
+  sessionId: string
+  tenantId: string
+  agent: Agent
+  provider: ModelProvider
+  providerConfig: ProviderConfig
+  modelId?: string
+  contexts: SessionContext[]
+  approvedContextIds: Set<string>
+  blocked?: { code: NonNullable<ScheduledRun['failureCode']>; detail: string }
+}
+
 function scheduleTiming(cadence: string, timezone: string | undefined, after: number): { nextFireAt: number; next: string; trigger: string } {
   const zone = timezone ?? 'UTC'
   if (!validTimeZone(zone)) throw new ValidationError(`Unknown schedule timezone '${zone}'.`)
@@ -245,6 +268,7 @@ function scheduleTiming(cadence: string, timezone: string | undefined, after: nu
 // like the live runner registry, it rebuilds from seed on restart.
 const dispatch: DispatchRun[] = JSON.parse(JSON.stringify(DISPATCH_RUNS))
 let dispatchSeq = 0
+const DISPATCH_SETTLE_MS = 1_200
 
 /** Pristine seed sessions, captured before any rehydrate mutates SESSIONS in
  *  place — the reference `reconcileSeedTenancy` re-ensures rows/stamps from
@@ -1126,23 +1150,29 @@ function notifyTenants(
   actorTenant: string,
   row: Omit<StoredNotification, 'id' | 'read' | 'at' | 'tenantId'>,
 ): void {
-  const at = Date.now()
   const unique = new Set(recipients)
   unique.delete(actorTenant)
   for (const tenantId of unique) {
-    // `actorTenant` rides every row: the display name in `row.actor` is a CACHE
-    // of it, re-derived on load like every other stored public face.
-    notifications.push({ ...row, actorTenant, id: `ntf-${(notificationSeq += 1)}`, tenantId, at, read: false })
-    // Per-tenant cap: evict oldest (a pointer cache, not a second history).
-    const mine = notifications.filter((x) => x.tenantId === tenantId)
-    if (mine.length > NOTIFICATION_CAP) {
-      const drop = new Set(mine.slice(0, mine.length - NOTIFICATION_CAP).map((x) => x.id))
-      for (let i = notifications.length - 1; i >= 0; i -= 1) {
-        if (drop.has(notifications[i].id)) notifications.splice(i, 1)
-      }
-    }
-    emit({ type: 'notification.changed', tenantId })
+    appendNotification(tenantId, { ...row, actorTenant })
   }
+}
+
+/** One notification write funnel. Social acts pass an `actorTenant` so their
+ *  display name can be refreshed; system-originated operational alerts (routine
+ *  failures) intentionally carry only their Agent display face. */
+function appendNotification(
+  tenantId: string,
+  row: Omit<StoredNotification, 'id' | 'read' | 'at' | 'tenantId'>,
+): void {
+  notifications.push({ ...row, id: `ntf-${(notificationSeq += 1)}`, tenantId, at: Date.now(), read: false })
+  const mine = notifications.filter((x) => x.tenantId === tenantId)
+  if (mine.length > NOTIFICATION_CAP) {
+    const drop = new Set(mine.slice(0, mine.length - NOTIFICATION_CAP).map((x) => x.id))
+    for (let i = notifications.length - 1; i >= 0; i -= 1) {
+      if (drop.has(notifications[i].id)) notifications.splice(i, 1)
+    }
+  }
+  emit({ type: 'notification.changed', tenantId })
 }
 
 /** Drop every inbox row matching `doomed`, and tell each affected recipient's
@@ -1462,6 +1492,76 @@ const PROVIDER_CONFIGS = new Map<string, ProviderConfig>(SEED_PROVIDER_CONFIGS)
 const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
 let providerSeq = 0
 
+interface ScheduleBindingChoice {
+  agent: Agent
+  provider: ModelProvider
+  modelId?: string
+  effort?: string
+  label: string
+}
+
+function scheduleModelLabel(provider: ModelProvider, modelId?: string, effort?: string): string {
+  const model = provider.models?.find((candidate) => candidate.id === (modelId ?? provider.defaultModelId))
+  const modelFace = model?.label ?? provider.label
+  const base = provider.id === DEFAULT_PROVIDER.id || !model ? modelFace : `${provider.label} · ${modelFace}`
+  return effort ? `${base} · ${effort}` : base
+}
+
+/** Resolve and validate the durable Agent/provider/model tuple for a routine.
+ *  Labels are accepted only as a legacy edge and immediately canonicalized to
+ *  ids; execution never routes by mutable display text. */
+function scheduleBindingChoice(
+  task: Pick<ScheduledTask, 'tenantId' | 'agentId' | 'providerId' | 'modelId' | 'effort' | 'model'>,
+  patch: Pick<SchedulePatch, 'agentId' | 'providerId' | 'modelId' | 'effort' | 'model'> = {},
+): ScheduleBindingChoice {
+  const tenantId = task.tenantId ?? defaultTenantId()
+  const agents = [...WORKER_AGENTS.values()].filter((agent) => registryVisible(agent, tenantId))
+  const agentId = patch.agentId ?? task.agentId ?? DEFAULT_AGENT.id
+  const agent = agents.find((candidate) => candidate.id === agentId)
+  if (!agent) throw new ValidationError(`No Agent '${agentId}' is available to this routine.`)
+  const providers = [...MODEL_PROVIDERS.values()].filter((provider) => registryVisible(provider, tenantId))
+
+  let providerId = patch.providerId ?? task.providerId ?? agent.providerId ?? DEFAULT_PROVIDER.id
+  let modelId = patch.modelId === null
+    ? undefined
+    : patch.modelId ?? (patch.providerId !== undefined ? undefined : task.modelId)
+  let effort = patch.effort === null
+    ? undefined
+    : patch.effort ?? ((patch.providerId !== undefined || patch.modelId !== undefined) ? undefined : task.effort)
+
+  // Legacy/direct callers may still send the old composed label. Resolve it at
+  // the boundary, then persist ids; an unknown face is a 400, never decoration.
+  if (patch.model !== undefined && patch.providerId === undefined && patch.modelId === undefined) {
+    const legacyLabel = patch.model
+    const nonDefault = providers.find((provider) =>
+      provider.id !== DEFAULT_PROVIDER.id &&
+      (legacyLabel === provider.label || legacyLabel.startsWith(`${provider.label} · `)))
+    const provider = nonDefault ?? providers.find((candidate) => candidate.id === DEFAULT_PROVIDER.id)
+    const model = provider?.models?.find((candidate) => legacyLabel.split('·').some((part) => part.trim() === candidate.label))
+    if (!provider || (!model && legacyLabel !== provider.label)) {
+      throw new ValidationError(`Unknown routine model '${legacyLabel}'. Choose a provider/model from the live registry.`)
+    }
+    providerId = provider.id
+    modelId = model?.id
+    const levels = model?.effortLevels ?? provider.effortLevels
+    effort = levels.find((level) => legacyLabel.split('·').some((part) => part.trim() === level))
+  }
+
+  const provider = providers.find((candidate) => candidate.id === providerId)
+  if (!provider) throw new ValidationError(`No endpoint provider '${providerId}' is available to this routine.`)
+  if (provider.kind === 'session') {
+    throw new ValidationError('Session providers cannot answer unattended routine runs; choose an endpoint provider.')
+  }
+  if (modelId) assertModelInCatalog(modelId, provider.id, agent.id)
+  const model = provider.models?.find((candidate) => candidate.id === modelId)
+  const levels = model?.effortLevels ?? provider.effortLevels
+  if (effort !== undefined && levels.length > 0 && !levels.includes(effort)) {
+    throw new ValidationError(`Provider '${provider.label}' does not offer effort '${effort}' for this model.`)
+  }
+  if (levels.length === 0) effort = undefined
+  return { agent, provider, modelId, effort, label: scheduleModelLabel(provider, modelId, effort) }
+}
+
 // ── Provider model catalogs (the flexible per-provider model list) ───────────
 // A provider may carry a `models` catalog (contract `ModelInfo[]` — every metadata
 // field optional, absence = unknown), obtained from its endpoint's list API
@@ -1749,6 +1849,7 @@ function mintSession(
     title: string
     preview: string
     tenantId?: string
+    agentId?: string
     providerId?: string
     modelId?: string
     connectors?: Connector[]
@@ -1766,7 +1867,7 @@ function mintSession(
     id: input.id,
     title: input.title,
     caps: ['chat'],
-    agentId: DEFAULT_AGENT.id,
+    agentId: input.agentId ?? DEFAULT_AGENT.id,
     ...(input.providerId ? { providerId: input.providerId } : {}),
     ...(input.modelId ? { modelId: input.modelId } : {}),
     // Tenancy: stamped when the initiator carries one (a human create always does;
@@ -1813,6 +1914,23 @@ const RUN_HISTORY_CAP = 50
  *  and a crash mid-execute should not wedge the proposal shut across a reboot. */
 const TOOL_ACTIVITY_INFLIGHT = new Set<string>()
 
+/** Project a run's frozen authored definition over the live routine row. Live
+ *  registry/permission facts still resolve separately at attempt time. */
+function taskForRun(task: ScheduledTask, run: ScheduledRun): ScheduledTask {
+  if (!run.execution) return task
+  return {
+    ...task,
+    trigger: run.execution.trigger,
+    prompt: run.execution.prompt,
+    steps: run.execution.steps,
+    delivery: run.execution.delivery,
+    agentId: run.execution.agentId,
+    providerId: run.execution.providerId,
+    modelId: run.execution.modelId,
+    effort: run.execution.effort,
+  }
+}
+
 /** The AGENT adapter of the mint funnel: the persisted session for one scheduled
  *  run, idempotent by its deterministic id (`srun-…`, contract/ids.ts) so run-now,
  *  the scheduler, boot-time materialization, and the feed lookup all converge on the
@@ -1834,15 +1952,19 @@ function ensureRunSession(task: ScheduledTask, run: ScheduledRun, opts?: { quiet
     }
     return existing
   }
+  const authored = taskForRun(task, run)
   return mintSession(
     {
       id,
       title: task.name,
       preview: run.summary,
       tenantId: task.tenantId,
-      connectors: connectorsFor(task),
+      agentId: authored.agentId,
+      providerId: authored.providerId,
+      modelId: authored.modelId,
+      connectors: connectorsFor(authored),
       scheduledRunOf: { taskId: task.id, taskName: task.name },
-      messages: [{ id: 'm1', role: 'user', content: runPrompt(task) }],
+      messages: [{ id: 'm1', role: 'user', content: runPrompt(authored) }],
       at: run.at,
     },
     opts,
@@ -1862,7 +1984,7 @@ function settleRunSession(task: ScheduledTask, run: ScheduledRun, opts?: { quiet
   // turn" — a follow-up exchange that lands while the run is still executing
   // must not swallow the run's primary output.
   if ((session.messages ?? []).some((m) => m.id === RUN_RECAP_MESSAGE_ID)) return
-  const message: Message = { id: RUN_RECAP_MESSAGE_ID, role: 'assistant', content: runRecap(task, run) }
+  const message: Message = { id: RUN_RECAP_MESSAGE_ID, role: 'assistant', content: runRecap(taskForRun(task, run), run) }
   applyMessage(session, message, opts?.quiet ? run.at : Date.now())
   if (!opts?.quiet) {
     emit({ type: 'session.updated', session })
@@ -2471,14 +2593,13 @@ function rehydrate(s: PersistedState): void {
   }
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
   schedules.splice(0, schedules.length, ...s.schedules)
-  // A live-minted run ('run-live-*') mints as 'running' and finishes a beat later
-  // inside a setTimeout; both states persist. If the process restarted in that
-  // window the completing timer is gone, so a persisted 'running' run would be
-  // stuck in-flight forever — sweep it to a terminal state. (Seed runs that are
-  // intentionally 'running' for visual variety aren't live-minted, so leave them.)
+  // Legacy live runs relied on an in-memory completion timer, so a restart lost
+  // their worker and must fail them closed. Execution-aware rows carry durable
+  // attempt state and are deliberately left running: the routine worker resumes
+  // them from `nextAttemptAt` after rehydrate.
   for (const task of schedules) {
     for (const run of task.runs) {
-      if (run.status === 'running' && run.id.startsWith('run-live-')) {
+      if (run.status === 'running' && run.id.startsWith('run-live-') && run.maxAttempts === undefined) {
         run.status = 'failed'
         run.duration = run.duration === '—' ? '0s' : run.duration
         run.summary = 'Interrupted by a server restart'
@@ -2782,10 +2903,6 @@ function replaceMap<V>(map: Map<string, V>, entries?: [string, V][]): void {
   map.clear()
   for (const [k, v] of entries) map.set(k, v)
 }
-
-/** How fast a run relights its rail — one step per this interval, then a final
- *  beat to finish. Perceptible in the UI, quick enough for tests. */
-const RUN_STEP_MS = 300
 
 /** Apply a routine's standing-approved effects on a run — the edits a user approved
  *  once, in advance, that now execute unprompted each run (the schedule is the unit
@@ -4568,7 +4685,7 @@ export const store = {
       run.status = 'done'
       emit({ type: 'dispatch.changed' })
       persist()
-    }, RUN_STEP_MS * 4)
+    }, DISPATCH_SETTLE_MS)
     return run
   },
 
@@ -7781,75 +7898,256 @@ export const store = {
       session: ensureRunSession(task, run, { quiet: true }),
     }))
   },
-  /** Run a routine now or satisfy one scheduler fire: append a 'running' run, broadcast it, relight its rail one
-   *  step at a time (`run.progress`), then finish it (`run.finished`). On finish any
-   *  standing-approved effect the routine carries is applied unprompted
-   *  (`relation.applied` by:'standing'). A scheduled run is idempotent by
-   *  `(routine id, scheduledFor)`; manual run-now carries no fire time. */
+  /** Begin a durable background turn. The store records the job before handing
+   *  it to the configured routine worker; model I/O never lives in this state
+   *  module. A scheduled run is idempotent by `(routine id, scheduledFor)` and
+   *  manual run-now carries no fire time. */
   runSchedule(id: string, options?: { scheduledFor?: number; startedAt?: number }): ScheduledRun | undefined {
-    const task = schedules.find((t) => t.id === id)
-    if (!task) return undefined
-    if (options?.scheduledFor !== undefined) {
-      const represented = task.runs.find((r) => r.scheduledFor === options.scheduledFor)
-      if (represented) return represented
-    }
-    // No overlapping runs of the same routine (P7): the scheduler can tick again before a
-    // run finishes, so if one is already in flight, return it instead of starting a
-    // second. (A stale 'running' run from before a restart is swept to 'failed' on
-    // rehydrate, so it can't wedge the routine.)
-    const inFlight = task.runs.find((r) => r.status === 'running')
-    if (inFlight) return inFlight
-    const run: ScheduledRun = {
-      id: `run-live-${(runSeq += 1)}`,
-      status: 'running',
-      duration: '—',
-      reachedStep: 0,
-      summary: options?.scheduledFor === undefined ? 'Running on demand…' : 'Running on schedule…',
-      at: options?.startedAt ?? Date.now(),
-      ...(options?.scheduledFor === undefined ? {} : { scheduledFor: options.scheduledFor }),
-    }
-    task.runs = [run, ...task.runs]
-    // Bounded history (the scheduler runs forever): past the cap the oldest run
-    // retires together with its session row.
-    retireOldRuns(task)
-    // The run's conversation opens the moment the run does — a real row through
-    // the one mint funnel (initiator: this routine), so the thread is live while
-    // the rail still steps. Broadcasts session.updated + persists.
-    const session = ensureRunSession(task, run)
-    const sessionId = session.id
-    emit({ type: 'run.started', taskId: task.id, taskName: task.name, sessionId, run })
-    persist()
-    const steps = task.steps.length
-    // The timers close over `task`/`run`; if either was deleted mid-run
-    // (removeSchedule, or removeSession's run cascade), a late beat must do
-    // NOTHING — settling a detached run would re-mint a zombie session row for
-    // a routine that no longer exists.
-    const gone = () => !schedules.includes(task) || !task.runs.includes(run)
-    // Advance the rail one step per beat so a connected client sees the run progress
-    // (`run.progress`) rather than jump from 0 → done.
-    for (let i = 1; i <= steps; i += 1) {
-      setTimeout(() => {
-        if (run.status !== 'running' || gone()) return // superseded (swept after a restart) / deleted
-        run.reachedStep = i
-        emit({ type: 'run.progress', taskId: task.id, runId: run.id, reachedStep: i, status: 'running' })
-        persist()
-      }, i * RUN_STEP_MS)
-    }
-    // A final beat after the last step: mark done, apply standing effects, finish.
-    setTimeout(() => {
-      if (run.status !== 'running' || gone()) return
-      run.status = 'ok'
-      run.reachedStep = steps
-      run.duration = `${8 + steps * 3}s`
-      run.summary = `${run.scheduledFor === undefined ? 'Ran on demand' : 'Ran on schedule'} — delivered to ${task.delivery.target}`
-      task.lastStatus = 'ok'
-      // The recap lands in the run's session the way any reply lands in a thread.
-      settleRunSession(task, run)
-      applyStandingEffects(task, sessionId)
-      emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId, run })
+    return commitMutationBatch(() => {
+      const task = schedules.find((t) => t.id === id)
+      if (!task) return undefined
+      if (options?.scheduledFor !== undefined) {
+        const represented = task.runs.find((r) => r.scheduledFor === options.scheduledFor)
+        if (represented) return represented
+      }
+      // No overlapping runs of the same routine: a durable retry owns the routine
+      // until it settles, so a scheduler tick or Run now returns that row.
+      const inFlight = task.runs.find((r) => r.status === 'running')
+      if (inFlight) return inFlight
+      const startedAt = options?.startedAt ?? Date.now()
+      const binding = scheduleBindingChoice(task)
+      const run: ScheduledRun = {
+        id: `run-live-${(runSeq += 1)}`,
+        status: 'running',
+        duration: '—',
+        reachedStep: 0,
+        summary: options?.scheduledFor === undefined ? 'Queued on demand…' : 'Queued on schedule…',
+        at: startedAt,
+        attempts: 0,
+        maxAttempts: Math.max(1, Math.min(8, nonNegativeIntEnv(process.env.ROUTINE_MAX_ATTEMPTS, 3))),
+        nextAttemptAt: startedAt,
+        execution: {
+          definitionRevision: task.revision ?? 0,
+          trigger: task.trigger,
+          prompt: task.prompt,
+          steps: structuredClone(task.steps),
+          delivery: structuredClone(task.delivery),
+          agentId: binding.agent.id,
+          providerId: binding.provider.id,
+          ...(binding.modelId ? { modelId: binding.modelId } : {}),
+          ...(binding.effort ? { effort: binding.effort } : {}),
+        },
+        ...(options?.scheduledFor === undefined ? {} : { scheduledFor: options.scheduledFor }),
+      }
+      task.runs = [run, ...task.runs]
+      // Bounded history (the scheduler runs forever): past the cap the oldest run
+      // retires together with its session row.
+      retireOldRuns(task)
+      // The run's conversation opens the moment the job is durable — the worker's
+      // final model reply or failure recap lands in this same persisted thread.
+      const session = ensureRunSession(task, run)
+      emit({ type: 'run.started', taskId: task.id, taskName: task.name, sessionId: session.id, run })
       persist()
-    }, (steps + 1) * RUN_STEP_MS)
-    return run
+      // Microtasks run after this batch commits, so model I/O cannot race ahead
+      // of the durable job or its ambient start event.
+      queueMicrotask(() => scheduleExecutor?.(task.id, run.id))
+      return run
+    })
+  },
+  /** Running rows the worker must resume after process restart. */
+  pendingScheduleRuns(): Array<{ taskId: string; runId: string; nextAttemptAt: number }> {
+    return schedules.flatMap((task) => task.runs
+      .filter((run) => run.status === 'running' && run.maxAttempts !== undefined)
+      .map((run) => ({ taskId: task.id, runId: run.id, nextAttemptAt: run.nextAttemptAt ?? Date.now() })))
+  },
+  /** Resolve the immutable facts one attempt runs under. Every failure is a
+   *  typed, user-facing terminal condition rather than a hidden fallback. */
+  routineExecutionContext(taskId: string, runId: string): RoutineExecutionContext | undefined {
+    const task = schedules.find((candidate) => candidate.id === taskId)
+    const run = task?.runs.find((candidate) => candidate.id === runId)
+    if (!task || !run || run.status !== 'running') return undefined
+    const executionTask = taskForRun(task, run)
+    const tenantId = task.tenantId ?? defaultTenantId()
+    const visibleAgents = this.listAgents(tenantId)
+    const agent = visibleAgents.find((candidate) => candidate.id === executionTask.agentId) ??
+      (executionTask.agentId === undefined ? DEFAULT_AGENT : undefined)
+    if (!agent) {
+      return {
+        task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
+        agent: DEFAULT_AGENT, provider: DEFAULT_PROVIDER, providerConfig: DEFAULT_PROVIDER_CONFIG,
+        contexts: [], approvedContextIds: new Set(),
+        blocked: { code: 'authority_denied', detail: `The routine's bound Agent '${executionTask.agentId}' is unavailable in this workspace.` },
+      }
+    }
+    const providerId = executionTask.providerId ?? agent.providerId ?? DEFAULT_PROVIDER.id
+    const provider = this.listProviders(tenantId).find((candidate) => candidate.id === providerId)
+    if (!provider || provider.kind === 'session') {
+      return {
+        task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
+        agent, provider: provider ?? DEFAULT_PROVIDER, providerConfig: this.providerConfig(providerId),
+        contexts: [], approvedContextIds: new Set(),
+        blocked: {
+          code: 'model_unavailable',
+          detail: provider?.kind === 'session'
+            ? 'Session providers cannot answer unattended routine runs; choose an endpoint provider.'
+            : `The routine's endpoint provider '${providerId}' is unavailable in this workspace.`,
+        },
+      }
+    }
+    const providerConfig = this.providerConfig(provider.id)
+    const legacyModel = provider.models?.find((candidate) => executionTask.model.includes(candidate.label))?.id
+    const modelId = executionTask.modelId ?? legacyModel ?? provider.defaultModelId ?? providerConfig.model
+    // A provider without a catalog can still have one configured model. An
+    // endpoint's absent catalog means unknown, not empty (MODEL-16).
+    if (modelId && provider.models && !provider.models.some((candidate) => candidate.id === modelId)) {
+      return {
+        task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
+        agent, provider, providerConfig, modelId, contexts: [], approvedContextIds: new Set(),
+        blocked: { code: 'model_unavailable', detail: `Provider '${provider.label}' no longer lists model '${modelId}'.` },
+      }
+    }
+    if (endpointExecution(providerConfig) === 'unconfigured') {
+      return {
+        task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
+        agent, provider, providerConfig, modelId, contexts: [], approvedContextIds: new Set(),
+        blocked: { code: 'model_unavailable', detail: `Provider '${provider.label}' is not configured for execution.` },
+      }
+    }
+
+    const referenced = [...executionTask.steps.map((step) => step.tool), executionTask.delivery.tool, ...(graph.scheduleExtraTools[task.id] ?? [])]
+      .filter((tool) => tool.tone === 'connector' || tool.tone === 'mcp')
+    const contexts: SessionContext[] = []
+    const missing: string[] = []
+    const denied: string[] = []
+    const effectiveAuthority = intersectAuthority(provider.authority ?? {}, agent.authority ?? {})
+    for (const tool of referenced) {
+      if (contexts.some((context) => context.id === tool.id || context.label.toLowerCase() === tool.label.toLowerCase())) continue
+      const compatible = savedCtxs.filter((context) =>
+        tool.tone === 'mcp' ? context.kind === 'mcp' : context.kind === 'connector')
+      const saved = compatible.find((context) => context.id === tool.id) ??
+        compatible.find((context) => context.label.toLowerCase() === tool.label.toLowerCase())
+      if (!saved || saved.status !== 'connected') {
+        missing.push(tool.label)
+        continue
+      }
+      if (!authorityAdmits(effectiveAuthority, 'connectors', saved.id) &&
+          !authorityAdmits(effectiveAuthority, 'connectors', saved.label)) {
+        denied.push(saved.label)
+        continue
+      }
+      contexts.push({
+        id: saved.id,
+        type: saved.kind === 'mcp' ? 'mcp' : 'connector',
+        label: saved.label,
+        scope: saved.detail || '*',
+      })
+    }
+    const approvedContextIds = new Set(contexts.map((context) => context.id))
+    const blocked = denied.length > 0
+      ? { code: 'authority_denied' as const, detail: `The bound Agent is not allowed to use ${denied.join(', ')}.` }
+      : missing.length > 0
+        ? { code: 'context_unavailable' as const, detail: `Connect ${missing.join(', ')} before this routine can run.` }
+        : undefined
+    return {
+      task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
+      agent, provider, providerConfig, modelId, contexts, approvedContextIds,
+      ...(blocked ? { blocked } : {}),
+    }
+  },
+  markScheduleRunAttempt(taskId: string, runId: string, attempt: number, at = Date.now()): ScheduledRun | undefined {
+    return commitMutationBatch(() => {
+      const task = schedules.find((candidate) => candidate.id === taskId)
+      const run = task?.runs.find((candidate) => candidate.id === runId)
+      if (!task || !run || run.status !== 'running') return undefined
+      run.attempts = attempt
+      run.nextAttemptAt = at
+      run.summary = `Running attempt ${attempt} of ${run.maxAttempts ?? attempt}…`
+      emit({ type: 'run.progress', taskId, runId, reachedStep: run.reachedStep, status: 'running' })
+      persist()
+      return run
+    })
+  },
+  deferScheduleRun(taskId: string, runId: string, nextAttemptAt: number, detail: string): ScheduledRun | undefined {
+    return commitMutationBatch(() => {
+      const task = schedules.find((candidate) => candidate.id === taskId)
+      const run = task?.runs.find((candidate) => candidate.id === runId)
+      if (!task || !run || run.status !== 'running') return undefined
+      run.nextAttemptAt = nextAttemptAt
+      run.summary = `Retrying after attempt ${run.attempts ?? 0}…`
+      run.detail = detail
+      emit({ type: 'schedule.changed', taskId, tenantId: task.tenantId })
+      persist()
+      return run
+    })
+  },
+  completeScheduleRun(
+    taskId: string,
+    runId: string,
+    message: Message,
+    provenance: { agentId: string; providerId: string; modelId?: string },
+    finishedAt = Date.now(),
+  ): ScheduledRun | undefined {
+    return commitMutationBatch(() => {
+      const task = schedules.find((candidate) => candidate.id === taskId)
+      const run = task?.runs.find((candidate) => candidate.id === runId)
+      if (!task || !run || run.status !== 'running') return undefined
+      run.status = 'ok'
+      run.reachedStep = taskForRun(task, run).steps.length
+      run.duration = `${Math.max(0, Math.ceil((finishedAt - run.at) / 1000))}s`
+      run.summary = `${run.scheduledFor === undefined ? 'Completed on demand' : 'Completed on schedule'} — open the run result`
+      run.detail = message.content
+      delete run.nextAttemptAt
+      delete run.failureCode
+      task.lastStatus = 'ok'
+      const session = ensureRunSession(task, run)
+      // The provider's message id is not a durable idempotency key. Run sessions
+      // already reserve `m2` for their primary result, so stamp the actual model
+      // reply onto that key; boot-time materialization will then never append a
+      // second synthesized recap after restart.
+      const stamped: Message = { ...message, id: RUN_RECAP_MESSAGE_ID, ...provenance }
+      applyMessage(session, stamped, finishedAt)
+      applyStandingEffects(task, session.id)
+      emit({ type: 'session.updated', session })
+      emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId: session.id, run })
+      persist()
+      return run
+    })
+  },
+  failScheduleRun(
+    taskId: string,
+    runId: string,
+    code: NonNullable<ScheduledRun['failureCode']>,
+    detail: string,
+    finishedAt = Date.now(),
+  ): ScheduledRun | undefined {
+    return commitMutationBatch(() => {
+      const task = schedules.find((candidate) => candidate.id === taskId)
+      const run = task?.runs.find((candidate) => candidate.id === runId)
+      if (!task || !run || run.status !== 'running') return undefined
+      run.status = 'failed'
+      run.duration = `${Math.max(0, Math.ceil((finishedAt - run.at) / 1000))}s`
+      run.summary = `Failed after ${run.attempts ?? 0} attempt${run.attempts === 1 ? '' : 's'}`
+      run.detail = detail
+      run.failureCode = code
+      delete run.nextAttemptAt
+      task.lastStatus = 'failed'
+      const session = ensureRunSession(task, run)
+      settleRunSession(task, run)
+      if (task.notifyOnFailure !== false) {
+        const agentId = run.execution?.agentId ?? task.agentId
+        const agent = agentId ? WORKER_AGENTS.get(agentId) : DEFAULT_AGENT
+        appendNotification(task.tenantId ?? defaultTenantId(), {
+          kind: 'schedule.failed',
+          actor: agent?.label ?? 'Routine runner',
+          scheduleId: task.id,
+          scheduleName: task.name,
+          runId: run.id,
+        })
+      }
+      emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId: session.id, run })
+      persist()
+      return run
+    })
   },
   /** Represent an overdue fire that policy deliberately skipped. This is a real,
    *  visible run/session row (not a silent cursor jump), with the same fire-time
@@ -7933,6 +8231,12 @@ export const store = {
     const nextTiming = willBeEnabled && (timingChanged || enabling || !Number.isFinite(task.nextFireAt))
       ? validatedTiming ?? scheduleTiming(prospectiveCadence, prospectiveTimezone, now)
       : undefined
+    const bindingChanged =
+      patch.agentId !== undefined || patch.providerId !== undefined || patch.modelId !== undefined ||
+      patch.effort !== undefined || patch.model !== undefined
+    const binding = bindingChanged || enabling
+      ? scheduleBindingChoice(task, patch)
+      : undefined
     if (patch.enabled !== undefined) task.enabled = patch.enabled
     if (patch.name !== undefined) {
       task.name = patch.name
@@ -7960,7 +8264,15 @@ export const store = {
     }
     if (patch.timezone !== undefined) task.timezone = patch.timezone
     if (patch.missedFirePolicy !== undefined) task.missedFirePolicy = patch.missedFirePolicy
-    if (patch.model !== undefined) task.model = patch.model
+    if (binding) {
+      task.agentId = binding.agent.id
+      task.providerId = binding.provider.id
+      if (binding.modelId) task.modelId = binding.modelId
+      else delete task.modelId
+      if (binding.effort) task.effort = binding.effort
+      else delete task.effort
+      task.model = binding.label
+    }
     if (patch.notifyOnFailure !== undefined) task.notifyOnFailure = patch.notifyOnFailure
     if (patch.delivery !== undefined) task.delivery = patch.delivery
     if (patch.steps !== undefined) task.steps = patch.steps
@@ -7978,7 +8290,17 @@ export const store = {
   /** Add a routine from a template (lands paused), return it. */
   addSchedule(seed: Omit<ScheduledTask, 'id'>): ScheduledTask {
     const timing = scheduleTiming(seed.cadence, seed.timezone, Date.now())
-    const task: ScheduledTask = { ...seed, id: `s-new-${(scheduleSeq += 1)}`, revision: 0 }
+    const binding = scheduleBindingChoice(seed)
+    const task: ScheduledTask = {
+      ...seed,
+      id: `s-new-${(scheduleSeq += 1)}`,
+      revision: 0,
+      agentId: binding.agent.id,
+      providerId: binding.provider.id,
+      model: binding.label,
+      ...(binding.modelId ? { modelId: binding.modelId } : {}),
+      ...(binding.effort ? { effort: binding.effort } : {}),
+    }
     task.trigger = timing.trigger
     if (task.enabled) {
       task.nextFireAt = timing.nextFireAt

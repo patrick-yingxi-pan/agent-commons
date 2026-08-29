@@ -102,6 +102,7 @@ export function ModelPickerMenu({
   onPickModel,
   onPickEffort,
   onPickProvider,
+  endpointOnly = false,
   children,
 }: {
   /** The active two-level selection (absences inherit — see lib/models). */
@@ -117,13 +118,17 @@ export function ModelPickerMenu({
    *  server row hasn't resolved yet has nowhere to write the pick) — the section
    *  is omitted rather than rendering rows that silently no-op. */
   onPickProvider?: (providerId?: string) => void
+  /** Unattended routines cannot be drained by a foreground Session provider. */
+  endpointOnly?: boolean
   /** Caller extras rendered below the effort section while the default provider
    *  is active (the composer's orthogonal-mode toggles). */
   children?: ReactNode
 }) {
   // The live registry — a provider minted in the Models section is immediately in
   // every picker (the registry cache refreshes on provider events).
-  const providers = useProviders().data ?? []
+  const allProviders = useProviders().data ?? []
+  // Endpoint is the legacy/default kind, so absence means endpoint too.
+  const providers = endpointOnly ? allProviders.filter((candidate) => candidate.kind !== 'session') : allProviders
   const provider = pickedProvider(providers, pick)
   const activeModel = pickedModel(provider, pick)
   const catalog = provider?.kind === 'session' ? [] : provider?.models ?? []

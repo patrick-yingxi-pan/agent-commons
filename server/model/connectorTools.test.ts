@@ -88,3 +88,11 @@ test('runConnectorTool only PROPOSES a WRITE action (consent-gated, no side effe
   assert.equal(activity?.status, 'proposed', 'a write is not executed — it awaits consent')
   assert.match(activity?.summary ?? '', /Proposed:.*write_file/, 'the summary describes the proposed effect, not a result')
 })
+
+test('a routine standing approval executes the same WRITE action without a new prompt', () => {
+  const { bindings } = deriveConnectorTools([mcpFs], { standingApprovedContextIds: new Set([mcpFs.id]) })
+  const activity = runConnectorTool('mcp__filesystem__write_file', bindings, 'act-standing')
+  assert.equal(activity?.kind, 'action')
+  assert.equal(activity?.status, 'done')
+  assert.match(activity?.summary ?? '', /write_file completed on MCP · filesystem/)
+})

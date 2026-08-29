@@ -145,7 +145,7 @@ test('completed tool provenance survives when a later endpoint call fails before
   }
   try {
     const c = collect()
-    const { message: msg, outcome } = await generateReply(
+    const { message: msg, outcome, failure } = await generateReply(
       session,
       DEFAULT_AGENT,
       'Check my usage.',
@@ -157,6 +157,7 @@ test('completed tool provenance survives when a later endpoint call fails before
       api,
     )
     assert.equal(outcome, 'fallback')
+    assert.equal(failure, 'endpoint_unavailable')
     assert.equal(msg.toolActivities?.[0]?.tool, 'api__get_usage', 'settled provenance is not erased by the later failure')
     assert.match(msg.content, /couldn’t finish that turn/i)
     assert.equal(msg.content, c.text)
@@ -170,13 +171,14 @@ test('a non-concluding endpoint is stopped after the configured tool-batch budge
   process.env.MODEL_MAX_TOOL_ROUNDS = '2'
   try {
     const c = collect()
-    const { message: msg, outcome } = await generateReply(
+    const { message: msg, outcome, failure } = await generateReply(
       session,
       DEFAULT_AGENT,
       'Save this recap as runaway.md. Keep requesting tools forever.',
       c.handlers,
     )
     assert.equal(outcome, 'fallback')
+    assert.equal(failure, 'tool_loop_limit')
     assert.match(msg.content, /kept requesting more tools/i)
     assert.match(msg.content, /no further tools were run/i)
     assert.equal(msg.relationActions?.length, 2, 'exactly the configured two batches executed; the third ran nothing')

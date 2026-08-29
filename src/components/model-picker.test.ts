@@ -34,6 +34,20 @@ test('all three model pickers render through the shared menu', () => {
   assert.ok((section.match(/<ModelPickerMenu/g) ?? []).length >= 2, 'SectionView renders both its pickers through it')
 })
 
+test('unattended routines bind structured endpoint choices and exclude Session providers', () => {
+  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const routine = section.slice(section.indexOf('function ModelPanel('), section.indexOf('function DispatchView('))
+  assert.ok(routine.includes('endpointOnly'), 'the routine picker excludes foreground Session providers')
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenu.tsx')))
+  assert.ok(menu.includes("candidate.kind !== 'session'"), 'legacy kind absence remains an endpoint, not an empty picker')
+  assert.ok(routine.includes('agentId: event.currentTarget.value'), 'the routine writes an explicit Agent id')
+  assert.ok(routine.includes('providerId: nextPick.providerId'), 'the routine writes an explicit provider id')
+  assert.ok(routine.includes('modelId: nextPick.modelId'), 'the routine writes an explicit model id')
+  assert.ok(routine.includes('effort: nextEffort'), 'the routine writes explicit effort')
+  assert.doesNotMatch(routine, /updateSchedule\([^)]*,\s*\{\s*model:/,
+    'the display label is not the execution routing field')
+})
+
 test('the shared menu reads the LIVE provider registry, not a snapshot constant', () => {
   const src = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenu.tsx')))
   assert.match(src, /useProviders\(\)/, 'the registry hook feeds the menu directly')

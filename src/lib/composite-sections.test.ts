@@ -17,7 +17,7 @@ test('the composite section registries name the complete ordered page skeleton',
   )
   assert.deepEqual(
     SCHEDULE_SECTIONS.map((section) => section.label),
-    ['Instruction', 'Workflow', 'Sharing', 'Schedule', 'Delivers to', 'Context & tools', 'Model', 'Recent runs', 'Improvements', 'Discussion'],
+    ['Instruction', 'Workflow', 'Sharing', 'Schedule', 'Delivers to', 'Context & tools', 'Agent & model', 'Recent runs', 'Improvements', 'Discussion'],
   )
   assert.deepEqual(
     OWNER_PROFILE_SECTIONS.map((section) => section.label),

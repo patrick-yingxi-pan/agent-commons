@@ -75,7 +75,17 @@ import {
   nextRunLabel,
   parseCadence,
 } from '../lib/cadence'
-import { composeModelLabel, displayModelLabel, isOpusModel, modelBlurb, parseModelChoice, type ModelPick } from '../lib/models'
+import {
+  displayModelLabel,
+  effortLevelsFor,
+  isOpusModel,
+  modelBlurb,
+  parseModelChoice,
+  pickedModel,
+  pickedProvider,
+  resolveEffort,
+  type ModelPick,
+} from '../lib/models'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 import {
   PALETTES,
@@ -402,6 +412,7 @@ import {
   type ProjectRole,
   type PromptProbeResult,
   type SystemPromptEntry,
+  DEFAULT_PROVIDER_ID,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
@@ -5268,6 +5279,10 @@ function NotificationsSection({
   // to be part of. The transient highlight rides the same `onFocusHere`
   // pipeline every other in-page locus door uses.
   const doors: NotificationDoors = {
+    openSchedule: (scheduleId, runId) => {
+      rel.navigate('scheduled', scheduleId)
+      onFocusHere({ runId })
+    },
     openProject: (projectId) => rel.navigate('projects', projectId),
     openSection: (s) => rel.navigate(s),
     openWorkItem: (projectId, workItemId, commentId) => {
@@ -5295,6 +5310,9 @@ function NotificationsSection({
     if (!n.read) void markNotificationsRead([n.id])
     const intent = doorFor(n)
     switch (intent.kind) {
+      case 'schedule':
+        doors.openSchedule(intent.scheduleId, intent.runId)
+        break
       case 'workItem':
         doors.openWorkItem(intent.projectId, intent.workItemId, intent.commentId)
         break
@@ -13437,6 +13455,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
 function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   const rel = useRelations()
   const contextDoor = useContextDoor()
+  const savedContexts = useSavedContexts().data?.contexts ?? []
   const [picking, setPicking] = useState(false)
   const [adding, setAdding] = useState(false)
   const seen = new Set<string>()
@@ -13486,6 +13505,11 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
             // The connector's name is a door to its own Contexts page when it
             // resolves in the viewer's registry (S18); otherwise plain text.
             const door = contextDoor(t.id) ?? contextDoor(t.label)
+            const compatible = savedContexts.filter((context) =>
+              t.tone === 'mcp' ? context.kind === 'mcp' : context.kind === 'connector')
+            const saved = compatible.find((context) =>
+              context.id === t.id || context.label.toLocaleLowerCase() === t.label.toLocaleLowerCase())
+            const status = saved?.status
             return (
               <div key={t.id} className="flex items-center gap-2">
                 <ToolGlyph tool={t} size={15} />
@@ -13505,7 +13529,10 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
                   // restyle it (the synopsis-row title pair is the precedent).
                   <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-ink">{t.label}</span>
                 )}
-                <StatusPill tone={t.needsAuth ? 'warn' : 'ok'} label={t.needsAuth ? 'Needs auth' : 'Connected'} />
+                <StatusPill
+                  tone={status === 'connected' ? 'ok' : status === 'needs-auth' ? 'warn' : 'bad'}
+                  label={status === 'connected' ? 'Connected' : status === 'needs-auth' ? 'Needs auth' : 'Not connected'}
+                />
               </div>
             )
           })}
@@ -13737,52 +13764,72 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
   )
 }
 
-/** The Model side panel — the model + effort the routine runs on, now a picker
- *  (entity field → per-action updateSchedule). The stored label is composed from
- *  the shared model/effort catalog (lib/models), the same one the composer uses. */
+/** One explicit unattended identity + cognition binding. The Agent and endpoint
+ *  model remain orthogonal: changing one never silently rewrites the other. */
 function ModelPanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
+  const agents = useAgents().data ?? []
+  const agent = agents.find((candidate) => candidate.id === task.agentId) ?? agents[0]
   return (
-    <FoldSection title="Model" defaultFolded summary={task.model}>
+    <FoldSection title="Agent & model" defaultFolded summary={`${agent?.label ?? 'Unavailable Agent'} · ${task.model}`}>
       <div className="relative">
         <button
           onClick={() => setEditing((v) => !v)}
-          title="Change model & effort"
+          title="Change Agent, model & effort"
           aria-haspopup="dialog"
           aria-expanded={editing}
           className="group inline-flex max-w-full items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
         >
           <ClaudeMark size={13} />
-          <span className="truncate">{task.model}</span>
+          <span className="truncate">{agent?.label ?? 'Unavailable Agent'} · {task.model}</span>
           <ChevronDown size={12} className="shrink-0 text-ink-faint transition group-hover:text-ink-soft" />
         </button>
         {editing && <ScheduleModelPicker task={task} onClose={() => setEditing(false)} />}
       </div>
-      <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">Runs headless — no approval prompts.</p>
+      <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
+        Runs headless under this Agent’s tool, authority, and budget limits.
+      </p>
     </FoldSection>
   )
 }
 
-/** The model + effort picker for a routine — the shared ModelPickerMenu
- *  (provider → the provider's own catalog → effort, all from the live registry),
- *  so a model registered in the Models section is schedulable too. The pick is
- *  stored as a composed LABEL ("Claude Opus 4.8 · High" / "Provider · Model") —
- *  `parseModelChoice` bridges it back. Each pick applies live via
- *  updateSchedule({ model }); "Done" closes. (Runs are mock-synthesized, so the
- *  field is descriptive — the same honesty boundary as the rest of Scheduled.) */
+/** The model + effort picker for a routine — endpoint providers only because a
+ *  Session provider has no unattended drain loop. Structured ids route execution;
+ *  the composed label survives only as a legacy/readable projection. */
 function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
   const ref = useDismissable<HTMLDivElement>(true, onClose)
   const popRef = usePopoverShift<HTMLDivElement>(true)
   const providers = useProviders().data ?? []
-  const init = parseModelChoice(task.model, providers)
+  const agents = useAgents().data ?? []
+  const agent = agents.find((candidate) => candidate.id === task.agentId) ?? agents[0]
+  const legacy = parseModelChoice(task.model, providers)
+  const init = task.providerId || task.modelId
+    ? {
+        pick: {
+          ...(task.providerId && task.providerId !== DEFAULT_PROVIDER_ID ? { providerId: task.providerId } : {}),
+          ...(task.modelId ? { modelId: task.modelId } : {}),
+        },
+        effort: task.effort,
+      }
+    : legacy
   const [pick, setPick] = useState<ModelPick>(init.pick)
   const [effort, setEffort] = useState<string | undefined>(init.effort)
 
   const commit = (nextPick: ModelPick, nextEffort?: string) => {
     setPick(nextPick)
     setEffort(nextEffort)
-    void updateSchedule(task.id, { model: composeModelLabel(providers, nextPick, nextEffort) })
+    void updateSchedule(task.id, {
+      providerId: nextPick.providerId ?? DEFAULT_PROVIDER_ID,
+      modelId: nextPick.modelId ?? null,
+      effort: nextEffort ?? null,
+    })
+  }
+  const pickProvider = (providerId?: string) => {
+    const nextPick: ModelPick = { ...(providerId ? { providerId } : {}) }
+    const provider = pickedProvider(providers, nextPick)
+    const model = pickedModel(provider, nextPick)
+    commit(nextPick, resolveEffort(effortLevelsFor(provider, model), undefined))
   }
 
   return (
@@ -13795,12 +13842,26 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
       aria-label="Model and effort"
       className={`absolute bottom-full right-0 z-30 mb-1.5 w-[300px] overflow-hidden ${POPOVER_SURFACE}`}
     >
+      <label className="block px-3 pt-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Agent</span>
+        <select
+          aria-label="Routine agent"
+          value={agent?.id ?? ''}
+          disabled={agents.length === 0}
+          onChange={(event) => void updateSchedule(task.id, { agentId: event.currentTarget.value })}
+          className={`${FORM_INPUT_CLASS} mt-1 w-full`}
+        >
+          {agents.length === 0 && <option value="">No Agent available</option>}
+          {agents.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
+        </select>
+      </label>
       <ModelPickerMenu
+        endpointOnly
         pick={pick}
         effort={effort}
         onPickModel={(next) => commit(next, effort)}
         onPickEffort={(e) => commit(pick, e)}
-        onPickProvider={(providerId) => commit({ providerId }, effort)}
+        onPickProvider={pickProvider}
       />
       <div className="flex justify-end px-3 pb-2">
         <button onClick={onClose} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">

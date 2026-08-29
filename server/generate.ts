@@ -253,6 +253,19 @@ export interface ReplyResult {
    *  visible in `/metrics`, not silent. (Client-abort / fatal outcomes are observed by the
    *  route — generateReply rethrows those — so they're not represented here.) */
   outcome: 'ok' | 'fallback'
+  /** Why a fallback happened. Callers such as the durable routine worker use
+   *  this to retry transient endpoint loss but never retry a deterministic tool
+   *  loop refusal. Interactive callers may ignore it. */
+  failure?: 'endpoint_unavailable' | 'tool_loop_limit'
+}
+
+export interface ReplyExecutionOptions {
+  /** Context actions already approved as part of a headless routine. Ordinary
+   *  interactive turns omit this and preserve per-action confirmation. */
+  standingApprovedContextIds?: ReadonlySet<string>
+  /** Provider-declared effort for this turn. The Messages wire uses lowercase
+   *  tokens; an endpoint that advertises an extension receives its token too. */
+  effort?: string
 }
 
 /** The system prompt the backend sends — the worker Agent's prompt + its custom
@@ -278,11 +291,15 @@ export async function generateReply(
   commons?: ToolContext['commons'],
   connectorContexts: SessionContext[] = [],
   api?: ApiToolRuntime,
+  execution: ReplyExecutionOptions = {},
 ): Promise<ReplyResult> {
   // The turn's provider resolves to data — endpoint, credential reference, model id —
   // through one protocol (see `clientFor`). An empty config is the default provider:
   // ambient endpoint, env-default model.
   const model = provider.model ?? MODEL
+  const outputConfig = execution.effort
+    ? { output_config: { effort: execution.effort.trim().toLowerCase() as 'low' | 'medium' | 'high' | 'xhigh' | 'max' } }
+    : {}
   // The live Agent Commons registries (supplied by the route) let the Agent Commons
   // CRUD tools resolve the model's named provider / prompt / agent against what
   // currently exists — so "commission the agent I just made" resolves.
@@ -294,7 +311,7 @@ export async function generateReply(
   // session's context bindings (server/model/connectorTools.ts) and appended to the
   // request. Only *attached* contexts yield tools, so the model can't reach one the
   // user didn't add (authority is structural).
-  const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts)
+  const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts, execution)
   // Capability-gated, never identity-gated: a probed non-tool-use provider gets no
   // `tools` param at all (a strict endpoint would reject it), so the tool-use loop —
   // and with it the consent-gated proposals — degrades away for turns on it. An
@@ -350,7 +367,7 @@ export async function generateReply(
 
     for (;;) {
       const stream = clientFor(provider).messages.stream(
-        { model, max_tokens: 1024, system, ...toolsParam, messages },
+        { model, max_tokens: 1024, system, ...toolsParam, ...outputConfig, messages },
         { signal: withDeadline(signal) },
       )
       stream.on('streamEvent', (event) => {
@@ -376,7 +393,7 @@ export async function generateReply(
         const note = `${fullText ? '\n\n' : ''}_(I stopped this turn because the model kept requesting more tools. No further tools were run; try a narrower request.)_`
         for (const c of chunkText(note)) handlers.onDelta(c)
         fullText += note
-        return { message: completedMessage(fullText), usage, outcome: 'fallback' }
+        return { message: completedMessage(fullText), usage, outcome: 'fallback', failure: 'tool_loop_limit' }
       }
 
       // Defense in depth against a non-conformant endpoint: only EXECUTE a tool
@@ -414,7 +431,7 @@ export async function generateReply(
       const note = `${fullText ? '\n\n' : ''}_(I couldn’t finish that turn — the model endpoint became unreachable. Please try again.)_`
       for (const c of chunkText(note)) handlers.onDelta(c)
       fullText += note
-      return { message: completedMessage(fullText), usage, outcome: 'fallback' }
+      return { message: completedMessage(fullText), usage, outcome: 'fallback', failure: 'endpoint_unavailable' }
     }
     return fallbackReply(assistantId, handlers)
   }
@@ -425,8 +442,12 @@ export async function generateReply(
 function fallbackReply(existingId: string, handlers: ReplyHandlers): ReplyResult {
   const id = existingId || `msg_fallback_${Date.now().toString(36)}`
   if (!existingId) handlers.onStart(id)
-  const content =
-    'I couldn’t reach the model endpoint just now — in this prototype the backend streams replies from a local Anthropic-compatible mock server. Please try again in a moment.'
+  const content = 'I couldn’t reach the model endpoint just now. Please try again in a moment.'
   for (const c of chunkText(content)) handlers.onDelta(c)
-  return { message: { id, role: 'assistant', content }, usage: { inputTokens: 0, outputTokens: 0 }, outcome: 'fallback' }
+  return {
+    message: { id, role: 'assistant', content },
+    usage: { inputTokens: 0, outputTokens: 0 },
+    outcome: 'fallback',
+    failure: 'endpoint_unavailable',
+  }
 }

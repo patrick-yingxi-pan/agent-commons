@@ -28,6 +28,9 @@ function sample(kind: NotificationKind): AppNotification {
     agentId: 'a1',
     agentLabel: 'Agent',
     proposalId: 'a1-p1',
+    scheduleId: 'routine-1',
+    scheduleName: 'Morning brief',
+    runId: 'run-1',
     // Social layer (S5): the subject ref's public face.
     subjectKind: 'project',
     subjectId: 'p1',
@@ -67,6 +70,14 @@ test('proposal.* focus the exact proposal on the agent surface', () => {
     assert.equal(intent.agentId, 'a1')
     assert.equal(intent.proposalId, 'a1-p1')
   }
+})
+
+test('schedule.failed opens the exact routine and failed run', () => {
+  assert.deepEqual(doorFor(sample('schedule.failed')), {
+    kind: 'schedule',
+    scheduleId: 'routine-1',
+    runId: 'run-1',
+  })
 })
 
 test('social.* doors land on the subject: project subjects on their page, session subjects on the Commons', () => {
@@ -109,7 +120,7 @@ test('a door never carries a tenant id — only public-face entity ids (the D24 
   // wire face already carries. It belongs here for the same reason the ids do:
   // it is the public identity, and the alternative (a tenant id) is exactly
   // what this test exists to keep out.
-  const allowed = new Set(['kind', 'projectId', 'workItemId', 'proposalId', 'agentId', 'commentId', 'discussionId', 'ownerName', 'section'])
+  const allowed = new Set(['kind', 'projectId', 'workItemId', 'proposalId', 'agentId', 'commentId', 'discussionId', 'ownerName', 'scheduleId', 'runId', 'section'])
   for (const kind of NOTIFICATION_KINDS) {
     for (const key of Object.keys(doorFor(sample(kind)))) {
       assert.ok(allowed.has(key), `${kind} door exposes only public-face keys; found "${key}"`)

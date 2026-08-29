@@ -84,6 +84,41 @@ test('a paused routine seed still needs an executable cadence', async () => {
   assert.match(res.json.error.message, /cadence/i)
 })
 
+test('routine execution bindings persist ids, derive their label, and refuse foreground Session providers', async () => {
+  const task = (await call('GET', '/schedules')).json[0]
+  const agent = (await call('GET', '/agents')).json[0]
+  const provider = (await call('GET', '/providers')).json.find((candidate: { kind?: string; models?: unknown[] }) =>
+    candidate.kind !== 'session' && (candidate.models?.length ?? 0) > 0)
+  assert.ok(agent && provider)
+  const model = provider.models[0]
+  const effort = model.effortLevels?.[0] ?? provider.effortLevels?.[0]
+  const patched = await call('PATCH', `/schedules/${task.id}`, {
+    agentId: agent.id,
+    providerId: provider.id,
+    modelId: model.id,
+    effort: effort ?? null,
+  })
+  assert.equal(patched.status, 200)
+  assert.equal(patched.json.agentId, agent.id)
+  assert.equal(patched.json.providerId, provider.id)
+  assert.equal(patched.json.modelId, model.id)
+  assert.ok(patched.json.model.includes(model.label), 'the mutable display face is server-derived from ids')
+
+  const badModel = await call('PATCH', `/schedules/${task.id}`, { modelId: 'model-that-does-not-exist' })
+  assert.equal(badModel.status, 400)
+
+  const sessionProvider = await call('POST', '/providers', {
+    kind: 'session',
+    label: 'Foreground relay for schedule refusal',
+    modelFamily: 'claude',
+    effortLevels: [],
+  })
+  assert.equal(sessionProvider.status, 200)
+  const foreground = await call('PATCH', `/schedules/${task.id}`, { providerId: sessionProvider.json.id })
+  assert.equal(foreground.status, 400)
+  assert.match(foreground.json.error.message, /unattended/i)
+})
+
 test('routine definition PATCH refuses stale revisions and replays one logical retry', async () => {
   const list = await call('GET', '/schedules')
   const task = list.json[0]

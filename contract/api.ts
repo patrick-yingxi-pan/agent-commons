@@ -196,6 +196,12 @@ export interface SchedulePatch {
   timezone?: string
   missedFirePolicy?: import('./cowork.ts').ScheduledTask['missedFirePolicy']
   model?: string
+  agentId?: string
+  providerId?: string
+  /** `null` clears a concrete model override back to the provider default. */
+  modelId?: string | null
+  /** `null` clears a stale effort when the new provider/model has no levels. */
+  effort?: string | null
   notifyOnFailure?: boolean
   delivery?: import('./cowork.ts').ScheduledDelivery
   steps?: import('./cowork.ts').WorkflowStep[]

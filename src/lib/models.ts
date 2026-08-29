@@ -109,9 +109,9 @@ export function displayModelLabel(providers: ModelProvider[], pick?: ModelPick, 
   return model && pick?.modelId ? `${provider.label} · ${shortModelLabel(model.label)}` : provider.label
 }
 
-/** A routine's stored model field is a descriptive LABEL (runs are
- *  mock-synthesized; session routing uses ids, never this string). Composed so
- *  `parseModelChoice` round-trips it: the default provider stores
+/** A routine's stored model field is a compatibility/display LABEL; durable
+ *  routine execution routes through providerId/modelId and never this string.
+ *  Composed so legacy rows still round-trip: the default provider stores
  *  'Claude Opus 4.8 · High' (back-compatible with previously stored labels);
  *  a registered provider stores 'Provider · Model' or its bare label. */
 export function composeModelLabel(providers: ModelProvider[], pick: ModelPick, effort?: string): string {

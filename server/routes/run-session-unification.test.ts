@@ -13,17 +13,22 @@ import { runSessionId } from '../../contract/ids.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import { call, callRaw } from '../testkit/http.ts'
 
-/** Wait for one routine execution to finish (the store's own event bus). */
-function runToCompletion(taskId: string): Promise<void> {
-  return new Promise((resolve) => {
-    const unsub = store.subscribe((e) => {
-      if (e.type === 'run.finished' && e.taskId === taskId) {
-        unsub()
-        resolve()
-      }
-    })
-    store.runSchedule(taskId)
-  })
+/** Drive the worker-facing store seam without dialing a model endpoint. */
+function completeRun(taskId: string, runId: string, content = 'Routine result'): void {
+  const context = store.routineExecutionContext(taskId, runId)!
+  store.markScheduleRunAttempt(taskId, runId, 1, context.run.at + 100)
+  store.completeScheduleRun(
+    taskId,
+    runId,
+    { id: `m-${runId}`, role: 'assistant', content },
+    { agentId: context.agent.id, providerId: context.provider.id, ...(context.modelId ? { modelId: context.modelId } : {}) },
+    context.run.at + 1_000,
+  )
+}
+
+function runToCompletion(taskId: string): void {
+  const run = store.runSchedule(taskId)!
+  completeRun(taskId, run.id)
 }
 
 test('every seeded run is a persisted session row with the uniform property set', () => {
@@ -83,14 +88,7 @@ test('runSchedule opens the conversation at start and lands the recap on finish'
   assert.equal(live!.messages!.length, 1, 'the thread opens with the prompt it runs')
   assert.equal(live!.messages![0].role, 'user')
 
-  await new Promise<void>((resolve) => {
-    const unsub = store.subscribe((e) => {
-      if (e.type === 'run.finished' && e.taskId === task.id) {
-        unsub()
-        resolve()
-      }
-    })
-  })
+  completeRun(task.id, run.id, 'Delivered briefing from the model loop.')
   const settled = store.getSession(sid)!
   const recap = settled.messages!.find((m) => m.role === 'assistant')
   assert.ok(recap, 'the recap lands as the assistant turn when the run settles')
@@ -168,7 +166,7 @@ test('renaming a routine renames its run sessions (no stale mirror)', () => {
   store.removeSchedule(task.id)
 })
 
-test('deleting a routine mid-run leaves no zombie: the late finish beat mints nothing', async () => {
+test('deleting a routine mid-run leaves no zombie when a late worker result arrives', () => {
   const seedTask = store.listSchedules().find((t) => t.runs.length > 0 && !t.tenantId)!
   const { id: _drop, tenantId: _t, ...seed } = JSON.parse(JSON.stringify(seedTask)) as any
   const task = store.addSchedule(seed)
@@ -177,31 +175,31 @@ test('deleting a routine mid-run leaves no zombie: the late finish beat mints no
   assert.ok(store.getSession(sid), 'the row exists while running')
   store.removeSchedule(task.id)
   assert.equal(store.getSession(sid), undefined, 'the cascade removed it')
-  // Wait past the finish beat — the timer closed over the deleted task/run and
-  // must NOT settle it back into existence as an orphaned persisted row.
-  await new Promise((r) => setTimeout(r, (task.steps.length + 2) * 400))
-  assert.equal(store.getSession(sid), undefined, 'no zombie session after the late beat')
+  assert.equal(
+    store.completeScheduleRun(
+      task.id,
+      run.id,
+      { id: `m-${run.id}`, role: 'assistant', content: 'late result' },
+      { agentId: 'agent-default', providerId: 'provider-anthropic' },
+    ),
+    undefined,
+    'the detached run refuses a late worker result',
+  )
+  assert.equal(store.getSession(sid), undefined, 'no zombie session after the late result')
 })
 
-test('a follow-up reply landing mid-run does not swallow the recap (idempotency keys on the recap id)', async () => {
+test('a follow-up reply landing mid-run does not swallow the model result', () => {
   const seedTask = store.listSchedules().find((t) => t.runs.length > 0 && !t.tenantId)!
   const { id: _drop, tenantId: _t, ...seed } = JSON.parse(JSON.stringify(seedTask)) as any
   const task = store.addSchedule(seed)
-  const finished = new Promise<void>((resolve) => {
-    const unsub = store.subscribe((e) => {
-      if (e.type === 'run.finished' && e.taskId === task.id) {
-        unsub()
-        resolve()
-      }
-    })
-  })
   const run = store.runSchedule(task.id)!
   const sid = runSessionId(task.id, run.id)
   // A follow-up assistant turn arrives while the run is still executing.
   store.appendMessage(sid, { id: 'm-a-999', role: 'assistant', content: 'mid-run follow-up' })
-  await finished
+  completeRun(task.id, run.id, 'scheduled model result')
   const messages = store.getSession(sid)!.messages!
-  assert.ok(messages.some((m) => m.id === 'm2'), 'the recap still lands as its own turn')
+  assert.ok(messages.some((m) => m.id === 'm2' && m.content === 'scheduled model result'),
+    'the actual model result still lands on the primary-result idempotency key')
   assert.ok(messages.some((m) => m.id === 'm-a-999'), 'the follow-up is kept too')
   store.removeSchedule(task.id)
 })
@@ -232,10 +230,10 @@ test('an existing run row re-stamps its routine’s code-owned facts (tenancy, i
   store.removeSchedule(task.id)
 })
 
-test('run-now twice converges on distinct rows; the funnel is idempotent per run', async () => {
+test('run-now twice converges on distinct rows; the funnel is idempotent per run', () => {
   const task = store.listSchedules().reduce((a, b) => (b.steps.length < a.steps.length ? b : a))
-  await runToCompletion(task.id)
-  await runToCompletion(task.id)
+  runToCompletion(task.id)
+  runToCompletion(task.id)
   const fresh = store.listSchedules().find((t) => t.id === task.id)!
   const ids = fresh.runs.map((r) => runSessionId(fresh.id, r.id))
   assert.equal(new Set(ids).size, ids.length, 'one deterministic session per run')

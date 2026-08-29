@@ -29,6 +29,10 @@ interface ToolBinding {
   connectorLabel: string
   kind: ToolActivity['kind']
   summary: string
+  /** A scheduled routine has already received standing approval for the
+   *  contexts in its authored workflow. Interactive turns omit this and keep
+   *  action tools proposal-only. */
+  standingApproved: boolean
 }
 
 /** What `deriveConnectorTools` returns: the definitions to declare + the bindings the
@@ -80,7 +84,10 @@ function connectorResult(detail: ConnectorDetail): string {
  *  contexts are ignored; each MCP context contributes one tool per advertised tool,
  *  each connector one `…__list` read tool over its resources. Deterministic: same
  *  contexts ⇒ same definitions + bindings (so tests and the wire are stable). */
-export function deriveConnectorTools(contexts: SessionContext[]): DerivedConnectorTools {
+export function deriveConnectorTools(
+  contexts: SessionContext[],
+  options: { standingApprovedContextIds?: ReadonlySet<string> } = {},
+): DerivedConnectorTools {
   const definitions: ConnectorToolDef[] = []
   const bindings = new Map<string, ToolBinding>()
   const emptySchema = { type: 'object' as const, properties: {} as Record<string, never>, required: [] as string[] }
@@ -102,13 +109,20 @@ export function deriveConnectorTools(contexts: SessionContext[]): DerivedConnect
           connectorLabel: ctx.label,
           kind: ACTION_VERB.test(toolName) ? 'action' : 'read',
           summary: mcpResult(toolName, ctx.label),
+          standingApproved: options.standingApprovedContextIds?.has(ctx.id) === true,
         })
       }
     } else {
       const name = `connector__${s}__list`
       if (bindings.has(name)) continue
       definitions.push({ name, description: `List available resources from the ${ctx.label} connector.`, input_schema: emptySchema })
-      bindings.set(name, { connectorId: ctx.id, connectorLabel: ctx.label, kind: 'read', summary: connectorResult(detail) })
+      bindings.set(name, {
+        connectorId: ctx.id,
+        connectorLabel: ctx.label,
+        kind: 'read',
+        summary: connectorResult(detail),
+        standingApproved: options.standingApprovedContextIds?.has(ctx.id) === true,
+      })
     }
   }
   return { definitions, bindings }
@@ -131,9 +145,13 @@ export function runConnectorTool(name: string, bindings: Map<string, ToolBinding
   const b = bindings.get(name)
   if (!b) return undefined
   const base = { id, tool: name, connector: b.connectorLabel, connectorId: b.connectorId, kind: b.kind }
-  return b.kind === 'action'
+  return b.kind === 'action' && !b.standingApproved
     ? { ...base, status: 'proposed', summary: `Proposed: ${shortToolName(name)} on ${b.connectorLabel} — confirm to run.` }
-    : { ...base, status: 'done', summary: b.summary }
+    : {
+        ...base,
+        status: 'done',
+        summary: b.kind === 'action' ? connectorActionResult(name, b.connectorLabel) : b.summary,
+      }
 }
 
 /** The (mock) result a *confirmed* connector action reports — the server records this as

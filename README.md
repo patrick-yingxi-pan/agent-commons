@@ -58,6 +58,12 @@ Development boots an Anthropic-compatible deterministic model server at `:8788`.
 Set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and optionally `ANTHROPIC_MODEL` to
 point the same seam at a live provider.
 
+Routine cadence and execution are durable in the desktop process. A fire freezes
+its authored definition and endpoint binding, then runs the same guarded Messages
+loop under the bound Agent's live authority and budget. Transient failures retry
+three times by default with exponential backoff; operators can tune
+`ROUTINE_MAX_ATTEMPTS` (1–8) and `ROUTINE_RETRY_BASE_MS` (default 5000).
+
 ## Run it
 
 Requires **Node 26+**.

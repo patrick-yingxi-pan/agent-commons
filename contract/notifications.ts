@@ -11,6 +11,9 @@
  *  adding a kind here forces a door for it (the switch's `never` default fails the
  *  build otherwise) and the test covers it. The type is derived from the array. */
 export const NOTIFICATION_KINDS = [
+  // A headless routine exhausted its durable attempts. This is system-originated
+  // operational news for the routine owner, with a door to the exact failed run.
+  'schedule.failed',
   'work.posted',
   'work.resolved',
   'work.commented',
@@ -126,6 +129,10 @@ export interface AppNotification {
    *  the forker the source owner may not see: the D24 leak-wall.) */
   agentId?: string
   agentLabel?: string
+  /** Routine failure door — public entity/run ids plus their display face. */
+  scheduleId?: string
+  scheduleName?: string
+  runId?: string
 }
 
 /** Body of `POST /projects/:id/watch`. */

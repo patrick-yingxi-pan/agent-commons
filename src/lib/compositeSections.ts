@@ -43,7 +43,7 @@ export const SCHEDULE_SECTIONS = [
   { id: 'schedule', label: 'Schedule', visibility: 'owner', childKinds: [] },
   { id: 'delivery', label: 'Delivers to', visibility: 'owner', childKinds: [] },
   { id: 'context-tools', label: 'Context & tools', visibility: 'owner', childKinds: [] },
-  { id: 'model', label: 'Model', visibility: 'owner', childKinds: [] },
+  { id: 'model', label: 'Agent & model', visibility: 'owner', childKinds: [] },
   { id: 'recent-runs', label: 'Recent runs', visibility: 'all', childKinds: ['session'] },
   { id: 'improvements', label: 'Improvements', visibility: 'all', childKinds: [] },
   { id: 'discussion', label: 'Discussion', visibility: 'all', childKinds: ['discussion'] },
