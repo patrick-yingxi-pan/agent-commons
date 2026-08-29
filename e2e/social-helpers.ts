@@ -44,7 +44,7 @@ export const GUEST_POST = `A question about this exact step ${STAMP}`
 export const RUN_POST = `This run failed on the label step ${STAMP}`
 export const ARTIFACT = 'insights-onepager.md'
 export const ROUTINE = '/scheduled/s-issue-triage'
-export const NEW_CADENCE = `Every 9 hours ${STAMP}`
+export const NEW_CADENCE = 'Every hour'
 export const ROUTINE_CHANGE = `Move this to 09:00 — 08:00 lands before the data does ${STAMP}`
 /** A seeded multi-turn conversation, opened by its canonical URL (every page
  *  has one — src/CLAUDE.md). The walk asserts the turn count, so a reseed that

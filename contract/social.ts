@@ -402,7 +402,9 @@ export type ProposalDelta =
  *  the offer FORM and the server's validator enumerate the same set; the
  *  structural fields (`steps`, `delivery`) stay the owner's own editing surface,
  *  since a wholesale workflow rewrite isn't reviewable as a one-line diff. */
-export const PROPOSABLE_SCHEDULE_FIELDS = ['enabled', 'name', 'prompt', 'cadence', 'trigger', 'timezone', 'notifyOnFailure'] as const
+// `trigger` and `next` are cadence projections, not independently reviewable
+// fields; landing a cadence proposal derives both server-side.
+export const PROPOSABLE_SCHEDULE_FIELDS = ['enabled', 'name', 'prompt', 'cadence', 'timezone', 'notifyOnFailure'] as const
 export type ProposableScheduleField = (typeof PROPOSABLE_SCHEDULE_FIELDS)[number]
 
 /** The human face of a `schedule-patch` — one sentence naming every field it

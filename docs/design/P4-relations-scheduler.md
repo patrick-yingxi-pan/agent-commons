@@ -9,11 +9,11 @@
 ## 1. Problem & scope
 
 The prototype's graph is a pure reducer over an in-memory snapshot (`contract/graph.ts`
-`applyGraphOp`, `server/store/index.ts` `applyRelationOp`), and the schedule daemon is a
-`setInterval` that fires runs and applies standing effects (`startRunDaemon`,
-`applyStandingEffects`). Production needs **transactional, concurrent-safe** graph edits
-and a **durable, exactly-effected** scheduler. **Shared** model; the web runs a real
-job system, the desktop a single-process scheduler (same contract).
+`applyGraphOp`, `server/store/index.ts` `applyRelationOp`). The desktop scheduling core
+is now durable and exactly-effected (`server/scheduler.ts` + persisted routine/run fields),
+but production still needs transactional graph edits, real run failure/retry execution,
+and a hosted leader/queue. **Shared** model; the web runs a real job system, the desktop
+an in-process scheduler over the same fire-time contract.
 
 ## 2. Design
 
@@ -39,16 +39,21 @@ For concurrency:
 
 ### 2.2 The scheduler as real job infrastructure
 
-`setInterval` is replaced by a **durable scheduler**:
+The first desktop slice of the **durable scheduler** is built:
 
 - Each enabled schedule is a recurring job (a cron/leader on web; an in-process timer on
   desktop). Cadence is **timezone-correct** (the contract already carries `timezone`).
 - A run is **idempotent by `(schedule_id, fire_time)`** — a redelivery or a second
   scheduler node can't double-fire. Runs are durable rows (`schedule_run`, F1), so the
   feed survives restarts (the prototype already sweeps interrupted live runs).
-- **Retries** with backoff on failure; `notifyOnFailure` (already in the contract)
-  drives alerts. A **missed-fire policy** (the process was down at fire time): catch-up
-  once vs skip-to-next, configurable per schedule.
+- A persisted next-fire cursor plus recursive one-shot timer replaces `setInterval`.
+  Old rows adopt a future cursor; an overdue durable cursor is visibly skipped by
+  default or caught up once by per-routine choice.
+
+Still pending: **retries** with backoff on real executor failure, with
+`notifyOnFailure` driving alerts, and the hosted cron/leader/queue implementation.
+The mock run synthesizer has no truthful transient failure to retry, so this remains
+attached to the real model/tool executor rather than a fabricated failure switch.
 
 ### 2.3 Run execution
 
@@ -75,7 +80,7 @@ from the shared relationship catalog made durable.
   land.
 - **Missed fire** (downtime) — the configured catch-up/skip policy; never silent
   double-fire (idempotency key).
-- **Run failure** — retry/backoff; on exhaustion mark failed + `notifyOnFailure`; the
+- **Run failure** — the future real executor retries with backoff; on exhaustion mark failed + `notifyOnFailure`; the
   interrupted-run sweep (already present) handles a crash mid-run.
 - **Scheduler node failure** (web) — leader election / queue redelivery continues
   pending jobs; idempotency prevents duplicates.
@@ -91,9 +96,10 @@ standing grants are scoped, revocable, and audited.
 
 ## 5. Observability & ops
 
-Schedule fire punctuality (scheduled vs actual), run success rate + latency, retry/
-catch-up counts, relation-op throughput + conflict (`409`) rate, standing-effect
-application volume. Alert on fire lag + run failure spikes.
+The fire-time stamp already makes scheduled-vs-actual lag derivable. Hosted operations
+still need exported schedule punctuality, retry/catch-up counts, run success rate +
+latency, relation-op throughput + conflict (`409`) rate, and standing-effect volume.
+Alert on fire lag + run failure spikes.
 
 ## 6. Open questions & decisions
 

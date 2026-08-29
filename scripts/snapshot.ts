@@ -271,6 +271,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
       ...(cloned as Omit<import('../contract/index.ts').ScheduledTask, 'id'>),
       name: 'Playground weekly digest',
       enabled: true,
+      missedFirePolicy: 'catch-up-once',
       lastStatus: 'pending',
       runs: [],
       projectId: undefined,
@@ -465,7 +466,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // REAL run record for a terminal state rather than hard-coding the store's step
   // cadence — so this stays correct if that timing constant ever changes.
   if (createdScheduleId) {
-    store.runSchedule(createdScheduleId)
+    const scheduledFor = store.listSchedules().find((task) => task.id === createdScheduleId)?.nextFireAt
+    store.runSchedule(createdScheduleId, scheduledFor === undefined ? undefined : { scheduledFor })
     const settled = () => {
       const run = store
         .listSchedules()

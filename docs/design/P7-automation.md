@@ -7,13 +7,13 @@
 
 ## 1. Problem & scope
 
-The prototype has both shapes: **Scheduled** routines (`ScheduledTask` + runs, a
-`setInterval` daemon, `/schedule-templates`) and **Dispatch** one-off runs (`DispatchRun`,
-`addDispatch`) — both with live feeds, both transient/seed today. P4 designed the
-scheduler's durability + standing approvals; P7 designs the **broader automation
-surface**: a unified job model, concurrency + budget bounding, templates, and the runs
-feed. **Shared** model; web runs a real queue/worker fleet, desktop a single in-process
-worker.
+The product has both shapes: **Scheduled** routines (`ScheduledTask` + durable cursor
+and fire-time-keyed runs, `/schedule-templates`) and persisted **Dispatch** one-off runs
+(`DispatchRun`, `addDispatch`). Both have live feeds; both still synthesize their work
+rather than entering one real model/tool executor. P4 now supplies the desktop cadence
+core and designs standing approvals; P7 designs the **broader automation surface**: one
+execution model, concurrency + budget bounding, templates, and the runs feed. **Shared**
+model; web runs a real queue/worker fleet, desktop a single in-process worker.
 
 ## 2. Design
 
@@ -32,9 +32,9 @@ runs feed (the prototype's single live source), and deliver via graph bindings (
 
 ### 2.2 Durability, retries, concurrency
 
-- A **job queue** (web) / in-process worker (desktop) executes jobs at-least-once with
-  idempotency (F3 PD15); failures retry with backoff; `notifyOnFailure` (in the contract)
-  alerts.
+- The desktop cadence producer is durable and idempotent by `(routine, fire time)`.
+  A future **job queue** (web) / real in-process executor (desktop) executes jobs
+  at-least-once; failures retry with backoff and `notifyOnFailure` alerts.
 - **Concurrency caps** per tenant + per agent so automation can't exhaust budgets
   (P5 PD53) or saturate runners (F4); excess jobs queue.
 - The interrupted-run sweep (already present) reconciles jobs in flight at a crash.

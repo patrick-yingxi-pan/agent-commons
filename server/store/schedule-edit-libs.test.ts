@@ -82,6 +82,12 @@ test('nextRunLabel for weekdays / weekly skips to the right day (Sat 10:00 → n
   assert.equal(nextRunLabel({ freq: 'weekly', time: '07:00', weekday: 1 }, sat), 'Mon, 7:00 AM', 'next Monday')
 })
 
+test('every starter routine has an executable cadence before Resume is offered', () => {
+  for (const template of store.scheduleTemplates()) {
+    assert.ok(parseCadence(template.seed.cadence), `${template.name} has a supported cadence`)
+  }
+})
+
 // The routine's stored model label is composed from — and parsed against — the
 // LIVE provider registry (each provider's own catalog), so the round-trip is
 // exercised on the real seeded registry rather than a mirror.

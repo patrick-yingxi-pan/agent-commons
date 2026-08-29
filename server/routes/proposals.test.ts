@@ -271,14 +271,14 @@ test('SOCIAL-7: a schedule-patch delta lands by running the REAL updateSchedule'
 
   const offered = await call(
     'POST', '/proposals',
-    { subject: { kind: 'schedule', id: taskId }, delta: { kind: 'schedule-patch', patch: { cadence: 'Every 4 hours' } }, rationale: 'Two hours is noisy.' },
+    { subject: { kind: 'schedule', id: taskId }, delta: { kind: 'schedule-patch', patch: { cadence: 'Every hour' } }, rationale: 'Two hours is too slow.' },
     { 'x-tenant-id': AUDIENCE },
   )
   assert.equal(offered.status, 200)
 
   // The audience may NOT edit the routine directly — read widened, write did not.
   assert.equal(
-    (await call('PATCH', `/schedules/${taskId}`, { cadence: 'Every 4 hours' }, { 'x-tenant-id': AUDIENCE })).status,
+    (await call('PATCH', `/schedules/${taskId}`, { cadence: 'Every hour' }, { 'x-tenant-id': AUDIENCE })).status,
     404,
     'a granted reader cannot patch, run or delete — and the refusal hides existence',
   )
@@ -289,7 +289,7 @@ test('SOCIAL-7: a schedule-patch delta lands by running the REAL updateSchedule'
   assert.equal(landed.json.state, 'landed')
   assert.equal(
     store.listSchedules(store.defaultTenantId()).find((t) => t.id === taskId)?.cadence,
-    'Every 4 hours',
+    'Every hour',
     'landing ran the real mutator',
   )
 })
@@ -299,7 +299,7 @@ test('SOCIAL-7: a schedule proposal cannot silently rebase after its reviewed de
   const taskId = 's-issue-triage'
   const before = store.listSchedules(owner).find((task) => task.id === taskId)
   assert.ok(before)
-  const proposedCadence = `${before.cadence} (reviewed alternative)`
+  const proposedCadence = before.cadence === 'Every hour' ? 'Every 2 hours' : 'Every hour'
   const offered = await call(
     'POST', '/proposals',
     { subject: { kind: 'schedule', id: taskId }, delta: { kind: 'schedule-patch', patch: { cadence: proposedCadence } }, rationale: 'Tune it.' },
@@ -329,6 +329,8 @@ test('SOCIAL-7: a schedule-patch that could not apply is REFUSED at the door (IN
     { kind: 'schedule-patch', patch: {} }, // empty — would land as a no-op consuming an L#
     { kind: 'schedule-patch', patch: { steps: [] } }, // not a proposable field
     { kind: 'schedule-patch', patch: { cadence: '   ' } }, // blank
+    { kind: 'schedule-patch', patch: { cadence: 'Every 9 parsecs' } }, // not executable
+    { kind: 'schedule-patch', patch: { timezone: 'Mars/Olympus_Mons' } }, // not in Intl's timezone database
     { kind: 'schedule-patch', patch: { enabled: 'yes' } }, // wrong type
   ]
   for (const delta of bad) {

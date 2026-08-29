@@ -170,6 +170,7 @@ it.
 | 83 | Truthful clean onboarding and MCP access (PD84 / ADAPT-30 / PORT-9) | **A clean desktop now explains what is actually possible.** Sessions, Artifacts, and Routines distinguish an account with zero resources from a nonempty account hidden by search/filter; one pure copy funnel feeds both page and rail and names the available first act. The Contexts page recognizes the credential-less local device owner, removes the disabled impossible token form, and supplies a copy-ready loopback `mcpServers` config with no secret. Hosted signed-in accounts retain mint/list/revoke and signed-out accounts retain the sign-in wall. A hosted token's one-time reveal is stamped to its minting user+tenant+resolution path, hidden synchronously on identity change, and guarded against a slow old-account response. MCP `initialize` derives matching local-versus-hosted instructions from the runtime auth posture, while quoted panel/section names remain registry-locked. Pure behavior, source adoption, protocol response, and UI↔MCP prose tests cover both branches. | ✅ built |
 | 84 | Fail-closed release model setup (PD85 / MODEL-28) | **A release can no longer look alive while answering from canned development intent rules.** Desktop and web profiles disable the inline model. Endpoint providers receive a server-computed `mock` / `configured` / `unconfigured` execution stamp derived from their hidden connection definition; create/patch cannot forge it, and a missing named credential after restart becomes unconfigured. The message route refuses that state before persisting a user row, spending budget, or claiming the live-turn slot, so browser, MCP, and older clients share the wall. The composer, shared model picker, Models synopsis, and canonical provider page project the same truth and keep model switching/setup available while typing is blocked. The previously cosmetic API-endpoint dialog now collects URL, model id, and `PROVIDER_*` credential reference and drives the existing conformance probe; busy state prevents closing across an unresolved probe. The first clean-desktop visual pass caught the longer form extending below the viewport, so the shared form shell now bounds itself to the viewport, scrolls only its body, and keeps header/actions present. Pure posture/copy tests, route no-write proof, probe/request capture, forge tests, source-adoption locks, an isolated clean-desktop end-to-end turn through a configured endpoint, and the five-viewport signed-in sweep (`115/115` cells, zero violations/skips) cover the seam. OS-keychain capture remains deliberately pending the Tauri/Electron decision. | ✅ built |
 | 85 | Authored document creation (PD86 / ADAPT-31 / REL-12) | **Creating an artifact now creates reopenable work.** The Artifacts primary action is the single truthful **New document** flow: required name + content in the shared viewport-safe dialog, optional filing, no cosmetic format chooser. Direct UI and model `save_artifact` calls carry real text; one framework-free canonicalizer trims, bounds, paragraphs, titles, excerpts, and revision-zero blocks before consent history, while the store repeats the boundary before changing the graph. Long prose flows across bounded editable blocks rather than losing its tail. Confirmation persists the minted metadata relation and id-keyed editable body in one snapshot, invalidates the content library, opens the canonical document page automatically, and survives export/rehydrate. Replay identity is server-stamped per tenant: exact retries stay idempotent, cross-tenant same names stay independent, and same-source names carrying different work return conflict rather than pretending to save. Historical metadata-only relation ops and seeded/imported artifact kinds remain compatible. Contract, tool, route, tenancy, snapshot, source, and browser locks cover blank/name refusal, bounded preview, exact body materialization, collision behavior, automatic open, reload, and removal of the false five-format creator. No route was added, so generated MCP parity is unchanged; `/relations/ops` gained honest content semantics. | ✅ built |
+| 86 | Durable desktop routine cadence (PD48 / ADAPT-9) | **Enabled routines now run when their authored cadence says, rather than when an arbitrary 45-second interval chooses them.** One framework-free cadence oracle drives both UI preview and server cursor, resolves IANA timezones, skips nonexistent DST wall times, and chooses the first future occurrence. The in-process desktop scheduler uses recursive one-shot timing over a persisted `nextFireAt`; legacy rows adopt a future cursor without accidental catch-up. Each scheduled or deliberately skipped run persists `scheduledFor`, making `(routine, fire time)` idempotent across redelivery and crash windows. The first post-rehydrate pass defaults to a visible skip-to-next; each routine can instead **Run once when back**. Manual overlap leaves the due cursor pending. The server ignores client-authored `next`, validates cadence/timezone before mutation, and keeps cursor motion orthogonal to definition revision. Cadence proposals now pass the executable-cadence wall before review and derive their matching WHEN sentence when landed, so an old free-text mock cannot fail only after owner consent. Snapshot, route, store, pure scheduler, DST, proposal, MCP, and browser locks cover the checkpoint. Retry/backoff waits for a real failing model/tool executor; hosted leader/queue selection waits for the long-term web phase rather than being faked into the desktop core. | ✅ built |
 
 ### F2 identity & tenancy — status
 
@@ -181,10 +182,10 @@ content-bearing entity: **sessions** (read + write + persistence + SSE push),
 write: list-scoping, by-id 404, by-id mutation + derived-read authorization, and the
 relation-op agent/commission subject axes) — with the write-guard and read-projection
 sharing one ownership predicate per axis so they cannot disagree.
-**Slice 3c (the schedule axis) is deliberately deferred:** schedules are a list
-(`POST /schedules`) driven by the **default-tenant run daemon**, so their isolation
-value is low and their shape is distinct (list-scoping, not the graph pattern); it
-is recorded here rather than built, in favour of higher-value pillars.
+**The schedule axis has since closed:** routine lists are tenant-projected, by-id
+writes use the strict owner wall even when a grant widens reads, schedule events carry
+the owning tenant, and the scheduler walks the durable rows across tenants without an
+ambient default-tenant assumption.
 
 > **Scope correction — F2 is tenant ISOLATION; cross-TENANT cooperation is a separate,
 > unbuilt axis.** Two distinct notions of "different user" must not be conflated:
@@ -211,11 +212,15 @@ is recorded here rather than built, in favour of higher-value pillars.
 
 ### Up next (candidate order, not yet built)
 
-- **Social layer — S0..S6** *(design agreed 2026-07-21 —
-  [social-layer.md](social-layer.md))*. Three orthogonal primitives (Grant /
-  Discussion / Proposal) over every entity + the Commons feed portal whose
-  cards click through to the GitHub-like entity pages. Phased backlog lives in
-  that doc; proceed S0 → S6 in order.
+- **Desktop shell — decision required before implementation.** The short-term release
+  posture is desktop-first, but Electron versus Tauri + Node sidecar materially changes
+  packaging, signing, updater, keychain, and native-file work. Keep advancing shared
+  UI/server production seams while this fork is unresolved; do not select it by inference.
+- **P4 routine execution follow-through** *(row 86 ships the cadence core)*. Attach
+  scheduled runs to the real model/tool executor under bound Agent authority, then add
+  retry/backoff and failure notification around failures that can actually occur. Hosted
+  leader/queue work belongs to the later web-service phase; the fire-time contract is
+  already topology-independent.
 - **P8 — cross-tenant cooperation, slices 2+** *(slice 1 done — row 39 / COMMONS-6)*. The
   shared-Project + cross-tenant-commission + owner-pays-*attribution* primitive is built.
   Remaining, in rough order: (2) **runtime owner-pays metering** — meter a commissioned run
@@ -225,24 +230,13 @@ is recorded here rather than built, in favour of higher-value pillars.
   Project); (4) **role-gated cross-tenant writes** (D14 — a Contributor writing to the shared
   Project per its role, not just joining); (5) a **share-project UI**. Items 2 + the item
   below converge on the execution path.
-- ~~**P7 — Dispatch: durability + observability + concurrency**~~ *(done — rows 35–36, 38)*.
-  All three real legs are built. What remains is **mock-gilding, intentionally unbuilt**: a
-  dispatch can only *fail* via a restart (never *during* a run) and there are no retries/backoff
-  — both need real work to fail, which the mock doesn't have, so building them would fake a
-  failure with no production analog. (Commission-attributed budgets below still want a
-  commissioned-execution path, but that's a distinct, larger design.)
-- ~~**P5 — generation reliability**~~ *(done — build-log row 34)*. Shipped as generation-
-  outcome **observability** (`model_turns_total` in `/metrics`); the SDK already covers the
-  transient retry/backoff, so the real gap was visibility, not a retry layer.
 - **P5 — commission-attributed budgets** *(deferred — entangled with P7)*. Enforcing a
   Commission `grant` (the D8 leaf) at runtime needs a *commissioned-execution* path (an
   Agent acting on a Project as Contributor), which is the **P7 Dispatch** path, not a
   normal session turn. Build after P7 Dispatch exists so there's a turn to attribute.
-- **Identity & tenancy — slice 3c** (F2, deferred) — the schedule axis (list-scoping +
-  schedule-keyed graph joins). Low value (default-tenant daemon); build only if a
-  multi-tenant schedule story becomes needed.
-- ~~**UI consumes `/v1/me`**~~ *(done — build-log row 37 / ADAPT-10)*. The sidebar-footer
-  account chip now renders the live principal + tenant; placement was the owner's call.
+- **Accessibility production audit (PD37).** The primitives and contrast locks exist,
+  but a systematic WCAG 2.2 AA keyboard/screen-reader audit remains a higher-value
+  shell-neutral checkpoint than new peripheral features.
 
 > Keep this table append-only and honest: a row is `✅ built` only when its locking
 > test passes. Partial work stays `🚧` with a note on what's missing.

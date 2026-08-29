@@ -98,12 +98,14 @@ export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, u
     {
       seed: {
         name: 'Daily digest',
-        cadence: 'Daily · 9:00',
+        cadence: 'Daily · 9:00 AM',
         next: 'Tomorrow 9:00',
         enabled: true,
         lastStatus: 'pending',
         subtitle: 'A morning summary of workspace activity',
-        trigger: 'Every morning at 9:00',
+        trigger: 'every day at 9:00 AM',
+        timezone: 'UTC',
+        missedFirePolicy: 'skip',
         prompt: 'Summarize what changed in this workspace since yesterday.',
         steps: [],
         delivery: { tool: { id: 'workspace', label: 'Workspace', tone: 'workspace' }, target: 'Artifacts' },

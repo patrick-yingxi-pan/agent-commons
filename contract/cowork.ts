@@ -128,6 +128,10 @@ export interface ScheduledRun {
    *  (src/lib/relativeTime) and the newest-first ordering of the left rail's
    *  "recent runs" across routines. Larger = more recent. */
   at: number
+  /** The cadence occurrence this run satisfies (epoch ms). Present for
+   *  scheduler-fired runs and absent for manual run-now. Together with the
+   *  routine id this is the durable idempotency key. */
+  scheduledFor?: number
   /** The output this specific run produced — the body of its session thread, so
    *  two runs of the same routine read as distinct history (the briefing it
    *  wrote, the digest it posted, what tripped a failure). Optional: a run
@@ -159,6 +163,9 @@ export interface ScheduledTask {
   own?: boolean
   name: string
   cadence: string
+  /** Server-owned durable cursor for the next cadence occurrence (epoch ms).
+   *  Optional so snapshots written before the scheduler upgrade still load. */
+  nextFireAt?: number
   next: string
   enabled: boolean
   lastStatus: 'ok' | 'failed' | 'pending'
@@ -180,6 +187,9 @@ export interface ScheduledTask {
    *  `enabled`), not a cross-entity relation. Absent = on (the prior UI default). */
   notifyOnFailure?: boolean
   timezone?: string
+  /** What to do with a cursor found overdue after process downtime. Absence is
+   *  the conservative default: record the miss and skip to the next occurrence. */
+  missedFirePolicy?: 'skip' | 'catch-up-once'
   /** Faint "Started … · N runs" stamp for the Schedule panel. */
   startedLabel?: string
   /** Home project, if any — cross-links into the Projects section. */

@@ -61,7 +61,7 @@ test('proposal verdicts retain one decision through failure and expose outdated 
   // Grace offers its cadence change; the owner sees an explicit stale state,
   // no Land affordance, and can still close it with Decline.
   const scheduleId = 's-issue-triage'
-  const cadence = `Every 13 hours ${stamp}`
+  const cadence = 'Every hour'
   const routineGrant = await ada.page.request.post(`${API}/grants`, {
     data: { subject: { kind: 'schedule', id: scheduleId }, audience: { kind: 'org', orgId: 'tenant-beta' }, tier: 'propose' },
   })

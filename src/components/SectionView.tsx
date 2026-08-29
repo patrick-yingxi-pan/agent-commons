@@ -13543,6 +13543,24 @@ const TIMEZONES = [
  *  keeps the three coherent. These are entity fields → a per-action updateSchedule. */
 function SchedulePanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    let handle: ReturnType<typeof setTimeout>
+    const tick = () => {
+      setNow(Date.now())
+      handle = setTimeout(tick, 60_000)
+    }
+    handle = setTimeout(tick, Math.max(1, 60_000 - (Date.now() % 60_000)))
+    return () => clearTimeout(handle)
+  }, [])
+  const parsedCadence = parseCadence(task.cadence)
+  const nextLabel = !task.enabled
+    ? 'Paused'
+    : Number.isFinite(task.nextFireAt) && (task.nextFireAt as number) <= now
+      ? 'Due now'
+      : parsedCadence && Number.isFinite(task.nextFireAt)
+        ? nextRunLabel(parsedCadence, new Date(now), task.timezone ?? 'UTC')
+        : task.next
   return (
     <FoldSection
       title="Schedule"
@@ -13567,14 +13585,18 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
         </div>
         <div className="flex items-center justify-between gap-2">
           <span className="text-ink-soft">Next run</span>
-          <span className="text-right font-medium">{task.enabled ? task.next : 'Paused'}</span>
+          <span className="text-right font-medium">{nextLabel}</span>
         </div>
-        {task.timezone && (
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-ink-soft">Timezone</span>
-            <span className="text-right font-medium">{task.timezone}</span>
-          </div>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-ink-soft">Timezone</span>
+          <span className="text-right font-medium">{task.timezone ?? 'UTC'}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-ink-soft">After downtime</span>
+          <span className="text-right font-medium">
+            {(task.missedFirePolicy ?? 'skip') === 'skip' ? 'Skip missed run' : 'Run once when back'}
+          </span>
+        </div>
       </div>
       {task.startedLabel && (
         <div className="mt-2.5 truncate border-t border-line pt-2.5 text-[11px] text-ink-faint">
@@ -13586,26 +13608,26 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
 }
 
 /** The cadence editor popover — a frequency picker (+ time / weekday / timezone),
- *  with a live preview of the derived cadence + next-run. Apply writes the three
- *  derived fields via updateSchedule in one patch. */
+ *  with a live preview of the derived cadence + next-run. The server owns the
+ *  durable next-fire cursor; Apply sends only authored recurrence intent. */
 function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
   const ref = useDismissable<HTMLDivElement>(true, onClose)
   const popRef = usePopoverShift<HTMLDivElement>(true)
   const [spec, setSpec] = useState<CadenceSpec>(() => parseCadence(task.cadence) ?? { freq: 'daily', time: '09:00' })
-  const [tz, setTz] = useState(task.timezone ?? 'America/Los_Angeles')
+  const [tz, setTz] = useState(task.timezone ?? 'UTC')
+  const [missedFirePolicy, setMissedFirePolicy] = useState(task.missedFirePolicy ?? 'skip')
 
   const timed = TIMED_FREQS.includes(spec.freq)
   const preview = describeCadence(spec)
-  const next = nextRunLabel(spec, new Date())
+  const next = nextRunLabel(spec, new Date(), tz)
 
   const apply = () => {
     const derived = describeCadence(spec)
     void updateSchedule(task.id, {
       cadence: derived.cadence,
-      trigger: derived.trigger,
-      next: nextRunLabel(spec, new Date()),
       timezone: tz,
+      missedFirePolicy,
     })
     onClose()
   }
@@ -13680,6 +13702,18 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
               {z}
             </option>
           ))}
+        </select>
+      </label>
+
+      <label className="mt-2.5 block">
+        <span className="text-[11px] font-medium text-ink-soft">After downtime</span>
+        <select
+          value={missedFirePolicy}
+          onChange={(e) => setMissedFirePolicy(e.target.value as 'skip' | 'catch-up-once')}
+          className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-co"
+        >
+          <option value="skip">Skip missed run</option>
+          <option value="catch-up-once">Run once when back</option>
         </select>
       </label>
 

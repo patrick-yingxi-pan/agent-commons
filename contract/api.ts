@@ -189,9 +189,12 @@ export interface SchedulePatch {
   name?: string
   prompt?: string
   cadence?: string
+  /** @deprecated Display-only; the server derives it from cadence. */
   trigger?: string
+  /** @deprecated Display-only; the server derives it from cadence + timezone. */
   next?: string
   timezone?: string
+  missedFirePolicy?: import('./cowork.ts').ScheduledTask['missedFirePolicy']
   model?: string
   notifyOnFailure?: boolean
   delivery?: import('./cowork.ts').ScheduledDelivery

@@ -21,3 +21,26 @@ test('runSchedule returns the in-flight run instead of starting an overlapping o
   )
   assert.equal(running.length, 1, 'exactly one run is in flight for the routine')
 })
+
+test('one scheduled fire time is represented by exactly one run', () => {
+  const task = store.listSchedules().find((candidate) => !candidate.runs.some((run) => run.status === 'running'))
+  assert.ok(task)
+  const scheduledFor = Date.now() + 123_456
+  const first = store.runSchedule(task.id, { scheduledFor, startedAt: scheduledFor + 500 })
+  const replay = store.runSchedule(task.id, { scheduledFor, startedAt: scheduledFor + 1_000 })
+  assert.ok(first)
+  assert.equal(replay?.id, first.id)
+  assert.equal(first.scheduledFor, scheduledFor)
+  assert.equal(task.runs.filter((run) => run.scheduledFor === scheduledFor).length, 1)
+})
+
+test('one skipped fire time is represented by exactly one visible run', () => {
+  const task = store.listSchedules()[0]
+  assert.ok(task)
+  const scheduledFor = Date.now() - 123_456
+  const first = store.recordSkippedScheduleFire(task.id, scheduledFor)
+  const replay = store.recordSkippedScheduleFire(task.id, scheduledFor)
+  assert.ok(first)
+  assert.equal(replay?.id, first.id)
+  assert.equal(task.runs.filter((run) => run.scheduledFor === scheduledFor).length, 1)
+})

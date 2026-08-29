@@ -174,7 +174,7 @@ export function ProposalsPanel({
                   aria-label="New value"
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
-                  placeholder="e.g. Every 4 hours"
+                  placeholder={field === 'cadence' ? 'e.g. Every 2 hours' : 'New value'}
                   className={`${FORM_INPUT_CLASS} min-w-24 flex-1`}
                 />
               )}

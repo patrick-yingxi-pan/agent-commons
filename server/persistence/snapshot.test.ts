@@ -165,9 +165,12 @@ test('build produces a snapshot covering every persisted slice', async () => {
   const ws = s.workspaces.find(([sid]) => sid.startsWith('sess-'))?.[1]
   assert.ok(ws && ws.repos.length > 0 && ws.workspaces.length > 0 && ws.connectors.length > 0 && ws.attachments.length > 0, 'the workspace populates all four panel kinds')
   assert.ok(s.schedules.some((t) => t.id.startsWith('s-new-')), 'a created schedule exists')
+  const scheduled = s.schedules.find((t) => t.id.startsWith('s-new-'))
+  assert.ok(Number.isFinite(scheduled?.nextFireAt), 'the enabled routine carries its durable next-fire cursor')
+  assert.equal(scheduled?.missedFirePolicy, 'catch-up-once', 'the per-routine downtime policy is persisted')
   assert.ok(
-    s.schedules.some((t) => t.runs.some((r) => r.id.startsWith('run-live-') && r.status === 'ok')),
-    'a live run ran to completion (so its standing artifact was delivered)',
+    s.schedules.some((t) => t.runs.some((r) => r.id.startsWith('run-live-') && r.status === 'ok' && Number.isFinite(r.scheduledFor))),
+    'a fire-time-keyed live run ran to completion (so its standing artifact was delivered)',
   )
   assert.ok(s.schedules.some((t) => t.enabled === false), 'a paused schedule for variety')
   assert.ok((s.savedContexts?.length ?? 0) > 0, 'saved contexts present (auth status flipped)')
@@ -416,7 +419,11 @@ test('the built snapshot boots through the real rehydrate path', async () => {
 
   const projectIds = [...store.listProjects(), ...store.relationGraph().extraProjects].map((p) => p.id)
   assert.ok(projectIds.includes('p-playground'), 'the created project survives a boot')
-  assert.ok(store.listSchedules().some((t) => t.id.startsWith('s-new-')), 'the created schedule survives a boot')
+  const restoredSchedule = store.listSchedules().find((t) => t.id.startsWith('s-new-'))
+  assert.ok(restoredSchedule, 'the created schedule survives a boot')
+  assert.ok(Number.isFinite(restoredSchedule?.nextFireAt), 'its durable scheduler cursor survives the boot')
+  assert.equal(restoredSchedule?.missedFirePolicy, 'catch-up-once', 'its downtime policy survives the boot')
+  assert.ok(restoredSchedule?.runs.some((run) => Number.isFinite(run.scheduledFor)), 'its fire-time idempotency key survives the boot')
   assert.ok(store.relationGraph().extraArtifacts.length >= 3, 'the created artifacts survive a boot')
   assert.equal(
     store.relationGraph().extraArtifacts.find((artifact) => artifact.id === legacyRuntimeArtifact.id)?.tenantId,

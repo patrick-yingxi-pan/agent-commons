@@ -2169,7 +2169,7 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No ${input.subject.kind} '${input.subject.id}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Proposing needs the propose tier')
     if (out === 'capped') return sendError(res, 'conflict', 'This subject’s proposals are at their cap')
-    if (out === 'invalid') return sendError(res, 'bad_request', 'the delta must be a non-empty suggestion or a well-formed relation op')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'the delta must be a non-empty suggestion or a well-formed typed change')
     sendJson(res, out)
   })
   r.aliasGet('/proposals/:pid', 'GET /proposals', 'the by-id proposal read is a focused projection of the proposal collection visible in the UI', ({ req, res, params }) => {
@@ -3622,6 +3622,7 @@ export function buildRouter(): Router {
       sendJson(res, task)
     } catch (err) {
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
       throw err
     }
   }))
@@ -3635,7 +3636,12 @@ export function buildRouter(): Router {
     if (typeof seed.name !== 'string' || typeof seed.prompt !== 'string' || !Array.isArray(seed.steps) || !Array.isArray(seed.runs) || typeof seed.delivery !== 'object' || seed.delivery === null) {
       return sendError(res, 'bad_request', 'seed needs string name/prompt, array steps/runs, and a delivery object (see the ScheduledTask contract)')
     }
-    sendJson(res, store.addSchedule({ ...seed, tenantId: store.identity(req.headers).tenant.id }))
+    try {
+      sendJson(res, store.addSchedule({ ...seed, tenantId: store.identity(req.headers).tenant.id }))
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
+      throw err
+    }
   }))
   // Remove a routine.
   r.delete('/schedules/:id', ({ req, res, params }) => {

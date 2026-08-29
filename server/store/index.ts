@@ -65,6 +65,7 @@ import type {
 import {
   applyGraphOp,
   connectorsFor,
+  describeCadence,
   discussionTitle,
   emptyGraph,
   opKey,
@@ -72,12 +73,16 @@ import {
   runPrompt,
   runRecap,
   runSessionId,
+  nextCadenceFireAt,
+  nextRunLabel,
+  parseCadence,
   seedGraph,
   FOLLOW_ROSTER_CAP,
   PROPOSABLE_SCHEDULE_FIELDS,
   SHARE_TIERS,
   tierPermits,
   tierRank,
+  validTimeZone,
 } from '../../contract/index.ts'
 import { SESSIONS } from '../data/sessions.ts'
 import { DISPATCH_RUNS, SCHEDULE_TEMPLATES, PROJECTS, ALL_ARTIFACTS, SCHEDULED_TASKS } from '../data/cowork.ts'
@@ -92,7 +97,7 @@ import { fsReader, type FsReader } from '../fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../../contract/index.ts'
 import { authoredDocument, fsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity.ts'
-import { positiveNumberEnv, nonNegativeIntEnv } from '../env.ts'
+import { nonNegativeIntEnv } from '../env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts.ts'
 import { connectorDetail } from '../data/connectorDetails.ts'
 import { connectorActionResult } from '../model/connectorTools.ts'
@@ -219,11 +224,21 @@ let artifactSeq = 0
 const mintArtifactId = () => `art-live-${++artifactSeq}`
 
 // A mutable copy of the schedules — runs are appended here (by run-now and the
-// daemon), toggles flip `enabled`, so the runs feed is a single live source
+// scheduler), toggles flip `enabled`, so the runs feed is a single live source
 // rather than a frozen snapshot.
 const schedules: ScheduledTask[] = JSON.parse(JSON.stringify(SCHEDULED_TASKS))
 let runSeq = 0
 let scheduleSeq = 0
+
+function scheduleTiming(cadence: string, timezone: string | undefined, after: number): { nextFireAt: number; next: string; trigger: string } {
+  const zone = timezone ?? 'UTC'
+  if (!validTimeZone(zone)) throw new ValidationError(`Unknown schedule timezone '${zone}'.`)
+  const spec = parseCadence(cadence)
+  if (!spec) throw new ValidationError(`Unsupported schedule cadence '${cadence}'.`)
+  const nextFireAt = nextCadenceFireAt(spec, after, zone)
+  if (nextFireAt === undefined) throw new ValidationError(`Schedule cadence '${cadence}' has no next fire time.`)
+  return { nextFireAt, next: nextRunLabel(spec, new Date(after), zone), trigger: describeCadence(spec).trigger }
+}
 
 // A mutable copy of the dispatch feed — "New dispatch" prepends a one-off run that
 // finishes a beat later. Transient (a one-off agent run), so it's NOT persisted —
@@ -801,11 +816,16 @@ function isSchedulePatch(patch: unknown): boolean {
   const keys = Object.keys(patch)
   if (keys.length === 0) return false
   const allowed = new Set<string>(PROPOSABLE_SCHEDULE_FIELDS)
-  return keys.every((k) => {
+  const primitivesValid = keys.every((k) => {
     if (!allowed.has(k)) return false
     const v = (patch as Record<string, unknown>)[k]
     return k === 'enabled' || k === 'notifyOnFailure' ? typeof v === 'boolean' : typeof v === 'string' && v.trim().length > 0
   })
+  if (!primitivesValid) return false
+  const typed = patch as Record<string, unknown>
+  if (typeof typed.cadence === 'string' && !parseCadence(typed.cadence)) return false
+  if (typeof typed.timezone === 'string' && !validTimeZone(typed.timezone)) return false
+  return true
 }
 
 /** Whether an applying proposal's reviewed target has moved since it was
@@ -1781,7 +1801,7 @@ function mintSession(
  *  neither can collide with or masquerade as the recap). */
 const RUN_RECAP_MESSAGE_ID = 'm2'
 
-/** How much run history a routine retains — the daemon accretes a run every
+/** How much run history a routine retains — the scheduler accretes runs
  *  tick forever, and each run now carries a session row, so without a cap the
  *  store grows without bound (the principle server/store/store-runs.test.ts pins for
  *  standing artifacts applies here too). Old runs retire with their session
@@ -1795,7 +1815,7 @@ const TOOL_ACTIVITY_INFLIGHT = new Set<string>()
 
 /** The AGENT adapter of the mint funnel: the persisted session for one scheduled
  *  run, idempotent by its deterministic id (`srun-…`, contract/ids.ts) so run-now,
- *  the daemon, boot-time materialization, and the feed lookup all converge on the
+ *  the scheduler, boot-time materialization, and the feed lookup all converge on the
  *  same row. Minted with the user turn it ran (`runPrompt`); the recap lands when
  *  the run settles (`settleRunSession`), the way a human turn's reply does. On an
  *  EXISTING row the routine's code-owned facts re-stamp (P9 — the run-session
@@ -1868,7 +1888,7 @@ function retireOldRuns(task: ScheduledTask): void {
  *  over SEED runs and over snapshots written before run sessions persisted.
  *  Idempotent by the deterministic run-session id (and existing rows get their
  *  code-owned facts re-stamped — P9). Applies the retention cap first, so an
- *  over-cap snapshot (a long-running daemon's) shrinks to policy on boot —
+ *  over-cap snapshot (a long-running scheduler's) shrinks to policy on boot —
  *  which also bounds this pass. */
 function materializeRunSessions(): void {
   for (const task of schedules) {
@@ -2548,7 +2568,7 @@ function rehydrate(s: PersistedState): void {
   // D15/OQ7 audit trail — restore the append-only log (empty for a pre-field snapshot).
   auditLog.splice(0, auditLog.length, ...(s.auditLog ?? []))
   // P7 dispatch runs — restore the feed (keep the seed for a pre-field snapshot). Same
-  // crash-recovery sweep as the schedule daemon: a LIVE-minted run ('d-new-*') left
+  // crash-recovery sweep as the routine scheduler: a LIVE-minted run ('d-new-*') left
   // 'running' when the process died has no completing timer anymore, so it'd be stuck
   // in-flight forever — settle it to 'failed'. Seed runs (d1/d2/d3), 'running' for visual
   // variety, aren't live-minted, so they're left alone.
@@ -2776,7 +2796,7 @@ const RUN_STEP_MS = 300
  *  standing approval on the routine → nothing happens.
  *
  *  The routine owns exactly ONE live artifact (keyed by its run-session source +
- *  name), refreshed in place each run rather than appended — the daemon fires
+ *  name), refreshed in place each run rather than appended — the scheduler fires
  *  indefinitely, so appending a fresh artifact per run would grow the persisted
  *  snapshot without bound. The first run mints it; later runs just re-stamp it. */
 function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
@@ -6762,6 +6782,10 @@ export const store = {
     // authority over every id embedded in a relation op. Re-run the canonical
     // cross-tenant op wall for the actual landing principal.
     if (p.delta.kind === 'relation-op' && this.opDeniedForTenant(p.delta.op, tenantId)) return 'inapplicable'
+    // Old snapshots can carry a schedule delta offered before cadence/timezone
+    // became strict. Re-check at effect time so review never turns that legacy
+    // row into a 500 or a partially applied definition.
+    if (p.delta.kind === 'schedule-patch' && !isSchedulePatch(p.delta.patch)) return 'inapplicable'
     if (socialProposalIsStale(p)) return 'stale'
     return commitMutationBatch(() => {
       // Landing runs the REAL mutator for every applying kind — the same call the
@@ -7720,7 +7744,7 @@ export const store = {
   },
   /** Routines, scoped to the caller's tenant when given (F2/PD9 — each demo
    *  account seeds its own themed set). Unscoped for internal callers (the
-   *  daemon, run lookups by id). */
+   *  scheduler, run lookups by id). */
   listSchedules(tenantId?: string): ScheduledTask[] {
     if (!tenantId) return schedules
     // Viewer-relative ownership rides the projection (never stored): a grant
@@ -7757,14 +7781,19 @@ export const store = {
       session: ensureRunSession(task, run, { quiet: true }),
     }))
   },
-  /** Run a routine now: append a 'running' run, broadcast it, relight its rail one
+  /** Run a routine now or satisfy one scheduler fire: append a 'running' run, broadcast it, relight its rail one
    *  step at a time (`run.progress`), then finish it (`run.finished`). On finish any
    *  standing-approved effect the routine carries is applied unprompted
-   *  (`relation.applied` by:'standing'). The daemon uses this same path on a cadence. */
-  runSchedule(id: string): ScheduledRun | undefined {
+   *  (`relation.applied` by:'standing'). A scheduled run is idempotent by
+   *  `(routine id, scheduledFor)`; manual run-now carries no fire time. */
+  runSchedule(id: string, options?: { scheduledFor?: number; startedAt?: number }): ScheduledRun | undefined {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
-    // No overlapping runs of the same routine (P7): the daemon can tick again before a
+    if (options?.scheduledFor !== undefined) {
+      const represented = task.runs.find((r) => r.scheduledFor === options.scheduledFor)
+      if (represented) return represented
+    }
+    // No overlapping runs of the same routine (P7): the scheduler can tick again before a
     // run finishes, so if one is already in flight, return it instead of starting a
     // second. (A stale 'running' run from before a restart is swept to 'failed' on
     // rehydrate, so it can't wedge the routine.)
@@ -7775,11 +7804,12 @@ export const store = {
       status: 'running',
       duration: '—',
       reachedStep: 0,
-      summary: 'Running on demand…',
-      at: Date.now(),
+      summary: options?.scheduledFor === undefined ? 'Running on demand…' : 'Running on schedule…',
+      at: options?.startedAt ?? Date.now(),
+      ...(options?.scheduledFor === undefined ? {} : { scheduledFor: options.scheduledFor }),
     }
     task.runs = [run, ...task.runs]
-    // Bounded history (the daemon runs forever): past the cap the oldest run
+    // Bounded history (the scheduler runs forever): past the cap the oldest run
     // retires together with its session row.
     retireOldRuns(task)
     // The run's conversation opens the moment the run does — a real row through
@@ -7811,7 +7841,7 @@ export const store = {
       run.status = 'ok'
       run.reachedStep = steps
       run.duration = `${8 + steps * 3}s`
-      run.summary = `Ran on demand — delivered to ${task.delivery.target}`
+      run.summary = `${run.scheduledFor === undefined ? 'Ran on demand' : 'Ran on schedule'} — delivered to ${task.delivery.target}`
       task.lastStatus = 'ok'
       // The recap lands in the run's session the way any reply lands in a thread.
       settleRunSession(task, run)
@@ -7821,16 +7851,54 @@ export const store = {
     }, (steps + 1) * RUN_STEP_MS)
     return run
   },
+  /** Represent an overdue fire that policy deliberately skipped. This is a real,
+   *  visible run/session row (not a silent cursor jump), with the same fire-time
+   *  idempotency as execution. */
+  recordSkippedScheduleFire(id: string, scheduledFor: number, at = Date.now()): ScheduledRun | undefined {
+    const task = schedules.find((t) => t.id === id)
+    if (!task) return undefined
+    const represented = task.runs.find((run) => run.scheduledFor === scheduledFor)
+    if (represented) return represented
+    const run: ScheduledRun = {
+      id: `run-live-${(runSeq += 1)}`,
+      status: 'skipped',
+      duration: '0s',
+      reachedStep: 0,
+      summary: 'Missed while the app was offline — skipped by policy',
+      detail: 'This routine is set to skip missed runs. Its next future occurrence remains scheduled.',
+      at,
+      scheduledFor,
+    }
+    task.runs = [run, ...task.runs]
+    retireOldRuns(task)
+    const session = ensureRunSession(task, run)
+    settleRunSession(task, run)
+    emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId: session.id, run })
+    persist()
+    return run
+  },
+  /** Advance the durable scheduler cursor without revising the human-authored
+   *  routine definition. The display label is derived from the same cadence core. */
+  setScheduleNextFire(id: string, nextFireAt: number, now = Date.now()): ScheduledTask | undefined {
+    const task = schedules.find((t) => t.id === id)
+    if (!task) return undefined
+    const timing = scheduleTiming(task.cadence, task.timezone, now)
+    if (timing.nextFireAt !== nextFireAt) {
+      throw new ValidationError('The scheduler cursor must be the next cadence occurrence.')
+    }
+    task.nextFireAt = nextFireAt
+    task.next = timing.next
+    task.trigger = timing.trigger
+    emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
+    persist()
+    return task
+  },
   /** Set a routine's enabled state — to an explicit value, or toggle when the
    *  value is omitted. */
   setScheduleEnabled(id: string, enabled?: boolean): ScheduledTask | undefined {
     const task = schedules.find((t) => t.id === id)
     if (!task) return undefined
-    task.enabled = enabled ?? !task.enabled
-    task.revision = (task.revision ?? 0) + 1
-    emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
-    persist()
-    return task
+    return this.updateSchedule(id, { enabled: enabled ?? !task.enabled })
   },
   /** Merge a partial patch of a routine's OWN fields (the entity edits behind the
    *  detail page — name, prompt, cadence, model, steps, …). Only the fields present
@@ -7850,6 +7918,21 @@ export const store = {
         `This routine changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
       )
     }
+    if (patch.missedFirePolicy !== undefined && patch.missedFirePolicy !== 'skip' && patch.missedFirePolicy !== 'catch-up-once') {
+      throw new ValidationError(`Unknown missed-fire policy '${patch.missedFirePolicy}'.`)
+    }
+    const prospectiveCadence = patch.cadence ?? task.cadence
+    const prospectiveTimezone = patch.timezone ?? task.timezone
+    const timingChanged = patch.cadence !== undefined || patch.timezone !== undefined
+    const enabling = patch.enabled === true && !task.enabled
+    const willBeEnabled = patch.enabled ?? task.enabled
+    const now = Date.now()
+    // Validate timing edits even while paused. A newly enabled or currently
+    // enabled changed routine also receives its first future durable cursor.
+    const validatedTiming = timingChanged ? scheduleTiming(prospectiveCadence, prospectiveTimezone, now) : undefined
+    const nextTiming = willBeEnabled && (timingChanged || enabling || !Number.isFinite(task.nextFireAt))
+      ? validatedTiming ?? scheduleTiming(prospectiveCadence, prospectiveTimezone, now)
+      : undefined
     if (patch.enabled !== undefined) task.enabled = patch.enabled
     if (patch.name !== undefined) {
       task.name = patch.name
@@ -7869,14 +7952,24 @@ export const store = {
       }
     }
     if (patch.prompt !== undefined) task.prompt = patch.prompt
-    if (patch.cadence !== undefined) task.cadence = patch.cadence
-    if (patch.trigger !== undefined) task.trigger = patch.trigger
-    if (patch.next !== undefined) task.next = patch.next
+    if (patch.cadence !== undefined) {
+      task.cadence = patch.cadence
+      // Cadence is authored; the WHEN sentence is its projection. A proposal
+      // that changes only recurrence must not leave the workflow saying the old time.
+      task.trigger = validatedTiming!.trigger
+    }
     if (patch.timezone !== undefined) task.timezone = patch.timezone
+    if (patch.missedFirePolicy !== undefined) task.missedFirePolicy = patch.missedFirePolicy
     if (patch.model !== undefined) task.model = patch.model
     if (patch.notifyOnFailure !== undefined) task.notifyOnFailure = patch.notifyOnFailure
     if (patch.delivery !== undefined) task.delivery = patch.delivery
     if (patch.steps !== undefined) task.steps = patch.steps
+    if (!task.enabled) {
+      delete task.nextFireAt
+    } else if (nextTiming) {
+      task.nextFireAt = nextTiming.nextFireAt
+      task.next = nextTiming.next
+    }
     task.revision = currentRevision + 1
     emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
     persist()
@@ -7884,7 +7977,15 @@ export const store = {
   },
   /** Add a routine from a template (lands paused), return it. */
   addSchedule(seed: Omit<ScheduledTask, 'id'>): ScheduledTask {
+    const timing = scheduleTiming(seed.cadence, seed.timezone, Date.now())
     const task: ScheduledTask = { ...seed, id: `s-new-${(scheduleSeq += 1)}`, revision: 0 }
+    task.trigger = timing.trigger
+    if (task.enabled) {
+      task.nextFireAt = timing.nextFireAt
+      task.next = timing.next
+    } else {
+      delete task.nextFireAt
+    }
     schedules.unshift(task)
     // A seed can carry run history — capped, and every run gets its session row
     // through the same funnel (the one-funnel invariant holds wherever runs
@@ -8190,26 +8291,4 @@ export const store = {
     }
     return false
   },
-}
-
-/** The scheduled-run daemon: on a cadence, fire a run for a random enabled
- *  routine and broadcast it — so a connected UI sees runs appear with no request
- *  (the ambient-push showcase). Returns a stop handle. In the real product this
- *  is a server-side cron executing the workflow against the Anthropic API. */
-/** How long a runner may go without a heartbeat before the control plane reaps it
- *  (F4 liveness). The pinned co-located seed is exempt; external runners must heartbeat.
- *  ~Two missed heartbeats at the daemon cadence by default. */
-const RUNNER_TTL_MS = positiveNumberEnv(process.env.RUNNER_TTL_MS, 120_000)
-
-export function startRunDaemon(intervalMs = 45_000): () => void {
-  const tick = () => {
-    store.registry.reapStale(RUNNER_TTL_MS) // drop external runners that stopped heartbeating
-    const active = schedules.filter((t) => t.enabled)
-    if (active.length === 0) return
-    // Vary by the run counter rather than Math.random for reproducibility.
-    const task = active[runSeq % active.length]
-    store.runSchedule(task.id)
-  }
-  const handle = setInterval(tick, intervalMs)
-  return () => clearInterval(handle)
 }

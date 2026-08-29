@@ -9,6 +9,7 @@ const task = (revision: number, name: string, runId: string): ScheduledTask => (
   name,
   cadence: 'Daily',
   next: 'tomorrow',
+  nextFireAt: revision * 1_000,
   enabled: true,
   lastStatus: 'ok',
   subtitle: 'A routine',
@@ -18,6 +19,7 @@ const task = (revision: number, name: string, runId: string): ScheduledTask => (
   delivery: { tool: { id: 'claude', label: 'Claude', tone: 'claude' }, target: 'Thread' },
   runs: [{ id: runId, status: 'ok', duration: '1s', reachedStep: 0, summary: runId, at: revision }],
   model: 'Claude',
+  missedFirePolicy: revision % 2 === 0 ? 'skip' : 'catch-up-once',
 })
 
 test('an older routine acknowledgement cannot rewind a newer definition', () => {
@@ -30,6 +32,8 @@ test('an accepted definition acknowledgement preserves independently moving run 
   const merged = mergeScheduleDefinition(current, task(3, 'After', 'run-stale'))
   assert.equal(merged.name, 'After')
   assert.equal(merged.revision, 3)
+  assert.equal(merged.nextFireAt, 3_000, 'the server-owned cadence cursor follows the accepted acknowledgement')
+  assert.equal(merged.missedFirePolicy, 'catch-up-once', 'the authored downtime policy follows the accepted acknowledgement')
   assert.equal(merged.runs, current.runs, 'run history remains the cache projection already on screen')
   assert.equal(merged.lastStatus, current.lastStatus)
 })

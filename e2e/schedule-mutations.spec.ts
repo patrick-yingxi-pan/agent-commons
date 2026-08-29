@@ -55,3 +55,30 @@ test('a stale routine toggle loads the other device change and retries one user 
   expect(landed?.enabled).toBe(nextEnabled)
   expect(landed?.revision).toBe(revision + 2)
 })
+
+test('the schedule editor saves timezone intent and an explicit downtime policy', async ({ page }) => {
+  test.setTimeout(ms(45_000))
+  const tasks = await (await page.request.get('/api/v1/schedules')).json() as ScheduledTask[]
+  const target = tasks.find((candidate) => candidate.own !== false && candidate.enabled)
+    ?? tasks.find((candidate) => candidate.own !== false)
+  expect(target).toBeTruthy()
+
+  await page.goto(`/scheduled/${target!.id}`)
+  await expect(page.getByRole('heading', { name: target!.name })).toBeVisible()
+  const schedule = page.locator('[data-resource-section="Schedule"]')
+  const disclosure = schedule.getByRole('button', { name: /Schedule/ }).first()
+  if ((await disclosure.getAttribute('aria-expanded')) !== 'true') await disclosure.click()
+  await schedule.getByRole('button', { name: 'Edit schedule' }).click()
+
+  const editor = page.getByRole('dialog', { name: 'Edit schedule' })
+  await editor.getByLabel('Timezone').selectOption('UTC')
+  await editor.getByLabel('After downtime').selectOption('catch-up-once')
+  await editor.getByRole('button', { name: 'Apply' }).click()
+
+  await expect(schedule.getByText('Run once when back')).toBeVisible()
+  const stored = await (await page.request.get('/api/v1/schedules')).json() as ScheduledTask[]
+  const landed = stored.find((candidate) => candidate.id === target!.id)
+  expect(landed?.timezone).toBe('UTC')
+  expect(landed?.missedFirePolicy).toBe('catch-up-once')
+  expect(Number.isFinite(landed?.nextFireAt)).toBe(true)
+})

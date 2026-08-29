@@ -43,6 +43,47 @@ test('PATCH /schedules/:id with no enabled key leaves enabled unchanged (no impl
   assert.equal(res.json.enabled, task.enabled, 'a patch without `enabled` never flips it — the UI sends the resolved value')
 })
 
+test('cadence edits persist a server-derived timezone cursor and downtime policy', async () => {
+  const task = (await call('GET', '/schedules')).json[0]
+  const before = Date.now()
+  const res = await call('PATCH', `/schedules/${task.id}`, {
+    enabled: true,
+    cadence: 'Daily · 9:00 AM',
+    trigger: 'client supplied lie',
+    timezone: 'UTC',
+    missedFirePolicy: 'catch-up-once',
+    next: 'client supplied lie',
+  })
+  assert.equal(res.status, 200)
+  assert.equal(res.json.missedFirePolicy, 'catch-up-once')
+  assert.equal(res.json.timezone, 'UTC')
+  assert.equal(res.json.trigger, 'every day at 9:00 AM')
+  assert.ok(res.json.nextFireAt > before, 'the server stamps a future durable cursor')
+  assert.notEqual(res.json.next, 'client supplied lie', 'next-run copy is server-derived')
+})
+
+test('invalid cadence and timezone edits are 400s that leave the definition untouched', async () => {
+  const task = (await call('GET', '/schedules')).json[0]
+  const badZone = await call('PATCH', `/schedules/${task.id}`, { timezone: 'Mars/Olympus_Mons' })
+  assert.equal(badZone.status, 400)
+  assert.match(badZone.json.error.message, /timezone/i)
+
+  const badCadence = await call('PATCH', `/schedules/${task.id}`, { cadence: 'whenever it feels right' })
+  assert.equal(badCadence.status, 400)
+  const after = (await call('GET', '/schedules')).json.find((candidate: { id: string }) => candidate.id === task.id)
+  assert.equal(after.timezone, task.timezone)
+  assert.equal(after.cadence, task.cadence)
+  assert.equal(after.revision, task.revision)
+})
+
+test('a paused routine seed still needs an executable cadence', async () => {
+  const templates = await call('GET', '/schedule-templates')
+  const seed = { ...templates.json[0].seed, cadence: 'sometime later', enabled: false }
+  const res = await call('POST', '/schedules', { seed })
+  assert.equal(res.status, 400)
+  assert.match(res.json.error.message, /cadence/i)
+})
+
 test('routine definition PATCH refuses stale revisions and replays one logical retry', async () => {
   const list = await call('GET', '/schedules')
   const task = list.json[0]
