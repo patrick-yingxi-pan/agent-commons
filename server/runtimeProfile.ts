@@ -56,6 +56,7 @@ export function resolveRuntimeProfile(
       PERSIST_BACKEND: 'sqlite',
       INITIAL_WORLD: 'clean',
       MODEL_INLINE: '0',
+      CONNECTOR_RUNTIME: 'unconfigured',
       CORS_ORIGIN: corsOrigin,
     }
   }
@@ -84,6 +85,7 @@ export function resolveRuntimeProfile(
     PERSIST_BACKEND: persistence === 'json' ? 'json' : 'sqlite',
     INITIAL_WORLD: 'clean',
     MODEL_INLINE: '0',
+    CONNECTOR_RUNTIME: 'unconfigured',
     CORS_ORIGIN: corsOrigin,
   }
 }

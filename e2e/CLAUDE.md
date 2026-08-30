@@ -97,6 +97,10 @@ nav buttons carry a `navigation` role.
   and said nothing about *which* post had landed where. `parentRow.locator('li')
   .filter({ has: page.locator('p', { hasText: X }) })` states the claim
   directly and fails on a flat render.
+- **A definition mutation needs a test-owned entity.** Shards may mutate the
+  same seeded routine concurrently, and the E2E store also survives later runs.
+  Create the routine/project/artifact through its real product route when the
+  walk revises it; a unique row locator cannot prevent competing base revisions.
 
 ## Verification
 

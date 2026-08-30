@@ -1097,10 +1097,10 @@ export async function deleteSession(id: string): Promise<void> {
   }
 }
 
-/** Confirm or decline a proposed connector ACTION (P6 §2.1, PD43) — the consent gate
- *  for a connector/MCP write. A read runs at generation; an action only takes effect
- *  here, on approval. Returns the updated activity (status `done` + mock result, or
- *  `declined`); the server records an audit entry on confirm. Invalidates the session so
+/** Confirm or decline a proposed tool action (P6 §2.1, PD43). Connector/MCP
+ *  confirmation executes the exact persisted input through the configured runtime;
+ *  generated API actions re-enter their owning route. Returns the settled activity;
+ *  a refused effect leaves the proposal open and rejects this call. Invalidates the session so
  *  a later reopen reflects the persisted status. */
 export async function resolveToolActivity(
   sessionId: string,

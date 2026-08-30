@@ -100,7 +100,6 @@ import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity
 import { nonNegativeIntEnv } from '../env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts.ts'
 import { connectorDetail } from '../data/connectorDetails.ts'
-import { connectorActionResult } from '../model/connectorTools.ts'
 import { ARTIFACT_CONTENT } from '../data/artifactContent.ts'
 import { createUsageMeter, estimateTokens, mintBudget } from '../usage.ts'
 import { mintAuthority } from '../authority.ts'
@@ -3532,15 +3531,8 @@ export const store = {
     if (!session) return undefined
     return { ...session, workspace: this.sessionWorkspace(id), contexts: this.sessionContexts(id) }
   },
-  /** Confirm or decline a proposed connector *action* (P6 §2.1, PD43 — the consent gate
-   *  for connector/MCP writes). A read runs at generation time; an action is surfaced as
-   *  a `proposed` ToolActivity and only takes effect here, on the user's approval:
-   *  `confirm` flips it to `done` (with the mock result) and records an audit entry (the
-   *  consent → effect → audit trail); `decline` flips it to `declined`. Idempotent — a
-   *  non-proposed / already-resolved activity is returned unchanged. Returns the updated
-   *  activity, or undefined if the id isn't on the session. */
   /** Find a message's tool activity without mutating it — the route reads a
-   *  pending API-op activity here BEFORE executing its operation on confirm. */
+   *  pending API or connector action here BEFORE executing it on confirm. */
   getToolActivity(sessionId: string, activityId: string): ToolActivity | undefined {
     const session = SESSIONS.find((s) => s.id === sessionId)
     for (const m of session?.messages ?? []) {
@@ -3555,7 +3547,8 @@ export const store = {
    *  execute the operation twice; the claim is taken BEFORE the first await, so
    *  only one caller wins. Returns true for that first caller only. Released by
    *  `releaseToolActivity` (inner refusal — the proposal stays open) or by
-   *  `resolveToolActivity` (the verdict landed). */
+   *  `resolveToolActivity` (the verdict landed). Applies equally to generated
+   *  API operations and connector/MCP actions. */
   claimToolActivity(sessionId: string, activityId: string): boolean {
     const act = this.getToolActivity(sessionId, activityId)
     if (!act || act.kind !== 'action' || act.status !== 'proposed') return false
@@ -3564,7 +3557,7 @@ export const store = {
     TOOL_ACTIVITY_INFLIGHT.add(key)
     return true
   },
-  /** Drop an execution claim without resolving — the inner dispatch refused, so
+  /** Drop an execution claim without resolving — the effect runtime refused, so
    *  the activity stays `proposed` and confirm/decline both remain open. */
   releaseToolActivity(sessionId: string, activityId: string): void {
     TOOL_ACTIVITY_INFLIGHT.delete(`${sessionId}/${activityId}`)
@@ -3572,7 +3565,8 @@ export const store = {
   /** Record the user's verdict on a proposed action. For an API-op activity the
    *  ROUTE has already executed the operation (through the router, as the
    *  confirmer — INV-11) and passes the result as `doneSummary`; a connector
-   *  activity keeps its fixture result. Audited under the matching capability.
+   *  activity also carries the connector runtime's accepted result. Audited
+   *  under the matching capability.
    *  Idempotent per resolved state (a non-proposed activity returns unchanged) —
    *  but the execute step itself is NOT idempotent, so a confirm that dispatches
    *  an op must first win `claimToolActivity` (released here when the verdict
@@ -3591,8 +3585,12 @@ export const store = {
       if (decision === 'decline') {
         act.status = 'declined'
       } else {
+        // A connector action without a settled runtime result must stay open.
+        // This prevents an internal caller from manufacturing `done` from the
+        // development fixture or a generic string after the consent click.
+        if (!act.op && !doneSummary) return act
         act.status = 'done'
-        act.summary = doneSummary ?? connectorActionResult(act.tool, act.connector)
+        act.summary = doneSummary ?? `${act.op?.method} ${act.op?.path} completed.`
         this.recordAudit({
           tenantId: session.tenantId ?? defaultTenantId(),
           channel: 'proxy',

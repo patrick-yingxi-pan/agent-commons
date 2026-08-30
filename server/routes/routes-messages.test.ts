@@ -103,6 +103,32 @@ test('confirming a proposed connector action executes it (mock) + records an aud
   assert.equal(store.listAuditLog().filter((e) => e.capability === 'connector.write').length, auditAfter, 'no duplicate audit on re-confirm')
 })
 
+test('release posture refuses connector confirmation without claiming an external effect', async () => {
+  const s = store.createSession('connector release refusal')
+  store.attachContext(s.id, { id: 'mcp-fs', type: 'mcp', label: 'MCP · filesystem', scope: '*' })
+  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'write a file via filesystem' })
+  const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
+  const proposed = thread
+    .flatMap((m: { toolActivities?: { id: string; status?: string; kind?: string }[] }) => m.toolActivities ?? [])
+    .find((a: { status?: string; kind?: string }) => a.kind === 'action' && a.status === 'proposed')
+  assert.ok(proposed)
+
+  const prior = process.env.CONNECTOR_RUNTIME
+  process.env.CONNECTOR_RUNTIME = 'unconfigured'
+  try {
+    const auditBefore = store.listAuditLog().filter((e) => e.capability === 'connector.write' && e.outcome === 'denied').length
+    const res = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'confirm' })
+    assert.equal(res.status, 409)
+    assert.match(res.json.error.message, /not configured/i)
+    assert.equal(store.getToolActivity(s.id, proposed.id)?.status, 'proposed', 'retry and decline remain open')
+    const auditAfter = store.listAuditLog().filter((e) => e.capability === 'connector.write' && e.outcome === 'denied').length
+    assert.equal(auditAfter, auditBefore + 1, 'the refused external attempt is detective-audited')
+  } finally {
+    if (prior === undefined) delete process.env.CONNECTOR_RUNTIME
+    else process.env.CONNECTOR_RUNTIME = prior
+  }
+})
+
 test('declining a proposed connector action marks it declined + records no audit', async () => {
   const s = store.createSession('connector write decline')
   store.attachContext(s.id, { id: 'mcp-fs', type: 'mcp', label: 'MCP · filesystem', scope: '*' })

@@ -204,6 +204,41 @@ test('a deterministic tool-loop limit fails once and is never retried', async ()
   assert.equal(state.failures[0]?.code, 'model_loop_limit')
 })
 
+test('a failed connector effect cannot complete a routine from the model prose', async () => {
+  const state = fakeState()
+  let calls = 0
+  const generate = (async () => {
+    calls += 1
+    return generated({
+      message: {
+        id: 'm-connector-failed',
+        role: 'assistant',
+        content: 'The briefing is ready.',
+        toolActivities: [{
+          id: 'act-failed',
+          tool: 'connector__slack__list',
+          connector: 'Slack',
+          connectorId: 'slack',
+          kind: 'read',
+          status: 'failed',
+          summary: 'Connector execution is not configured in this release.',
+          failure: { code: 'connector_unconfigured', retryable: false },
+        }],
+      },
+    })
+  }) as RoutineGenerate
+  const runner = createRoutineRunner(fakeStore(state), generate, { now: () => 1_000, retryBaseMs: 1 })
+  runner.start()
+  await settle(state)
+  runner.stop()
+
+  assert.equal(calls, 1)
+  assert.equal(state.completions.length, 0, 'model prose cannot overrule a failed effect')
+  assert.deepEqual(state.deferrals, [], 'an unconfigured runtime is deterministic, so it is not hot-loop retried')
+  assert.equal(state.failures[0]?.code, 'context_unavailable')
+  assert.match(state.failures[0]?.detail ?? '', /not configured/i)
+})
+
 test('context/authority refusal and budget exhaustion fail before model I/O', async () => {
   for (const scenario of ['context', 'budget'] as const) {
     const state = fakeState(scenario === 'context'

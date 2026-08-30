@@ -90,6 +90,7 @@ import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
+import { executeConnectorActivity } from '../connectorRuntime.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
@@ -3399,7 +3400,7 @@ export function buildRouter(): Router {
   })
 
   // Confirm / decline a proposed connector ACTION (P6 §2.1, PD43 — the consent gate for
-  // connector/MCP writes). A read ran at generation time; an action only takes effect
+  // connector/MCP writes). A read is attempted at generation time; an action only takes effect
   // here, on the user's approval, and is audited. Tenant-guarded like the other by-id
   // session routes (a foreign tenant can't confirm another's pending write).
   r.intrinsicPost('/sessions/:id/tool-activities/:activityId', 'consent resolution is intrinsic host control; a model must never confirm its own proposal', async ({ req, res, params, body }) => {
@@ -3408,36 +3409,44 @@ export function buildRouter(): Router {
     if (decision !== 'confirm' && decision !== 'decline') {
       return sendError(res, 'bad_request', "decision must be 'confirm' or 'decline'")
     }
-    // An API-op activity (INV-11, the in-app leg): the confirm EXECUTES the
-    // proposed operation — through this same router, with THIS request's
-    // headers, so the act runs as the CONFIRMER and meets every wall (tenancy,
-    // gate, capability 409s) exactly as if they'd clicked it in the UI. On an
-    // inner refusal the activity stays proposed (retry/decline both remain
-    // open) and the inner error surfaces honestly as a 409.
+    // Every pending verdict wins one synchronous claim before any await. API
+    // operations re-enter this router as the confirmer; connector/MCP actions
+    // cross the shared runtime with the exact persisted model input. A refused
+    // effect stays proposed so Retry and Decline both remain available.
     let doneSummary: string | undefined
     const pending = store.getToolActivity(params.id, params.activityId)
-    if (pending?.op && pending.status === 'proposed') {
-      // The confirm's dispatch await yields — so EVERY verdict on an op-proposal
-      // must win a synchronous claim first: a second concurrent confirm can't
-      // re-read `proposed` and execute twice, and a decline can't land
-      // mid-execution (flipping the record to "declined" while the confirmed
-      // operation still runs to completion, unaudited).
+    if (pending?.kind === 'action' && pending.status === 'proposed') {
       if (!store.claimToolActivity(params.id, params.activityId)) {
         return sendError(res, 'conflict', `Tool activity '${params.activityId}' is already being processed`)
       }
       if (decision === 'confirm') {
-        const out = await apiDispatch(pending.op.method, pending.op.path, req.headers, pending.op.body)
-        if (out.status >= 400) {
-          store.releaseToolActivity(params.id, params.activityId) // stays proposed; retry/decline remain open
-          let detail = `HTTP ${out.status}`
-          try {
-            detail = JSON.parse(out.body.toString('utf8')).error.message ?? detail
-          } catch {}
-          return sendError(res, 'conflict', `The proposed operation was refused (${out.status}): ${detail}`)
+        if (pending.op) {
+          const out = await apiDispatch(pending.op.method, pending.op.path, req.headers, pending.op.body)
+          if (out.status >= 400) {
+            store.releaseToolActivity(params.id, params.activityId)
+            let detail = `HTTP ${out.status}`
+            try {
+              detail = JSON.parse(out.body.toString('utf8')).error.message ?? detail
+            } catch {}
+            return sendError(res, 'conflict', `The proposed operation was refused (${out.status}): ${detail}`)
+          }
+          doneSummary = `${pending.op.method} ${API_BASE_PATH}${pending.op.path} → ${out.status}`
+        } else {
+          const executed = await executeConnectorActivity(pending)
+          if (!executed.ok) {
+            store.releaseToolActivity(params.id, params.activityId)
+            store.recordAudit({
+              tenantId: store.identity(req.headers).tenant.id,
+              channel: 'proxy',
+              capability: 'connector.write',
+              target: pending.connector,
+              outcome: 'denied',
+            })
+            return sendError(res, 'conflict', executed.message)
+          }
+          doneSummary = executed.summary
         }
-        doneSummary = `${pending.op.method} ${API_BASE_PATH}${pending.op.path} → ${out.status}`
       }
-      // A decline reaches the resolve below synchronously, claim in hand.
     }
     const activity = store.resolveToolActivity(params.id, params.activityId, decision, doneSummary)
     if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)

@@ -10,6 +10,8 @@ import type { RelationOp, ToolActivity } from '../contract/index.ts'
 import type { ApiOperation } from './apiSurface.ts'
 import type { ApiToolRuntime } from './model/apiTools.ts'
 import type { ToolContext } from './model/tools.ts'
+import { deriveConnectorTools } from './model/connectorTools.ts'
+import { unconfiguredConnectorRuntime } from './connectorRuntime.ts'
 import { executeToolBatch, toolExecutionLimits, toolLoopLimits } from './toolExecution.ts'
 
 const READ_USAGE: ApiOperation = {
@@ -111,6 +113,30 @@ test('caller cancellation stops a hung tool batch instead of becoming a recovera
     }),
     /cancelled/i,
   )
+})
+
+test('a connector runtime refusal is committed as failed provenance and returned to the model as an error', async () => {
+  const context: ToolContext = { session: { id: 'sess-connector', title: 'Connector failure' } }
+  const relationOps: RelationOp[] = []
+  const toolActivities: ToolActivity[] = []
+  const { bindings } = deriveConnectorTools([{ id: 'slack', type: 'connector', label: 'Slack', scope: '*' }])
+  const out = await executeToolBatch(
+    [{ id: 'tc-connector', name: 'connector__slack__list', input: {} }],
+    {
+      declaredNames: new Set(['connector__slack__list']),
+      connectorBindings: bindings,
+      connectorRuntime: unconfiguredConnectorRuntime,
+      context,
+      relationOps,
+      toolActivities,
+      limits: { maxCalls: 1, timeoutMs: 100 },
+    },
+  )
+
+  assert.equal(out.results[0].isError, true)
+  assert.match(out.results[0].content, /not configured/i)
+  assert.equal(toolActivities[0]?.status, 'failed')
+  assert.equal(toolActivities[0]?.failure?.code, 'connector_unconfigured')
 })
 
 test('operator limits are safe by default and a batch-count misconfiguration cannot remove the hard ceiling', () => {

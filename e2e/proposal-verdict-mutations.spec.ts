@@ -60,7 +60,18 @@ test('proposal verdicts retain one decision through failure and expose outdated 
   // An applying proposal is consent to a reviewed base. Move a routine after
   // Grace offers its cadence change; the owner sees an explicit stale state,
   // no Land affordance, and can still close it with Decline.
-  const scheduleId = 's-issue-triage'
+  // Create this walk's routine through the product route instead of mutating a
+  // shared seed: the social-sharing shard exercises that seed concurrently, and
+  // two definition revisions would invalidate each other's reviewed base.
+  const templates = await ada.page.request.get(`${API}/schedule-templates`)
+  expect(templates.ok()).toBeTruthy()
+  const template = ((await templates.json()) as Array<{ seed: Record<string, unknown> }>)[0]
+  expect(template).toBeTruthy()
+  const createdRoutine = await ada.page.request.post(`${API}/schedules`, {
+    data: { seed: { ...template.seed, name: `Verdict routine ${stamp}` } },
+  })
+  expect(createdRoutine.ok()).toBeTruthy()
+  const scheduleId = ((await createdRoutine.json()) as { id: string }).id
   const cadence = 'Every hour'
   const routineGrant = await ada.page.request.post(`${API}/grants`, {
     data: { subject: { kind: 'schedule', id: scheduleId }, audience: { kind: 'org', orgId: 'tenant-beta' }, tier: 'propose' },

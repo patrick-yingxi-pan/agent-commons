@@ -8,8 +8,10 @@ and change proposals are addressable resources in one collaboration workspace.
 The repository is a working end-to-end implementation over a deterministic
 development backend. The UI, versioned HTTP + SSE contract, authentication and
 authorization, MCP doors, model/tool-use seam, persistence, and session-relay
-connector are real boundaries. Seeded entities and the local model are explicit
-fixtures documented in [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md).
+connector are real boundaries. Seeded entities, the local model, and development
+connector/MCP discovery + fulfilment are explicit fixtures documented in
+[`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md); release profiles
+fail closed where a real adapter is not configured.
 
 ## What the platform supports
 

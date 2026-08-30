@@ -15,6 +15,7 @@
  *  is discarded and it cannot mutate state. API mutations and connector writes
  *  remain consent-gated proposals and never dispatch from this loop. */
 import type { EscalationProposal, RelationOp, ToolActivity } from '../contract/index.ts'
+import { connectorToolRuntime, type ConnectorToolRuntime } from './connectorRuntime.ts'
 import { nonNegativeIntEnv, positiveNumberEnv } from './env.ts'
 import { runApiTool, type ApiToolRuntime } from './model/apiTools.ts'
 import { runConnectorTool, type DerivedConnectorTools } from './model/connectorTools.ts'
@@ -74,6 +75,9 @@ export interface ToolBatchOptions {
   /** Exact names offered to the model on this turn — the authority wall. */
   declaredNames: ReadonlySet<string>
   connectorBindings: DerivedConnectorTools['bindings']
+  /** One injected connector/MCP effect boundary. Omitted resolves the current
+   *  deployment posture (fixture in development, fail-closed in release). */
+  connectorRuntime?: ConnectorToolRuntime
   api?: ApiToolRuntime
   context: ToolContext
   /** Live accumulators shared with the turn so serial calls can chain. */
@@ -115,24 +119,34 @@ export class ToolExecutionCancelledError extends Error {
 /** Race async work against its local deadline and the turn's cancellation.
  *  Executor exceptions are deliberately not returned: raw errors may include
  *  credentials, paths, or tenant data and must not be fed to a model. */
-async function settle<T>(task: () => Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<Settlement<T>> {
+async function settle<T>(task: (signal: AbortSignal) => Promise<T>, timeoutMs: number, signal?: AbortSignal): Promise<Settlement<T>> {
   if (signal?.aborted) throw new ToolExecutionCancelledError()
 
+  const local = new AbortController()
+  let interrupted: 'timeout' | 'cancelled' | undefined
   const work: Promise<Settlement<T>> = Promise.resolve()
-    .then(task)
+    .then(() => task(local.signal))
     .then(
       (value) => ({ kind: 'done', value }),
-      () => ({ kind: 'failed' }),
+      () => ({ kind: interrupted ?? 'failed' }),
     )
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeout = new Promise<Settlement<T>>((resolve) => {
-    timer = setTimeout(() => resolve({ kind: 'timeout' }), Math.max(1, timeoutMs))
+    timer = setTimeout(() => {
+      interrupted = 'timeout'
+      local.abort()
+      resolve({ kind: 'timeout' })
+    }, Math.max(1, timeoutMs))
     ;(timer as { unref?: () => void }).unref?.()
   })
   let onAbort: (() => void) | undefined
   const cancelled = signal
-    ? new Promise<Settlement<T>>((resolve) => {
-        onAbort = () => resolve({ kind: 'cancelled' })
+      ? new Promise<Settlement<T>>((resolve) => {
+        onAbort = () => {
+          interrupted = 'cancelled'
+          local.abort()
+          resolve({ kind: 'cancelled' })
+        }
         signal.addEventListener('abort', onAbort, { once: true })
       })
     : undefined
@@ -150,8 +164,15 @@ const asInput = (input: unknown): Record<string, unknown> =>
 
 /** Resolve one declared call without mutating the turn accumulators. The caller
  *  commits the returned effect only after `settle` reports success. */
-async function invoke(call: ModelToolCall, options: ToolBatchOptions): Promise<PendingEffect> {
-  const activity = runConnectorTool(call.name, options.connectorBindings, call.id)
+async function invoke(call: ModelToolCall, options: ToolBatchOptions, signal: AbortSignal): Promise<PendingEffect> {
+  const activity = await runConnectorTool(
+    call.name,
+    options.connectorBindings,
+    call.id,
+    asInput(call.input),
+    options.connectorRuntime ?? connectorToolRuntime(),
+    signal,
+  )
   if (activity) {
     return {
       activity,
@@ -159,6 +180,7 @@ async function invoke(call: ModelToolCall, options: ToolBatchOptions): Promise<P
         activity.status === 'proposed'
           ? 'Proposed to the user — awaiting their confirmation; not executed yet.'
           : activity.summary,
+      isError: activity.status === 'failed',
     }
   }
 
@@ -212,7 +234,7 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
       })
       continue
     }
-    const settled = await settle(() => invoke(call, options), Math.min(limits.timeoutMs, remainingTurnMs), options.signal)
+    const settled = await settle((signal) => invoke(call, options, signal), Math.min(limits.timeoutMs, remainingTurnMs), options.signal)
     if (settled.kind === 'cancelled') throw new ToolExecutionCancelledError()
     if (settled.kind === 'timeout') {
       results.push({

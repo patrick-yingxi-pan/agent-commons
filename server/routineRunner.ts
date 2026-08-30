@@ -183,6 +183,16 @@ export function createRoutineRunner(
         retryOrFail(ctx, 'authority_denied', 'The model requested an action outside this routine’s standing approvals.', false)
         return
       }
+      const connectorFailure = result.message.toolActivities?.find((activity) => activity.status === 'failed')
+      if (connectorFailure) {
+        retryOrFail(
+          ctx,
+          'context_unavailable',
+          connectorFailure.summary,
+          connectorFailure.failure?.retryable ?? true,
+        )
+        return
+      }
       runStore.completeScheduleRun(
         taskId,
         runId,

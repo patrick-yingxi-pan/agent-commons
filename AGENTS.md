@@ -7,7 +7,9 @@ This repository is **Agent Commons**, an agents-collaboration platform where
 people configure agents, work through adaptive conversations, and coordinate
 shared projects, resources, routines, and proposals. The frontend, HTTP + SSE
 backend, MCP access doors, model seam, and session-relay connector are real
-boundaries; seeded data and the development model remain deterministic fixtures.
+boundaries; seeded data, the development model, and development connector/MCP
+fulfilment remain deterministic fixtures. Release profiles fail closed at the
+connector runtime until a real adapter is configured.
 Read [`README.md`](README.md) for the engineering tour and
 [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md) for the explicit
 mock boundary.

@@ -20,6 +20,7 @@ test('desktop is a loopback-only, native, ungated SQLite profile with a pinned o
     PERSIST_BACKEND: 'sqlite',
     INITIAL_WORLD: 'clean',
     MODEL_INLINE: '0',
+    CONNECTOR_RUNTIME: 'unconfigured',
     CORS_ORIGIN: 'http://127.0.0.1:8787',
   })
   assert.deepEqual(input, {}, 'profile resolution never mutates the caller environment')
@@ -81,6 +82,7 @@ test('web is auth-gated, remote-capability, Secure-cookie, and SQLite by default
   assert.equal(resolved.PERSIST_BACKEND, 'sqlite')
   assert.equal(resolved.INITIAL_WORLD, 'clean')
   assert.equal(resolved.MODEL_INLINE, '0')
+  assert.equal(resolved.CONNECTOR_RUNTIME, 'unconfigured')
   assert.equal(resolved.CORS_ORIGIN, 'https://app.example')
 })
 

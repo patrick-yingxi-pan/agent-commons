@@ -4,17 +4,17 @@
  *  tool list is only the worker Agent's static allowlist (server/generate.ts); a
  *  connector/MCP attached to the *session* contributed nothing callable. Here we
  *  derive per-context tool definitions from the (fixture) connector detail, declare
- *  them in the request, and — when the model calls one — execute it into a
- *  `ToolActivity` (a mock result fed back to the model + shown under the message).
+ *  them in the request, and — when the model calls one — route it through the
+ *  connector runtime into a `ToolActivity` fed back to the model and UI.
  *
  *  Framework-free and Node-importable (no React, no server singletons) so it unit-
- *  tests in isolation. The *shape* of the boundary is real (derive → declare →
- *  execute → feed back); only the fulfilment is mock (no real OAuth / MCP transport
- *  yet — that's a later P6 slice). Authority is structural: only an *attached*
- *  connector/MCP context yields tools, so the model can't reach one you didn't add. */
+ *  tests in isolation. Authority is structural: only an *attached* connector/MCP
+ *  context yields tools. Fulfilment is injected: development uses the declared
+ *  fixture runtime while release profiles fail closed until a real adapter exists. */
 import type { Connector, ToolActivity } from '../../contract/entities.ts'
 import type { SessionContext } from '../../contract/contexts.ts'
 import { connectorDetail, type ConnectorDetail } from '../data/connectorDetails.ts'
+import { acceptConnectorInput, invokeConnectorRuntime, type ConnectorToolRuntime } from '../connectorRuntime.ts'
 
 /** The Anthropic tool-definition slice we declare per connector/MCP tool. */
 export interface ConnectorToolDef {
@@ -28,7 +28,7 @@ interface ToolBinding {
   connectorId: string
   connectorLabel: string
   kind: ToolActivity['kind']
-  summary: string
+  developmentFixtureSummary: string
   /** A scheduled routine has already received standing approval for the
    *  contexts in its authored workflow. Interactive turns omit this and keep
    *  action tools proposal-only. */
@@ -65,8 +65,8 @@ function asConnector(ctx: SessionContext): Connector {
 }
 
 /** A conservative read/action classifier for an MCP tool name (mutating verbs ⇒
- *  action; everything else ⇒ read). Both are mocked in this slice; the distinction
- *  drives the card's wording and the future consent gate for real writes. */
+ *  action; everything else ⇒ read). The distinction drives consent; the injected
+ *  runtime decides whether fulfilment is fixture, unavailable, or real. */
 const ACTION_VERB = /(write|create|update|delete|remove|post|send|click|navigate|evaluate|screenshot|run)/i
 
 function mcpResult(tool: string, label: string): string {
@@ -108,7 +108,7 @@ export function deriveConnectorTools(
           connectorId: ctx.id,
           connectorLabel: ctx.label,
           kind: ACTION_VERB.test(toolName) ? 'action' : 'read',
-          summary: mcpResult(toolName, ctx.label),
+          developmentFixtureSummary: mcpResult(toolName, ctx.label),
           standingApproved: options.standingApprovedContextIds?.has(ctx.id) === true,
         })
       }
@@ -120,7 +120,7 @@ export function deriveConnectorTools(
         connectorId: ctx.id,
         connectorLabel: ctx.label,
         kind: 'read',
-        summary: connectorResult(detail),
+        developmentFixtureSummary: connectorResult(detail),
         standingApproved: options.standingApprovedContextIds?.has(ctx.id) === true,
       })
     }
@@ -135,27 +135,47 @@ export function shortToolName(tool: string): string {
   return parts.length >= 3 ? parts.slice(2).join('__') : tool
 }
 
-/** Execute (read) or PROPOSE (action) a connector tool call into a `ToolActivity`, or
- *  `undefined` when `name` isn't a derived connector tool (so the caller falls back to
- *  the built-in tools). A read runs immediately (`status:'done'`, the fixture result);
- *  an action (a write) is consent-gated (`status:'proposed'`) and only runs when the
- *  user confirms (P6 §2.1, PD43) — so NO side effect happens here for an action. `id` is
- *  the stable handle the later confirm/decline addresses. */
-export function runConnectorTool(name: string, bindings: Map<string, ToolBinding>, id: string): ToolActivity | undefined {
+/** Execute a read / standing-approved action or PROPOSE an interactive action.
+ *  Unknown names fall through to the other tool families. Exact action input is
+ *  retained for later informed consent and execution. */
+export async function runConnectorTool(
+  name: string,
+  bindings: Map<string, ToolBinding>,
+  id: string,
+  input: Record<string, unknown>,
+  runtime: ConnectorToolRuntime,
+  signal?: AbortSignal,
+): Promise<ToolActivity | undefined> {
   const b = bindings.get(name)
   if (!b) return undefined
-  const base = { id, tool: name, connector: b.connectorLabel, connectorId: b.connectorId, kind: b.kind }
-  return b.kind === 'action' && !b.standingApproved
-    ? { ...base, status: 'proposed', summary: `Proposed: ${shortToolName(name)} on ${b.connectorLabel} — confirm to run.` }
-    : {
-        ...base,
-        status: 'done',
-        summary: b.kind === 'action' ? connectorActionResult(name, b.connectorLabel) : b.summary,
-      }
-}
+  const acceptedInput = acceptConnectorInput(input)
+  const base = {
+    id,
+    tool: name,
+    connector: b.connectorLabel,
+    connectorId: b.connectorId,
+    kind: b.kind,
+  }
+  if (!acceptedInput.ok) {
+    return { ...base, status: 'failed', summary: acceptedInput.result.message, failure: acceptedInput.result.failure }
+  }
+  const exactInput = acceptedInput.input
+  const activityBase = { ...base, ...(Object.keys(exactInput).length > 0 ? { input: exactInput } : {}) }
+  if (b.kind === 'action' && !b.standingApproved) {
+    return { ...activityBase, status: 'proposed', summary: `Proposed: ${shortToolName(name)} on ${b.connectorLabel} — confirm to run.` }
+  }
 
-/** The (mock) result a *confirmed* connector action reports — the server records this as
- *  the activity's done summary + an audit entry when the user approves the proposal. */
-export function connectorActionResult(tool: string, connectorLabel: string): string {
-  return `(mock) ${shortToolName(tool)} completed on ${connectorLabel}.`
+  const result = await invokeConnectorRuntime(runtime, {
+    invocationId: id,
+    tool: name,
+    connectorId: b.connectorId,
+    connector: b.connectorLabel,
+    kind: b.kind,
+    input: exactInput,
+    signal,
+    developmentFixtureSummary: b.kind === 'read' ? b.developmentFixtureSummary : undefined,
+  })
+  return result.ok
+    ? { ...activityBase, status: 'done', summary: result.summary }
+    : { ...activityBase, status: 'failed', summary: result.message, failure: result.failure }
 }

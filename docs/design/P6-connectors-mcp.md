@@ -7,12 +7,15 @@
 
 ## 1. Problem & scope
 
-The prototype's connectors and MCP servers are static catalogs with fixture detail
+The prototype's connectors and MCP servers still use static catalogs with fixture detail
 (`server/data/contextOptions.ts` `CONNECTOR_OPTIONS`/`MCP_OPTIONS`,
-`server/data/connectorDetails.ts`); attaching one creates a UI chip but no real
-connection (spec MOCK-3). The *seams* are real, though: a `SavedContext.status`
-(connected/needs-auth) and a `connector.status` event model an OAuth callback / token
-expiry already. Production makes the integrations real. **Shared** model; local MCP
+`server/data/connectorDetails.ts`) and no real connection (spec MOCK-3). The
+*seams* are real, though: attaching one contributes scoped tools to both model
+transports; every effect crosses `server/connectorRuntime.ts`; writes retain exact
+input behind a single-shot consent claim; failure is typed provenance; release
+profiles fail closed instead of using the development fixture. A `SavedContext.status`
+(connected/needs-auth) and `connector.status` event also model OAuth callback/token
+expiry. Production now supplies adapters behind that boundary. **Shared** model; local MCP
 (stdio) runs via the desktop runner, remote MCP/connectors via the web server.
 
 ## 2. Design
@@ -39,10 +42,9 @@ expiry already. Production makes the integrations real. **Shared** model; local 
   stdio for local/desktop servers (launched + sandboxed by the **runner**, F4), HTTP+SSE
   for remote servers. Per-tenant server configs (command/URL + auth) in saved contexts +
   secrets.
-- **Exposure to the model** — a connected server's tools are added to the Messages
-  request's tool list (the prototype passes only the built-in resource tools today;
-  production appends the attached MCP/connector tools), each call gated by authority +
-  consent like any tool (P3).
+- **Exposure to the model** — an attached server's tools are already added to both
+  endpoint and Session-provider turns. Production replaces fixture discovery with the
+  server's live catalog; each call remains gated by authority + consent like any tool (P3).
 - **Sandboxing** — an MCP server is third-party code; the runner runs it with least
   privilege (its own scope grant, D3), resource limits, and timeouts; its outputs are
   untrusted content (F5 PD25).

@@ -168,13 +168,11 @@ export interface Message {
   compactedFrom?: number
 }
 
-/** One connector/MCP tool call the model made this turn + its (mock) result — the
- *  observable end of P6's "a connected server's tools are added to the model's tool
- *  list": the backend derives tools from the attached connector/MCP contexts, the
- *  model calls one, the backend executes it (fixture result) and feeds the summary
- *  back. Surfaced as a compact card under the message. A `read` runs immediately
- *  (`status:'done'`); an `action` (a write — post, create, delete) is consent-gated
- *  (`status:'proposed'`) and only runs when the user confirms (P6 §2.1, PD43). */
+/** One connector/MCP tool call the model made this turn. The backend derives
+ *  tools from attached contexts and routes calls through one explicit runtime.
+ *  Surfaced as a compact card under the message. A `read` runs immediately when
+ *  its connector transport is available; an `action` is consent-gated and only
+ *  runs when the user confirms (P6 §2.1, PD43). */
 export interface ToolActivity {
   /** Stable id for the activity within its message — the handle the confirm/decline
    *  action addresses (an action's status transition targets this). */
@@ -188,13 +186,28 @@ export interface ToolActivity {
   /** Whether the call read data or took an action (a write). A read needs no consent;
    *  an action is gated. */
   kind: 'read' | 'action'
-  /** Lifecycle: `done` = executed (every read; an action after confirm); `proposed` =
-   *  an action awaiting the user's consent; `declined` = the user said no. Absent is
-   *  treated as `done` (back-compat with the read-only slice). */
-  status?: 'done' | 'proposed' | 'declined'
+  /** Lifecycle: `done` = executed; `proposed` = an action awaiting consent;
+   *  `declined` = the user said no; `failed` = the runtime accepted no result.
+   *  Absent is treated as `done` (back-compat with the read-only slice). */
+  status?: 'done' | 'proposed' | 'declined' | 'failed'
   /** The one-line result (a done read/action) or proposed effect (a pending action),
    *  shown on the card and — when done — fed back to the model. */
   summary: string
+  /** Exact model-authored arguments. Persisted on connector/MCP actions so a
+   *  later consent click executes what the user reviewed rather than an empty
+   *  or reconstructed call. Connector schemas must never accept credentials. */
+  input?: Record<string, unknown>
+  /** Stable, non-secret failure semantics for a connector/MCP call. Raw
+   *  transport errors never cross the server boundary. */
+  failure?: {
+    code:
+      | 'connector_unconfigured'
+      | 'connector_auth_required'
+      | 'connector_rate_limited'
+      | 'connector_unavailable'
+      | 'connector_failed'
+    retryable: boolean
+  }
   /** For a generated API tool (access-parity INV-11, the in-app leg): the HTTP
    *  operation this activity reads or proposes. Present on API activities only;
    *  a connector/MCP activity has none. On a proposed action, this is what the

@@ -1,12 +1,13 @@
 /** P6 slice 1 — connector/MCP tool exposure (server/model/connectorTools.ts).
  *  Locks the pure derivation + execution: which attached contexts yield tools, the
- *  deterministic tool names, the read/action classification, and that executing a
- *  derived tool produces a `ToolActivity` (mock result) while an unknown name falls
- *  through. The end-to-end round-trip (model calls a tool → SSE → UI card) is proven
+ *  deterministic tool names, the read/action classification, and that the injected
+ *  runtime produces an honest `ToolActivity` while an unknown name falls through.
+ *  The end-to-end round-trip (model calls a tool → SSE → UI card) is proven
  *  separately once generation + the mock + the route are wired. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { deriveConnectorTools, runConnectorTool, isConnectorContext } from './connectorTools.ts'
+import { fixtureConnectorRuntime, MAX_CONNECTOR_INPUT_CHARS, unconfiguredConnectorRuntime } from '../connectorRuntime.ts'
 import { matchConnectorTools } from './intents.ts'
 
 const mcpFs = { id: 'mcp-fs', type: 'mcp', label: 'MCP · filesystem', scope: '*' }
@@ -39,7 +40,7 @@ test('a connector context contributes one list read tool over its resources', ()
   assert.deepEqual(definitions.map((d) => d.name), ['connector__slack__list'])
   const b = bindings.get('connector__slack__list')
   assert.equal(b?.kind, 'read')
-  assert.match(b?.summary ?? '', /#launch/, 'the summary carries the fixture channels')
+  assert.match(b?.developmentFixtureSummary ?? '', /#launch/, 'the development binding carries the fixture channels')
 })
 
 test('non-connector contexts are ignored; multiple contexts compose', () => {
@@ -67,9 +68,9 @@ test('matchConnectorTools only fires when the connector is named and tools are p
   assert.deepEqual(matchConnectorTools('write a file via filesystem', []), [], 'no connector tools declared ⇒ no call')
 })
 
-test('runConnectorTool runs a READ immediately (status done); unknown → undefined', () => {
+test('runConnectorTool runs a READ through the injected fixture runtime; unknown → undefined', async () => {
   const { bindings } = deriveConnectorTools([slack])
-  const activity = runConnectorTool('connector__slack__list', bindings, 'act-1')
+  const activity = await runConnectorTool('connector__slack__list', bindings, 'act-1', {}, fixtureConnectorRuntime)
   assert.ok(activity, 'a derived tool executes')
   assert.equal(activity?.id, 'act-1')
   assert.equal(activity?.tool, 'connector__slack__list')
@@ -78,21 +79,55 @@ test('runConnectorTool runs a READ immediately (status done); unknown → undefi
   assert.equal(activity?.kind, 'read')
   assert.equal(activity?.status, 'done', 'a read runs immediately')
   assert.match(activity?.summary ?? '', /#launch/)
-  assert.equal(runConnectorTool('mcp__nope__x', bindings, 'act-x'), undefined, 'an unknown name falls through')
+  assert.equal(await runConnectorTool('mcp__nope__x', bindings, 'act-x', {}, fixtureConnectorRuntime), undefined, 'an unknown name falls through')
 })
 
-test('runConnectorTool only PROPOSES a WRITE action (consent-gated, no side effect here)', () => {
+test('runConnectorTool only PROPOSES an interactive WRITE and retains its exact input', async () => {
   const { bindings } = deriveConnectorTools([mcpFs])
-  const activity = runConnectorTool('mcp__filesystem__write_file', bindings, 'act-2')
+  const input = { path: 'notes/launch.md', content: 'Ship it' }
+  const activity = await runConnectorTool('mcp__filesystem__write_file', bindings, 'act-2', input, fixtureConnectorRuntime)
   assert.equal(activity?.kind, 'action')
   assert.equal(activity?.status, 'proposed', 'a write is not executed — it awaits consent')
   assert.match(activity?.summary ?? '', /Proposed:.*write_file/, 'the summary describes the proposed effect, not a result')
+  assert.deepEqual(activity?.input, input, 'confirmation can execute exactly what the model proposed')
 })
 
-test('a routine standing approval executes the same WRITE action without a new prompt', () => {
+test('a routine standing approval executes the same WRITE action without a new prompt', async () => {
   const { bindings } = deriveConnectorTools([mcpFs], { standingApprovedContextIds: new Set([mcpFs.id]) })
-  const activity = runConnectorTool('mcp__filesystem__write_file', bindings, 'act-standing')
+  const activity = await runConnectorTool('mcp__filesystem__write_file', bindings, 'act-standing', {}, fixtureConnectorRuntime)
   assert.equal(activity?.kind, 'action')
   assert.equal(activity?.status, 'done')
   assert.match(activity?.summary ?? '', /write_file completed on MCP · filesystem/)
+})
+
+test('an unavailable release runtime records a failed activity and never claims completion', async () => {
+  const { bindings } = deriveConnectorTools([slack])
+  const activity = await runConnectorTool('connector__slack__list', bindings, 'act-release', {}, unconfiguredConnectorRuntime)
+  assert.equal(activity?.status, 'failed')
+  assert.equal(activity?.failure?.code, 'connector_unconfigured')
+  assert.equal(activity?.failure?.retryable, false)
+  assert.doesNotMatch(activity?.summary ?? '', /\(mock\)/, 'release failure never leaks fixture success copy')
+})
+
+test('oversized model input becomes failed provenance without reaching the runtime', async () => {
+  let calls = 0
+  const runtime = {
+    mode: 'adapter' as const,
+    async execute() {
+      calls += 1
+      return { ok: true as const, summary: 'should not run' }
+    },
+  }
+  const { bindings } = deriveConnectorTools([mcpFs])
+  const activity = await runConnectorTool(
+    'mcp__filesystem__write_file',
+    bindings,
+    'act-large',
+    { content: 'x'.repeat(MAX_CONNECTOR_INPUT_CHARS + 1) },
+    runtime,
+  )
+  assert.equal(activity?.status, 'failed')
+  assert.match(activity?.summary ?? '', /safety limit/i)
+  assert.equal(activity?.input, undefined, 'the oversized body is not persisted into provenance')
+  assert.equal(calls, 0)
 })
