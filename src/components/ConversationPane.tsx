@@ -24,9 +24,11 @@ import { useSessionContextCommands } from '../controller/useSessionContextComman
 import { enqueueSessionMetadataMutation } from '../controller/sessionMetadataMutations'
 import { retryContextMutation } from '../controller/contextMutations'
 import { useSessionEscalation } from '../controller/useSessionEscalation'
+import { useRelations } from '../controller/useRelations'
 import { draft } from '../controller/draftController'
 import { DRAFT_ID, approvalView } from '../data/liveSession'
 import type { Session } from '../types'
+import { modelSetupRequired } from '../lib/modelExecution'
 
 export function ConversationPane({
   sessionId,
@@ -47,7 +49,10 @@ export function ConversationPane({
   const row =
     (useSessions().data ?? []).find((s) => s.id === sessionId) ?? peek<Session>(keys.session(sessionId))
   const isDraft = sessionId === DRAFT_ID
-  const providers = useProviders().data ?? []
+  const providersQ = useProviders()
+  const providers = providersQ.data ?? []
+  const relations = useRelations()
+  const needsModelSetup = isDraft && providersQ.data !== undefined && modelSetupRequired(providersQ.data)
 
   // A run session's row isn't in the sessions list, and on its FIRST visit it
   // isn't in the loadSession cache either — but its ROUTINE identity already
@@ -225,6 +230,7 @@ export function ConversationPane({
             mode={isDraft ? 'draft' : 'empty'}
             live={conv.live}
             onNewSessionWith={isDraft ? (ctx) => draft.addSeed(ctx) : undefined}
+            onOpenModelSetup={needsModelSetup ? () => relations.navigate('models') : undefined}
           />
         }
       />

@@ -1,9 +1,26 @@
-import type { ModelExecution } from '../../contract/index.ts'
+import type { ModelExecution, ModelProvider } from '../../contract/index.ts'
 
 export interface ComposerExecutionState {
   blocked: boolean
   placeholder?: string
   note: string
+}
+
+/** Whether one registry entry can answer a turn right now. Endpoint readiness
+ * comes from the server-computed execution posture; Session providers retain
+ * their independent live-connector signal. Keeping this beside the composer
+ * decision gives first-run guidance and send gating one meaning of "ready". */
+export function modelProviderAvailable(provider: ModelProvider): boolean {
+  return provider.kind === 'session'
+    ? provider.online === true
+    : provider.execution === 'configured' || provider.execution === 'mock'
+}
+
+/** A resolved registry with no runnable entry needs setup before an empty draft
+ * can honestly invite typing. Callers distinguish unresolved query data from an
+ * empty resolved registry before invoking this predicate. */
+export function modelSetupRequired(providers: ModelProvider[]): boolean {
+  return !providers.some(modelProviderAvailable)
 }
 
 /** One copy decision for the composer's model boundary. The provider registry is

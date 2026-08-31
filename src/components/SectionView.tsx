@@ -86,6 +86,7 @@ import {
   resolveEffort,
   type ModelPick,
 } from '../lib/models'
+import { modelProviderAvailable, modelSetupRequired } from '../lib/modelExecution'
 import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
 import {
   PALETTES,
@@ -177,6 +178,7 @@ import { SectionFilterMenu } from './SectionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { SessionFilterMenu } from './SessionFilterMenu'
 import type { NavLocation } from '../lib/nav'
+import { DRAFT_ID } from '../data/liveSession'
 import { COMMONS_LENSES, SECTION_SUBVIEWS } from '../lib/subviews'
 import {
   AGENT_SECTION,
@@ -9107,6 +9109,31 @@ function ModelsSection({
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
   const [updatingConnection, setUpdatingConnection] = useState<ModelProvider | null>(null)
+  // A draft's explicit "Connect a model" door carries that draft in the pane
+  // back stack. Once the registry has resolved and proves nothing can answer,
+  // open the canonical provider form exactly once. Cancelling leaves the Models
+  // page usable; a later successful endpoint creation still completes the handoff.
+  const setupReturn = useRef(false)
+  const setupOpened = useRef(false)
+  const fromDraft = backTo?.kind === 'session' && backTo.sessionId === DRAFT_ID
+  useEffect(() => {
+    if (providerId || setupOpened.current || !fromDraft || providersQ.data === undefined) return
+    if (!modelSetupRequired(providersQ.data)) return
+    setupOpened.current = true
+    setupReturn.current = true
+    setEditing('new')
+  }, [fromDraft, providerId, providersQ.data])
+
+  const providerCreated = (created: CreatedProvider) => {
+    // A Session provider is not ready merely because its rendezvous exists; its
+    // drain loop must come online first. Only a provider that can answer now may
+    // become the new-draft pick and return through the carried Back edge.
+    if (!setupReturn.current || !modelProviderAvailable(created)) return
+    const prefs = loadModelPrefs()
+    saveModelPrefs({ ...prefs, providerId: created.id, modelId: undefined })
+    setupReturn.current = false
+    onBack()
+  }
   const [filter] = useSectionFilter('models')
   // The same list the rail's provider children show — kind facet (the shared
   // built-ins, the endpoints you registered, delegated Sessions) + order.
@@ -9201,7 +9228,11 @@ function ModelsSection({
         )}
       />
       {editing && (
-        <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+        <ProviderDialog
+          provider={editing === 'new' ? null : editing}
+          onClose={() => setEditing(null)}
+          onCreated={providerCreated}
+        />
       )}
     </CompositeResourcePage>
   )
@@ -9906,7 +9937,17 @@ function A2aCardDialog({
  *  (the advanced cascade fields aren't exposed here yet); the model family is editable
  *  because it drives the D10 prompt-fit warning. Minting a session kind hands back the
  *  one-time rendezvous secret, revealed via RelaySecretPanel before the dialog closes. */
-function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null; onClose: () => void }) {
+function ProviderDialog({
+  provider,
+  onClose,
+  onCreated,
+}: {
+  provider: ModelProvider | null
+  onClose: () => void
+  /** First-run Models owns the return policy; the canonical dialog only reports
+   * a verified endpoint row after its write-only credential lifecycle succeeds. */
+  onCreated?: (provider: CreatedProvider) => void
+}) {
   const [label, setLabel] = useState(provider?.label ?? '')
   const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
   const [kind, setKind] = useState<'endpoint' | 'session'>(provider?.kind ?? 'endpoint')
@@ -9976,6 +10017,9 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
           if (credentialReference) {
             await bindDesktopCredential(credentialReference, created.id).catch(() => {})
           }
+          onClose()
+          onCreated?.(created)
+          return
         } catch (error) {
           if (credentialReference) await discardDesktopCredential(credentialReference).catch(() => {})
           throw error

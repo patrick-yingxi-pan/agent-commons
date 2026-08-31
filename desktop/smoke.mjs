@@ -165,16 +165,31 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     if (output.includes('· secure credentials') && !hasCredentialBridge) {
       throw new Error('OS-backed credential storage was available but its narrow preload bridge was not.')
     }
+
+    // The isolated user-data directory is a genuine clean release world. Prove
+    // the renderer explains the blocked first draft and that its one action
+    // reaches the canonical provider form through pane-local navigation.
+    await page.getByRole('heading', { name: 'Connect a model to begin' }).waitFor()
+    const blockedComposer = page.getByPlaceholder('Connect a model provider to begin…')
+    if (!(await blockedComposer.isDisabled())) throw new Error('The clean desktop composer invited an impossible first turn.')
+    await page.getByRole('button', { name: 'Connect a model', exact: true }).click()
+    await page.waitForURL(`${origin}/models`)
+    const firstProviderDialog = page.getByRole('dialog', { name: 'New provider' })
+    await firstProviderDialog.waitFor()
+
     if (hasCredentialBridge) {
       const smokeSecret = 'agent-commons-smoke-key-not-a-real-credential'
       const replacementSecret = 'agent-commons-smoke-rotated-key-not-a-real-credential'
-      await page.goto(`${origin}/models`)
-      await page.getByRole('button', { name: 'New provider', exact: true }).click()
       await page.getByPlaceholder('e.g. Anthropic (prod)', { exact: true }).fill('Packaged credential smoke')
       await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(modelOrigin)
       await page.getByPlaceholder('Paste API key', { exact: true }).fill(smokeSecret)
       await page.getByRole('button', { name: 'Create', exact: true }).click()
-      await page.getByRole('dialog', { name: 'New provider' }).waitFor({ state: 'hidden' })
+      await firstProviderDialog.waitFor({ state: 'hidden' })
+      await page.waitForURL(`${origin}/`)
+      await page.getByRole('heading', { name: 'What should we work on?' }).waitFor()
+      if (await page.getByPlaceholder('Reply to Claude…').isDisabled()) {
+        throw new Error('A verified packaged provider did not reopen an executable first draft.')
+      }
 
       const providers = await page.evaluate(async () => {
         const response = await fetch('/api/v1/providers')
@@ -216,9 +231,11 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (!removed) throw new Error('The packaged provider workflow could not remove its temporary provider.')
       const pruned = JSON.parse(await readFile(vaultPath, 'utf8'))
       if (Object.keys(pruned.entries ?? {}).length !== 0) throw new Error('Provider deletion left a credential in the packaged vault.')
+    } else {
+      await firstProviderDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · daily recovery + managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · daily recovery + managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
     )
   } finally {
     await browser?.close().catch(() => {})

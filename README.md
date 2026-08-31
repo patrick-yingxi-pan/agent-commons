@@ -153,6 +153,12 @@ is no renderer operation to read or list keys. Linux installations without a
 real secret store refuse Electron's `basic_text` fallback and use the explicit
 environment-reference workflow instead.
 
+On a fresh install, the opening draft detects that no model can answer and offers
+one **Connect a model** action. It opens the same Models provider form directly;
+after a Messages endpoint is verified, Agent Commons selects it and returns to the
+untouched draft ready for the first message. Creating an offline Session provider
+does not claim readiness—the session's drain loop still has to connect.
+
 For a provider you created, Models → provider → **Update connection** replaces
 only the URL, model, or key you enter. The server merges those write-only fields,
 verifies the effective Messages connection before committing it, and leaves the

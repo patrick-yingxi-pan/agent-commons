@@ -142,6 +142,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
 
   const smoke = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
   assert.match(smoke, /getByPlaceholder\('Paste API key'/)
+  assert.match(smoke, /Connect a model to begin/)
+  assert.match(smoke, /first-run model handoff/)
   assert.match(smoke, /agentCommonsDesktop\.credentials\.removeProvider/)
   assert.match(smoke, /agentCommonsDesktop\.data\.createBackup/)
   assert.match(smoke, /snapshots/)

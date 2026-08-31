@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { composerExecutionState } from './modelExecution.ts'
+import { composerExecutionState, modelProviderAvailable, modelSetupRequired } from './modelExecution.ts'
 
 test('an unconfigured endpoint blocks composition with an actionable explanation', () => {
   assert.deepEqual(composerExecutionState('unconfigured'), {
@@ -34,4 +34,29 @@ test('Session-provider liveness has its own honest blocked and connected states'
   })
   assert.equal(composerExecutionState(undefined, true).blocked, false)
   assert.match(composerExecutionState(undefined, true).note, /Session provider connected/)
+})
+
+test('first-run setup is required until one endpoint or Session provider can answer', () => {
+  const endpoint = {
+    id: 'endpoint',
+    label: 'Endpoint',
+    modelFamily: 'claude',
+    effortLevels: [],
+  }
+  const session = {
+    ...endpoint,
+    id: 'session',
+    kind: 'session' as const,
+  }
+
+  assert.equal(modelSetupRequired([]), true, 'a resolved empty registry cannot answer')
+  assert.equal(modelSetupRequired([{ ...endpoint, execution: 'unconfigured' }]), true)
+  assert.equal(modelSetupRequired([{ ...session, online: false }]), true)
+  assert.equal(modelProviderAvailable({ ...endpoint, execution: 'configured' }), true)
+  assert.equal(modelProviderAvailable({ ...endpoint, execution: 'mock' }), true)
+  assert.equal(modelProviderAvailable({ ...session, online: true }), true)
+  assert.equal(modelSetupRequired([
+    { ...endpoint, execution: 'unconfigured' },
+    { ...session, online: true },
+  ]), false)
 })
