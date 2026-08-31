@@ -130,6 +130,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     }
     if (hasCredentialBridge) {
       const smokeSecret = 'agent-commons-smoke-key-not-a-real-credential'
+      const replacementSecret = 'agent-commons-smoke-rotated-key-not-a-real-credential'
       await page.goto(`${origin}/models`)
       await page.getByRole('button', { name: 'New provider', exact: true }).click()
       await page.getByPlaceholder('e.g. Anthropic (prod)', { exact: true }).fill('Packaged credential smoke')
@@ -148,8 +149,27 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (JSON.stringify(providers).includes(smokeSecret) || providers.some((provider) => provider.config || provider.apiKeyEnv)) {
         throw new Error('A packaged provider read exposed write-only credential configuration.')
       }
-      const vault = await readFile(join(userDataPath, CREDENTIAL_VAULT_FILE), 'utf8')
+      const vaultPath = join(userDataPath, CREDENTIAL_VAULT_FILE)
+      const vault = await readFile(vaultPath, 'utf8')
       if (vault.includes(smokeSecret)) throw new Error('The packaged credential vault wrote a raw secret to disk.')
+      const beforeRotation = JSON.parse(vault)
+      const [previousReference] = Object.keys(beforeRotation.entries ?? {})
+      if (!previousReference) throw new Error('The packaged provider workflow did not bind its encrypted credential.')
+
+      await page.goto(`${origin}/models/${encodeURIComponent(created.id)}`)
+      await page.getByRole('button', { name: 'Update connection', exact: true }).click()
+      await page.getByPlaceholder('Paste replacement API key', { exact: true }).fill(replacementSecret)
+      await page.getByRole('button', { name: 'Verify & update', exact: true }).click()
+      await page.getByRole('dialog', { name: 'Update connection' }).waitFor({ state: 'hidden' })
+      const afterRotationRaw = await readFile(vaultPath, 'utf8')
+      const afterRotation = JSON.parse(afterRotationRaw)
+      const replacementReferences = Object.keys(afterRotation.entries ?? {})
+      if (afterRotationRaw.includes(replacementSecret) || afterRotationRaw.includes(smokeSecret)) {
+        throw new Error('The packaged credential rotation wrote a raw secret to disk.')
+      }
+      if (replacementReferences.length !== 1 || replacementReferences[0] === previousReference) {
+        throw new Error('The packaged credential rotation did not retire the previous provider key.')
+      }
       const removed = await page.evaluate(async (providerId) => {
         const response = await fetch(`/api/v1/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' })
         if (!response.ok) return false
@@ -157,11 +177,11 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
         return true
       }, created.id)
       if (!removed) throw new Error('The packaged provider workflow could not remove its temporary provider.')
-      const pruned = JSON.parse(await readFile(join(userDataPath, CREDENTIAL_VAULT_FILE), 'utf8'))
+      const pruned = JSON.parse(await readFile(vaultPath, 'utf8'))
       if (Object.keys(pruned.entries ?? {}).length !== 0) throw new Error('Provider deletion left a credential in the packaged vault.')
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider round-trip' : 'secure-storage fallback refused'}`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
     )
   } finally {
     await browser?.close().catch(() => {})

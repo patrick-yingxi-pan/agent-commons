@@ -61,6 +61,19 @@ test('startup reconciliation binds referenced credentials and deletes abandoned 
   }
 })
 
+test('binding a replacement leaves exactly one credential for a provider', async () => {
+  const { directory, vault } = await fixture()
+  try {
+    const previous = await vault.provision('previous-key')
+    const replacement = await vault.provision('replacement-key')
+    assert.deepEqual(await vault.bind(previous, 'provider-9'), [])
+    assert.deepEqual(await vault.bind(replacement, 'provider-9'), [previous])
+    assert.deepEqual(await vault.environment(), { [replacement]: 'replacement-key' })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('the vault fails closed on corrupt structure, invalid secrets, and a full entry set', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'agent-commons-vault-corrupt-'))
   const filePath = join(directory, CREDENTIAL_VAULT_FILE)

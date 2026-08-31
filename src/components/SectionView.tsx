@@ -369,6 +369,7 @@ import {
   useNotifications,
   markNotificationsRead,
 } from '../api'
+import { replaceProviderConnection } from '../controller/providerConnection'
 import { toggleScheduleEnabled, updateSchedule } from '../controller/scheduleMutations'
 import {
   promptFitWarning,
@@ -9104,6 +9105,7 @@ function ModelsSection({
   const providers = providersQ.data ?? []
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
+  const [updatingConnection, setUpdatingConnection] = useState<ModelProvider | null>(null)
   const [filter] = useSectionFilter('models')
   // The same list the rail's provider children show — kind facet (the shared
   // built-ins, the endpoints you registered, delegated Sessions) + order.
@@ -9122,6 +9124,9 @@ function ModelsSection({
         <ProviderDetailPage
           provider={openProvider}
           onEdit={() => setEditing(openProvider)}
+          onUpdateConnection={openProvider.kind !== 'session' && openProvider.tenantId
+            ? () => setUpdatingConnection(openProvider)
+            : undefined}
           onAdd={() => setEditing('new')}
           onBack={onBack}
           backTo={backTo}
@@ -9129,6 +9134,9 @@ function ModelsSection({
         >
           {editing && (
             <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+          )}
+          {updatingConnection && (
+            <ProviderConnectionDialog provider={updatingConnection} onClose={() => setUpdatingConnection(null)} />
           )}
         </ProviderDetailPage>
       )
@@ -9204,6 +9212,7 @@ function ModelsSection({
 function ProviderDetailPage({
   provider,
   onEdit,
+  onUpdateConnection,
   onAdd,
   onBack,
   backTo,
@@ -9212,6 +9221,7 @@ function ProviderDetailPage({
 }: {
   provider: ModelProvider
   onEdit: () => void
+  onUpdateConnection?: () => void
   onAdd: () => void
   onBack: () => void
   backTo: NavLocation | null
@@ -9234,7 +9244,13 @@ function ProviderDetailPage({
           </div>
         </div>
       </header>
-      <ProviderDetailSections provider={provider} onEdit={onEdit} onAdd={onAdd} onDeleted={onDeleted} />
+      <ProviderDetailSections
+        provider={provider}
+        onEdit={onEdit}
+        onUpdateConnection={onUpdateConnection}
+        onAdd={onAdd}
+        onDeleted={onDeleted}
+      />
       {children}
     </AtomicResourcePage>
   )
@@ -9288,11 +9304,13 @@ function RelayBadge() {
 function ProviderDetailSections({
   provider,
   onEdit,
+  onUpdateConnection,
   onAdd,
   onDeleted,
 }: {
   provider: ModelProvider
   onEdit: () => void
+  onUpdateConnection?: () => void
   onAdd: () => void
   onDeleted: () => void
 }) {
@@ -9434,6 +9452,9 @@ function ProviderDetailSections({
               <SectionAction label="Add configured provider" icon={<Plus size={14} />} onClick={onAdd} />
             )}
             <SectionAction label="Edit provider" icon={<Pencil size={14} />} onClick={onEdit} />
+            {onUpdateConnection && (
+              <SectionAction label="Update connection" icon={<Plug size={14} />} onClick={onUpdateConnection} />
+            )}
             <SectionAction label="Delete provider" icon={<Trash2 size={14} />} onClick={() => void del()} />
           </>
         }
@@ -10091,6 +10112,107 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
         </>
       )}
       <DefaultToggle checked={isDefault} onChange={setIsDefault} entity="provider" />
+    </FormDialog>
+  )
+}
+
+/** Replace a private endpoint provider's write-only connection without ever
+ * reading its current endpoint or credential back into the renderer. Blank
+ * fields mean "keep"; every supplied value is merged and the effective
+ * connection is probed before the atomic server swap. */
+function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvider; onClose: () => void }) {
+  const [baseURL, setBaseURL] = useState('')
+  const [model, setModel] = useState('')
+  const [apiKeyEnv, setApiKeyEnv] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const hasSecureDeviceVault = desktopCredentialsAvailable()
+  const hasReplacement = Boolean(
+    baseURL.trim() || model.trim() || (hasSecureDeviceVault ? apiKey.trim() : apiKeyEnv.trim()),
+  )
+
+  const submit = async () => {
+    if (!hasReplacement || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await replaceProviderConnection(
+        provider.id,
+        {
+          ...(baseURL.trim() ? { baseURL: baseURL.trim() } : {}),
+          ...(model.trim() ? { model: model.trim() } : {}),
+          ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
+        },
+        hasSecureDeviceVault && apiKey.trim() ? apiKey.trim() : undefined,
+      )
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update this connection.')
+      setBusy(false)
+    }
+  }
+
+  return (
+    <FormDialog
+      title="Update connection"
+      icon={<Plug size={18} className="text-ink-soft" />}
+      submitLabel="Verify & update"
+      canSubmit={hasReplacement && !busy}
+      onSubmit={submit}
+      onClose={onClose}
+      error={error}
+      busy={busy}
+    >
+      <p className="text-[12px] leading-relaxed text-ink-soft">
+        Replace only what changed for <span className="font-medium text-ink">{provider.label}</span>. Existing connection
+        details stay write-only; blank fields remain unchanged. The complete connection is verified before anything is saved.
+      </p>
+      <FormField label="Messages API URL" optional>
+        <input
+          type="url"
+          value={baseURL}
+          onChange={(e) => setBaseURL(e.target.value)}
+          placeholder="New URL — leave blank to keep"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      <FormField label="Model ID" optional>
+        <input
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder="New model — leave blank to keep"
+          className={FORM_INPUT_CLASS}
+        />
+      </FormField>
+      {hasSecureDeviceVault ? (
+        <FormField label="Replacement API key" optional>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder="Paste replacement API key"
+            autoComplete="new-password"
+            spellCheck={false}
+            className={FORM_INPUT_CLASS}
+          />
+          <span className="mt-1 block text-[11px] text-ink-faint">
+            Encrypted for your OS account. The previous device key is retired only after this connection is accepted.
+          </span>
+        </FormField>
+      ) : (
+        <FormField label="Replacement credential variable" optional>
+          <input
+            value={apiKeyEnv}
+            onChange={(e) => setApiKeyEnv(e.target.value.toUpperCase())}
+            placeholder="PROVIDER_REPLACEMENT_KEY"
+            className={FORM_INPUT_CLASS}
+          />
+          <span className="mt-1 block text-[11px] text-ink-faint">
+            Name a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Its value never enters this app.
+          </span>
+        </FormField>
+      )}
     </FormDialog>
   )
 }

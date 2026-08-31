@@ -19,6 +19,7 @@ import {
   type CreateProviderRequest,
   type CreatedProvider,
   type ModelProvider,
+  type UpdateProviderConnectionRequest,
   type UpdateProviderRequest,
   type CreateSystemPromptRequest,
   type SystemPromptEntry,
@@ -428,6 +429,18 @@ export async function rotateProvider(id: string): Promise<CreatedProvider> {
  *  reason; the existing catalog stays untouched on failure. */
 export async function refreshProviderModels(id: string): Promise<ModelProvider> {
   const provider = await apiPost<ModelProvider>(paths.providerModelsRefresh(id), {})
+  invalidate(keys.providers)
+  return provider
+}
+
+/** Replace selected write-only connection fields after the server has probed
+ * the effective endpoint. No current endpoint, credential reference, or raw key
+ * is ever returned to this client. */
+export async function updateProviderConnection(
+  id: string,
+  patch: UpdateProviderConnectionRequest,
+): Promise<ModelProvider> {
+  const provider = await apiPatch<ModelProvider>(paths.providerConnection(id), patch)
   invalidate(keys.providers)
   return provider
 }

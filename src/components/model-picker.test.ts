@@ -76,6 +76,8 @@ test('the API-endpoint provider form collects and sends the connection it claims
     'the endpoint fields travel through the write-only provider config',
   )
   assert.ok(src.includes('The connection is verified before it is saved.'), 'the form explains its probe boundary')
+  assert.ok(src.includes('label="Update connection"'), 'a private endpoint exposes its connection lifecycle after creation')
+  assert.ok(src.includes('blank fields remain unchanged'), 'the replacement form explains its partial write-only semantics')
 })
 
 test('composer and provider surfaces project the server-computed execution posture', () => {

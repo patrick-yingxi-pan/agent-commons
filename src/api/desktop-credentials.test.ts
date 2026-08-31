@@ -59,4 +59,8 @@ test('the provider dialog switches only credential entry—not the provider HTTP
   assert.match(dialog, /Credential variable/)
   assert.doesNotMatch(dialog, /config:\s*\{[^]*apiKey:/, 'raw keys never enter the provider HTTP request')
   assert.match(source, /label="Add configured provider"/, 'an unconfigured built-in has a direct path into the usable flow')
+  assert.match(source, /function ProviderConnectionDialog\(/)
+  assert.match(source, /label="Update connection"/)
+  assert.match(source, /placeholder="Paste replacement API key"/)
+  assert.match(source, /replaceProviderConnection\(/, 'rotation uses the acknowledgement-gated controller sequence')
 })

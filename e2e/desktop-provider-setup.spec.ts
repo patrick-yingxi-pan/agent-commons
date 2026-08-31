@@ -63,3 +63,56 @@ test('desktop provider setup keeps its OS-encrypted key face reachable at every 
     await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeVisible()
   }
 })
+
+test('a private provider rotates its device key through the write-only connection dialog', async ({ page }) => {
+  test.setTimeout(ms(90_000))
+  await page.addInitScript(() => {
+    ;(window as any).__desktopCredentialCalls = []
+    Object.defineProperty(window, 'agentCommonsDesktop', {
+      configurable: false,
+      value: {
+        credentials: {
+          provision: async (secret: string) => {
+            ;(window as any).__desktopCredentialCalls.push(['provision', secret])
+            return `PROVIDER_DESKTOP_${'E'.repeat(32)}`
+          },
+          bind: async (reference: string, providerId: string) => {
+            ;(window as any).__desktopCredentialCalls.push(['bind', reference, providerId])
+          },
+          discard: async () => undefined,
+          removeProvider: async () => undefined,
+        },
+      },
+    })
+  })
+  await page.goto('/models')
+  const created = await page.request.post('/api/v1/providers', {
+    data: {
+      label: `Desktop rotation ${Date.now()}`,
+      modelFamily: 'claude',
+      effortLevels: ['High'],
+    },
+  })
+  expect(created.ok()).toBeTruthy()
+  const provider = await created.json()
+  await page.goto(`/models/${encodeURIComponent(provider.id)}`)
+
+  await page.getByRole('button', { name: 'Update connection', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Update connection' })
+  const replacement = 'replacement-key-that-must-not-enter-http'
+  const requests: unknown[] = []
+  page.on('request', (request) => {
+    if (request.url().endsWith(`/providers/${provider.id}/connection`)) requests.push(request.postDataJSON())
+  })
+  await page.getByPlaceholder('Paste replacement API key', { exact: true }).fill(replacement)
+  await page.getByRole('button', { name: 'Verify & update', exact: true }).click()
+  await expect(dialog).toBeHidden()
+
+  expect(requests).toHaveLength(1)
+  expect(requests[0]).toEqual({ apiKeyEnv: `PROVIDER_DESKTOP_${'E'.repeat(32)}` })
+  expect(JSON.stringify(requests)).not.toContain(replacement)
+  expect(await page.evaluate(() => (window as any).__desktopCredentialCalls)).toEqual([
+    ['provision', replacement],
+    ['bind', `PROVIDER_DESKTOP_${'E'.repeat(32)}`, provider.id],
+  ])
+})

@@ -4038,6 +4038,42 @@ export const store = {
     persist()
     return next
   },
+  /** Atomically replace an endpoint provider's server-only connection after the
+   * route has probed the effective config. `catalog === null` deliberately
+   * clears a stale listed catalog when the endpoint itself changed but exposes
+   * no model-list API; `undefined` preserves the catalog for key/model-only
+   * rotations. No write-only field is ever copied onto the public row. */
+  replaceProviderConnection(
+    id: string,
+    config: ProviderConfig,
+    catalog?: ModelInfo[] | null,
+  ): ModelProvider | undefined {
+    const current = MODEL_PROVIDERS.get(id)
+    if (!current) return undefined
+    if (PROVIDER_CONFIGS.get(id)?.kind === 'session' || config.kind === 'session') {
+      throw new ValidationError('A Session provider has no endpoint connection to update.')
+    }
+    if (config.baseURL && !config.capabilities) {
+      throw new ProviderProbeError('A provider endpoint must pass the conformance probe before its connection is updated.')
+    }
+    if (!validApiKeyEnv(config.apiKeyEnv)) {
+      throw new ProviderProbeError(`A provider credential must reference a 'PROVIDER_*' env var, not '${config.apiKeyEnv}'.`)
+    }
+    if (Array.isArray(catalog)) assertCatalogModels(catalog)
+
+    PROVIDER_CONFIGS.set(id, config)
+    let next = current
+    if (catalog === null) {
+      const { models: _models, catalogSource: _source, ...withoutCatalog } = current
+      next = withoutCatalog
+    } else if (catalog !== undefined) {
+      next = { ...current, models: catalog, catalogSource: 'listed' }
+    }
+    MODEL_PROVIDERS.set(id, next)
+    if (catalog !== undefined) sweepSessionModelPicks()
+    persist()
+    return next
+  },
   /** Replace a provider's model catalog from its endpoint's list API (the refresh
    *  route) — the 'listed' source stamp is earned only here and at registration. */
   refreshProviderModels(id: string, models: ModelInfo[]): ModelProvider | undefined {

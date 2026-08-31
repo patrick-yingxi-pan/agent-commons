@@ -157,6 +157,7 @@ export const paths = {
     `/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/cancel`,
   providers: '/providers',
   provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
+  providerConnection: (id: string) => `/providers/${encodeURIComponent(id)}/connection`,
   providerRotate: (id: string) => `/providers/${encodeURIComponent(id)}/rotate`,
   providerModelsRefresh: (id: string) => `/providers/${encodeURIComponent(id)}/models/refresh`,
   systemPrompts: '/system-prompts',

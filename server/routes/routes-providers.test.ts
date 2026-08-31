@@ -5,6 +5,7 @@
  *  only deletes what it created (never the default, which other tests resolve to). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createServer } from 'node:http'
 import { store } from '../store/index.ts'
 import { DEFAULT_PROVIDER_ID } from '../data/providers.ts'
 import { startModelServer } from '../model/index.ts'
@@ -142,6 +143,150 @@ test('the server-only credential binding projection supports desktop vault recon
     store.providerCredentialBindings().find((binding) => binding.providerId === created.json.id),
     { reference, providerId: created.json.id },
   )
+})
+
+test('PATCH connection rotates selected write-only fields only after a successful probe', async () => {
+  const mock = startModelServer(0, '127.0.0.1')
+  await new Promise<void>((resolve) => mock.on('listening', resolve))
+  const addr = mock.address()
+  const baseURL = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
+  const previousReference = 'PROVIDER_CONNECTION_PREVIOUS'
+  const replacementReference = `PROVIDER_DESKTOP_${'D'.repeat(32)}`
+  process.env[previousReference] = 'previous-secret'
+  process.env[replacementReference] = 'replacement-secret'
+  try {
+    const created = await call('POST', '/providers', {
+      label: 'Rotatable endpoint',
+      modelFamily: 'claude',
+      effortLevels: ['High'],
+      config: { baseURL, apiKeyEnv: previousReference, model: 'before-model' },
+    })
+    assert.equal(created.status, 200)
+
+    const patched = await call('PATCH', `/providers/${created.json.id}/connection`, {
+      apiKeyEnv: replacementReference,
+      model: 'after-model',
+    })
+    assert.equal(patched.status, 200)
+    assert.equal(patched.json.defaultModelId, 'after-model')
+    assert.equal(JSON.stringify(patched.json).includes(replacementReference), false)
+    assert.equal(patched.json.config, undefined)
+    assert.deepEqual(store.providerConfig(created.json.id), {
+      baseURL,
+      apiKeyEnv: replacementReference,
+      model: 'after-model',
+      capabilities: { toolUse: true },
+    })
+    assert.deepEqual(
+      store.providerCredentialBindings().filter((binding) => binding.providerId === created.json.id),
+      [{ reference: replacementReference, providerId: created.json.id }],
+    )
+  } finally {
+    delete process.env[previousReference]
+    delete process.env[replacementReference]
+    mock.close()
+  }
+})
+
+test('PATCH connection is atomic on probe failure and clears only explicitly null fields', async () => {
+  const mock = startModelServer(0, '127.0.0.1')
+  await new Promise<void>((resolve) => mock.on('listening', resolve))
+  const addr = mock.address()
+  const baseURL = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
+  try {
+    const created = await call('POST', '/providers', {
+      label: 'Atomic connection',
+      modelFamily: 'claude',
+      effortLevels: ['High'],
+      config: { baseURL, model: 'before-model' },
+    })
+    assert.equal(created.status, 200)
+    const before = structuredClone(store.providerConfig(created.json.id))
+
+    const refused = await call('PATCH', `/providers/${created.json.id}/connection`, {
+      baseURL: 'http://127.0.0.1:9',
+    })
+    assert.equal(refused.status, 400)
+    assert.deepEqual(store.providerConfig(created.json.id), before, 'a refused probe cannot partially replace the connection')
+
+    const cleared = await call('PATCH', `/providers/${created.json.id}/connection`, { model: null })
+    assert.equal(cleared.status, 200)
+    assert.equal(store.providerConfig(created.json.id).baseURL, baseURL, 'absent endpoint is preserved')
+    assert.equal(store.providerConfig(created.json.id).model, undefined, 'explicit null clears the selected field')
+  } finally {
+    mock.close()
+  }
+})
+
+test('PATCH connection clears a stale model namespace when the new endpoint cannot list models', async () => {
+  const listed = startModelServer(0, '127.0.0.1')
+  await new Promise<void>((resolve) => listed.on('listening', resolve))
+  const listedAddress = listed.address()
+  const listedURL = `http://127.0.0.1:${typeof listedAddress === 'object' && listedAddress ? listedAddress.port : 0}`
+  const unlisted = createServer((req, res) => {
+    if (req.method !== 'POST' || req.url !== '/v1/messages') {
+      res.writeHead(404).end()
+      return
+    }
+    req.resume()
+    req.on('end', () => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        id: 'msg_unlisted',
+        type: 'message',
+        role: 'assistant',
+        model: 'unlisted-model',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }))
+    })
+  })
+  unlisted.listen(0, '127.0.0.1')
+  await new Promise<void>((resolve) => unlisted.on('listening', resolve))
+  const unlistedAddress = unlisted.address()
+  const unlistedURL = `http://127.0.0.1:${typeof unlistedAddress === 'object' && unlistedAddress ? unlistedAddress.port : 0}`
+  try {
+    const created = await call('POST', '/providers', {
+      label: 'Endpoint namespace swap',
+      modelFamily: 'claude',
+      effortLevels: ['High'],
+      config: { baseURL: listedURL, model: 'before-model' },
+    })
+    assert.equal(created.status, 200)
+    assert.ok(created.json.models?.length > 0)
+    assert.equal(created.json.catalogSource, 'listed')
+
+    const patched = await call('PATCH', `/providers/${created.json.id}/connection`, { baseURL: unlistedURL })
+    assert.equal(patched.status, 200)
+    assert.equal(patched.json.models, undefined)
+    assert.equal(patched.json.catalogSource, undefined)
+    assert.equal(store.providerConfig(created.json.id).baseURL, unlistedURL)
+  } finally {
+    listed.close()
+    unlisted.close()
+  }
+})
+
+test('PATCH connection rejects empty/unknown shapes and Session providers', async () => {
+  const endpoint = await call('POST', '/providers', {
+    label: 'Strict connection patch',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+  })
+  assert.equal((await call('PATCH', `/providers/${endpoint.json.id}/connection`, {})).status, 400)
+  assert.equal((await call('PATCH', `/providers/${endpoint.json.id}/connection`, { apiKey: 'raw-secret' })).status, 400)
+
+  const session = await call('POST', '/providers', {
+    label: 'No dial-out connection',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+    kind: 'session',
+  })
+  assert.equal(session.status, 200)
+  const refused = await call('PATCH', `/providers/${session.json.id}/connection`, { model: 'nope' })
+  assert.equal(refused.status, 409)
 })
 
 test('POST with a non-conformant endpoint is a 400 — the provider is never registered', async () => {

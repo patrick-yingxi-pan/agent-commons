@@ -161,6 +161,14 @@ export interface ProviderEndpointConfig {
   model?: string
 }
 
+/** Replace selected fields of an existing endpoint provider's write-only
+ * connection. An absent field preserves its current value; explicit `null`
+ * clears it. The effective connection is probed before the server commits the
+ * swap, so a failed rotation leaves the working configuration untouched. */
+export type UpdateProviderConnectionRequest = {
+  [Field in keyof ProviderEndpointConfig]?: ProviderEndpointConfig[Field] | null
+}
+
 /** Register a provider (the server mints the id). `config` is the write-only endpoint
  *  half — accepted here, verified by the registration probe, stored server-side, and
  *  never present on the `ModelProvider` reads. `kind:'session'` takes no config at all

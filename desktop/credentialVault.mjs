@@ -136,6 +136,13 @@ export async function openCredentialVault({ filePath, encrypt, decrypt, now = ()
       return mutate((next) => {
         if (!next.entries[reference]) throw new Error('The credential is no longer available on this device.')
         next.entries[reference].providerId = providerId
+        const removed = []
+        for (const [candidate, entry] of Object.entries(next.entries)) {
+          if (candidate === reference || entry.providerId !== providerId) continue
+          delete next.entries[candidate]
+          removed.push(candidate)
+        }
+        return removed
       })
     },
     discard(reference) {

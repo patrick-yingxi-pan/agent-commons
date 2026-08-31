@@ -20,6 +20,7 @@ import type {
   CreateDispatchRequest,
   CreateProviderRequest,
   RelayReplyRequest,
+  UpdateProviderConnectionRequest,
   UpdateProviderRequest,
   CreateSystemPromptRequest,
   UpdateSystemPromptRequest,
@@ -94,6 +95,7 @@ import { executeConnectorActivity } from '../connectorRuntime.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
+import { providerConnectionUpdate } from './providerConnection.ts'
 import type {
   A2aDataPart,
   A2aMessage,
@@ -1228,6 +1230,43 @@ export function buildRouter(): Router {
     // Re-read so the response carries the serve-time stamps (isDefault, online).
     const tenantId = store.identity(req.headers).tenant.id
     sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
+  })
+  // Replace selected fields of the server-only endpoint connection. The route
+  // merges against the hidden current config, validates the effective reference,
+  // and proves the effective endpoint before ONE store commit. A failed probe
+  // therefore leaves the previously working endpoint/key/model intact. Reads
+  // continue to return only the public provider row.
+  r.patch('/providers/:id/connection', async ({ req, res, params, body }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
+    const current = store.providerConfig(params.id)
+    if (current.kind === 'session') {
+      return sendError(res, 'conflict', 'A Session provider has no endpoint connection to update.')
+    }
+    try {
+      const update = providerConnectionUpdate(current, await body<UpdateProviderConnectionRequest>())
+      const next = update.config
+      if (next.baseURL) next.capabilities = await probeProviderEndpoint(next)
+      else delete next.capabilities
+
+      // A different endpoint owns a different model namespace. Refresh it when
+      // possible; if it has no list API, clear the old listed/static rows rather
+      // than presenting stale models from the previous server. Credential- or
+      // model-only rotations preserve the existing catalog.
+      const catalog = update.endpointChanged
+        ? next.baseURL
+          ? await fetchProviderModels(next) ?? null
+          : null
+        : undefined
+      const provider = store.replaceProviderConnection(params.id, next, catalog)
+      if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
+      const tenantId = store.identity(req.headers).tenant.id
+      sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
+    } catch (err) {
+      if (err instanceof ProviderProbeError || err instanceof ValidationError) {
+        return sendError(res, 'bad_request', err.message)
+      }
+      throw err
+    }
   })
   r.patch('/providers/:id', async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return

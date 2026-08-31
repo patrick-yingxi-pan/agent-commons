@@ -153,6 +153,12 @@ is no renderer operation to read or list keys. Linux installations without a
 real secret store refuse Electron's `basic_text` fallback and use the explicit
 environment-reference workflow instead.
 
+For a provider you created, Models → provider → **Update connection** replaces
+only the URL, model, or key you enter. The server merges those write-only fields,
+verifies the effective Messages connection before committing it, and leaves the
+previous connection intact on failure. A successful desktop key rotation retires
+the prior encrypted key; an interrupted post-save bind is repaired on restart.
+
 Headless desktop operation, recovery, and web deployment can supply the built-in
 connection when launching:
 
@@ -164,8 +170,8 @@ ANTHROPIC_BASE_URL=https://api.anthropic.com ANTHROPIC_API_KEY=… npm run start
 Outside Electron, the Models page registers another Messages-compatible endpoint
 using an optional `PROVIDER_*` environment-variable reference: launch the server
 with the variable already set, then enter only that variable's name. In both
-modes the endpoint is probed before it is saved; endpoint URLs and secret values
-never appear on the provider read shape.
+modes a custom endpoint is probed before it is saved or replaced; endpoint URLs,
+credential references, and secret values never appear on the provider read shape.
 
 ## Persistence and recovery
 

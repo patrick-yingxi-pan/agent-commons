@@ -234,7 +234,14 @@ function installCredentialIpc() {
       throw error
     }
   })
-  handle(credentialChannels.bind, (reference, providerId) => credentialVault.bind(reference, providerId))
+  handle(credentialChannels.bind, async (reference, providerId) => {
+    const retired = await credentialVault.bind(reference, providerId)
+    // The acknowledged provider config can reference only the newly bound key.
+    // Remove superseded values from the utility environment after the atomic
+    // vault swap; a transient delete failure cannot reactivate an unreferenced
+    // value and process exit clears it.
+    await Promise.allSettled(retired.map((candidate) => credentialBackend.delete(candidate)))
+  })
   handle(credentialChannels.discard, async (reference) => {
     await credentialVault.discard(reference)
     await credentialBackend.delete(reference)
