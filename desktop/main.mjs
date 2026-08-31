@@ -1,11 +1,12 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
 import credentialChannels from './credential-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createDataBackendClient } from './dataProtocol.mjs'
+import { offerStartupRecovery, revealRecoveryDirectory } from './startupRecovery.mjs'
 import {
   CREDENTIAL_VAULT_FILE,
   openCredentialVault,
@@ -81,6 +82,7 @@ async function startDesktop() {
   await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials })
   await waitForReady(`${backendOrigin}/api/v1/readyz`, trustedOrigin, START_TIMEOUT_MS)
   if (DEVELOPMENT) await waitForReady(rendererUrl, trustedOrigin, START_TIMEOUT_MS, false)
+  await ensureRecoveryBackup()
 
   backendReady = true
   if (credentialVault) installCredentialIpc()
@@ -204,6 +206,19 @@ async function reconcileCredentialBindings(bindings) {
   }
 }
 
+async function ensureRecoveryBackup() {
+  if (!dataBackend) return
+  try {
+    const backup = await dataBackend.ensureRecoveryBackup()
+    console.log(`[desktop] recovery ready ${backup.fileName}`)
+  } catch (error) {
+    // Recovery copies are defense in depth. A backup-volume problem is loud in
+    // diagnostics but does not make an otherwise healthy acknowledged store
+    // unavailable or strand the user outside the app.
+    console.error('[desktop] automatic recovery backup failed.', error)
+  }
+}
+
 function assertTrustedCredentialCaller(event) {
   assertTrustedDesktopCaller(event, 'Credential access is not available from this page.')
 }
@@ -280,11 +295,11 @@ function installDataIpc() {
   })
   ipcMain.handle(dataChannels.revealBackups, async (event) => {
     assertTrustedDataCaller(event)
-    const directory = join(app.getPath('userData'), 'snapshots')
     try {
-      mkdirSync(directory, { recursive: true, mode: 0o700 })
-      const error = await shell.openPath(directory)
-      if (error) throw new Error(error)
+      await revealRecoveryDirectory({
+        userDataPath: app.getPath('userData'),
+        openPath: (directory) => shell.openPath(directory),
+      })
     } catch (error) {
       console.error('[desktop] backup folder could not be shown.', error)
       throw new Error('The backup folder could not be opened.')
@@ -379,12 +394,18 @@ async function createMainWindow(url, origin) {
   await win.loadURL(url)
 }
 
-function failStartup(error) {
+async function failStartup(error) {
   console.error(error)
-  dialog.showErrorBox(
-    'Couldn’t open Agent Commons',
-    error instanceof Error ? error.message : 'The desktop application could not start.',
-  )
+  try {
+    await offerStartupRecovery({
+      showMessageBox: (options) => dialog.showMessageBox(options),
+      userDataPath: app.getPath('userData'),
+      openPath: (directory) => shell.openPath(directory),
+    })
+  } catch (recoveryError) {
+    console.error('[desktop] startup recovery folder could not be shown.', recoveryError)
+    dialog.showErrorBox('Couldn’t open Agent Commons', 'The app could not start, and its backup folder could not be opened.')
+  }
   app.quit()
 }
 

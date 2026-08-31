@@ -27,7 +27,8 @@ test('desktop Customize creates and reveals portable backups without filesystem 
   await page.goto('/customize')
 
   await expect(page.getByText('Local backups', { exact: true })).toBeVisible()
-  await expect(page.getByText('Provider API keys are kept separately from app data', { exact: false })).toBeVisible()
+  await expect(page.getByText('Seven daily recovery copies are kept automatically', { exact: false })).toBeVisible()
+  await expect(page.getByText('no provider API keys', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Back up now' }).click()
   await expect(page.getByRole('status')).toContainText('Saved backup-2026-08-31')
   await page.getByRole('button', { name: 'Show backups' }).click()

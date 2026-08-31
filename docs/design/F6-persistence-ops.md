@@ -55,9 +55,11 @@ snapshot of prod-shaped data, and are reversible-by-compensation where feasible.
 - `scripts/snapshot.ts` now provides the desktop export/import core: canonical
   backend-neutral JSON, atomic export, validation + forward migration before restore,
   and read-back verification. A JSON export restores into SQLite and vice versa.
-  The native shell presents timestamped managed backups and reveals their exact
-  OS-owned folder without giving the renderer path or restore authority. A native
-  restore picker + coordinated restart remains the next destructive recovery step.
+  The native shell presents timestamped managed backups, ensures one daily recovery
+  point with seven-day automatic retention, and reveals their exact OS-owned folder
+  from Customize or the startup-failure dialog without giving the renderer path or
+  restore authority. A native restore picker + coordinated restart remains the next
+  destructive recovery step.
 
 ### 2.5 Deployment topology
 

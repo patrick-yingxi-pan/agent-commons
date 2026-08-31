@@ -19,12 +19,19 @@ import { tmpdir } from 'node:os'
 import { saveSnapshot, restoreSnapshot, listSnapshots, snapshotPath, buildComprehensive } from '../../scripts/snapshot.ts'
 import { STORE_VERSION, type PersistedState } from './persist.ts'
 import { SqliteBackend } from './sqlite.ts'
+import {
+  RECOVERY_SNAPSHOT_RETENTION,
+  ensureDailyRecoverySnapshot,
+  recoverySnapshotName,
+} from './backup.ts'
 import { accounts } from '../accounts.ts'
 
 const TMP = join(tmpdir(), `claude-ui-snapshot-test-${process.pid}`)
 const FS_STORE = join(TMP, 'fs', '.data', 'store.json')
 const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
+const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
+const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
 
 function stateNamed(title: string): PersistedState {
   return {
@@ -83,6 +90,45 @@ test('listSnapshots reports the saved snapshot', () => {
     listSnapshots().some((s) => s.name === 'rt'),
     'the snapshot just saved shows up in the listing',
   )
+})
+
+test('daily recovery is idempotent, retains seven days, and never prunes manual backups', () => {
+  process.env.PERSIST_BACKEND = 'json'
+  process.env.DATA_FILE = RECOVERY_STORE
+  process.env.SNAPSHOT_DIR = RECOVERY_DIR
+  try {
+    mkdirSync(dirname(RECOVERY_STORE), { recursive: true })
+    writeFileSync(RECOVERY_STORE, JSON.stringify(stateNamed('day 1')))
+    assert.equal(recoverySnapshotName(new Date('2026-08-01T23:59:00Z')), 'recovery-2026-08-01')
+    assert.throws(() => recoverySnapshotName(new Date(Number.NaN)), /Invalid time value/)
+
+    const first = ensureDailyRecoverySnapshot(new Date('2026-08-01T23:59:00Z'))
+    assert.equal(first.created, true)
+    const firstBytes = readFileSync(first.to, 'utf8')
+    writeFileSync(RECOVERY_STORE, JSON.stringify(stateNamed('same day, newer live state')))
+    const sameDay = ensureDailyRecoverySnapshot(new Date('2026-08-01T23:59:59Z'))
+    assert.equal(sameDay.created, false, 'a second launch on the same UTC day reuses its recovery point')
+    assert.equal(readFileSync(sameDay.to, 'utf8'), firstBytes, 'same-day startup never replaces the earlier recovery point')
+
+    saveSnapshot('manual-forever', { overwrite: false })
+    assert.throws(
+      () => saveSnapshot('recovery-2026-08-11', { overwrite: false }),
+      /recovery snapshot name family is reserved/,
+      'manual tooling cannot create a file that automatic retention would own',
+    )
+    for (let day = 2; day <= 10; day += 1) {
+      writeFileSync(RECOVERY_STORE, JSON.stringify(stateNamed(`day ${day}`)))
+      ensureDailyRecoverySnapshot(new Date(Date.UTC(2026, 7, day, 12)))
+    }
+
+    const names = listSnapshots().map(({ name }) => name).sort()
+    const recovery = names.filter((name) => name.startsWith('recovery-'))
+    assert.equal(recovery.length, RECOVERY_SNAPSHOT_RETENTION)
+    assert.deepEqual(recovery, [4, 5, 6, 7, 8, 9, 10].map((day) => `recovery-2026-08-${String(day).padStart(2, '0')}`))
+    assert.ok(names.includes('manual-forever'), 'automatic retention never touches a manual snapshot')
+  } finally {
+    delete process.env.SNAPSHOT_DIR
+  }
 })
 
 test('a name that escapes the snapshots dir is rejected', () => {

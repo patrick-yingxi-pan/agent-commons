@@ -1,28 +1,35 @@
 import { randomBytes } from 'node:crypto'
 import { basename } from 'node:path'
 import { statSync } from 'node:fs'
-import { saveSnapshot } from '../server/persistence/backup.ts'
+import { ensureDailyRecoverySnapshot, saveSnapshot } from '../server/persistence/backup.ts'
 
 export const DATA_REQUEST = 'agent-commons:data-request'
 export const DATA_RESULT = 'agent-commons:data-result'
 
-const BACKUP_NAME_PATTERN = /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{16}$/
+const MANUAL_BACKUP_NAME_PATTERN = /^backup-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-f0-9]{16}$/
+const RECOVERY_BACKUP_NAME_PATTERN = /^recovery-\d{4}-\d{2}-\d{2}$/
 
 /** Human-sortable and collision-resistant without revealing app state. */
 export function desktopBackupName(now = new Date(), nonce = randomBytes(8).toString('hex')) {
   const stamp = now.toISOString().replaceAll(':', '-').replace('.', '-')
   const suffix = String(nonce).toLowerCase()
   const name = `backup-${stamp}-${suffix}`
-  if (!BACKUP_NAME_PATTERN.test(name)) throw new Error('Could not create a safe backup name.')
+  if (!MANUAL_BACKUP_NAME_PATTERN.test(name)) throw new Error('Could not create a safe backup name.')
   return name
 }
 
-export function isBackupMetadata(value) {
+export function isBackupMetadata(value, kind = 'any') {
+  const name = typeof value?.fileName === 'string' ? value.fileName.replace(/\.json$/, '') : ''
+  const expectedName = kind === 'manual'
+    ? MANUAL_BACKUP_NAME_PATTERN.test(name)
+    : kind === 'recovery'
+      ? RECOVERY_BACKUP_NAME_PATTERN.test(name)
+      : MANUAL_BACKUP_NAME_PATTERN.test(name) || RECOVERY_BACKUP_NAME_PATTERN.test(name)
   return Boolean(
     value &&
     typeof value === 'object' &&
     typeof value.fileName === 'string' &&
-    BACKUP_NAME_PATTERN.test(value.fileName.replace(/\.json$/, '')) &&
+    expectedName &&
     value.fileName.endsWith('.json') &&
     Number.isSafeInteger(value.sizeBytes) &&
     value.sizeBytes > 0 &&
@@ -36,6 +43,7 @@ export function isBackupMetadata(value) {
 export function installDataRuntime({
   parentPort = process.parentPort,
   save = (name) => saveSnapshot(name, { overwrite: false }),
+  ensureRecovery = ensureDailyRecoverySnapshot,
   stat = statSync,
   now = () => new Date(),
   nonce = () => randomBytes(8).toString('hex'),
@@ -45,20 +53,23 @@ export function installDataRuntime({
     const message = event?.data
     if (!message || message.type !== DATA_REQUEST || !Number.isSafeInteger(message.requestId)) return
     const result = { type: DATA_RESULT, requestId: message.requestId }
-    if (message.operation !== 'create-backup') {
+    if (message.operation !== 'create-backup' && message.operation !== 'ensure-recovery-backup') {
       parentPort.postMessage({ ...result, ok: false, error: 'invalid_request' })
       return
     }
     try {
-      const name = desktopBackupName(now(), nonce())
-      const { to } = save(name)
+      const requestedAt = now()
+      const kind = message.operation === 'create-backup' ? 'manual' : 'recovery'
+      const { to } = kind === 'manual'
+        ? save(desktopBackupName(requestedAt, nonce()))
+        : ensureRecovery(requestedAt)
       const details = stat(to)
       const backup = {
         fileName: basename(to),
         sizeBytes: details.size,
         createdAt: details.mtime.toISOString(),
       }
-      if (!isBackupMetadata(backup)) throw new Error('invalid backup metadata')
+      if (!isBackupMetadata(backup, kind)) throw new Error('invalid backup metadata')
       parentPort.postMessage({ ...result, ok: true, backup })
     } catch {
       parentPort.postMessage({ ...result, ok: false, error: 'backup_failed' })
@@ -79,23 +90,30 @@ export function createDataBackendClient(child, { timeoutMs = 15_000 } = {}) {
     if (!request) return
     pending.delete(message.requestId)
     clearTimeout(request.timeout)
-    if (message.ok === true && isBackupMetadata(message.backup)) request.resolve(message.backup)
+    if (message.ok === true && isBackupMetadata(message.backup, request.kind)) request.resolve(message.backup)
     else request.reject(new Error('The local backend could not create the backup.'))
   }
   child.on('message', onMessage)
 
+  const request = (operation, kind) => {
+    if (closed) return Promise.reject(new Error('The local backend is not available.'))
+    const requestId = (sequence += 1)
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pending.delete(requestId)
+        reject(new Error('The local backend did not acknowledge the backup.'))
+      }, timeoutMs)
+      pending.set(requestId, { resolve, reject, timeout, kind })
+      child.postMessage({ type: DATA_REQUEST, requestId, operation })
+    })
+  }
+
   return {
     createBackup() {
-      if (closed) return Promise.reject(new Error('The local backend is not available.'))
-      const requestId = (sequence += 1)
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => {
-          pending.delete(requestId)
-          reject(new Error('The local backend did not acknowledge the backup.'))
-        }, timeoutMs)
-        pending.set(requestId, { resolve, reject, timeout })
-        child.postMessage({ type: DATA_REQUEST, requestId, operation: 'create-backup' })
-      })
+      return request('create-backup', 'manual')
+    },
+    ensureRecoveryBackup() {
+      return request('ensure-recovery-backup', 'recovery')
     },
     close() {
       if (closed) return

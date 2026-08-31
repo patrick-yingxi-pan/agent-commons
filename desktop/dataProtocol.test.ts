@@ -38,6 +38,10 @@ test('the utility creates a managed backup and returns metadata without a path',
       return { from: '/private/store.db', to: `/private/snapshots/${name}.json` }
     },
     stat: () => ({ size: 4096, mtime: NOW }),
+    ensureRecovery: (date: Date) => {
+      calls.push(['recovery', date.toISOString()])
+      return { created: true, from: '/private/store.db', to: '/private/snapshots/recovery-2026-08-31.json' }
+    },
     now: () => NOW,
     nonce: () => 'a1b2c3d4e5f60718',
   })
@@ -52,8 +56,17 @@ test('the utility creates a managed backup and returns metadata without a path',
   }])
   assert.equal(JSON.stringify(port.sent).includes('/private/'), false)
 
-  port.emit('message', { data: { type: DATA_REQUEST, requestId: 8, operation: 'restore' } })
-  assert.deepEqual(port.sent.at(-1), { type: DATA_RESULT, requestId: 8, ok: false, error: 'invalid_request' })
+  port.emit('message', { data: { type: DATA_REQUEST, requestId: 8, operation: 'ensure-recovery-backup' } })
+  assert.deepEqual(calls.at(-1), ['recovery', NOW.toISOString()])
+  assert.deepEqual(port.sent.at(-1), {
+    type: DATA_RESULT,
+    requestId: 8,
+    ok: true,
+    backup: { fileName: 'recovery-2026-08-31.json', sizeBytes: 4096, createdAt: NOW.toISOString() },
+  })
+
+  port.emit('message', { data: { type: DATA_REQUEST, requestId: 9, operation: 'restore' } })
+  assert.deepEqual(port.sent.at(-1), { type: DATA_RESULT, requestId: 9, ok: false, error: 'invalid_request' })
 })
 
 test('the main client correlates validated metadata, timeout, and close', async () => {
@@ -65,6 +78,14 @@ test('the main client correlates validated metadata, timeout, and close', async 
   assert.equal(isBackupMetadata(backup), true)
   child.emit('message', { type: DATA_RESULT, requestId: request.requestId, ok: true, backup })
   assert.deepEqual(await creating, backup)
+
+  const ensuring = client.ensureRecoveryBackup()
+  const recoveryRequest = child.posted.at(-1)
+  const recovery = { fileName: 'recovery-2026-08-31.json', sizeBytes: 4096, createdAt: NOW.toISOString() }
+  assert.equal(isBackupMetadata(recovery, 'recovery'), true)
+  assert.equal(isBackupMetadata(recovery, 'manual'), false)
+  child.emit('message', { type: DATA_RESULT, requestId: recoveryRequest.requestId, ok: true, backup: recovery })
+  assert.deepEqual(await ensuring, recovery)
 
   await assert.rejects(() => client.createBackup(), /did not acknowledge/)
   client.close()

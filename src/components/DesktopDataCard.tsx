@@ -49,14 +49,14 @@ export function DesktopDataCard() {
   return (
     <FoldSection
       title="Local backups"
-      summary="Portable copies of your on-device workspace."
+      summary="Daily recovery and portable copies of your on-device workspace."
       persist={false}
     >
       <div className="grid gap-3 @xl:grid-cols-[minmax(0,1fr)_auto] @xl:items-center">
         <div className="min-w-0">
           <p className="text-[12px] text-ink-faint">
-            Backups include your workspace and account data. Treat them as private.
-            Provider API keys are kept separately from app data and are not included.
+            Seven daily recovery copies are kept automatically. Backups you create remain until deleted.
+            Both contain private app data but no provider API keys.
           </p>
           {notice && (
             <p

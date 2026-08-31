@@ -188,11 +188,14 @@ Backups are portable across both backends. `save` can run against the selected
 live store; stop the server before `restore` so the old process cannot overwrite
 the recovered state, then restart it.
 
-In the Electron app, open **Customize → Local backups** to create a timestamped
-portable backup or reveal the OS-managed backup folder. The renderer never receives
-that folder's path or file contents. Backups contain private workspace and account
-data, but provider API keys remain in OS-protected credential storage and are not
-included; copy important backups to other protected storage yourself.
+On each successful Electron start, Agent Commons best-effort ensures one portable
+recovery point for the current UTC day and retains the latest seven automatic copies;
+manual backups are never pruned. Open **Customize → Local backups** to create a
+timestamped copy or reveal the OS-managed backup folder. A startup failure also offers
+that exact folder before quitting. The renderer never receives its path or contents,
+and neither surface can restore. Backups contain private workspace and account data,
+but provider API keys remain separate and are not included; copy important backups
+to other protected storage yourself.
 
 ```bash
 npm run snapshot:save -- before-update

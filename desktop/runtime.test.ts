@@ -94,6 +94,9 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'assertTrustedCredentialCaller(event)',
     'assertTrustedDataCaller(event)',
     'installDataIpc()',
+    'ensureRecoveryBackup()',
+    'offerStartupRecovery({',
+    'revealRecoveryDirectory({',
     'event.senderFrame?.url',
     "setWindowOpenHandler",
     'setPermissionRequestHandler',
@@ -142,6 +145,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /agentCommonsDesktop\.credentials\.removeProvider/)
   assert.match(smoke, /agentCommonsDesktop\.data\.createBackup/)
   assert.match(smoke, /snapshots/)
+  assert.match(smoke, /recovery-/)
   assert.match(smoke, /vault\.includes\(smokeSecret\)/)
 
   const packaging = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')

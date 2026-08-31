@@ -24,6 +24,7 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
 | PERSIST-D4 | data-access | Only genuine first boot may seed. Existing unreadable, malformed, invalid, unrecognized, or incompatible storage stops startup before persistence is enabled or live state is replaced. | [`json.ts`](json.ts) · [`sqlite.ts`](sqlite.ts) · [`persist.ts`](persist.ts) · [`../store/index.ts`](../store/index.ts) | [`startup-integrity.test.ts`](startup-integrity.test.ts) · [`persist.test.ts`](persist.test.ts) · [`persist-backend.test.ts`](persist-backend.test.ts) | refines SERVER-D4; requires PERSIST-A1 |
 | PERSIST-D5 | data-access | First boot records its demo/clean world; later boots obey that stored discriminator and never reinterpret established data from the environment. | [`format.ts`](format.ts) · [`../initialWorld.ts`](../initialWorld.ts) · [`../store/index.ts`](../store/index.ts) | [`initial-world.test.ts`](initial-world.test.ts) | refines PERSIST-D4; requires PERSIST-D2 |
 | PERSIST-D6 | data-access | CLI and desktop managed backups share one safe-name funnel over the canonical portable format; atomic replacement creates private files, and backup reads never expose backend-private bytes or OS-vault secrets. | [`backup.ts`](backup.ts) · [`portable.ts`](portable.ts) · [`atomicFile.ts`](atomicFile.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`portable.test.ts`](portable.test.ts) · [`../../desktop/dataProtocol.test.ts`](../../desktop/dataProtocol.test.ts) | refines PERSIST-A1; requires PERSIST-D1 |
+| PERSIST-D7 | data-access | Automatic desktop recovery is one idempotent snapshot per UTC day with the newest seven retained. Cleanup matches only the exact reserved recovery namespace and runs before a new write; manual save rejects that namespace, so manual backups are never pruned or replaced. | [`backup.ts`](backup.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`../../desktop/dataProtocol.test.ts`](../../desktop/dataProtocol.test.ts) | refines PERSIST-D6 |
 | PERSIST-V1 | verification | Every new durable slice updates local requirements, round-trip coverage, and migration behavior. | [`SPEC.md`](SPEC.md) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`persist-migrate.test.ts`](persist-migrate.test.ts) | refines SERVER-V1; requires PERSIST-D2 |
 <!-- context-rules:end -->
 
@@ -38,7 +39,8 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
 - `migrate.ts` — forward migration of an older snapshot. `portable.ts` —
   backend-neutral, validated export/restore with atomic files and read-back proof.
 - `backup.ts` — the shared safe-name, managed-directory save/list/restore funnel
-  used by both the CLI and the desktop utility process.
+  used by both the CLI and the desktop utility process, including the exact
+  daily-recovery namespace and retention policy.
 - The suites that lock all of the above, beside them.
 
 ## Rules

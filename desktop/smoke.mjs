@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { arch, platform, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -130,6 +130,14 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       Object.keys(window.agentCommonsDesktop.data).sort().join(',') === 'createBackup,revealBackups',
     )
     if (!hasDataBridge) throw new Error('The narrow desktop data bridge was not available.')
+    const recoveryDirectory = join(userDataPath, 'snapshots')
+    const automaticFiles = await readdir(recoveryDirectory)
+    const automaticFile = automaticFiles.find((file) => /^recovery-\d{4}-\d{2}-\d{2}\.json$/.test(file))
+    if (!automaticFile) throw new Error('Packaged desktop startup did not create its daily recovery point.')
+    const automaticState = JSON.parse(await readFile(join(recoveryDirectory, automaticFile), 'utf8'))
+    if (!Number.isSafeInteger(automaticState.version) || !Array.isArray(automaticState.sessions)) {
+      throw new Error('The packaged daily recovery point was not a canonical portable snapshot.')
+    }
     const backup = await page.evaluate(() => window.agentCommonsDesktop.data.createBackup())
     if (
       !/^backup-.*\.json$/.test(backup?.fileName ?? '') ||
@@ -138,11 +146,21 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     ) {
       throw new Error('The desktop backup bridge returned unbounded or invalid metadata.')
     }
-    const backupPath = join(userDataPath, 'snapshots', backup.fileName)
+    const backupPath = join(recoveryDirectory, backup.fileName)
     if (!existsSync(backupPath)) throw new Error('The packaged desktop did not create its managed portable backup.')
     const backupState = JSON.parse(await readFile(backupPath, 'utf8'))
     if (!Number.isSafeInteger(backupState.version) || !Array.isArray(backupState.sessions)) {
       throw new Error('The packaged desktop backup was not a canonical portable snapshot.')
+    }
+    if (process.platform !== 'win32') {
+      const [directoryStat, backupStat, automaticStat] = await Promise.all([
+        stat(recoveryDirectory),
+        stat(backupPath),
+        stat(join(recoveryDirectory, automaticFile)),
+      ])
+      if ((directoryStat.mode & 0o777) !== 0o700 || (backupStat.mode & 0o777) !== 0o600 || (automaticStat.mode & 0o777) !== 0o600) {
+        throw new Error('Packaged desktop recovery files were not private to the OS user.')
+      }
     }
     if (output.includes('· secure credentials') && !hasCredentialBridge) {
       throw new Error('OS-backed credential storage was available but its narrow preload bridge was not.')
@@ -200,7 +218,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (Object.keys(pruned.entries ?? {}).length !== 0) throw new Error('Provider deletion left a credential in the packaged vault.')
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · daily recovery + managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
     )
   } finally {
     await browser?.close().catch(() => {})
