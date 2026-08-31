@@ -14,12 +14,20 @@ const dataChannels = Object.freeze({
   createBackup: 'agent-commons:data:create-backup',
   revealBackups: 'agent-commons:data:reveal-backups',
 })
+const contextChannels = Object.freeze({
+  pickFiles: 'agent-commons:context:pick-files',
+  pickFolder: 'agent-commons:context:pick-folder',
+})
 
-// Data backup is available in every desktop run. Credentials join the bridge
-// only after OS-backed encryption is available. A spoofed command-line flag
-// gains no authority: every invocation is also origin/window-validated and the
-// credential verbs require the main-process vault.
+// Backup and user-mediated context selection are available in every desktop
+// run. Credentials join only after OS-backed encryption is available. A
+// spoofed command-line flag gains no authority: every invocation is also
+// origin/window-validated and credential verbs require the main-process vault.
 const bridge = {
+  context: Object.freeze({
+    pickFiles: (accept) => ipcRenderer.invoke(contextChannels.pickFiles, accept),
+    pickFolder: () => ipcRenderer.invoke(contextChannels.pickFolder),
+  }),
   data: Object.freeze({
     createBackup: () => ipcRenderer.invoke(dataChannels.createBackup),
     revealBackups: () => ipcRenderer.invoke(dataChannels.revealBackups),

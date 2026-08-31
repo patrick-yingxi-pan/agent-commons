@@ -21,10 +21,12 @@ differs by deployment.
 - **UI host ("This computer").** *Web:* the browser File System Access API / `<input>`
   (`uiHostFs.ts`) — bytes live client-side until an effect needs them, then upload to
   object storage (F6) via a **resumable, chunked** PUT keyed by content digest (the
-  seam `uiHostFs.ts` already notes). *Desktop:* "This computer" is the **co-located
-  runner** reading the real local fs (F4 fast path), not the browser — so desktop gets
-  full local access while web stays sandboxed to what the user picks. Permissions =
-  browser grant (web) / OS access via the sidecar (desktop).
+  seam `uiHostFs.ts` already notes). *Desktop:* one-shot attachments use Electron's
+  sender-validated native dialogs and return only bounded preview data—no paths or
+  reusable handles. Persistent/scoped local work remains the **co-located runner**
+  reading the real local fs (F4 fast path), so broad effect access is mediated rather
+  than accidentally granted by a picker. Permissions = browser grant (web) / explicit
+  OS selection or runner scope (desktop).
 - **Runner host.** `fs.list`/`fs.read` over the broker (F4); permission = the runner's
   advertised **scopes** (D3). Listing a large directory is **cursor-paginated** over
   `readdir`; binary/image content streams through the **broker bytes route** (already

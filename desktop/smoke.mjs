@@ -130,6 +130,12 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       Object.keys(window.agentCommonsDesktop.data).sort().join(',') === 'createBackup,revealBackups',
     )
     if (!hasDataBridge) throw new Error('The narrow desktop data bridge was not available.')
+    const hasContextBridge = await page.evaluate(() =>
+      typeof window.agentCommonsDesktop?.context?.pickFiles === 'function' &&
+      typeof window.agentCommonsDesktop?.context?.pickFolder === 'function' &&
+      Object.keys(window.agentCommonsDesktop.context).sort().join(',') === 'pickFiles,pickFolder',
+    )
+    if (!hasContextBridge) throw new Error('The narrow native context picker bridge was not available.')
     const recoveryDirectory = join(userDataPath, 'snapshots')
     const automaticFiles = await readdir(recoveryDirectory)
     const automaticFile = automaticFiles.find((file) => /^recovery-\d{4}-\d{2}-\d{2}\.json$/.test(file))
@@ -235,7 +241,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       await firstProviderDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · daily recovery + managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
     )
   } finally {
     await browser?.close().catch(() => {})

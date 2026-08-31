@@ -7,6 +7,7 @@
  *  Bytes stay in the browser as a preview (object URL for an image, the text body
  *  for a text file) and only reach the backend if an effect uploads them. */
 import type { Artifact, ArtifactKind } from '../types'
+import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 
 /** A file picked from the UI host, with its content held client-side for preview. */
 export interface UiHostFile {
@@ -42,6 +43,23 @@ export function uiHostKind(name: string): ArtifactKind {
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
 
+const PICKER_FAILURE: Record<DesktopContextPickerRejection, string> = {
+  'image-too-large': 'Choose images up to 8 MB each.',
+  'invalid-request': 'That selection is not supported.',
+  'selection-too-large': 'Choose up to 24 MB of images at a time.',
+  'too-many-files': 'Choose no more than 24 files at a time.',
+  'too-many-folder-entries': 'Choose a folder with no more than 500 top-level items.',
+  unreadable: 'The selected items could not be read. Check their permissions and try again.',
+  'unsupported-image': 'Choose a PNG, JPEG, GIF, SVG, WebP, BMP, or ICO image.',
+}
+
+export class UiHostPickerError extends Error {
+  constructor(reason: DesktopContextPickerRejection) {
+    super(PICKER_FAILURE[reason])
+    this.name = 'UiHostPickerError'
+  }
+}
+
 /** Read one browser `File` into a `UiHostFile` — an object URL for an image, the
  *  text body for a text file (capped so a stray huge file can't hang the preview). */
 async function toUiHostFile(file: File): Promise<UiHostFile> {
@@ -61,14 +79,31 @@ async function toUiHostFile(file: File): Promise<UiHostFile> {
 }
 
 /** Whether the richer File System Access API is available (vs. the `<input>` fallback). */
-export function uiHostSupportsPicker(): boolean {
-  return typeof window !== 'undefined' && 'showOpenFilePicker' in window
+export function uiHostSupportsPicker(scope?: DesktopBridgeScope): boolean {
+  const target = scope ?? (typeof window === 'undefined' ? {} : window)
+  return target.agentCommonsDesktop?.context !== undefined || (typeof window !== 'undefined' && 'showOpenFilePicker' in window)
 }
 
 /** Open the OS file picker and read the chosen files. `accept` narrows to images
- *  for the Photos type. Uses a transient `<input type=file>` (works everywhere);
- *  an Electron build could route this through native fs without changing callers. */
-export async function pickUiHostFiles(accept: 'image' | 'any' = 'any'): Promise<UiHostFile[]> {
+ *  for the Photos type. Electron routes through its bounded native bridge; web
+ *  uses a transient `<input type=file>` without changing callers. */
+export async function pickUiHostFiles(
+  accept: 'image' | 'any' = 'any',
+  scope: DesktopBridgeScope = window,
+): Promise<UiHostFile[]> {
+  const native = scope.agentCommonsDesktop?.context
+  if (native) {
+    const result = await native.pickFiles(accept)
+    if (result.status === 'cancelled') return []
+    if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
+    return result.files.map((file) => ({
+      id: file.name,
+      name: file.name,
+      kind: file.kind,
+      text: file.text,
+      url: file.previewDataUrl,
+    }))
+  }
   const files = await openInput({ multiple: true, accept: accept === 'image' ? 'image/*' : undefined })
   return Promise.all(files.map(toUiHostFile))
 }
@@ -82,7 +117,24 @@ export async function readDroppedFiles(list: FileList): Promise<UiHostFile[]> {
  *  Listing only (real names + kinds from disk); per-artifact content preview for a
  *  UI-host folder isn't wired (the bytes would have to be threaded through attach),
  *  so those fall back to the scaffold. Returns null when the user cancels. */
-export async function pickUiHostFolder(): Promise<{ name: string; artifacts: Artifact[] } | null> {
+export async function pickUiHostFolder(
+  scope: DesktopBridgeScope = window,
+): Promise<{ name: string; artifacts: Artifact[] } | null> {
+  const native = scope.agentCommonsDesktop?.context
+  if (native) {
+    const result = await native.pickFolder()
+    if (result.status === 'cancelled') return null
+    if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
+    return {
+      name: result.folder.name,
+      artifacts: result.folder.files.map((file) => ({
+        id: `ui-host:${result.folder.name}/${file.name}`,
+        name: file.name,
+        kind: uiHostKind(file.name),
+        meta: humanSize(file.sizeBytes),
+      })),
+    }
+  }
   const files = await openInput({ multiple: true, directory: true })
   if (files.length === 0) return null
   // The folder name is the first segment of the relative path the browser reports.
@@ -106,9 +158,8 @@ function humanSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** Promise-wrap a transient `<input type=file>` click. Resolves with the chosen
- *  files (empty when cancelled — `change` may not fire, so this can stay pending;
- *  callers treat no-pick as no-op). */
+/** Promise-wrap a transient `<input type=file>` click. Modern Chromium emits
+ *  `cancel`; `change` remains the cross-browser selection path. */
 function openInput(opts: { multiple?: boolean; accept?: string; directory?: boolean }): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement('input')
@@ -116,7 +167,14 @@ function openInput(opts: { multiple?: boolean; accept?: string; directory?: bool
     if (opts.multiple) input.multiple = true
     if (opts.accept) input.accept = opts.accept
     if (opts.directory) (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true
-    input.onchange = () => resolve(input.files ? Array.from(input.files) : [])
+    let settled = false
+    const finish = (files: File[]) => {
+      if (settled) return
+      settled = true
+      resolve(files)
+    }
+    input.onchange = () => finish(input.files ? Array.from(input.files) : [])
+    input.addEventListener('cancel', () => finish([]), { once: true })
     input.click()
   })
 }

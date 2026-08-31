@@ -14,6 +14,7 @@ import {
 import packagerConfig, { ignoreFromPackage } from './packager.config.mjs'
 import { packagedExecutable } from './smoke.mjs'
 import credentialChannels from './credential-channels.cjs'
+import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
 
 test('desktop origins are exact IPv4 loopback origins, not user-controlled URLs', () => {
@@ -93,6 +94,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     "additionalArguments: credentialVault ? ['--agent-commons-secure-credentials'] : []",
     'assertTrustedCredentialCaller(event)',
     'assertTrustedDataCaller(event)',
+    'assertTrustedContextCaller(event)',
+    'installContextIpc()',
     'installDataIpc()',
     'ensureRecoveryBackup()',
     'offerStartupRecovery({',
@@ -114,6 +117,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   for (const channel of Object.values(credentialChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const verb of ['createBackup', 'revealBackups']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(dataChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
+  for (const verb of ['pickFiles', 'pickFolder']) assert.match(preload, new RegExp(`${verb}:`))
+  for (const channel of Object.values(contextChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
 
   const packager = readFileSync(new URL('./packager.config.mjs', import.meta.url), 'utf8')
   assert.match(packager, /asar:\s*true/)
@@ -146,6 +151,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /first-run model handoff/)
   assert.match(smoke, /agentCommonsDesktop\.credentials\.removeProvider/)
   assert.match(smoke, /agentCommonsDesktop\.data\.createBackup/)
+  assert.match(smoke, /agentCommonsDesktop\?\.context\?\.pickFiles/)
+  assert.match(smoke, /native context picker/)
   assert.match(smoke, /snapshots/)
   assert.match(smoke, /recovery-/)
   assert.match(smoke, /vault\.includes\(smokeSecret\)/)

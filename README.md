@@ -108,8 +108,10 @@ boots use explicit profiles:
 
 - `npm run start` (also `start:desktop`) launches the near-term Electron app over
   the built UI. Electron is only a secure host: its sandboxed renderer has no Node
-  or direct IPC authority; its sole preload surface is a write-only provider-key
-  lifecycle backed by OS encryption. A supervised utility process runs the existing desktop
+  or direct IPC authority; its narrow preload faces cover OS-encrypted write-only
+  provider keys, managed backups, and user-mediated file/folder selection. The picker
+  returns bounded preview data but never a path, reusable handle, or generic filesystem
+  operation. A supervised utility process runs the existing desktop
   profile on an ephemeral loopback origin. The backend owns native capabilities,
   embedded SQLite, the credential-less device owner, client-asserted identity
   denial, and the exact-origin wall. Database and portable snapshots live under
@@ -158,6 +160,12 @@ one **Connect a model** action. It opens the same Models provider form directly;
 after a Messages endpoint is verified, Agent Commons selects it and returns to the
 untouched draft ready for the first message. Creating an offline Session provider
 does not claim readiness—the session's drain loop still has to connect.
+
+In Add context → Files, Photos, or Folder → This computer, Electron uses the native
+OS chooser while the web build retains browser input and drag-and-drop. Both normalize
+into the same attachment workflow. Native folder attachment intentionally lists only
+top-level regular files and stops after 500 top-level items; large or excessive selections stay in place with a clear
+limit message rather than silently truncating or widening filesystem access.
 
 For a provider you created, Models → provider → **Update connection** replaces
 only the URL, model, or key you enter. The server merges those write-only fields,

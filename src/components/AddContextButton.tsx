@@ -721,33 +721,53 @@ function UiHostDropZone({
   onPicked: (f: UiHostFile) => void
 }) {
   const [drag, setDrag] = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
   const take = (files: UiHostFile[]) => files.forEach(onPicked)
+  const choose = async () => {
+    setFailure(null)
+    try {
+      take(await pickUiHostFiles(accept))
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : 'The selected items could not be read. Try again.')
+    }
+  }
+  const drop = async (files: FileList) => {
+    setFailure(null)
+    try {
+      take(await readDroppedFiles(files))
+    } catch {
+      setFailure('The dropped items could not be read. Try again.')
+    }
+  }
   return (
-    <button
-      type="button"
-      onClick={async () => take(await pickUiHostFiles(accept))}
-      onDragOver={(e) => {
-        e.preventDefault()
-        setDrag(true)
-      }}
-      onDragLeave={() => setDrag(false)}
-      onDrop={async (e) => {
-        e.preventDefault()
-        setDrag(false)
-        take(await readDroppedFiles(e.dataTransfer.files))
-      }}
-      className={`flex w-full flex-col items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center transition ${
-        drag ? 'border-accent bg-accent-tint' : 'border-line-strong hover:bg-panel-2'
-      }`}
-    >
-      {accept === 'image' ? (
-        <ImageIcon size={18} className="mb-1 text-ink-faint" />
-      ) : (
-        <Paperclip size={18} className="mb-1 text-ink-faint" />
-      )}
-      <span className="text-[12px] font-medium text-ink">{label}</span>
-      <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
-    </button>
+    <div>
+      <button
+        type="button"
+        onClick={() => void choose()}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDrag(true)
+        }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => {
+          e.preventDefault()
+          setDrag(false)
+          void drop(e.dataTransfer.files)
+        }}
+        className={`flex w-full flex-col items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center transition ${
+          drag ? 'border-accent bg-accent-tint' : 'border-line-strong hover:bg-panel-2'
+        }`}
+      >
+        {accept === 'image' ? (
+          <ImageIcon size={18} className="mb-1 text-ink-faint" />
+        ) : (
+          <Paperclip size={18} className="mb-1 text-ink-faint" />
+        )}
+        <span className="text-[12px] font-medium text-ink">{label}</span>
+        <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
+      </button>
+      {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
+    </div>
   )
 }
 
@@ -1232,6 +1252,7 @@ function FolderPicker({
 }) {
   const sources = useFsSourceList()
   const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
+  const [failure, setFailure] = useState<string | null>(null)
   const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
 
   // Attach a served folder: fetch its contents, tag each artifact with the folder
@@ -1244,30 +1265,38 @@ function FolderPicker({
   }
 
   const attachUiHost = async () => {
-    const picked = await pickUiHostFolder()
-    if (!picked) return
-    const src = { id: fsRecentKey('ui-host', picked.name), label: `${picked.name}/` }
-    onAdd({
-      kind: 'folder',
-      label: picked.name,
-      artifacts: picked.artifacts.map((a) => ({ ...a, source: src })),
-      source: UI_HOST_SOURCE,
-    })
+    setFailure(null)
+    try {
+      const picked = await pickUiHostFolder()
+      if (!picked) return
+      const src = { id: fsRecentKey('ui-host', picked.name), label: `${picked.name}/` }
+      onAdd({
+        kind: 'folder',
+        label: picked.name,
+        artifacts: picked.artifacts.map((a) => ({ ...a, source: src })),
+        source: UI_HOST_SOURCE,
+      })
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : 'The selected folder could not be read. Try again.')
+    }
   }
 
   return (
     <div className="pb-1">
       <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
       {active.kind === 'ui-host' ? (
-        <button
-          type="button"
-          onClick={() => void attachUiHost()}
-          className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-6 text-center transition hover:bg-panel-2"
-        >
-          <FolderOpen size={18} className="mb-1 text-ink-faint" />
-          <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
-          <span className="text-[11px] text-ink-faint">attaches its files as a workspace</span>
-        </button>
+        <div>
+          <button
+            type="button"
+            onClick={() => void attachUiHost()}
+            className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-6 text-center transition hover:bg-panel-2"
+          >
+            <FolderOpen size={18} className="mb-1 text-ink-faint" />
+            <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
+            <span className="text-[11px] text-ink-faint">attaches its top-level files as a workspace</span>
+          </button>
+          {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
+        </div>
       ) : (
         <ServedFolders source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={(f) => void attachServed(f)} />
       )}

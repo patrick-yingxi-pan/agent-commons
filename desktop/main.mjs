@@ -3,7 +3,9 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
 import credentialChannels from './credential-channels.cjs'
+import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
+import { createNativeContextPicker } from './contextPicker.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createDataBackendClient } from './dataProtocol.mjs'
 import { offerStartupRecovery, revealRecoveryDirectory } from './startupRecovery.mjs'
@@ -39,6 +41,9 @@ let quitting = false
 let quitAfterBackend = false
 let rendererUrl = null
 let trustedOrigin = null
+const contextPicker = createNativeContextPicker({
+  showOpenDialog: (owner, options) => dialog.showOpenDialog(owner, options),
+})
 
 app.enableSandbox()
 if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'Agent Commons Development'))
@@ -86,6 +91,7 @@ async function startDesktop() {
 
   backendReady = true
   if (credentialVault) installCredentialIpc()
+  installContextIpc()
   installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
   console.log(`[desktop] ready ${rendererUrl} · ${credentialVault ? 'secure credentials' : 'environment-only credentials'}`)
@@ -227,6 +233,10 @@ function assertTrustedDataCaller(event) {
   assertTrustedDesktopCaller(event, 'Desktop data controls are not available from this page.')
 }
 
+function assertTrustedContextCaller(event) {
+  assertTrustedDesktopCaller(event, 'Desktop context selection is not available from this page.')
+}
+
 function assertTrustedDesktopCaller(event, message) {
   const callerUrl = event.senderFrame?.url
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !callerUrl || !isTrustedAppUrl(callerUrl, trustedOrigin)) {
@@ -304,6 +314,17 @@ function installDataIpc() {
       console.error('[desktop] backup folder could not be shown.', error)
       throw new Error('The backup folder could not be opened.')
     }
+  })
+}
+
+function installContextIpc() {
+  ipcMain.handle(contextChannels.pickFiles, async (event, accept) => {
+    assertTrustedContextCaller(event)
+    return contextPicker.pickFiles(mainWindow, accept)
+  })
+  ipcMain.handle(contextChannels.pickFolder, async (event) => {
+    assertTrustedContextCaller(event)
+    return contextPicker.pickFolder(mainWindow)
   })
 }
 

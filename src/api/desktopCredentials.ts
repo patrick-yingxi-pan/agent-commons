@@ -1,14 +1,45 @@
 /** The renderer-side face of Electron's narrow native capabilities. The web
- * build has no bridge and keeps the existing PROVIDER_* environment-reference
- * workflow. Credential methods remain write-only; data methods expose metadata
- * but no filesystem path, file contents, or restore authority. */
+ * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
+ * workflow. Credentials remain write-only; backup and picker methods expose
+ * bounded results but no arbitrary path, handle, restore, or raw IPC authority. */
 export interface DesktopBackupMetadata {
   fileName: string
   sizeBytes: number
   createdAt: string
 }
 
+export type DesktopContextPickerRejection =
+  | 'image-too-large'
+  | 'invalid-request'
+  | 'selection-too-large'
+  | 'too-many-files'
+  | 'too-many-folder-entries'
+  | 'unreadable'
+  | 'unsupported-image'
+
+export interface DesktopPickedFile {
+  name: string
+  kind: 'file' | 'photo'
+  sizeBytes: number
+  text?: string
+  previewDataUrl?: string
+}
+
+export type DesktopFilePickResult =
+  | { status: 'cancelled' }
+  | { status: 'rejected'; reason: DesktopContextPickerRejection }
+  | { status: 'selected'; files: DesktopPickedFile[] }
+
+export type DesktopFolderPickResult =
+  | { status: 'cancelled' }
+  | { status: 'rejected'; reason: DesktopContextPickerRejection }
+  | { status: 'selected'; folder: { name: string; files: Array<{ name: string; sizeBytes: number }> } }
+
 export interface DesktopBridge {
+  context?: {
+    pickFiles(accept: 'image' | 'any'): Promise<DesktopFilePickResult>
+    pickFolder(): Promise<DesktopFolderPickResult>
+  }
   credentials?: {
     provision(secret: string): Promise<string>
     bind(reference: string, providerId: string): Promise<void>
