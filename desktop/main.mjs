@@ -1,9 +1,11 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
 import credentialChannels from './credential-channels.cjs'
+import dataChannels from './data-channels.cjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
+import { createDataBackendClient } from './dataProtocol.mjs'
 import {
   CREDENTIAL_VAULT_FILE,
   openCredentialVault,
@@ -31,6 +33,7 @@ let backend = null
 let backendReady = false
 let credentialVault = null
 let credentialBackend = null
+let dataBackend = null
 let quitting = false
 let quitAfterBackend = false
 let rendererUrl = null
@@ -81,6 +84,7 @@ async function startDesktop() {
 
   backendReady = true
   if (credentialVault) installCredentialIpc()
+  installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
   console.log(`[desktop] ready ${rendererUrl} · ${credentialVault ? 'secure credentials' : 'environment-only credentials'}`)
 }
@@ -141,6 +145,7 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
     stdio: 'pipe',
   })
   backend = child
+  dataBackend = createDataBackendClient(child)
   if (credentialVault) {
     credentialBackend = createCredentialBackendClient(child, {
       onBindings: (bindings) => void reconcileCredentialBindings(bindings),
@@ -170,6 +175,8 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
     child.once('exit', (code) => {
       credentialBackend?.close()
       credentialBackend = null
+      dataBackend?.close()
+      dataBackend = null
       backend = null
       if (!settled) {
         const detail = stderrTail.length ? `\n\n${stderrTail.join('\n')}` : ''
@@ -198,9 +205,17 @@ async function reconcileCredentialBindings(bindings) {
 }
 
 function assertTrustedCredentialCaller(event) {
+  assertTrustedDesktopCaller(event, 'Credential access is not available from this page.')
+}
+
+function assertTrustedDataCaller(event) {
+  assertTrustedDesktopCaller(event, 'Desktop data controls are not available from this page.')
+}
+
+function assertTrustedDesktopCaller(event, message) {
   const callerUrl = event.senderFrame?.url
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !callerUrl || !isTrustedAppUrl(callerUrl, trustedOrigin)) {
-    throw new Error('Credential access is not available from this page.')
+    throw new Error(message)
   }
 }
 
@@ -249,6 +264,31 @@ function installCredentialIpc() {
   handle(credentialChannels.removeProvider, async (providerId) => {
     const references = await credentialVault.removeProvider(providerId)
     await Promise.all(references.map((reference) => credentialBackend.delete(reference)))
+  })
+}
+
+function installDataIpc() {
+  ipcMain.handle(dataChannels.createBackup, async (event) => {
+    assertTrustedDataCaller(event)
+    if (!dataBackend) throw new Error('The local data service is unavailable.')
+    try {
+      return await dataBackend.createBackup()
+    } catch (error) {
+      console.error('[desktop] backup creation failed.', error)
+      throw new Error('The backup could not be created. Your app data was not changed.')
+    }
+  })
+  ipcMain.handle(dataChannels.revealBackups, async (event) => {
+    assertTrustedDataCaller(event)
+    const directory = join(app.getPath('userData'), 'snapshots')
+    try {
+      mkdirSync(directory, { recursive: true, mode: 0o700 })
+      const error = await shell.openPath(directory)
+      if (error) throw new Error(error)
+    } catch (error) {
+      console.error('[desktop] backup folder could not be shown.', error)
+      throw new Error('The backup folder could not be opened.')
+    }
   })
 }
 
@@ -365,6 +405,8 @@ async function stopBackend() {
   backend = null
   credentialBackend?.close()
   credentialBackend = null
+  dataBackend?.close()
+  dataBackend = null
   backendReady = false
 }
 

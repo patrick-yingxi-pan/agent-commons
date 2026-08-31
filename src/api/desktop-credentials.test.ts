@@ -36,7 +36,7 @@ test('the desktop adapter exposes write lifecycle verbs but no secret read/list 
     ['discard', reference],
     ['removeProvider', 'provider-4'],
   ])
-  assert.deepEqual(Object.keys(scope.agentCommonsDesktop.credentials).sort(), ['bind', 'discard', 'provision', 'removeProvider'])
+  assert.deepEqual(Object.keys(scope.agentCommonsDesktop.credentials!).sort(), ['bind', 'discard', 'provision', 'removeProvider'])
 })
 
 test('web mode keeps the environment-reference path and cleanup is a safe no-op', async () => {

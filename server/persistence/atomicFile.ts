@@ -26,7 +26,10 @@ export function writeTextFileAtomically(
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   const tmp = `${file}${tempSuffix}`
   try {
-    writeFileSync(tmp, contents)
+    // Store snapshots and portable backups contain private workspace data.
+    // Creating the replacement privately avoids a world-readable interval
+    // before rename; Windows safely ignores this POSIX mode.
+    writeFileSync(tmp, contents, { mode: 0o600 })
     for (let attempt = 0; ; attempt += 1) {
       try {
         renameSync(tmp, file)

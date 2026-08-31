@@ -188,6 +188,12 @@ Backups are portable across both backends. `save` can run against the selected
 live store; stop the server before `restore` so the old process cannot overwrite
 the recovered state, then restart it.
 
+In the Electron app, open **Customize → Local backups** to create a timestamped
+portable backup or reveal the OS-managed backup folder. The renderer never receives
+that folder's path or file contents. Backups contain private workspace and account
+data, but provider API keys remain in OS-protected credential storage and are not
+included; copy important backups to other protected storage yourself.
+
 ```bash
 npm run snapshot:save -- before-update
 npm run snapshot:list

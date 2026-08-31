@@ -20,84 +20,28 @@
  *  Persistence loads ONCE on boot (store.initPersistence), so a `restore` only
  *  takes effect after the server restarts — the commands say so. The store is
  *  imported lazily, only for `build`. */
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { mkdirSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
 import { dataFile, databaseFile, type PersistedState } from '../server/persistence/persist.ts'
-import { backendKind, selectBackend, type BackendKind } from '../server/persistence/index.ts'
+import { backendKind } from '../server/persistence/index.ts'
+import { writePortableSnapshot } from '../server/persistence/portable.ts'
 import {
-  exportBackendSnapshot,
-  readPortableSnapshot,
-  restoreBackendState,
-  writePortableSnapshot,
-} from '../server/persistence/portable.ts'
+  listSnapshots,
+  restoreSnapshot,
+  saveSnapshot,
+  snapshotPath,
+  snapshotsDir,
+  storageFilePath,
+} from '../server/persistence/backup.ts'
 
-/** The live store path — the SAME resolvers the server backends use, imported
- * rather than re-derived so recovery cannot drift from the active storage. */
-export function storageFilePath(kind: BackendKind = backendKind()): string {
-  return kind === 'sqlite' ? databaseFile() : dataFile()
-}
-
-/** Snapshots live next to the live store, in a `snapshots/` sibling. */
-export function snapshotsDir(): string {
-  return process.env.SNAPSHOT_DIR ?? join(dirname(storageFilePath()), 'snapshots')
-}
-
-/** A snapshot's path from its name. Names are restricted to a safe charset so a
- *  `restore ../../etc/passwd` can't escape the snapshots dir. */
-export function snapshotPath(name: string): string {
-  if (!/^[A-Za-z0-9._-]+$/.test(name) || name === '.' || name === '..') {
-    throw new Error(`invalid snapshot name: ${JSON.stringify(name)} (use letters, digits, . _ -)`)
-  }
-  return join(snapshotsDir(), `${name}.json`)
-}
-
-/** Export the live backend → a named portable snapshot. */
-export function saveSnapshot(name = 'backup'): { from: string; to: string } {
-  const from = storageFilePath()
-  if (!existsSync(from)) {
-    throw new Error(`no live store at ${from} — run the server once (npm run dev) so it writes one`)
-  }
-  const to = snapshotPath(name)
-  const selected = selectBackend()
-  try {
-    exportBackendSnapshot(selected, to)
-  } finally {
-    selected.close()
-  }
-  return { from, to }
-}
-
-/** Restore a portable snapshot → the live backend. Caller must restart server. */
-export function restoreSnapshot(name = 'backup'): { from: string; to: string } {
-  const from = snapshotPath(name)
-  if (!existsSync(from)) {
-    throw new Error(`no snapshot named "${name}" at ${from} — run \`snapshot list\` to see what exists`)
-  }
-  const to = storageFilePath()
-  // Validate before selecting the backend: opening SQLite creates the DB file,
-  // and a malformed import must not touch live storage at all.
-  const state = readPortableSnapshot(from)
-  const selected = selectBackend()
-  try {
-    restoreBackendState(selected, state)
-  } finally {
-    selected.close()
-  }
-  return { from, to }
-}
-
-/** Every snapshot, newest first. */
-export function listSnapshots(): { name: string; sizeKB: number; modified: Date }[] {
-  const dir = snapshotsDir()
-  if (!existsSync(dir)) return []
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => {
-      const st = statSync(join(dir, f))
-      return { name: f.replace(/\.json$/, ''), sizeKB: Math.round((st.size / 1024) * 10) / 10, modified: st.mtime }
-    })
-    .sort((a, b) => b.modified.getTime() - a.modified.getTime())
-}
+export {
+  listSnapshots,
+  restoreSnapshot,
+  saveSnapshot,
+  snapshotPath,
+  snapshotsDir,
+  storageFilePath,
+} from '../server/persistence/backup.ts'
 
 /** Manufacture the comprehensive playground by driving the real store. Assumes
  *  the configured backend path already points at a FRESH (absent) store: the store

@@ -125,6 +125,25 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       typeof window.agentCommonsDesktop?.credentials?.provision === 'function' &&
       Object.keys(window.agentCommonsDesktop.credentials).sort().join(',') === 'bind,discard,provision,removeProvider',
     )
+    const hasDataBridge = await page.evaluate(() =>
+      typeof window.agentCommonsDesktop?.data?.createBackup === 'function' &&
+      Object.keys(window.agentCommonsDesktop.data).sort().join(',') === 'createBackup,revealBackups',
+    )
+    if (!hasDataBridge) throw new Error('The narrow desktop data bridge was not available.')
+    const backup = await page.evaluate(() => window.agentCommonsDesktop.data.createBackup())
+    if (
+      !/^backup-.*\.json$/.test(backup?.fileName ?? '') ||
+      !Number.isSafeInteger(backup?.sizeBytes) ||
+      Object.keys(backup ?? {}).sort().join(',') !== 'createdAt,fileName,sizeBytes'
+    ) {
+      throw new Error('The desktop backup bridge returned unbounded or invalid metadata.')
+    }
+    const backupPath = join(userDataPath, 'snapshots', backup.fileName)
+    if (!existsSync(backupPath)) throw new Error('The packaged desktop did not create its managed portable backup.')
+    const backupState = JSON.parse(await readFile(backupPath, 'utf8'))
+    if (!Number.isSafeInteger(backupState.version) || !Array.isArray(backupState.sessions)) {
+      throw new Error('The packaged desktop backup was not a canonical portable snapshot.')
+    }
     if (output.includes('· secure credentials') && !hasCredentialBridge) {
       throw new Error('OS-backed credential storage was available but its narrow preload bridge was not.')
     }
@@ -181,7 +200,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (Object.keys(pruned.entries ?? {}).length !== 0) throw new Error('Provider deletion left a credential in the packaged vault.')
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
     )
   } finally {
     await browser?.close().catch(() => {})

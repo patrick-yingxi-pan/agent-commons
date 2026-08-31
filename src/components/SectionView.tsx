@@ -157,6 +157,7 @@ import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
 import { BackButton, PageBackContext } from './BackButton'
 import { PageActionButton } from './PageActionButton'
+import { DesktopDataCard } from './DesktopDataCard'
 import {
   AtomicResourcePage,
   CompositePageControls,
@@ -14075,6 +14076,7 @@ function CustomizeView() {
       <AppearanceCard />
       <DefaultModelCard />
       <SystemPromptCard />
+      <DesktopDataCard />
       <ToggleCard
         title="Weekly digest"
         desc="A Monday summary of everything you shipped."

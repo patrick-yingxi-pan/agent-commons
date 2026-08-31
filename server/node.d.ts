@@ -47,11 +47,13 @@ declare module 'node:fs' {
     isDirectory(): boolean
     size: number
     mtimeMs: number
+    mode: number
   }
   export function readdirSync(path: string): string[]
-  export function writeFileSync(path: string, data: string): void
+  export function chmodSync(path: string, mode: number): void
+  export function writeFileSync(path: string, data: string, options?: { mode?: number }): void
   export function renameSync(oldPath: string, newPath: string): void
-  export function mkdirSync(path: string, options?: { recursive?: boolean }): void
+  export function mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): void
   export function rmSync(path: string, options?: { force?: boolean; recursive?: boolean }): void
 }
 

@@ -13,7 +13,7 @@
  *  never touched (mirrors server/persistence/persist.test.ts). */
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { rmSync, existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs'
+import { rmSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { saveSnapshot, restoreSnapshot, listSnapshots, snapshotPath, buildComprehensive } from '../../scripts/snapshot.ts'
@@ -60,6 +60,15 @@ test('save → break → restore round-trips canonical live state', () => {
 
   const { to } = saveSnapshot('rt')
   assert.ok(existsSync(to), 'the snapshot file is written')
+  if (process.platform !== 'win32') {
+    assert.equal(statSync(dirname(to)).mode & 0o777, 0o700, 'the managed backup directory is private to the OS user')
+    assert.equal(statSync(to).mode & 0o777, 0o600, 'portable backups are private to the OS user')
+  }
+  assert.throws(
+    () => saveSnapshot('rt', { overwrite: false }),
+    /refusing to replace existing snapshot/,
+    'managed backup creation never overwrites an existing recovery point',
+  )
 
   // "Click around and break things."
   writeFileSync(FS_STORE, JSON.stringify(stateNamed('broken')))

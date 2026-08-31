@@ -4,6 +4,7 @@
 import { randomBytes } from 'node:crypto'
 import { resolveRuntimeProfile } from '../server/runtimeProfile.ts'
 import { installCredentialRuntime } from '../desktop/credentialProtocol.mjs'
+import { installDataRuntime } from '../desktop/dataProtocol.mjs'
 
 const profile = process.argv[2] ?? 'desktop'
 if (profile !== 'desktop' && profile !== 'web') {
@@ -13,6 +14,7 @@ if (profile !== 'desktop' && profile !== 'web') {
 const resolved = resolveRuntimeProfile(profile, process.env, () => randomBytes(32).toString('base64url'))
 for (const [key, value] of Object.entries(resolved)) process.env[key] = value
 const credentialRuntime = installCredentialRuntime()
+installDataRuntime()
 
 console.log(`[startup] ${profile} profile · ${resolved.HOST}:${resolved.PORT} · ${resolved.PERSIST_BACKEND}`)
 await import('../server/index.ts')
