@@ -1,0 +1,114 @@
+import { spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { createReadStream, existsSync } from 'node:fs'
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { arch, platform, tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { packageDesktop } from './package.mjs'
+import {
+  archiveCreateCommand,
+  archiveExtractCommand,
+  checksumLine,
+  directDownloadReleasePlan,
+  releaseVerificationCommands,
+} from './release-plan.mjs'
+import { publishImmutableReleasePair } from './release-publish.mjs'
+import { smokePackagedDesktop } from './smoke.mjs'
+
+const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+
+function run({ command, args, cwd = ROOT }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env: process.env, stdio: 'inherit' })
+    child.once('error', reject)
+    child.once('exit', (code, signal) => {
+      if (code === 0) resolve()
+      else reject(new Error(`${command} failed with ${signal ? `signal ${signal}` : `code ${code}`}.`))
+    })
+  })
+}
+
+async function sha256(path) {
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path)) hash.update(chunk)
+  return hash.digest('hex')
+}
+
+async function verifyApp(appPath) {
+  for (const command of releaseVerificationCommands(appPath)) await run(command)
+}
+
+async function preflightAppleTools() {
+  for (const tool of ['codesign', 'notarytool', 'stapler']) {
+    await run({ command: '/usr/bin/xcrun', args: ['--find', tool] })
+  }
+  for (const path of ['/usr/bin/ditto', '/usr/sbin/spctl']) {
+    if (!existsSync(path)) throw new Error(`Required macOS release tool is missing: ${path}`)
+  }
+}
+
+export async function releaseMacDirectDownload({ env = process.env } = {}) {
+  const manifest = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
+  // Resolve all credentials and output names before a build writes anything.
+  const plan = directDownloadReleasePlan({ root: ROOT, manifest, env, platform: platform(), arch: arch() })
+  if (existsSync(plan.archivePath) || existsSync(plan.checksumPath)) {
+    throw new Error('This version already has a direct-download output. Bump the package version before publishing again.')
+  }
+  await preflightAppleTools()
+
+  const artifacts = await packageDesktop({
+    targetPlatform: plan.targetPlatform,
+    targetArch: plan.targetArch,
+    releaseOptions: plan.packagerOptions,
+  })
+  if (
+    artifacts.length !== 1 ||
+    artifacts[0] !== plan.packageDirectory ||
+    !existsSync(plan.appPath) ||
+    !existsSync(plan.executablePath)
+  ) {
+    throw new Error('Signed packaging did not produce the one expected macOS application bundle.')
+  }
+  await verifyApp(plan.appPath)
+
+  // The public version is immutable. Build and test in an isolated staging
+  // directory, then publish with exclusive copies so a failed or concurrent
+  // run cannot overwrite the last known artifact.
+  const staging = await mkdtemp(join(tmpdir(), 'agent-commons-direct-release-'))
+  const stagedArchive = join(staging, plan.archiveName)
+  const stagedChecksum = join(staging, `${plan.archiveName}.sha256`)
+  const extracted = join(staging, 'extracted')
+  try {
+    await run(archiveCreateCommand(plan.appPath, stagedArchive))
+    if ((await stat(stagedArchive)).size === 0) throw new Error('Direct-download archive is empty.')
+    await mkdir(extracted)
+    await run(archiveExtractCommand(stagedArchive, extracted))
+    const entries = await readdir(extracted)
+    if (entries.length !== 1 || entries[0] !== 'Agent Commons.app') {
+      throw new Error('Direct-download archive must extract to exactly one Agent Commons application.')
+    }
+    const extractedApp = join(extracted, entries[0])
+    await verifyApp(extractedApp)
+    await smokePackagedDesktop({
+      executable: join(extractedApp, 'Contents', 'MacOS', 'Agent Commons'),
+    })
+
+    const digest = await sha256(stagedArchive)
+    await writeFile(stagedChecksum, checksumLine(digest, plan.archiveName), { encoding: 'utf8', mode: 0o644 })
+    await mkdir(plan.releaseDirectory, { recursive: true })
+    await publishImmutableReleasePair({
+      stagedArchive,
+      stagedChecksum,
+      archivePath: plan.archivePath,
+      checksumPath: plan.checksumPath,
+    })
+  } finally {
+    await rm(staging, { recursive: true, force: true }).catch(() => {})
+  }
+  console.log(`[desktop-release] ${plan.archivePath}`)
+  console.log(`[desktop-release] ${plan.checksumPath}`)
+  return plan
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) await releaseMacDirectDownload()

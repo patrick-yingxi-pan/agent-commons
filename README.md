@@ -95,6 +95,7 @@ npm run start:web    # hosted profile (required env below)
 npm run desktop:package # build an unpacked platform application in out/
 npm run desktop:smoke   # launch that package with isolated temporary user data
 npm run desktop:verify  # package + real native startup/render/storage smoke
+npm run desktop:release:mac # signed/notarized direct-download ZIP (credential-gated)
 npm run typecheck
 npm run build
 npm test             # Node behavior and repository locks
@@ -126,9 +127,32 @@ boots use explicit profiles:
   current Electron Packager. The Electron archive is verified against the checksum
   shipped in the official npm package. `desktop:smoke` launches that exact
   executable with throwaway user data and proves backend readiness, the built UI,
-  and local SQLite placement; `desktop:verify` runs both stages. The result
-  is a verified unpacked artifact, not a signed distribution; platform signing,
-  notarization, installer makers, and an updater remain release-channel work.
+  and local SQLite placement; `desktop:verify` runs both stages. The result is
+  a verified unpacked artifact, intentionally unsigned for local development.
+- `npm run desktop:release:mac` is the separate fail-closed direct-download
+  release path. It accepts only a Developer ID Application identity and a
+  `notarytool` Keychain profile; plaintext Apple passwords are not a supported
+  input. Electron Packager signs every nested code object with hardened runtime,
+  uses a repository-owned least-privilege entitlement for generic app code,
+  submits to Apple, and staples the accepted ticket. The orchestrator then
+  independently checks the signature, ticket, and Gatekeeper verdict, creates a
+  versioned architecture-specific ZIP, extracts that ZIP into a fresh directory,
+  repeats all three checks, and runs the full packaged-app smoke against the
+  extracted executable. Only then does it write the adjacent SHA-256 manifest.
+  Configure the machine once with `xcrun notarytool store-credentials`, then run:
+
+  ```bash
+  APPLE_SIGNING_IDENTITY='Developer ID Application: … (TEAMID)' \
+  APPLE_NOTARY_KEYCHAIN_PROFILE='agent-commons-notary' \
+  npm run desktop:release:mac
+  ```
+
+  Set `APPLE_KEYCHAIN` only when both the certificate and notary profile live in
+  a non-default Keychain. Outputs land in ignored `release/` as
+  `Agent-Commons-<version>-macos-<arch>.zip` plus `.sha256`. The command builds
+  the host architecture (`arm64` or `x64`) and treats each version as immutable:
+  if either output already exists, publishing refuses rather than overwrites it.
+  Updater policy remains a separate product decision.
 - `npm run start:desktop:server` keeps the release-shaped backend available
   without Electron for diagnostics, recovery tooling, and contract-level work.
 - `npm run start:web` preserves the later hosted boundary: remote capabilities,

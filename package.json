@@ -23,6 +23,7 @@
     "desktop:package": "node desktop/package.mjs",
     "desktop:smoke": "node desktop/smoke.mjs",
     "desktop:verify": "npm run desktop:package && npm run desktop:smoke",
+    "desktop:release:mac": "node desktop/release.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"contract/**/*.test.ts\" \"desktop/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\" \"tests/**/*.test.ts\" \"src/**/*.test.tsx\"",

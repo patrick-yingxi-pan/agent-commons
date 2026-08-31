@@ -42,7 +42,21 @@ export function ignoreFromPackage(path) {
     return !DESKTOP_RUNTIME_PACKAGES.has(moduleName)
   }
   if (/\.test\.[cm]?[jt]sx?$/.test(normalized) || /(^|\/)(CLAUDE|AGENTS|SPEC)\.md$/.test(normalized)) return true
-  if (normalized === 'desktop/assets' || normalized.startsWith('desktop/assets/') || ['desktop/dev.mjs', 'desktop/icons.mjs', 'desktop/package.mjs', 'desktop/packager.config.mjs', 'desktop/smoke.mjs'].includes(normalized)) return true
+  if (
+    normalized === 'desktop/assets' ||
+    normalized.startsWith('desktop/assets/') ||
+    normalized === 'desktop/entitlements.mac.plist' ||
+    [
+      'desktop/dev.mjs',
+      'desktop/icons.mjs',
+      'desktop/package.mjs',
+      'desktop/packager.config.mjs',
+      'desktop/release-plan.mjs',
+      'desktop/release-publish.mjs',
+      'desktop/release.mjs',
+      'desktop/smoke.mjs',
+    ].includes(normalized)
+  ) return true
   if (root === 'scripts' && normalized !== 'scripts/start.mjs') return true
   return false
 }

@@ -28,35 +28,48 @@ function run(command, args, extraEnv = {}) {
   })
 }
 
-await generateDesktopIcons()
-await run(process.execPath, [VITE_BIN, 'build'])
+/** Build one unpacked application. Release-only signing options arrive from the
+ * credential-gated release orchestrator; the ordinary package command remains
+ * deterministic and unsigned for local verification. */
+export async function packageDesktop({
+  targetPlatform = process.env.ELECTRON_INSTALL_PLATFORM || process.env.npm_config_platform || process.platform,
+  targetArch = process.env.ELECTRON_INSTALL_ARCH || process.env.npm_config_arch || process.arch,
+  releaseOptions,
+} = {}) {
+  await generateDesktopIcons()
+  await run(process.execPath, [VITE_BIN, 'build'])
 
-// Resolve the exact distribution archive through Electron's own current
-// downloader, and always verify it against checksums shipped in the official
-// `electron` npm package. Passing the resulting local directory to Packager
-// avoids its older nested downloader (which does not settle under Node 26).
-const zipPath = await downloadArtifact({
-  version: electronManifest.version,
-  artifactName: 'electron',
-  platform: process.env.ELECTRON_INSTALL_PLATFORM || process.env.npm_config_platform || process.platform,
-  arch: process.env.ELECTRON_INSTALL_ARCH || process.env.npm_config_arch || process.arch,
-  checksums: electronChecksums,
-  ...(process.env.ELECTRON_MIRROR
-    ? { mirrorOptions: { mirror: process.env.ELECTRON_MIRROR } }
-    : {}),
-})
+  // Resolve the exact distribution archive through Electron's own current
+  // downloader, and always verify it against checksums shipped in the official
+  // `electron` npm package. Passing the resulting local directory to Packager
+  // avoids its older nested downloader (which does not settle under Node 26).
+  const zipPath = await downloadArtifact({
+    version: electronManifest.version,
+    artifactName: 'electron',
+    platform: targetPlatform,
+    arch: targetArch,
+    checksums: electronChecksums,
+    ...(process.env.ELECTRON_MIRROR
+      ? { mirrorOptions: { mirror: process.env.ELECTRON_MIRROR } }
+      : {}),
+  })
 
-const artifacts = await packager({
-  ...packagerConfig,
-  dir: ROOT,
-  out: join(ROOT, 'out'),
-  overwrite: true,
-  electronVersion: electronManifest.version,
-  electronZipDir: dirname(zipPath),
-  platform: process.env.ELECTRON_INSTALL_PLATFORM || process.env.npm_config_platform || process.platform,
-  arch: process.env.ELECTRON_INSTALL_ARCH || process.env.npm_config_arch || process.arch,
-})
-if (!artifacts.length || artifacts.some((artifact) => !existsSync(artifact))) {
-  throw new Error('Electron Packager completed without a concrete application artifact.')
+  const artifacts = await packager({
+    ...packagerConfig,
+    dir: ROOT,
+    out: join(ROOT, 'out'),
+    overwrite: true,
+    electronVersion: electronManifest.version,
+    electronZipDir: dirname(zipPath),
+    platform: targetPlatform,
+    arch: targetArch,
+    ...(releaseOptions ?? {}),
+  })
+  if (!artifacts.length || artifacts.some((artifact) => !existsSync(artifact))) {
+    throw new Error('Electron Packager completed without a concrete application artifact.')
+  }
+  for (const artifact of artifacts) console.log(`[desktop-package] ${artifact}`)
+  return artifacts
 }
-for (const artifact of artifacts) console.log(`[desktop-package] ${artifact}`)
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) await packageDesktop()

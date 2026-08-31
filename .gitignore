@@ -42,3 +42,4 @@ Thumbs.db
 
 # Electron packaging output (unpacked applications and future distributables)
 /out/
+/release/
