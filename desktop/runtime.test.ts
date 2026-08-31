@@ -13,6 +13,7 @@ import {
 } from './runtime.mjs'
 import packagerConfig, { ignoreFromPackage } from './packager.config.mjs'
 import { packagedExecutable } from './smoke.mjs'
+import credentialChannels from './credential-channels.cjs'
 
 test('desktop origins are exact IPv4 loopback origins, not user-controlled URLs', () => {
   assert.equal(loopbackOrigin(49152), 'http://127.0.0.1:49152')
@@ -54,6 +55,11 @@ test('the only renderer permission is sanitized clipboard write from the trusted
 test('the shell pins backend identity, CORS, and durable paths under OS user data', () => {
   const env = desktopBackendEnvironment({
     baseEnv: { PATH: '/bin', PORT: '9999', DATABASE_PATH: '/tmp/wrong.db', UNSET: undefined },
+    providerCredentials: {
+      [`PROVIDER_DESKTOP_${'A'.repeat(32)}`]: 'device-key',
+      PROVIDER_BAD: 'must-not-cross',
+      [`PROVIDER_DESKTOP_${'B'.repeat(32)}`]: '',
+    },
     port: 49152,
     rendererOrigin: 'http://127.0.0.1:5173',
     userDataPath: '/device/Agent Commons',
@@ -67,6 +73,9 @@ test('the shell pins backend identity, CORS, and durable paths under OS user dat
   assert.equal(env.DATABASE_PATH, join('/device/Agent Commons', 'store.db'))
   assert.equal(env.SNAPSHOT_DIR, join('/device/Agent Commons', 'snapshots'))
   assert.equal(env.AGENT_COMMONS_BACKEND_ORIGIN, 'http://127.0.0.1:49152')
+  assert.equal(env[`PROVIDER_DESKTOP_${'A'.repeat(32)}`], 'device-key')
+  assert.equal(env.PROVIDER_BAD, undefined)
+  assert.equal(env[`PROVIDER_DESKTOP_${'B'.repeat(32)}`], undefined)
   assert.equal(backendListenMarker(env.AGENT_COMMONS_BACKEND_ORIGIN), '[mock-backend] http://127.0.0.1:49152/api/v1')
 })
 
@@ -79,6 +88,10 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'nodeIntegration: false',
     'contextIsolation: true',
     'sandbox: true',
+    "preload: join(app.getAppPath(), 'desktop', 'preload.cjs')",
+    "additionalArguments: credentialVault ? ['--agent-commons-secure-credentials'] : []",
+    'assertTrustedCredentialCaller(event)',
+    'event.senderFrame?.url',
     "setWindowOpenHandler",
     'setPermissionRequestHandler',
     'setPermissionCheckHandler',
@@ -87,6 +100,12 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   ]) {
     assert.ok(main.includes(contract), `desktop main must contain ${contract}`)
   }
+
+  const preload = readFileSync(new URL('./preload.cjs', import.meta.url), 'utf8')
+  assert.match(preload, /contextBridge\.exposeInMainWorld\('agentCommonsDesktop'/)
+  assert.doesNotMatch(preload, /sendSync|agentCommonsDesktop[^]*ipcRenderer\s*[,}]/, 'the renderer never receives raw IPC authority')
+  for (const verb of ['provision', 'bind', 'discard', 'removeProvider']) assert.match(preload, new RegExp(`${verb}:`))
+  for (const channel of Object.values(credentialChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
 
   const packager = readFileSync(new URL('./packager.config.mjs', import.meta.url), 'utf8')
   assert.match(packager, /asar:\s*true/)
@@ -112,6 +131,11 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     join('/repo', 'out', 'Agent Commons-darwin-arm64', 'Agent Commons.app', 'Contents', 'MacOS', 'Agent Commons'),
   )
   assert.equal(packagedExecutable('/repo', 'win32', 'x64'), join('/repo', 'out', 'Agent Commons-win32-x64', 'Agent Commons.exe'))
+
+  const smoke = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
+  assert.match(smoke, /getByPlaceholder\('Paste API key'/)
+  assert.match(smoke, /agentCommonsDesktop\.credentials\.removeProvider/)
+  assert.match(smoke, /vault\.includes\(smokeSecret\)/)
 
   const packaging = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')
   assert.match(packaging, /electronChecksums/)

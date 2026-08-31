@@ -108,7 +108,8 @@ boots use explicit profiles:
 
 - `npm run start` (also `start:desktop`) launches the near-term Electron app over
   the built UI. Electron is only a secure host: its sandboxed renderer has no Node
-  or preload bridge, while a supervised utility process runs the existing desktop
+  or direct IPC authority; its sole preload surface is a write-only provider-key
+  lifecycle backed by OS encryption. A supervised utility process runs the existing desktop
   profile on an ephemeral loopback origin. The backend owns native capabilities,
   embedded SQLite, the credential-less device owner, client-asserted identity
   denial, and the exact-origin wall. Database and portable snapshots live under
@@ -144,18 +145,27 @@ For example: `AUTH_SECRET=replace-with-32-plus-random-characters CORS_ORIGIN=htt
 For remote-capability development without the release checks, use
 `BACKEND=remote npm run server`.
 
-To run a live provider in the desktop app, supply the connection when launching:
+In the Electron app, Models → New provider accepts a Messages API URL and an
+optional API key. The key is encrypted through the OS account (`safeStorage`) in
+the app's user-data directory; Agent Commons' database and HTTP requests retain
+only a generated `PROVIDER_DESKTOP_*` reference. The bridge is write-only—there
+is no renderer operation to read or list keys. Linux installations without a
+real secret store refuse Electron's `basic_text` fallback and use the explicit
+environment-reference workflow instead.
+
+Headless desktop operation, recovery, and web deployment can supply the built-in
+connection when launching:
 
 ```bash
 npm run build
 ANTHROPIC_BASE_URL=https://api.anthropic.com ANTHROPIC_API_KEY=… npm run start
 ```
 
-The Models page can register another Messages-compatible endpoint. Its optional
-credential is a `PROVIDER_*` environment-variable reference: launch the server
-with the variable already set, then enter only that variable's name. The endpoint
-is probed before it is saved; endpoint URLs and secret values never appear on the
-provider read shape.
+Outside Electron, the Models page registers another Messages-compatible endpoint
+using an optional `PROVIDER_*` environment-variable reference: launch the server
+with the variable already set, then enter only that variable's name. In both
+modes the endpoint is probed before it is saved; endpoint URLs and secret values
+never appear on the provider read shape.
 
 ## Persistence and recovery
 

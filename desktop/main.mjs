@@ -1,7 +1,14 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu, dialog, session, shell, utilityProcess } from 'electron'
+import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
+import credentialChannels from './credential-channels.cjs'
+import { createCredentialBackendClient } from './credentialProtocol.mjs'
+import {
+  CREDENTIAL_VAULT_FILE,
+  openCredentialVault,
+  secureStorageAvailable,
+} from './credentialVault.mjs'
 import {
   backendListenMarker,
   desktopBackendEnvironment,
@@ -22,6 +29,8 @@ const STOP_TIMEOUT_MS = 7_000
 let mainWindow = null
 let backend = null
 let backendReady = false
+let credentialVault = null
+let credentialBackend = null
 let quitting = false
 let quitAfterBackend = false
 let rendererUrl = null
@@ -48,6 +57,16 @@ function focusMainWindow() {
 async function startDesktop() {
   app.setAppUserModelId(APP_ID)
   installApplicationMenu()
+  credentialVault = await openDesktopCredentialVault()
+  let providerCredentials = {}
+  if (credentialVault) {
+    try {
+      providerCredentials = await credentialVault.environment()
+    } catch (error) {
+      console.error('[desktop] stored credentials could not be decrypted; the vault is disabled for this run.', error)
+      credentialVault = null
+    }
+  }
 
   const preferredPort = DEVELOPMENT ? Number(process.env.AGENT_COMMONS_BACKEND_PORT) : 0
   const port = Number.isInteger(preferredPort) && preferredPort > 0 ? preferredPort : await findAvailableLoopbackPort()
@@ -56,13 +75,33 @@ async function startDesktop() {
   rendererUrl = DEVELOPMENT ? trustedOrigin : backendOrigin
 
   configureSessionPermissions(trustedOrigin)
-  await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin })
+  await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials })
   await waitForReady(`${backendOrigin}/api/v1/readyz`, trustedOrigin, START_TIMEOUT_MS)
   if (DEVELOPMENT) await waitForReady(rendererUrl, trustedOrigin, START_TIMEOUT_MS, false)
 
   backendReady = true
+  if (credentialVault) installCredentialIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
-  console.log(`[desktop] ready ${rendererUrl}`)
+  console.log(`[desktop] ready ${rendererUrl} · ${credentialVault ? 'secure credentials' : 'environment-only credentials'}`)
+}
+
+async function openDesktopCredentialVault() {
+  try {
+    const encryptionAvailable = safeStorage.isEncryptionAvailable()
+    const linuxBackend = process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : undefined
+    if (!secureStorageAvailable({ encryptionAvailable, linuxBackend })) {
+      console.warn('[desktop] secure credential storage is unavailable; use a PROVIDER_* launch environment variable.')
+      return null
+    }
+    return await openCredentialVault({
+      filePath: join(app.getPath('userData'), CREDENTIAL_VAULT_FILE),
+      encrypt: (secret) => safeStorage.encryptString(secret),
+      decrypt: (ciphertext) => safeStorage.decryptString(ciphertext),
+    })
+  } catch (error) {
+    console.error('[desktop] secure credential storage could not be opened.', error)
+    return null
+  }
 }
 
 function installApplicationMenu() {
@@ -84,7 +123,7 @@ function configureSessionPermissions(origin) {
   session.defaultSession.setDevicePermissionHandler?.(() => false)
 }
 
-async function launchBackend({ port, backendOrigin, rendererOrigin }) {
+async function launchBackend({ port, backendOrigin, rendererOrigin, providerCredentials }) {
   const entry = join(app.getAppPath(), 'scripts', 'start.mjs')
   if (!existsSync(entry)) throw new Error(`The desktop backend entry is missing: ${entry}`)
 
@@ -96,11 +135,17 @@ async function launchBackend({ port, backendOrigin, rendererOrigin }) {
       rendererOrigin,
       userDataPath: app.getPath('userData'),
       authSecret: randomBytes(32).toString('base64url'),
+      providerCredentials,
     }),
     serviceName: 'Agent Commons Backend',
     stdio: 'pipe',
   })
   backend = child
+  if (credentialVault) {
+    credentialBackend = createCredentialBackendClient(child, {
+      onBindings: (bindings) => void reconcileCredentialBindings(bindings),
+    })
+  }
 
   const marker = backendListenMarker(backendOrigin)
   const stderrTail = []
@@ -123,6 +168,8 @@ async function launchBackend({ port, backendOrigin, rendererOrigin }) {
       if (stderrTail.length > 12) stderrTail.shift()
     })
     child.once('exit', (code) => {
+      credentialBackend?.close()
+      credentialBackend = null
       backend = null
       if (!settled) {
         const detail = stderrTail.length ? `\n\n${stderrTail.join('\n')}` : ''
@@ -137,6 +184,64 @@ async function launchBackend({ port, backendOrigin, rendererOrigin }) {
       )
       app.quit()
     })
+  })
+}
+
+async function reconcileCredentialBindings(bindings) {
+  if (!credentialVault || !credentialBackend) return
+  try {
+    const removed = await credentialVault.reconcile(bindings)
+    await Promise.allSettled(removed.map((reference) => credentialBackend?.delete(reference)))
+  } catch (error) {
+    console.error('[desktop] credential reconciliation failed.', error)
+  }
+}
+
+function assertTrustedCredentialCaller(event) {
+  const callerUrl = event.senderFrame?.url
+  if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !callerUrl || !isTrustedAppUrl(callerUrl, trustedOrigin)) {
+    throw new Error('Credential access is not available from this page.')
+  }
+}
+
+function installCredentialIpc() {
+  const handle = (channel, operation) => {
+    ipcMain.handle(channel, async (event, ...args) => {
+      assertTrustedCredentialCaller(event)
+      if (!credentialVault || !credentialBackend) throw new Error('Secure credential storage is unavailable.')
+      try {
+        return await operation(...args)
+      } catch {
+        // Credential failures are diagnosable by channel and the generic UI
+        // refusal; never trust an OS/runtime error not to echo sensitive input.
+        console.error(`[desktop] ${channel} failed.`)
+        throw new Error('The credential could not be stored securely on this device.')
+      }
+    })
+  }
+
+  handle(credentialChannels.provision, async (secret) => {
+    let reference
+    try {
+      reference = await credentialVault.provision(secret)
+      await credentialBackend.set(reference, secret)
+      return reference
+    } catch (error) {
+      if (reference) {
+        await credentialVault.discard(reference).catch(() => {})
+        await credentialBackend.delete(reference).catch(() => {})
+      }
+      throw error
+    }
+  })
+  handle(credentialChannels.bind, (reference, providerId) => credentialVault.bind(reference, providerId))
+  handle(credentialChannels.discard, async (reference) => {
+    await credentialVault.discard(reference)
+    await credentialBackend.delete(reference)
+  })
+  handle(credentialChannels.removeProvider, async (providerId) => {
+    const references = await credentialVault.removeProvider(providerId)
+    await Promise.all(references.map((reference) => credentialBackend.delete(reference)))
   })
 }
 
@@ -194,6 +299,8 @@ async function createMainWindow(url, origin) {
       allowRunningInsecureContent: false,
       webviewTag: false,
       devTools: DEVELOPMENT,
+      preload: join(app.getAppPath(), 'desktop', 'preload.cjs'),
+      additionalArguments: credentialVault ? ['--agent-commons-secure-credentials'] : [],
     },
   })
   mainWindow = win
@@ -249,6 +356,8 @@ async function stopBackend() {
     setTimeout(finish, STOP_TIMEOUT_MS)
   })
   backend = null
+  credentialBackend?.close()
+  credentialBackend = null
   backendReady = false
 }
 

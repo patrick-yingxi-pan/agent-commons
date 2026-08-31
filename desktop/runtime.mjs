@@ -1,5 +1,6 @@
 import { createServer } from 'node:net'
 import { join } from 'node:path'
+import { isDesktopCredentialReference, validCredentialSecret } from './credentialProtocol.mjs'
 
 const LOOPBACK_HOST = '127.0.0.1'
 
@@ -78,13 +79,19 @@ export function permissionAllowed(permission, requestingUrl, trustedOrigin) {
 
 /** Environment owned by the shell. Release posture is still resolved inside
  * scripts/start.mjs; these values bind it to this window and this OS user. */
-export function desktopBackendEnvironment({ baseEnv = {}, port, rendererOrigin, userDataPath, authSecret }) {
+export function desktopBackendEnvironment({ baseEnv = {}, providerCredentials = {}, port, rendererOrigin, userDataPath, authSecret }) {
   const backendOrigin = loopbackOrigin(port)
   const corsOrigin = exactLoopbackOrigin(rendererOrigin)
   if (!userDataPath || !authSecret) throw new Error('Desktop user-data path and process secret are required.')
   const inherited = Object.fromEntries(Object.entries(baseEnv).filter(([, value]) => value !== undefined))
+  const credentials = Object.fromEntries(
+    Object.entries(providerCredentials).filter(([reference, secret]) =>
+      isDesktopCredentialReference(reference) && validCredentialSecret(secret),
+    ),
+  )
   return {
     ...inherited,
+    ...credentials,
     PORT: String(port),
     CORS_ORIGIN: corsOrigin,
     AUTH_SECRET: authSecret,

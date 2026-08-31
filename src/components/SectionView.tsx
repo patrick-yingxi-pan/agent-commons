@@ -248,6 +248,11 @@ import {
   setConnectorStatus,
   createCommission,
   createProvider,
+  desktopCredentialsAvailable,
+  provisionDesktopCredential,
+  bindDesktopCredential,
+  discardDesktopCredential,
+  removeDesktopProviderCredentials,
   updateProvider,
   deleteProvider,
   rotateProvider,
@@ -9117,6 +9122,7 @@ function ModelsSection({
         <ProviderDetailPage
           provider={openProvider}
           onEdit={() => setEditing(openProvider)}
+          onAdd={() => setEditing('new')}
           onBack={onBack}
           backTo={backTo}
           onDeleted={onBack}
@@ -9198,6 +9204,7 @@ function ModelsSection({
 function ProviderDetailPage({
   provider,
   onEdit,
+  onAdd,
   onBack,
   backTo,
   onDeleted,
@@ -9205,6 +9212,7 @@ function ProviderDetailPage({
 }: {
   provider: ModelProvider
   onEdit: () => void
+  onAdd: () => void
   onBack: () => void
   backTo: NavLocation | null
   onDeleted: () => void
@@ -9226,7 +9234,7 @@ function ProviderDetailPage({
           </div>
         </div>
       </header>
-      <ProviderDetailSections provider={provider} onEdit={onEdit} onDeleted={onDeleted} />
+      <ProviderDetailSections provider={provider} onEdit={onEdit} onAdd={onAdd} onDeleted={onDeleted} />
       {children}
     </AtomicResourcePage>
   )
@@ -9280,10 +9288,12 @@ function RelayBadge() {
 function ProviderDetailSections({
   provider,
   onEdit,
+  onAdd,
   onDeleted,
 }: {
   provider: ModelProvider
   onEdit: () => void
+  onAdd: () => void
   onDeleted: () => void
 }) {
   const [error, setError] = useState<string | null>(null)
@@ -9295,6 +9305,7 @@ function ProviderDetailSections({
     setError(null)
     try {
       await deleteProvider(provider.id)
+      await removeDesktopProviderCredentials(provider.id).catch(() => {})
       onDeleted?.()
     } catch (e) {
       // The server refuses the default / a still-bound provider (409) — show its reason.
@@ -9366,8 +9377,8 @@ function ProviderDetailSections({
       <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
       {provider.execution === 'unconfigured' && (
         <p className="mt-2 text-[12px] text-warn-strong">
-          Turns are blocked before they are written. Add a configured endpoint provider, or launch the built-in
-          provider with <span className="font-mono">ANTHROPIC_BASE_URL</span> and <span className="font-mono">ANTHROPIC_API_KEY</span>.
+          Turns are blocked before they are written. Add a configured provider for this account, or supply the
+          built-in endpoint through the launch environment.
         </p>
       )}
       {error && <p className="mt-2 text-[12px] text-removed">{error}</p>}
@@ -9419,6 +9430,9 @@ function ProviderDetailSections({
         summary={`${provider.kind === 'session' ? 'Session relay' : provider.modelFamily} · grants ${authorityLabel(provider.authority)}`}
         actions={
           <>
+            {!isSession && provider.execution === 'unconfigured' && (
+              <SectionAction label="Add configured provider" icon={<Plus size={14} />} onClick={onAdd} />
+            )}
             <SectionAction label="Edit provider" icon={<Pencil size={14} />} onClick={onEdit} />
             <SectionAction label="Delete provider" icon={<Trash2 size={14} />} onClick={() => void del()} />
           </>
@@ -9877,6 +9891,8 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
   const [baseURL, setBaseURL] = useState('')
   const [model, setModel] = useState('')
   const [apiKeyEnv, setApiKeyEnv] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const hasSecureDeviceVault = desktopCredentialsAvailable()
   // The default flag (the UI shortcut — spec: agents always bind explicitly; this only
   // pre-selects the New-agent picker). Sent only when it changed, so an unrelated edit
   // can't move another entry's flag.
@@ -9915,17 +9931,33 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
         })
         setMinted(created) // the one-time reveal takes over; onClose comes from its Done
       } else {
-        await createProvider({
-          label: label.trim(),
-          modelFamily: family.trim(),
-          effortLevels: ['Low', 'Medium', 'High'],
-          config: {
-            baseURL: baseURL.trim(),
-            ...(model.trim() ? { model: model.trim() } : {}),
-            ...(apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
-          },
-          ...(isDefault ? { isDefault } : {}),
-        })
+        let credentialReference: string | undefined
+        try {
+          if (hasSecureDeviceVault && apiKey.trim()) {
+            credentialReference = await provisionDesktopCredential(apiKey.trim())
+          }
+          const created = await createProvider({
+            label: label.trim(),
+            modelFamily: family.trim(),
+            effortLevels: ['Low', 'Medium', 'High'],
+            config: {
+              baseURL: baseURL.trim(),
+              ...(model.trim() ? { model: model.trim() } : {}),
+              ...(credentialReference
+                ? { apiKeyEnv: credentialReference }
+                : apiKeyEnv.trim()
+                  ? { apiKeyEnv: apiKeyEnv.trim() }
+                  : {}),
+            },
+            ...(isDefault ? { isDefault } : {}),
+          })
+          if (credentialReference) {
+            await bindDesktopCredential(credentialReference, created.id).catch(() => {})
+          }
+        } catch (error) {
+          if (credentialReference) await discardDesktopCredential(credentialReference).catch(() => {})
+          throw error
+        }
         onClose()
       }
     } catch (e) {
@@ -10026,17 +10058,34 @@ function ProviderDialog({ provider, onClose }: { provider: ModelProvider | null;
                   className={FORM_INPUT_CLASS}
                 />
               </FormField>
-              <FormField label="Credential variable (optional)">
-                <input
-                  value={apiKeyEnv}
-                  onChange={(e) => setApiKeyEnv(e.target.value.toUpperCase())}
-                  placeholder="PROVIDER_TEAM_KEY"
-                  className={FORM_INPUT_CLASS}
-                />
-                <span className="mt-1 block text-[11px] text-ink-faint">
-                  Enter a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Only its name is stored; the secret never enters this app.
-                </span>
-              </FormField>
+              {hasSecureDeviceVault ? (
+                <FormField label="API key (optional)">
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder="Paste API key"
+                    autoComplete="new-password"
+                    spellCheck={false}
+                    className={FORM_INPUT_CLASS}
+                  />
+                  <span className="mt-1 block text-[11px] text-ink-faint">
+                    Encrypted for your OS account and kept outside Agent Commons data. The backend stores only a generated reference.
+                  </span>
+                </FormField>
+              ) : (
+                <FormField label="Credential variable (optional)">
+                  <input
+                    value={apiKeyEnv}
+                    onChange={(e) => setApiKeyEnv(e.target.value.toUpperCase())}
+                    placeholder="PROVIDER_TEAM_KEY"
+                    className={FORM_INPUT_CLASS}
+                  />
+                  <span className="mt-1 block text-[11px] text-ink-faint">
+                    Enter a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Only its name is stored; the secret never enters this app.
+                  </span>
+                </FormField>
+              )}
             </>
           )}
         </>

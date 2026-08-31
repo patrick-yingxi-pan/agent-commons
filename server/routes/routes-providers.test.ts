@@ -128,6 +128,22 @@ test('POST with a credential reference outside PROVIDER_* is a 400 — with or w
   assert.match(minted.json.error.message, /PROVIDER_/)
 })
 
+test('the server-only credential binding projection supports desktop vault reconciliation without widening reads', async () => {
+  const reference = `PROVIDER_DESKTOP_${'A'.repeat(32)}`
+  const created = await call('POST', '/providers', {
+    label: 'Desktop credential binding',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+    config: { apiKeyEnv: reference },
+  })
+  assert.equal(created.status, 200)
+  assert.equal(JSON.stringify(created.json).includes(reference), false, 'the write-only reference stays off HTTP reads')
+  assert.deepEqual(
+    store.providerCredentialBindings().find((binding) => binding.providerId === created.json.id),
+    { reference, providerId: created.json.id },
+  )
+})
+
 test('POST with a non-conformant endpoint is a 400 — the provider is never registered', async () => {
   const countBefore = store.listProviders().length
   const bad = await call('POST', '/providers', {

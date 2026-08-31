@@ -3923,6 +3923,15 @@ export const store = {
   providerConfig(id?: string): ProviderConfig {
     return PROVIDER_CONFIGS.get(id ?? '') ?? DEFAULT_PROVIDER_CONFIG
   },
+  /** Credential references currently reachable from durable provider configs.
+   * The desktop launcher uses this server-only projection after rehydration to
+   * reconcile its OS-encrypted vault. Values never appear on HTTP reads, and the
+   * launcher filters to its generated PROVIDER_DESKTOP_* namespace before IPC. */
+  providerCredentialBindings(): { reference: string; providerId: string }[] {
+    return [...PROVIDER_CONFIGS.entries()].flatMap(([providerId, config]) =>
+      config.apiKeyEnv ? [{ reference: config.apiKeyEnv, providerId }] : [],
+    )
+  },
   /** Mint a Model provider through the D8 funnel: its plan must attenuate the account
    *  plan (`planCeilings`), so the cascade root can never exceed the subscription it
    *  sits under. The single seam a provider plan is validated — and the single seam a

@@ -16,7 +16,7 @@ import { ROOT } from './helpers/source.ts'
 
 const CATEGORY_ORDER = ['product', 'architecture', 'experience', 'data-access', 'verification', 'operations'] as const
 const CATEGORY_RANK = new Map(CATEGORY_ORDER.map((category, index) => [category, index]))
-const SCOPED_ROOTS = ['contract', 'connector', 'e2e', 'server', 'src', 'tests']
+const SCOPED_ROOTS = ['contract', 'connector', 'desktop', 'e2e', 'server', 'src', 'tests']
 const RULE_COLUMNS = ['ID', 'Category', 'Rule', 'Implementation', 'Locks', 'Relations']
 const LINK = /\[([^\]]+)\]\(([^)]+)\)/g
 const RULE_ID = /\b(?:ROOT|[A-Z][A-Z0-9]*)-[A-Z]\d+\b/g
