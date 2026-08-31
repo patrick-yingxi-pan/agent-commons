@@ -39,3 +39,6 @@ Thumbs.db
 /playwright-report/
 /blob-report/
 /.playwright/
+
+# Electron packaging output (unpacked applications and future distributables)
+/out/

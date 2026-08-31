@@ -45,7 +45,7 @@ their local implementation and evidence.
 | ROOT-P1 | product | Agent Commons is one collaboration platform: conversations and resource pages are equal workspace surfaces. | [`src/App.tsx`](src/App.tsx) · [`src/components/MainSplit.tsx`](src/components/MainSplit.tsx) | [`tests/product-identity.test.ts`](tests/product-identity.test.ts) · [`e2e/main-split.spec.ts`](e2e/main-split.spec.ts) | root |
 | ROOT-P2 | product | Mock behavior is explicit, deterministic, and distinguishable from built boundaries. | [`server/data/`](server/data/) · [`server/model/`](server/model/) | [`server/data/demo-accounts.test.ts`](server/data/demo-accounts.test.ts) · [`tests/spec-conformance.test.ts`](tests/spec-conformance.test.ts) | root |
 | ROOT-A1 | architecture | Every concept has one authoritative description; other surfaces are generated or live projections. | [`server/routes/index.ts`](server/routes/index.ts) · [`src/lib/collectionProjection.ts`](src/lib/collectionProjection.ts) | [`tests/access-surface-parity.test.ts`](tests/access-surface-parity.test.ts) · [`src/lib/collection-projection.test.ts`](src/lib/collection-projection.test.ts) | root |
-| ROOT-A2 | architecture | Build real, replaceable boundaries between UI, backend, model, and connectors. | [`contract/`](contract/) · [`server/generate.ts`](server/generate.ts) · [`connector/`](connector/) | [`tests/contract-boundaries.test.ts`](tests/contract-boundaries.test.ts) · [`server/model/generate.test.ts`](server/model/generate.test.ts) | root |
+| ROOT-A2 | architecture | Build real, replaceable boundaries between UI, backend, model, connectors, and the native host. | [`contract/`](contract/) · [`server/generate.ts`](server/generate.ts) · [`connector/`](connector/) · [`desktop/`](desktop/) | [`tests/contract-boundaries.test.ts`](tests/contract-boundaries.test.ts) · [`server/model/generate.test.ts`](server/model/generate.test.ts) · [`desktop/runtime.test.ts`](desktop/runtime.test.ts) | root |
 | ROOT-E1 | experience | Form follows function and surface follows entity nature; equal roles share one vocabulary. | [`src/lib/`](src/lib/) · [`src/components/ResourcePage.tsx`](src/components/ResourcePage.tsx) | [`src/lib/page-grammar.test.ts`](src/lib/page-grammar.test.ts) · [`src/lib/resource-nature.test.ts`](src/lib/resource-nature.test.ts) | root |
 | ROOT-E2 | experience | Symmetric projections expose the same structure and capabilities while adapting density to context. | [`src/components/ResourcePage.tsx`](src/components/ResourcePage.tsx) · [`src/components/SectionTreeChildren.tsx`](src/components/SectionTreeChildren.tsx) | [`e2e/collection-symmetry.spec.ts`](e2e/collection-symmetry.spec.ts) | requires ROOT-A1 |
 | ROOT-D1 | data-access | Absence and identity have fixed contract meaning; convenience never guesses mutable or privileged state. | [`contract/`](contract/) · [`server/http/router.ts`](server/http/router.ts) | [`tests/spec-conformance.test.ts`](tests/spec-conformance.test.ts) | requires ROOT-A2 |
@@ -63,6 +63,7 @@ their local implementation and evidence.
 | Test placement, spec ledger, non-vacuous locks | [`tests/CLAUDE.md`](tests/CLAUDE.md) |
 | Browser E2E stack and browser-only assertions | [`e2e/CLAUDE.md`](e2e/CLAUDE.md) |
 | Session-relay connector | [`connector/CLAUDE.md`](connector/CLAUDE.md) |
+| Electron lifecycle, security, and packaging | [`desktop/CLAUDE.md`](desktop/CLAUDE.md) |
 | MCP capability symmetry | [`docs/mcp-access.md`](docs/mcp-access.md) |
 | UI review and invariant ledger | [`docs/ui-invariants.md`](docs/ui-invariants.md) · [`docs/review-rulebook.md`](docs/review-rulebook.md) |
 | Shipped vs mocked requirements | [`docs/spec/README.md`](docs/spec/README.md) · [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md) |
@@ -90,6 +91,7 @@ contract/   framework-free wire types and reducers
 server/     mock backend, model boundary, routes, persistence, seed data
 src/        React UI, API cache, controllers, primitives, rendered surfaces
 connector/  self-contained session-relay connector
+desktop/    secure Electron lifecycle and local-backend host
 e2e/        rendered browser wiring
 tests/      repository-owned doc and cross-layer locks
 docs/       design rationale, operational guides, and the spec ledger

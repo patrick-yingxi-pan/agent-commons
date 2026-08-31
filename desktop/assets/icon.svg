@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="ground" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#b72f43"/>
+      <stop offset="0.48" stop-color="#822b58"/>
+      <stop offset="1" stop-color="#255d9d"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(316 226) rotate(48) scale(760)">
+      <stop stop-color="#ffffff" stop-opacity="0.26"/>
+      <stop offset="0.62" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#111827" stop-opacity="0.2"/>
+    </radialGradient>
+    <linearGradient id="core" x1="450" y1="458" x2="574" y2="590" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff8c72"/>
+      <stop offset="1" stop-color="#e6455d"/>
+    </linearGradient>
+    <filter id="shadow" x="160" y="142" width="704" height="674" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="20" stdDeviation="22" flood-color="#18203d" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  <rect x="52" y="52" width="920" height="920" rx="224" fill="url(#ground)"/>
+  <rect x="52" y="52" width="920" height="920" rx="224" fill="url(#glow)"/>
+  <path d="M150 748C284 868 486 912 672 848C790 808 878 724 926 622" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="34" stroke-linecap="round"/>
+  <g filter="url(#shadow)">
+    <path d="M512 344L348 626M512 344L676 626M348 626H676" fill="none" stroke="#fffaf7" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="512" cy="344" r="78" fill="#fffaf7"/>
+    <circle cx="348" cy="626" r="78" fill="#fffaf7"/>
+    <circle cx="676" cy="626" r="78" fill="#fffaf7"/>
+    <circle cx="512" cy="530" r="106" fill="#fffaf7"/>
+    <circle cx="512" cy="344" r="35" fill="#9d2531"/>
+    <circle cx="348" cy="626" r="35" fill="#74406f"/>
+    <circle cx="676" cy="626" r="35" fill="#255d9d"/>
+    <circle cx="512" cy="530" r="58" fill="url(#core)"/>
+  </g>
+</svg>

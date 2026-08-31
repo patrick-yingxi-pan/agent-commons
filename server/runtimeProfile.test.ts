@@ -88,8 +88,10 @@ test('web is auth-gated, remote-capability, Secure-cookie, and SQLite by default
 
 test('the release commands enter through the profile launcher before server evaluation', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
-  assert.equal(pkg.scripts.start, 'node scripts/start.mjs desktop')
+  assert.equal(pkg.main, 'desktop/main.mjs')
+  assert.equal(pkg.scripts.start, 'electron .')
   assert.equal(pkg.scripts['start:desktop'], pkg.scripts.start)
+  assert.equal(pkg.scripts['start:desktop:server'], 'node scripts/start.mjs desktop')
   assert.equal(pkg.scripts['start:web'], 'node scripts/start.mjs web')
 
   const launcher = readFileSync(new URL('../scripts/start.mjs', import.meta.url), 'utf8')

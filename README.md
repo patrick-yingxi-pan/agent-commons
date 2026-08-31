@@ -45,6 +45,7 @@ contract/   Framework-free wire types and reducers imported verbatim by UI and s
 server/     Node HTTP + SSE backend, route catalog, stores, persistence, auth, model seam
 src/        React UI, API cache, controllers, projection models, and rendered surfaces
 connector/  Session-relay connector served by the product
+desktop/    Secure Electron lifecycle and local-backend host
 ```
 
 The contract is the portability boundary. The same UI can talk to a local
@@ -87,8 +88,13 @@ npm run dev:ui       # Vite only; expects the backend on :8787
 npm run server       # backend only
 npm run model        # deterministic model server only
 npm run connector    # session-relay connector
-npm run start        # desktop profile: built UI + loopback API + SQLite
+npm run desktop:dev  # Electron + Vite HMR + shell-owned local backend
+npm run start        # Electron shell over the built UI
+npm run start:desktop:server # headless desktop profile (operations/debugging)
 npm run start:web    # hosted profile (required env below)
+npm run desktop:package # build an unpacked platform application in out/
+npm run desktop:smoke   # launch that package with isolated temporary user data
+npm run desktop:verify  # package + real native startup/render/storage smoke
 npm run typecheck
 npm run build
 npm test             # Node behavior and repository locks
@@ -100,14 +106,28 @@ npm run verify       # typecheck + Node suite + build + sharded E2E
 `npm run dev` and `npm run server` retain the review/demo posture. Release-shaped
 boots use explicit profiles:
 
-- `npm run start` (also `start:desktop`) is the near-term desktop profile:
-  native capabilities, loopback-only binding, embedded SQLite, the credential-less
-  device owner, client-asserted identity disabled, and an exact loopback origin.
-  A fresh signing secret is generated for the process when none is supplied. A
-  genuinely new database starts clean: no fictional conversations, projects,
-  artifacts, routines, accounts, connections, or usage history. Release profiles
-  also disable the inline mock: without a configured endpoint, the composer says
-  so and the API refuses a turn before writing it.
+- `npm run start` (also `start:desktop`) launches the near-term Electron app over
+  the built UI. Electron is only a secure host: its sandboxed renderer has no Node
+  or preload bridge, while a supervised utility process runs the existing desktop
+  profile on an ephemeral loopback origin. The backend owns native capabilities,
+  embedded SQLite, the credential-less device owner, client-asserted identity
+  denial, and the exact-origin wall. Database and portable snapshots live under
+  the OS-managed Agent Commons user-data directory; an orderly app quit drains
+  and checkpoints the backend. A genuinely new database starts clean: no
+  fictional conversations, projects, artifacts, routines, accounts, connections,
+  or usage history. Release profiles disable the inline mock: without a configured
+  endpoint, the composer says so and the API refuses a turn before writing it.
+- `npm run desktop:dev` uses the same shell/backend ownership with an isolated
+  development user-data directory and Vite HMR. `npm run desktop:package` first
+  builds the UI and then creates an ASAR-packaged application in `out/` with the
+  current Electron Packager. The Electron archive is verified against the checksum
+  shipped in the official npm package. `desktop:smoke` launches that exact
+  executable with throwaway user data and proves backend readiness, the built UI,
+  and local SQLite placement; `desktop:verify` runs both stages. The result
+  is a verified unpacked artifact, not a signed distribution; platform signing,
+  notarization, installer makers, and an updater remain release-channel work.
+- `npm run start:desktop:server` keeps the release-shaped backend available
+  without Electron for diagnostics, recovery tooling, and contract-level work.
 - `npm run start:web` preserves the later hosted boundary: remote capabilities,
   required sign-in, client-asserted identity disabled, Secure cookies, and SQLite
   by default. It refuses to boot without a 32+ character `AUTH_SECRET` and exact
@@ -124,7 +144,7 @@ For example: `AUTH_SECRET=replace-with-32-plus-random-characters CORS_ORIGIN=htt
 For remote-capability development without the release checks, use
 `BACKEND=remote npm run server`.
 
-To run the built-in provider in a release profile, supply the live connection:
+To run a live provider in the desktop app, supply the connection when launching:
 
 ```bash
 npm run build
@@ -139,11 +159,13 @@ provider read shape.
 
 ## Persistence and recovery
 
-JSON is the development default. The desktop profile selects embedded SQLite:
+JSON is the server-development default. The Electron app selects embedded SQLite
+under its OS user-data directory. The headless profile remains useful for an
+explicit recovery path:
 
 ```bash
-npm run build && npm run start              # defaults to .data/store.db
-DATABASE_PATH=/path/to/store.db npm run start
+npm run build && npm run start              # Electron + OS-managed user data
+DATABASE_PATH=/path/to/store.db npm run start:desktop:server
 ```
 
 Backups are portable across both backends. `save` can run against the selected
