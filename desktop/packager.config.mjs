@@ -1,5 +1,8 @@
 import { fileURLToPath } from 'node:url'
 
+export const DESKTOP_PRODUCT_NAME = 'Agent Commons'
+export const DESKTOP_BUNDLE_ID = 'com.agentcommons.desktop'
+
 const SHIPPED_ROOTS = new Set(['contract', 'connector', 'desktop', 'dist', 'node_modules', 'scripts', 'server'])
 const DESKTOP_RUNTIME_PACKAGES = new Set([
   '@anthropic-ai/sdk',
@@ -62,9 +65,9 @@ export function ignoreFromPackage(path) {
 }
 
 export default {
-  name: 'Agent Commons',
-  executableName: 'Agent Commons',
-  appBundleId: 'com.agentcommons.desktop',
+  name: DESKTOP_PRODUCT_NAME,
+  executableName: DESKTOP_PRODUCT_NAME,
+  appBundleId: DESKTOP_BUNDLE_ID,
   appCategoryType: 'public.app-category.productivity',
   icon: fileURLToPath(new URL('./assets/icon', import.meta.url)),
   asar: true,

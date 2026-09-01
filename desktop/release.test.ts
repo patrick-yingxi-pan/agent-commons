@@ -9,8 +9,10 @@ import {
   archiveExtractCommand,
   checksumLine,
   directDownloadReleasePlan,
+  releaseBundleIdentityProbes,
   releaseReceiptJson,
   releaseVerificationCommands,
+  validateReleaseBundleIdentity,
 } from './release-plan.mjs'
 import { publishImmutableRelease } from './release-publish.mjs'
 
@@ -71,6 +73,14 @@ test('direct download release pins signing, Keychain notarization, and architect
   assert.equal(plan.checksumPath, `${plan.archivePath}.sha256`)
   assert.equal(plan.receiptName, 'Agent-Commons-0.1.0-macos-arm64.release.json')
   assert.equal(plan.receiptPath, '/repo/release/Agent-Commons-0.1.0-macos-arm64.release.json')
+  assert.deepEqual(plan.bundleIdentity, {
+    bundleIdentifier: 'com.agentcommons.desktop',
+    displayName: 'Agent Commons',
+    executableName: 'Agent Commons',
+    shortVersion: '0.1.0',
+    bundleVersion: '0.1.0',
+    binaryArchitectures: ['arm64'],
+  })
   assert.deepEqual(plan.packagerOptions.osxNotarize, {
     keychainProfile: 'agent-commons-notary',
     keychain: '/build/release.keychain-db',
@@ -90,6 +100,46 @@ test('direct download release pins signing, Keychain notarization, and architect
     '/repo/desktop/entitlements.mac.plist',
   )
   assert.equal(plan.packagerOptions.osxSign.optionsForFile(`${plan.appPath}/Contents/Frameworks/Agent Commons Helper (Plugin).app`), null)
+})
+
+test('release identity is read from the app and its executable, not inferred for the receipt', () => {
+  const appPath = '/tmp/download/Agent Commons.app'
+  const executablePath = `${appPath}/Contents/MacOS/Agent Commons`
+  assert.deepEqual(releaseBundleIdentityProbes(appPath, executablePath), [
+    { field: 'bundleIdentifier', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleIdentifier', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
+    { field: 'displayName', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleDisplayName', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
+    { field: 'executableName', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
+    { field: 'shortVersion', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleShortVersionString', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
+    { field: 'bundleVersion', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleVersion', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
+    { field: 'binaryArchitectures', command: '/usr/bin/lipo', args: ['-archs', executablePath] },
+  ])
+
+  const expected = directDownloadReleasePlan({ root, manifest, env: validEnv, platform: 'darwin', arch: 'arm64' }).bundleIdentity
+  const actual = {
+    bundleIdentifier: 'com.agentcommons.desktop\n',
+    displayName: 'Agent Commons\n',
+    executableName: 'Agent Commons\n',
+    shortVersion: '0.1.0\n',
+    bundleVersion: '0.1.0\n',
+    binaryArchitectures: 'arm64\n',
+  }
+  assert.doesNotThrow(() => validateReleaseBundleIdentity(actual, expected))
+  for (const [field, value] of [
+    ['bundleIdentifier', 'com.example.impostor'],
+    ['displayName', 'Other App'],
+    ['executableName', 'Other App'],
+    ['shortVersion', '0.2.0'],
+    ['bundleVersion', '99'],
+    ['binaryArchitectures', 'arm64 x86_64'],
+  ]) {
+    assert.throws(
+      () => validateReleaseBundleIdentity({ ...actual, [field]: value }, expected),
+      new RegExp(field === 'binaryArchitectures' ? 'binary architectures' : field),
+    )
+  }
+
+  const x64 = directDownloadReleasePlan({ root, manifest, env: validEnv, platform: 'darwin', arch: 'x64' })
+  assert.deepEqual(x64.bundleIdentity.binaryArchitectures, ['x86_64'], 'Packager x64 maps to the Mach-O architecture name')
 })
 
 test('download archive is verified as signed, stapled, and Gatekeeper-accepted before smoke', () => {
@@ -128,6 +178,13 @@ test('release checksum is strict, portable SHA-256 manifest syntax', () => {
 
 test('release receipt binds artifact identity, size, digest, and completed verification', () => {
   const digest = 'b'.repeat(64)
+  const bundleIdentity = directDownloadReleasePlan({
+    root,
+    manifest,
+    env: validEnv,
+    platform: 'darwin',
+    arch: 'arm64',
+  }).bundleIdentity
   const json = releaseReceiptJson({
     productName: 'Agent Commons',
     version: '0.1.0',
@@ -136,10 +193,11 @@ test('release receipt binds artifact identity, size, digest, and completed verif
     archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
     bytes: 12_345,
     sha256: digest,
+    bundleIdentity,
   })
   assert.equal(json.endsWith('\n'), true)
   assert.deepEqual(JSON.parse(json), {
-    schemaVersion: 1,
+    schemaVersion: 2,
     product: 'Agent Commons',
     version: '0.1.0',
     platform: 'macos',
@@ -149,7 +207,9 @@ test('release receipt binds artifact identity, size, digest, and completed verif
       bytes: 12_345,
       sha256: digest,
     },
+    bundle: bundleIdentity,
     verification: {
+      bundleIdentity: 'verified',
       codeSignature: 'verified',
       notarizationTicket: 'stapled',
       gatekeeper: 'accepted',
@@ -165,6 +225,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
       archiveName: 'different.zip',
       bytes: 12_345,
       sha256: digest,
+      bundleIdentity,
     }),
     /archive name must match/,
   )
@@ -177,8 +238,22 @@ test('release receipt binds artifact identity, size, digest, and completed verif
       archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
       bytes: 0,
       sha256: digest,
+      bundleIdentity,
     }),
     /positive archive byte size/,
+  )
+  assert.throws(
+    () => releaseReceiptJson({
+      productName: 'Agent Commons',
+      version: '0.1.0',
+      platform: 'macos',
+      architecture: 'arm64',
+      archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+      bytes: 12_345,
+      sha256: digest,
+      bundleIdentity: { ...bundleIdentity, shortVersion: '0.2.0' },
+    }),
+    /shortVersion/,
   )
 })
 
@@ -259,15 +334,20 @@ test('release orchestration verifies the extracted download and runs the executa
   assert.match(source, /directDownloadReleasePlan/)
   assert.match(source, /packageDesktop\(\{/)
   assert.match(source, /artifacts\.length !== 1/)
+  assert.match(source, /await verifyBundleIdentity\(plan\.appPath, plan\.executablePath, plan\.bundleIdentity\)/)
   assert.match(source, /await verifyApp\(plan\.appPath\)/)
   assert.match(source, /entries\.length !== 1/)
+  assert.match(source, /const downloadedBundleIdentity = await verifyBundleIdentity\(extractedApp, extractedExecutable, plan\.bundleIdentity\)/)
   assert.match(source, /await verifyApp\(extractedApp\)/)
   assert.match(source, /await smokePackagedDesktop\(\{/)
   assert.match(source, /checksumLine\(digest, plan\.archiveName\)/)
   assert.match(source, /releaseReceiptJson\(\{/)
+  assert.match(source, /bundleIdentity: downloadedBundleIdentity/)
   assert.match(source, /publishImmutableRelease/)
   assert.match(source, /destinationPath: plan\.receiptPath/)
   assert.match(source, /version already has a direct-download output/)
+  assert.match(source, /'\/usr\/bin\/lipo'/)
+  assert.match(source, /'\/usr\/bin\/plutil'/)
   assert.doesNotMatch(source, /rm\(plan\.checksumPath/)
 
   const entitlements = readFileSync(new URL('./entitlements.mac.plist', import.meta.url), 'utf8')

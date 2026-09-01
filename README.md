@@ -139,14 +139,17 @@ boots use explicit profiles:
   input. Electron Packager signs every nested code object with hardened runtime,
   uses a repository-owned least-privilege entitlement for generic app code,
   submits to Apple, and staples the accepted ticket. The orchestrator then
-  independently checks the signature, ticket, and Gatekeeper verdict, creates a
-  versioned architecture-specific ZIP, extracts that ZIP into a fresh directory,
-  repeats all three checks, and runs the full packaged-app smoke against the
+  independently reads and verifies the bundle identifier, display name,
+  executable name, versions, and Mach-O architecture before checking the
+  signature, ticket, and Gatekeeper verdict. It creates a versioned
+  architecture-specific ZIP, extracts that ZIP into a fresh directory, repeats
+  the identity and trust checks, and runs the full packaged-app smoke against the
   extracted executable. Only then does it write the adjacent SHA-256 manifest
-  and a deterministic machine-readable release receipt that binds the product,
-  version, platform, architecture, archive name, byte size, digest, and completed
-  verification stages. The receipt is publishing/audit metadata, not a substitute
-  for the app's Apple code signature or an authenticated download channel.
+  and a deterministic machine-readable schema-v2 release receipt that records
+  those verified bundle facts alongside the archive name, byte size, digest, and
+  completed verification stages. The receipt is publishing/audit metadata, not
+  a substitute for the app's Apple code signature or an authenticated download
+  channel.
   Configure the machine once with `xcrun notarytool store-credentials`, then run:
 
   ```bash

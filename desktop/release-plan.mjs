@@ -1,4 +1,5 @@
 import { basename, dirname, join } from 'node:path'
+import { DESKTOP_BUNDLE_ID, DESKTOP_PRODUCT_NAME } from './packager.config.mjs'
 
 export const DIRECT_DOWNLOAD_ENV = Object.freeze({
   signingIdentity: 'APPLE_SIGNING_IDENTITY',
@@ -56,7 +57,7 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
   )
   const keychain = env[DIRECT_DOWNLOAD_ENV.keychain]?.trim() || undefined
   const productName = manifest.productName
-  if (productName !== 'Agent Commons') throw new Error('Direct release product identity must remain Agent Commons.')
+  if (productName !== DESKTOP_PRODUCT_NAME) throw new Error('Direct release product identity must remain Agent Commons.')
 
   const packageDirectory = join(root, 'out', `${productName}-darwin-${arch}`)
   const appPath = join(packageDirectory, `${productName}.app`)
@@ -77,6 +78,14 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
     checksumPath: `${archivePath}.sha256`,
     receiptName,
     receiptPath: join(releaseDirectory, receiptName),
+    bundleIdentity: {
+      bundleIdentifier: DESKTOP_BUNDLE_ID,
+      displayName: DESKTOP_PRODUCT_NAME,
+      executableName: DESKTOP_PRODUCT_NAME,
+      shortVersion: manifest.version,
+      bundleVersion: manifest.version,
+      binaryArchitectures: [arch === 'x64' ? 'x86_64' : arch],
+    },
     packagerOptions: {
       osxSign: signingOptions({
         identity,
@@ -89,6 +98,60 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
       },
     },
   }
+}
+
+/** Read release identity from the bundle itself. `plutil` handles either XML or
+ * binary Info.plist without parsing it in-process; `lipo` reports the Mach-O
+ * architectures the downloaded executable actually contains. */
+export function releaseBundleIdentityProbes(appPath, executablePath) {
+  const infoPlist = join(appPath, 'Contents', 'Info.plist')
+  const plistProbe = (field, key) => ({
+    field,
+    command: '/usr/bin/plutil',
+    args: ['-extract', key, 'raw', '-o', '-', infoPlist],
+  })
+  return [
+    plistProbe('bundleIdentifier', 'CFBundleIdentifier'),
+    plistProbe('displayName', 'CFBundleDisplayName'),
+    plistProbe('executableName', 'CFBundleExecutable'),
+    plistProbe('shortVersion', 'CFBundleShortVersionString'),
+    plistProbe('bundleVersion', 'CFBundleVersion'),
+    {
+      field: 'binaryArchitectures',
+      command: '/usr/bin/lipo',
+      args: ['-archs', executablePath],
+    },
+  ]
+}
+
+export function validateReleaseBundleIdentity(actual, expected) {
+  const text = (value) => typeof value === 'string' ? value.trim() : undefined
+  const rawArchitectures = Array.isArray(actual?.binaryArchitectures)
+    ? actual.binaryArchitectures
+    : typeof actual?.binaryArchitectures === 'string'
+      ? actual.binaryArchitectures.split(/\s+/)
+      : []
+  const normalized = {
+    bundleIdentifier: text(actual?.bundleIdentifier),
+    displayName: text(actual?.displayName),
+    executableName: text(actual?.executableName),
+    shortVersion: text(actual?.shortVersion),
+    bundleVersion: text(actual?.bundleVersion),
+    binaryArchitectures: rawArchitectures.map(text).filter(Boolean).sort(),
+  }
+  for (const field of ['bundleIdentifier', 'displayName', 'executableName', 'shortVersion', 'bundleVersion']) {
+    if (normalized[field] !== expected?.[field]) {
+      throw new Error(`Release bundle ${field} does not match the immutable release plan.`)
+    }
+  }
+  const expectedArchitectures = [...(expected?.binaryArchitectures ?? [])].sort()
+  if (
+    normalized.binaryArchitectures?.length !== expectedArchitectures.length ||
+    normalized.binaryArchitectures.some((value, index) => value !== expectedArchitectures[index])
+  ) {
+    throw new Error('Release bundle binary architectures do not match the immutable release plan.')
+  }
+  return normalized
 }
 
 export function releaseVerificationCommands(appPath) {
@@ -129,8 +192,8 @@ export function checksumLine(digest, archiveName) {
   return `${digest}  ${archiveName}\n`
 }
 
-export function releaseReceiptJson({ productName, version, platform, architecture, archiveName, bytes, sha256 }) {
-  if (productName !== 'Agent Commons') throw new Error('Release receipt product identity must remain Agent Commons.')
+export function releaseReceiptJson({ productName, version, platform, architecture, archiveName, bytes, sha256, bundleIdentity }) {
+  if (productName !== DESKTOP_PRODUCT_NAME) throw new Error('Release receipt product identity must remain Agent Commons.')
   if (!SAFE_VERSION.test(version ?? '')) throw new Error('Release receipt requires a safe semantic package version.')
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(platform ?? '')) throw new Error('Release receipt requires a safe platform name.')
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(architecture ?? '')) {
@@ -142,9 +205,17 @@ export function releaseReceiptJson({ productName, version, platform, architectur
   }
   if (!Number.isSafeInteger(bytes) || bytes <= 0) throw new Error('Release receipt requires a positive archive byte size.')
   if (!/^[a-f0-9]{64}$/.test(sha256 ?? '')) throw new Error('Release receipt requires a lowercase SHA-256 digest.')
+  const verifiedBundleIdentity = validateReleaseBundleIdentity(bundleIdentity, {
+    bundleIdentifier: DESKTOP_BUNDLE_ID,
+    displayName: DESKTOP_PRODUCT_NAME,
+    executableName: DESKTOP_PRODUCT_NAME,
+    shortVersion: version,
+    bundleVersion: version,
+    binaryArchitectures: [architecture === 'x64' ? 'x86_64' : architecture],
+  })
 
   return `${JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     product: productName,
     version,
     platform,
@@ -154,7 +225,9 @@ export function releaseReceiptJson({ productName, version, platform, architectur
       bytes,
       sha256,
     },
+    bundle: verifiedBundleIdentity,
     verification: {
+      bundleIdentity: 'verified',
       codeSignature: 'verified',
       notarizationTicket: 'stapled',
       gatekeeper: 'accepted',

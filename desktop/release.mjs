@@ -11,8 +11,10 @@ import {
   archiveExtractCommand,
   checksumLine,
   directDownloadReleasePlan,
+  releaseBundleIdentityProbes,
   releaseReceiptJson,
   releaseVerificationCommands,
+  validateReleaseBundleIdentity,
 } from './release-plan.mjs'
 import { publishImmutableRelease } from './release-publish.mjs'
 import { smokePackagedDesktop } from './smoke.mjs'
@@ -23,9 +25,26 @@ function run({ command, args, cwd = ROOT }) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, env: process.env, stdio: 'inherit' })
     child.once('error', reject)
-    child.once('exit', (code, signal) => {
+    child.once('close', (code, signal) => {
       if (code === 0) resolve()
       else reject(new Error(`${command} failed with ${signal ? `signal ${signal}` : `code ${code}`}.`))
+    })
+  })
+}
+
+function capture({ command, args, cwd = ROOT }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => { stdout += chunk })
+    child.stderr.on('data', (chunk) => { stderr += chunk })
+    child.once('error', reject)
+    child.once('exit', (code, signal) => {
+      if (code === 0) resolve(stdout)
+      else reject(new Error(`${command} failed with ${signal ? `signal ${signal}` : `code ${code}`}.\n${stderr}`))
     })
   })
 }
@@ -40,11 +59,19 @@ async function verifyApp(appPath) {
   for (const command of releaseVerificationCommands(appPath)) await run(command)
 }
 
+async function verifyBundleIdentity(appPath, executablePath, expected) {
+  const actual = {}
+  for (const probe of releaseBundleIdentityProbes(appPath, executablePath)) {
+    actual[probe.field] = await capture(probe)
+  }
+  return validateReleaseBundleIdentity(actual, expected)
+}
+
 async function preflightAppleTools() {
   for (const tool of ['codesign', 'notarytool', 'stapler']) {
     await run({ command: '/usr/bin/xcrun', args: ['--find', tool] })
   }
-  for (const path of ['/usr/bin/ditto', '/usr/sbin/spctl']) {
+  for (const path of ['/usr/bin/ditto', '/usr/bin/lipo', '/usr/bin/plutil', '/usr/sbin/spctl']) {
     if (!existsSync(path)) throw new Error(`Required macOS release tool is missing: ${path}`)
   }
 }
@@ -71,6 +98,7 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
   ) {
     throw new Error('Signed packaging did not produce the one expected macOS application bundle.')
   }
+  await verifyBundleIdentity(plan.appPath, plan.executablePath, plan.bundleIdentity)
   await verifyApp(plan.appPath)
 
   // The public version is immutable. Build and test in an isolated staging
@@ -92,9 +120,11 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
       throw new Error('Direct-download archive must extract to exactly one Agent Commons application.')
     }
     const extractedApp = join(extracted, entries[0])
+    const extractedExecutable = join(extractedApp, 'Contents', 'MacOS', 'Agent Commons')
+    const downloadedBundleIdentity = await verifyBundleIdentity(extractedApp, extractedExecutable, plan.bundleIdentity)
     await verifyApp(extractedApp)
     await smokePackagedDesktop({
-      executable: join(extractedApp, 'Contents', 'MacOS', 'Agent Commons'),
+      executable: extractedExecutable,
     })
 
     const digest = await sha256(stagedArchive)
@@ -107,6 +137,7 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
       archiveName: plan.archiveName,
       bytes: archiveBytes,
       sha256: digest,
+      bundleIdentity: downloadedBundleIdentity,
     }), { encoding: 'utf8', mode: 0o644 })
     await mkdir(plan.releaseDirectory, { recursive: true })
     await publishImmutableRelease({
