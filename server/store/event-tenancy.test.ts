@@ -225,6 +225,15 @@ test('commission mutators emit commission.changed; visibility mirrors the Projec
   )
   const onPatch = emitted(() => store.updateCommission(commission!.id, { role: 'reader' }))
   assert.ok(onPatch.some((e) => e.type === 'commission.changed' && e.projectId === 'p-insights'), 'updateCommission broadcasts')
+  const onNoop = emitted(() => store.updateCommission(commission!.id, { role: 'reader' }))
+  assert.equal(onNoop.some((e) => e.type === 'commission.changed'), false, 'an effective no-op invents no event')
+  emitted(() => store.updateCommission(commission!.id, { authority: { connectors: ['Linear', 'Figma'] } }))
+  const revision = store.getCommission(commission!.id)?.configurationRevision
+  const onReorderedGrant = emitted(() =>
+    store.updateCommission(commission!.id, { authority: { connectors: ['Figma', 'Linear'] } }),
+  )
+  assert.equal(onReorderedGrant.some((e) => e.type === 'commission.changed'), false, 'set order is not a grant change')
+  assert.equal(store.getCommission(commission!.id)?.configurationRevision, revision)
   const onDelete = emitted(() => store.deleteCommission(commission!.id))
   assert.ok(onDelete.some((e) => e.type === 'commission.changed' && e.projectId === 'p-insights'), 'deleteCommission broadcasts')
 

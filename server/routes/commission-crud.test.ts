@@ -55,6 +55,81 @@ test('PATCH rejects an authority over the Agent (the leaf funnel) and 404s an un
   assert.equal(missing.status, 404)
 })
 
+test('PATCH compare-and-swaps sparse contributor intent and replays one logical success', async () => {
+  const commission = store.createCommission({
+    role: 'writer',
+    agentId: DEFAULT_AGENT.id,
+    projectId: GUARDED,
+    authority: { tools: ['read'], connectors: ['Linear'] },
+  })
+  assert.equal(commission.configurationRevision, 0)
+
+  const first = await call('PATCH', `/commissions/${commission.id}`, {
+    standing: true,
+    expectedRevision: 0,
+  }, { 'idempotency-key': `commission-cas-${commission.id}` })
+  assert.equal(first.status, 200)
+  assert.equal(first.json.configurationRevision, 1)
+  assert.equal(first.json.standing, true)
+
+  const replay = await call('PATCH', `/commissions/${commission.id}`, {
+    standing: true,
+    expectedRevision: 0,
+  }, { 'idempotency-key': `commission-cas-${commission.id}` })
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.configurationRevision, 1, 'same logical request advances once')
+
+  const stale = await call('PATCH', `/commissions/${commission.id}`, {
+    role: 'reader',
+    expectedRevision: 0,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.json.error.code, 'conflict')
+  assert.equal(store.getCommission(commission.id)?.role, 'writer')
+
+  const sparse = await call('PATCH', `/commissions/${commission.id}`, {
+    authority: { scopes: ['repo/review'] },
+    expectedRevision: 1,
+  })
+  assert.equal(sparse.status, 200)
+  assert.deepEqual(sparse.json.authority, {
+    tools: ['read'],
+    connectors: ['Linear'],
+    scopes: ['repo/review'],
+  }, 'an authority-axis patch preserves orthogonal grants')
+  assert.equal(sparse.json.configurationRevision, 2)
+
+  const semanticNoop = await call('PATCH', `/commissions/${commission.id}`, {
+    authority: { tools: ['read'], connectors: ['Linear'], scopes: ['repo/review'] },
+    expectedRevision: 2,
+  })
+  assert.equal(semanticNoop.status, 200)
+  assert.equal(semanticNoop.json.configurationRevision, 2, 'an equivalent grant invents no ordering')
+})
+
+test('commission mutation bodies reject unknown, malformed, and unbounded input', async () => {
+  const commission = store.createCommission({ role: 'writer', agentId: DEFAULT_AGENT.id, projectId: GUARDED })
+  for (const body of [
+    { role: 'reader', agentId: 'agent-default' },
+    { expectedRevision: 0 },
+    { role: 'reader', expectedRevision: -1 },
+    { standing: 'yes' },
+    { authority: { connectors: ['Linear'], secret: ['nope'] } },
+    { authority: { connectors: ['Linear', 'Linear'] } },
+    { grant: { windows: [{ label: '5-hour limit', ceiling: 1, extra: true }] } },
+    { grant: { windows: [{ label: '5-hour limit', ceiling: 1 }, { label: '5-hour limit', ceiling: 2 }] } },
+  ]) {
+    const response = await call('PATCH', `/commissions/${commission.id}`, body)
+    assert.equal(response.status, 400, JSON.stringify(body))
+    assert.equal(response.json.error.code, 'bad_request')
+  }
+
+  const createUnknown = await call('POST', '/commissions', {
+    role: 'writer', agentId: 'agent-default', projectId: GUARDED, reservationId: 'forged',
+  })
+  assert.equal(createUnknown.status, 400)
+})
+
 test('DELETE un-commissions; a second DELETE 404s', async () => {
   const commission = store.createCommission({ role: 'writer', agentId: DEFAULT_AGENT.id, projectId: GUARDED })
   const del = await call('DELETE', `/commissions/${commission.id}`)

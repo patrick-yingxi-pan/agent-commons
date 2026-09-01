@@ -108,7 +108,7 @@ import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
@@ -1712,6 +1712,25 @@ function holderRole(holder: string): ProjectRole | undefined {
 // already-minted children so an over-grant can't outlive the shrink. Idempotent — a child
 // already within its parent is untouched; a child that *inherits* (unset grant) follows the
 // parent down on its own and needs no clamp.
+const AUTHORITY_DIMENSIONS = ['tools', 'connectors', 'scopes'] as const
+function equivalentAuthority(left: Authority | undefined, right: Authority | undefined): boolean {
+  return AUTHORITY_DIMENSIONS.every((dimension) => {
+    const leftGrant = left?.[dimension]
+    const rightGrant = right?.[dimension]
+    if (unrestricted(leftGrant) || unrestricted(rightGrant)) {
+      return unrestricted(leftGrant) && unrestricted(rightGrant)
+    }
+    return leftGrant!.length === rightGrant!.length && leftGrant!.every((value) => rightGrant!.includes(value))
+  })
+}
+
+function equivalentBudget(left: Budget | undefined, right: Budget | undefined): boolean {
+  if (!left || !right) return left === right
+  return left.windows.length === right.windows.length && left.windows.every((window) =>
+    right.windows.some((candidate) => candidate.label === window.label && candidate.ceiling === window.ceiling),
+  )
+}
+
 function reclampCommissionsOf(agent: Agent): void {
   const provider = resolveProvider(agent.providerId)
   const parentAuthority = agent.authority ?? provider.authority ?? {}
@@ -1720,7 +1739,15 @@ function reclampCommissionsOf(agent: Agent): void {
     if (c.agentId !== agent.id) continue
     const authority = c.authority ? clampAuthority(c.authority, parentAuthority) : c.authority
     const grant = c.grant ? clampBudget(c.grant, parentWindows) : c.grant
-    COMMISSIONS.set(c.id, { ...c, authority, grant })
+    if (equivalentAuthority(authority, c.authority) && equivalentBudget(grant, c.grant)) continue
+    const next: Commission = {
+      ...c,
+      authority,
+      grant,
+      configurationRevision: (c.configurationRevision ?? 0) + 1,
+    }
+    COMMISSIONS.set(c.id, next)
+    emit({ type: 'commission.changed', projectId: next.projectId })
   }
 }
 function reclampAgentsOf(provider: ModelProvider): void {
@@ -4486,7 +4513,14 @@ export const store = {
     // The D19 standing flag is the commission OWNER's consent to unprompted spend
     // (owner-pays) — normalized so anything but `true` stores as absent.
     const standing = input.standing === true ? true : undefined
-    const commission: Commission = { ...input, role, standing, id: `commission-${(commissionSeq += 1)}`, tenantId: owningTenant }
+    const commission: Commission = {
+      ...input,
+      role,
+      standing,
+      id: `commission-${(commissionSeq += 1)}`,
+      tenantId: owningTenant,
+      configurationRevision: 0,
+    }
     COMMISSIONS.set(commission.id, commission)
     // Ambient push (project-visibility-gated): a cross-tenant Contributor arriving on
     // a shared Project must reach the OWNER's open Contributors panel too — the acting
@@ -4500,12 +4534,26 @@ export const store = {
    *  against the Agent's effective ceiling), so a patch can't smuggle a grant past the
    *  Agent. A present field is applied; an absent one is left unchanged. Undefined when
    *  unknown (→ 404). */
-  updateCommission(id: string, patch: UpdateCommissionRequest): Commission | undefined {
+  updateCommission(
+    id: string,
+    patch: CommissionConfigurationPatch,
+    expectedRevision?: number,
+  ): Commission | undefined {
     const commission = COMMISSIONS.get(id)
     if (!commission) return undefined
+    const currentRevision = commission.configurationRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This commission changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     const agent = WORKER_AGENTS.get(commission.agentId)
     const provider = resolveProvider(agent?.providerId)
-    const authority = 'authority' in patch ? patch.authority : commission.authority
+    // PATCH authority is sparse by dimension: an omitted tools/connectors/scopes
+    // face remains unchanged. This keeps orthogonal editor intent independent.
+    const authority = 'authority' in patch
+      ? { ...commission.authority, ...patch.authority }
+      : commission.authority
     const grant = 'grant' in patch ? patch.grant : commission.grant
     // Role (D14) re-assignment: present ⇒ apply, absent ⇒ unchanged — then re-run the P8
     // self-assign clamp (B8) so a cross-tenant Contributor can't PATCH itself above 'writer'
@@ -4520,7 +4568,19 @@ export const store = {
     // standing Contributor is offered the backlog's still-open items right away — the
     // one re-dispatch moment the synchronous model gets for free.
     const standing = 'standing' in patch ? (patch.standing === true ? true : undefined) : commission.standing
-    const next: Commission = { ...commission, role, authority, grant, standing, id: commission.id }
+    const changed = role !== commission.role || standing !== commission.standing ||
+      !equivalentAuthority(authority, commission.authority) ||
+      !equivalentBudget(grant, commission.grant)
+    if (!changed) return commission
+    const next: Commission = {
+      ...commission,
+      role,
+      authority,
+      grant,
+      standing,
+      id: commission.id,
+      configurationRevision: currentRevision + 1,
+    }
     COMMISSIONS.set(id, next)
     if (standing && !commission.standing) {
       let took = false

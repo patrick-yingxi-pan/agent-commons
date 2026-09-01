@@ -15,6 +15,9 @@ import type { ProjectRole } from './roles.ts'
 
 export interface Commission {
   id: string
+  /** Server-owned ordering for editable contributor configuration (role, standing,
+   *  authority, and grant). Legacy/seeded absence reads as revision 0. */
+  configurationRevision?: number
   /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
    *  tenant; a created one is private to its tenant. */
   tenantId?: string
@@ -72,11 +75,19 @@ export interface CreateCommissionRequest {
 /** Re-grant a commission — narrow (or restore) the authority / sub-budget it carries
  *  onto the Project (D8/D12). Re-validated against the Agent's ceiling at the funnel.
  *  A present field is applied; an absent one is left unchanged. */
-export interface UpdateCommissionRequest {
+export interface CommissionConfigurationPatch {
   /** Re-assign the Contributor's role (D14). Absent ⇒ unchanged. */
   role?: ProjectRole
+  /** Sparse by authority dimension: omitted tools/connectors/scopes remain unchanged;
+   * a present array replaces only that dimension. */
   authority?: Authority
   grant?: Budget
   /** Flip the D19 standing flag. Absent ⇒ unchanged. */
   standing?: boolean
+}
+
+/** `expectedRevision` is an optional compare-and-swap precondition. Absence keeps
+ * the legacy unconditional-write meaning; first-party editors always send it. */
+export type UpdateCommissionRequest = CommissionConfigurationPatch & {
+  expectedRevision?: number
 }

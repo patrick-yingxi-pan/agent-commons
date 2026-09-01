@@ -279,7 +279,6 @@ import {
   useAgentProposals,
   useMe,
   useWatchState,
-  updateCommission,
   deleteCommission,
   reserveSubGoal,
   releaseSubGoal,
@@ -372,6 +371,7 @@ import {
 import { createProviderConnectionAttempt, replaceProviderConnection } from '../controller/providerConnection'
 import { toggleScheduleEnabled, updateSchedule } from '../controller/scheduleMutations'
 import { updateAgent } from '../controller/agentMutations'
+import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
 import {
@@ -2346,6 +2346,9 @@ function CommissionDialog({
   project: Project
   onClose: () => void
 }) {
+  // Freeze the opening base. Ambient commission.changed events may refresh the
+  // row behind this held draft; dirty comparison remains the user's own intent.
+  const original = useRef(commission).current
   const admitted = projectAdmittedAuthority(project.contexts)
   const admittedConnectors = admitted.connectors ?? []
   const admittedScopes = admitted.scopes ?? []
@@ -2359,6 +2362,16 @@ function CommissionDialog({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  const sameSet = (left: Set<string>, right: Set<string>): boolean =>
+    left.size === right.size && [...left].every((value) => right.has(value))
+  const originalConnectors = startSet(original.authority?.connectors, admittedConnectors)
+  const originalScopes = startSet(original.authority?.scopes, admittedScopes)
+  const connectorsChanged = !sameSet(connectors, originalConnectors)
+  const scopesChanged = !sameSet(scopes, originalScopes)
+  const roleChanged = role !== (original.role ?? 'writer')
+  const standingChanged = standing !== (original.standing === true)
+  const hasChanges = roleChanged || standingChanged || connectorsChanged || scopesChanged
+
   const toggle = (setFn: typeof setConnectors) => (v: string) =>
     setFn((prev) => {
       const next = new Set(prev)
@@ -2367,18 +2380,27 @@ function CommissionDialog({
     })
 
   const submit = async () => {
-    if (busy) return
+    if (busy || !hasChanges) return
     setBusy(true)
     setError(null)
-    // Always send the explicit checked set (an `undefined` would be dropped by JSON, so
-    // the server couldn't tell "clear" from "unchanged"). The reach is this set ∩ the
-    // Project's admitted set; checking every box restores the full admitted reach.
+    // Each touched authority axis sends its explicit checked set; untouched axes
+    // stay absent so a conflict Retry cannot overwrite a newer orthogonal grant.
     try {
-      await updateCommission(commission.id, commission.projectId, {
-        role,
-        standing,
-        authority: { connectors: [...connectors], scopes: [...scopes] },
+      const outcome = await updateCommissionConfiguration(commission.id, commission.projectId, {
+        ...(roleChanged ? { role } : {}),
+        ...(standingChanged ? { standing } : {}),
+        ...(connectorsChanged || scopesChanged ? {
+          authority: {
+            ...(connectorsChanged ? { connectors: [...connectors] } : {}),
+            ...(scopesChanged ? { scopes: [...scopes] } : {}),
+          },
+        } : {}),
       })
+      if (outcome === 'discarded') {
+        setError('Your held edits were not saved. Review the latest contributor, then apply what you still want.')
+        setBusy(false)
+        return
+      }
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not update this contributor.')
@@ -2391,10 +2413,11 @@ function CommissionDialog({
       title="Edit contributor"
       icon={<Cpu size={18} className="text-ink-soft" />}
       submitLabel="Save"
-      canSubmit={!busy}
+      canSubmit={hasChanges && !busy}
       onSubmit={submit}
       onClose={onClose}
       error={error}
+      busy={busy}
     >
       <div className="mb-3">
         <label className="mb-1.5 block text-[12px] font-medium text-ink-soft" htmlFor="commission-role">

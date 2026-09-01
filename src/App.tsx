@@ -45,6 +45,7 @@ import { ProposalVerdictMutationNotice } from './components/ProposalVerdictMutat
 import { AgentMutationNotice } from './components/AgentMutationNotice'
 import { ProviderDefinitionMutationNotice } from './components/ProviderDefinitionMutationNotice'
 import { SystemPromptDefinitionMutationNotice } from './components/SystemPromptDefinitionMutationNotice'
+import { CommissionMutationNotice } from './components/CommissionMutationNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
 import { SkipToMain } from './components/SkipToMain'
 import { SECTION_META } from './lib/sections'
@@ -561,6 +562,7 @@ function Workspace() {
       <AgentMutationNotice />
       <ProviderDefinitionMutationNotice />
       <SystemPromptDefinitionMutationNotice />
+      <CommissionMutationNotice />
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim

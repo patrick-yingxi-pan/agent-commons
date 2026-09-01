@@ -24,7 +24,6 @@ import type {
   UpdateProviderConnectionRequest,
   CreateAgentRequest,
   UpdateAgentRequest,
-  UpdateCommissionRequest,
   ReserveSubGoalRequest,
   PostOpenSubGoalRequest,
   OpenContributionRequest,
@@ -97,6 +96,7 @@ import { providerConnectionUpdate } from './providerConnection.ts'
 import { providerDefinitionUpdate } from './providerDefinition.ts'
 import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
 import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
+import { commissionConfigurationUpdate, commissionCreate } from './commissionConfiguration.ts'
 import type {
   A2aDataPart,
   A2aMessage,
@@ -1784,12 +1784,13 @@ export function buildRouter(): Router {
     if (!authority) return sendError(res, 'not_found', `No commission '${params.id}'`)
     sendJson(res, authority)
   })
-  r.post('/commissions', async ({ req, res, body }) => {
-    const input = await body<CreateCommissionRequest>()
-    // Strict role (INV-9): the API never picks a role for the caller — the
-    // commissioning UI pre-selects the Project's defaultRole (else writer), visibly.
-    if (!input?.agentId || !input?.projectId || !input?.role) {
-      return sendError(res, 'bad_request', 'agentId, projectId, and role are required')
+  r.post('/commissions', idempotent(async ({ req, res, body }) => {
+    let input: CreateCommissionRequest
+    try {
+      input = commissionCreate(await body<unknown>())
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      throw err
     }
     const tenantId = store.identity(req.headers).tenant.id
     // Scoped: a tenant may only commission an agent it can see (its own or the shared default),
@@ -1808,9 +1809,6 @@ export function buildRouter(): Router {
     if (!project || (projectOwner !== tenantId && project.shared !== true)) {
       return sendError(res, 'not_found', `No project '${input.projectId}'`)
     }
-    if (!PROJECT_ROLES.includes(input.role)) {
-      return sendError(res, 'bad_request', `Unknown role '${input.role}'`)
-    }
     try {
       sendJson(res, store.createCommission(input, tenantId))
     } catch (err) {
@@ -1823,27 +1821,25 @@ export function buildRouter(): Router {
       if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   // Re-grant (narrow / restore a Contributor's authority) or un-commission. PATCH re-runs
   // the leaf funnel, so an over-grant is a 400; DELETE cascade-releases the Contributor's
   // sub-goals. No protected default — a commission has no fallback role.
-  r.patch('/commissions/:id', async ({ req, res, params, body }) => {
+  r.patch('/commissions/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listCommissions(undefined, t), 'commission')) return
-    const patch = await body<UpdateCommissionRequest>()
-    if (patch.role && !PROJECT_ROLES.includes(patch.role)) {
-      return sendError(res, 'bad_request', `Unknown role '${patch.role}'`)
-    }
     try {
-      const commission = store.updateCommission(params.id, patch)
+      const input = commissionConfigurationUpdate(await body<unknown>())
+      const commission = store.updateCommission(params.id, input.patch, input.expectedRevision)
       if (!commission) return sendError(res, 'not_found', `No commission '${params.id}'`)
       sendJson(res, commission)
     } catch (err) {
-      if (err instanceof BudgetError || err instanceof AuthorityError) {
+      if (err instanceof BudgetError || err instanceof AuthorityError || err instanceof ValidationError) {
         return sendError(res, 'bad_request', err.message)
       }
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   r.delete('/commissions/:id', ({ req, res, params }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listCommissions(undefined, t), 'commission')) return
     if (!store.deleteCommission(params.id)) return sendError(res, 'not_found', `No commission '${params.id}'`)

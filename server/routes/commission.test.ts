@@ -226,8 +226,10 @@ test('narrowing a provider re-clamps its Agents and their commissions (D8 runtim
   assert.deepEqual(store.listAgents().find((x) => x.id === a.id)?.authority?.tools, ['a']) // Agent clamped
   assert.deepEqual(store.getCommission(c.id)?.authority?.tools, ['a']) // commission clamped (transitive)
   assert.equal(store.getAgent(a.id).revision, 1, 'an effective indirect configuration change advances ordering')
+  assert.equal(store.getCommission(c.id)?.configurationRevision, 1, 'the transitive commission change advances its domain ordering')
   store.updateProvider(p.id, { authority: { tools: ['a'] } })
   assert.equal(store.getAgent(a.id).revision, 1, 'an idempotent re-clamp does not invent a configuration change')
+  assert.equal(store.getCommission(c.id)?.configurationRevision, 1, 'an idempotent re-clamp does not invent a commission change')
 })
 
 test('narrowing an Agent budget re-clamps its commissions grants (D8 runtime propagation)', () => {
@@ -242,4 +244,5 @@ test('narrowing an Agent budget re-clamps its commissions grants (D8 runtime pro
   })
   store.updateAgentFromRequest(a.id, { budget: { windows: [{ label: '5-hour limit', ceiling: 400_000 }] } })
   assert.equal(store.getCommission(c.id)?.grant?.windows.find((w) => w.label === '5-hour limit')?.ceiling, 400_000)
+  assert.equal(store.getCommission(c.id)?.configurationRevision, 1)
 })

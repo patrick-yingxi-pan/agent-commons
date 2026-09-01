@@ -13,6 +13,7 @@ import {
   type Agent,
   type AgentConfigurationPatch,
   type Commission,
+  type CommissionConfigurationPatch,
   type CreateAgentRequest,
   type UpdateAgentRequest,
   type CreateCommissionRequest,
@@ -81,7 +82,7 @@ import {
   type UpdateSessionRequest,
   type UpdateSessionContextStateRequest,
 } from '../../contract/index.ts'
-import { API_BASE, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
+import { API_BASE, ApiRequestError, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, invalidatePrefix, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
@@ -94,6 +95,7 @@ import { mergeArtifactContent } from './artifactContentRevision.ts'
 import { mergeAgentConfiguration } from './agentRevision.ts'
 import { mergeProviderConnection, mergeProviderDefinition } from './providerRevision.ts'
 import { mergeSystemPromptDefinition } from './systemPromptRevision.ts'
+import { mergeCommissionConfiguration, newestCommissionConfiguration } from './commissionRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -384,17 +386,56 @@ export async function createCommission(input: CreateCommissionRequest): Promise<
 
 /** Re-grant a commission (narrow / restore its Project-clamped reach, D12). Refreshes the
  *  Project's Contributor list, the global list, and the commission's effective authority. */
-export async function updateCommission(
+function acceptCommissionConfiguration(commission: Commission, projectId: string): Commission {
+  for (const key of [keys.commissions(projectId), keys.commissions()]) {
+    mutate<Commission[]>(key, (rows) => {
+      const current = rows ?? []
+      const index = current.findIndex((row) => row.id === commission.id)
+      if (index < 0) return current
+      const merged = mergeCommissionConfiguration(current[index]!, commission)
+      return current.map((row, position) => position === index ? merged : row)
+    })
+  }
+  return newestCommissionConfiguration(
+    peek<Commission[]>(keys.commissions(projectId))?.find((row) => row.id === commission.id),
+    peek<Commission[]>(keys.commissions())?.find((row) => row.id === commission.id),
+  ) ?? commission
+}
+
+/** Re-read only the addressed contributor before Retry/Dismiss. */
+export async function reconcileCommissionConfiguration(
   id: string,
   projectId: string,
-  patch: UpdateCommissionRequest,
+): Promise<Commission | undefined> {
+  let incoming: Commission | undefined
+  try {
+    incoming = await apiGet<Commission>(paths.commission(id))
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
+  }
+  if (!incoming) {
+    for (const key of [keys.commissions(projectId), keys.commissions()]) {
+      mutate<Commission[]>(key, (rows) => (rows ?? []).filter((row) => row.id !== id))
+    }
+    return undefined
+  }
+  return acceptCommissionConfiguration(incoming, projectId)
+}
+
+/** Patch sparse contributor intent against the revision the editor read. */
+export async function patchCommissionConfiguration(
+  id: string,
+  projectId: string,
+  patch: CommissionConfigurationPatch,
+  expectedRevision: number,
+  idempotencyKey: string,
 ): Promise<Commission> {
-  const commission = await apiPatch<Commission>(paths.commission(id), patch)
-  invalidate(keys.commissions(projectId))
-  invalidate(keys.commissions())
+  const request = { ...patch, expectedRevision } satisfies UpdateCommissionRequest
+  const commission = await apiPatch<Commission>(paths.commission(id), request, { idempotencyKey })
+  const accepted = acceptCommissionConfiguration(commission, projectId)
   invalidate(keys.commissionAuthority(id))
   invalidatePrefix(keys.directoryProjects())
-  return commission
+  return accepted
 }
 
 /** Un-commission an Agent from a Project. Refreshes both Contributor lists and the
