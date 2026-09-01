@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { packager } from '@electron/packager'
-import { generateDesktopIcons } from './icons.mjs'
+import { generateDesktopIcons, verifyPackagedDesktopIcon } from './icons.mjs'
 import packagerConfig from './packager.config.mjs'
 
 const require = createRequire(import.meta.url)
@@ -68,6 +68,11 @@ export async function packageDesktop({
   if (!artifacts.length || artifacts.some((artifact) => !existsSync(artifact))) {
     throw new Error('Electron Packager completed without a concrete application artifact.')
   }
+  await Promise.all(artifacts.map((artifactPath) => verifyPackagedDesktopIcon({
+    artifactPath,
+    targetPlatform,
+  })))
+  if (targetPlatform === 'darwin') console.log('[desktop-package] verified canonical macOS app icon')
   for (const artifact of artifacts) console.log(`[desktop-package] ${artifact}`)
   return artifacts
 }

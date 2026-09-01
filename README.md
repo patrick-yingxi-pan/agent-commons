@@ -125,10 +125,14 @@ boots use explicit profiles:
   development user-data directory and Vite HMR. `npm run desktop:package` first
   builds the UI and then creates an ASAR-packaged application in `out/` with the
   current Electron Packager. The Electron archive is verified against the checksum
-  shipped in the official npm package. `desktop:smoke` launches that exact
-  executable with throwaway user data and proves backend readiness, the built UI,
-  and local SQLite placement; `desktop:verify` runs both stages. The result is
-  a verified unpacked artifact, intentionally unsigned for local development.
+  shipped in the official npm package, and the embedded macOS icon must byte-match
+  the canonical generated Agent Commons icon. Packager 20 may still announce that
+  Apple's optional newer `.icon` format is absent before using `.icns`; that probe
+  is not suppressed, while the resulting bundle is verified directly.
+  `desktop:smoke` launches that exact executable with throwaway user data and proves
+  backend readiness, the built UI, and local SQLite placement; `desktop:verify`
+  runs both stages. The result is a verified unpacked artifact, intentionally
+  unsigned for local development.
 - `npm run desktop:release:mac` is the separate fail-closed direct-download
   release path. It accepts only a Developer ID Application identity and a
   `notarytool` Keychain profile; plaintext Apple passwords are not a supported

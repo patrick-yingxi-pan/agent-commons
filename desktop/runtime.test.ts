@@ -166,6 +166,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(packaging, /checksums:\s*electronChecksums/)
   assert.match(packaging, /electronZipDir:\s*dirname\(zipPath\)/)
   assert.match(packaging, /artifacts\.some\(\(artifact\)\s*=>\s*!existsSync\(artifact\)\)/)
+  assert.match(packaging, /verifyPackagedDesktopIcon/)
 
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(pkg.main, 'desktop/main.mjs')
