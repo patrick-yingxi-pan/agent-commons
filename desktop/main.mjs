@@ -10,6 +10,7 @@ import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createDataBackendClient, desktopRecoveryStatus } from './dataProtocol.mjs'
 import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
 import { confirmManagedRestore, pickManagedBackup, waitForRestoreWorker } from './restoreProtocol.mjs'
+import { runRendererRecovery } from './rendererRecovery.mjs'
 import { offerStartupRecovery, revealRecoveryDirectory } from './startupRecovery.mjs'
 import {
   CREDENTIAL_VAULT_FILE,
@@ -43,6 +44,7 @@ let dataBackend = null
 let quitting = false
 let quitAfterBackend = false
 let restoreInProgress = false
+let rendererRecoveryInProgress = false
 let automaticRecovery = desktopRecoveryStatus()
 let rendererUrl = null
 let trustedOrigin = null
@@ -407,6 +409,7 @@ async function createMainWindow(url, origin) {
     },
   })
   mainWindow = win
+  let initialLoadComplete = false
 
   const leaveApp = (candidate) => {
     if (isAllowedExternalUrl(candidate)) void shell.openExternal(candidate)
@@ -424,8 +427,35 @@ async function createMainWindow(url, origin) {
     return { action: 'deny' }
   })
   win.webContents.on('render-process-gone', (_event, details) => {
-    if (quitting) return
+    if (!initialLoadComplete || quitting || rendererRecoveryInProgress || win.isDestroyed() || mainWindow !== win) return
     console.error(`[desktop] renderer exited: ${details.reason}`)
+    const currentUrl = win.webContents.getURL()
+    const recoveryUrl = isTrustedAppUrl(currentUrl, origin) ? currentUrl : url
+    rendererRecoveryInProgress = true
+    void runRendererRecovery({
+      showMessageBox: (options) => dialog.showMessageBox(win, options),
+      reopen: async () => {
+        if (quitting || !backendReady || win.isDestroyed() || mainWindow !== win) {
+          throw new Error('The desktop window is no longer recoverable.')
+        }
+        await win.loadURL(recoveryUrl)
+        win.show()
+        win.focus()
+      },
+      reportReopenFailure: (error) => {
+        console.error('[desktop] renderer could not be reopened.', error)
+        dialog.showErrorBox(
+          'Couldn’t reopen Agent Commons',
+          'The window could not be reopened. Your saved local data remains on this device. Agent Commons will quit.',
+        )
+      },
+      quit: () => app.quit(),
+    }).catch((error) => {
+      console.error('[desktop] renderer recovery failed.', error)
+      if (!quitting) app.quit()
+    }).finally(() => {
+      rendererRecoveryInProgress = false
+    })
   })
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
@@ -433,6 +463,7 @@ async function createMainWindow(url, origin) {
   })
 
   await win.loadURL(url)
+  initialLoadComplete = true
 }
 
 async function failStartup(error) {

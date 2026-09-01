@@ -117,7 +117,10 @@ boots use explicit profiles:
   embedded SQLite, the credential-less device owner, client-asserted identity
   denial, and the exact-origin wall. Database and portable snapshots live under
   the OS-managed Agent Commons user-data directory; an orderly app quit drains
-  and checkpoints the backend. A genuinely new database starts clean: no
+  and checkpoints the backend. If the sandboxed window exits unexpectedly, a
+  native prompt reopens its last trusted route without restarting the healthy
+  backend, or quits cleanly; saved work remains, while unsaved window text may
+  be lost. A genuinely new database starts clean: no
   fictional conversations, projects, artifacts, routines, accounts, connections,
   or usage history. Release profiles disable the inline mock: without a configured
   endpoint, the composer says so and the API refuses a turn before writing it.

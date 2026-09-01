@@ -108,6 +108,10 @@ neighbors. The reply stream is the only sticky path.
   gradient/scaffold fallback generalizes); writes retry/queue.
 - **Migration failure** — halt deploy, roll back the API image, fix forward; never
   partially-migrate prod (transactional DDL where supported).
+- **Desktop renderer loss** — keep the healthy local backend in place and offer one
+  native, default-Reopen recovery to the last trusted route. Disclose that acknowledged
+  work remains on device while unsaved window text may be lost; Quit is the cancel and
+  failed reopening reports generically before an orderly drain, never a silent crash loop.
 - **Desktop disk full / corruption** — atomic JSON/export replacement, transactional
   SQLite under WAL, verified local backup/restore, visible automatic-recovery failure
   with a manual backup action, and re-sync from web if linked. A live

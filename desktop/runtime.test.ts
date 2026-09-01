@@ -108,6 +108,10 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'installDataIpc()',
     'ensureRecoveryBackup()',
     'automaticRecovery = desktopRecoveryStatus(backup)',
+    'runRendererRecovery({',
+    'const recoveryUrl = isTrustedAppUrl(currentUrl, origin) ? currentUrl : url',
+    'await win.loadURL(recoveryUrl)',
+    'Your saved local data remains on this device',
     'offerStartupRecovery({',
     'revealRecoveryDirectory({',
     'runManagedRestoreLifecycle({',
@@ -122,6 +126,15 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   ]) {
     assert.ok(main.includes(contract), `desktop main must contain ${contract}`)
   }
+  const rendererRecovery = main.slice(
+    main.indexOf("win.webContents.on('render-process-gone'"),
+    main.indexOf("win.once('ready-to-show'"),
+  )
+  assert.match(rendererRecovery, /rendererRecoveryInProgress/)
+  assert.match(rendererRecovery, /!initialLoadComplete/)
+  assert.match(rendererRecovery, /!backendReady/)
+  assert.match(rendererRecovery, /\.finally\(\(\) => \{\s*rendererRecoveryInProgress = false/)
+  assert.doesNotMatch(rendererRecovery, /launchBackend|app\.relaunch/, 'renderer recovery preserves the healthy backend')
 
   const preload = readFileSync(new URL('./preload.cjs', import.meta.url), 'utf8')
   assert.match(preload, /contextBridge\.exposeInMainWorld\('agentCommonsDesktop'/)
@@ -155,6 +168,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
+  assert.equal(ignoreFromPackage('/desktop/rendererRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/src/App.tsx'), true)
 
   assert.equal(
