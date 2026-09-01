@@ -244,11 +244,14 @@ the recovered state, then restart it.
 On each successful Electron start, Agent Commons best-effort ensures one portable
 recovery point for the current UTC day and retains the latest seven automatic copies;
 manual backups are never pruned. Open **Customize → Local backups** to create a
-timestamped copy or reveal the OS-managed backup folder. A startup failure also offers
-that exact folder before quitting. The renderer never receives its path or contents,
-and neither surface can restore. Backups contain private workspace and account data,
-but provider API keys remain separate and are not included; copy important backups
-to other protected storage yourself.
+timestamped copy, reveal the OS-managed backup folder, or initiate a native restore.
+Restore accepts only a managed backup from that folder and defaults its replacement
+warning to Cancel. While healthy, the app first creates a fresh safety copy, proves the
+backend stopped, validates and reads back the replacement, then restarts. Startup failure
+offers the same restore path but clearly warns that a fresh safety copy is unavailable.
+The renderer never receives a filesystem path, file contents, or raw restore primitive.
+Backups contain private workspace and account data, but provider API keys remain separate
+and are not included or replaced; copy important backups to other protected storage yourself.
 
 ```bash
 npm run snapshot:save -- before-update

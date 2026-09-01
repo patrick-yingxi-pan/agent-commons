@@ -23,25 +23,33 @@ test('recovery access resolves only the shell-owned folder and reports OS refusa
   }), /OS refused/)
 })
 
-test('startup failure offers backup access without exposing the underlying error or restore', async () => {
+test('startup failure offers native restore without exposing a path or pre-arming replacement', async () => {
   const dialogs: any[] = []
   const opened: string[] = []
   const offered = await offerStartupRecovery({
-    showMessageBox: async (options: any) => { dialogs.push(options); return { response: 0 } },
+    showMessageBox: async (options: any) => { dialogs.push(options); return { response: 1 } },
     userDataPath: '/device/Agent Commons',
     makeDirectory: () => undefined,
     openPath: async (directory: string) => { opened.push(directory); return '' },
   })
-  assert.equal(offered, true)
-  assert.deepEqual(dialogs[0].buttons, ['Show backups', 'Quit'])
-  assert.equal(JSON.stringify(dialogs).includes('restore'), false)
+  assert.equal(offered, 'show')
+  assert.deepEqual(dialogs[0].buttons, ['Restore from backup…', 'Show backups', 'Quit'])
+  assert.equal(dialogs[0].defaultId, 1)
+  assert.equal(dialogs[0].cancelId, 2)
   assert.equal(JSON.stringify(dialogs).includes('/device/'), false)
   assert.deepEqual(opened, [join('/device/Agent Commons', 'snapshots')])
 
-  const quit = await offerStartupRecovery({
-    showMessageBox: async () => ({ response: 1 }),
+  const restore = await offerStartupRecovery({
+    showMessageBox: async () => ({ response: 0 }),
     userDataPath: '/device/Agent Commons',
     openPath: async () => { throw new Error('must not open') },
   })
-  assert.equal(quit, false)
+  assert.equal(restore, 'restore')
+
+  const quit = await offerStartupRecovery({
+    showMessageBox: async () => ({ response: 2 }),
+    userDataPath: '/device/Agent Commons',
+    openPath: async () => { throw new Error('must not open') },
+  })
+  assert.equal(quit, 'quit')
 })

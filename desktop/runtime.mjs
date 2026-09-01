@@ -101,6 +101,20 @@ export function desktopBackendEnvironment({ baseEnv = {}, providerCredentials = 
   }
 }
 
+/** The stopped-server restore worker gets only the persistence coordinates it
+ * needs. Provider credentials, auth secrets, ports, and the caller's ambient
+ * environment do not cross into this destructive one-shot process. */
+export function desktopRestoreEnvironment(userDataPath) {
+  if (typeof userDataPath !== 'string' || userDataPath.length === 0) {
+    throw new Error('Desktop restore requires an OS user-data path.')
+  }
+  return {
+    PERSIST_BACKEND: 'sqlite',
+    DATABASE_PATH: join(userDataPath, 'store.db'),
+    SNAPSHOT_DIR: join(userDataPath, 'snapshots'),
+  }
+}
+
 export function backendListenMarker(origin) {
   return `[mock-backend] ${exactLoopbackOrigin(origin)}/api/v1`
 }

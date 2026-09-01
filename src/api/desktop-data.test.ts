@@ -5,10 +5,11 @@ import {
   createDesktopBackup,
   desktopDataAvailable,
   revealDesktopBackups,
+  restoreDesktopBackup,
 } from './desktopData.ts'
 import type { DesktopBridge } from './desktopCredentials.ts'
 
-test('the desktop data adapter exposes backup creation and reveal without paths or restore', async () => {
+test('the desktop data adapter exposes backup, reveal, and path-free native restore intent', async () => {
   const calls: string[] = []
   const backup = {
     fileName: 'backup-2026-08-31T18-25-43-210Z-a1b2c3d4e5f60718.json',
@@ -19,14 +20,16 @@ test('the desktop data adapter exposes backup creation and reveal without paths 
     data: {
       async createBackup() { calls.push('createBackup'); return backup },
       async revealBackups() { calls.push('revealBackups') },
+      async restoreBackup() { calls.push('restoreBackup'); return { status: 'cancelled' } },
     },
   }
   const scope = { agentCommonsDesktop }
   assert.equal(desktopDataAvailable(scope), true)
   assert.deepEqual(await createDesktopBackup(scope), backup)
   await revealDesktopBackups(scope)
-  assert.deepEqual(calls, ['createBackup', 'revealBackups'])
-  assert.deepEqual(Object.keys(agentCommonsDesktop.data!).sort(), ['createBackup', 'revealBackups'])
+  assert.deepEqual(await restoreDesktopBackup(scope), { status: 'cancelled' })
+  assert.deepEqual(calls, ['createBackup', 'revealBackups', 'restoreBackup'])
+  assert.deepEqual(Object.keys(agentCommonsDesktop.data!).sort(), ['createBackup', 'restoreBackup', 'revealBackups'])
 })
 
 test('the web build has no desktop data capability', async () => {
@@ -34,6 +37,7 @@ test('the web build has no desktop data capability', async () => {
   assert.equal(desktopDataAvailable(scope), false)
   await assert.rejects(() => createDesktopBackup(scope), /unavailable/)
   await assert.rejects(() => revealDesktopBackups(scope), /unavailable/)
+  await assert.rejects(() => restoreDesktopBackup(scope), /unavailable/)
 })
 
 test('Customize renders the native backup workflow only through the adapter', () => {
@@ -41,7 +45,10 @@ test('Customize renders the native backup workflow only through the adapter', ()
   assert.match(source, /desktopDataAvailable\(\)/)
   assert.match(source, /createDesktopBackup\(\)/)
   assert.match(source, /revealDesktopBackups\(\)/)
+  assert.match(source, /restoreDesktopBackup\(\)/)
   assert.match(source, /Seven daily recovery copies are kept automatically/)
   assert.match(source, /no provider API keys/)
+  assert.match(source, /fresh safety copy/)
+  assert.match(source, /restarts the app/)
   assert.doesNotMatch(source, /ipcRenderer|SNAPSHOT_DIR|filePath/)
 })

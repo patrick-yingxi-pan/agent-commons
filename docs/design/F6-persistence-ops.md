@@ -57,9 +57,11 @@ snapshot of prod-shaped data, and are reversible-by-compensation where feasible.
   and read-back verification. A JSON export restores into SQLite and vice versa.
   The native shell presents timestamped managed backups, ensures one daily recovery
   point with seven-day automatic retention, and reveals their exact OS-owned folder
-  from Customize or the startup-failure dialog without giving the renderer path or
-  restore authority. A native restore picker + coordinated restart remains the next
-  destructive recovery step.
+  without giving the renderer a path. Native restore accepts only a regular managed
+  direct child, defaults its warning to Cancel, makes a fresh safety copy when the app
+  is healthy, proves the backend stopped, performs validated/read-back-proven replacement
+  in a minimal one-shot worker, and restarts. Startup recovery uses the same stopped-server
+  path while explicitly disclosing that it cannot make a new safety copy.
 
 ### 2.5 Deployment topology
 

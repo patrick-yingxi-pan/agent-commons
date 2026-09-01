@@ -1,4 +1,9 @@
-import type { DesktopBackupMetadata, DesktopBridge, DesktopBridgeScope } from './desktopCredentials.ts'
+import type {
+  DesktopBackupMetadata,
+  DesktopBridge,
+  DesktopBridgeScope,
+  DesktopRestoreResult,
+} from './desktopCredentials.ts'
 
 function bridge(scope: DesktopBridgeScope = window): DesktopBridge['data'] | undefined {
   return scope.agentCommonsDesktop?.data
@@ -18,4 +23,10 @@ export async function revealDesktopBackups(scope?: DesktopBridgeScope): Promise<
   const data = bridge(scope)
   if (!data) throw new Error('Desktop backup controls are unavailable.')
   await data.revealBackups()
+}
+
+export async function restoreDesktopBackup(scope?: DesktopBridgeScope): Promise<DesktopRestoreResult> {
+  const data = bridge(scope)
+  if (!data) throw new Error('Desktop backup controls are unavailable.')
+  return data.restoreBackup()
 }

@@ -1,5 +1,10 @@
 import { useState } from 'react'
-import { createDesktopBackup, desktopDataAvailable, revealDesktopBackups } from '../api'
+import {
+  createDesktopBackup,
+  desktopDataAvailable,
+  restoreDesktopBackup,
+  revealDesktopBackups,
+} from '../api'
 import { SOFT_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { ResourcePageSection as FoldSection } from './ResourcePage'
 
@@ -12,9 +17,9 @@ function formatBytes(bytes: number): string {
 }
 
 /** Electron-only data safety. The native bridge owns every filesystem detail;
- * this component sees only bounded backup metadata and acknowledgement. */
+ * this component sees only bounded backup metadata and path-free outcomes. */
 export function DesktopDataCard() {
-  const [busy, setBusy] = useState<'backup' | 'reveal' | null>(null)
+  const [busy, setBusy] = useState<'backup' | 'restore' | 'reveal' | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
 
   if (!desktopDataAvailable()) return null
@@ -46,6 +51,20 @@ export function DesktopDataCard() {
     }
   }
 
+  const restoreBackup = async () => {
+    setBusy('restore')
+    try {
+      const result = await restoreDesktopBackup()
+      if (result.status === 'restarting') {
+        setNotice({ tone: 'status', message: 'Backup restored. Restarting Agent Commons…' })
+      }
+    } catch {
+      setNotice({ tone: 'alert', message: 'The backup could not be restored. Your current app data was not changed.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <FoldSection
       title="Local backups"
@@ -56,7 +75,8 @@ export function DesktopDataCard() {
         <div className="min-w-0">
           <p className="text-[12px] text-ink-faint">
             Seven daily recovery copies are kept automatically. Backups you create remain until deleted.
-            Both contain private app data but no provider API keys.
+            Restoring first saves a fresh safety copy, replaces local workspace data, and restarts the app.
+            Backups contain private app data but no provider API keys.
           </p>
           {notice && (
             <p
@@ -68,20 +88,28 @@ export function DesktopDataCard() {
             </p>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2 @xl:justify-end">
+        <div className="grid grid-cols-2 items-center gap-2 @xl:flex @xl:flex-wrap @xl:justify-end">
           <button
             type="button"
             onClick={() => void revealBackups()}
             disabled={busy !== null}
-            className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
+            className={`${SECONDARY_BUTTON_CLASS} w-full px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-50 @xl:w-auto`}
           >
             {busy === 'reveal' ? 'Opening…' : 'Show backups'}
           </button>
           <button
             type="button"
+            onClick={() => void restoreBackup()}
+            disabled={busy !== null}
+            className={`${SECONDARY_BUTTON_CLASS} w-full px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-50 @xl:w-auto`}
+          >
+            {busy === 'restore' ? 'Preparing restore…' : 'Restore backup…'}
+          </button>
+          <button
+            type="button"
             onClick={() => void createBackup()}
             disabled={busy !== null}
-            className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
+            className={`${SOFT_BUTTON_CLASS} col-span-2 w-full px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-50 @xl:w-auto`}
           >
             {busy === 'backup' ? 'Backing up…' : 'Back up now'}
           </button>

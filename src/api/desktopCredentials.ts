@@ -1,12 +1,15 @@
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
  * workflow. Credentials remain write-only; backup and picker methods expose
- * bounded results but no arbitrary path, handle, restore, or raw IPC authority. */
+ * bounded results but no arbitrary path, handle, or raw IPC authority. Restore
+ * is a path-free native intent whose destructive work remains in the shell. */
 export interface DesktopBackupMetadata {
   fileName: string
   sizeBytes: number
   createdAt: string
 }
+
+export type DesktopRestoreResult = { status: 'cancelled' } | { status: 'restarting' }
 
 export type DesktopContextPickerRejection =
   | 'image-too-large'
@@ -49,6 +52,7 @@ export interface DesktopBridge {
   data?: {
     createBackup(): Promise<DesktopBackupMetadata>
     revealBackups(): Promise<void>
+    restoreBackup(): Promise<DesktopRestoreResult>
   }
 }
 

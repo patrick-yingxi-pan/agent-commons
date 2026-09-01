@@ -18,8 +18,17 @@ export function desktopBackupName(now = new Date(), nonce = randomBytes(8).toStr
   return name
 }
 
+/** Convert one managed backup filename into its path-free restore identity.
+ * Exact filename families are the authority; arbitrary snapshot names, paths,
+ * and non-JSON files never become native restore targets. */
+export function managedBackupName(fileName) {
+  if (typeof fileName !== 'string' || !fileName.endsWith('.json') || basename(fileName) !== fileName) return null
+  const name = fileName.slice(0, -'.json'.length)
+  return MANUAL_BACKUP_NAME_PATTERN.test(name) || RECOVERY_BACKUP_NAME_PATTERN.test(name) ? name : null
+}
+
 export function isBackupMetadata(value, kind = 'any') {
-  const name = typeof value?.fileName === 'string' ? value.fileName.replace(/\.json$/, '') : ''
+  const name = managedBackupName(value?.fileName) ?? ''
   const expectedName = kind === 'manual'
     ? MANUAL_BACKUP_NAME_PATTERN.test(name)
     : kind === 'recovery'

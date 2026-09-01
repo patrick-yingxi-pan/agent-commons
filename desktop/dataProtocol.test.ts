@@ -8,6 +8,7 @@ import {
   desktopBackupName,
   installDataRuntime,
   isBackupMetadata,
+  managedBackupName,
 } from './dataProtocol.mjs'
 
 class FakeParentPort extends EventEmitter {
@@ -26,6 +27,11 @@ const NAME = 'backup-2026-08-31T18-25-43-210Z-a1b2c3d4e5f60718'
 test('desktop backup names are sortable, safe managed-snapshot names', () => {
   assert.equal(desktopBackupName(NOW, 'A1B2C3D4E5F60718'), NAME)
   assert.throws(() => desktopBackupName(NOW, '../x'), /safe backup name/)
+  assert.equal(managedBackupName(`${NAME}.json`), NAME)
+  assert.equal(managedBackupName('recovery-2026-08-31.json'), 'recovery-2026-08-31')
+  for (const invalid of ['backup.json', `..${'/recovery-2026-08-31.json'}`, 'recovery-2026-08-31.txt']) {
+    assert.equal(managedBackupName(invalid), null)
+  }
 })
 
 test('the utility creates a managed backup and returns metadata without a path', () => {

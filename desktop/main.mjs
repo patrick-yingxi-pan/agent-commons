@@ -8,6 +8,8 @@ import dataChannels from './data-channels.cjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createDataBackendClient } from './dataProtocol.mjs'
+import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
+import { confirmManagedRestore, pickManagedBackup, waitForRestoreWorker } from './restoreProtocol.mjs'
 import { offerStartupRecovery, revealRecoveryDirectory } from './startupRecovery.mjs'
 import {
   CREDENTIAL_VAULT_FILE,
@@ -17,6 +19,7 @@ import {
 import {
   backendListenMarker,
   desktopBackendEnvironment,
+  desktopRestoreEnvironment,
   exactLoopbackOrigin,
   findAvailableLoopbackPort,
   isAllowedExternalUrl,
@@ -39,6 +42,7 @@ let credentialBackend = null
 let dataBackend = null
 let quitting = false
 let quitAfterBackend = false
+let restoreInProgress = false
 let rendererUrl = null
 let trustedOrigin = null
 const contextPicker = createNativeContextPicker({
@@ -315,6 +319,15 @@ function installDataIpc() {
       throw new Error('The backup folder could not be opened.')
     }
   })
+  ipcMain.handle(dataChannels.restoreBackup, async (event) => {
+    assertTrustedDataCaller(event)
+    try {
+      return await restoreFromManagedBackup()
+    } catch (error) {
+      console.error('[desktop] backup restore could not begin.', error)
+      throw new Error('The backup could not be restored. Your current app data was not changed.')
+    }
+  })
 }
 
 function installContextIpc() {
@@ -418,11 +431,23 @@ async function createMainWindow(url, origin) {
 async function failStartup(error) {
   console.error(error)
   try {
-    await offerStartupRecovery({
+    const action = await offerStartupRecovery({
       showMessageBox: (options) => dialog.showMessageBox(options),
       userDataPath: app.getPath('userData'),
       openPath: (directory) => shell.openPath(directory),
     })
+    if (action === 'restore') {
+      try {
+        await restoreFromManagedBackup({ startup: true })
+        return
+      } catch (restoreError) {
+        console.error('[desktop] startup backup restore could not begin.', restoreError)
+        dialog.showErrorBox(
+          'Couldn’t restore backup',
+          'The selected backup was not restored. Your managed backups remain available.',
+        )
+      }
+    }
   } catch (recoveryError) {
     console.error('[desktop] startup recovery folder could not be shown.', recoveryError)
     dialog.showErrorBox('Couldn’t open Agent Commons', 'The app could not start, and its backup folder could not be opened.')
@@ -430,26 +455,103 @@ async function failStartup(error) {
   app.quit()
 }
 
-async function stopBackend() {
+async function stopBackend({ requireExit = false } = {}) {
   const child = backend
-  if (!child) return
-  await new Promise((resolve) => {
+  if (!child) return true
+  const exited = await new Promise((resolve) => {
     let settled = false
-    const finish = () => {
+    const finish = (didExit) => {
       if (settled) return
       settled = true
-      resolve()
+      resolve(didExit)
     }
-    child.once('exit', finish)
+    child.once('exit', () => finish(true))
     child.kill()
-    setTimeout(finish, STOP_TIMEOUT_MS)
+    setTimeout(() => finish(false), STOP_TIMEOUT_MS)
   })
+  if (!exited) {
+    if (requireExit) throw new Error('The local backend did not stop; restore was refused.')
+    return false
+  }
   backend = null
   credentialBackend?.close()
   credentialBackend = null
   dataBackend?.close()
   dataBackend = null
   backendReady = false
+  return true
+}
+
+async function runRestoreWorker(snapshotName) {
+  const entry = join(app.getAppPath(), 'desktop', 'restoreWorker.mjs')
+  if (!existsSync(entry)) throw new Error('The desktop restore worker is missing.')
+  const child = utilityProcess.fork(entry, [snapshotName], {
+    cwd: app.getPath('userData'),
+    env: desktopRestoreEnvironment(app.getPath('userData')),
+    serviceName: 'Agent Commons Restore',
+    stdio: 'pipe',
+  })
+  await waitForRestoreWorker(child, snapshotName)
+}
+
+function relaunchDesktop(exitCode = 0) {
+  app.relaunch()
+  app.exit(exitCode)
+}
+
+async function restoreFromManagedBackup({ startup = false } = {}) {
+  if (restoreInProgress) throw new Error('A restore is already in progress.')
+  restoreInProgress = true
+  let shutdownStarted = false
+  try {
+    const selection = await pickManagedBackup({
+      owner: mainWindow,
+      userDataPath: app.getPath('userData'),
+      showOpenDialog: (owner, options) => owner
+        ? dialog.showOpenDialog(owner, options)
+        : dialog.showOpenDialog(options),
+    })
+    if (selection.status === 'cancelled') return { status: 'cancelled' }
+    const confirmed = await confirmManagedRestore({
+      owner: mainWindow,
+      fileName: selection.fileName,
+      startup,
+      showMessageBox: (owner, options) => owner
+        ? dialog.showMessageBox(owner, options)
+        : dialog.showMessageBox(options),
+    })
+    if (!confirmed) return { status: 'cancelled' }
+    return await runManagedRestoreLifecycle({
+      startup,
+      createSafetyBackup: async () => {
+        if (!dataBackend) throw new Error('The local data service is unavailable.')
+        const backup = await dataBackend.createBackup()
+        console.log(`[desktop] pre-restore safety backup ${backup.fileName}`)
+        return backup
+      },
+      stopBackend: async () => {
+        quitting = true
+        shutdownStarted = true
+        await stopBackend({ requireExit: true })
+      },
+      restoreSnapshot: async () => {
+        await runRestoreWorker(selection.snapshotName)
+        console.log(`[desktop] restored ${selection.fileName}; restarting`)
+      },
+      reportShutdownFailure: ({ error, safetyBackup }) => {
+        console.error('[desktop] restore failed after shutdown began.', error)
+        dialog.showErrorBox(
+          'Couldn’t restore backup',
+          safetyBackup
+            ? `The restore failed. Your pre-restore safety copy ${safetyBackup.fileName} remains in Backups. Agent Commons will restart.`
+            : 'The restore failed. Your managed backups remain unchanged. Agent Commons will restart.',
+        )
+      },
+      restart: relaunchDesktop,
+    })
+  } finally {
+    if (!shutdownStarted) restoreInProgress = false
+  }
 }
 
 app.on('activate', () => {

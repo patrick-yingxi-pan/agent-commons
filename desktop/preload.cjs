@@ -13,6 +13,7 @@ const credentialChannels = Object.freeze({
 const dataChannels = Object.freeze({
   createBackup: 'agent-commons:data:create-backup',
   revealBackups: 'agent-commons:data:reveal-backups',
+  restoreBackup: 'agent-commons:data:restore-backup',
 })
 const contextChannels = Object.freeze({
   pickFiles: 'agent-commons:context:pick-files',
@@ -31,6 +32,7 @@ const bridge = {
   data: Object.freeze({
     createBackup: () => ipcRenderer.invoke(dataChannels.createBackup),
     revealBackups: () => ipcRenderer.invoke(dataChannels.revealBackups),
+    restoreBackup: () => ipcRenderer.invoke(dataChannels.restoreBackup),
   }),
 }
 if (process.argv.includes('--agent-commons-secure-credentials')) {

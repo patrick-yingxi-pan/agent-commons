@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import {
   backendListenMarker,
   desktopBackendEnvironment,
+  desktopRestoreEnvironment,
   exactLoopbackOrigin,
   isAllowedExternalUrl,
   isTrustedAppUrl,
@@ -81,6 +82,14 @@ test('the shell pins backend identity, CORS, and durable paths under OS user dat
   assert.equal(backendListenMarker(env.AGENT_COMMONS_BACKEND_ORIGIN), '[mock-backend] http://127.0.0.1:49152/api/v1')
 })
 
+test('the one-shot restore worker receives persistence coordinates and no ambient authority', () => {
+  assert.deepEqual(desktopRestoreEnvironment('/device/Agent Commons'), {
+    PERSIST_BACKEND: 'sqlite',
+    DATABASE_PATH: join('/device/Agent Commons', 'store.db'),
+    SNAPSHOT_DIR: join('/device/Agent Commons', 'snapshots'),
+  })
+})
+
 test('Electron owns a sandboxed utility-process lifecycle and Packager ships an ASAR runtime', () => {
   const main = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
   for (const contract of [
@@ -100,6 +109,9 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'ensureRecoveryBackup()',
     'offerStartupRecovery({',
     'revealRecoveryDirectory({',
+    'runManagedRestoreLifecycle({',
+    'stopBackend({ requireExit: true })',
+    'runRestoreWorker(selection.snapshotName)',
     'event.senderFrame?.url',
     "setWindowOpenHandler",
     'setPermissionRequestHandler',
@@ -115,7 +127,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.doesNotMatch(preload, /sendSync|agentCommonsDesktop[^]*ipcRenderer\s*[,}]/, 'the renderer never receives raw IPC authority')
   for (const verb of ['provision', 'bind', 'discard', 'removeProvider']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(credentialChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
-  for (const verb of ['createBackup', 'revealBackups']) assert.match(preload, new RegExp(`${verb}:`))
+  for (const verb of ['createBackup', 'revealBackups', 'restoreBackup']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(dataChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const verb of ['pickFiles', 'pickFolder']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(contextChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
@@ -141,6 +153,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release-publish.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
   assert.equal(ignoreFromPackage('/src/App.tsx'), true)
 
   assert.equal(
@@ -155,6 +168,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /first-run model handoff/)
   assert.match(smoke, /agentCommonsDesktop\.credentials\.removeProvider/)
   assert.match(smoke, /agentCommonsDesktop\.data\.createBackup/)
+  assert.match(smoke, /agentCommonsDesktop\?\.data\?\.restoreBackup/)
   assert.match(smoke, /agentCommonsDesktop\?\.context\?\.pickFiles/)
   assert.match(smoke, /native context picker/)
   assert.match(smoke, /snapshots/)

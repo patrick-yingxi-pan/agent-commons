@@ -127,7 +127,8 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     )
     const hasDataBridge = await page.evaluate(() =>
       typeof window.agentCommonsDesktop?.data?.createBackup === 'function' &&
-      Object.keys(window.agentCommonsDesktop.data).sort().join(',') === 'createBackup,revealBackups',
+      typeof window.agentCommonsDesktop?.data?.restoreBackup === 'function' &&
+      Object.keys(window.agentCommonsDesktop.data).sort().join(',') === 'createBackup,restoreBackup,revealBackups',
     )
     if (!hasDataBridge) throw new Error('The narrow desktop data bridge was not available.')
     const hasContextBridge = await page.evaluate(() =>
