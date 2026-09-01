@@ -225,6 +225,9 @@ test('narrowing a provider re-clamps its Agents and their commissions (D8 runtim
   store.updateProvider(p.id, { authority: { tools: ['a'] } })
   assert.deepEqual(store.listAgents().find((x) => x.id === a.id)?.authority?.tools, ['a']) // Agent clamped
   assert.deepEqual(store.getCommission(c.id)?.authority?.tools, ['a']) // commission clamped (transitive)
+  assert.equal(store.getAgent(a.id).revision, 1, 'an effective indirect configuration change advances ordering')
+  store.updateProvider(p.id, { authority: { tools: ['a'] } })
+  assert.equal(store.getAgent(a.id).revision, 1, 'an idempotent re-clamp does not invent a configuration change')
 })
 
 test('narrowing an Agent budget re-clamps its commissions grants (D8 runtime propagation)', () => {

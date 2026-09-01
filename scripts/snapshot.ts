@@ -187,6 +187,11 @@ export async function buildComprehensive(): Promise<PersistedState> {
     systemPromptId: prompt.id,
     instructions: 'Prefer primary sources.',
   })
+  store.updateAgentFromRequest(
+    playgroundAgent.id,
+    { instructions: 'Prefer primary and official sources.' },
+    playgroundAgent.revision,
+  )
   // Flag the created pair as the pickers' defaults — exercises the registryDefaults
   // persisted slice (the per-tenant default-flag pointers, a UI shortcut).
   store.setDefaultProvider(provider.id)

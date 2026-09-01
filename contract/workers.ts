@@ -29,6 +29,12 @@ export interface AgentToolCatalog {
 
 export interface Agent {
   id: string
+  /** Server-owned ordering for editable Agent configuration: definition, provider /
+   *  prompt binding, grants, and publication posture. Public `version` is a distinct
+   *  authorship/history concept and advances only for published definition changes;
+   *  reputation and fork counters are independent activity. Absent on legacy
+   *  snapshots means revision 0. */
+  revision?: number
   /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
    *  tenant (the default toolkit is shared infra); a created one is private to its tenant. */
   tenantId?: string
@@ -209,4 +215,9 @@ export interface CreateAgentRequest {
  *  `published` is the D18 publish/unpublish act — an explicit owner toggle, deliberately
  *  NOT on `CreateAgentRequest` (a definition is published deliberately, never as a
  *  side-effect of creation). */
-export type UpdateAgentRequest = Partial<CreateAgentRequest> & { published?: boolean }
+export type AgentConfigurationPatch = Partial<CreateAgentRequest> & { published?: boolean }
+
+/** `expectedRevision` is an optional compare-and-swap precondition. Absence keeps
+ * the v1 unconditional-write meaning for external/legacy callers; first-party UI
+ * edits always send the revision they read. */
+export type UpdateAgentRequest = AgentConfigurationPatch & { expectedRevision?: number }

@@ -256,6 +256,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.agents?.some(([, a]) => a.label === 'Playground research agent'),
     'createAgentFromRequest → agents',
   )
+  assert.equal(
+    s.agents?.find(([, a]) => a.label === 'Playground research agent')?.[1].revision,
+    1,
+    'the edited Agent configuration revision rides in the snapshot',
+  )
   assert.ok(
     s.registryDefaults?.some(([, d]) => d.providerId && d.promptId),
     'setDefaultProvider/-SystemPrompt → registryDefaults (the per-tenant default-flag pointers)',
@@ -507,6 +512,7 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   assert.ok(store.listSystemPrompts().some((p) => p.label === 'Playground research prompt'), 'the created system prompt survives a boot')
   const agent = store.listAgents().find((a) => a.label === 'Playground research agent')
   assert.ok(agent && agent.providerId === provider?.id, 'the created agent (bound to the provider) survives a boot')
+  assert.equal(agent?.revision, 1, 'the Agent configuration revision survives a boot')
   assert.ok(store.listCommissions('p-insights').some((c) => c.agentId === agent?.id), 'the created commission survives a boot')
   assert.equal(store.listProjects().find((p) => p.id === 'p-insights')?.commissionCap, 8, 'the D13 commission cap survives a boot')
   assert.ok(store.listAuditLog().some((e) => e.channel === 'project-effect'), 'the D15 audit trail survives a boot')

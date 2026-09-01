@@ -23,6 +23,7 @@ test('POST resolves the prompt body; an omitted tool grant is the EMPTY set (min
   })
   assert.equal(created.status, 200)
   assert.ok(created.json.id.startsWith('agent-'))
+  assert.equal(created.json.revision, 0, 'a new Agent configuration starts at revision zero')
   assert.equal(created.json.providerId, DEFAULT_PROVIDER_ID)
   assert.equal(created.json.systemPromptId, 'sp-concise-reviewer')
   // The body is resolved from the library entry, not echoed from the request.
@@ -81,6 +82,7 @@ test('PATCH edits fields; a present-but-empty binding is refused, never "cleared
   assert.equal(patched.status, 200)
   assert.equal(patched.json.label, 'Edited')
   assert.equal(patched.json.instructions, 'Be brief.')
+  assert.equal(patched.json.revision, 1)
   // Untouched bindings survive the patch.
   assert.equal(patched.json.systemPromptId, 'sp-concise-reviewer')
   assert.equal(patched.json.providerId, DEFAULT_PROVIDER_ID)
@@ -96,6 +98,47 @@ test('PATCH edits fields; a present-but-empty binding is refused, never "cleared
   assert.equal(repointed.status, 200)
   assert.equal(repointed.json.systemPromptId, 'sp-open-generalist')
   assert.equal(repointed.json.systemPrompt, store.getSystemPrompt('sp-open-generalist')!.body)
+  assert.equal(repointed.json.revision, 2)
+})
+
+test('PATCH compare-and-swap refuses stale Agent configuration and replays one logical acknowledgement', async () => {
+  const created = await call('POST', '/agents', {
+    label: 'Revisioned agent',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  })
+  const id = created.json.id
+  const key = `agent-config-${id}`
+  const first = await call(
+    'PATCH',
+    `/agents/${id}`,
+    { instructions: 'Remote instruction', expectedRevision: 0 },
+    { 'idempotency-key': key },
+  )
+  assert.equal(first.status, 200)
+  assert.equal(first.json.revision, 1)
+
+  const replay = await call(
+    'PATCH',
+    `/agents/${id}`,
+    { instructions: 'Remote instruction', expectedRevision: 0 },
+    { 'idempotency-key': key },
+  )
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.revision, 1, 'a lost acknowledgement cannot advance twice')
+
+  const stale = await call('PATCH', `/agents/${id}`, { label: 'Stale name', expectedRevision: 0 })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.json.error.code, 'conflict')
+  const current = await call('GET', `/agents/${id}`)
+  assert.equal(current.json.label, 'Revisioned agent', 'the stale patch changes no field')
+  assert.equal(current.json.instructions, 'Remote instruction')
+  assert.equal(current.json.revision, 1)
+
+  for (const expectedRevision of [-1, 1.25, '1']) {
+    const malformed = await call('PATCH', `/agents/${id}`, { label: 'No', expectedRevision })
+    assert.equal(malformed.status, 400)
+  }
 })
 
 test('POST validates named ids and required fields', async () => {

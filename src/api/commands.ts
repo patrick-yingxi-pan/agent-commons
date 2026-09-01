@@ -11,6 +11,7 @@ import {
   type CapabilityEffect,
   type CapabilityRequest,
   type Agent,
+  type AgentConfigurationPatch,
   type Commission,
   type CreateAgentRequest,
   type UpdateAgentRequest,
@@ -88,6 +89,7 @@ import { shouldAcceptRelationGraph } from './relationRevision.ts'
 import { shouldAcceptEntityRevision } from './entityRevision.ts'
 import { mergeScheduleDefinition } from './scheduleRevision.ts'
 import { mergeArtifactContent } from './artifactContentRevision.ts'
+import { mergeAgentConfiguration } from './agentRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -530,14 +532,56 @@ export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
   return agent
 }
 
-/** Patch an Agent; refreshes the agent list (and any Contributor row that resolves its
- *  label). A `published` flip (D18) also refreshes the agent directory — the row just
- *  appeared in / vanished from it. */
-export async function updateAgent(id: string, patch: UpdateAgentRequest): Promise<Agent> {
-  const agent = await apiPatch<Agent>(paths.agent(id), patch)
-  invalidate(keys.workerAgents)
-  // A publish flip moves the directory AND every source's public-forks list (a
-  // published fork appears on its source's page; an unpublished one leaves it).
+/** Project an acknowledged Agent configuration without letting its response
+ * rewind independently moving reputation/fork activity. */
+export function acceptAgentConfiguration(agent: Agent): void {
+  mutate<Agent[]>(keys.workerAgents, (rows) => {
+    const current = rows ?? []
+    const index = current.findIndex((candidate) => candidate.id === agent.id)
+    // PATCH cannot create. If an ambient delete already removed this row while
+    // the acknowledgement was in flight, never resurrect it from the delayed
+    // response; the controller had loaded the addressed row before mutation.
+    if (index < 0) return current
+    return current.map((candidate, position) =>
+      position === index ? mergeAgentConfiguration(candidate, agent) : candidate,
+    )
+  })
+}
+
+/** Re-read only the addressed Agent after conflict or uncertain acknowledgement.
+ * Replacing the whole registry could rewind an unrelated row that moved while
+ * this request was in flight. */
+export async function reconcileAgentConfiguration(id: string): Promise<Agent | undefined> {
+  const rows = await apiGet<Agent[]>(paths.agents)
+  const incoming = rows.find((candidate) => candidate.id === id)
+  const currentRows = peek<Agent[]>(keys.workerAgents)
+  if (!currentRows) {
+    setData(keys.workerAgents, rows)
+    return incoming
+  }
+  if (!incoming) {
+    mutate<Agent[]>(keys.workerAgents, (current) => (current ?? []).filter((candidate) => candidate.id !== id))
+    return undefined
+  }
+  acceptAgentConfiguration(incoming)
+  return peek<Agent[]>(keys.workerAgents)?.find((candidate) => candidate.id === id)
+}
+
+/** Transport one revision-checked Agent configuration edit. The controller
+ * owns serialization, retry, and recovery; this door publishes only an
+ * acknowledgement that survives the monotonic cache fence. */
+export async function patchAgent(
+  id: string,
+  patch: AgentConfigurationPatch,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<Agent> {
+  const agent = await apiPatch<Agent>(
+    paths.agent(id),
+    { ...patch, expectedRevision } satisfies UpdateAgentRequest,
+    { idempotencyKey },
+  )
+  acceptAgentConfiguration(agent)
   if ('published' in patch) {
     invalidatePrefix(keys.directoryAgents())
     invalidatePrefix(keys.agentForks())

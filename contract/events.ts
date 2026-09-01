@@ -297,6 +297,20 @@ export interface ArtifactChangedEvent {
   artifactId: string
 }
 
+/** An Agent registry row changed. Private configuration activity reaches only
+ * its owner; a change that adds, updates, or removes a published directory face
+ * is safe and necessary to broadcast to every signed-in directory reader. The
+ * owner id is omitted from directory events so a public invalidation never
+ * carries a raw tenant identifier. */
+export interface AgentChangedEvent {
+  type: 'agent.changed'
+  agentId: string
+  scope: 'owner' | 'directory'
+  /** Present only for tenant-owned owner-scoped events. Unset identifies shared
+   * registry infrastructure and is visible to every registry reader. */
+  tenantId?: string
+}
+
 /** A Project's Contributor roster changed — a commission was minted, re-granted, or
  *  removed, possibly by ANOTHER tenant (the P8 cooperation primitive the acting
  *  client's local invalidation can't cover). Visibility mirrors the Project's,
@@ -420,6 +434,7 @@ export type ServerEvent =
   | DelegationChangedEvent
   | ScheduleChangedEvent
   | ArtifactChangedEvent
+  | AgentChangedEvent
   | CommissionChangedEvent
   | ProposalChangedEvent
   | GrantChangedEvent

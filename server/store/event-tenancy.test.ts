@@ -89,6 +89,52 @@ test('every schedule mutator emits schedule.changed, stamped with the owning ten
   assert.equal(store.eventVisibleToTenant(unstamped, OTHER), false)
 })
 
+test('Agent events keep private rows owner-only and directory invalidations free of raw owner ids', () => {
+  let agent: ReturnType<typeof store.createAgent>
+  const onCreate = emitted(() => {
+    agent = store.createAgent(
+      { label: 'Private event Agent', systemPrompt: 'x', tools: [], instructions: '' },
+      OWNER,
+    )
+  })
+  const privateEvent = onCreate.find((event) => event.type === 'agent.changed')
+  assert.ok(privateEvent?.type === 'agent.changed')
+  assert.equal(privateEvent.scope, 'owner')
+  assert.equal(privateEvent.tenantId, OWNER)
+  assert.equal(store.eventVisibleToTenant(privateEvent, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(privateEvent, OTHER), false)
+
+  const onPublish = emitted(() => store.updateAgentFromRequest(agent!.id, { published: true }))
+  const directoryEvent = onPublish.find((event) => event.type === 'agent.changed')
+  assert.ok(directoryEvent?.type === 'agent.changed')
+  assert.equal(directoryEvent.scope, 'directory')
+  assert.equal(directoryEvent.tenantId, undefined, 'a public event carries no raw owner tenant id')
+  assert.equal(store.eventVisibleToTenant(directoryEvent, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(directoryEvent, OTHER), true)
+
+  const onUnpublish = emitted(() => store.updateAgentFromRequest(agent!.id, { published: false }))
+  assert.ok(
+    onUnpublish.some((event) => event.type === 'agent.changed' && event.scope === 'directory'),
+    'removing a public face still refreshes every directory reader',
+  )
+  store.deleteAgent(agent!.id)
+
+  let sharedAgent: ReturnType<typeof store.createAgent>
+  const onSharedCreate = emitted(() => {
+    sharedAgent = store.createAgent({ label: 'Shared event Agent', systemPrompt: 'x', tools: [], instructions: '' })
+  })
+  const sharedEvent = onSharedCreate.find((event) => event.type === 'agent.changed')
+  assert.ok(sharedEvent?.type === 'agent.changed')
+  assert.equal(sharedEvent.scope, 'owner')
+  assert.equal(sharedEvent.tenantId, undefined)
+  assert.equal(
+    store.eventVisibleToTenant(sharedEvent, OTHER),
+    true,
+    'unstamped registry infrastructure follows registryVisible and refreshes every tenant',
+  )
+  store.deleteAgent(sharedAgent!.id)
+})
+
 test('commission mutators emit commission.changed; visibility mirrors the Project’s (the openwork rule)', () => {
   let commission: ReturnType<typeof store.createCommission>
   const onCreate = emitted(() => {

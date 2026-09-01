@@ -123,6 +123,19 @@ function route(e: ServerEvent): void {
       invalidate(keys.artifactContent)
       invalidatePrefix(keys.socialProposals())
       break
+    // Agent configuration, publication, or monotonic activity changed. Owner-
+    // scoped events stay private at the server gate; directory-scoped events
+    // are public invalidations and may also belong to this viewer, so refresh
+    // both projections rather than shipping a raw owner id to the browser.
+    case 'agent.changed':
+      invalidate(keys.workerAgents)
+      if (e.scope === 'directory') {
+        invalidatePrefix(keys.directoryAgents())
+        invalidatePrefix(keys.agentForks())
+        invalidatePrefix(keys.ownerProfile())
+        invalidatePrefix(keys.search())
+      }
+      break
     // A relation edit was applied (by another client, or this one's standing
     // approval acting on a run) — re-read the graph. An Agent Commons CRUD op edits a
     // registry, not the graph, so also refresh the registry caches the Agents hub reads.

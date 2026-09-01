@@ -67,6 +67,7 @@ test('open → review: owner sees all, the proposer sees their own, a bystander 
 
 test('merge: fields land, version bumps, the changelog credits the PROPOSER, the bell rings', async () => {
   const agent = await publishedAgent()
+  const revision = store.listAgents(A).find((candidate) => candidate.id === agent.id)?.revision ?? 0
   const opened = await propose(agent.id, B, { systemPrompt: 'v2 prompt', instructions: 'be better' }, 'sharper + kinder')
   const merged = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/merge`, undefined, { 'x-tenant-id': A })
   assert.equal(merged.status, 200)
@@ -76,6 +77,11 @@ test('merge: fields land, version bumps, the changelog credits the PROPOSER, the
   assert.equal(entry.systemPrompt, 'v2 prompt', 'the definition changed')
   assert.equal(entry.instructions, 'be better')
   assert.equal(entry.version, 2, 'the merge versioned')
+  assert.equal(
+    store.listAgents(A).find((candidate) => candidate.id === agent.id)?.revision,
+    revision + 1,
+    'the proposal write path advances the same configuration revision as owner edits',
+  )
   const line = entry.changelog.find((l) => l.version === 2)!
   assert.equal(line.author, B, 'authorship is the proposer’s — provenance, not reputation')
   assert.equal(line.note, 'sharper + kinder')

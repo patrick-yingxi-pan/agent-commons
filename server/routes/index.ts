@@ -1535,9 +1535,16 @@ export function buildRouter(): Router {
       throw err
     }
   })
-  r.patch('/agents/:id', async ({ req, res, params, body }) => {
+  r.patch('/agents/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listAgents(t), 'agent')) return
-    const patch = await body<UpdateAgentRequest>()
+    const input = await body<UpdateAgentRequest>()
+    const { expectedRevision, ...patch } = input ?? {}
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
     // Strict like create: a PRESENT binding must name a registered entry — empty
     // string ("clear to default") no longer exists; omit the field to keep the
     // current binding (including a bespoke merged/forked prompt).
@@ -1547,16 +1554,17 @@ export function buildRouter(): Router {
     const bad = badAgentRef(patch, store.identity(req.headers).tenant.id)
     if (bad) return sendError(res, 'not_found', bad)
     try {
-      const agent = store.updateAgentFromRequest(params.id, patch)
+      const agent = store.updateAgentFromRequest(params.id, patch, expectedRevision)
       if (!agent) return sendError(res, 'not_found', `No agent '${params.id}'`)
       sendJson(res, agent)
     } catch (err) {
       if (err instanceof BudgetError || err instanceof AuthorityError || err instanceof ValidationError) {
         return sendError(res, 'bad_request', err.message)
       }
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   r.delete('/agents/:id', ({ req, res, params }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listAgents(t), 'agent')) return
     try {

@@ -55,6 +55,17 @@ test('relation.applied refreshes the D17 directories (share-project once never r
   assert.match(block, /invalidatePrefix\(keys\.directoryAgents\(\)\)/)
 })
 
+test('agent.changed refreshes private configuration and public directory projections', () => {
+  const events = src('src', 'api', 'events.ts')
+  const block = eventCase(events, 'agent.changed')
+  assert.match(block, /invalidate\(keys\.workerAgents\)/)
+  assert.match(block, /e\.scope === 'directory'/)
+  assert.match(block, /invalidatePrefix\(keys\.directoryAgents\(\)\)/)
+  assert.match(block, /invalidatePrefix\(keys\.agentForks\(\)\)/)
+  assert.match(block, /invalidatePrefix\(keys\.ownerProfile\(\)\)/)
+  assert.match(block, /invalidatePrefix\(keys\.search\(\)\)/)
+})
+
 test('openwork.changed refreshes the agent directory + the S10 resolved-work family (the D13 credit)', () => {
   const events = src('src', 'api', 'events.ts')
   const block = eventCase(events, 'openwork.changed')

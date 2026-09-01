@@ -220,6 +220,17 @@ requires a stated reason in the commit.
 `package.json`.
 **Fix:** hand-roll or justify (INV-7).
 
+### F-17 · Concurrent edits preserve sparse intent and explicit recovery
+A first-party form over server-owned mutable state sends the revision it read
+and only the fields the user changed. Conflict or uncertain acknowledgement
+holds that exact intent behind one visible Retry/Dismiss path; Retry reconciles
+authoritative truth before rebase and keeps the logical idempotency key.
+Independently moving activity is fenced or merged separately from configuration.
+**Detection:** `node --test src/components/agent-mutation-ui.test.ts src/api/agent-revision.test.ts server/routes/worker-agents.test.ts`; rendered conflict walks live in `e2e/agent-mutations.spec.ts`.
+**Fix:** add a server-owned domain revision, compare-and-swap route, monotonic
+cache merge, sparse frozen patch, and shared acknowledgement controller before
+shipping the editor.
+
 ## 2 · Aesthetic rules (A-·)
 
 The earned UI ledger (UI-1…13) is the hard floor — run its locks first. These

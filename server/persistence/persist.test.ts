@@ -46,7 +46,7 @@ const sample = {
   providers: [['provider-x', { id: 'provider-x', label: 'P', modelFamily: 'claude', effortLevels: ['Low'] }]],
   providerConfigs: [['provider-x', { model: 'claude-opus-4-8' }]],
   systemPrompts: [['sp-x', { id: 'sp-x', label: 'S', body: 'b', targetFamily: 'claude' }]],
-  agents: [['agent-x', { id: 'agent-x', label: 'A', systemPrompt: 'b', tools: [], instructions: '' }]],
+  agents: [['agent-x', { id: 'agent-x', revision: 7, label: 'A', systemPrompt: 'b', tools: [], instructions: '' }]],
   commissions: [['commission-x', { id: 'commission-x', agentId: 'agent-x', projectId: 'p1' }]],
   seq: { session: 3, message: 7, schedule: 1, run: 2, artifact: 0, provider: 1, systemPrompt: 1, agent: 1, commission: 1 },
 }

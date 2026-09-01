@@ -264,7 +264,6 @@ import {
   updateSystemPrompt,
   deleteSystemPrompt,
   createAgent,
-  updateAgent,
   deleteAgent,
   forkAgent,
   importAgentCard,
@@ -374,6 +373,7 @@ import {
 } from '../api'
 import { createProviderConnectionAttempt, replaceProviderConnection } from '../controller/providerConnection'
 import { toggleScheduleEnabled, updateSchedule } from '../controller/scheduleMutations'
+import { updateAgent } from '../controller/agentMutations'
 import {
   promptFitWarning,
   defaultEntry,
@@ -8251,7 +8251,9 @@ function FormDialog({
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-          {children}
+          <fieldset disabled={busy} className="contents">
+            {children}
+          </fieldset>
           {error && <p className="text-[12px] text-removed">{error}</p>}
         </div>
 
@@ -8856,6 +8858,10 @@ function ProposalsReviewDialog({
  *  picker uses). New agents inherit the provider's authority + the full tool catalog;
  *  per-axis authority editing is a later refinement. */
 function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => void }) {
+  // Freeze the form's opening base. Ambient Agent events may update the page
+  // behind this held draft; dirty-field comparison must not reinterpret those
+  // remote changes as edits the user made here.
+  const original = useRef(agent).current
   const providers = useProviders().data ?? []
   const prompts = useSystemPrompts().data ?? []
   const catalog = useAgentToolCatalog().data?.tools ?? []
@@ -8863,6 +8869,8 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const [providerId, setProviderId] = useState(agent?.providerId ?? '')
   const [promptId, setPromptId] = useState(agent?.systemPromptId ?? '')
   const [instructions, setInstructions] = useState(agent?.instructions ?? '')
+  const [providerTouched, setProviderTouched] = useState(false)
+  const [promptTouched, setPromptTouched] = useState(false)
   // The tool grant is EXPLICIT (INV-9 minimal risk: the API treats an omitted grant as
   // NO tools, never the catalog) — so the dialog states it: a new agent pre-checks the
   // full catalog (the visible edge convenience); an edit starts at 'keep' and only
@@ -8876,28 +8884,42 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const [probe, setProbe] = useState<PromptProbeResult | null>(null)
   const [probing, setProbing] = useState(false)
 
-  // The pickers' EFFECTIVE values: untouched state resolves to the default-else-first
-  // entry (registries load async, so this is derived, not initial state). An agent
-  // carrying a BESPOKE prompt (merged proposal, fork) has no library binding — its
-  // picker keeps a "keep current" option ('') and must never be coerced onto a library
-  // entry by an unrelated edit; only that case leaves effectivePromptId empty.
+  // New-Agent pickers resolve to the default-else-first entry after async registry
+  // load. An existing imported Agent with no provider stays visibly unbound until
+  // the user chooses one; otherwise a sparse rename would display a provider it did
+  // not save. A BESPOKE prompt similarly keeps its explicit "keep current" option.
   const bespokePrompt = !!agent && !agent.systemPromptId
-  const effectiveProviderId = providerId || defaultEntry(providers)?.id || ''
+  const effectiveProviderId = providerId || (!agent ? defaultEntry(providers)?.id : '') || ''
   const effectivePromptId = promptId || (bespokePrompt ? '' : defaultEntry(prompts)?.id || '')
   // What the grant checkbox shows: 'keep' reflects the agent's current grant.
   // "Has the full catalog" is a SET test (every catalog tool granted), not a
   // length compare — a same-size custom subset (or a grant carrying a stale tool
   // not in the catalog) must not read as full.
-  const agentHasFullCatalog = !!agent && catalog.length > 0 && catalog.every((t) => agent.tools.includes(t))
+  const agentHasFullCatalog = !!original && catalog.length > 0 && catalog.every((t) => original.tools.includes(t))
   // A custom subset worth PRESERVING when the user unchecks (neither empty nor full).
-  const agentHasCustomSubset = !!agent && agent.tools.length > 0 && !agentHasFullCatalog
+  const agentHasCustomSubset = !!original && original.tools.length > 0 && !agentHasFullCatalog
   const grantAll = toolChoice === 'all' || (toolChoice === 'keep' && agentHasFullCatalog)
+  const providerChanged = providerTouched && effectiveProviderId !== (original?.providerId ?? '')
+  const promptChanged = promptTouched && effectivePromptId !== (original?.systemPromptId ?? '')
+  const selectedTools = toolChoice === 'all' ? catalog : []
+  const toolsChanged = toolChoice !== 'keep' && (
+    selectedTools.length !== (original?.tools.length ?? 0) ||
+    selectedTools.some((tool) => !original?.tools.includes(tool))
+  )
+  const hasEditChanges = !!agent && (
+    label.trim() !== (original?.label ?? '') ||
+    instructions.trim() !== (original?.instructions ?? '') ||
+    providerChanged ||
+    promptChanged ||
+    toolsChanged
+  )
   const canSubmit =
     label.trim().length > 0 &&
     !!effectiveProviderId &&
     (bespokePrompt || !!effectivePromptId) &&
     // A full-catalog grant needs the catalog loaded — never send [] while showing "all".
     (toolChoice !== 'all' || catalog.length > 0) &&
+    (!agent || hasEditChanges) &&
     !busy
 
   // Live fit warning: the chosen prompt's family vs the chosen provider's.
@@ -8905,8 +8927,8 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   const selectedPrompt = prompts.find((p) => p.id === effectivePromptId)
   const warning = selectedPrompt ? promptFitWarning(selectedPrompt, providerFamily) : null
   // Changing either side of the pairing invalidates a prior probe result.
-  const onPrompt = (id: string) => { setPromptId(id); setProbe(null) }
-  const onProvider = (id: string) => { setProviderId(id); setProbe(null) }
+  const onPrompt = (id: string) => { setPromptId(id); setPromptTouched(true); setProbe(null) }
+  const onProvider = (id: string) => { setProviderId(id); setProviderTouched(true); setProbe(null) }
   const runProbe = async () => {
     if (!effectivePromptId) return
     setProbing(true)
@@ -8923,23 +8945,33 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
     if (!canSubmit) return
     setBusy(true)
     setError(null)
-    const fields = {
-      label: label.trim(),
-      providerId: effectiveProviderId,
-      // Send the prompt binding only when the picker actually CHANGED (review
-      // finding): a bespoke-prompt agent's picker shows '' ("Keep current prompt") —
-      // sending a binding on an unrelated edit would silently destroy the merged /
-      // forked prompt (a rename would revert v2 → the picked library body).
-      ...(effectivePromptId !== (agent?.systemPromptId ?? '') ? { systemPromptId: effectivePromptId } : {}),
-      // The tool grant, spelled out (the API's own default is the EMPTY set): sent on
-      // create always, on edit only when the user flipped the checkbox — 'keep'
-      // preserves a custom subset exactly like the bespoke-prompt guard above.
-      ...(toolChoice !== 'keep' ? { tools: toolChoice === 'all' ? catalog : [] } : {}),
-      instructions: instructions.trim(),
-    }
     try {
-      if (agent) await updateAgent(agent.id, fields)
-      else await createAgent({ ...fields, systemPromptId: effectivePromptId, tools: grantAll ? catalog : [] })
+      if (agent) {
+        // Sparse by USER intent, not by the live prop: after another device
+        // changes an untouched field, Retry rebases only what this form actually
+        // changed instead of replaying a stale full-form snapshot over it.
+        const fields = {
+          ...(label.trim() !== (original?.label ?? '') ? { label: label.trim() } : {}),
+          ...(providerChanged ? { providerId: effectiveProviderId } : {}),
+          ...(promptChanged ? { systemPromptId: effectivePromptId } : {}),
+          ...(toolsChanged ? { tools: selectedTools } : {}),
+          ...(instructions.trim() !== (original?.instructions ?? '') ? { instructions: instructions.trim() } : {}),
+        }
+        const outcome = await updateAgent(agent.id, fields)
+        if (outcome === 'discarded') {
+          setError('Your held edits were not saved. Review the latest agent, then apply what you still want.')
+          setBusy(false)
+          return
+        }
+      } else {
+        await createAgent({
+          label: label.trim(),
+          providerId: effectiveProviderId,
+          systemPromptId: effectivePromptId,
+          tools: grantAll ? catalog : [],
+          instructions: instructions.trim(),
+        })
+      }
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this agent.')
@@ -8956,6 +8988,7 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
       onSubmit={submit}
       onClose={onClose}
       error={error}
+      busy={busy}
     >
       <FormField label="Name">
         <input
@@ -8970,6 +9003,7 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
         {/* No implicit option: every agent names a concrete provider (the strict-API
             rule); the pre-selected entry is the registry's default-else-first. */}
         <select value={effectiveProviderId} onChange={(e) => onProvider(e.target.value)} className={FORM_INPUT_CLASS}>
+          {agent && !agent.providerId && <option value="" disabled>Choose a provider</option>}
           {providers.map((p) => (
             <option key={p.id} value={p.id}>
               {/* The transport is visible at bind time (§4.6) — an <option>
@@ -11305,7 +11339,8 @@ function AgentPublicPage({
     setBusy(true)
     setError(null)
     try {
-      await updateAgent(ownedAgent.id, { published: !ownedAgent.published })
+      const outcome = await updateAgent(ownedAgent.id, { published: !ownedAgent.published })
+      if (outcome === 'discarded') setError('The publishing change was not saved. Review the latest agent before trying again.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not change publishing.')
     } finally {

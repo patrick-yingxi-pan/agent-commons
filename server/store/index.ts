@@ -108,7 +108,7 @@ import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateAgentRequest, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
@@ -1728,9 +1728,13 @@ function reclampAgentsOf(provider: ModelProvider): void {
     if (a.providerId !== provider.id) continue
     const authority = a.authority ? clampAuthority(a.authority, provider.authority ?? {}) : a.authority
     const budget = a.budget ? clampBudget(a.budget, parentWindows) : a.budget
-    const next: Agent = { ...a, authority, budget }
+    if (JSON.stringify(authority) === JSON.stringify(a.authority) && JSON.stringify(budget) === JSON.stringify(a.budget)) {
+      continue
+    }
+    const next: Agent = { ...a, authority, budget, revision: (a.revision ?? 0) + 1 }
     WORKER_AGENTS.set(a.id, next)
     reclampCommissionsOf(next) // transitively re-clamp this agent's Contributors
+    emitAgentChanged(next)
   }
 }
 
@@ -1845,6 +1849,21 @@ function emit(e: ServerEvent): void {
     return
   }
   publishEvent(e)
+}
+
+/** One tenant-safe invalidation face for the Agent registry. A directory event
+ * deliberately omits the raw owner id because it is broadcast to every reader;
+ * private rows retain their owner stamp, while unstamped shared infrastructure
+ * follows the registry's all-reader visibility rule. */
+function emitAgentChanged(agent: Agent, directoryAffected = agent.published === true): void {
+  emit(directoryAffected
+    ? { type: 'agent.changed', agentId: agent.id, scope: 'directory' }
+    : {
+        type: 'agent.changed',
+        agentId: agent.id,
+        scope: 'owner',
+        ...(agent.tenantId ? { tenantId: agent.tenantId } : {}),
+      })
 }
 
 // ── The one session mint funnel ──────────────────────────────────────────────
@@ -3474,6 +3493,13 @@ export const store = {
         const a = findArtifact(e.artifactId)
         return a ? this.artifactVisibleToTenant(a, tenantId) : seedVisibleTo(tenantId)
       }
+      case 'agent.changed':
+        // A published face is directory-wide, but its event carries no raw owner
+        // id. Private configuration/activity reaches only the owning tenant;
+        // unstamped registry infrastructure is shared with every tenant.
+        return e.scope === 'directory'
+          ? true
+          : (e.tenantId ? e.tenantId === tenantId : true)
       case 'delegation.changed':
       case 'contribution.changed': {
         // The ledger's visibility mirrors the Project's, exactly like openwork.changed:
@@ -3754,8 +3780,14 @@ export const store = {
     if (input.authority) mintAuthority(provider.authority, input.authority)
     if (input.budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
     // Stamp the creating tenant (F2/PD9) so listAgents(tenant) scopes it; unset ⇒ shared.
-    const agent: Agent = { ...input, id: `agent-${(workerAgentSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
+    const agent: Agent = {
+      ...input,
+      id: `agent-${(workerAgentSeq += 1)}`,
+      tenantId: tenantId ?? input.tenantId,
+      revision: 0,
+    }
     WORKER_AGENTS.set(agent.id, agent)
+    emitAgentChanged(agent)
     persist()
     return agent
   },
@@ -3792,9 +3824,19 @@ export const store = {
    *  re-validates authority / budget against the resulting provider — the D8 funnel
    *  runs again, so a patch can't smuggle an over-grant past it. Undefined when
    *  unknown (→ 404). */
-  updateAgentFromRequest(id: string, patch: UpdateAgentRequest): Agent | undefined {
+  updateAgentFromRequest(
+    id: string,
+    patch: AgentConfigurationPatch,
+    expectedRevision?: number,
+  ): Agent | undefined {
     const current = WORKER_AGENTS.get(id)
     if (!current) return undefined
+    const currentRevision = current.revision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This agent changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     let providerId = current.providerId
     if ('providerId' in patch) {
       if (!patch.providerId || !MODEL_PROVIDERS.has(patch.providerId)) {
@@ -3829,6 +3871,7 @@ export const store = {
       // (never a creation side-effect). Normalized: false stores as absent.
       published: 'published' in patch ? (patch.published === true ? true : undefined) : current.published,
       id: current.id,
+      revision: currentRevision + 1,
     }
     // D25 versioning: an owner edit that changes the DEFINITION of a published
     // agent bumps the version and logs authorship (private edits are drafts —
@@ -3850,6 +3893,7 @@ export const store = {
     // A re-bound provider changes what sessions INHERITING this Agent's provider
     // resolve to — their held model picks may now name another catalog's entries.
     if (next.providerId !== current.providerId) sweepSessionModelPicks()
+    emitAgentChanged(next, current.published === true || next.published === true)
     persist()
     return next
   },
@@ -3858,7 +3902,8 @@ export const store = {
    *  Contributor), so the user removes those commissions first. False when unknown
    *  (→ 404). */
   deleteAgent(id: string): boolean {
-    if (!WORKER_AGENTS.has(id)) return false
+    const current = WORKER_AGENTS.get(id)
+    if (!current) return false
     if (id === DEFAULT_AGENT.id) throw new ConflictError('The default agent can’t be removed.')
     const commissioned = [...COMMISSIONS.values()].filter((c) => c.agentId === id)
     if (commissioned.length > 0) {
@@ -3884,6 +3929,7 @@ export const store = {
     // Sessions bound to the deleted Agent resolve to the default Agent now — a
     // held model pick may name a catalog the new resolution doesn't serve.
     sweepSessionModelPicks()
+    emitAgentChanged(current)
     persist()
     return true
   },
@@ -5112,7 +5158,11 @@ export const store = {
     if (!agentId) return
     const a = WORKER_AGENTS.get(agentId)
     if (!a) return
-    WORKER_AGENTS.set(agentId, { ...a, contributions: (a.contributions ?? 0) + 1 })
+    const next = { ...a, contributions: (a.contributions ?? 0) + 1 }
+    WORKER_AGENTS.set(agentId, next)
+    // Reputation is independent of configuration revision, but every open Agent
+    // face still needs the new monotonic count.
+    emitAgentChanged(next)
     persist()
   },
   runProjectEffect(
@@ -5436,8 +5486,10 @@ export const store = {
           ...(agent.changelog ?? []),
           { version, author: proposal.proposedBy, note: proposal.note || 'Merged proposal', at: proposal.resolvedAt },
         ],
+        revision: (agent.revision ?? 0) + 1,
       }
       WORKER_AGENTS.set(agentId, next)
+      emitAgentChanged(next, true)
       proposal.status = 'merged'
     } else {
       proposal.status = 'declined'
@@ -5777,7 +5829,11 @@ export const store = {
       },
       tenantId,
     )
-    WORKER_AGENTS.set(source.id, { ...source, forks: (source.forks ?? 0) + 1 })
+    const creditedSource = { ...source, forks: (source.forks ?? 0) + 1 }
+    WORKER_AGENTS.set(source.id, creditedSource)
+    // Fork credit is activity (not a configuration revision), but it changes
+    // the public directory face of a necessarily published source.
+    emitAgentChanged(creditedSource, true)
     // D24: a fork is public credit — tell the definition's owner.
     notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
       kind: 'agent.forked',

@@ -11,6 +11,7 @@ test('a successful Project effect credits the commissioned Contributor (D13)', (
   const agent = store.createAgent({ label: 'Rep Contributor', systemPrompt: 'p', tools: [], instructions: '' })
   const commission = store.createCommission({ role: 'writer', agentId: agent.id, projectId: 'p-insights' })
   const before = store.getAgent(agent.id).contributions ?? 0
+  const configurationRevision = store.getAgent(agent.id).revision
 
   // A monotonic effect (connector.read) runs coordination-free → fulfils → credits once.
   store.runProjectEffect('p-insights', commission.id, 'sub-goal-x', 'connector.read', 'Linear')
@@ -19,6 +20,11 @@ test('a successful Project effect credits the commissioned Contributor (D13)', (
   // A second effect increments again (the track record is monotonic).
   store.runProjectEffect('p-insights', commission.id, 'sub-goal-x', 'connector.read', 'Linear')
   assert.equal(store.getAgent(agent.id).contributions, before + 2)
+  assert.equal(
+    store.getAgent(agent.id).revision,
+    configurationRevision,
+    'reputation activity does not create a false Agent configuration conflict',
+  )
 })
 
 test('an unknown commission credits nothing — fail-quiet, never a gate', () => {
