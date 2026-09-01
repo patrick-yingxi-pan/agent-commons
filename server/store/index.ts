@@ -129,6 +129,7 @@ import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type Persis
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
 import { resolveInitialWorld, type InitialWorld } from '../initialWorld.ts'
+import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
   persistedSessionPreferences,
@@ -1811,7 +1812,7 @@ const seedFsRecents = (): { files: string[]; photos: string[]; folder: string[] 
     folder: cat.folders.slice(0, 6).map((d) => key(d.id)),
   }
 }
-let recents: RecentsSnapshot = (() => {
+const seedContextRecents = (): RecentsSnapshot => {
   const fsSeed = seedFsRecents()
   const out = {} as RecentsSnapshot
   for (const t of CONTEXT_TYPES) {
@@ -1825,16 +1826,17 @@ let recents: RecentsSnapshot = (() => {
             : [...DEFAULT_RECENT_IDS[t]]
   }
   return out
-})()
+}
 
 // Per-user set-up contexts (the Contexts page) — connectors / MCP servers / repos
-// and their auth status. A mutable copy of the seed so a connect / disconnect — the
-// seam a real OAuth callback or token-expiry would use — is a live server mutation
-// that broadcasts `connector.status` and reconciles every client. Persisted to disk
-// (see persist.ts). The "Connected" quick lists derive from the *current* status.
-const savedCtxs: SavedContext[] = JSON.parse(JSON.stringify(SAVED_CONTEXTS))
-const connectedIds = (kind: 'connector' | 'mcp'): string[] =>
-  savedCtxs.filter((c) => c.kind === kind && c.status === 'connected').map((c) => c.id)
+// and their auth status, paired with their per-user Add-context recents. The
+// extracted registry owns the tenant partition and returns public clones; this
+// store remains responsible for durable acknowledgement and ambient events.
+const contextRegistry = createContextRegistry({
+  seedContexts: SAVED_CONTEXTS,
+  seedRecents: seedContextRecents(),
+  defaultTenantId,
+})
 
 // Per-session attached contexts — the *attachment of record* (Primitive 1 of
 // docs/shared-resource-coordination.md). Server-owned so every effect a session
@@ -2262,6 +2264,7 @@ let draining = false
 /** Snapshot the mutable, UI-owned state for the on-disk format. */
 function snapshot(): PersistedState {
   const persistedAccounts = accounts.toPersisted()
+  const persistedContextRecents = contextRegistry.persistedRecents()
   return {
     version: STORE_VERSION,
     initialWorld: worldMode,
@@ -2270,9 +2273,10 @@ function snapshot(): PersistedState {
     workspaces: [...sessionWorkspaces.entries()],
     sessionPreferences: persistedSessionPreferences(),
     schedules,
-    recents,
+    recents: persistedContextRecents.defaultRecents,
+    recentsByTenant: persistedContextRecents.tenantRecents,
     graph,
-    savedContexts: savedCtxs,
+    savedContexts: contextRegistry.persistedContexts(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
     // the providers so a restored one keeps its concrete model id.
     providers: [...MODEL_PROVIDERS.entries()],
@@ -2368,6 +2372,7 @@ function cleanFirstBootState(): PersistedState {
   clean.sessionPreferences = []
   clean.schedules = []
   clean.recents = { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] }
+  clean.recentsByTenant = []
   clean.graph = emptyGraph()
   clean.savedContexts = []
   clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
@@ -2715,7 +2720,11 @@ function rehydrate(s: PersistedState): void {
       }
     }
   }
-  recents = s.recents
+  contextRegistry.rehydrate({
+    savedContexts: s.savedContexts,
+    defaultRecents: s.recents,
+    tenantRecents: s.recentsByTenant,
+  })
   // Merge over an empty graph so a snapshot written before a slice existed (e.g.
   // projectInstructions) gains it as an empty map rather than `undefined`. Runtime
   // artifacts persisted before tenant stamping belong to the default namespace;
@@ -2731,8 +2740,6 @@ function rehydrate(s: PersistedState): void {
         : artifact,
     ),
   }
-  // Restore saved-context auth status (default to the seed for a pre-field snapshot).
-  if (s.savedContexts) savedCtxs.splice(0, savedCtxs.length, ...s.savedContexts)
   sessionContextBindings.clear()
   for (const [k, v] of s.bindings) sessionContextBindings.set(k, v)
   sessionWorkspaces.clear()
@@ -3487,8 +3494,7 @@ export const store = {
    *  the push-side of the tenant boundary). The `/events` SSE fan-out is broadcast to
    *  every open channel, so without this a subscriber would observe *other* tenants'
    *  session pushes. Events that carry tenant-identifiable data are gated to the owning
-   *  tenant; the rest (runner registry, dispatch, recents, relations — not yet
-   *  tenant-scoped in this prototype) are global. A session that can't be resolved (an
+   *  tenant; the rest (runner registry and dispatch) are global. A session that can't be resolved (an
    *  ephemeral/just-removed id) falls back to the default tenant, matching the read side. */
   eventVisibleToTenant(e: ServerEvent, tenantId: string): boolean {
     switch (e.type) {
@@ -3505,6 +3511,12 @@ export const store = {
       }
       case 'audit.entry':
         return (e.entry.tenantId ?? defaultTenantId()) === tenantId
+      case 'connector.status':
+      case 'savedcontext.changed':
+      case 'recents.changed':
+        // Viewer setup state is strictly personal, not an org-resource read
+        // union. The mutation stamp survives delete and carries only ids.
+        return (e.tenantId ?? defaultTenantId()) === tenantId
       // Targeted (D24): an inbox event reaches its tenant's streams — and, FWD-6
       // O-D5, the streams of that org's members (the inbox is member-readable).
       case 'notification.changed':
@@ -4978,45 +4990,37 @@ export const store = {
   },
 
   // ── Contexts (the set-up ones, on the Contexts page) ──
-  savedContexts(): SavedContextsSnapshot {
-    return {
-      contexts: savedCtxs,
-      connectedConnectorIds: connectedIds('connector'),
-      connectedMcpIds: connectedIds('mcp'),
-    }
+  savedContexts(tenantId: string = defaultTenantId()): SavedContextsSnapshot {
+    return contextRegistry.snapshot(tenantId)
   },
   /** Set a saved connector / MCP server's auth status — the connect / disconnect on
    *  the Contexts page, and the seam a real OAuth callback or token-expiry would use.
    *  Mutates the record, broadcasts `connector.status` so every client reconciles,
    *  and persists. Returns the new snapshot, or undefined for an unknown id. */
-  setConnectorStatus(id: string, status: ContextStatus): SavedContextsSnapshot | undefined {
-    const ctx = savedCtxs.find((c) => c.id === id)
-    if (!ctx) return undefined
-    ctx.status = status
-    emit({ type: 'connector.status', id, status })
+  setConnectorStatus(id: string, status: ContextStatus, tenantId: string = defaultTenantId()): SavedContextsSnapshot | undefined {
+    const snapshot = contextRegistry.setStatus(id, status, tenantId)
+    if (!snapshot) return undefined
+    emit({ type: 'connector.status', id, status, tenantId })
     persist()
-    return this.savedContexts()
+    return snapshot
   },
   /** Save a context to the account's set-up list (the Contexts page's Add). The
    *  registry is the system of record — the page's add once lived in component
    *  state and evaporated on unmount. Idempotent by id (re-adding returns the
    *  existing row); broadcasts so every client's page + composer quick list
    *  reconcile; persists. */
-  addSavedContext(ctx: SavedContext): SavedContext {
-    const existing = savedCtxs.find((c) => c.id === ctx.id)
-    if (existing) return existing
-    savedCtxs.unshift(ctx)
-    emit({ type: 'savedcontext.changed', id: ctx.id })
+  addSavedContext(ctx: SavedContext, tenantId: string = defaultTenantId()): SavedContext {
+    const { context, created } = contextRegistry.add(ctx, tenantId)
+    if (!created) return context
+    emit({ type: 'savedcontext.changed', id: context.id, tenantId })
     persist()
-    return ctx
+    return context
   },
   /** Remove a context from the set-up list (the page's "Remove from contexts").
    *  False for an unknown id (→ 404). */
-  removeSavedContext(id: string): boolean {
-    const i = savedCtxs.findIndex((c) => c.id === id)
-    if (i < 0) return false
-    savedCtxs.splice(i, 1)
-    emit({ type: 'savedcontext.changed', id })
+  removeSavedContext(id: string, tenantId: string = defaultTenantId()): boolean {
+    if (!contextRegistry.remove(id, tenantId)) return false
+    emit({ type: 'savedcontext.changed', id, tenantId })
     persist()
     return true
   },
@@ -5981,7 +5985,7 @@ export const store = {
         ...group('model', 'Models', this.listProviders(tenantId)
           .filter((p) => hit(p.label))
           .map((p): SearchHit => ({ type: 'model', id: p.id, title: p.label, subtitle: p.kind === 'session' ? 'Delegated session provider' : 'Model endpoint' }))),
-        ...group('context', 'Contexts', this.savedContexts().contexts
+        ...group('context', 'Contexts', this.savedContexts(tenantId).contexts
           .filter((c) => hit(c.label, c.detail))
           .map((c): SearchHit => ({ type: 'context', id: c.id, title: c.label, subtitle: c.detail }))),
         ...group('owner', 'Workspaces', owners
@@ -6335,18 +6339,11 @@ export const store = {
       case 'schedule':
         return schedules.find((t) => t.id === ref.id)
       case 'context':
-        // Contexts are GLOBAL in this prototype — `savedContexts()` takes no
-        // tenant, so a saved connector/MCP/repo belongs to nobody and is already
-        // visible to everybody. A grant on one would therefore be inert: it
-        // could neither widen a read (nothing is walled) nor confer ownership
-        // (there is none to confer). INV-9's rule is to refuse rather than store
-        // a record that does nothing, and `'unsupported'` is the existing
-        // kind-level refusal that leaks no row's existence.
-        //
-        // Found by typechecking `server/` (FWD-8): TS's weak-type detection
-        // rejected `SavedContext` against `{ tenantId?: string }` precisely
-        // because it shares no ownership field — the checker noticing what the
-        // design note had already recorded in prose.
+        // Contexts are tenant-owned now, but their social ref still carries only
+        // kind + id while ids are intentionally reusable across tenant partitions.
+        // A grant could not identify one authoritative row without smuggling an
+        // owner into the public ref, so refuse the kind until its social identity
+        // is designed rather than guessing across namespaces.
         return 'unsupported'
       case 'discussion': {
         // A discussion is itself grantable/anchorable (recursion, S2): its
@@ -7333,7 +7330,7 @@ export const store = {
         return { name: a?.name ?? ref.id, ...(a?.kind ? { artifactKind: a.kind } : {}) }
       }
       case 'context': {
-        const c = savedCtxs.find((x) => x.id === ref.id)
+        const c = contextRegistry.snapshot(defaultTenantId()).contexts.find((x) => x.id === ref.id)
         return { name: c?.label ?? ref.id }
       }
       case 'discussion': {
@@ -8366,7 +8363,7 @@ export const store = {
     const effectiveAuthority = intersectAuthority(provider.authority ?? {}, agent.authority ?? {})
     for (const tool of referenced) {
       if (contexts.some((context) => context.id === tool.id || context.label.toLowerCase() === tool.label.toLowerCase())) continue
-      const compatible = savedCtxs.filter((context) =>
+      const compatible = contextRegistry.snapshot(tenantId).contexts.filter((context) =>
         tool.tone === 'mcp' ? context.kind === 'mcp' : context.kind === 'connector')
       const saved = compatible.find((context) => context.id === tool.id) ??
         compatible.find((context) => context.label.toLowerCase() === tool.label.toLowerCase())
@@ -8681,17 +8678,16 @@ export const store = {
   },
 
   // ── Recents (per-user Add-context shortcut lists) ──
-  recents(): RecentsSnapshot {
-    return recents
+  recents(tenantId: string = defaultTenantId()): RecentsSnapshot {
+    return contextRegistry.recents(tenantId)
   },
   /** Promote an id to the front of its type's list — non-evicting; the list only
    *  grows. Broadcasts so every open picker (and other devices) reflects it. */
-  pushRecent(type: ContextTypeId, id: string): RecentsSnapshot {
-    const list = recents[type] ?? []
-    recents = { ...recents, [type]: [id, ...list.filter((x) => x !== id)] }
-    emit({ type: 'recents.changed', contextType: type, ids: recents[type] })
+  pushRecent(type: ContextTypeId, id: string, tenantId: string = defaultTenantId()): RecentsSnapshot {
+    const snapshot = contextRegistry.pushRecent(type, id, tenantId)
+    emit({ type: 'recents.changed', contextType: type, ids: snapshot[type], tenantId })
     persist()
-    return recents
+    return snapshot
   },
 
   /** The current relationship graph (seed + applied edits). */

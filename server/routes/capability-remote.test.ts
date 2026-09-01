@@ -659,3 +659,57 @@ test('the served cloud filesystem source works on a remote backend (it reads the
   assert.ok(sources.json.some((s) => s.id === 'cloud'), 'cloud is listed')
   assert.ok(!sources.json.some((s) => s.kind === 'runner'), 'no runner source on a bare remote backend')
 })
+
+test('saved Contexts and recents are tenant-isolated across reads, writes, search, and same-id rows', async () => {
+  const { buildRouter } = await import('./index.ts')
+  const call = caller(buildRouter())
+  const A = { 'x-tenant-id': 'tenant-context-a' }
+  const B = { 'x-tenant-id': 'tenant-context-b' }
+  const id = 'same-context-id'
+  const context = (label) => ({
+    id,
+    label,
+    kind: 'connector',
+    status: 'connected',
+    detail: `${label} private setup`,
+    lastUsedAt: null,
+    sessions: 0,
+    tenantId: 'tenant-context-b', // hostile JSON: identity must be server-owned
+  })
+
+  const addedA = await call('POST', '/saved-contexts', A, { context: context('AlphaOnly') })
+  assert.equal(addedA.status, 200)
+  assert.equal('tenantId' in addedA.json, false, 'caller identity is neither reflected nor exposed')
+  assert.ok((await call('GET', '/saved-contexts', A)).json.contexts.some((row) => row.id === id))
+  assert.ok(!(await call('GET', '/saved-contexts', B)).json.contexts.some((row) => row.id === id))
+
+  const searchB = await call('GET', '/search?q=AlphaOnly', B)
+  assert.ok(
+    !searchB.json.groups.flatMap((group) => group.hits).some((hit) => hit.title === 'AlphaOnly'),
+    'global search cannot recover another tenant’s context label',
+  )
+
+  const addedB = await call('POST', '/saved-contexts', B, { context: context('BetaOnly') })
+  assert.equal(addedB.status, 200, 'the same public id is valid in an independent tenant partition')
+  await call('PATCH', `/saved-contexts/${id}`, A, { status: 'needs-auth' })
+  const rowsA = (await call('GET', '/saved-contexts', A)).json.contexts
+  const rowsB = (await call('GET', '/saved-contexts', B)).json.contexts
+  assert.equal(rowsA.find((row) => row.id === id).status, 'needs-auth')
+  assert.equal(rowsB.find((row) => row.id === id).status, 'connected')
+
+  await call('POST', '/recents/repo', A, { id: 'repo-a-only' })
+  await call('POST', '/recents/repo', B, { id: 'repo-b-only' })
+  assert.ok((await call('GET', '/recents', A)).json.repo.includes('repo-a-only'))
+  assert.ok(!(await call('GET', '/recents', B)).json.repo.includes('repo-a-only'))
+  assert.ok((await call('GET', '/recents', B)).json.repo.includes('repo-b-only'))
+  assert.equal((await call('POST', '/recents/not-a-kind', A, { id: 'x' })).status, 400)
+
+  assert.equal((await call('DELETE', `/saved-contexts/${id}`, A)).status, 200)
+  assert.ok((await call('GET', '/saved-contexts', B)).json.contexts.some((row) => row.id === id))
+  assert.equal(
+    (await call('PATCH', `/saved-contexts/${id}`, A, { status: 'connected' })).status,
+    404,
+    'a foreign same-id row and an unknown row share one absence face',
+  )
+  await call('DELETE', `/saved-contexts/${id}`, B)
+})

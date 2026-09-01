@@ -38,7 +38,9 @@ fail closed where a real adapter is not configured.
 The React frontend does not import backend fixtures. It reads through hooks and
 issues commands through controllers against a versioned API. The server owns
 state, authorization, persistence, scheduling, model tool execution, and the SSE
-event stream.
+event stream. Saved connectors, MCP servers, repositories, and their recent-use
+lists are strict viewer-tenant state: routes, search, model/routine resolution,
+persistence, and ambient invalidations all project the same partition.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server

@@ -90,6 +90,7 @@ test('a clean first boot contains infrastructure but no fictional user world, an
     stored.socialProposals,
   ]) assert.deepEqual(rows, [], 'a user-authored/showcase slice starts empty')
   assert.deepEqual(stored.recents, { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] })
+  assert.deepEqual(stored.recentsByTenant, [], 'clean first boot carries no other viewer’s recent ids')
   assert.deepEqual(stored.graph.extraProjects, [])
   assert.deepEqual(stored.graph.extraArtifacts, [])
 

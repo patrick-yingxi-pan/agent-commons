@@ -42,7 +42,7 @@ test('createSession defaults to the backend tenant, matching the scoped read', (
   assert.ok(store.listSessions('tenant-personal').some((s) => s.id === created.id), 'lands in the default tenant')
 })
 
-test('eventVisibleToTenant gates the SSE fan-out — session/audit events are tenant-scoped, the rest global', () => {
+test('eventVisibleToTenant gates the SSE fan-out — viewer data is tenant-scoped, infrastructure stays global', () => {
   const owned = store.createSession('event-owner thread', 'tenant-evt')
 
   // session.updated carries the session → visible to its tenant, not another.
@@ -71,9 +71,13 @@ test('eventVisibleToTenant gates the SSE fan-out — session/audit events are te
   assert.equal(store.eventVisibleToTenant(audit, 'tenant-evt'), true)
   assert.equal(store.eventVisibleToTenant(audit, 'tenant-other'), false)
 
-  // Not-yet-tenant-scoped events (recents, dispatch, runners…) are global — any tenant.
+  // Context recents are personal viewer data, stamped at the mutation funnel.
+  const recents = { type: 'recents.changed', contextType: 'files', ids: [], tenantId: 'tenant-evt' } as const
+  assert.equal(store.eventVisibleToTenant(recents, 'tenant-evt'), true)
+  assert.equal(store.eventVisibleToTenant(recents, 'tenant-other'), false)
+
+  // Shared infrastructure invalidations remain global — any tenant.
   const globalEvents = [
-    { type: 'recents.changed', contextType: 'files', ids: [] },
     { type: 'dispatch.changed' },
     { type: 'hello', epoch: 1 },
   ] as unknown as Parameters<typeof store.eventVisibleToTenant>[0][]

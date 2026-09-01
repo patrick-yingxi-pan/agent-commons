@@ -245,11 +245,18 @@ export interface PersistedState {
    * snapshots load with the product default. */
   sessionPreferences?: [string, [string, SessionPreferences][]][]
   schedules: ScheduledTask[]
+  /** Legacy/default tenant's context MRU lists. Kept as the canonical default
+   * partition for backward compatibility with every pre-tenancy snapshot. */
   recents: RecentsSnapshot
+  /** Non-default viewer partitions for context MRU lists. Additive-optional;
+   * absence means only the legacy/default partition existed. */
+  recentsByTenant?: [string, RecentsSnapshot][]
   graph: RelationGraph
   /** Saved-context auth status (Contexts page connect/disconnect). Optional so a
-   *  snapshot written before this field loads cleanly (the store defaults to seed). */
-  savedContexts?: SavedContext[]
+   *  snapshot written before this field loads cleanly (the store defaults to seed).
+   *  Runtime rows carry a server-owned tenant stamp; unstamped seed/legacy rows
+   *  belong to the default tenant. */
+  savedContexts?: (SavedContext & { tenantId?: string })[]
   /** The Agent Commons registries (docs/agent-commons.md, D6/D9/D10/D7) — stored as
    *  Map entry arrays. Each is optional so a snapshot written before the slice existed
    *  loads cleanly (rehydrate keeps the seed when absent). Providers ride with their
@@ -414,6 +421,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   sessionPreferences: 'mapEntries',
   schedules: 'array',
   recents: 'singleton',
+  recentsByTenant: 'mapEntries',
   graph: 'singleton',
   savedContexts: 'array',
   providers: 'mapEntries',

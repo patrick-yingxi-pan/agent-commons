@@ -100,6 +100,7 @@ import { providerDefinitionUpdate } from './providerDefinition.ts'
 import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
 import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
 import { commissionConfigurationUpdate, commissionCreate } from './commissionConfiguration.ts'
+import { savedContextFrom } from '../contextRegistry.ts'
 import type {
   A2aDataPart,
   A2aMessage,
@@ -3409,7 +3410,7 @@ export function buildRouter(): Router {
         // included) merged over the Add-context catalog, deduped by id.
         connectors: (() => {
           const byId = new Map(CONNECTOR_OPTIONS.map((c) => [c.id, { id: c.id, label: c.label, kind: c.kind }]))
-          for (const c of store.savedContexts().contexts) {
+          for (const c of store.savedContexts(tenantId).contexts) {
             if (c.kind === 'connector' || c.kind === 'mcp') byId.set(c.id, { id: c.id, label: c.label, kind: c.connectorKind })
           }
           return [...byId.values()]
@@ -3733,21 +3734,22 @@ export function buildRouter(): Router {
   }))
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
-  r.get('/saved-contexts', ({ res }) => {
-    sendJson(res, store.savedContexts())
+  r.get('/saved-contexts', ({ req, res }) => {
+    sendJson(res, store.savedContexts(store.identity(req.headers).tenant.id))
   })
   // Save a context to the set-up registry (the Contexts page's Add — server-owned,
   // so it survives navigation/reload and reaches every client). Idempotent by id.
-  r.post('/saved-contexts', async ({ res, body }) => {
-    const { context } = await body<{ context?: import('../../contract/index.ts').SavedContext }>()
-    if (!context?.id || !context.label || !context.kind) {
-      return sendError(res, 'bad_request', 'context with id, label and kind is required')
+  r.post('/saved-contexts', async ({ req, res, body }) => {
+    const { context: input } = await body<{ context?: unknown }>()
+    const context = savedContextFrom(input)
+    if (!context) {
+      return sendError(res, 'bad_request', 'a complete, valid saved context is required')
     }
-    sendJson(res, store.addSavedContext(context))
+    sendJson(res, store.addSavedContext(context, store.identity(req.headers).tenant.id))
   })
   // Remove a context from the set-up registry.
-  r.delete('/saved-contexts/:id', ({ res, params }) => {
-    if (!store.removeSavedContext(params.id)) {
+  r.delete('/saved-contexts/:id', ({ req, res, params }) => {
+    if (!store.removeSavedContext(params.id, store.identity(req.headers).tenant.id)) {
       return sendError(res, 'not_found', `No saved context '${params.id}'`)
     }
     sendJson(res, { ok: true })
@@ -3755,12 +3757,12 @@ export function buildRouter(): Router {
   // Set a saved connector / MCP server's auth status (connect / disconnect; the
   // OAuth-callback / token-expiry seam). Broadcasts `connector.status` and returns
   // the updated snapshot so the originating client reconciles immediately.
-  r.patch('/saved-contexts/:id', async ({ res, params, body }) => {
+  r.patch('/saved-contexts/:id', async ({ req, res, params, body }) => {
     const { status } = await body<SetConnectorStatusRequest>()
     if (status !== 'connected' && status !== 'needs-auth') {
       return sendError(res, 'bad_request', "status must be 'connected' or 'needs-auth'")
     }
-    const snapshot = store.setConnectorStatus(params.id, status)
+    const snapshot = store.setConnectorStatus(params.id, status, store.identity(req.headers).tenant.id)
     if (!snapshot) return sendError(res, 'not_found', `No saved context '${params.id}'`)
     sendJson(res, snapshot)
   })
@@ -3953,13 +3955,22 @@ export function buildRouter(): Router {
   })
 
   // ── Recents (per-user shortcut lists) ──────────────────────────────────────
-  r.get('/recents', ({ res }) => {
-    sendJson(res, store.recents())
+  r.get('/recents', ({ req, res }) => {
+    sendJson(res, store.recents(store.identity(req.headers).tenant.id))
   })
-  r.post('/recents/:type', async ({ res, params, body }) => {
+  r.post('/recents/:type', async ({ req, res, params, body }) => {
     const { id } = await body<PushRecentRequest>()
-    if (!id) return sendError(res, 'bad_request', 'id is required')
-    sendJson(res, store.pushRecent(params.type as import('../../contract/index.ts').ContextTypeId, id))
+    if (typeof id !== 'string' || !id.trim() || id.length > 512) {
+      return sendError(res, 'bad_request', 'id must be a non-empty string of at most 512 characters')
+    }
+    if (!CONTEXT_TYPE_IDS.includes(params.type as import('../../contract/index.ts').ContextTypeId)) {
+      return sendError(res, 'bad_request', `Unknown context type '${params.type}'`)
+    }
+    sendJson(res, store.pushRecent(
+      params.type as import('../../contract/index.ts').ContextTypeId,
+      id.trim(),
+      store.identity(req.headers).tenant.id,
+    ))
   })
   // Apply a confirmed relation edit — the privileged write (a standing op
   // authorizes the schedule daemon). Returns the updated graph + broadcasts it.

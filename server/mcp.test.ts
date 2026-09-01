@@ -177,8 +177,26 @@ test('curated body examples: every key is a real mutation route, the spine is co
     'PATCH /sessions/:id/context-state example applies atomically',
   )
 
-  const contexts = await toolCall('get_saved_contexts', {}, seam)
-  const ctxId = contexts.body.contexts[0].id
+  // Contexts setup is viewer-owned, so provision this tenant's fixture instead
+  // of borrowing a globally seeded row (which would mask a tenant leak).
+  const ctxId = `mcp-example-${Date.now().toString(36)}`
+  assert.equal(
+    (await toolCall('post_saved_contexts', {
+      body: {
+        context: {
+          id: ctxId,
+          label: 'MCP example connector',
+          kind: 'connector',
+          status: 'needs-auth',
+          detail: 'Tenant-owned route-example fixture',
+          lastUsedAt: null,
+          sessions: 0,
+        },
+      },
+    }, seam)).status,
+    200,
+    'the mutation fixture is created inside the same tenant wall',
+  )
   assert.equal(
     (await toolCall('patch_saved_contexts_by_id', { id: ctxId, ...ex('PATCH /saved-contexts/:id') }, seam)).status,
     200,

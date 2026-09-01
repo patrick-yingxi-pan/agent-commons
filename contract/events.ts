@@ -121,6 +121,8 @@ export interface RecentsChangedEvent {
   type: 'recents.changed'
   contextType: ContextTypeId
   ids: string[]
+  /** Owning viewer namespace; absent means the backend's legacy/default tenant. */
+  tenantId?: string
 }
 /** A connector / MCP server's auth or setup state changed (OAuth callback completed,
  *  token expired, admin revoked). Emitted by `store.setConnectorStatus` — the
@@ -129,6 +131,8 @@ export interface ConnectorStatusEvent {
   type: 'connector.status'
   id: string
   status: 'connected' | 'needs-auth'
+  /** Owning viewer namespace; prevents setup/auth state leaking over SSE. */
+  tenantId?: string
 }
 /** A saved context was ADDED to or REMOVED from the set-up registry (the Contexts
  *  page's Add / Remove — status flips ride `connector.status` above). Carries only
@@ -136,6 +140,8 @@ export interface ConnectorStatusEvent {
 export interface SavedContextChangedEvent {
   type: 'savedcontext.changed'
   id: string
+  /** Owning viewer namespace; required even on delete because the row is gone. */
+  tenantId?: string
 }
 /** The minimum identity an invalidation hint needs. Session updates can follow
  *  arbitrarily long conversations, so an ambient event must never echo or retain

@@ -62,6 +62,43 @@ test('run.* events are gated to the owning routine’s tenant — no cross-tenan
   store.removeSchedule(task.id)
 })
 
+test('Contexts setup and recents events are stamped and delivered only to their viewer tenant', () => {
+  const id = 'evt-private-context'
+  const onAdd = emitted(() => store.addSavedContext({
+    id,
+    label: 'Private context',
+    kind: 'connector',
+    status: 'connected',
+    detail: 'private',
+    lastUsedAt: null,
+    sessions: 0,
+  }, OWNER))
+  const added = onAdd.find((event) => event.type === 'savedcontext.changed')
+  assert.ok(added?.type === 'savedcontext.changed')
+  assert.equal(added.tenantId, OWNER)
+  assert.equal(store.eventVisibleToTenant(added, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(added, OTHER), false)
+
+  const onStatus = emitted(() => store.setConnectorStatus(id, 'needs-auth', OWNER))
+  const status = onStatus.find((event) => event.type === 'connector.status')
+  assert.ok(status?.type === 'connector.status')
+  assert.equal(status.tenantId, OWNER)
+  assert.equal(store.eventVisibleToTenant(status, OTHER), false)
+
+  const onRecent = emitted(() => store.pushRecent('connector', id, OWNER))
+  const recent = onRecent.find((event) => event.type === 'recents.changed')
+  assert.ok(recent?.type === 'recents.changed')
+  assert.equal(recent.tenantId, OWNER)
+  assert.equal(store.eventVisibleToTenant(recent, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(recent, OTHER), false)
+
+  const onRemove = emitted(() => store.removeSavedContext(id, OWNER))
+  const removed = onRemove.find((event) => event.type === 'savedcontext.changed')
+  assert.ok(removed?.type === 'savedcontext.changed')
+  assert.equal(removed.tenantId, OWNER, 'delete remains gateable after its row is gone')
+  assert.equal(store.eventVisibleToTenant(removed, OTHER), false)
+})
+
 test('every schedule mutator emits schedule.changed, stamped with the owning tenant', () => {
   let task: ReturnType<typeof store.addSchedule>
   const onAdd = emitted(() => {

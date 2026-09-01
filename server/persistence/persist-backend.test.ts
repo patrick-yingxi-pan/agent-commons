@@ -16,7 +16,7 @@ import { STORE_VERSION, type PersistedState } from './persist.ts'
 // A fully-populated snapshot that exercises every slice kind: singletons (version,
 // recents, graph, seq), ordered arrays (sessions, schedules-empty, savedContexts,
 // auditLog) and Map-entry slices (bindings, workspaces, nested session preferences,
-// the Agent Commons registries, commissionCaps).
+// tenant recents, the Agent Commons registries, commissionCaps).
 const sample: PersistedState = {
   version: STORE_VERSION,
   initialWorld: 'demo',
@@ -33,12 +33,13 @@ const sample: PersistedState = {
   sessionPreferences: [['user-a', [['s1', { panelFocus: null }]]]],
   schedules: [], // present-but-empty array must round-trip as [], not vanish
   recents: { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] } as unknown as PersistedState['recents'],
+  recentsByTenant: [['tenant-b', { files: [], photos: [], folder: [], repo: ['repo-b'], connector: [], mcp: [] }]],
   graph: {
     sessionProject: {}, artifactProject: {}, scheduleProject: {}, projectContexts: {},
     artifactSource: {}, scheduleArtifact: {}, scheduleSession: {}, scheduleExtraTools: {},
     extraArtifacts: [], extraProjects: [], standingApprovals: {},
   } as unknown as PersistedState['graph'],
-  savedContexts: [{ id: 'sc1', type: 'connector', label: 'GitHub', status: 'connected' }] as unknown as PersistedState['savedContexts'],
+  savedContexts: [{ id: 'sc1', type: 'connector', label: 'GitHub', status: 'connected', tenantId: 'tenant-b' }] as unknown as PersistedState['savedContexts'],
   providers: [['provider-x', { id: 'provider-x', label: 'P', modelFamily: 'claude', effortLevels: ['Low'] }]] as unknown as PersistedState['providers'],
   providerConfigs: [['provider-x', { model: 'claude-opus-4-8' }]] as unknown as PersistedState['providerConfigs'],
   systemPrompts: [['sp-x', { id: 'sp-x', label: 'S', body: 'b', targetFamily: 'claude' }]] as unknown as PersistedState['systemPrompts'],

@@ -237,12 +237,22 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // ── Recents ── promote the attached repo + a connector to the front.
   store.pushRecent('repo', 'repo-playground')
   store.pushRecent('connector', 'gh-mcp')
+  store.pushRecent('repo', 'repo-tenant-zeta', 'tenant-zeta')
 
   // ── Contexts (Contexts page) ── flip auth status both directions.
   const connected = seedContexts.find((c) => c.kind === 'connector' && c.status === 'connected')
   const needsAuth = seedContexts.find((c) => c.kind === 'connector' && c.status === 'needs-auth')
   if (connected) store.setConnectorStatus(connected.id, 'needs-auth')
   if (needsAuth) store.setConnectorStatus(needsAuth.id, 'connected')
+  store.addSavedContext({
+    id: 'ctx-tenant-zeta',
+    label: 'Tenant Zeta context',
+    kind: 'connector',
+    status: 'connected',
+    detail: 'tenant-zeta private setup',
+    lastUsedAt: null,
+    sessions: 0,
+  }, 'tenant-zeta')
 
   // ── Dispatch (P7) ── a one-off run, so the persisted dispatch feed is exercised. It
   // settles to 'done' a beat later — during the schedule-run poll below — and re-persists.

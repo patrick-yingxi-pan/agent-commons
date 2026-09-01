@@ -237,7 +237,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'the durable run preserves its frozen identity and endpoint binding')
   assert.ok(s.schedules.some((t) => t.enabled === false), 'a paused schedule for variety')
   assert.ok((s.savedContexts?.length ?? 0) > 0, 'saved contexts present (auth status flipped)')
+  assert.ok(s.savedContexts?.some((context) => context.id === 'ctx-tenant-zeta' && context.tenantId === 'tenant-zeta'),
+    'saved contexts retain their server-owned tenant partition')
   assert.ok(s.recents.repo.includes('repo-playground'), 'a recent was promoted')
+  assert.ok(s.recentsByTenant?.some(([tenantId, recents]) => tenantId === 'tenant-zeta' && recents.repo.includes('repo-tenant-zeta')),
+    'non-default viewer recents persist in their own partition')
 
   // ── Agent Commons registries exercised (D6/D9/D10/D7) ──
   assert.ok(

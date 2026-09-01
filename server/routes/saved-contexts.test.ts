@@ -70,4 +70,7 @@ test('POST /saved-contexts saves a context server-side; DELETE removes it (the p
 test('POST /saved-contexts without a usable context is 400', async () => {
   assert.equal((await call('POST', '/saved-contexts', {})).status, 400)
   assert.equal((await call('POST', '/saved-contexts', { context: { id: 'x' } })).status, 400)
+  assert.equal((await call('POST', '/saved-contexts', { context: {
+    id: 'x', label: 'x', kind: 'connector', status: 'pretend-auth', detail: 'x', lastUsedAt: null, sessions: 0,
+  } })).status, 400)
 })
