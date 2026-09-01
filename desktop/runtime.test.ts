@@ -108,6 +108,11 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'installDataIpc()',
     'ensureRecoveryBackup()',
     'automaticRecovery = desktopRecoveryStatus(backup)',
+    'runBackendRecovery({',
+    'const backendFailure = () => backendHandle.exitError',
+    'assertCurrentBackend(backendHandle)',
+    'restart: relaunchDesktop',
+    'Your saved local data remains on this device; the app will quit.',
     'runRendererRecovery({',
     'const recoveryUrl = isTrustedAppUrl(currentUrl, origin) ? currentUrl : url',
     'await win.loadURL(recoveryUrl)',
@@ -135,6 +140,26 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(rendererRecovery, /!backendReady/)
   assert.match(rendererRecovery, /\.finally\(\(\) => \{\s*rendererRecoveryInProgress = false/)
   assert.doesNotMatch(rendererRecovery, /launchBackend|app\.relaunch/, 'renderer recovery preserves the healthy backend')
+  const backendRecovery = main.slice(
+    main.indexOf("child.once('exit'"),
+    main.indexOf('function assertCurrentBackend'),
+  )
+  assert.match(backendRecovery, /if \(!desktopReady \|\| quitting \|\| backendRecoveryInProgress\) return/)
+  assert.match(backendRecovery, /handle\.exitError = exitError/)
+  assert.match(backendRecovery, /credentialBackend\?\.close\(\)[\s\S]*dataBackend\?\.close\(\)[\s\S]*backend = null/)
+  assert.match(backendRecovery, /desktopReady = false/)
+  assert.match(backendRecovery, /restart: relaunchDesktop/)
+  assert.match(backendRecovery, /\.finally\(\(\) => \{\s*backendRecoveryInProgress = false/)
+  assert.doesNotMatch(backendRecovery, /launchBackend\(/, 'backend loss gets a clean whole-app boundary')
+  assert.equal(
+    main.match(/assertCurrentBackend\(backendHandle\)/g)?.length,
+    2,
+    'startup proves the same backend after readiness/backup and again after the first window load',
+  )
+  const startup = main.slice(main.indexOf('async function startDesktop'), main.indexOf('async function openDesktopCredentialVault'))
+  assert.match(startup, /waitForReady\([^;]+START_TIMEOUT_MS, true, backendFailure\)/)
+  assert.match(startup, /if \(DEVELOPMENT\) await waitForReady\([^;]+START_TIMEOUT_MS, false, backendFailure\)/)
+  assert.match(startup, /await createMainWindow\(rendererUrl, trustedOrigin\)\s*assertCurrentBackend\(backendHandle\)\s*desktopReady = true/)
 
   const preload = readFileSync(new URL('./preload.cjs', import.meta.url), 'utf8')
   assert.match(preload, /contextBridge\.exposeInMainWorld\('agentCommonsDesktop'/)
@@ -168,6 +193,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
+  assert.equal(ignoreFromPackage('/desktop/nativeRecovery.mjs'), false)
+  assert.equal(ignoreFromPackage('/desktop/backendRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/rendererRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/src/App.tsx'), true)
 

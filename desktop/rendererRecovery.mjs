@@ -1,3 +1,5 @@
+import { runNativeRecovery } from './nativeRecovery.mjs'
+
 export const RENDERER_RECOVERY_DIALOG = Object.freeze({
   type: 'error',
   title: 'Reopen Agent Commons?',
@@ -13,25 +15,12 @@ export const RENDERER_RECOVERY_DIALOG = Object.freeze({
  * backend and supplies one already-validated route to reopen. If Chromium
  * cannot reopen, an orderly app quit is safer than leaving a dead window. */
 export async function runRendererRecovery({ showMessageBox, reopen, reportReopenFailure, quit }) {
-  if (typeof showMessageBox !== 'function') throw new Error('A native renderer recovery dialog is required.')
-  if (typeof reopen !== 'function') throw new Error('A renderer reopen operation is required.')
-  if (typeof reportReopenFailure !== 'function') throw new Error('A renderer failure reporter is required.')
-  if (typeof quit !== 'function') throw new Error('An orderly app quit operation is required.')
-
-  const { response } = await showMessageBox(RENDERER_RECOVERY_DIALOG)
-  if (response !== 0) {
-    quit()
-    return { status: 'quitting' }
-  }
-  try {
-    await reopen()
-    return { status: 'reopened' }
-  } catch (error) {
-    try {
-      await reportReopenFailure(error)
-    } finally {
-      quit()
-    }
-    return { status: 'quitting' }
-  }
+  return runNativeRecovery({
+    dialogOptions: RENDERER_RECOVERY_DIALOG,
+    showMessageBox,
+    recover: reopen,
+    reportFailure: reportReopenFailure,
+    quit,
+    recoveredStatus: 'reopened',
+  })
 }

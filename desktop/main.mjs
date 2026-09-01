@@ -6,6 +6,7 @@ import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
+import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createDataBackendClient, desktopRecoveryStatus } from './dataProtocol.mjs'
 import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
@@ -38,12 +39,14 @@ const STOP_TIMEOUT_MS = 7_000
 let mainWindow = null
 let backend = null
 let backendReady = false
+let desktopReady = false
 let credentialVault = null
 let credentialBackend = null
 let dataBackend = null
 let quitting = false
 let quitAfterBackend = false
 let restoreInProgress = false
+let backendRecoveryInProgress = false
 let rendererRecoveryInProgress = false
 let automaticRecovery = desktopRecoveryStatus()
 let rendererUrl = null
@@ -91,16 +94,20 @@ async function startDesktop() {
   rendererUrl = DEVELOPMENT ? trustedOrigin : backendOrigin
 
   configureSessionPermissions(trustedOrigin)
-  await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials })
-  await waitForReady(`${backendOrigin}/api/v1/readyz`, trustedOrigin, START_TIMEOUT_MS)
-  if (DEVELOPMENT) await waitForReady(rendererUrl, trustedOrigin, START_TIMEOUT_MS, false)
+  const backendHandle = await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials })
+  const backendFailure = () => backendHandle.exitError
+  await waitForReady(`${backendOrigin}/api/v1/readyz`, trustedOrigin, START_TIMEOUT_MS, true, backendFailure)
+  if (DEVELOPMENT) await waitForReady(rendererUrl, trustedOrigin, START_TIMEOUT_MS, false, backendFailure)
   await ensureRecoveryBackup()
+  assertCurrentBackend(backendHandle)
 
   backendReady = true
   if (credentialVault) installCredentialIpc()
   installContextIpc()
   installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
+  assertCurrentBackend(backendHandle)
+  desktopReady = true
   console.log(`[desktop] ready ${rendererUrl} · ${credentialVault ? 'secure credentials' : 'environment-only credentials'}`)
 }
 
@@ -167,6 +174,7 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
     })
   }
 
+  const handle = { child, exitError: null }
   const marker = backendListenMarker(backendOrigin)
   const stderrTail = []
   await new Promise((resolve, reject) => {
@@ -188,25 +196,49 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       if (stderrTail.length > 12) stderrTail.shift()
     })
     child.once('exit', (code) => {
+      const detail = stderrTail.length ? `\n\n${stderrTail.join('\n')}` : ''
+      const exitError = new Error(`The local backend exited unexpectedly (code ${code ?? 'unknown'}).${detail}`)
+      handle.exitError = exitError
       credentialBackend?.close()
       credentialBackend = null
       dataBackend?.close()
       dataBackend = null
       backend = null
       if (!settled) {
-        const detail = stderrTail.length ? `\n\n${stderrTail.join('\n')}` : ''
-        finish(new Error(`The local backend exited during startup (code ${code ?? 'unknown'}).${detail}`))
+        finish(exitError)
         return
       }
-      if (quitting) return
       backendReady = false
-      dialog.showErrorBox(
-        'Agent Commons stopped',
-        'The local service stopped unexpectedly. Your data remains on this device; reopen Agent Commons to recover.',
-      )
-      app.quit()
+      if (!desktopReady || quitting || backendRecoveryInProgress) return
+      desktopReady = false
+      backendRecoveryInProgress = true
+      void runBackendRecovery({
+        showMessageBox: (options) => mainWindow && !mainWindow.isDestroyed()
+          ? dialog.showMessageBox(mainWindow, options)
+          : dialog.showMessageBox(options),
+        restart: relaunchDesktop,
+        reportRestartFailure: (error) => {
+          console.error('[desktop] restart after backend loss failed.', error)
+          dialog.showErrorBox(
+            'Couldn’t restart Agent Commons',
+            'Agent Commons could not restart. Your saved local data remains on this device; the app will quit.',
+          )
+        },
+        quit: () => app.quit(),
+      }).catch((error) => {
+        console.error('[desktop] backend recovery failed.', error)
+        if (!quitting) app.quit()
+      }).finally(() => {
+        backendRecoveryInProgress = false
+      })
     })
   })
+  return handle
+}
+
+function assertCurrentBackend(handle) {
+  if (handle.exitError) throw handle.exitError
+  if (backend !== handle.child) throw new Error('The local backend stopped before Agent Commons became ready.')
 }
 
 async function reconcileCredentialBindings(bindings) {
@@ -365,10 +397,12 @@ function pipeLines(stream, onLine) {
   })
 }
 
-async function waitForReady(url, origin, timeoutMs, requireReadyPayload = true) {
+async function waitForReady(url, origin, timeoutMs, requireReadyPayload = true, failure = () => null) {
   const deadline = Date.now() + timeoutMs
   let lastError = null
   while (Date.now() < deadline) {
+    const fatal = failure()
+    if (fatal) throw fatal
     try {
       const response = await fetch(url, { headers: { Origin: origin }, redirect: 'error' })
       if (response.ok) {
@@ -384,6 +418,8 @@ async function waitForReady(url, origin, timeoutMs, requireReadyPayload = true) 
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
+  const fatal = failure()
+  if (fatal) throw fatal
   throw new Error(`Agent Commons could not become ready. ${lastError instanceof Error ? lastError.message : ''}`.trim())
 }
 

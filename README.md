@@ -120,7 +120,10 @@ boots use explicit profiles:
   and checkpoints the backend. If the sandboxed window exits unexpectedly, a
   native prompt reopens its last trusted route without restarting the healthy
   backend, or quits cleanly; saved work remains, while unsaved window text may
-  be lost. A genuinely new database starts clean: no
+  be lost. If the authoritative local service itself exits after startup, one
+  native prompt defaults to a clean whole-app restart instead of leaving a stale
+  window; an exit before the first window is ready remains solely in startup
+  recovery, so the two ceremonies cannot race. A genuinely new database starts clean: no
   fictional conversations, projects, artifacts, routines, accounts, connections,
   or usage history. Release profiles disable the inline mock: without a configured
   endpoint, the composer says so and the API refuses a turn before writing it.

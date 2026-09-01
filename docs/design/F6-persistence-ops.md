@@ -112,6 +112,10 @@ neighbors. The reply stream is the only sticky path.
   native, default-Reopen recovery to the last trusted route. Disclose that acknowledged
   work remains on device while unsaved window text may be lost; Quit is the cancel and
   failed reopening reports generically before an orderly drain, never a silent crash loop.
+- **Desktop local-service loss** — before the first window is ready, fail only through
+  startup recovery. After readiness, close stale native clients and offer one native,
+  default-Restart whole-app boundary or Quit; distinguish saved device state from
+  unsaved window text and never leave an apparently live window over a dead service.
 - **Desktop disk full / corruption** — atomic JSON/export replacement, transactional
   SQLite under WAL, verified local backup/restore, visible automatic-recovery failure
   with a manual backup action, and re-sync from web if linked. A live
