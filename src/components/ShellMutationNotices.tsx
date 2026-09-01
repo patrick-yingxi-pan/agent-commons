@@ -6,6 +6,7 @@ import { ProviderDefinitionMutationNotice } from './ProviderDefinitionMutationNo
 import { RelationMutationNotice } from './RelationMutationNotice'
 import { ScheduleMutationNotice } from './ScheduleMutationNotice'
 import { SessionMetadataMutationNotice } from './SessionMetadataMutationNotice'
+import { SessionDeletionNotice } from './SessionDeletionNotice'
 import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMutationNotice'
 
 /** Durable mutation recovery is requested as one deferred shell cluster at
@@ -16,6 +17,7 @@ export function ShellMutationNotices() {
     <>
       <RelationMutationNotice />
       <SessionMetadataMutationNotice />
+      <SessionDeletionNotice />
       <ScheduleMutationNotice />
       <ArtifactContentMutationNotice />
       <ProposalVerdictMutationNotice />

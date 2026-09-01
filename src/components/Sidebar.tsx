@@ -189,7 +189,7 @@ export function Sidebar({
   onPinSession: (id: string, pinned: boolean) => void
   onRenameSession: (id: string, title: string) => void
   onArchiveSession: (id: string, archived: boolean) => void
-  onDeleteSession: (id: string) => void
+  onDeleteSession: (id: string, expectedRevision: number) => void
   /** Collapse the rail (its own toggle, top-left). Re-opening is handled by a
    *  floating control in the parent, since this one hides with the rail. */
   onToggleCollapse: () => void
@@ -438,8 +438,8 @@ export function Sidebar({
       label: 'Delete',
       icon: <Trash2 size={15} />,
       danger: true,
-      confirm: `Delete “${session.title}”? A server restart restores the seed.`,
-      onSelect: () => onDeleteSession(session.id),
+      confirm: `Delete “${session.title}”? This permanently removes the conversation and its saved messages.`,
+      onSelect: () => onDeleteSession(session.id, session.metadataRevision ?? 0),
     },
   ]
 

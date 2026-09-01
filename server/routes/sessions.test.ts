@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call, callRaw } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
+import { turns } from '../turns.ts'
 import type { Message } from '../../contract/index.ts'
 
 test('POST /sessions materializes a real, listed session titled from the first message', async () => {
@@ -80,6 +81,54 @@ test('session metadata PATCH validates its precondition and preserves legacy unc
   const legacy = await call('PATCH', `/sessions/${created.id}`, { title: 'Legacy client title' })
   assert.equal(legacy.status, 200)
   assert.equal(legacy.json.metadataRevision, 1, 'an unconditional v1 write still advances canonical ordering')
+})
+
+test('session DELETE pins reviewed metadata, replays success, and preserves legacy absence', async () => {
+  const { json: staleTarget } = await call('POST', '/sessions', { firstMessage: 'delete reviewed row' })
+  const renamed = await call('PATCH', `/sessions/${staleTarget.id}`, {
+    title: 'Changed on another device',
+    expectedRevision: 0,
+  })
+  assert.equal(renamed.status, 200)
+
+  const stale = await call('DELETE', `/sessions/${staleTarget.id}`, { expectedRevision: 0 })
+  assert.equal(stale.status, 409)
+  assert.ok(store.getSession(staleTarget.id), 'a stale destructive act changes nothing')
+
+  const malformed = await call('DELETE', `/sessions/${staleTarget.id}`, { expectedRevision: -1 })
+  assert.equal(malformed.status, 400)
+  assert.ok(store.getSession(staleTarget.id), 'a malformed precondition changes nothing')
+
+  const headers = { 'idempotency-key': `session-delete-${staleTarget.id}` }
+  const removed = await call('DELETE', `/sessions/${staleTarget.id}`, { expectedRevision: 1 }, headers)
+  assert.equal(removed.status, 200)
+  assert.equal(store.getSession(staleTarget.id), undefined)
+  const replay = await call('DELETE', `/sessions/${staleTarget.id}`, { expectedRevision: 1 }, headers)
+  assert.equal(replay.status, 200, 'the same logical retry replays its acknowledged result')
+
+  const { json: legacyTarget } = await call('POST', '/sessions', { firstMessage: 'legacy deletion' })
+  const legacy = await call('DELETE', `/sessions/${legacyTarget.id}`)
+  assert.equal(legacy.status, 200, 'absence retains unconditional v1 deletion')
+  assert.equal(store.getSession(legacyTarget.id), undefined)
+})
+
+test('session DELETE refuses to race a live reply, then accepts the same logical retry', async () => {
+  const { json: created } = await call('POST', '/sessions', { firstMessage: 'busy deletion' })
+  const active = turns.start(created.id, () => {})
+  assert.ok(active)
+  const headers = { 'idempotency-key': `session-delete-busy-${created.id}` }
+  try {
+    const refused = await call('DELETE', `/sessions/${created.id}`, { expectedRevision: 0 }, headers)
+    assert.equal(refused.status, 409)
+    assert.match(refused.json.error.message, /cancel the current reply/i)
+    assert.ok(store.getSession(created.id), 'the active conversation remains authoritative')
+  } finally {
+    turns.finish(active.id)
+  }
+
+  const removed = await call('DELETE', `/sessions/${created.id}`, { expectedRevision: 0 }, headers)
+  assert.equal(removed.status, 200, 'a refusal is not cached under the retained retry key')
+  assert.equal(store.getSession(created.id), undefined)
 })
 
 test('a sent turn is persisted (user + assistant) and read back from the server', async () => {

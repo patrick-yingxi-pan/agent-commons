@@ -236,9 +236,10 @@ function Workspace() {
   // not just the focused one. Deleting the last pane leaves the background,
   // exactly like closing it (the one close rule).
   const deleteSessionAndEvict = useCallback(
-    (id: string) => {
-      deleteSession(id)
-      pruneMainPanes((c) => !hostsSession(c, id))
+    (id: string, expectedRevision: number) => {
+      void deleteSession(id, expectedRevision).then((outcome) => {
+        if (outcome === 'applied') pruneMainPanes((c) => !hostsSession(c, id))
+      })
     },
     [deleteSession, pruneMainPanes],
   )

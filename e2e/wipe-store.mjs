@@ -10,4 +10,7 @@
 // mid-run, which is the one way a sharded suite can corrupt itself.
 import { rmSync } from 'node:fs'
 
-rmSync(process.env.DATA_FILE ?? '.data/e2e-store.json', { force: true })
+const store = process.env.DATA_FILE ?? '.data/e2e-store.json'
+for (const file of [store, `${store}.tmp`, `${store}.corrupt`]) {
+  rmSync(file, { force: true })
+}

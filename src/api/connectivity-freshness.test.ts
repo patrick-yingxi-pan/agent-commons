@@ -35,6 +35,15 @@ test('run.*/schedule.changed refresh the schedules list (the rail pane + the sec
   assert.match(eventCase(events, 'schedule.changed'), /invalidate\(keys\.schedules\)/)
 })
 
+test('session.removed refreshes its list, detail, and relation membership projections', () => {
+  const events = src('src', 'api', 'events.ts')
+  const block = eventCase(events, 'session.removed')
+  assert.match(block, /invalidate\(keys\.sessions\)/)
+  assert.match(block, /invalidate\(keys\.session\(e\.session\.id\)\)/)
+  assert.match(block, /invalidate\(keys\.relations\)/)
+  assert.match(block, /notifySessionRemoved\(e\.session\.id\)/)
+})
+
 test('proposal.changed refreshes the review queue the bell’s door opens (once cached forever)', () => {
   const events = src('src', 'api', 'events.ts')
   assert.match(eventCase(events, 'proposal.changed'), /invalidate\(keys\.agentProposals\(e\.agentId\)\)/)

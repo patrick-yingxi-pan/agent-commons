@@ -56,3 +56,54 @@ test('a stale rename loads the other device change and retries one user intent',
   expect(stored.title).toBe(localTitle)
   expect(stored.metadataRevision).toBe(2)
 })
+
+test('a stale deletion keeps its conversation open until explicit retry removes server truth', async ({ page }) => {
+  test.setTimeout(ms(45_000))
+  const seedTitle = `Delete target ${Date.now().toString(36)}`
+  const remoteTitle = `${seedTitle} remote`
+  const createdResponse = await page.request.post('/api/v1/sessions', {
+    data: { firstMessage: seedTitle },
+  })
+  expect(createdResponse.ok()).toBe(true)
+  const created = await createdResponse.json() as { id: string; metadataRevision: number }
+
+  let attempts = 0
+  const keys: string[] = []
+  const revisions: number[] = []
+  await page.route(`**/api/v1/sessions/${created.id}`, async (route) => {
+    if (route.request().method() !== 'DELETE') return route.continue()
+    attempts += 1
+    keys.push(route.request().headers()['idempotency-key'] ?? '')
+    revisions.push((route.request().postDataJSON() as { expectedRevision: number }).expectedRevision)
+    if (attempts === 1) {
+      const concurrent = await page.request.patch(`/api/v1/sessions/${created.id}`, {
+        data: { title: remoteTitle, expectedRevision: 0 },
+      })
+      expect(concurrent.status()).toBe(200)
+    }
+    await route.continue()
+  })
+
+  await page.goto(`/s/${created.id}`)
+  await expect(page.locator(`[data-conversation-pane="${created.id}"]`)).toBeVisible()
+  await page.getByRole('button', { name: 'Expand Sessions' }).click()
+  await page.getByRole('button', { name: `Actions for ${seedTitle}` }).click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+
+  const failed = page.locator('[data-session-deletion-mutation="failed"]')
+  await expect(failed).toContainText('changed elsewhere')
+  await expect(page.locator(`[data-conversation-pane="${created.id}"]`)).toBeVisible()
+  await expect(page.getByRole('button', { name: `Actions for ${remoteTitle}` })).toBeVisible()
+  expect(attempts).toBe(1)
+
+  await failed.getByRole('button', { name: 'Retry' }).click()
+  await expect(failed).toHaveCount(0)
+  await expect(page.locator(`[data-conversation-pane="${created.id}"]`)).toHaveCount(0)
+  await expect(page.locator('[data-main-background]')).toBeVisible()
+  expect(attempts).toBe(2)
+  expect(keys[0]).not.toBe('')
+  expect(keys[1]).toBe(keys[0])
+  expect(revisions).toEqual([0, 1])
+  expect((await page.request.get(`/api/v1/sessions/${created.id}`)).status()).toBe(404)
+})

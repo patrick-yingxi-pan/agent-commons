@@ -4815,17 +4815,31 @@ export const store = {
     persist()
     return session
   },
-  /** Delete a session (the row menu's "Delete"). Splices it from the seed and
-   *  broadcasts a refresh; a server restart reseeds it (mock semantics). A run
-   *  session and its run are one entity in two projections, so deleting the
-   *  conversation also retires the run from its routine's history — otherwise
-   *  the run switcher would reopen a thread that no longer exists (and the boot
-   *  materializer would re-mint it). */
-  removeSession(id: string): boolean {
+  /** Delete a session (the row menu's "Delete") and every session-owned durable
+   *  projection in one persisted mutation. A run session and its run are one
+   *  entity in two projections, so deleting the conversation also retires the
+   *  run from its routine's history — otherwise the run switcher would reopen a
+   *  thread that no longer exists (and the boot materializer would re-mint it).
+   *  Artifacts and forks merely cite a source session as provenance; they are
+   *  independent resources and deliberately survive with a now-missing source. */
+  removeSession(id: string, expectedRevision?: number): boolean {
     const i = SESSIONS.findIndex((s) => s.id === id)
     if (i === -1) return false
+    const currentRevision = SESSIONS[i]!.metadataRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This conversation changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     const [removed] = SESSIONS.splice(i, 1)
+    sessionContextBindings.delete(id)
+    sessionWorkspaces.delete(id)
     removeSessionPreferences(id)
+    if (Object.prototype.hasOwnProperty.call(graph.sessionProject, id)) {
+      const sessionProject = { ...graph.sessionProject }
+      delete sessionProject[id]
+      graph = { ...graph, sessionProject, revision: (graph.revision ?? 0) + 1 }
+    }
     if (removed.scheduledRunOf) {
       const task = schedules.find((t) => t.id === removed.scheduledRunOf!.taskId)
       if (task) {

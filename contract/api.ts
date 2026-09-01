@@ -12,14 +12,14 @@ import type { Project } from './cowork.ts'
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
 
-/** Opt-in request header for safe retries of create-mutations (design F3 PD15). A
+/** Opt-in request header for safe retries of durable mutations (design F3 PD15). A
  *  client sets it to a unique value per logical operation; the backend records the
  *  first successful response for that (tenant, key) and replays it on any retry, so a
  *  double-submit or a retried-after-timeout request can't create a duplicate or
  *  advance a metadata revision twice. Honoured on the non-streaming create
  *  routes (`POST /sessions`, `/projects`, `/dispatch`, `/schedules`, `/relations/ops`) and
  *  revision-checked `PATCH /sessions/:id`, `PATCH /schedules/:id`, and
- *  `PATCH /artifacts/:id/content`. */
+ *  `PATCH /artifacts/:id/content`, and revision-checked `DELETE /sessions/:id`. */
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 /** The path the UI talks to. Dev: Vite proxies `/api` → the mock server. Native:
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
@@ -129,6 +129,13 @@ export interface SessionMetadataPatch {
  * unconditional-write meaning for older clients; first-party clients always
  * send the revision they read. */
 export interface UpdateSessionRequest extends SessionMetadataPatch {
+  expectedRevision?: number
+}
+
+/** Body of `DELETE /v1/sessions/:id`. A supplied revision pins the destructive
+ * act to the conversation row the caller actually reviewed; absence preserves
+ * the legacy unconditional-delete meaning for older clients. */
+export interface DeleteSessionRequest {
   expectedRevision?: number
 }
 

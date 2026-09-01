@@ -512,6 +512,18 @@ test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — the layout c
   await splitPane(page, 'right')
   await expect(page.locator('[data-main-pane]')).toHaveCount(2)
 
+  // The send materializes the page before its server-owned reply finishes.
+  // Deletion correctly refuses to race that live turn, so establish the actual
+  // precondition of this test: one completed persisted exchange and no turn.
+  const sessionId = sessionPath.split('/').at(-1)!
+  await expect.poll(async () => {
+    const full = await (await page.request.get(`/api/v1/sessions/${sessionId}`)).json()
+    return {
+      roles: (full.messages ?? []).map((message: { role: string }) => message.role),
+      live: full.activeTurnId ?? null,
+    }
+  }, { timeout: ms(20_000) }).toEqual({ roles: ['user', 'assistant'], live: null })
+
   // Delete it from the Sessions row menu (the row is titled after the first
   // message) — confirm inline.
   await page.getByRole('button', { name: 'Expand Sessions' }).click()

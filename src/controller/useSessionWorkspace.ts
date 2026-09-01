@@ -32,10 +32,11 @@ import { DRAFT_ID } from '../data/liveSession'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { pathForView, viewForPath, type RoutedView } from '../lib/urlRoutes'
-import { deleteSession as deleteSessionCmd, loadSession, onAccountSwitch } from '../api'
+import { loadSession, onAccountSwitch } from '../api'
 import { conversations } from './conversationStore'
 import { draft } from './draftController'
 import { enqueueSessionMetadataMutation } from './sessionMetadataMutations'
+import { enqueueSessionDeletion } from './sessionDeletionMutations'
 import type { SectionId } from '../types'
 
 /** ── Boot address (src/lib/urlRoutes.ts) ─────────────────────────────────────
@@ -352,8 +353,8 @@ export function useSessionWorkspace(split?: {
   const archiveSession = useCallback((id: string, archived: boolean) => {
     void enqueueSessionMetadataMutation(id, { status: archived ? 'archived' : 'active' })
   }, [])
-  const deleteSession = useCallback((id: string) => {
-    void deleteSessionCmd(id)
+  const deleteSession = useCallback((id: string, expectedRevision: number) => {
+    return enqueueSessionDeletion(id, expectedRevision)
   }, [])
 
   return {

@@ -73,6 +73,7 @@ import {
   type SendMessageRequest,
   type SetConnectorStatusRequest,
   type Session,
+  type DeleteSessionRequest,
   type SessionMetadataPatch,
   type SessionContextState,
   type SessionPreferences,
@@ -1331,15 +1332,21 @@ export async function patchSession(
   return session
 }
 
-/** Delete a session (the row menu's "Delete"). Optimistically drops it from the
- *  cached list, then DELETEs; a failed call re-reads the server truth. */
-export async function deleteSession(id: string): Promise<void> {
-  mutate<Session[]>(keys.sessions, (list) => (list ?? []).filter((s) => s.id !== id))
-  try {
-    await apiDelete(paths.session(id))
-  } catch {
-    invalidate(keys.sessions)
-  }
+/** Delete one reviewed conversation row. The controller owns retry,
+ * reconciliation, and pane eviction; this door publishes absence only after
+ * the server acknowledges the pinned logical mutation. */
+export async function deleteSession(
+  id: string,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiDelete(
+    paths.session(id),
+    { expectedRevision } satisfies DeleteSessionRequest,
+    { idempotencyKey },
+  )
+  mutate<Session[]>(keys.sessions, (list) => (list ?? []).filter((session) => session.id !== id))
+  invalidate(keys.session(id))
 }
 
 /** Confirm or decline a proposed tool action (P6 §2.1, PD43). Connector/MCP

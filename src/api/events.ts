@@ -95,6 +95,10 @@ function route(e: ServerEvent): void {
     case 'session.removed':
       invalidate(keys.sessions)
       invalidate(keys.session(e.session.id))
+      // Deletion also removes the canonical session→Project join. Re-read the
+      // graph so open Project membership and rail grouping cannot retain a
+      // dangling conversation after the definitive gone-signal.
+      invalidate(keys.relations)
       notifySessionRemoved(e.session.id)
       break
     // A scheduled run fired / advanced a step / finished (run-now or the daemon) —

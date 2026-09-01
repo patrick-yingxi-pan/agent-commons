@@ -4,12 +4,8 @@ import type { Session, SessionMetadataPatch } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
   ApiRequestError,
-  acceptSessionMetadata,
-  keys,
-  loadSession,
   onAccountSwitch,
   patchSession,
-  peek,
 } from '../api'
 import {
   createRevisionedMutationController,
@@ -18,6 +14,7 @@ import {
   type RevisionedMutationOutcome,
   type RevisionedMutationStatus,
 } from './revisionedMutationCore'
+import { cachedSession, reconcileSession } from './sessionMutationState'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -50,23 +47,9 @@ const publish = (next: RevisionedMutationStatus): void => {
   for (const listener of listeners) listener()
 }
 
-const cachedSession = (sessionId: string): Session | undefined => {
-  const detail = peek<Session>(keys.session(sessionId))
-  const row = peek<Session[]>(keys.sessions)?.find((candidate) => candidate.id === sessionId)
-  if (!detail) return row
-  if (!row) return detail
-  return (detail.metadataRevision ?? 0) >= (row.metadataRevision ?? 0) ? detail : row
-}
-
-const reconcile = async (sessionId: string): Promise<Session> => {
-  const session = await loadSession(sessionId)
-  acceptSessionMetadata(session)
-  return session
-}
-
 const controller = createRevisionedMutationController<Session, SessionMetadataPatch>({
   snapshot: cachedSession,
-  reconcile,
+  reconcile: reconcileSession,
   revision: (session) => session.metadataRevision ?? 0,
   mutate: patchSession,
   describeFailure,

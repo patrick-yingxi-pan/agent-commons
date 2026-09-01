@@ -41,6 +41,7 @@ import type {
   UpdateArtifactContentRequest,
   UpdateScheduleRequest,
   UpdateSessionRequest,
+  DeleteSessionRequest,
   UpdateSessionPreferencesRequest,
   UpdateSessionContextStateRequest,
   OpsSummary,
@@ -3074,12 +3075,33 @@ export function buildRouter(): Router {
       throw error
     }
   })
-  // Delete a session (the row menu's "Delete").
-  r.delete('/sessions/:id', ({ req, res, params }) => {
+  // Delete the exact conversation row reviewed by the caller. Legacy clients
+  // may omit the precondition; first-party retries retain one idempotency key.
+  r.delete('/sessions/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
-    if (!store.removeSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
+    const { expectedRevision } = await body<DeleteSessionRequest>()
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
+    if (turns.bySession(params.id)) {
+      return sendError(res, 'conflict', 'Wait for or cancel the current reply before deleting this conversation.')
+    }
+    if (activeCompactions.has(params.id)) {
+      return sendError(res, 'conflict', 'Wait for the current summary to finish before deleting this conversation.')
+    }
+    try {
+      if (!store.removeSession(params.id, expectedRevision)) {
+        return sendError(res, 'not_found', `No session '${params.id}'`)
+      }
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
     sendJson(res, { ok: true })
-  })
+  }))
 
   // Session ↔ context bindings — the attachment of record (Primitive 1 of
   // docs/shared-resource-coordination.md). Persisted server-side so every effect a

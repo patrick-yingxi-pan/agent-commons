@@ -113,6 +113,67 @@ test('removeSession broadcasts the definitive session.removed gone-signal (live 
   )
 })
 
+test('removeSession refuses a stale reviewed revision before any deletion signal', () => {
+  const doomed = store.createSession('revision-pinned deletion', 'tenant-evt')
+  store.patchSession(doomed.id, { title: 'newer title' }, 0)
+  const seen: string[] = []
+  const off = store.subscribe((event) => {
+    if (event.type === 'session.removed') seen.push(event.session.id)
+  })
+  try {
+    assert.throws(() => store.removeSession(doomed.id, 0), /changed elsewhere/)
+  } finally {
+    off()
+  }
+  assert.ok(store.getSession(doomed.id), 'stale delete keeps the canonical row')
+  assert.deepEqual(seen, [], 'stale delete emits no gone signal')
+})
+
+test('removeSession clears session-owned context, workspace, preferences, and Project membership', () => {
+  const tenantId = 'tenant-delete-cascade'
+  const doomed = store.createSession('cascade deletion', tenantId)
+  const workspace = {
+    workspaces: [],
+    repos: [],
+    connectors: [{ id: 'delete-connector', label: 'Delete connector', kind: 'connector' as const }],
+    attachments: [],
+  }
+  store.updateSessionContextState(
+    doomed.id,
+    [{ action: 'attach', context: { id: 'delete-connector', type: 'connector', label: 'Delete connector' } }],
+    workspace,
+  )
+  store.setSessionPreferences('user-delete-cascade', doomed.id, {
+    kind: 'connector',
+    id: 'delete-connector',
+  })
+  store.applyRelationOp({
+    kind: 'create-project',
+    projectId: 'project-delete-cascade',
+    projectName: 'Delete cascade',
+    projectDescription: '',
+    sessionId: doomed.id,
+    sessionTitle: doomed.title,
+  }, tenantId)
+  const graphRevision = store.relationGraph().revision ?? 0
+
+  assert.equal(store.removeSession(doomed.id), true)
+  assert.deepEqual(store.sessionContexts(doomed.id), [], 'authorization bindings are gone')
+  assert.deepEqual(
+    store.sessionWorkspace(doomed.id),
+    { workspaces: [], repos: [], connectors: [], attachments: [] },
+    'the saved panel workspace is gone rather than reachable through a ghost id',
+  )
+  assert.deepEqual(
+    store.sessionPreferences('user-delete-cascade', doomed.id),
+    {},
+    'every viewer preference row for the conversation is gone',
+  )
+  const graph = store.relationGraph()
+  assert.equal(graph.sessionProject[doomed.id], undefined, 'Project membership is removed')
+  assert.equal(graph.revision, graphRevision + 1, 'membership removal advances graph ordering')
+})
+
 test('session invalidation events carry only the tenant-visible ref, never a transcript', () => {
   const session = store.createSession('bounded ambient event', 'tenant-event-ref')
   store.appendMessage(session.id, { id: `${session.id}-m`, role: 'user', content: 'a transcript body' })

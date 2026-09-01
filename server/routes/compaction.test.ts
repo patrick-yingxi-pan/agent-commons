@@ -3,7 +3,7 @@
  * history preservation. */
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { Server } from 'node:http'
+import { createServer, type Server } from 'node:http'
 import type { Message, Page } from '../../contract/index.ts'
 import { startModelServer } from '../model/index.ts'
 import { store } from '../store/index.ts'
@@ -127,5 +127,57 @@ test('a live reply excludes compaction before provider work or history mutation'
     assert.equal(afterRefusal.compactedMessages, undefined)
   } finally {
     turns.finish(live.id)
+  }
+})
+
+test('an in-flight summary excludes deletion, and the retained key succeeds after it settles', async () => {
+  const tenantId = `tenant-compaction-delete-${Date.now()}`
+  const session = longSession(tenantId, 'summary before deletion')
+  let signalStarted!: () => void
+  let releaseSummary!: () => void
+  const started = new Promise<void>((resolve) => { signalStarted = resolve })
+  const released = new Promise<void>((resolve) => { releaseSummary = resolve })
+  const gatedModel = createServer(async (req, res) => {
+    for await (const _chunk of req) { /* consume the complete request */ }
+    signalStarted()
+    await released
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' })
+    res.end(JSON.stringify({
+      id: 'msg_gated_compaction',
+      type: 'message',
+      role: 'assistant',
+      model: 'claude-opus-4-8',
+      content: [{ type: 'text', text: 'A durable summary prepared before deletion.' }],
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      usage: { input_tokens: 12, output_tokens: 9 },
+    }))
+  })
+  await new Promise<void>((resolve) => gatedModel.listen(0, '127.0.0.1', resolve))
+  const address = gatedModel.address()
+  const port = typeof address === 'object' && address ? address.port : 0
+  process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`
+  const headers = {
+    'x-tenant-id': tenantId,
+    'idempotency-key': `session-delete-summary-${session.id}`,
+  }
+  try {
+    const compacting = call('POST', `/sessions/${session.id}/compact`, {}, { 'x-tenant-id': tenantId })
+    await started
+    const refused = await call('DELETE', `/sessions/${session.id}`, { expectedRevision: 0 }, headers)
+    assert.equal(refused.status, 409)
+    assert.match(refused.json.error.message, /summary to finish/i)
+    assert.ok(store.getSession(session.id), 'the summarizing conversation remains authoritative')
+    releaseSummary()
+    assert.equal((await compacting).status, 200)
+
+    const removed = await call('DELETE', `/sessions/${session.id}`, { expectedRevision: 0 }, headers)
+    assert.equal(removed.status, 200, 'the busy refusal is not cached under the retained retry key')
+    assert.equal(store.getSession(session.id), undefined)
+  } finally {
+    releaseSummary()
+    process.env.ANTHROPIC_BASE_URL = modelBase
+    gatedModel.closeAllConnections?.()
+    await new Promise<void>((resolve) => gatedModel.close(() => resolve()))
   }
 })
