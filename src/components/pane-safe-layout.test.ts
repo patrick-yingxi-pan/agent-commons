@@ -10,10 +10,10 @@
  *  gated. The page scroller (`Page`) is a `@container`; layout switches use
  *  `@`-variants.
  *
- *  Visibility gates (`max-sm:hidden` on a page title the NarrowBar already
- *  carries) are TIER rules — genuinely about the app viewport — and stay
- *  viewport-gated on purpose; only LAYOUT switches (row direction, grid
- *  column count) are banned from viewport prefixes here. */
+ *  Visibility gates (`max-sm:sr-only` on a page title whose visible copy the
+ *  NarrowBar already carries) are TIER rules — genuinely about the app
+ *  viewport — and stay viewport-gated on purpose; only LAYOUT switches (row
+ *  direction, grid column count) are banned from viewport prefixes here. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'

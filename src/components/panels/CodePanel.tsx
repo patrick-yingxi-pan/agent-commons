@@ -104,7 +104,11 @@ function FilesView({ files }: { files: FileNode[] }) {
 function DiffView({ diff }: { diff: DiffLine[] }) {
   return (
     <div className="p-2">
-      <pre className="overflow-x-auto rounded-lg border border-line bg-panel py-1 font-mono text-[12px] leading-[1.7]">
+      <pre
+        tabIndex={0}
+        aria-label="Code changes"
+        className="overflow-x-auto rounded-lg border border-line bg-panel py-1 font-mono text-[12px] leading-[1.7]"
+      >
         {diff.map((line, i) => {
           if (line.kind === 'hunk') {
             return (

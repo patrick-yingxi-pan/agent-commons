@@ -248,9 +248,9 @@ export function ResourcePageHeader({
       <div className="flex min-w-0 grow basis-64 items-start gap-1">
         {back && <BackButton to={back.to} onBack={back.onBack} />}
         <div className="min-w-0">
-          <div className="flex items-center gap-2 max-sm:hidden">
-            <h1 className={PAGE_TITLE_CLASS}>{title}</h1>
-            {badge}
+          <div className="flex items-center gap-2">
+            <h1 className={`${PAGE_TITLE_CLASS} max-sm:sr-only`}>{title}</h1>
+            {badge && <span className="max-sm:hidden">{badge}</span>}
           </div>
           {subtitle && <p className="mt-1 text-[13px] text-ink-soft max-sm:mt-0">{subtitle}</p>}
         </div>

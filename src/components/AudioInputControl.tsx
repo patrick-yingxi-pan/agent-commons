@@ -40,7 +40,7 @@ export function AudioInputControl() {
         aria-label="Microphone settings"
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`flex h-8 w-5 items-center justify-center rounded-lg transition ${
+        className={`flex h-8 w-6 items-center justify-center rounded-lg transition ${
           open ? 'bg-panel-2 text-ink' : 'text-ink-faint hover:bg-panel-2 hover:text-ink'
         }`}
       >

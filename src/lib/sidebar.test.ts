@@ -127,8 +127,8 @@ test('focus and tree depth each have one rail-wide cue', () => {
 })
 
 test('every non-root entry reserves one fixed lead column', () => {
-  assert.match(SIDEBAR_ENTRY_LEAD, /\bh-5\b/, 'the lead seat follows the 20px disclosure control')
-  assert.match(SIDEBAR_ENTRY_LEAD, /\bw-5\b/, 'the lead seat has one fixed width')
+  assert.match(SIDEBAR_ENTRY_LEAD, /\bh-6\b/, 'the lead seat meets the 24px disclosure target floor')
+  assert.match(SIDEBAR_ENTRY_LEAD, /\bw-6\b/, 'the lead seat has one fixed, touch-safe width')
   assert.match(SIDEBAR_ENTRY_LEAD, /\bshrink-0\b/, 'long labels cannot consume the hierarchy column')
   assert.match(SIDEBAR_ENTRY_LEAD, /items-center/, 'a caret and an empty seat share one centre')
 })

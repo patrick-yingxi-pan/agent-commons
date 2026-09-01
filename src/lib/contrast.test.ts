@@ -185,6 +185,48 @@ test('UI-20: the text seat stays legible ON the canvas, in both modes', () => {
   }
 })
 
+test('muted ink remains readable on every neutral surface in every palette and mode', () => {
+  const failures: string[] = []
+  let checked = 0
+  for (const [palette, mode] of COMBOS) {
+    const t = resolve(palette, mode)
+    for (const foreground of ['--color-ink-soft', '--color-ink-faint']) {
+      for (const background of ['--color-canvas', '--color-surface', '--color-panel', '--color-panel-2']) {
+        const measured = contrast(t[foreground], t[background])
+        checked++
+        if (measured < 4.5) failures.push(`${palette}/${mode} ${foreground} on ${background} = ${measured.toFixed(2)}:1`)
+      }
+    }
+  }
+  assert.equal(checked, COMBOS.length * 2 * 4, 'checked the full neutral text-seat matrix')
+  assert.deepEqual(failures, [], `muted ink below WCAG AA 4.5:1:\n  ${failures.join('\n  ')}`)
+})
+
+test('semantic and capability text clears AA on its paired tint', () => {
+  const pairs = [
+    ['--color-added', '--color-added-bg'],
+    ['--color-removed', '--color-removed-bg'],
+    ['--color-cap-workspace', '--color-cap-workspace-tint'],
+    ['--color-cap-repo', '--color-cap-repo-tint'],
+    ['--color-cap-connector', '--color-cap-connector-tint'],
+    ['--color-cap-mcp', '--color-cap-mcp-tint'],
+    ['--color-cap-file', '--color-cap-file-tint'],
+    ['--color-cap-photo', '--color-cap-photo-tint'],
+    ['--color-ok-text', '--color-ok-tint'],
+    ['--color-warn-text', '--color-warn-tint'],
+    ['--color-danger-text', '--color-danger-tint'],
+  ] as const
+  const failures: string[] = []
+  for (const mode of MODES) {
+    const t = deref({ ...BASE, ...(mode === 'dark' ? DARK : {}) })
+    for (const [foreground, background] of pairs) {
+      const measured = contrast(t[foreground], t[background])
+      if (measured < 4.5) failures.push(`${mode} ${foreground} on ${background} = ${measured.toFixed(2)}:1`)
+    }
+  }
+  assert.deepEqual(failures, [], `semantic text below WCAG AA 4.5:1:\n  ${failures.join('\n  ')}`)
+})
+
 /** Customization widens the state space beyond named presets. Exhaustive hue
  * combinations are continuous, so the lock samples every numeric boundary and
  * every choice, plus the named recipes; derivation itself chooses lightness by
@@ -209,6 +251,10 @@ test('UI-20: sampled customization extremes preserve the contrast contract', () 
       const t = deref({ ...BASE, ...(mode === 'dark' ? DARK : {}), ...deriveThemeTokens(recipe, mode) })
       const pairs = [
         ['--color-ink', '--color-canvas', 4.5],
+        ['--color-ink-soft', '--color-canvas', 4.5],
+        ['--color-ink-soft', '--color-panel-2', 4.5],
+        ['--color-ink-faint', '--color-canvas', 4.5],
+        ['--color-ink-faint', '--color-panel-2', 4.5],
         ['--color-accent', '--color-canvas', 3],
         ['--color-co', '--color-canvas', 3],
         ['--color-accent-strong', '--color-accent-tint', 4.5],

@@ -282,10 +282,12 @@ shows the app-wide focus-visible ring; landmarks stay unique; a persistent
 resource rail has a first-in-order bypass to main; each addressed resource has
 heading identity; form fields keep names independent of placeholder copy;
 icon-only buttons carry `title`/`aria-label`.
-**Detection:** `npm run e2e` (accessibility-navigation, keyboard-resize,
-responsive); sweep: start from the address bar and tab into each new surface;
-inspect its heading outline and field names; scan changed components for button
-names and triage text-content buttons by hand.
+**Detection:** `npm run e2e` (`accessibility-audit`, accessibility-navigation,
+keyboard-resize, responsive); the automated lane runs exclusion-free WCAG 2.2
+AA checks across core wide/narrow pages and creation dialogs. Then sweep: start
+from the address bar and tab into each new surface; inspect its heading outline
+and field names; scan changed components for button names and triage
+text-content buttons by hand.
 **Fix:** name/wire at the primitive; add the e2e press-path.
 
 ### A-6 · Responsiveness follows the tier ladder and the container

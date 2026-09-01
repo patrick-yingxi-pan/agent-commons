@@ -32,7 +32,7 @@
 
   --color-ink: #2b2224;
   --color-ink-soft: #655357;
-  --color-ink-faint: #9c8c90;
+  --color-ink-faint: #736367;
 
   --color-line: #dfd9da;
   --color-line-strong: #cfc5c6;
@@ -77,22 +77,22 @@
      Burgundy, MCP → Marrs teal, file → Klein, photo → Titian. Garnish beside
      the claret/prussian duet, never a third voice. Single source of truth for
      the whole capability palette. */
-  --color-cap-workspace: #b08434;
+  --color-cap-workspace: #86652a;
   --color-cap-repo: #46689a;
   --color-cap-workspace-tint: #f9f0d9;
   --color-cap-repo-tint: #e9eef6;
   --color-cap-connector: #8a4463;
   --color-cap-connector-tint: #f3e8ee;
-  --color-cap-mcp: #157c7e;
+  --color-cap-mcp: #137476;
   --color-cap-mcp-tint: #e2f0f0;
   --color-cap-file: #3d55c4;
   --color-cap-file-tint: #e8ecfa;
-  --color-cap-photo: #c05457;
+  --color-cap-photo: #aa4b4d;
   --color-cap-photo-tint: #f8e9e9;
 
-  --color-added: #3f7d52;
+  --color-added: #3b754e;
   --color-added-bg: #eaf3ec;
-  --color-removed: #b5573a;
+  --color-removed: #a64f34;
   --color-removed-bg: #f8eae4;
 
   /* Semantic status hues — ok (connected / success), warn (pending / caution),
@@ -171,7 +171,7 @@
 
   --color-ink: #ede8e9;
   --color-ink-soft: #baabaf;
-  --color-ink-faint: #8e7b80;
+  --color-ink-faint: #a8999d;
 
   --color-line: #4e4244;
   --color-line-strong: #635154;

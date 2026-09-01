@@ -34,3 +34,13 @@ test('a conversation exposes resource identity and a persistent composer name', 
   assert.match(composer, /<textarea[\s\S]*?aria-label="Message"[\s\S]*?placeholder=/,
     'the message field keeps its name when placeholder copy changes or disappears')
 })
+
+test('page identity survives compact chrome and scrollable code is keyboard reachable', () => {
+  const resourcePage = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))
+  const codePanel = stripComments(read(join(ROOT, 'src', 'components', 'panels', 'CodePanel.tsx')))
+
+  assert.match(resourcePage, /<h1 className=\{`\$\{PAGE_TITLE_CLASS\} max-sm:sr-only`\}>\{title\}<\/h1>/,
+    'the narrow title remains in the heading outline while compact chrome carries its visible copy')
+  assert.match(codePanel, /<pre[\s\S]*?tabIndex=\{0\}[\s\S]*?aria-label="Code changes"/,
+    'a horizontally scrollable code diff is a named keyboard stop')
+})

@@ -17,6 +17,7 @@
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
 import {
+  Children,
   Fragment,
   createContext,
   useContext,
@@ -221,9 +222,10 @@ export function RailListPartition({
       setExpanded(disclosure.foldSignal.expanded)
     }
   }, [disclosure?.foldSignal, disclosure?.nodeKey])
+  const listItems = Children.map(children, (child) => child ? <div role="listitem">{child}</div> : null)
   if (!label) return (
     <div data-collection-group-key={groupKey} role="list" aria-label={fallbackLabel}>
-      {children}
+      {listItems}
     </div>
   )
   return (
@@ -264,7 +266,9 @@ export function RailListPartition({
         </h3>
       )}
       {(!disclosure || expanded) && (
-        <RailTreeBranch id={listId} role="list" aria-labelledby={headingId}>{children}</RailTreeBranch>
+        <RailTreeBranch id={listId} role="list" aria-labelledby={headingId}>
+          {listItems}
+        </RailTreeBranch>
       )}
     </section>
   )

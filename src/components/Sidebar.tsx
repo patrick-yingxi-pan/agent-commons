@@ -1048,12 +1048,12 @@ function SectionTreeRow({
           onClick={onToggle}
           aria-label={expanded ? `Collapse ${label}` : `Expand ${label}`}
           aria-expanded={expanded}
-          className="flex h-8 w-5 shrink-0 items-center justify-center text-ink-faint transition hover:text-ink"
+          className="flex h-8 w-6 shrink-0 items-center justify-center text-ink-faint transition hover:text-ink"
         >
           <ChevronRight size={13} className={`transition-transform ${expanded ? 'rotate-90' : ''}`} />
         </button>
       ) : (
-        <span className="w-5 shrink-0" aria-hidden />
+        <span className="w-6 shrink-0" aria-hidden />
       )}
       <button
         data-rail-entry
@@ -1113,7 +1113,6 @@ function SessionRow({
       data-rail-node-key={nodeKey}
       data-rail-node-row
       data-rail-entry-kind="item"
-      role="listitem"
       className={sidebarEntryClass('item', active)}
     >
       <RailEntryLead />
@@ -1272,7 +1271,6 @@ function RoutineRow({
         data-rail-node-row
         data-routine-row
         data-rail-entry-kind="item"
-        role="listitem"
         className={sidebarEntryClass('item', pageActive)}
       >
         <RailEntryLead

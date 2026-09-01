@@ -392,6 +392,30 @@ export function deriveThemeTokens(recipe: ThemeRecipe, mode: ResolvedTheme): The
   const tintLightness = isLight ? 100 - recipe.tint * 0.56 : canvasLightness + recipe.tint * 0.62
 
   const canvasRgb = hslToRgb(recipe.groundHue, groundSat, canvasLightness)
+  const panelRgb = hslToRgb(recipe.groundHue, clamp(groundSat * 0.75, 0, 44), panelLightness)
+  const panelTwoRgb = hslToRgb(recipe.groundHue, clamp(groundSat * 0.8, 0, 46), panelTwoLightness)
+  const neutralTextBackgrounds = [canvasRgb, panelRgb, panelTwoRgb]
+  const inkSaturation = clamp(8 + groundSat * 0.12, 8, 16)
+  const faintInkSaturation = clamp(6 + groundSat * 0.1, 6, 14)
+  // Soft and faint are hierarchy seats, not permission to become unreadable.
+  // Derive both against every neutral surface: customization can widen the
+  // panel separation far beyond any named preset, especially in dark mode.
+  const inkSoftLightness = readableLightness(
+    recipe.inkHue,
+    inkSaturation,
+    neutralTextBackgrounds,
+    mode,
+    5.6,
+    isLight ? 36 : 70,
+  )
+  const inkFaintLightness = readableLightness(
+    recipe.inkHue,
+    faintInkSaturation,
+    neutralTextBackgrounds,
+    mode,
+    4.6,
+    isLight ? 58 : 52,
+  )
   const accentTintRgb = hslToRgb(recipe.actionHue, tintSaturation, tintLightness)
   const responseTintRgb = hslToRgb(recipe.responseHue, tintSaturation, tintLightness)
   const accentLightness = readableLightness(recipe.actionHue, recipe.energy, [canvasRgb], mode, 3)
@@ -402,8 +426,8 @@ export function deriveThemeTokens(recipe: ThemeRecipe, mode: ResolvedTheme): The
   const responseSolidLightness = solidLightness(recipe.responseHue, recipe.energy)
 
   const canvas = color(recipe.groundHue, groundSat, canvasLightness)
-  const panel = color(recipe.groundHue, clamp(groundSat * 0.75, 0, 44), panelLightness)
-  const panelTwo = color(recipe.groundHue, clamp(groundSat * 0.8, 0, 46), panelTwoLightness)
+  const panel = rgbToHex(panelRgb)
+  const panelTwo = rgbToHex(panelTwoRgb)
   const accentTint = rgbToHex(accentTintRgb)
   const responseTint = rgbToHex(responseTintRgb)
   const sidebar = recipe.rail === 'flush'
@@ -421,8 +445,8 @@ export function deriveThemeTokens(recipe: ThemeRecipe, mode: ResolvedTheme): The
     '--color-panel': panel,
     '--color-panel-2': panelTwo,
     '--color-ink': color(recipe.inkHue, clamp(8 + groundSat * 0.22, 8, 20), isLight ? 15 : 92),
-    '--color-ink-soft': color(recipe.inkHue, clamp(8 + groundSat * 0.12, 8, 16), isLight ? 36 : 70),
-    '--color-ink-faint': color(recipe.inkHue, clamp(6 + groundSat * 0.1, 6, 14), isLight ? 58 : 52),
+    '--color-ink-soft': color(recipe.inkHue, inkSaturation, inkSoftLightness),
+    '--color-ink-faint': color(recipe.inkHue, faintInkSaturation, inkFaintLightness),
     '--color-line': color(recipe.groundHue, clamp(groundSat * 0.55, 8, 30), lineLightness),
     '--color-line-strong': color(recipe.groundHue, clamp(groundSat * 0.62, 10, 34), strongLineLightness),
     '--color-accent': color(recipe.actionHue, recipe.energy, accentLightness),

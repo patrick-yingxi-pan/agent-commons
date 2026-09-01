@@ -66,7 +66,7 @@ test('resource leaves spend width on identity, not a repeated kind label', () =>
 })
 
 test('every leaf-like rail row keeps the lead column and mirrored partitions remain disclosure lists', () => {
-  assert.match(SIDEBAR_ENTRY_LEAD, /\bw-5\b/, 'one fixed lead width owns horizontal alignment')
+  assert.match(SIDEBAR_ENTRY_LEAD, /\bw-6\b/, 'one fixed, touch-safe lead width owns horizontal alignment')
   for (const name of ['ShowAllRow', 'NoRowsRow'] as const) {
     const start = children.indexOf(`export function ${name}`)
     const end = children.indexOf('\nexport ', start + 1)
@@ -94,6 +94,12 @@ test('every leaf-like rail row keeps the lead column and mirrored partitions rem
     /<RailTreeBranch id=\{listId\} role="list" aria-labelledby=\{headingId\}/,
     'the visible heading owns a semantically named, visibly nested resource list',
   )
+  assert.match(partition, /const listItems = Children\.map\(children,[\s\S]*role="listitem"/,
+    'every direct resource-list child receives the required list-item role')
+  assert.match(partition, /aria-label=\{fallbackLabel\}>\s*\{listItems\}/,
+    'an unlabelled static partition keeps the same direct list-item ownership')
+  assert.match(partition, /aria-labelledby=\{headingId\}>\s*\{listItems\}/,
+    'a labelled partition keeps the same direct list-item ownership')
   const scheduledStart = sidebar.indexOf('function ScheduledTreeChildren')
   const scheduledEnd = sidebar.indexOf('\nfunction ', scheduledStart + 1)
   const scheduled = sidebar.slice(scheduledStart, scheduledEnd)
