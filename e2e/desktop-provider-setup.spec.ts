@@ -64,7 +64,7 @@ test('desktop provider setup keeps its OS-encrypted key face reachable at every 
   }
 })
 
-test('a private provider rotates its device key through the write-only connection dialog', async ({ page }) => {
+test('a lost rotation acknowledgement retries the exact request and device key once', async ({ page }) => {
   test.setTimeout(ms(90_000))
   await page.addInitScript(() => {
     ;(window as any).__desktopCredentialCalls = []
@@ -100,16 +100,39 @@ test('a private provider rotates its device key through the write-only connectio
   await page.getByRole('button', { name: 'Update connection', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Update connection' })
   const replacement = 'replacement-key-that-must-not-enter-http'
-  const requests: unknown[] = []
-  page.on('request', (request) => {
-    if (request.url().endsWith(`/providers/${provider.id}/connection`)) requests.push(request.postDataJSON())
+  const requests: Array<{ body: unknown; key: string | undefined }> = []
+  let loseFirstAcknowledgement = true
+  await page.route(`**/api/v1/providers/${provider.id}/connection`, async (route) => {
+    const request = route.request()
+    requests.push({
+      body: request.postDataJSON(),
+      key: request.headers()['idempotency-key'],
+    })
+    if (loseFirstAcknowledgement) {
+      loseFirstAcknowledgement = false
+      const response = await route.fetch()
+      expect(response.ok()).toBeTruthy()
+      await route.abort('failed')
+      return
+    }
+    await route.continue()
   })
   await page.getByPlaceholder('Paste replacement API key', { exact: true }).fill(replacement)
   await page.getByRole('button', { name: 'Verify & update', exact: true }).click()
+  await expect(dialog.getByText('Couldn’t confirm whether this connection changed', { exact: false })).toBeVisible()
+  await expect(dialog.getByText('The result is uncertain', { exact: false })).toBeVisible()
+  await expect(page.getByPlaceholder('Paste replacement API key', { exact: true })).toBeDisabled()
+  await page.getByRole('button', { name: 'Retry update', exact: true }).click()
   await expect(dialog).toBeHidden()
 
-  expect(requests).toHaveLength(1)
-  expect(requests[0]).toEqual({ apiKeyEnv: `PROVIDER_DESKTOP_${'E'.repeat(32)}` })
+  expect(requests).toHaveLength(2)
+  expect(requests[0]!.body).toEqual({
+    apiKeyEnv: `PROVIDER_DESKTOP_${'E'.repeat(32)}`,
+    expectedRevision: 0,
+  })
+  expect(requests[1]!.body).toEqual(requests[0]!.body)
+  expect(requests[0]!.key).toBeTruthy()
+  expect(requests[1]!.key).toBe(requests[0]!.key)
   expect(JSON.stringify(requests)).not.toContain(replacement)
   expect(await page.evaluate(() => (window as any).__desktopCredentialCalls)).toEqual([
     ['provision', replacement],

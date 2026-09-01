@@ -1172,7 +1172,18 @@ export function buildRouter(): Router {
     // per-tenant pointer move below, never a stored field.)
     // (`catalogSource` is server-derived too — stripped so a request can't claim a
     // 'listed' catalog it declared by hand; the mint funnel stamps 'static'.)
-    const { config: endpoint, kind: _kind, secretHint: _hint, online: _online, isDefault, catalogSource: _src, defaultModelId: _dm, execution: _execution, ...fields } = input
+    const {
+      config: endpoint,
+      kind: _kind,
+      secretHint: _hint,
+      online: _online,
+      isDefault,
+      catalogSource: _src,
+      defaultModelId: _dm,
+      execution: _execution,
+      connectionRevision: _connectionRevision,
+      ...fields
+    } = input
     // Pick the three known endpoint fields explicitly (strings only) — a raw spread
     // would let arbitrary unknown JSON ride into the persisted server-only config
     // (including a forged `capabilities` record).
@@ -1219,31 +1230,62 @@ export function buildRouter(): Router {
   // existing catalog stays untouched.
   r.post('/providers/:id/models/refresh', async ({ req, res, params }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
+    const tenantId = store.identity(req.headers).tenant.id
+    const expectedRevision = store.listProviders(tenantId)
+      .find((provider) => provider.id === params.id)?.connectionRevision ?? 0
     const config = store.providerConfig(params.id)
     if (config.kind === 'session') {
       return sendError(res, 'conflict', 'A Session provider has no endpoint to list models from.')
     }
     const models = await fetchProviderModels(config)
     if (!models) return sendError(res, 'bad_request', 'The provider’s endpoint didn’t answer a model list.')
-    const provider = store.refreshProviderModels(params.id, models)
-    if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
-    // Re-read so the response carries the serve-time stamps (isDefault, online).
-    const tenantId = store.identity(req.headers).tenant.id
-    sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
+    try {
+      const provider = store.refreshProviderModels(params.id, models, expectedRevision)
+      if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
+      // Re-read so the response carries the serve-time stamps (isDefault, online).
+      sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
+    } catch (err) {
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
   // Replace selected fields of the server-only endpoint connection. The route
   // merges against the hidden current config, validates the effective reference,
   // and proves the effective endpoint before ONE store commit. A failed probe
   // therefore leaves the previously working endpoint/key/model intact. Reads
   // continue to return only the public provider row.
-  r.patch('/providers/:id/connection', async ({ req, res, params, body }) => {
+  r.patch('/providers/:id/connection', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
-    const current = store.providerConfig(params.id)
-    if (current.kind === 'session') {
-      return sendError(res, 'conflict', 'A Session provider has no endpoint connection to update.')
-    }
     try {
-      const update = providerConnectionUpdate(current, await body<UpdateProviderConnectionRequest>())
+      const input = await body<UpdateProviderConnectionRequest>()
+      const { expectedRevision, ...patch } = input ?? {}
+      if (
+        expectedRevision !== undefined &&
+        (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+      ) {
+        return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+      }
+      // Refuse an already-stale request before probing its caller-supplied
+      // endpoint. The store repeats this comparison at commit time to close a
+      // race while the network probe is in flight.
+      const tenantId = store.identity(req.headers).tenant.id
+      const publicProvider = store.listProviders(tenantId).find((provider) => provider.id === params.id)
+      const currentRevision = publicProvider?.connectionRevision ?? 0
+      if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+        return sendError(
+          res,
+          'conflict',
+          `This provider connection changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+        )
+      }
+      // Read the hidden connection only after the request/precondition. Another
+      // route can run while body parsing awaits; capturing it earlier would let
+      // a current revision merge against a stale hidden base.
+      const current = store.providerConfig(params.id)
+      if (current.kind === 'session') {
+        return sendError(res, 'conflict', 'A Session provider has no endpoint connection to update.')
+      }
+      const update = providerConnectionUpdate(current, patch)
       const next = update.config
       if (next.baseURL) next.capabilities = await probeProviderEndpoint(next)
       else delete next.capabilities
@@ -1257,17 +1299,17 @@ export function buildRouter(): Router {
           ? await fetchProviderModels(next) ?? null
           : null
         : undefined
-      const provider = store.replaceProviderConnection(params.id, next, catalog)
+      const provider = store.replaceProviderConnection(params.id, next, catalog, expectedRevision)
       if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
-      const tenantId = store.identity(req.headers).tenant.id
       sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
     } catch (err) {
       if (err instanceof ProviderProbeError || err instanceof ValidationError) {
         return sendError(res, 'bad_request', err.message)
       }
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   r.patch('/providers/:id', async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
     const patch = await body<UpdateProviderRequest>()

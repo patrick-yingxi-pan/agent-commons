@@ -76,6 +76,11 @@ export interface ModelProvider {
   /** Endpoint kind only, computed at read time from server-side configuration.
    * Never accepted as caller truth or persisted on the provider row. */
   execution?: ModelExecution
+  /** Endpoint kind only: server-owned ordering for the write-only connection
+   * and its endpoint-owned model catalog. A replacement may compare this value
+   * without learning the endpoint, model, or credential reference it protects.
+   * Legacy/seeded absence reads as zero. */
+  connectionRevision?: number
   /** Session kind only: the tail of the rendezvous secret for the masked
    *  `rv_live_••••3f9a` fingerprint. Never the secret (one-time-shown at mint/rotate). */
   secretHint?: string
@@ -165,8 +170,15 @@ export interface ProviderEndpointConfig {
  * connection. An absent field preserves its current value; explicit `null`
  * clears it. The effective connection is probed before the server commits the
  * swap, so a failed rotation leaves the working configuration untouched. */
-export type UpdateProviderConnectionRequest = {
+export type ProviderConnectionPatch = {
   [Field in keyof ProviderEndpointConfig]?: ProviderEndpointConfig[Field] | null
+}
+
+/** `expectedRevision` is an optional compare-and-swap precondition. Absence
+ * preserves legacy unconditional-write behavior; current clients always send
+ * the public provider's latest `connectionRevision`. */
+export type UpdateProviderConnectionRequest = ProviderConnectionPatch & {
+  expectedRevision?: number
 }
 
 /** Register a provider (the server mints the id). `config` is the write-only endpoint

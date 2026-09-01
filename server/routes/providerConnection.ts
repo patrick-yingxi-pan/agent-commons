@@ -2,7 +2,7 @@
  * Kept outside the route monolith so absence/clear behavior has one testable
  * owner: absent preserves, `null` clears, and only the three declared fields
  * may cross into the durable server config. */
-import type { UpdateProviderConnectionRequest } from '../../contract/index.ts'
+import type { ProviderConnectionPatch } from '../../contract/index.ts'
 import { ValidationError } from '../conflict.ts'
 import { validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 
@@ -11,7 +11,7 @@ const FIELD_LIMITS = {
   apiKeyEnv: 128,
   model: 256,
 } as const
-const FIELDS = Object.keys(FIELD_LIMITS) as Array<keyof UpdateProviderConnectionRequest>
+const FIELDS = Object.keys(FIELD_LIMITS) as Array<keyof ProviderConnectionPatch>
 
 function cleanString(field: keyof typeof FIELD_LIMITS, value: unknown): string | undefined {
   if (value === null) return undefined
@@ -45,13 +45,13 @@ export interface ProviderConnectionUpdate {
 
 export function providerConnectionUpdate(
   current: ProviderConfig,
-  input: UpdateProviderConnectionRequest,
+  input: ProviderConnectionPatch,
 ): ProviderConnectionUpdate {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     throw new ValidationError('A provider connection patch is required.')
   }
   const supplied = FIELDS.filter((field) => Object.hasOwn(input, field))
-  const unknown = Object.keys(input).filter((field) => !FIELDS.includes(field as keyof UpdateProviderConnectionRequest))
+  const unknown = Object.keys(input).filter((field) => !FIELDS.includes(field as keyof ProviderConnectionPatch))
   if (unknown.length) throw new ValidationError(`Unknown provider connection field '${unknown[0]}'.`)
   if (!supplied.length) throw new ValidationError('Name at least one provider connection field to update.')
 

@@ -10,6 +10,7 @@ import { store } from '../store/index.ts'
 import { DEFAULT_PROVIDER_ID } from '../data/providers.ts'
 import { startModelServer } from '../model/index.ts'
 import { call } from '../testkit/http.ts'
+import { ConflictError } from '../conflict.ts'
 
 test('POST creates a provider; GET lists it; PATCH edits its fields', async () => {
   const created = await call('POST', '/providers', {
@@ -185,6 +186,80 @@ test('PATCH connection rotates selected write-only fields only after a successfu
     delete process.env[previousReference]
     delete process.env[replacementReference]
     mock.close()
+  }
+})
+
+test('PATCH connection compares its revision and replays one logical replacement exactly once', async () => {
+  const mock = startModelServer(0, '127.0.0.1')
+  await new Promise<void>((resolve) => mock.on('listening', resolve))
+  const addr = mock.address()
+  const baseURL = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
+  try {
+    const created = await call('POST', '/providers', {
+      label: 'Revisioned connection',
+      modelFamily: 'claude',
+      effortLevels: ['High'],
+      connectionRevision: 91,
+      config: { baseURL, model: 'before-model' },
+    })
+    assert.equal(created.status, 200)
+    assert.equal(created.json.connectionRevision, 0, 'connection revision is server-owned')
+
+    const headers = { 'idempotency-key': `provider-connection-${created.json.id}` }
+    const replaced = await call('PATCH', `/providers/${created.json.id}/connection`, {
+      model: 'after-model',
+      expectedRevision: 0,
+    }, headers)
+    assert.equal(replaced.status, 200)
+    assert.equal(replaced.json.connectionRevision, 1)
+    assert.equal(store.providerConfig(created.json.id).model, 'after-model')
+
+    const replay = await call('PATCH', `/providers/${created.json.id}/connection`, {
+      model: 'after-model',
+      expectedRevision: 0,
+    }, headers)
+    assert.equal(replay.status, 200)
+    assert.equal(replay.json.connectionRevision, 1, 'one logical retry cannot advance the connection twice')
+
+    const refreshed = await call('POST', `/providers/${created.json.id}/models/refresh`, {})
+    assert.equal(refreshed.status, 200)
+    assert.equal(refreshed.json.connectionRevision, 2, 'the endpoint-owned catalog shares connection ordering')
+    const currentCatalog = refreshed.json.models
+    assert.throws(
+      () => store.refreshProviderModels(
+        created.json.id,
+        [{ id: 'stale-model', label: 'Stale model' }],
+        1,
+      ),
+      ConflictError,
+      'a catalog response fetched against an older endpoint cannot land late',
+    )
+    assert.deepEqual(
+      store.listProviders().find((provider) => provider.id === created.json.id)?.models,
+      currentCatalog,
+    )
+    await new Promise<void>((resolve, reject) => mock.close((error) => error ? reject(error) : resolve()))
+
+    const stale = await call('PATCH', `/providers/${created.json.id}/connection`, {
+      model: 'stale-model',
+      expectedRevision: 0,
+    })
+    assert.equal(stale.status, 409)
+    assert.equal(stale.json.error.code, 'conflict')
+    assert.equal(store.providerConfig(created.json.id).model, 'after-model', 'a stale request changes no hidden field')
+
+    const malformed = await call('PATCH', `/providers/${created.json.id}/connection`, {
+      model: 'invalid-precondition',
+      expectedRevision: -1,
+    })
+    assert.equal(malformed.status, 400)
+    assert.equal(store.providerConfig(created.json.id).model, 'after-model')
+
+    const forged = await call('PATCH', `/providers/${created.json.id}`, { connectionRevision: 72 })
+    assert.equal(forged.status, 200)
+    assert.equal(forged.json.connectionRevision, 2, 'ordinary provider edits cannot forge connection ordering')
+  } finally {
+    if (mock.listening) mock.close()
   }
 })
 

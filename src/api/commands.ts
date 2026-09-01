@@ -439,10 +439,41 @@ export async function refreshProviderModels(id: string): Promise<ModelProvider> 
 export async function updateProviderConnection(
   id: string,
   patch: UpdateProviderConnectionRequest,
+  idempotencyKey: string,
 ): Promise<ModelProvider> {
-  const provider = await apiPatch<ModelProvider>(paths.providerConnection(id), patch)
-  invalidate(keys.providers)
+  const provider = await apiPatch<ModelProvider>(paths.providerConnection(id), patch, { idempotencyKey })
+  acceptProviderConnection(provider)
   return provider
+}
+
+function acceptProviderConnection(provider: ModelProvider): void {
+  mutate<ModelProvider[]>(keys.providers, (rows) => {
+    const current = rows ?? []
+    const index = current.findIndex((candidate) => candidate.id === provider.id)
+    if (index < 0) return [...current, provider]
+    const previous = current[index]!
+    if (!shouldAcceptEntityRevision(previous.connectionRevision, provider.connectionRevision)) return current
+    return current.map((candidate, position) => position === index ? provider : candidate)
+  })
+}
+
+/** Re-read only the addressed provider after a conflict or uncertain response.
+ * Other registry rows remain untouched so one reconciliation cannot rewind an
+ * unrelated edit that landed while the list request was in flight. */
+export async function reconcileProviderConnection(id: string): Promise<ModelProvider | undefined> {
+  const rows = await apiGet<ModelProvider[]>(paths.providers)
+  const incoming = rows.find((candidate) => candidate.id === id)
+  const currentRows = peek<ModelProvider[]>(keys.providers)
+  if (!currentRows) {
+    setData(keys.providers, rows)
+    return incoming
+  }
+  if (!incoming) {
+    mutate<ModelProvider[]>(keys.providers, (current) => (current ?? []).filter((candidate) => candidate.id !== id))
+    return undefined
+  }
+  acceptProviderConnection(incoming)
+  return incoming
 }
 
 /** Patch a provider's own fields; refreshes the provider list. */

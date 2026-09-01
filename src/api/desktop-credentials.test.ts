@@ -49,6 +49,7 @@ test('web mode keeps the environment-reference path and cleanup is a safe no-op'
 
 test('the provider dialog switches only credential entry—not the provider HTTP contract', () => {
   const source = readFileSync(new URL('../components/SectionView.tsx', import.meta.url), 'utf8')
+  const commands = readFileSync(new URL('./commands.ts', import.meta.url), 'utf8')
   const start = source.indexOf('function ProviderDialog(')
   const end = source.indexOf('/** System prompts', start)
   const dialog = source.slice(start, end)
@@ -63,4 +64,12 @@ test('the provider dialog switches only credential entry—not the provider HTTP
   assert.match(source, /label="Update connection"/)
   assert.match(source, /placeholder="Paste replacement API key"/)
   assert.match(source, /replaceProviderConnection\(/, 'rotation uses the acknowledgement-gated controller sequence')
+  assert.match(source, /createProviderConnectionAttempt\(/, 'one dialog lifetime owns one retryable logical replacement')
+  assert.match(source, /provider\.connectionRevision \?\? 0/, 'the dialog pins the public connection revision it reviewed')
+  const connectionCommand = commands.slice(
+    commands.indexOf('export async function updateProviderConnection'),
+    commands.indexOf('/** Patch a provider', commands.indexOf('export async function updateProviderConnection')),
+  )
+  assert.match(connectionCommand, /idempotencyKey: string/)
+  assert.match(connectionCommand, /apiPatch<ModelProvider>\([^]*\{ idempotencyKey \}\)/)
 })

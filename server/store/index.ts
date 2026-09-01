@@ -1629,11 +1629,27 @@ function sweepSessionModelPicks(): void {
  *  the refresh route) and stamp how it was obtained. Session model picks the new
  *  catalog no longer lists are cleared by the invariant sweep — the same
  *  documented cascade as a provider delete (the pick's namespace changed). */
-function replaceProviderModels(id: string, models: ModelInfo[], source: 'listed' | 'static'): ModelProvider | undefined {
+function replaceProviderModels(
+  id: string,
+  models: ModelInfo[],
+  source: 'listed' | 'static',
+  expectedRevision?: number,
+): ModelProvider | undefined {
   const current = MODEL_PROVIDERS.get(id)
   if (!current) return undefined
+  const currentRevision = current.connectionRevision ?? 0
+  if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+    throw new ConflictError(
+      `This provider connection changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+    )
+  }
   assertCatalogModels(models)
-  const next: ModelProvider = { ...current, models, catalogSource: source }
+  const next: ModelProvider = {
+    ...current,
+    models,
+    catalogSource: source,
+    connectionRevision: currentRevision + 1,
+  }
   MODEL_PROVIDERS.set(id, next)
   sweepSessionModelPicks()
   persist()
@@ -3895,6 +3911,7 @@ export const store = {
             // snapshot truth.
             {
               ...p,
+              connectionRevision: p.connectionRevision ?? 0,
               defaultModelId: resolvedModelId(PROVIDER_CONFIGS.get(p.id)),
               execution: endpointExecution(PROVIDER_CONFIGS.get(p.id)),
             },
@@ -3984,8 +4001,19 @@ export const store = {
     // `isDefault` and `defaultModelId` are stripped: both are serve-time stamps
     // (the per-tenant pointer; the config-resolved model) — stored on the entity
     // they would leak across tenants / drift from the config they mirror.
-    const { isDefault: _default, defaultModelId: _dm, execution: _execution, ...fields } = input
-    const provider: ModelProvider = { ...fields, id: `provider-${(providerSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
+    const {
+      isDefault: _default,
+      defaultModelId: _dm,
+      execution: _execution,
+      connectionRevision: _connectionRevision,
+      ...fields
+    } = input
+    const provider: ModelProvider = {
+      ...fields,
+      id: `provider-${(providerSeq += 1)}`,
+      tenantId: tenantId ?? input.tenantId,
+      ...(config.kind === 'session' ? {} : { connectionRevision: 0 }),
+    }
     if (!provider.models) delete provider.catalogSource
     else provider.catalogSource ??= 'static'
     MODEL_PROVIDERS.set(provider.id, provider)
@@ -4025,6 +4053,7 @@ export const store = {
       isDefault: _default,
       defaultModelId: _dm,
       execution: _execution,
+      connectionRevision: _connectionRevision,
       models: patchModels,
       catalogSource: _src,
       ...safe
@@ -4047,9 +4076,16 @@ export const store = {
     id: string,
     config: ProviderConfig,
     catalog?: ModelInfo[] | null,
+    expectedRevision?: number,
   ): ModelProvider | undefined {
     const current = MODEL_PROVIDERS.get(id)
     if (!current) return undefined
+    const currentRevision = current.connectionRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This provider connection changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     if (PROVIDER_CONFIGS.get(id)?.kind === 'session' || config.kind === 'session') {
       throw new ValidationError('A Session provider has no endpoint connection to update.')
     }
@@ -4062,12 +4098,12 @@ export const store = {
     if (Array.isArray(catalog)) assertCatalogModels(catalog)
 
     PROVIDER_CONFIGS.set(id, config)
-    let next = current
+    let next: ModelProvider = { ...current, connectionRevision: currentRevision + 1 }
     if (catalog === null) {
-      const { models: _models, catalogSource: _source, ...withoutCatalog } = current
+      const { models: _models, catalogSource: _source, ...withoutCatalog } = next
       next = withoutCatalog
     } else if (catalog !== undefined) {
-      next = { ...current, models: catalog, catalogSource: 'listed' }
+      next = { ...next, models: catalog, catalogSource: 'listed' }
     }
     MODEL_PROVIDERS.set(id, next)
     if (catalog !== undefined) sweepSessionModelPicks()
@@ -4076,8 +4112,8 @@ export const store = {
   },
   /** Replace a provider's model catalog from its endpoint's list API (the refresh
    *  route) — the 'listed' source stamp is earned only here and at registration. */
-  refreshProviderModels(id: string, models: ModelInfo[]): ModelProvider | undefined {
-    return replaceProviderModels(id, models, 'listed')
+  refreshProviderModels(id: string, models: ModelInfo[], expectedRevision?: number): ModelProvider | undefined {
+    return replaceProviderModels(id, models, 'listed', expectedRevision)
   },
   /** Rotate a Session provider's rendezvous secret — the kill switch (§7.5),
    *  immediate and total: the stored hash is replaced (no old-hash grace), the
