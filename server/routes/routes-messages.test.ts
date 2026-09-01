@@ -40,6 +40,39 @@ test('a relation-op turn emits message.relations with the proposed op', async ()
   assert.match(body, /"kind":"save-artifact"/)
 })
 
+test('Project prose proposals freeze the live resolved field before delayed consent', async () => {
+  const stamp = Date.now().toString(36)
+  const projectId = `p-model-prose-${stamp}`
+  const projectName = `Model prose ${stamp}`
+  store.applyRelationOp({
+    kind: 'create-project',
+    projectId,
+    projectName,
+    projectDescription: 'Current public copy',
+  })
+  store.applyRelationOp({
+    kind: 'set-project-instructions',
+    projectId,
+    projectName,
+    instructions: 'Current private guidance',
+  })
+  const session = store.createSession('model prose precondition')
+
+  const description = await callRaw('POST', `/sessions/${session.id}/messages`, {
+    text: `Update the description for ${projectName} saying "Proposed public copy".`,
+    ephemeral: true,
+  })
+  assert.match(description.body, /"kind":"set-project-description"/)
+  assert.match(description.body, /"expectedDescription":"Current public copy"/)
+
+  const instructions = await callRaw('POST', `/sessions/${session.id}/messages`, {
+    text: `Set project instructions for ${projectName}: Proposed private guidance`,
+    ephemeral: true,
+  })
+  assert.match(instructions.body, /"kind":"set-project-instructions"/)
+  assert.match(instructions.body, /"expectedInstructions":"Current private guidance"/)
+})
+
 test('ephemeral turns do not persist — message count is unchanged', async () => {
   const before = (await call('GET', '/sessions/auth-refactor')).json.messages?.length ?? 0
   await callRaw('POST', '/sessions/auth-refactor/messages', { text: PROJECT_MSG, ephemeral: true })

@@ -58,6 +58,7 @@ import {
   type EffectReport,
   type SyncEffectsResult,
   type PushRecentRequest,
+  type Project,
   type RecentsSnapshot,
   type RelationGraph,
   type RelationOp,
@@ -281,13 +282,51 @@ export function acceptRelationOp(op: RelationOp, updated: RelationGraph): void {
   }
   // Agent Commons CRUD ops edit registries rather than graph slices.
   invalidateForCommonsOp(op)
+  invalidateForProjectProse(op)
+}
+
+function invalidateForProjectProse(op: RelationOp): void {
+  if (op.kind !== 'set-project-description') return
+  invalidatePrefix(keys.ownerProfile())
+  invalidatePrefix(keys.search())
+  invalidatePrefix(keys.directoryProjects())
 }
 
 /** Re-read after a discarded/uncertain relation mutation. The server may have
- * committed even when the acknowledgement was lost. */
-export function reconcileRelationOp(op: RelationOp): void {
-  invalidate(keys.relations)
+ * committed even when the acknowledgement was lost. Return the newest accepted
+ * snapshot so a conflict-safe caller can rebase a held field precondition. */
+export async function reconcileRelationOp(op: RelationOp): Promise<RelationGraph> {
+  const incoming = await apiGet<RelationGraph>(paths.relations)
+  const cached = peek<RelationGraph>(keys.relations)
+  const current = shouldAcceptRelationGraph(cached, incoming) ? incoming : (cached ?? incoming)
+  if (current === incoming) setData(keys.relations, incoming)
   invalidateForCommonsOp(op)
+  invalidateForProjectProse(op)
+  return current
+}
+
+/** Refresh and replace only a Project prose precondition. The desired text is
+ * held verbatim; Retry is therefore an explicit "apply mine over latest" act,
+ * while unrelated relation operations never acquire invented preconditions. */
+export async function rebaseRelationOp(op: RelationOp): Promise<RelationOp> {
+  if (op.kind !== 'set-project-description' && op.kind !== 'set-project-instructions') return op
+  const [graph, projects] = await Promise.all([
+    reconcileRelationOp(op),
+    apiGet<Project[]>(paths.projects),
+  ])
+  setData(keys.projects, projects)
+  const project = graph.extraProjects.find((candidate) => candidate.id === op.projectId)
+    ?? projects.find((candidate) => candidate.id === op.projectId)
+  if (op.kind === 'set-project-description') {
+    return {
+      ...op,
+      expectedDescription: graph.projectDescriptions[op.projectId] ?? project?.description ?? '',
+    }
+  }
+  return {
+    ...op,
+    expectedInstructions: graph.projectInstructions[op.projectId] ?? project?.instructions ?? '',
+  }
 }
 
 // ── Scheduled routines ──────────────────────────────────────────────────────

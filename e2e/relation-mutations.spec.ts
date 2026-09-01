@@ -60,3 +60,80 @@ test('a failed project create stays in place and retries the same logical mutati
   const after = await (await page.request.get('/api/v1/relations')).json()
   expect(after.extraProjects.filter((project: { name: string }) => project.name === name)).toHaveLength(1)
 })
+
+test('a two-device Project prose conflict holds the draft and rebases an explicit Retry', async ({ page }) => {
+  test.setTimeout(ms(60_000))
+  const stamp = Date.now().toString(36)
+  const name = `Conflict-safe prose ${stamp}`
+  const opening = 'Opening description reviewed in this editor.'
+  const remote = 'Newer description from another device.'
+  const held = 'My exact held description draft.'
+
+  const createdResponse = await page.request.post('/api/v1/projects', {
+    headers: { 'Idempotency-Key': `e2e-project-prose-create-${stamp}` },
+    data: { name, description: opening },
+  })
+  expect(createdResponse.ok()).toBe(true)
+  const created = await createdResponse.json() as { project: { id: string } }
+
+  await page.goto(`/projects/${created.project.id}`)
+  await expect(page.getByRole('heading', { name })).toBeVisible({ timeout: ms(20_000) })
+  await page.getByRole('button', { name: /^Edit description/ }).click()
+  const editor = page.getByLabel('Project description')
+  await editor.fill(held)
+
+  // The other device lands after this editor froze `opening` as its reviewed
+  // pre-image. Ambient sync may refresh the summary, but it must not rewrite the
+  // controlled textarea or silently move the save precondition.
+  const remoteResponse = await page.request.post('/api/v1/relations/ops', {
+    headers: { 'Idempotency-Key': `e2e-project-prose-remote-${stamp}` },
+    data: { op: {
+      kind: 'set-project-description',
+      projectId: created.project.id,
+      projectName: name,
+      description: remote,
+      expectedDescription: opening,
+    } },
+  })
+  expect(remoteResponse.status()).toBe(200)
+  await expect(editor).toHaveValue(held)
+
+  const attempts: Array<{ key: string; op: Record<string, unknown> }> = []
+  await page.route('**/api/v1/relations/ops', async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON() as { op: Record<string, unknown> }
+      if (body.op.projectId === created.project.id && body.op.description === held) {
+        attempts.push({
+          key: route.request().headers()['idempotency-key'] ?? '',
+          op: body.op,
+        })
+      }
+    }
+    await route.continue()
+  })
+
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  const failed = page.locator('[data-relation-mutation="failed"]')
+  await expect(failed).toContainText('This Project changed elsewhere')
+  await expect(editor).toBeDisabled()
+  await expect(editor).toHaveValue(held)
+  expect(attempts).toHaveLength(1)
+  expect(attempts[0]!.op.expectedDescription).toBe(opening)
+
+  const about = page.locator('[data-resource-section="About"]')
+  await about.locator('button[aria-expanded]').click()
+  await expect(about).toContainText(remote, { timeout: ms(20_000) })
+  await about.locator('button[aria-expanded]').click()
+  await expect(editor).toBeDisabled()
+  await expect(editor).toHaveValue(held)
+
+  await failed.getByRole('button', { name: 'Retry' }).click()
+  await expect(failed).toHaveCount(0)
+  await expect(editor).toHaveCount(0)
+  await expect(page.getByText(held, { exact: true })).toBeVisible()
+  expect(attempts).toHaveLength(2)
+  expect(attempts[0]!.key).not.toBe('')
+  expect(attempts[1]!.key).toBe(attempts[0]!.key)
+  expect(attempts[1]!.op.description).toBe(held)
+  expect(attempts[1]!.op.expectedDescription).toBe(remote)
+})

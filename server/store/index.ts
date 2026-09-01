@@ -8699,6 +8699,27 @@ export const store = {
    *   • Every other op is a relationship-graph edit, applied by the pure reducer.
    *  All three broadcast `relation.applied` and persist. */
   applyRelationOp(op: RelationOp, tenantId?: string): RelationGraph {
+    // Project prose has no independent row object/revision, so compare the
+    // exact field the author reviewed. This avoids a coarse graph-revision
+    // fence: filing a Conversation or editing an unrelated Project must not
+    // make a valid prose save stale. Absence deliberately preserves the legacy
+    // unconditional-write contract for older callers.
+    if (op.kind === 'set-project-description' && op.expectedDescription !== undefined) {
+      const current = graph.projectDescriptions[op.projectId]
+        ?? findProject(op.projectId)?.description
+        ?? ''
+      if (op.expectedDescription !== current) {
+        throw new ConflictError('This Project description changed elsewhere.')
+      }
+    }
+    if (op.kind === 'set-project-instructions' && op.expectedInstructions !== undefined) {
+      const current = graph.projectInstructions[op.projectId]
+        ?? findProject(op.projectId)?.instructions
+        ?? ''
+      if (op.expectedInstructions !== current) {
+        throw new ConflictError("This Project's instructions changed elsewhere.")
+      }
+    }
     // A current document save is one compound durable act: validate and
     // normalize its authored body before the graph can mint metadata, then lay
     // the body under the minted id before the single persist below. Historical

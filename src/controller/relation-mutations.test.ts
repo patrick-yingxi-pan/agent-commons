@@ -45,7 +45,10 @@ const project = (name: string): Project => ({
 })
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 
-function harness(options: { throwOnCommit?: boolean } = {}) {
+function harness(options: {
+  throwOnCommit?: boolean
+  reconcile?: (relation: RelationOp) => Promise<unknown> | void
+} = {}) {
   const calls: Call[] = []
   const commits: Array<{ op: RelationOp; graph: RelationGraph }> = []
   const reconciled: RelationOp[] = []
@@ -60,7 +63,11 @@ function harness(options: { throwOnCommit?: boolean } = {}) {
       if (options.throwOnCommit) throw new Error('projection failed')
       commits.push({ op: relation, graph: returned })
     },
-    reconcile: (relation) => reconciled.push(relation),
+    reconcile: (relation) => {
+      reconciled.push(relation)
+      return options.reconcile?.(relation)
+    },
+    rebase: async (relation) => relation,
     describeFailure: () => ({ message: 'Couldn’t confirm.', retryable: true }),
     createProject: (input, idempotencyKey) =>
       new Promise<Project>((resolve, reject) => projectCalls.push({ input, idempotencyKey, resolve, reject })),
@@ -110,6 +117,7 @@ test('failure holds later intent and Retry reuses the same logical idempotency k
   h.controller.retry()
   assert.equal(h.calls.length, 2)
   assert.equal(h.calls[1]!.idempotencyKey, firstKey, 'retry is retransmission, not a second mutation')
+  assert.deepEqual(h.calls[1]!.op, h.calls[0]!.op, 'transport retry keeps the exact precondition too')
   h.calls[1]!.resolve(graph(1))
   await tick()
   assert.equal(await first, 'applied')
@@ -117,6 +125,54 @@ test('failure holds later intent and Retry reuses the same logical idempotency k
   h.calls[2]!.resolve(graph(2))
   await tick()
   assert.equal(await second, 'applied')
+})
+
+test('a Project prose conflict rebases only its precondition and keeps desired text plus logical key', async () => {
+  const calls: Call[] = []
+  const statuses: RelationMutationStatus[] = []
+  const rebased: RelationOp[] = []
+  const controller = createRelationMutationController({
+    mutate: (relation, idempotencyKey) =>
+      new Promise<RelationGraph>((resolve, reject) => calls.push({ op: relation, idempotencyKey, resolve, reject })),
+    commit: () => {},
+    reconcile: async () => {},
+    rebase: async (relation) => {
+      const next = relation.kind === 'set-project-description'
+        ? { ...relation, expectedDescription: 'Remote text' }
+        : relation
+      rebased.push(next)
+      return next
+    },
+    describeFailure: () => ({ message: 'Project changed.', retryable: true, rebase: true }),
+    createProject: async () => project('unused'),
+    reconcileProject: async () => {},
+    describeProjectFailure: () => ({ message: 'unused', retryable: false }),
+    setStatus: (status) => statuses.push(status),
+    mintIdempotencyKey: () => 'idem-project-prose',
+  })
+  const held: RelationOp = {
+    kind: 'set-project-description',
+    projectId: 'p-live',
+    projectName: 'Live',
+    description: 'My held draft',
+    expectedDescription: 'Opening text',
+  }
+  const result = controller.enqueue(held)
+  calls[0]!.reject(new Error('409'))
+  await tick()
+  assert.equal(statuses.at(-1)?.error, 'Project changed.')
+  assert.equal(rebased.length, 1, 'authoritative text is loaded before Retry is offered')
+
+  controller.retry()
+  assert.equal(calls.length, 2)
+  assert.equal(calls[1]!.idempotencyKey, calls[0]!.idempotencyKey)
+  assert.deepEqual(calls[1]!.op, {
+    ...held,
+    expectedDescription: 'Remote text',
+  })
+  calls[1]!.resolve(graph(2))
+  await tick()
+  assert.equal(await result, 'applied')
 })
 
 test('Dismiss reconciles an uncertain head, settles it discarded, and advances the queue', async () => {
@@ -130,6 +186,31 @@ test('Dismiss reconciles an uncertain head, settles it discarded, and advances t
   assert.equal(await first, 'discarded')
   assert.deepEqual(h.reconciled.map((entry) => entry.kind === 'create-project' && entry.projectId), ['one'])
   assert.equal(h.calls.length, 2, 'later intent begins after the explicit dismissal')
+  h.calls[1]!.resolve(graph(1))
+  await tick()
+  assert.equal(await second, 'applied')
+})
+
+test('Dismiss waits for authoritative reconciliation before settling or releasing later intent', async () => {
+  let release!: () => void
+  const reconciliation = new Promise<void>((resolve) => { release = resolve })
+  const h = harness({ reconcile: () => reconciliation })
+  const first = h.controller.enqueue(op('one'))
+  const second = h.controller.enqueue(op('two'))
+  h.calls[0]!.reject(new Error('offline'))
+  await tick()
+
+  let settled = false
+  void first.then(() => { settled = true })
+  h.controller.discard()
+  await tick()
+  assert.equal(settled, false, 'dismissed outcome waits for the authoritative read')
+  assert.equal(h.calls.length, 1, 'later intent cannot plan against stale graph state')
+
+  release()
+  await tick()
+  assert.equal(await first, 'discarded')
+  assert.equal(h.calls.length, 2)
   h.calls[1]!.resolve(graph(1))
   await tick()
   assert.equal(await second, 'applied')

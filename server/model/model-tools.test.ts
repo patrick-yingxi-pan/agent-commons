@@ -92,6 +92,45 @@ for (const c of RELATION_CASES) {
   })
 }
 
+test('Project prose proposals freeze the exact live text reviewed by the model', () => {
+  const live: ToolContext = {
+    session: ctx.session,
+    commons: {
+      providers: [],
+      systemPrompts: [],
+      agents: [],
+      commissions: [],
+      projects: [{
+        id: 'p-live',
+        name: 'Live Project',
+        description: 'Current public text',
+        instructions: 'Current private guidance',
+      }],
+    },
+  }
+  const description = executeTool(
+    'set_project_description',
+    { project: 'Live Project', description: 'Proposed public text' },
+    live,
+  ).relationOps?.[0]
+  assert.equal(description?.kind, 'set-project-description')
+  if (description?.kind === 'set-project-description') {
+    assert.equal(description.expectedDescription, 'Current public text')
+    assert.equal(description.description, 'Proposed public text')
+  }
+
+  const instructions = executeTool(
+    'set_project_instructions',
+    { project: 'Live Project', instructions: 'Proposed private guidance' },
+    live,
+  ).relationOps?.[0]
+  assert.equal(instructions?.kind, 'set-project-instructions')
+  if (instructions?.kind === 'set-project-instructions') {
+    assert.equal(instructions.expectedInstructions, 'Current private guidance')
+    assert.equal(instructions.instructions, 'Proposed private guidance')
+  }
+})
+
 test('save_artifact refuses blank content and bounds proposal text before it reaches consent history', () => {
   const blank = executeTool('save_artifact', { name: 'blank.md', body: ' \n ' }, ctx)
   assert.equal(blank.relationOps, undefined)

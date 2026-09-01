@@ -6,8 +6,8 @@ import type {
   Project,
   RelationGraph,
 } from '../../contract/index.ts'
-import { apiPost } from './client.ts'
-import { invalidate, invalidatePrefix, peek, setData } from './cache.ts'
+import { apiGet, apiPost } from './client.ts'
+import { invalidatePrefix, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { shouldAcceptRelationGraph } from './relationRevision.ts'
 
@@ -27,7 +27,14 @@ export async function createProject(
   return created.project
 }
 
-/** Re-read runtime Projects after an uncertain create acknowledgement. */
-export function reconcileProjectCreation(): void {
-  invalidate(keys.relations)
+/** Re-read runtime Projects after an uncertain create acknowledgement. Wait for
+ * server truth before the shared FIFO releases later relation intent. */
+export async function reconcileProjectCreation(): Promise<void> {
+  const incoming = await apiGet<RelationGraph>(paths.relations)
+  if (shouldAcceptRelationGraph(peek<RelationGraph>(keys.relations), incoming)) {
+    setData(keys.relations, incoming)
+  }
+  invalidatePrefix(keys.ownerProfile())
+  invalidatePrefix(keys.search())
+  invalidatePrefix(keys.directoryProjects())
 }

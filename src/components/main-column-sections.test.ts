@@ -410,6 +410,11 @@ test('the project has ONE text about itself — the description, and About is it
   )
   assert.match(fn('ProjectAbout'), /const current = project\.description/, 'About reads the resolved field')
   assert.match(fn('ProjectAbout'), /kind: 'set-project-description'/, 'and edits the one field')
+  assert.match(fn('ProjectAbout'), /setReviewed\(current\)/, 'opening freezes the reviewed public text')
+  assert.match(fn('ProjectAbout'), /expectedDescription: reviewed/, 'the save sends that frozen public text')
+  assert.match(fn('ProjectAbout'), /editing && !wasEditing\.current/, 'ambient refresh cannot erase an open held draft')
+  assert.match(fn('ProjectInstructions'), /setReviewed\(current\)/, 'instructions freeze their reviewed private text')
+  assert.match(fn('ProjectInstructions'), /expectedInstructions: reviewed/, 'the private save sends its frozen text')
   // …and the sub-line is gone from the page header, which is the duplication a
   // reader could actually SEE.
   const detail = fn('ProjectDetail')

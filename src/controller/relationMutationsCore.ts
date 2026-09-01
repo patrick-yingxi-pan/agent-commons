@@ -20,6 +20,8 @@ export type ProjectCreationOutcome =
 export interface RelationMutationFailure {
   message: string
   retryable: boolean
+  /** A conflict-safe field must refresh its exact precondition before retry. */
+  rebase?: boolean
 }
 
 export interface RelationMutationStatus {
@@ -34,10 +36,11 @@ export interface RelationMutationStatus {
 export interface RelationMutationDeps {
   mutate: (op: RelationOp, idempotencyKey: string) => Promise<RelationGraph>
   commit: (op: RelationOp, returned: RelationGraph) => void
-  reconcile: (op: RelationOp) => void
-  describeFailure: (error: unknown) => RelationMutationFailure
+  reconcile: (op: RelationOp) => Promise<unknown> | void
+  rebase: (op: RelationOp) => Promise<RelationOp>
+  describeFailure: (error: unknown, op: RelationOp) => RelationMutationFailure
   createProject: (input: CreateProjectRequest, idempotencyKey: string) => Promise<Project>
-  reconcileProject: (input: CreateProjectRequest) => void
+  reconcileProject: (input: CreateProjectRequest) => Promise<unknown> | void
   describeProjectFailure: (error: unknown) => RelationMutationFailure
   setStatus: (status: RelationMutationStatus) => void
   mintIdempotencyKey: () => string
@@ -47,7 +50,8 @@ interface QueueEntry {
   key: string
   execute: () => Promise<() => void>
   describeFailure: (error: unknown) => RelationMutationFailure
-  reconcile: () => void
+  reconcile: () => Promise<unknown> | void
+  rebase?: () => Promise<void>
   discard: () => void
 }
 
@@ -93,10 +97,21 @@ export function createRelationMutationController(deps: RelationMutationDeps) {
         publish()
         drain()
       },
-      (error: unknown) => {
+      async (error: unknown) => {
+        if (generation !== issuedGeneration || queue[0] !== entry) return
+        let described = entry.describeFailure(error)
+        if (described.rebase && entry.rebase) {
+          try {
+            await entry.rebase()
+            described = { ...described, rebase: false }
+          } catch {
+            // Retry will make another bounded reconciliation attempt. Keep the
+            // original conflict visible and the held queue head in place.
+          }
+        }
         if (generation !== issuedGeneration || queue[0] !== entry) return
         running = false
-        failure = entry.describeFailure(error)
+        failure = described
         publish()
       },
     )
@@ -104,21 +119,28 @@ export function createRelationMutationController(deps: RelationMutationDeps) {
 
   const enqueue = (op: RelationOp): Promise<RelationMutationOutcome> => {
     const idempotencyKey = deps.mintIdempotencyKey()
+    let currentOp = op
     const promise = new Promise<RelationMutationOutcome>((settle) => {
       queue.push({
         key: opKey(op),
-        execute: () => deps.mutate(op, idempotencyKey).then((returned) => () => {
-          // Projection bugs after a successful server commit must not turn the
-          // transport into a fake failure. Reconciliation still has the SSE/read path.
-          try {
-            deps.commit(op, returned)
-          } catch {
-            deps.reconcile(op)
-          }
-          settle('applied')
-        }),
-        describeFailure: deps.describeFailure,
-        reconcile: () => deps.reconcile(op),
+        execute: () => {
+          const issuedOp = currentOp
+          return deps.mutate(issuedOp, idempotencyKey).then((returned) => () => {
+            // Projection bugs after a successful server commit must not turn the
+            // transport into a fake failure. Reconciliation still has the SSE/read path.
+            try {
+              deps.commit(issuedOp, returned)
+            } catch {
+              void Promise.resolve(deps.reconcile(issuedOp)).catch(() => {})
+            }
+            settle('applied')
+          })
+        },
+        describeFailure: (error) => deps.describeFailure(error, currentOp),
+        reconcile: () => deps.reconcile(currentOp),
+        rebase: async () => {
+          currentOp = await deps.rebase(currentOp)
+        },
         discard: () => settle('discarded'),
       })
     })
@@ -146,6 +168,32 @@ export function createRelationMutationController(deps: RelationMutationDeps) {
 
   const retry = (): void => {
     if (!failure || running || queue.length === 0 || !failure.retryable) return
+    const entry = queue[0]!
+    if (failure.rebase && entry.rebase) {
+      const issuedGeneration = generation
+      running = true
+      publish()
+      void entry.rebase().then(
+        () => {
+          if (generation !== issuedGeneration || queue[0] !== entry) return
+          running = false
+          failure = null
+          publish()
+          drain()
+        },
+        () => {
+          if (generation !== issuedGeneration || queue[0] !== entry) return
+          running = false
+          failure = {
+            message: 'Couldn’t load the latest Project text. Your draft is still here—retry when the connection recovers.',
+            retryable: true,
+            rebase: true,
+          }
+          publish()
+        },
+      )
+      return
+    }
     failure = null
     publish()
     drain()
@@ -153,14 +201,22 @@ export function createRelationMutationController(deps: RelationMutationDeps) {
 
   const discard = (): void => {
     if (!failure || running || queue.length === 0) return
-    const entry = queue.shift()!
+    const entry = queue[0]!
+    const issuedGeneration = generation
     failure = null
-    // A transport failure is uncertain: the server may have committed before
-    // the response was lost. Re-read rather than pretending dismissal undid it.
-    entry.reconcile()
-    entry.discard()
+    running = true
     publish()
-    drain()
+    // A transport failure is uncertain: the server may have committed before
+    // the response was lost. Re-read BEFORE releasing later intent rather than
+    // pretending dismissal undid it or letting the next op pin stale truth.
+    void Promise.resolve(entry.reconcile()).catch(() => {}).finally(() => {
+      if (generation !== issuedGeneration || queue[0] !== entry) return
+      queue.shift()
+      running = false
+      entry.discard()
+      publish()
+      drain()
+    })
   }
 
   const clearAll = (): void => {

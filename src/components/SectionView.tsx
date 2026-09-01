@@ -1633,15 +1633,20 @@ function ProjectAbout({
   // what hub search matches. One read, one value, everywhere.
   const current = project.description
   const [draft, setDraft] = useState(current)
+  const [reviewed, setReviewed] = useState(current)
   const [saving, setSaving] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const wasEditing = useRef(false)
   // The draft is seeded when the EDITOR opens, not when this mounts: the verb
   // that opens it is a page away now, so "on mount" would capture a stale value
   // for the whole life of the page.
   useEffect(() => {
-    if (!editing) return
-    setDraft(current)
-    taRef.current?.focus()
+    if (editing && !wasEditing.current) {
+      setDraft(current)
+      setReviewed(current)
+      taRef.current?.focus()
+    }
+    wasEditing.current = editing
   }, [editing, current])
   if (!current && !own) return null
   const save = () => {
@@ -1652,6 +1657,7 @@ function ProjectAbout({
       projectId: project.id,
       projectName: project.name,
       description: draft.trim(),
+      expectedDescription: reviewed,
     }).then((outcome) => {
       setSaving(false)
       if (outcome === 'applied') onDone()
@@ -1669,6 +1675,7 @@ function ProjectAbout({
             ref={taRef}
             value={draft}
             disabled={saving}
+            maxLength={10_000}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') onDone()
@@ -1723,11 +1730,13 @@ function ProjectInstructions({ project }: { project: Project }) {
   const current = rel.instructionsForProject(project.id) ?? project.instructions
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(current)
+  const [reviewed, setReviewed] = useState(current)
   const [saving, setSaving] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   const startEdit = () => {
     setDraft(current)
+    setReviewed(current)
     setEditing(true)
   }
   const save = () => {
@@ -1738,6 +1747,7 @@ function ProjectInstructions({ project }: { project: Project }) {
       projectId: project.id,
       projectName: project.name,
       instructions: draft.trim(),
+      expectedInstructions: reviewed,
     }).then((outcome) => {
       setSaving(false)
       if (outcome === 'applied') setEditing(false)

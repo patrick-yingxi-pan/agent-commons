@@ -5,12 +5,14 @@ import {
   ApiRequestError,
   applyRelationOp,
   onAccountSwitch,
+  rebaseRelationOp,
   reconcileRelationOp,
   resolveMessageRelation,
 } from '../api'
+import type { RelationOp } from '../../contract/index.ts'
 import type { RelationMutationDeps, RelationMutationFailure } from './relationMutationsCore'
 
-export function describeRelationMutationFailure(error: unknown): RelationMutationFailure {
+export function describeRelationMutationFailure(error: unknown, op: RelationOp): RelationMutationFailure {
   if (error instanceof AccountSwitchedError) {
     return {
       message: 'The account for that change could not be verified. Dismiss it and try again from the current account.',
@@ -19,6 +21,13 @@ export function describeRelationMutationFailure(error: unknown): RelationMutatio
   }
   if (error instanceof ApiRequestError) {
     if (error.status === 409) {
+      if (op.kind === 'set-project-description' || op.kind === 'set-project-instructions') {
+        return {
+          message: 'This Project changed elsewhere. Your draft is still held—Retry to apply it over the latest text, or Dismiss to compare.',
+          retryable: true,
+          rebase: true,
+        }
+      }
       return {
         message: 'That change conflicts with newer information. Dismiss it, review the latest state, and try again.',
         retryable: false,
@@ -86,12 +95,12 @@ export const relationMutationDeps = {
   mutate: applyRelationOp,
   commit: acceptRelationOp,
   reconcile: reconcileRelationOp,
+  rebase: rebaseRelationOp,
   describeFailure: describeRelationMutationFailure,
   createProject: (input, idempotencyKey) =>
     import('../api/projectCommands.ts').then(({ createProject }) => createProject(input, idempotencyKey)),
-  reconcileProject: () => {
-    void import('../api/projectCommands.ts').then(({ reconcileProjectCreation }) => reconcileProjectCreation())
-  },
+  reconcileProject: () => import('../api/projectCommands.ts')
+    .then(({ reconcileProjectCreation }) => reconcileProjectCreation()),
   describeProjectFailure: describeProjectCreationFailure,
   mintIdempotencyKey: () => crypto.randomUUID(),
 } satisfies Omit<RelationMutationDeps, 'setStatus'>

@@ -55,9 +55,95 @@ test('the description is public on a shared project; instructions stay private; 
     { 'x-tenant-id': A },
   )
   assert.equal(malformed.status, 400)
+  const malformedInstructions = await call(
+    'POST', '/relations/ops',
+    { op: { kind: 'set-project-instructions', projectId, projectName: `Description ${n}`, instructions: 123 } },
+    { 'x-tenant-id': A },
+  )
+  assert.equal(malformedInstructions.status, 400)
 
   // Un-share ⇒ the visitor loses the row (the projection re-checks at read time).
   store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Description ${n}`, shared: false }, A)
   const dark = (await call('GET', '/relations', undefined, { 'x-tenant-id': B })).json
   assert.equal(dark.projectDescriptions[projectId], undefined, 'a private project’s description is the owner’s alone')
+})
+
+test('Project prose compares only the reviewed field and stale writes change nothing', async () => {
+  const projectId = `p-prose-cas-${(n += 1)}`
+  const projectName = `Prose CAS ${n}`
+  store.applyRelationOp({
+    kind: 'create-project',
+    projectId,
+    projectName,
+    projectDescription: 'Opening description',
+  }, A)
+
+  const remoteDescription = await call('POST', '/relations/ops', { op: {
+    kind: 'set-project-description',
+    projectId,
+    projectName,
+    description: 'Remote description',
+    expectedDescription: 'Opening description',
+  } }, { 'x-tenant-id': A })
+  assert.equal(remoteDescription.status, 200)
+  const descriptionRevision = remoteDescription.json.revision
+
+  const staleDescription = await call('POST', '/relations/ops', { op: {
+    kind: 'set-project-description',
+    projectId,
+    projectName,
+    description: 'Stale browser draft',
+    expectedDescription: 'Opening description',
+  } }, { 'x-tenant-id': A })
+  assert.equal(staleDescription.status, 409)
+  const afterDescriptionConflict = (await call('GET', '/relations', undefined, { 'x-tenant-id': A })).json
+  assert.equal(afterDescriptionConflict.revision, descriptionRevision, 'conflict emits and persists nothing')
+  assert.equal(afterDescriptionConflict.projectDescriptions[projectId], 'Remote description')
+
+  const remoteInstructions = await call('POST', '/relations/ops', { op: {
+    kind: 'set-project-instructions',
+    projectId,
+    projectName,
+    instructions: 'Remote instructions',
+    expectedInstructions: '',
+  } }, { 'x-tenant-id': A })
+  assert.equal(remoteInstructions.status, 200)
+  const instructionsRevision = remoteInstructions.json.revision
+
+  const staleInstructions = await call('POST', '/relations/ops', { op: {
+    kind: 'set-project-instructions',
+    projectId,
+    projectName,
+    instructions: 'Stale instructions',
+    expectedInstructions: '',
+  } }, { 'x-tenant-id': A })
+  assert.equal(staleInstructions.status, 409)
+  const afterInstructionsConflict = (await call('GET', '/relations', undefined, { 'x-tenant-id': A })).json
+  assert.equal(afterInstructionsConflict.revision, instructionsRevision)
+  assert.equal(afterInstructionsConflict.projectInstructions[projectId], 'Remote instructions')
+
+  // Absence retains the legacy unconditional-write meaning; this matters to
+  // older API clients and already-offered proposals serialized before the CAS.
+  const legacy = await call('POST', '/relations/ops', { op: {
+    kind: 'set-project-description',
+    projectId,
+    projectName,
+    description: 'Legacy unconditional update',
+  } }, { 'x-tenant-id': A })
+  assert.equal(legacy.status, 200)
+  assert.equal(legacy.json.projectDescriptions[projectId], 'Legacy unconditional update')
+
+  for (const [kind, field, desired] of [
+    ['set-project-description', 'expectedDescription', { description: 'Valid desired text' }],
+    ['set-project-instructions', 'expectedInstructions', { instructions: 'Valid desired text' }],
+  ]) {
+    const malformed = await call('POST', '/relations/ops', { op: {
+      kind,
+      projectId,
+      projectName,
+      ...desired,
+      [field]: 7,
+    } }, { 'x-tenant-id': A })
+    assert.equal(malformed.status, 400, `${field} must not reach the shared reducer`)
+  }
 })

@@ -149,13 +149,17 @@ export type RelationOp =
   // Project ↔ Context — remove a scoped context from a project (the inverse of scope-context).
   | { kind: 'unscope-context'; projectId: string; projectName: string; contextLabel: string }
   // Project — edit a project's custom instructions (the right-panel "Instructions" card).
-  | { kind: 'set-project-instructions'; projectId: string; projectName: string; instructions: string }
+  // `expectedInstructions` is the exact text the author reviewed. ABSENT keeps
+  // the legacy unconditional-write meaning for older/API callers.
+  | { kind: 'set-project-instructions'; projectId: string; projectName: string; instructions: string; expectedInstructions?: string }
   // Project — edit a project's DESCRIPTION (D26): the one PUBLIC "about" every
   // viewer of a shared project reads, unlike instructions (private owner
   // context). It was a second field, `readme`, beside `Project.description`
   // until 2026-08-13 — the two were the same text asked for twice, and the one
   // the create dialog collected was never this one.
-  | { kind: 'set-project-description'; projectId: string; projectName: string; description: string }
+  // `expectedDescription` has the same optional compare-and-swap semantics as
+  // instructions; the desired text remains independent from its precondition.
+  | { kind: 'set-project-description'; projectId: string; projectName: string; description: string; expectedDescription?: string }
   // Project ↔ Schedule — link a recurring schedule to a project (null = unlink).
   | { kind: 'link-schedule-project'; scheduleId: string; scheduleName: string; projectId: string | null; projectName: string }
   // Artifact ↔ Context — record that an artifact derives from a context.

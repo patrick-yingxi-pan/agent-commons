@@ -3378,6 +3378,8 @@ export function buildRouter(): Router {
           id: p.id,
           name: p.name,
           defaultRole: p.defaultRole,
+          description: graphNow.projectDescriptions[p.id] ?? p.description,
+          instructions: graphNow.projectInstructions[p.id] ?? p.instructions,
         })),
         artifacts: [...graphNow.extraArtifacts, ...store.listArtifacts(tenantId)].map((a) => ({ id: a.id, name: a.name })),
         schedules: store.listSchedules(tenantId).map((s) => ({ id: s.id, name: s.name, cadence: s.cadence })),
@@ -3942,11 +3944,24 @@ export function buildRouter(): Router {
   r.intrinsicPost('/relations/ops', 'relation consent is realized by the session\'s purpose-built proposal cards; the model never executes its own proposal', idempotent(async ({ req, res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
-    // The one op field the SHARED reducer calls a method on (review finding): a
-    // non-string description would TypeError inside applyGraphOp → a 500 where every
-    // sibling malformed input answers 400. Guard the shape here.
-    if (op.kind === 'set-project-description' && typeof op.description !== 'string') {
-      return sendError(res, 'bad_request', 'description (string) is required')
+    // Project prose carries an optional exact-content precondition. Validate
+    // both desired and expected fields before tenant checks or store effects;
+    // `undefined` alone has the legacy unconditional-write meaning.
+    if (op.kind === 'set-project-description') {
+      if (typeof op.description !== 'string') {
+        return sendError(res, 'bad_request', 'description (string) is required')
+      }
+      if (op.expectedDescription !== undefined && typeof op.expectedDescription !== 'string') {
+        return sendError(res, 'bad_request', 'expectedDescription must be a string when present')
+      }
+    }
+    if (op.kind === 'set-project-instructions') {
+      if (typeof op.instructions !== 'string') {
+        return sendError(res, 'bad_request', 'instructions (string) is required')
+      }
+      if (op.expectedInstructions !== undefined && typeof op.expectedInstructions !== 'string') {
+        return sendError(res, 'bad_request', 'expectedInstructions must be a string when present')
+      }
     }
     // Pass the caller's tenant so a created project is stamped with it (F2/PD9); the
     // returned graph is projected to that tenant too (applyRelationOp handles both).

@@ -46,7 +46,13 @@ export interface ToolContext {
     agents: { id: string; label: string }[]
     commissions: { id: string; agentId: string; projectId: string }[]
     /** Live projects — created (`graph.extraProjects`) first, then seeds. */
-    projects?: { id: string; name: string; defaultRole?: ProjectRole }[]
+    projects?: {
+      id: string
+      name: string
+      defaultRole?: ProjectRole
+      description?: string
+      instructions?: string
+    }[]
     /** Live artifacts — saved-out extras first, then seeds. */
     artifacts?: { id: string; name: string }[]
     /** Live routines (runtime-created included). */
@@ -376,7 +382,7 @@ const TOOLS: ToolSpec[] = [
     build: (input, ctx) => {
       const p = resolveProject(str(input.project), ctx)
       if (!p) return noMatch('project', str(input.project))
-      return { relationOps: [{ kind: 'set-project-instructions', projectId: p.id, projectName: p.name, instructions: str(input.instructions) }], summary: `Proposed updating ${p.name}'s instructions; awaiting confirmation.` }
+      return { relationOps: [{ kind: 'set-project-instructions', projectId: p.id, projectName: p.name, instructions: str(input.instructions), expectedInstructions: p.instructions ?? '' }], summary: `Proposed updating ${p.name}'s instructions; awaiting confirmation.` }
     },
   },
   {
@@ -390,7 +396,7 @@ const TOOLS: ToolSpec[] = [
     build: (input, ctx) => {
       const p = resolveProject(str(input.project), ctx)
       if (!p) return noMatch('project', str(input.project))
-      return { relationOps: [{ kind: 'set-project-description', projectId: p.id, projectName: p.name, description: str(input.description) }], summary: `Proposed updating ${p.name}'s description; awaiting confirmation.` }
+      return { relationOps: [{ kind: 'set-project-description', projectId: p.id, projectName: p.name, description: str(input.description), expectedDescription: p.description ?? '' }], summary: `Proposed updating ${p.name}'s description; awaiting confirmation.` }
     },
   },
   {
