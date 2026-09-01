@@ -83,6 +83,8 @@ export const keys = {
   resourceStatus: (key: string) => `resource:${key}`,
   sessions: 'sessions',
   session: (id: string) => `session:${id}`,
+  sessionCompactedMessages: (id: string, cursor?: string) =>
+    `session-compacted-messages:${id}${cursor ? `:${cursor}` : ''}`,
   sessionContexts: (id: string) => `session-contexts:${id}`,
   dispatch: 'dispatch',
   savedContexts: 'saved-contexts',
@@ -290,6 +292,10 @@ export const paths = {
   toolActivity: (id: string, activityId: string) =>
     `/sessions/${encodeURIComponent(id)}/tool-activities/${encodeURIComponent(activityId)}`,
   sessionCompact: (id: string) => `/sessions/${encodeURIComponent(id)}/compact`,
+  sessionCompactedMessages: (id: string, page: { limit: number; cursor?: string }) => {
+    const cursor = page.cursor ? `&cursor=${encodeURIComponent(page.cursor)}` : ''
+    return `/sessions/${encodeURIComponent(id)}/compacted-messages?limit=${page.limit}${cursor}`
+  },
   messageRelations: (id: string, messageId: string) =>
     `/sessions/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/relations`,
   dispatch: '/dispatch',

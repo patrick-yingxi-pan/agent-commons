@@ -145,16 +145,12 @@ export function ConversationPane({
   }, [isDraft, nav, sessionId])
 
   const compact = useCallback(async () => {
-    try {
-      const updated = await compactSession(sessionId)
-      conversations.update(sessionId, (state) => ({
-        ...state,
-        live: { ...state.live, messages: updated.messages ?? [] },
-        history: { olderTokens: 0, loading: false, error: null },
-      }))
-    } catch {
-      /* leave the thread as-is; the user can retry */
-    }
+    const updated = await compactSession(sessionId)
+    conversations.update(sessionId, (state) => ({
+      ...state,
+      live: { ...state.live, messages: updated.messages ?? [] },
+      history: { olderTokens: 0, loading: false, error: null },
+    }))
   }, [sessionId])
 
   // The session's two-level model pick: the draft's local hold, or the live

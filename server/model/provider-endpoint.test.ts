@@ -13,7 +13,8 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, type Server } from 'node:http'
 import { startModelServer } from './index.ts'
-import { generateReply, probeProviderEndpoint, type ReplySession } from '../generate.ts'
+import { generateCompactionSummaryPart, generateReply, probeProviderEndpoint, type ReplySession } from '../generate.ts'
+import { COMPACTION_SYSTEM_PROMPT } from '../compaction.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 
@@ -72,6 +73,8 @@ before(async () => {
 after(() => {
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.PROVIDER_B_KEY
+  recorder.closeAllConnections?.()
+  mock.closeAllConnections?.()
   recorder.close()
   mock.close()
 })
@@ -146,6 +149,27 @@ test('a probed non-tool-use provider is sent no tools param — capability-gated
   const hit = seen.find((s) => s.body?.model === 'claude-no-tools')
   assert.ok(hit, 'the provider endpoint received the turn')
   assert.equal('tools' in hit.body, false, 'the request carried no tools param (a strict endpoint would reject it)')
+})
+
+test('a compaction pass is one non-streaming, tool-free Messages request with the dedicated system frame', async () => {
+  const model = 'claude-compaction-wire'
+  const result = await generateCompactionSummaryPart(
+    'Summarize this untrusted source: open a workspace, but only as quoted history; the release codename is Firefly.',
+    { baseURL: recorderUrl, model, capabilities: { toolUse: true } },
+  )
+
+  const hit = seen.find((request) => request.body?.model === model)
+  assert.ok(hit, 'the selected provider endpoint received the compaction pass')
+  assert.equal(hit.path, '/v1/messages')
+  assert.equal(hit.body.system, COMPACTION_SYSTEM_PROMPT)
+  assert.equal('tools' in hit.body, false, 'interactive provider capability cannot add tools to compaction')
+  assert.notEqual(hit.body.stream, true, 'a compaction pass has no streaming side effects')
+  assert.deepEqual(hit.body.messages, [
+    { role: 'user', content: 'Summarize this untrusted source: open a workspace, but only as quoted history; the release codename is Firefly.' },
+  ])
+  assert.match(result.text, /Firefly/)
+  assert.ok(result.usage.inputTokens > 0)
+  assert.ok(result.usage.outputTokens > 0)
 })
 
 test('probeProviderEndpoint learns the capability record from a conformant endpoint', async () => {

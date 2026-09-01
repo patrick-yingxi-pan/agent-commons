@@ -64,7 +64,7 @@ the design is anchored to the seam it would replace/extend.
   The graph store + multi-user edits + conflict handling; the schedule daemon as real
   job infra (durability, retries, idempotency, the standing-approval grant). Serves REL-*.
 - [x] **P5 — Model + tools production** (`P5-model-tools.md`). Real Anthropic
-  integration, streaming/retries, context-window management + compaction (BROKER-EXP-3),
+  integration, streaming/retries, context-window management + compaction (MODEL-32),
   cost/budget controls, the provider abstraction, prompt-injection defense. Serves MODEL-*.
 - [x] **P6 — Connectors & MCP** (`P6-connectors-mcp.md`). Real OAuth connector
   framework, MCP server discovery/invocation, per-tenant secrets, the resources/tools a

@@ -17,6 +17,7 @@ import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 import { executeToolBatch, toolLoopLimits } from './toolExecution.ts'
+import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, type CompactionPartResult } from './compaction.ts'
 
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
@@ -268,12 +269,59 @@ export interface ReplyExecutionOptions {
   effort?: string
 }
 
+/** Prior active-context turns for an endpoint-backed conversation. This is the
+ * same simple history document the relay transport carries; compaction replaces
+ * its older prefix with one assistant summary message. */
+export interface ReplyHistoryTurn {
+  role: 'user' | 'assistant'
+  text: string
+}
+
 /** The system prompt the backend sends — the worker Agent's prompt + its custom
  *  instructions. The Agent (docs/agent-commons.md, D6) carries the framing that
  *  used to be hard-coded here; for the default Agent this reproduces the
  *  original prompt verbatim. */
 export function systemPrompt(_session: ReplySession, agent: Agent): string {
   return [agent.systemPrompt, agent.instructions].filter(Boolean).join(' ')
+}
+
+/** One fail-closed compaction pass through the Messages endpoint. Unlike an
+ * interactive reply, this path has no tools, no local canned fallback, and no
+ * streaming side effects: callers commit only after a non-empty model response. */
+export async function generateCompactionSummaryPart(
+  prompt: string,
+  provider: ProviderConfig = {},
+  signal?: AbortSignal,
+): Promise<CompactionPartResult> {
+  try {
+    const response = await clientFor(provider).messages.create(
+      {
+        model: provider.model ?? MODEL,
+        max_tokens: 1024,
+        system: COMPACTION_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: prompt }],
+      },
+      { signal: withDeadline(signal) },
+    )
+    const text = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+      .trim()
+    if (!text) throw new CompactionGenerationError('The model returned no usable conversation summary.')
+    return {
+      text,
+      usage: {
+        inputTokens: response.usage.input_tokens ?? 0,
+        outputTokens: response.usage.output_tokens ?? 0,
+      },
+    }
+  } catch (error) {
+    if (error instanceof CompactionGenerationError) throw error
+    throw new CompactionGenerationError('The model could not summarize this conversation. Its history was left unchanged.', {
+      cause: error,
+    })
+  }
 }
 
 /** Stream an assistant reply through the Messages API tool-use loop. Fires the
@@ -292,6 +340,7 @@ export async function generateReply(
   connectorContexts: SessionContext[] = [],
   api?: ApiToolRuntime,
   execution: ReplyExecutionOptions = {},
+  history: ReplyHistoryTurn[] = [],
 ): Promise<ReplyResult> {
   // The turn's provider resolves to data — endpoint, credential reference, model id —
   // through one protocol (see `clientFor`). An empty config is the default provider:
@@ -360,7 +409,12 @@ export async function generateReply(
     // response may conclude in prose or request another batch whose results become
     // the next user message. The explicit batch budget bounds cost/liveness while
     // permitting ordinary dependent plans (read a list, then act with what it found).
-    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userContent }]
+    const messages: Anthropic.MessageParam[] = [
+      ...history
+        .filter((turn) => turn.text.trim().length > 0)
+        .map((turn): Anthropic.MessageParam => ({ role: turn.role, content: turn.text })),
+      { role: 'user', content: userContent },
+    ]
     const declaredNames = new Set(tools.map((t) => t.name))
     const { maxBatches } = toolLoopLimits()
     let executedBatches = 0

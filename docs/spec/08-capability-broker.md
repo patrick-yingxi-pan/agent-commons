@@ -8,7 +8,7 @@
 > sits **Agent Commons** — model providers, system prompts, worker agents, and
 > commissions — bound by an attenuation cascade so a delegated grant can never exceed
 > its parent. The **exploration** half (the control-plane architecture, the general
-> shared-resource coordination model, context compaction) is recorded in `docs/` as
+> shared-resource coordination model) is recorded in `docs/` as
 > forward-looking design and is **not** built behavior — the spec marks it 🧭 so it's
 > never mistaken for shipped.
 
@@ -68,6 +68,8 @@
 |----|-------------|---------------|--------|
 | BROKER-EXP-1 | The control-plane architecture (relay-default + co-located fast path, agents as the system of record for their host, server-side content audit, ambient agent identity). Settled *within the exploration*, not implemented. | `docs/capability-broker-architecture.md` | 🧭 |
 | BROKER-EXP-2 | The general shared-resource coordination model (the CALM monotonicity boundary, escrow/reservation as the taming primitive, the D5 resource-guardian principle). | `docs/shared-resource-coordination.md` | 🧭 |
-| BROKER-EXP-3 | Context-compaction UI pattern for when the context window fills (the sequel to the usage gauge). | `docs/context-compaction.md` | 🧭 |
 | BROKER-EXP-4 | The Agent Commons rationale + staged build plan that the COMMONS-* rows realize. | `docs/agent-commons.md`, `docs/agent-commons-impl-plan.md` | 🧭 |
 | BROKER-EXP-5 | Federation (many *instances*) — cross-instance identity, the Guardian as the resource home's authority, signed cross-instance reputation. A design-log exploration only; deliberately unbuilt until the single-instance social layer (D17–D19) has been lived with. **A2A is the candidate wire** (D20 built the edge: cards served/imported, tasks mapped — COMMONS-10..12); what stays exploration is outbound *dispatch* + signed identity/audit. | `docs/agent-commons.md` (§ Beyond one instance), `docs/a2a-integration.md` (v2 checklist) | 🧭 |
+
+BROKER-EXP-3 graduated from exploration to the built, locked MODEL-32 requirement
+in [`06-model-and-tools.md`](06-model-and-tools.md).

@@ -1,8 +1,9 @@
-# Context compaction — UI reference
+# Context compaction
 
-> **Status: design reference, not built.** Captures a UI pattern worth copying
-> when we implement context compaction. Nothing here ships today. The locked-in
-> decisions live in the directory-scoped `CLAUDE.md` files ([`../AGENTS.md`](../AGENTS.md) maps them).
+> **Status: built.** The selected provider now creates the continuation brief,
+> originals remain in a bounded inspectable archive, and both generation and
+> commit fail closed. The locked contract lives in MODEL-32 and the relevant
+> directory-scoped `CLAUDE.md` files ([`../AGENTS.md`](../AGENTS.md) maps them).
 
 ## The reference artifact
 
@@ -36,31 +37,37 @@ conversation (captured 2026-06-27):
 - **No blame, no limits language.** It never says "you've run out of context" —
   the design treats hitting the window as normal housekeeping, not user error.
 
-## Where it plugs into this prototype
+## Shipped behavior
 
-Compaction is the natural sequel to the **context-window gauge** already built in
+Compaction is the natural sequel to the **context-window gauge** in
 [`../src/components/UsageControl.tsx`](../src/components/UsageControl.tsx): the
 inner water-level disc fills as the open thread grows (`usage.context.pct`, hue
 `waterColor()` going blue → gold → red past 80%). Compaction is what happens
-*at* the ceiling — so the caption + determinate bar belong inline in the thread
-(near the composer / as a transient message row), and the gauge's disc should
-visibly **drop back** once compaction completes (the freed-space payoff the copy
-promises).
+through one explicit between-turn action today. The shipped transaction is:
 
-If/when built, follow the project's seams: the trigger and the resulting
-token-count change are **server-owned** (the backend is the client of the model;
-the UI caches the snapshot — see `UsageControl` header comment and `GET
-/v1/usage`), surfaced over the existing usage channel rather than computed client
--side. Ship it with tests like everything else.
+1. The server freezes the active transcript and existing archive. The same gate
+   excludes a live reply or another compaction on that conversation.
+2. The selected endpoint or Session provider receives every compactable source
+   byte through bounded hierarchical model calls. Its system framing preserves
+   decisions, constraints, identifiers, uncertainty, and open work; it declares
+   no tools. Summary token use is metered to the same tenant plan.
+3. Only a non-empty model result whose frozen transcript still matches may commit.
+   Provider failure, empty output, an overlarge reduction, or a concurrent
+   transcript change archives nothing and leaves an explicit Retry.
+4. The model-authored brief plus the latest four turns becomes active context.
+   Endpoint and Session-provider turns both receive that active history on later
+   generation. The originals remain durable in `Session.compactedMessages`.
+5. The thread renders one **Conversation summary** disclosure. It shows the brief
+   and pages the archive 40 messages at a time through the tenant-walled
+   `/sessions/:id/compacted-messages` door. The gauge drops with active context.
 
-## Open questions for later
+The transient UI keeps the warm reference caption and an honest indeterminate
+spinner. It does **not** draw a fictional percentage: the provider protocols do
+not expose stable reduction progress. A determinate bar becomes valid only when
+the backend can publish real completed-part / total-part progress.
 
-- **Auto vs. confirmed.** Claude Code auto-compacts. Does our consent-first model
-  (escalations, relation edits all ask first) want a confirm step, or is
-  compaction lossless-enough to run unprompted like a standing schedule? Lean
-  unprompted, but make the *result* inspectable (what got summarized).
-- **What the user can recover.** After compaction, is the pre-compaction detail
-  reachable (expand the summarized span)? The copy promises continuity; the UI
-  should not silently drop things the user might need.
-- **Where the indicator lives.** Inline transient row vs. a state on the usage
-  gauge vs. both. The reference puts it inline; the gauge drop-back is our addition.
+## Deliberate follow-on
+
+Auto-triggering near the actual selected model window remains a separate product
+decision. Manual compaction is lossless and inspectable, but automatic model spend
+and interruption policy should be chosen from lived usage rather than inferred.

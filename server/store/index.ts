@@ -141,9 +141,34 @@ import {
 type Listener = (e: ServerEvent, seq?: number) => void
 type PersistenceFaultListener = () => void
 
+export interface SessionCompactionPlan {
+  kind: 'ready'
+  sessionId: string
+  /** Exact active+archive base read before the asynchronous model call. */
+  expectedState: string
+  /** Prior summary (on re-compaction) plus newly compactable real turns. */
+  sourceMessages: Message[]
+  /** Only real turns newly leaving active context; synthetic summaries never archive. */
+  archiveMessages: Message[]
+}
+
+export type SessionCompactionPreparation =
+  | { kind: 'noop'; session: Session }
+  | SessionCompactionPlan
+
 /** A monotonic-ish boot id. Math.random/Date are fine here (server side, not in
  *  the resumable-workflow sandbox); a fresh value each boot signals a reseed. */
 const EPOCH = `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`
+
+const COMPACTION_KEEP_RECENT = 4
+const MAX_COMPACTION_SUMMARY_CHARS = 16_000
+
+/** Message bodies can change without advancing session metadataRevision (relation
+ * verdicts and tool outcomes are transcript state), so the compaction CAS covers the
+ * complete active and archived documents—not merely ids or row metadata. */
+function compactionState(session: Session): string {
+  return JSON.stringify({ messages: session.messages ?? [], compactedMessages: session.compactedMessages ?? [] })
+}
 
 // Which backend variant this process is: the default mock behaves like a NATIVE
 // sidecar (it can touch the OS); `BACKEND=remote` makes it behave like a remote
@@ -5101,39 +5126,57 @@ export const store = {
    *  context-window fill (system+tools baseline + an estimate of every message in
    *  the thread) plus the live plan windows. `sessionId` selects which thread the
    *  context figure reflects; omitted = baseline only. */
-  /** Compact a session's context (P5 / BROKER-EXP-3): move all but the last `KEEP_RECENT`
-   *  messages into the `compactedMessages` archive and leave a single small compaction-
-   *  summary marker in `messages`, so the session's token count — and the usage gauge's
-   *  context % — drops back, freeing space to keep chatting. Server-owned (the backend does
-   *  the token-count change; `GET /v1/usage` reflects it). Non-destructive: the archived
-   *  detail stays recoverable. A no-op (returns the session unchanged) when there's too
-   *  little to compact. Persists + broadcasts `session.updated` so the gauge drops back. */
-  compactSession(sessionId: string): Session | undefined {
+  /** Snapshot the exact compaction input without changing state. The asynchronous
+   *  model call happens outside the store; `applySessionCompaction` compares this
+   *  base before committing, so a new turn or transcript verdict wins instead of
+   *  disappearing behind a stale summary. */
+  prepareSessionCompaction(sessionId: string): SessionCompactionPreparation | undefined {
     const session = SESSIONS.find((s) => s.id === sessionId)
     if (!session) return undefined
     const msgs = session.messages ?? []
-    const KEEP_RECENT = 4
-    // Need at least a couple of older messages beyond the recent window to be worth it.
-    if (msgs.length <= KEEP_RECENT + 1) return session
-    const older = msgs.slice(0, msgs.length - KEEP_RECENT)
-    const recent = msgs.slice(msgs.length - KEEP_RECENT)
-    // On a RE-compaction the older slice leads with the previous compaction marker (a
-    // synthetic summary, not real history): drop it — don't re-archive or count it — so the
-    // archive holds only real messages and the count doesn't inflate. The single new marker
-    // then carries the CUMULATIVE total archived, so there's always exactly one divider.
+    if (msgs.length <= COMPACTION_KEEP_RECENT + 1) return { kind: 'noop', session: this.getSession(sessionId)! }
+    const older = msgs.slice(0, msgs.length - COMPACTION_KEEP_RECENT)
     const olderReal = older.filter((m) => m.compactedFrom == null)
-    const archive = [...(session.compactedMessages ?? []), ...olderReal]
+    return {
+      kind: 'ready',
+      sessionId,
+      expectedState: compactionState(session),
+      sourceMessages: structuredClone(older),
+      archiveMessages: structuredClone(olderReal),
+    }
+  },
+  /** Commit one generated continuation brief if and only if the transcript still
+   *  matches its preparation. Originals remain in the durable archive, one marker
+   *  replaces the active prefix, and the event is published only after persistence. */
+  applySessionCompaction(
+    plan: SessionCompactionPlan,
+    content: string,
+    provenance: { agentId?: string; providerId?: string; modelId?: string } = {},
+  ): Session | undefined {
+    const session = SESSIONS.find((s) => s.id === plan.sessionId)
+    if (!session) return undefined
+    if (compactionState(session) !== plan.expectedState) {
+      throw new ConflictError('This conversation changed while its summary was being prepared. Nothing was archived; retry from the latest turns.')
+    }
+    const summaryContent = content.trim()
+    if (!summaryContent || summaryContent.length > MAX_COMPACTION_SUMMARY_CHARS) {
+      throw new ValidationError(`A conversation summary must contain 1..${MAX_COMPACTION_SUMMARY_CHARS} characters.`)
+    }
+    const recent = (session.messages ?? []).slice(-COMPACTION_KEEP_RECENT)
+    const archive = [...(session.compactedMessages ?? []), ...plan.archiveMessages]
     const summary: Message = {
       id: this.mintMessageId('assistant'),
       role: 'assistant',
-      content: `Compacted ${archive.length} earlier messages so we can keep chatting — the gist is carried forward.`,
+      content: summaryContent,
       compactedFrom: archive.length,
+      ...provenance,
     }
     session.compactedMessages = archive
     session.messages = [summary, ...recent]
+    session.updatedAt = Date.now()
     emit({ type: 'session.updated', session })
     persist()
-    return session
+    return this.getSession(plan.sessionId)
   },
   usage(sessionId?: string, tenantId?: string): UsageSnapshot {
     let messageTokens = 0

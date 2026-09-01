@@ -13,13 +13,12 @@
  *  MVC per pane: model = the keyed conversation entry + the shared api hooks;
  *  view = this component; controller = the thin adapter supplying the command
  *  props (App for the primary, ConversationPane for a split pane). */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Composer } from './Composer'
 import { MessageRow, TypingRow } from './Message'
 import { Spinner } from './Spinner'
-import { CompactionAffordance } from './CompactionAffordance'
 import { TurnControls } from './TurnControls'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { EscalationPrompt } from './EscalationPrompt'
@@ -35,6 +34,7 @@ import type { ContextMutationStatus } from '../controller/conversationCore'
 import { composerExecutionState } from '../lib/modelExecution'
 
 const RELAY_WAIT = 'Waiting on your session…'
+const CompactionAffordance = lazy(() => import('./CompactionAffordance').then((module) => ({ default: module.CompactionAffordance })))
 
 export function ConversationView({
   sessionId,
@@ -223,6 +223,7 @@ export function ConversationView({
   const onRelay = providers.find((p) => p.id === providerId)?.kind === 'session'
   const provider = providers.find((p) => p.id === providerId)
   const execution = composerExecutionState(provider?.execution, onRelay ? provider?.online === true : undefined)
+  const [compacting, setCompacting] = useState(false)
 
   // Live token count of the thread, so the usage gauge fills as it grows.
   const messageTokens = useMemo(
@@ -316,7 +317,9 @@ export function ConversationView({
           compacting, and only BETWEEN turns (compacting mid-stream would swap
           out live.messages and drop the still-streaming reply). */}
       {onCompact && atLatest && !draft && !busy && !typing && live.messages.length > 6 && (
-        <CompactionAffordance onCompact={onCompact} />
+        <Suspense fallback={null}>
+          <CompactionAffordance onCompact={onCompact} onRunningChange={setCompacting} />
+        </Suspense>
       )}
 
       {/* Live-turn affordances (multi-account §6.5): the deliberate stop while a
@@ -336,7 +339,7 @@ export function ConversationView({
         connectors={live.connectors}
         attachments={live.attachments}
         focus={focus}
-        disabled={busy || execution.blocked}
+        disabled={busy || compacting || execution.blocked}
         disabledLabel={execution.blocked ? execution.placeholder : onRelay ? RELAY_WAIT : undefined}
         modelExecution={provider?.execution}
         sessionProviderOnline={onRelay ? provider?.online === true : undefined}

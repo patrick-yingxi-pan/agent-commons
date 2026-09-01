@@ -17,7 +17,8 @@ import { createServer } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { matchIntents, matchConnectorTools } from './intents.ts'
-import { finalReplyText, plainReplyText, chunkText } from './replies.ts'
+import { finalReplyText, plainReplyText, compactionReplyText, chunkText } from './replies.ts'
+import { COMPACTION_SYSTEM_PROMPT } from '../compaction.ts'
 import { wireModels } from './catalog.ts'
 
 const MODEL_PORT = Number(process.env.MODEL_PORT ?? 8788)
@@ -167,9 +168,23 @@ function toolUseBlocks(messages: ReqMessage[], availableToolNames: string[], too
   return all.map((c) => ({ id: nextToolId(), name: c.name, input: c.input }))
 }
 
+function isCompactionSystem(system?: MessagesRequest['system']): boolean {
+  const systemText = typeof system === 'string' ? system : (system ?? []).map((block) => block.text ?? '').join('\n')
+  return systemText.includes(COMPACTION_SYSTEM_PROMPT.slice(0, 48))
+}
+
 /** The prose for a text turn (no tools, or a post-tool concluding turn). */
-function replyText(messages: ReqMessage[]): string {
+function replyText(messages: ReqMessage[], system?: MessagesRequest['system']): string {
   if (isToolResultTurn(messages)) return finalReplyText(priorToolNames(messages), priorToolResults(messages))
+  if (isCompactionSystem(system)) return compactionReplyText(lastUserText(messages))
+  if (/\brecall earlier context\b/i.test(lastUserText(messages))) {
+    const prior = messages
+      .slice(0, -1)
+      .filter((message) => typeof message.content === 'string')
+      .map((message) => `${message.role}: ${message.content as string}`)
+      .join(' | ')
+    return prior ? `Earlier context: ${prior}` : 'No earlier context reached the model.'
+  }
   return plainReplyText(lastUserText(messages))
 }
 
@@ -209,7 +224,13 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
     const inputTokens = promptChars >> 2
     const id = nextMessageId()
     const availableToolNames = (body.tools ?? []).map((t) => t.name)
-    const tools = toolUseBlocks(messages, availableToolNames, body.tools !== undefined)
+    // The standalone mock ordinarily treats an absent `tools` key as its full
+    // convenience catalog. Compaction is the explicit exception: its system frame
+    // marks the entire user document as untrusted source, so action-like phrases in
+    // archived prose can never escape as tool_use blocks.
+    const tools = isCompactionSystem(body.system)
+      ? null
+      : toolUseBlocks(messages, availableToolNames, body.tools !== undefined)
 
     // ── Non-streaming: one JSON Message (tool_use or text) ───────────────────
     if (!body.stream) {
@@ -219,7 +240,7 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
         res.end(JSON.stringify(messageBody(id, model, content, 'tool_use', inputTokens, tools.length)))
         return
       }
-      const text = replyText(messages)
+      const text = replyText(messages, body.system)
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify(messageBody(id, model, [{ type: 'text', text }], 'end_turn', inputTokens, chunkText(text).length)))
       return
@@ -266,7 +287,7 @@ function handleMessages(req: import('node:http').IncomingMessage, res: import('n
     // accounts or cancel while the turn streams (design §5.7). Dev-mock-only knob;
     // no contract change.
     const paceMs = /\bpaced\b/i.test(lastUserText(messages)) ? Number(process.env.MODEL_PACE_MS) || 150 : 26
-    const chunks = chunkText(replyText(messages))
+    const chunks = chunkText(replyText(messages, body.system))
     let i = 0
     const startBlock = () => {
       if (aborted || res.writableEnded) return

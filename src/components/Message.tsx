@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { useRef } from 'react'
+import { lazy, Suspense, useRef } from 'react'
 import { ArrowRight, Check, GitFork, Radio } from 'lucide-react'
 import type { EscalationProposal, Message as MessageT } from '../types'
 import { renderRich } from '../lib/rich'
@@ -12,6 +12,8 @@ import { RelationActionCard } from './RelationActionCard'
 import { ToolActivityCard } from './ToolActivityCard'
 import { LocusGutter } from './LocusGutter'
 import { DRAFT_ID } from '../data/liveSession'
+
+const ConversationSummary = lazy(() => import('./ConversationSummary'))
 
 /** Whether this turn's cognition came over a Session provider — the
  *  delegated-cognition relay. Those words came from the user's OWN session's model,
@@ -58,7 +60,7 @@ function EscalationOutcome({ escalation }: { escalation: EscalationProposal }) {
   )
 }
 
-export function MessageRow({ message, sessionId, onOpenSession }: { message: MessageT; sessionId: string; onOpenSession?: (id: string) => void }) {
+function TurnMessageRow({ message, sessionId, onOpenSession }: { message: MessageT; sessionId: string; onOpenSession?: (id: string) => void }) {
   const relayed = useIsRelayed(message)
   // A turn is an ADDRESSABLE position (SOCIAL-6b): a discussion can anchor to
   // it, and the chip on that thread doors back here. Reading `pending` at
@@ -74,26 +76,6 @@ export function MessageRow({ message, sessionId, onOpenSession }: { message: Mes
   // S5 — the byline is the Agent that DROVE this turn (per-turn provenance), so a D16
   // hand-off is visible; the default agent / a user turn / a legacy message read 'Claude'.
   const byline = driverByline(message.agentId, useAgents().data ?? [])
-  // A compaction summary (P5) renders as a warm divider, not a chat bubble — the older
-  // messages it replaced were archived to free context space so we can keep chatting.
-  if (message.compactedFrom) {
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.28 }}
-        className="px-4 py-2"
-      >
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-2.5 text-[12px] text-ink-faint">
-          <span className="h-px flex-1 bg-line" />
-          <span className="shrink-0">
-            Compacted {message.compactedFrom} earlier {message.compactedFrom === 1 ? 'message' : 'messages'} so we can keep chatting
-          </span>
-          <span className="h-px flex-1 bg-line" />
-        </div>
-      </motion.div>
-    )
-  }
   const isUser = message.role === 'user'
   return (
     <motion.div
@@ -173,6 +155,14 @@ export function MessageRow({ message, sessionId, onOpenSession }: { message: Mes
       </div>
     </motion.div>
   )
+}
+
+export function MessageRow(props: { message: MessageT; sessionId: string; onOpenSession?: (id: string) => void }) {
+  return props.message.compactedFrom ? (
+    <Suspense fallback={<div role="status" className="px-4 py-3 text-center text-[12px] text-ink-faint">Loading conversation summary…</div>}>
+      <ConversationSummary message={props.message} sessionId={props.sessionId} />
+    </Suspense>
+  ) : <TurnMessageRow {...props} />
 }
 
 /** The in-flight indicator. `waitingOn` swaps the token-streaming shimmer for an

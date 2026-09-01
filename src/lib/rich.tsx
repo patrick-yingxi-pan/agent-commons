@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from 'react'
 
-/** Renders a deliberately tiny subset of markdown used in the demo content:
- *  **bold**, `inline code`, • bullets, and newlines. Built as React nodes (no
+/** Renders a deliberately tiny subset of markdown used in conversation content:
+ *  **bold**, *emphasis*, `inline code`, • bullets, and newlines. Built as React nodes (no
  *  dangerouslySetInnerHTML) so it stays safe. */
 export function renderRich(text: string): ReactNode {
   return text.split('\n').map((line, i) => (
@@ -14,7 +14,7 @@ export function renderRich(text: string): ReactNode {
 
 function renderInline(line: string): ReactNode {
   const nodes: ReactNode[] = []
-  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g
+  const regex = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g
   let last = 0
   let key = 0
   let m: RegExpExecArray | null
@@ -26,6 +26,12 @@ function renderInline(line: string): ReactNode {
         <strong key={key++} className="font-semibold text-ink">
           {tok.slice(2, -2)}
         </strong>,
+      )
+    } else if (tok.startsWith('*')) {
+      nodes.push(
+        <em key={key++} className="italic">
+          {tok.slice(1, -1)}
+        </em>,
       )
     } else {
       nodes.push(

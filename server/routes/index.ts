@@ -71,8 +71,9 @@ import { store, type GenerationOutcome } from '../store/index.ts'
 import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
-import { generateReply, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
+import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
+import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, summarizeConversation } from '../compaction.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -171,6 +172,10 @@ function enrollmentAllowed(req: IncomingMessage): boolean {
 
 export function buildRouter(): Router {
   const r = new Router()
+  /** A compaction and a turn both rewrite one conversation's active context. This
+   * process-local gate makes them mutually exclusive before either spends or
+   * persists; the store's compare-before-commit remains the durable race wall. */
+  const activeCompactions = new Set<string>()
 
   // ── Request correlation id (design F3 / observability) ──────────────────────
   // Stamp every matched-route response with an `X-Request-Id` — the seam logs/traces
@@ -2965,6 +2970,17 @@ export function buildRouter(): Router {
       ...(live ? { activeTurnId: live.id } : {}),
     })
   })
+  // The recoverable detail behind a compaction marker. This new browser door is
+  // bounded from birth (always a Page<Message>, default 40). The legacy full
+  // session read remains unchanged for API/MCP compatibility (ADAPT-24).
+  r.get('/sessions/:id/compacted-messages', ({ req, res, params, url }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const session = store.getSession(params.id)
+    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    const pp = pageParams(url)
+    if (pp === 'invalid') return sendError(res, 'bad_request', `limit must be an integer 1..${MAX_PAGE_LIMIT}`)
+    sendJson(res, paginate(session.compactedMessages ?? [], (message) => message.id, pp ?? { limit: 40 }))
+  })
   // CONTINUE a conversation from one of its turns, into the caller's namespace
   // (social S3). Existence-hiding on an unreadable source; `propose` tier to act.
   r.post('/sessions/:id/fork', async ({ req, res, params, body }) => {
@@ -3179,6 +3195,9 @@ export function buildRouter(): Router {
     // generic shell and an ephemeral turn; every real session — run sessions
     // included, they're rows through the same mint funnel — persists below.
     const known = store.getSession(params.id)
+    if (known && activeCompactions.has(params.id)) {
+      return sendError(res, 'conflict', 'This conversation is being compacted. Retry your turn after the summary appears.')
+    }
     const persistedTail = known?.messages?.at(-1)
     // A retry after a server restart or failed generation has no transient turn
     // handle to attach to, but its user row is still the record. Reuse that row
@@ -3256,13 +3275,10 @@ export function buildRouter(): Router {
     // snapshotted BEFORE the new user turn persists below (appendMessage swaps the
     // array on this same session object). Dial-out turns don't read this — their
     // endpoint transport is out of scope here.
-    const relayHistorySource = reusePersistedUser ? (known?.messages ?? []).slice(0, -1) : (known?.messages ?? [])
-    const relayHistory =
-      provider.kind === 'session'
-        ? relayHistorySource
-            .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
-            .map((m) => ({ role: m.role, text: m.content }))
-        : []
+    const historySource = reusePersistedUser ? (known?.messages ?? []).slice(0, -1) : (known?.messages ?? [])
+    const turnHistory = historySource
+      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
+      .map((m) => ({ role: m.role, text: m.content }))
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the
     // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
@@ -3394,8 +3410,8 @@ export function buildRouter(): Router {
       }
       const { message, usage, outcome } =
         provider.kind === 'session'
-          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, relayHistory, apiRuntime)
-          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts, apiRuntime)
+          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, turnHistory, apiRuntime)
+          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts, apiRuntime, {}, turnHistory)
       // Meter the real tokens this turn consumed (even ephemeral turns —
       // they hit the model too), so the composer's plan-usage rings reflect use.
       store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
@@ -3583,14 +3599,95 @@ export function buildRouter(): Router {
     if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)
     sendJson(res, activity)
   })
-  // Compact a session's context (P5 / BROKER-EXP-3) — server-owned; archives older
-  // messages behind a summary marker so the token count (and the usage gauge) drops back.
-  // Tenant-guarded like the other by-id session routes.
-  r.post('/sessions/:id/compact', ({ req, res, params }) => {
+  // Compact a session's active context through its selected provider. Generation
+  // happens against an immutable preparation; only a matching transcript commits.
+  r.post('/sessions/:id/compact', async ({ req, res, params }) => {
     if (denyForeignSession(req, res, params.id)) return
-    const session = store.compactSession(params.id)
-    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
-    sendJson(res, session)
+    if (activeCompactions.has(params.id)) {
+      return sendError(res, 'conflict', 'A summary is already being prepared for this conversation.')
+    }
+    if (turns.bySession(params.id)) {
+      return sendError(res, 'conflict', 'Wait for the current reply to finish before compacting this conversation.')
+    }
+    const prepared = store.prepareSessionCompaction(params.id)
+    if (!prepared) return sendError(res, 'not_found', `No session '${params.id}'`)
+    if (prepared.kind === 'noop') {
+      return sendJson(res, { ...prepared.session, compactedMessages: undefined })
+    }
+
+    const tenantId = store.identity(req.headers).tenant.id
+    const session = store.getSession(params.id)!
+    const agent = store.getAgent(session.agentId)
+    const providerId = session.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
+    const provider = store.providerConfig(providerId)
+    const providerFace = store.listProviders(tenantId).find((candidate) => candidate.id === providerId)
+    const providerConfig = session.modelId ? { ...provider, model: session.modelId } : provider
+    const modelId = provider.kind === 'session' ? undefined : resolvedModelId(providerConfig)
+
+    if (provider.kind !== 'session' && providerFace?.execution === 'unconfigured') {
+      return sendError(
+        res,
+        'capability_unavailable',
+        `The '${providerFace.label}' model provider is not configured. Choose a connected provider before compacting.`,
+      )
+    }
+    if (provider.kind === 'session') {
+      if (!store.relay.online(providerId)) {
+        return sendError(res, 'relay_offline', 'Your session isn’t answering — start its drain loop and retry compaction.')
+      }
+      if (store.relay.busy(providerId, params.id) || store.relay.atCapacity(providerId)) {
+        return sendError(res, 'relay_busy', 'Your session is busy answering another request — retry compaction when it finishes.')
+      }
+    }
+    const over = store.overSpendLimit(agent.budget, tenantId)
+    if (over) {
+      return sendError(res, 'limit_exceeded', `Plan limit reached for '${over.label}' — compaction is refused until the window resets.`)
+    }
+
+    activeCompactions.add(params.id)
+    try {
+      const generated = await summarizeConversation(prepared.sourceMessages, async (prompt) => {
+        if (provider.kind !== 'session') return generateCompactionSummaryPart(prompt, providerConfig)
+        const summaryAgent = {
+          ...agent,
+          systemPrompt: COMPACTION_SYSTEM_PROMPT,
+          instructions: '',
+          tools: [],
+        }
+        const result = await relayReply(
+          { id: session.id, title: session.title },
+          summaryAgent,
+          prompt,
+          { onStart: () => {}, onDelta: () => {} },
+          undefined,
+          store.relay,
+          providerId,
+        )
+        if (result.outcome !== 'ok') {
+          throw new CompactionGenerationError('Your session could not prepare a conversation summary. History was left unchanged.')
+        }
+        return { text: result.message.content, usage: result.usage }
+      })
+
+      // The provider consumed these tokens even if the compare-before-commit below
+      // finds that another transcript mutation won the race.
+      store.recordUsage(generated.usage.inputTokens, generated.usage.outputTokens, tenantId)
+      const compacted = store.applySessionCompaction(prepared, generated.text, {
+        agentId: agent.id,
+        providerId,
+        ...(modelId ? { modelId } : {}),
+      })
+      if (!compacted) return sendError(res, 'not_found', `No session '${params.id}'`)
+      sendJson(res, { ...compacted, compactedMessages: undefined })
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      if (error instanceof CompactionGenerationError) {
+        return sendError(res, 'capability_unavailable', error.message)
+      }
+      throw error
+    } finally {
+      activeCompactions.delete(params.id)
+    }
   })
 
   // ── Dispatch ──────────────────────────────────────────────────────────────

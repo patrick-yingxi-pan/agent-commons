@@ -1342,15 +1342,15 @@ export async function revokeApiToken(id: string): Promise<void> {
   }
 }
 
-/** Compact a session's context (P5 / BROKER-EXP-3) — server-owned; the backend archives
- *  older messages behind a summary marker so the token count (and the usage gauge) drops
- *  back. Returns the compacted session; invalidates the session + its usage so caches
- *  refresh. The controller also swaps its live `messages` to the returned set so the open
- *  thread + the composer's live token overlay reflect the drop immediately. */
+/** Compact a session's context (MODEL-32) — server-owned; the selected provider
+ *  prepares a continuation brief and the backend archives older originals only after
+ *  compare-before-commit. Returns the bounded active session; invalidates that session,
+ *  usage, and every archive page so the thread and composer's token overlay refresh. */
 export async function compactSession(sessionId: string): Promise<Session> {
   const session = await apiPost<Session>(paths.sessionCompact(sessionId), {})
   invalidate(keys.session(sessionId))
   invalidate(keys.usage(sessionId))
+  invalidatePrefix(keys.sessionCompactedMessages(sessionId))
   return session
 }
 

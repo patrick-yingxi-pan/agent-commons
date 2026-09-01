@@ -4,7 +4,8 @@
 > production: a model gateway, context-window management/compaction, cost/budget, the
 > provider abstraction, and injection defense. Builds on [F5](F5-security-consent.md),
 > [F6](F6-persistence-ops.md), [P3](P3-escalation-tools.md). Serves spec MODEL-1..7,
-> and promotes BROKER-EXP-3 ([`docs/context-compaction.md`](../context-compaction.md)).
+> and includes the built MODEL-32 continuation-memory transaction that graduated
+> BROKER-EXP-3 ([`docs/context-compaction.md`](../context-compaction.md)).
 
 ## 1. Problem & scope
 
@@ -42,18 +43,26 @@ executes and ends visibly rather than masquerading as success. Operation-level
 idempotency remains the F3 PD15 follow-on. The tool schema is the resource-
 manipulation interface (`server/model/tools.ts`) — additive evolution (F3 PD17).
 
-### 2.3 Context-window management & compaction (BROKER-EXP-3)
+### 2.3 Context-window management & compaction (MODEL-32)
 
-When a conversation's context approaches the window, **compact** older turns:
+Between turns, a user can **compact** older conversation turns:
 
-- Summarize the older span via a model call, preserving **pinned/important** context
-  (attached contexts, recent turns, the active task); replace the raw span with the
-  summary in the assembled prompt while keeping the full history in storage (F1).
-- The UX is the captured pattern in `docs/context-compaction.md`: a warm first-person
-  caption ("Compacting our conversation so we can keep chatting…"), a determinate
-  progress bar, and the usage gauge (`src/components/UsageControl.tsx`) dropping back as
-  space frees.
-- Compaction is itself metered (it's a model call) and audited.
+- The selected provider receives the complete compactable source through bounded,
+  hierarchical, tool-free calls. The brief preserves concrete decisions,
+  constraints, identifiers, uncertainty, and unresolved work; the full original
+  history stays durable and inspectable in storage (F1).
+- Generation and commit fail closed. A provider failure, empty/overlarge reduction,
+  live turn, sibling compaction, or transcript race leaves active and archived history
+  unchanged. Re-compaction carries the prior brief forward without archiving it as a
+  human turn.
+- The UX is the captured pattern in `docs/context-compaction.md`: the warm
+  first-person caption ("Compacting our conversation so we can keep chatting…"), an
+  honest indeterminate spinner, Retry on failure, and the usage gauge
+  (`src/components/UsageControl.tsx`) dropping as active context is reclaimed. A
+  percentage waits for provider work with real completed/total units.
+- Compaction is metered, and both endpoint and Session-provider replies receive the
+  resulting active chronological history. Auto-triggering near a model's actual
+  context ceiling remains a separate product decision.
 
 ### 2.4 Cost, budget & metering
 
@@ -81,8 +90,9 @@ clamped authority (P3).
 
 - **Provider 429 / outage** — retry/backoff; fallback model or a clear "try again"; the
   turn is idempotent (F3 PD15).
-- **Context overflow** — compaction; if compaction itself can't fit, drop-oldest with a
-  visible notice (no silent loss).
+- **Context overflow** — manual compaction today; if the bounded reduction cannot
+  produce one complete brief, leave history unchanged and surface Retry. Automatic
+  thresholding and any last-resort overflow policy require an explicit later decision.
 - **Tool loop non-termination** — iteration cap → stop with a partial result + notice.
 - **Budget exhausted mid-turn** — refuse `limit_exceeded` before streaming (already), so
   no partial charge surprise.
@@ -103,8 +113,8 @@ iteration distribution. Alert on provider error spikes + budget exhaustion.
 
 See [`DECISIONS.md`](DECISIONS.md): **PD51** (a model gateway mediates the Anthropic API
 — keys, per-agent/tenant budgets, retries/timeouts/fallback, streaming relay; going live
-is config, MOCK-1), **PD52** (context-window compaction: summarize older turns via a model
-call, preserve pinned context, reflect in the usage gauge — realizes BROKER-EXP-3),
+is config, MOCK-1), **PD52** (built as MODEL-32: selected-provider continuation brief,
+durable inspectable originals, fail-closed compare-commit, and usage-gauge recovery),
 **PD53** (real per-turn token metering enforced against the D8 budget windows + per-tenant
 plan caps), **PD54** (multi-provider via the D9 abstraction; concrete model id + keys stay
 server-only off the contract), **PD55** (tool-use loop hardening), and **PD69**

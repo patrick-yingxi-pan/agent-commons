@@ -1,74 +1,85 @@
-/** Context-window compaction (P5 / BROKER-EXP-3). Server-owned: `store.compactSession`
- *  moves all but the last KEEP_RECENT messages into the `compactedMessages` archive and
- *  leaves a small summary marker in `messages`, so the token count — and the usage gauge's
- *  context % (GET /v1/usage) — drops back. Non-destructive (the archive keeps the detail)
- *  and idempotent-ish (a no-op on a short thread). The route wiring reuses the shared
- *  `denyForeignSession` tenant guard proven in server/routes/capability-remote.test.ts. */
+/** Store locks for model-backed conversation compaction. The store owns only the
+ * immutable preparation and compare-before-commit transaction; model generation
+ * is locked at its boundary and through the HTTP route. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from './index.ts'
+import { ConflictError } from '../conflict.ts'
 
 const BIG = 'This is a reasonably long conversational message carrying real token weight. '.repeat(120)
 
-test('compactSession archives older messages behind a summary + drops the context %', () => {
-  const s = store.createSession('compaction thread')
-  for (let i = 0; i < 12; i++) {
+function append(sessionId: string, n: number, prefix = 'turn'): void {
+  for (let i = 0; i < n; i += 1) {
     const role = i % 2 ? 'assistant' : 'user'
-    store.appendMessage(s.id, { id: store.mintMessageId(role), role, content: `${BIG} #${i}` })
+    store.appendMessage(sessionId, { id: store.mintMessageId(role), role, content: `${BIG} ${prefix}-${i}` })
   }
-  const before = store.usage(s.id).context.pct
-  assert.ok((store.getSession(s.id).messages ?? []).length >= 12, 'the thread has many messages')
+}
 
-  const compacted = store.compactSession(s.id)
-  assert.ok(compacted, 'compaction ran')
-  const after = store.getSession(s.id)
+function ready(sessionId: string) {
+  const plan = store.prepareSessionCompaction(sessionId)
+  assert.ok(plan && plan.kind === 'ready', 'the thread has a compaction preparation')
+  return plan
+}
 
-  // messages collapse to the summary marker + the last KEEP_RECENT (4) recent.
-  assert.equal(after.messages.length, 5, 'summary + 4 recent')
-  const summary = after.messages[0]
-  assert.ok((summary.compactedFrom ?? 0) >= 1, 'the summary marks how many messages it replaced')
-  // Non-destructive: the older messages are archived, count matches the marker.
-  assert.equal((after.compactedMessages ?? []).length, summary.compactedFrom, 'archived count matches the marker')
-  // The freed-space payoff: the context % dropped.
-  assert.ok(store.usage(s.id).context.pct < before, `context % dropped (${before} → ${store.usage(s.id).context.pct})`)
+test('compaction commits the generated brief, archives originals, and drops context usage', () => {
+  const session = store.createSession('compaction transaction')
+  append(session.id, 12)
+  const before = store.usage(session.id).context.pct
+  const plan = ready(session.id)
+  const content = '## Working memory\n\n- We chose the release plan.\n- Next: verify the signed artifact.'
+
+  const compacted = store.applySessionCompaction(plan, content, {
+    agentId: 'agent-default',
+    providerId: 'provider-default',
+    modelId: 'model-test',
+  })!
+
+  assert.equal(compacted.messages.length, 5, 'one brief + four recent turns')
+  assert.equal(compacted.messages[0].content, content, 'the model-authored brief is canonical')
+  assert.equal(compacted.messages[0].compactedFrom, 8)
+  assert.equal(compacted.messages[0].providerId, 'provider-default', 'summary provenance survives')
+  assert.equal(compacted.compactedMessages?.length, 8, 'every replaced real turn remains archived')
+  assert.ok(store.usage(session.id).context.pct < before, 'active context shrinks after commit')
 })
 
-test('re-compaction stays single-marker + cumulative, without archiving the prior marker', () => {
-  const s = store.createSession('re-compaction thread')
-  const append = (n) => {
-    for (let i = 0; i < n; i++) {
-      const role = i % 2 ? 'assistant' : 'user'
-      store.appendMessage(s.id, { id: store.mintMessageId(role), role, content: `${BIG} #${i}` })
-    }
-  }
-  append(12)
-  store.compactSession(s.id) // → summary(8) + 4 recent; archive 8 real
-  const first = store.getSession(s.id)
-  assert.equal(first.messages.filter((m) => m.compactedFrom != null).length, 1, 'exactly one summary marker')
-  assert.equal(first.compactedMessages.length, 8, 'archived the 8 real older messages')
+test('re-compaction summarizes the prior brief with new older turns but never archives the synthetic marker', () => {
+  const session = store.createSession('re-compaction transaction')
+  append(session.id, 12, 'first')
+  store.applySessionCompaction(ready(session.id), 'First factual brief')
 
-  append(6) // thread grows past the recent window again
-  store.compactSession(s.id)
-  const second = store.getSession(s.id)
-  // Still exactly one marker (the prior one was dropped, not re-archived).
-  assert.equal(second.messages.filter((m) => m.compactedFrom != null).length, 1, 'still a single marker after re-compaction')
-  // The archive holds ONLY real messages (no synthetic summary markers leaked in).
-  assert.ok(!second.compactedMessages.some((m) => m.compactedFrom != null), 'no prior marker archived')
-  // Cumulative count = real messages archived across both rounds (8 + 6), not inflated by the marker.
-  const marker = second.messages.find((m) => m.compactedFrom != null)
-  assert.equal(marker.compactedFrom, second.compactedMessages.length, 'the marker count equals the real archive size')
-  assert.equal(marker.compactedFrom, 14, 'cumulative real-message count (8 + 6)')
+  append(session.id, 6, 'second')
+  const secondPlan = ready(session.id)
+  assert.equal(secondPlan.sourceMessages[0].content, 'First factual brief', 'the previous brief carries context into the next summary')
+  assert.ok(secondPlan.sourceMessages[0].compactedFrom, 'the source identifies the synthetic prior brief')
+  assert.ok(secondPlan.archiveMessages.every((message) => message.compactedFrom == null), 'only real messages will enter the archive')
+
+  const compacted = store.applySessionCompaction(secondPlan, 'Second cumulative factual brief')!
+  assert.equal(compacted.messages.filter((message) => message.compactedFrom != null).length, 1)
+  assert.ok(!compacted.compactedMessages?.some((message) => message.compactedFrom != null))
+  assert.equal(compacted.messages[0].compactedFrom, 14, 'the archived real-message count is cumulative')
 })
 
-test('compactSession is a no-op on a short session (nothing worth compacting)', () => {
-  const s = store.createSession('short thread')
-  store.appendMessage(s.id, { id: store.mintMessageId('user'), role: 'user', content: 'hi' })
-  const r = store.compactSession(s.id)
-  assert.ok(r, 'returns the session')
-  assert.ok(!(r.messages ?? []).some((m) => m.compactedFrom), 'no summary added')
-  assert.ok(!r.compactedMessages, 'nothing archived')
+test('a transcript change during summary generation refuses the commit without moving history', () => {
+  const session = store.createSession('compaction race')
+  append(session.id, 8)
+  const plan = ready(session.id)
+  const concurrent = { id: store.mintMessageId('user'), role: 'user' as const, content: 'A newer device added this turn.' }
+  store.appendMessage(session.id, concurrent)
+
+  assert.throws(
+    () => store.applySessionCompaction(plan, 'Stale summary'),
+    (error: unknown) => error instanceof ConflictError && /changed while/i.test(error.message),
+  )
+  const after = store.getSession(session.id)!
+  assert.equal(after.messages.at(-1)?.id, concurrent.id, 'the concurrent turn remains authoritative')
+  assert.equal(after.compactedMessages, undefined, 'no original was archived on conflict')
 })
 
-test('compactSession on an unknown session returns undefined', () => {
-  assert.equal(store.compactSession('nope-not-a-session'), undefined)
+test('a short session prepares a no-op and an unknown session remains absent', () => {
+  const session = store.createSession('short compaction')
+  store.appendMessage(session.id, { id: store.mintMessageId('user'), role: 'user', content: 'hi' })
+  const prepared = store.prepareSessionCompaction(session.id)
+  assert.equal(prepared?.kind, 'noop')
+  assert.ok(!(prepared?.kind === 'noop' ? prepared.session.messages : []).some((message) => message.compactedFrom))
+  assert.equal(store.prepareSessionCompaction('nope-not-a-session'), undefined)
 })

@@ -160,11 +160,9 @@ export interface Message {
    *  `escalation` / `relationActions`, a *read* result only surfaced data, so it needs
    *  no consent — it's shown as activity under the message, not a proposal. */
   toolActivities?: ToolActivity[]
-  /** When set, this is a **compaction summary** that replaced `compactedFrom` earlier
-   *  messages to free context space (P5 / BROKER-EXP-3). The UI renders it as a warm
-   *  divider ("Compacted N earlier messages so we can keep chatting"), and the usage
-   *  gauge drops back once it lands. Server-owned: the backend performs the compaction
-   *  and the token-count change (see `GET /v1/usage`). */
+  /** When set, this is the selected provider's generated continuation brief for
+   *  `compactedFrom` archived messages (MODEL-32). The UI renders an inspectable
+   *  summary/archive disclosure and the usage gauge drops with active context. */
   compactedFrom?: number
 }
 
@@ -428,11 +426,9 @@ export interface Session {
   }
   /** Canned content shown when a non-demo conversation is opened. */
   messages?: Message[]
-  /** Messages archived by context compaction (P5 / BROKER-EXP-3): compaction moves the
-   *  older messages HERE (out of `messages`, so they no longer count toward the context
-   *  window) and leaves a compaction-summary marker in `messages`. Non-destructive — the
-   *  detail stays recoverable (the copy promises continuity) — and not shipped in the
-   *  lightweight list rows. */
+  /** Original turns archived by model-backed context compaction (MODEL-32). They
+   *  leave active model context but remain durable and recoverable through a
+   *  tenant-walled bounded page; browser session projections omit this array. */
   compactedMessages?: Message[]
   /** The live, server-owned workspace (runtime attaches persist here). Populated
    *  by the backend on read; the flat seed fields below seed it. */

@@ -9,7 +9,8 @@ import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Server } from 'node:http'
 import { startModelServer } from './index.ts'
-import { generateReply, systemPrompt, type ReplySession } from '../generate.ts'
+import { generateCompactionSummaryPart, generateReply, systemPrompt, type ReplySession } from '../generate.ts'
+import { summarizeConversation } from '../compaction.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import type { ApiToolRuntime } from './apiTools.ts'
 
@@ -25,6 +26,7 @@ before(async () => {
 })
 after(() => {
   delete process.env.ANTHROPIC_BASE_URL
+  server.closeAllConnections?.()
   server.close()
 })
 
@@ -202,6 +204,40 @@ test('a turn reports the real token usage it consumed (fed to the meter)', async
   const { usage } = await generateReply(session, DEFAULT_AGENT, 'We ship the new Insights dashboard next week. Help me think through the launch.', c.handlers)
   assert.ok(usage.inputTokens > 0, 'input tokens metered')
   assert.ok(usage.outputTokens > 0, 'output tokens metered')
+})
+
+test('endpoint-backed turns send prior active context to the model', async () => {
+  const c = collect()
+  const { message } = await generateReply(
+    session,
+    DEFAULT_AGENT,
+    'Recall earlier context.',
+    c.handlers,
+    undefined,
+    {},
+    undefined,
+    [],
+    undefined,
+    {},
+    [{ role: 'user', text: 'The release codename is Firefly.' }, { role: 'assistant', text: 'I will remember Firefly.' }],
+  )
+  assert.match(message.content, /Firefly/, 'the endpoint received and used the earlier turns')
+})
+
+test('compaction is a source-derived, metered Messages call with no canned fallback', async () => {
+  const generated = await summarizeConversation(
+    [
+      { id: 'old-user', role: 'user', content: 'Ship direct signed downloads under codename Firefly.' },
+      { id: 'old-assistant', role: 'assistant', content: 'Decision recorded; notarization remains next.' },
+    ],
+    (prompt) => generateCompactionSummaryPart(prompt),
+  )
+  assert.match(generated.text, /Firefly/, 'the brief derives from the supplied conversation')
+  assert.match(generated.text, /notarization/, 'open work survives the summary')
+  assert.match(generated.text, /## Retained context/, 'the development fixture uses the provider-facing Markdown shape')
+  assert.doesNotMatch(generated.text, /\{"id":/, 'wire metadata remains model input, not user-facing fixture prose')
+  assert.ok(generated.usage.inputTokens > 0)
+  assert.ok(generated.usage.outputTokens > 0)
 })
 
 test('systemPrompt composes the worker Agent prompt + instructions', () => {

@@ -69,6 +69,54 @@ export function plainReplyText(userText: string): string {
   return 'The model here is a local mock, so free-form chat is canned — but every organizing act is real. Ask me to *open a workspace*, *connect the repo*, *save a draft as a document*, *file this under a project*, or *have a schedule save a digest*.'
 }
 
+/** A deterministic but source-derived stand-in for the real model's compaction
+ * prose. It deliberately reads the supplied source and stays bounded; the backend
+ * still exercises the exact non-streaming Messages seam used in release. */
+export function compactionReplyText(userText: string): string {
+  const source =
+    userText.match(/<untrusted_conversation_source[^>]*>\n([\s\S]*?)\n<\/untrusted_conversation_source>/)?.[1] ??
+    userText.match(/<untrusted_partial_briefs[^>]*>\n([\s\S]*?)\n<\/untrusted_partial_briefs>/)?.[1] ??
+    userText
+  const items: string[] = []
+  const seen = new Set<string>()
+  const addItem = (item: string) => {
+    if (seen.has(item)) return
+    seen.add(item)
+    items.push(item)
+  }
+  const push = (role: unknown, content: unknown) => {
+    if (typeof content !== 'string' || !content.trim()) return
+    const label = role === 'user' ? 'User' : role === 'assistant' ? 'Assistant' : 'Context'
+    const compact = content.replace(/\s+/g, ' ').trim()
+    addItem(`- **${label}:** ${compact.length > 280 ? `${compact.slice(0, 277)}…` : compact}`)
+  }
+
+  for (const line of source.split('\n')) {
+    try {
+      const message = JSON.parse(line) as { role?: unknown; content?: unknown }
+      push(message.role, message.content)
+    } catch {
+      // A hierarchical merge receives earlier Markdown briefs rather than JSONL.
+      // Preserve their substantive bullets without copying their generic heading.
+      const bullet = line.match(/^\s*[-*]\s+(.+)/)?.[1]?.trim()
+      if (bullet) addItem(`- ${bullet}`)
+    }
+  }
+
+  if (!items.length) {
+    const compact = source.replace(/[{}]/g, ' ').replace(/\s+/g, ' ').trim()
+    addItem(`- ${compact.length > 900 ? `${compact.slice(0, 897)}…` : compact}`)
+  }
+  const kept: string[] = []
+  let length = '## Retained context\n\n'.length
+  for (const item of items) {
+    if (kept.length && length + item.length + 1 > 1_200) break
+    kept.push(item)
+    length += item.length + 1
+  }
+  return `## Retained context\n\n${kept.join('\n')}`
+}
+
 /** Split text into word-sized chunks (each keeps trailing whitespace, so the
  *  concatenated deltas reconstruct the text exactly) — the unit the model server
  *  streams one `content_block_delta` per. */
