@@ -19,6 +19,17 @@ test('desktop Customize creates and reveals portable backups without filesystem 
       configurable: false,
       value: {
         data: {
+          getRecoveryStatus: async () => {
+            ;(window as any).__desktopDataCalls.push('getRecoveryStatus')
+            return {
+              status: 'ready',
+              backup: {
+                fileName: 'recovery-2026-08-31.json',
+                sizeBytes: 4096,
+                createdAt: '2026-08-31T18:25:43.210Z',
+              },
+            }
+          },
           createBackup: async () => {
             ;(window as any).__desktopDataCalls.push('createBackup')
             return {
@@ -40,18 +51,20 @@ test('desktop Customize creates and reveals portable backups without filesystem 
   await page.goto('/customize')
 
   await expect(page.getByText('Local backups', { exact: true })).toBeVisible()
-  await expect(page.getByText('Seven daily recovery copies are kept automatically', { exact: false })).toBeVisible()
+  await expect(page.getByText('newest seven automatic daily recovery copies', { exact: false })).toBeVisible()
+  await expect(page.getByText('Today’s automatic recovery copy is ready', { exact: false })).toBeVisible()
   await expect(page.getByText('no provider API keys', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Back up now' }).click()
-  await expect(page.getByRole('status')).toContainText('Saved backup-2026-08-31')
+  await expect(page.getByText('Saved backup-2026-08-31', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Show backups' }).click()
   await page.getByRole('button', { name: 'Restore backup…' }).click()
-  await expect.poll(() => page.evaluate(() => (window as any).__desktopDataCalls)).toEqual([
-    'createBackup',
-    'revealBackups',
-    'restoreBackup',
-  ])
-  await expect(page.getByRole('status')).toContainText('Saved backup-2026-08-31')
+  await expect.poll(() => page.evaluate(() =>
+    (window as any).__desktopDataCalls.filter((call: string) => call !== 'getRecoveryStatus'),
+  )).toEqual(['createBackup', 'revealBackups', 'restoreBackup'])
+  expect(await page.evaluate(() =>
+    (window as any).__desktopDataCalls.filter((call: string) => call === 'getRecoveryStatus').length,
+  )).toBeGreaterThanOrEqual(1)
+  await expect(page.getByText('Saved backup-2026-08-31', { exact: false })).toBeVisible()
 
   for (const viewport of REVIEW_VIEWPORTS) {
     await page.setViewportSize(viewport)
@@ -64,6 +77,35 @@ test('desktop Customize creates and reveals portable backups without filesystem 
 
   await page.setViewportSize({ width: 375, height: 812 })
   await assertWcag22Aa(page, 'native Local backups card')
+})
+
+test('desktop Customize discloses automatic recovery failure and keeps manual recovery actionable', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'agentCommonsDesktop', {
+      configurable: false,
+      value: {
+        data: {
+          getRecoveryStatus: async () => ({ status: 'failed' }),
+          createBackup: async () => ({
+            fileName: 'backup-2026-08-31T18-25-43-210Z-a1b2c3d4e5f60718.json',
+            sizeBytes: 4096,
+            createdAt: '2026-08-31T18:25:43.210Z',
+          }),
+          revealBackups: async () => undefined,
+          restoreBackup: async () => ({ status: 'cancelled' }),
+        },
+      },
+    })
+  })
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/customize')
+
+  await expect(page.getByRole('alert')).toContainText('automatic recovery copy couldn’t be confirmed')
+  await expect(page.getByRole('alert')).toContainText('Back up now to protect current work')
+  await page.getByRole('button', { name: 'Back up now' }).click()
+  await expect(page.getByText('Saved backup-2026-08-31', { exact: false })).toBeVisible()
+  await expect(page.getByRole('alert')).toContainText('retry automatically next launch')
+  await assertWcag22Aa(page, 'failed automatic recovery state')
 })
 
 test('the web Customize surface does not advertise device backup controls', async ({ page }) => {

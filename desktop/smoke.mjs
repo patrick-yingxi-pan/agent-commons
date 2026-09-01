@@ -127,8 +127,9 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     )
     const hasDataBridge = await page.evaluate(() =>
       typeof window.agentCommonsDesktop?.data?.createBackup === 'function' &&
+      typeof window.agentCommonsDesktop?.data?.getRecoveryStatus === 'function' &&
       typeof window.agentCommonsDesktop?.data?.restoreBackup === 'function' &&
-      Object.keys(window.agentCommonsDesktop.data).sort().join(',') === 'createBackup,restoreBackup,revealBackups',
+      Object.keys(window.agentCommonsDesktop.data).sort().join(',') === 'createBackup,getRecoveryStatus,restoreBackup,revealBackups',
     )
     if (!hasDataBridge) throw new Error('The narrow desktop data bridge was not available.')
     const hasContextBridge = await page.evaluate(() =>
@@ -141,6 +142,14 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     const automaticFiles = await readdir(recoveryDirectory)
     const automaticFile = automaticFiles.find((file) => /^recovery-\d{4}-\d{2}-\d{2}\.json$/.test(file))
     if (!automaticFile) throw new Error('Packaged desktop startup did not create its daily recovery point.')
+    const recoveryStatus = await page.evaluate(() => window.agentCommonsDesktop.data.getRecoveryStatus())
+    if (
+      recoveryStatus?.status !== 'ready' ||
+      recoveryStatus.backup?.fileName !== automaticFile ||
+      Object.keys(recoveryStatus.backup ?? {}).sort().join(',') !== 'createdAt,fileName,sizeBytes'
+    ) {
+      throw new Error('The packaged desktop did not disclose its path-free automatic recovery status.')
+    }
     const automaticState = JSON.parse(await readFile(join(recoveryDirectory, automaticFile), 'utf8'))
     if (!Number.isSafeInteger(automaticState.version) || !Array.isArray(automaticState.sessions)) {
       throw new Error('The packaged daily recovery point was not a canonical portable snapshot.')

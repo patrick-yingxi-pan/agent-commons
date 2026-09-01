@@ -47,6 +47,27 @@ export function isBackupMetadata(value, kind = 'any') {
   )
 }
 
+/** Validation is followed by projection: a future utility-process field cannot
+ * widen the renderer bridge merely because the required metadata is present. */
+export function boundedBackupMetadata(value, kind = 'any') {
+  if (!isBackupMetadata(value, kind)) return null
+  return {
+    fileName: value.fileName,
+    sizeBytes: value.sizeBytes,
+    createdAt: value.createdAt,
+  }
+}
+
+/** Collapse startup recovery to a bounded renderer-safe result. Failure detail
+ * stays in shell diagnostics; a successful result may carry only the same
+ * path-free metadata already admitted by the backup bridge. */
+export function desktopRecoveryStatus(backup) {
+  const bounded = boundedBackupMetadata(backup, 'recovery')
+  return bounded
+    ? { status: 'ready', backup: bounded }
+    : { status: 'failed' }
+}
+
 /** Utility-process half: export only into the backend-configured managed
  * snapshots directory and return bounded metadata, never a filesystem path. */
 export function installDataRuntime({
@@ -99,7 +120,8 @@ export function createDataBackendClient(child, { timeoutMs = 15_000 } = {}) {
     if (!request) return
     pending.delete(message.requestId)
     clearTimeout(request.timeout)
-    if (message.ok === true && isBackupMetadata(message.backup, request.kind)) request.resolve(message.backup)
+    const backup = message.ok === true ? boundedBackupMetadata(message.backup, request.kind) : null
+    if (backup) request.resolve(backup)
     else request.reject(new Error('The local backend could not create the backup.'))
   }
   child.on('message', onMessage)

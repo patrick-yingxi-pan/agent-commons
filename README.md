@@ -246,8 +246,10 @@ the recovered state, then restart it.
 
 On each successful Electron start, Agent Commons best-effort ensures one portable
 recovery point for the current UTC day and retains the latest seven automatic copies;
-manual backups are never pruned. Open **Customize → Local backups** to create a
-timestamped copy, reveal the OS-managed backup folder, or initiate a native restore.
+manual backups are never pruned. **Customize → Local backups** reports whether today's
+automatic copy was actually confirmed, and a failed check points directly to **Back up
+now** instead of implying protection. The same surface creates a timestamped copy,
+reveals the OS-managed backup folder, or initiates a native restore.
 Restore accepts only a managed backup from that folder and defaults its replacement
 warning to Cancel. While healthy, the app first creates a fresh safety copy, proves the
 backend stopped, validates and reads back the replacement, then restarts. Startup failure

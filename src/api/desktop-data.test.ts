@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 import {
   createDesktopBackup,
   desktopDataAvailable,
+  getDesktopRecoveryStatus,
   revealDesktopBackups,
   restoreDesktopBackup,
 } from './desktopData.ts'
@@ -19,22 +20,34 @@ test('the desktop data adapter exposes backup, reveal, and path-free native rest
   const agentCommonsDesktop: DesktopBridge = {
     data: {
       async createBackup() { calls.push('createBackup'); return backup },
+      async getRecoveryStatus() {
+        calls.push('getRecoveryStatus')
+        return {
+          status: 'ready',
+          backup: { ...backup, fileName: 'recovery-2026-08-31.json' },
+        }
+      },
       async revealBackups() { calls.push('revealBackups') },
       async restoreBackup() { calls.push('restoreBackup'); return { status: 'cancelled' } },
     },
   }
   const scope = { agentCommonsDesktop }
   assert.equal(desktopDataAvailable(scope), true)
+  assert.deepEqual(await getDesktopRecoveryStatus(scope), {
+    status: 'ready',
+    backup: { ...backup, fileName: 'recovery-2026-08-31.json' },
+  })
   assert.deepEqual(await createDesktopBackup(scope), backup)
   await revealDesktopBackups(scope)
   assert.deepEqual(await restoreDesktopBackup(scope), { status: 'cancelled' })
-  assert.deepEqual(calls, ['createBackup', 'revealBackups', 'restoreBackup'])
-  assert.deepEqual(Object.keys(agentCommonsDesktop.data!).sort(), ['createBackup', 'restoreBackup', 'revealBackups'])
+  assert.deepEqual(calls, ['getRecoveryStatus', 'createBackup', 'revealBackups', 'restoreBackup'])
+  assert.deepEqual(Object.keys(agentCommonsDesktop.data!).sort(), ['createBackup', 'getRecoveryStatus', 'restoreBackup', 'revealBackups'])
 })
 
 test('the web build has no desktop data capability', async () => {
   const scope = {}
   assert.equal(desktopDataAvailable(scope), false)
+  await assert.rejects(() => getDesktopRecoveryStatus(scope), /unavailable/)
   await assert.rejects(() => createDesktopBackup(scope), /unavailable/)
   await assert.rejects(() => revealDesktopBackups(scope), /unavailable/)
   await assert.rejects(() => restoreDesktopBackup(scope), /unavailable/)
@@ -43,10 +56,12 @@ test('the web build has no desktop data capability', async () => {
 test('Customize renders the native backup workflow only through the adapter', () => {
   const source = readFileSync(new URL('../components/DesktopDataCard.tsx', import.meta.url), 'utf8')
   assert.match(source, /desktopDataAvailable\(\)/)
+  assert.match(source, /getDesktopRecoveryStatus\(\)/)
   assert.match(source, /createDesktopBackup\(\)/)
   assert.match(source, /revealDesktopBackups\(\)/)
   assert.match(source, /restoreDesktopBackup\(\)/)
-  assert.match(source, /Seven daily recovery copies are kept automatically/)
+  assert.match(source, /newest seven automatic daily recovery copies when storage is available/)
+  assert.match(source, /automatic recovery copy couldn’t be confirmed/)
   assert.match(source, /no provider API keys/)
   assert.match(source, /fresh safety copy/)
   assert.match(source, /restarts the app/)

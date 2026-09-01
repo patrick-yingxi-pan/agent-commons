@@ -4,7 +4,9 @@ import { EventEmitter } from 'node:events'
 import {
   DATA_REQUEST,
   DATA_RESULT,
+  boundedBackupMetadata,
   createDataBackendClient,
+  desktopRecoveryStatus,
   desktopBackupName,
   installDataRuntime,
   isBackupMetadata,
@@ -32,6 +34,25 @@ test('desktop backup names are sortable, safe managed-snapshot names', () => {
   for (const invalid of ['backup.json', `..${'/recovery-2026-08-31.json'}`, 'recovery-2026-08-31.txt']) {
     assert.equal(managedBackupName(invalid), null)
   }
+})
+
+test('automatic recovery status exposes only validated path-free recovery metadata', () => {
+  const recovery = {
+    fileName: 'recovery-2026-08-31.json',
+    sizeBytes: 4096,
+    createdAt: NOW.toISOString(),
+    path: '/private/snapshots/recovery-2026-08-31.json',
+  }
+  const bounded = {
+    fileName: recovery.fileName,
+    sizeBytes: recovery.sizeBytes,
+    createdAt: recovery.createdAt,
+  }
+  assert.deepEqual(boundedBackupMetadata(recovery, 'recovery'), bounded)
+  assert.deepEqual(desktopRecoveryStatus(recovery), { status: 'ready', backup: bounded })
+  assert.deepEqual(desktopRecoveryStatus(), { status: 'failed' })
+  assert.deepEqual(desktopRecoveryStatus({ ...recovery, fileName: `${NAME}.json` }), { status: 'failed' })
+  assert.equal(JSON.stringify(desktopRecoveryStatus(recovery)).includes('/private/'), false)
 })
 
 test('the utility creates a managed backup and returns metadata without a path', () => {
@@ -82,7 +103,12 @@ test('the main client correlates validated metadata, timeout, and close', async 
   const request = child.posted.at(-1)
   const backup = { fileName: `${NAME}.json`, sizeBytes: 4096, createdAt: NOW.toISOString() }
   assert.equal(isBackupMetadata(backup), true)
-  child.emit('message', { type: DATA_RESULT, requestId: request.requestId, ok: true, backup })
+  child.emit('message', {
+    type: DATA_RESULT,
+    requestId: request.requestId,
+    ok: true,
+    backup: { ...backup, path: `/private/snapshots/${backup.fileName}` },
+  })
   assert.deepEqual(await creating, backup)
 
   const ensuring = client.ensureRecoveryBackup()

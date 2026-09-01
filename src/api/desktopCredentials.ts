@@ -9,6 +9,10 @@ export interface DesktopBackupMetadata {
   createdAt: string
 }
 
+export type DesktopRecoveryStatus =
+  | { status: 'ready'; backup: DesktopBackupMetadata }
+  | { status: 'failed' }
+
 export type DesktopRestoreResult = { status: 'cancelled' } | { status: 'restarting' }
 
 export type DesktopContextPickerRejection =
@@ -51,6 +55,7 @@ export interface DesktopBridge {
   }
   data?: {
     createBackup(): Promise<DesktopBackupMetadata>
+    getRecoveryStatus(): Promise<DesktopRecoveryStatus>
     revealBackups(): Promise<void>
     restoreBackup(): Promise<DesktopRestoreResult>
   }

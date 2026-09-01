@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   createDesktopBackup,
   desktopDataAvailable,
+  getDesktopRecoveryStatus,
   restoreDesktopBackup,
   revealDesktopBackups,
 } from '../api'
+import type { DesktopRecoveryStatus } from '../api'
 import { SOFT_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { ResourcePageSection as FoldSection } from './ResourcePage'
 
@@ -19,10 +21,21 @@ function formatBytes(bytes: number): string {
 /** Electron-only data safety. The native bridge owns every filesystem detail;
  * this component sees only bounded backup metadata and path-free outcomes. */
 export function DesktopDataCard() {
+  const available = desktopDataAvailable()
   const [busy, setBusy] = useState<'backup' | 'restore' | 'reveal' | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [recovery, setRecovery] = useState<DesktopRecoveryStatus | { status: 'checking' }>({ status: 'checking' })
 
-  if (!desktopDataAvailable()) return null
+  useEffect(() => {
+    if (!available) return
+    let current = true
+    void getDesktopRecoveryStatus()
+      .then((status) => { if (current) setRecovery(status) })
+      .catch(() => { if (current) setRecovery({ status: 'failed' }) })
+    return () => { current = false }
+  }, [available])
+
+  if (!available) return null
 
   const createBackup = async () => {
     setBusy('backup')
@@ -74,15 +87,32 @@ export function DesktopDataCard() {
       <div className="grid gap-3 @xl:grid-cols-[minmax(0,1fr)_auto] @xl:items-center">
         <div className="min-w-0">
           <p className="text-[12px] text-ink-faint">
-            Seven daily recovery copies are kept automatically. Backups you create remain until deleted.
+            Agent Commons keeps the newest seven automatic daily recovery copies when storage is available.
+            Backups you create remain until deleted.
             Restoring first saves a fresh safety copy, replaces local workspace data, and restarts the app.
             Backups contain private app data but no provider API keys.
           </p>
+          {recovery.status === 'checking' && (
+            <p role="status" aria-live="polite" className="mt-2 text-[12px] text-ink-faint">
+              Checking today’s automatic recovery copy…
+            </p>
+          )}
+          {recovery.status === 'ready' && (
+            <p role="status" aria-live="polite" className="mt-2 break-words text-[12px] text-ok-text">
+              Today’s automatic recovery copy is ready · {recovery.backup.fileName} · {formatBytes(recovery.backup.sizeBytes)}
+            </p>
+          )}
+          {recovery.status === 'failed' && (
+            <p role="alert" aria-live="assertive" className="mt-2 text-[12px] text-danger-text">
+              Today’s automatic recovery copy couldn’t be confirmed. Back up now to protect current work;
+              Agent Commons will retry automatically next launch.
+            </p>
+          )}
           {notice && (
             <p
               role={notice.tone}
               aria-live={notice.tone === 'status' ? 'polite' : 'assertive'}
-              className={`mt-2 break-words text-[12px] ${notice.tone === 'alert' ? 'text-danger' : 'text-ok'}`}
+              className={`mt-2 break-words text-[12px] ${notice.tone === 'alert' ? 'text-danger-text' : 'text-ok-text'}`}
             >
               {notice.message}
             </p>

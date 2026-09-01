@@ -7,7 +7,7 @@ import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
-import { createDataBackendClient } from './dataProtocol.mjs'
+import { createDataBackendClient, desktopRecoveryStatus } from './dataProtocol.mjs'
 import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
 import { confirmManagedRestore, pickManagedBackup, waitForRestoreWorker } from './restoreProtocol.mjs'
 import { offerStartupRecovery, revealRecoveryDirectory } from './startupRecovery.mjs'
@@ -43,6 +43,7 @@ let dataBackend = null
 let quitting = false
 let quitAfterBackend = false
 let restoreInProgress = false
+let automaticRecovery = desktopRecoveryStatus()
 let rendererUrl = null
 let trustedOrigin = null
 const contextPicker = createNativeContextPicker({
@@ -217,9 +218,11 @@ async function reconcileCredentialBindings(bindings) {
 }
 
 async function ensureRecoveryBackup() {
+  automaticRecovery = desktopRecoveryStatus()
   if (!dataBackend) return
   try {
     const backup = await dataBackend.ensureRecoveryBackup()
+    automaticRecovery = desktopRecoveryStatus(backup)
     console.log(`[desktop] recovery ready ${backup.fileName}`)
   } catch (error) {
     // Recovery copies are defense in depth. A backup-volume problem is loud in
@@ -297,6 +300,10 @@ function installCredentialIpc() {
 }
 
 function installDataIpc() {
+  ipcMain.handle(dataChannels.getRecoveryStatus, (event) => {
+    assertTrustedDataCaller(event)
+    return automaticRecovery
+  })
   ipcMain.handle(dataChannels.createBackup, async (event) => {
     assertTrustedDataCaller(event)
     if (!dataBackend) throw new Error('The local data service is unavailable.')

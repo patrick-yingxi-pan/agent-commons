@@ -56,11 +56,14 @@ snapshot of prod-shaped data, and are reversible-by-compensation where feasible.
   backend-neutral JSON, atomic export, validation + forward migration before restore,
   and read-back verification. A JSON export restores into SQLite and vice versa.
   The native shell presents timestamped managed backups, ensures one daily recovery
-  point with seven-day automatic retention, and reveals their exact OS-owned folder
-  without giving the renderer a path. Native restore accepts only a regular managed
-  direct child, defaults its warning to Cancel, makes a fresh safety copy when the app
-  is healthy, proves the backend stopped, performs validated/read-back-proven replacement
-  in a minimal one-shot worker, and restarts. Startup recovery uses the same stopped-server
+  point with seven-day automatic retention, and retains whether that attempt actually
+  succeeded. Customize receives only generic failure or path-free validated metadata,
+  states the observed result, and keeps manual backup actionable. The shell reveals the
+  exact OS-owned folder without giving the renderer a path. Native restore accepts only
+  a regular managed direct child, defaults its warning to Cancel, and makes a fresh
+  safety copy when the app is healthy. It proves the backend stopped, performs a
+  validated, read-back-proven replacement in a minimal one-shot worker, and restarts.
+  Startup recovery uses the same stopped-server
   path while explicitly disclosing that it cannot make a new safety copy.
 
 ### 2.5 Deployment topology
@@ -106,7 +109,8 @@ neighbors. The reply stream is the only sticky path.
 - **Migration failure** — halt deploy, roll back the API image, fix forward; never
   partially-migrate prod (transactional DDL where supported).
 - **Desktop disk full / corruption** — atomic JSON/export replacement, transactional
-  SQLite under WAL, verified local backup/restore, re-sync from web if linked. A live
+  SQLite under WAL, verified local backup/restore, visible automatic-recovery failure
+  with a manual backup action, and re-sync from web if linked. A live
   commit failure returns `storage_unavailable`, flips readiness, and fail-closes product
   traffic until the shell/service supervisor restarts from the last durable snapshot;
   a process whose memory may have advanced past disk never resumes in place (PD76).

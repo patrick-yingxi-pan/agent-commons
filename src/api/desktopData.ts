@@ -2,6 +2,7 @@ import type {
   DesktopBackupMetadata,
   DesktopBridge,
   DesktopBridgeScope,
+  DesktopRecoveryStatus,
   DesktopRestoreResult,
 } from './desktopCredentials.ts'
 
@@ -17,6 +18,12 @@ export async function createDesktopBackup(scope?: DesktopBridgeScope): Promise<D
   const data = bridge(scope)
   if (!data) throw new Error('Desktop backup controls are unavailable.')
   return data.createBackup()
+}
+
+export async function getDesktopRecoveryStatus(scope?: DesktopBridgeScope): Promise<DesktopRecoveryStatus> {
+  const data = bridge(scope)
+  if (!data) throw new Error('Desktop recovery status is unavailable.')
+  return data.getRecoveryStatus()
 }
 
 export async function revealDesktopBackups(scope?: DesktopBridgeScope): Promise<void> {

@@ -107,6 +107,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'installContextIpc()',
     'installDataIpc()',
     'ensureRecoveryBackup()',
+    'automaticRecovery = desktopRecoveryStatus(backup)',
     'offerStartupRecovery({',
     'revealRecoveryDirectory({',
     'runManagedRestoreLifecycle({',
@@ -127,7 +128,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.doesNotMatch(preload, /sendSync|agentCommonsDesktop[^]*ipcRenderer\s*[,}]/, 'the renderer never receives raw IPC authority')
   for (const verb of ['provision', 'bind', 'discard', 'removeProvider']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(credentialChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
-  for (const verb of ['createBackup', 'revealBackups', 'restoreBackup']) assert.match(preload, new RegExp(`${verb}:`))
+  for (const verb of ['createBackup', 'getRecoveryStatus', 'revealBackups', 'restoreBackup']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(dataChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const verb of ['pickFiles', 'pickFolder']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(contextChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
@@ -168,6 +169,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /first-run model handoff/)
   assert.match(smoke, /agentCommonsDesktop\.credentials\.removeProvider/)
   assert.match(smoke, /agentCommonsDesktop\.data\.createBackup/)
+  assert.match(smoke, /agentCommonsDesktop\.data\.getRecoveryStatus/)
   assert.match(smoke, /agentCommonsDesktop\?\.data\?\.restoreBackup/)
   assert.match(smoke, /agentCommonsDesktop\?\.context\?\.pickFiles/)
   assert.match(smoke, /native context picker/)

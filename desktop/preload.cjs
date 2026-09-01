@@ -12,6 +12,7 @@ const credentialChannels = Object.freeze({
 })
 const dataChannels = Object.freeze({
   createBackup: 'agent-commons:data:create-backup',
+  getRecoveryStatus: 'agent-commons:data:get-recovery-status',
   revealBackups: 'agent-commons:data:reveal-backups',
   restoreBackup: 'agent-commons:data:restore-backup',
 })
@@ -31,6 +32,7 @@ const bridge = {
   }),
   data: Object.freeze({
     createBackup: () => ipcRenderer.invoke(dataChannels.createBackup),
+    getRecoveryStatus: () => ipcRenderer.invoke(dataChannels.getRecoveryStatus),
     revealBackups: () => ipcRenderer.invoke(dataChannels.revealBackups),
     restoreBackup: () => ipcRenderer.invoke(dataChannels.restoreBackup),
   }),
