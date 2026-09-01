@@ -8,7 +8,7 @@ import {
   reconcileRelationOp,
   resolveMessageRelation,
 } from '../api'
-import type { RelationMutationFailure } from './relationMutationsCore'
+import type { RelationMutationDeps, RelationMutationFailure } from './relationMutationsCore'
 
 export function describeRelationMutationFailure(error: unknown): RelationMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -52,13 +52,49 @@ export function describeRelationMutationFailure(error: unknown): RelationMutatio
   }
 }
 
+export function describeProjectCreationFailure(error: unknown): RelationMutationFailure {
+  if (error instanceof AccountSwitchedError) {
+    return {
+      message: 'That Project belonged to the previous account. Dismiss it to continue.',
+      retryable: false,
+    }
+  }
+  if (error instanceof ApiRequestError) {
+    if (error.status === 400 || error.status === 404) {
+      return {
+        message: 'That Project request is no longer valid. Dismiss it and review the owner or fields.',
+        retryable: false,
+      }
+    }
+    if (error.status === 401 || error.status === 403) {
+      return {
+        message: 'You no longer have permission to create that Project. Dismiss it to continue.',
+        retryable: false,
+      }
+    }
+    if (error.status === 429) {
+      return { message: 'Too many Project changes at once. Retry in a moment.', retryable: true }
+    }
+  }
+  return {
+    message: 'Couldn’t confirm the new Project. Your request is still here—retry when the connection recovers.',
+    retryable: true,
+  }
+}
+
 export const relationMutationDeps = {
   mutate: applyRelationOp,
   commit: acceptRelationOp,
   reconcile: reconcileRelationOp,
   describeFailure: describeRelationMutationFailure,
+  createProject: (input, idempotencyKey) =>
+    import('../api/projectCommands.ts').then(({ createProject }) => createProject(input, idempotencyKey)),
+  reconcileProject: () => {
+    void import('../api/projectCommands.ts').then(({ reconcileProjectCreation }) => reconcileProjectCreation())
+  },
+  describeProjectFailure: describeProjectCreationFailure,
   mintIdempotencyKey: () => crypto.randomUUID(),
-}
+} satisfies Omit<RelationMutationDeps, 'setStatus'>
 
 /** The provider installs its own controller instance, but account switching is
  * a process-wide event. This helper keeps the lifecycle subscription beside the

@@ -6,6 +6,7 @@ import type {
   Message,
   ReplyStreamEvent,
   CreateCommissionRequest,
+  CreateProjectRequest,
   CreateGrantRequest,
   OpenDiscussionRequest,
   OpenProposalRequest,
@@ -3816,6 +3817,34 @@ export function buildRouter(): Router {
   r.get('/projects', ({ req, res }) => {
     sendJson(res, store.listProjects(store.identity(req.headers).tenant.id))
   })
+  // Direct form/remote creation mints identity inside the server transaction.
+  // The in-app model realizes this capability through its consent-gated
+  // create_project proposal instead of receiving a self-authorizing write tool.
+  r.intrinsicPost('/projects', 'the in-app session proposes Project creation through the relation consent card; it never executes its own proposal', idempotent(async ({ req, res, body }) => {
+    const input = await body<CreateProjectRequest>()
+    if (!input || typeof input.name !== 'string') {
+      return sendError(res, 'bad_request', 'name (string) is required')
+    }
+    if (input.description !== undefined && typeof input.description !== 'string') {
+      return sendError(res, 'bad_request', 'description must be a string')
+    }
+    if (
+      input.ownerTenantId !== undefined &&
+      (typeof input.ownerTenantId !== 'string' || input.ownerTenantId.trim() === '')
+    ) {
+      return sendError(res, 'bad_request', 'ownerTenantId must be a non-empty string when present')
+    }
+    const tenantId = store.identity(req.headers).tenant.id
+    try {
+      const created = store.createProject(input, tenantId)
+      if (!created) return sendError(res, 'not_found', 'No such Project owner')
+      sendJson(res, created, 201)
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  }))
   r.get('/artifacts', ({ req, res, url }) => {
     sendList(res, url, store.listArtifacts(store.identity(req.headers).tenant.id), (a) => a.id)
   })

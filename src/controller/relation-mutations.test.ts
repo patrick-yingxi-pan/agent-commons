@@ -1,6 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { emptyGraph, type RelationGraph, type RelationOp } from '../../contract/index.ts'
+import {
+  emptyGraph,
+  type CreateProjectRequest,
+  type Project,
+  type RelationGraph,
+  type RelationOp,
+} from '../../contract/index.ts'
 import {
   createRelationMutationController,
   type RelationMutationStatus,
@@ -13,6 +19,13 @@ interface Call {
   reject: (error: unknown) => void
 }
 
+interface ProjectCall {
+  input: CreateProjectRequest
+  idempotencyKey: string
+  resolve: (project: Project) => void
+  reject: (error: unknown) => void
+}
+
 const op = (id: string): RelationOp => ({
   kind: 'create-project',
   projectId: id,
@@ -20,12 +33,24 @@ const op = (id: string): RelationOp => ({
   projectDescription: '',
 })
 const graph = (revision: number): RelationGraph => ({ ...emptyGraph(), revision })
+const project = (name: string): Project => ({
+  id: `p-${name}`,
+  name,
+  description: '',
+  updatedAt: 1,
+  instructions: '',
+  scheduled: [],
+  contexts: [],
+  sessionIds: [],
+})
 const tick = () => new Promise<void>((resolve) => setImmediate(resolve))
 
 function harness(options: { throwOnCommit?: boolean } = {}) {
   const calls: Call[] = []
   const commits: Array<{ op: RelationOp; graph: RelationGraph }> = []
   const reconciled: RelationOp[] = []
+  const projectCalls: ProjectCall[] = []
+  const reconciledProjects: CreateProjectRequest[] = []
   const statuses: RelationMutationStatus[] = []
   let seq = 0
   const controller = createRelationMutationController({
@@ -37,10 +62,14 @@ function harness(options: { throwOnCommit?: boolean } = {}) {
     },
     reconcile: (relation) => reconciled.push(relation),
     describeFailure: () => ({ message: 'Couldn’t confirm.', retryable: true }),
+    createProject: (input, idempotencyKey) =>
+      new Promise<Project>((resolve, reject) => projectCalls.push({ input, idempotencyKey, resolve, reject })),
+    reconcileProject: (input) => reconciledProjects.push(input),
+    describeProjectFailure: () => ({ message: 'Project still held.', retryable: true }),
     setStatus: (status) => statuses.push(status),
     mintIdempotencyKey: () => `idem-${(seq += 1)}`,
   })
-  return { controller, calls, commits, reconciled, statuses }
+  return { controller, calls, commits, reconciled, projectCalls, reconciledProjects, statuses }
 }
 
 test('relation edits serialize and project only acknowledged snapshots in user order', async () => {
@@ -127,4 +156,44 @@ test('a local projection exception reconciles but cannot recast a server success
   assert.equal(await result, 'applied')
   assert.equal(h.reconciled.length, 1)
   assert.equal(h.statuses.at(-1)?.error, null)
+})
+
+test('Project creation retries the exact intent and logical key, then returns only server identity', async () => {
+  const h = harness()
+  const input = { name: 'Same intent', description: 'One held request' }
+  const result = h.controller.enqueueProject(input)
+  const key = h.projectCalls[0]!.idempotencyKey
+
+  h.projectCalls[0]!.reject(new Error('offline'))
+  await tick()
+  assert.equal(h.statuses.at(-1)?.error, 'Project still held.')
+  assert.match(h.statuses.at(-1)?.failedKey ?? '', /^direct-project:/)
+
+  h.controller.retry()
+  assert.equal(h.projectCalls[1]!.idempotencyKey, key)
+  assert.deepEqual(h.projectCalls.map((call) => call.input), [input, input])
+  h.projectCalls[1]!.resolve(project('Same intent'))
+  await tick()
+
+  assert.deepEqual(await result, { kind: 'created', resource: project('Same intent') })
+  assert.deepEqual(h.statuses.at(-1)?.pendingKeys, [])
+})
+
+test('dismissing uncertain Project creation reconciles it before later relation intent proceeds', async () => {
+  const h = harness()
+  const input = { name: 'one' }
+  const first = h.controller.enqueueProject(input)
+  const second = h.controller.enqueue(op('two'))
+
+  assert.equal(h.calls.length, 0, 'mixed intent cannot jump the active Project creation')
+  h.projectCalls[0]!.reject(new Error('uncertain'))
+  await tick()
+  h.controller.discard()
+
+  assert.deepEqual(await first, { kind: 'discarded' })
+  assert.deepEqual(h.reconciledProjects, [input])
+  assert.equal(h.calls.length, 1, 'later relation intent begins only after explicit dismissal')
+  h.calls[0]!.resolve(graph(1))
+  await tick()
+  assert.equal(await second, 'applied')
 })

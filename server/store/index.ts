@@ -27,6 +27,8 @@ import type {
   ConnectorDetail,
   ContextStatus,
   ContextTypeId,
+  CreateProjectRequest,
+  CreateProjectResponse,
   CreateGrantRequest,
   DiffLine,
   Discussion,
@@ -62,6 +64,7 @@ import type {
   ToolActivity,
   UsageSnapshot,
 } from '../../contract/index.ts'
+import { randomUUID } from 'node:crypto'
 import {
   applyGraphOp,
   connectorsFor,
@@ -5215,6 +5218,34 @@ export const store = {
   },
 
   // ── Entity graph (Projects / Artifacts / Schedules + the relationship graph) ──
+  /** Mint one direct Project inside the authoritative boundary. The conversational
+   * path keeps its proposed id because the consent card must be referentially
+   * stable; the direct create form has no such pre-ack identity and therefore
+   * must never derive one from a stale browser projection. */
+  createProject(input: CreateProjectRequest, tenantId: string): CreateProjectResponse | undefined {
+    const name = input.name.trim()
+    const description = (input.description ?? '').trim()
+    if (!name || name.length > 160) {
+      throw new ValidationError('Project name must be between 1 and 160 characters.')
+    }
+    if (description.length > 10_000) {
+      throw new ValidationError('Project description must be at most 10,000 characters.')
+    }
+    let projectId = `p-${randomUUID()}`
+    while (findProject(projectId)) projectId = `p-${randomUUID()}`
+    const op: RelationOp = {
+      kind: 'create-project',
+      projectId,
+      projectName: name,
+      projectDescription: description,
+      ...(input.ownerTenantId ? { ownerTenantId: input.ownerTenantId } : {}),
+    }
+    if (this.opDeniedForTenant(op, tenantId)) return undefined
+    const projected = this.applyRelationOp(op, tenantId)
+    const project = projected.extraProjects.find((candidate) => candidate.id === projectId)
+    if (!project) throw new ConflictError('The new Project could not be projected to its creator.')
+    return { project, graph: projected }
+  },
   /** Seed projects, scoped to the caller's tenant when given (F2/PD9 — each of
    *  the six demo accounts holds its own themed set, docs/demo-accounts.md).
    *  Created projects live in `graph.extraProjects` (see relationGraph). */

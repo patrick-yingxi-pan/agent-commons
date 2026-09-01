@@ -435,7 +435,7 @@ import { SCRIM_CLASS } from '../lib/scrim'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRelations } from '../controller/useRelations'
-import { runSessionId, slug } from '../../contract/ids.ts'
+import { runSessionId } from '../../contract/ids.ts'
 import { HOVER_REVEAL, HOVER_CUE, SECTION_REVEAL_GROUP } from '../lib/hoverReveal'
 import { SectionAction } from './SectionAction'
 import { TierBadge } from './TierBadge'
@@ -780,27 +780,27 @@ function ProjectsSection({
   // created project shows in the list and opens to its detail like any seed one.
   const projects = rel.allProjects()
 
-  // Create a project from the dialog: mint a unique id (across seed + created
-  // ones, so a duplicate name can't re-file into an existing project), apply the
-  // sessionless create-project op, then open only after the server acknowledges
-  // it. The dialog stays put across failure so a missing project never flashes.
+  // Create a project from the dialog without inventing identity in the browser:
+  // the server returns the addressed Project plus its acknowledged graph, then
+  // this pane opens that exact id. The shared relation queue retains the request
+  // and idempotency key across Retry, so an uncertain response cannot duplicate.
   // `ownerTenantId` (FWD-6 O-D4): undefined = the caller's own namespace (the
   // fixed absence, INV-9); an org id = the picker's explicit, validated choice.
   const createProject = (name: string, description: string, ownerTenantId?: string) => {
     if (creatingProject) return
-    const id = uniqueProjectId(name, new Set(projects.map((p) => p.id)))
     setCreatingProject(true)
-    void rel.applyOp({
-      kind: 'create-project',
-      projectId: id,
-      projectName: name,
-      projectDescription: description,
+    void rel.createProject({
+      name,
+      description,
       ...(ownerTenantId ? { ownerTenantId } : {}),
     }).then((outcome) => {
       setCreatingProject(false)
-      if (outcome !== 'applied') return
+      if (outcome.kind !== 'created') {
+        setCreating(false)
+        return
+      }
       setCreating(false)
-      onOpenProject(id)
+      onOpenProject(outcome.resource.id)
     })
   }
 
@@ -933,31 +933,6 @@ function ProjectsSection({
   )
 }
 
-/** A unique project id derived from the name, disambiguated against ids already in
- *  use (seed + created). The reducer is idempotent on id, so a colliding id would
- *  silently re-file into the existing project instead of creating a new one —
- *  hence the suffix. Falls back to "project" when the name has no slug characters.
- *
- *  `taken` is the *locally cached* graph, so this id is not globally collision-safe:
- *  two clients creating the same name within the relation.applied broadcast window
- *  can derive the same id. The server reducer is idempotent on id (it re-files
- *  rather than minting a duplicate), so the graph stays consistent; the loser's
- *  name/description is simply dropped. Acceptable for this single-user prototype —
- *  the production fix is server-owned id minting (docs/shared-resource-coordination). */
-function uniqueProjectId(name: string, taken: Set<string>): string {
-  const base = slug(name) || 'project'
-  // A section's sub-view ids are RESERVED WORDS in the address grammar (they win
-  // over detail ids), so a project may never mint one or its URL would parse as
-  // the sub-view instead. Projects declare none since the facet moved out of the
-  // tree (UI-19) — the guard stays derived from the registry rather than deleted,
-  // so it re-arms by itself if the section ever gains a surface.
-  const reserved = new Set([...taken, ...(SECTION_SUBVIEWS.projects ?? []).map((v) => v.id)])
-  if (!reserved.has(base)) return base
-  let n = 2
-  while (reserved.has(`${base}-${n}`)) n += 1
-  return `${base}-${n}`
-}
-
 /** The "New project" form — a centered modal for the transient create act: a
  *  required name, an optional description, and — when the caller holds org
  *  seats (FWD-6 O-D4) — an OWNER picker: "You" (the default pre-selection; the
@@ -1000,6 +975,7 @@ function NewProjectDialog({
         <input
           value={name}
           disabled={busy}
+          maxLength={160}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit()
@@ -1019,6 +995,7 @@ function NewProjectDialog({
         <textarea
           value={description}
           disabled={busy}
+          maxLength={10_000}
           onChange={(e) => setDescription(e.target.value)}
           rows={4}
           placeholder="What is this project, and how does one contribute? (public — every viewer reads this)"

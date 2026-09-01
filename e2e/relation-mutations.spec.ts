@@ -1,16 +1,20 @@
-/** Rendered recovery path for graph-backed project creation: failure keeps the
+/** Rendered recovery path for server-identified project creation: failure keeps the
  * form and server truth unchanged; Retry reuses the logical key and only the
  * acknowledgement closes/navigates. */
 import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
 
-test('a failed relation create stays in place and retries the same logical mutation', async ({ page }) => {
+test('a failed project create stays in place and retries the same logical mutation', async ({ page }) => {
   test.setTimeout(ms(45_000))
   const name = `Acknowledged project ${Date.now().toString(36)}`
   const keys: string[] = []
   let attempts = 0
 
-  await page.route('**/api/v1/relations/ops', async (route) => {
+  await page.route('**/api/v1/projects', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
     attempts += 1
     keys.push(route.request().headers()['idempotency-key'] ?? '')
     if (attempts === 1) {
@@ -33,7 +37,7 @@ test('a failed relation create stays in place and retries the same logical mutat
   await dialog.getByRole('button', { name: 'Create project' }).click()
 
   const failed = page.locator('[data-relation-mutation="failed"]')
-  await expect(failed).toContainText('Couldn’t confirm the change')
+  await expect(failed).toContainText('Couldn’t confirm the new Project')
   await expect(dialog).toBeVisible()
   await expect(dialog.getByPlaceholder('e.g. Insights dashboard')).toBeDisabled()
   await expect(dialog.getByRole('button', { name: 'Waiting for recovery…' })).toBeDisabled()

@@ -9,6 +9,9 @@ export function RelationMutationNotice() {
   const { mutation, retryMutation, discardMutation } = useRelations()
   if (!mutation.busy && !mutation.error) return null
   const queued = mutation.pendingKeys.length
+  const pendingLabel = mutation.activeKey?.startsWith('direct-project:')
+    ? 'Creating Project…'
+    : 'Applying change…'
   return (
     <div
       data-relation-mutation={mutation.error ? 'failed' : 'pending'}
@@ -17,7 +20,7 @@ export function RelationMutationNotice() {
       {mutation.busy ? (
         <InlineOperationStatus
           tone="status"
-          message={queued > 1 ? `Applying change… ${queued - 1} more queued` : 'Applying change…'}
+          message={queued > 1 ? `${pendingLabel} ${queued - 1} more queued` : pendingLabel}
           leading={<Spinner size={12} />}
         />
       ) : (

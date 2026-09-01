@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { PanelLeft, Search } from 'lucide-react'
 import { NotificationBell, PaneActionButtons, Sidebar } from './components/Sidebar'
 import { SIDEBAR_ICON_BUTTON } from './lib/sidebar'
@@ -37,15 +37,6 @@ import { canSplitRow, railWidthCss, useViewport } from './lib/viewport'
 import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SyncHealthNotice } from './components/SyncHealthNotice'
-import { RelationMutationNotice } from './components/RelationMutationNotice'
-import { SessionMetadataMutationNotice } from './components/SessionMetadataMutationNotice'
-import { ScheduleMutationNotice } from './components/ScheduleMutationNotice'
-import { ArtifactContentMutationNotice } from './components/ArtifactContentMutationNotice'
-import { ProposalVerdictMutationNotice } from './components/ProposalVerdictMutationNotice'
-import { AgentMutationNotice } from './components/AgentMutationNotice'
-import { ProviderDefinitionMutationNotice } from './components/ProviderDefinitionMutationNotice'
-import { SystemPromptDefinitionMutationNotice } from './components/SystemPromptDefinitionMutationNotice'
-import { CommissionMutationNotice } from './components/CommissionMutationNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
 import { SkipToMain } from './components/SkipToMain'
 import { SECTION_META } from './lib/sections'
@@ -54,6 +45,10 @@ import type { SectionId, Session } from './types'
 import type { RoutedView } from './lib/urlRoutes'
 import { requestCompositeCommand, requestCompositeFold } from './lib/compositeFeatures'
 import { useFocusedCompositeFoldAvailability } from './lib/useCompositeFeatures'
+
+const ShellMutationNotices = lazy(() =>
+  import('./components/ShellMutationNotices').then((module) => ({ default: module.ShellMutationNotices })),
+)
 
 /** S6 — a share-link boot (`/shared/:token`), captured at module scope BEFORE
  *  the router consumes the boot address (viewForPath treats the shape as
@@ -554,15 +549,9 @@ function Workspace() {
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
       <SkipToMain onSkip={skipToMain} />
       <SyncHealthNotice />
-      <RelationMutationNotice />
-      <SessionMetadataMutationNotice />
-      <ScheduleMutationNotice />
-      <ArtifactContentMutationNotice />
-      <ProposalVerdictMutationNotice />
-      <AgentMutationNotice />
-      <ProviderDefinitionMutationNotice />
-      <SystemPromptDefinitionMutationNotice />
-      <CommissionMutationNotice />
+      <Suspense fallback={null}>
+        <ShellMutationNotices />
+      </Suspense>
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim

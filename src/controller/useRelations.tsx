@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type {
   ArtifactItem,
+  CreateProjectRequest,
   Project,
   ProjectContext,
   RelationGraph,
@@ -24,6 +25,7 @@ import {
   IDLE_RELATION_MUTATION,
   type RelationMutationOutcome,
   type RelationMutationStatus,
+  type ProjectCreationOutcome,
 } from './relationMutationsCore.ts'
 import { clearRelationMutationsOnAccountSwitch, relationMutationDeps } from './relationMutations.ts'
 
@@ -49,6 +51,7 @@ const EMPTY_GRAPH: RelationGraph = emptyGraph()
 
 export interface RelationsValue {
   applyOp: (op: RelationOp) => Promise<RelationMutationOutcome>
+  createProject: (input: CreateProjectRequest) => Promise<ProjectCreationOutcome>
   mutation: RelationMutationStatus
   retryMutation: () => void
   discardMutation: () => void
@@ -174,6 +177,10 @@ export function RelationsProvider({
     },
     [mutationController],
   )
+  const createProject = useCallback(
+    (input: CreateProjectRequest) => mutationController.enqueueProject(input),
+    [mutationController],
+  )
 
   const value = useMemo<ProvidedRelations>(() => {
     const projectIdForSession = (sid: string) =>
@@ -206,6 +213,7 @@ export function RelationsProvider({
 
     return {
       applyOp,
+      createProject,
       mutation,
       retryMutation: mutationController.retry,
       discardMutation: mutationController.discard,
@@ -240,7 +248,7 @@ export function RelationsProvider({
       descriptionForProject: (pid) => merged().find((p) => p.id === pid)?.description,
       navigate: (section, id, subId) => navigate?.(section, id, subId),
     }
-  }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, mutationController, mutation, navigate])
+  }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, createProject, mutationController, mutation, navigate])
 
   return <RelationsContext.Provider value={value}>{children}</RelationsContext.Provider>
 }

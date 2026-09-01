@@ -7,6 +7,7 @@ import type { ContextStatus, ContextTypeId, SessionContext } from './contexts.ts
 import type { SessionWorkspace } from './entities.ts'
 import type { FsSource } from './fs.ts'
 import type { Identity } from './identity.ts'
+import type { Project } from './cowork.ts'
 
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
@@ -16,13 +17,29 @@ export const API_VERSION = 'v1'
  *  first successful response for that (tenant, key) and replays it on any retry, so a
  *  double-submit or a retried-after-timeout request can't create a duplicate or
  *  advance a metadata revision twice. Honoured on the non-streaming create
- *  routes (`POST /sessions`, `/dispatch`, `/schedules`, `/relations/ops`) and
+ *  routes (`POST /sessions`, `/projects`, `/dispatch`, `/schedules`, `/relations/ops`) and
  *  revision-checked `PATCH /sessions/:id`, `PATCH /schedules/:id`, and
  *  `PATCH /artifacts/:id/content`. */
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 /** The path the UI talks to. Dev: Vite proxies `/api` → the mock server. Native:
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
 export const API_BASE_PATH = `/api/${API_VERSION}`
+
+/** Direct human/MCP Project creation. Identity is deliberately absent: the
+ * server mints it inside the acknowledged mutation. `ownerTenantId` is an
+ * explicit namespace choice; absence means the caller's person namespace. */
+export interface CreateProjectRequest {
+  name: string
+  description?: string
+  ownerTenantId?: string
+}
+
+/** Creation returns the addressed row for immediate navigation plus the full
+ * revisioned graph projection that owns runtime Projects. */
+export interface CreateProjectResponse {
+  project: Project
+  graph: RelationGraph
+}
 
 /** What *this* backend can do, advertised so the UI never has to sniff
  *  Electron-vs-web. The load-bearing gate is server-side: a native sidecar reports
