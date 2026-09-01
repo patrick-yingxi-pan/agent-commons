@@ -63,6 +63,7 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
   const releaseDirectory = join(root, 'release')
   const archiveName = `Agent-Commons-${manifest.version}-macos-${arch}.zip`
   const archivePath = join(releaseDirectory, archiveName)
+  const receiptName = `Agent-Commons-${manifest.version}-macos-${arch}.release.json`
 
   return {
     targetPlatform: 'darwin',
@@ -74,6 +75,8 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
     archiveName,
     archivePath,
     checksumPath: `${archivePath}.sha256`,
+    receiptName,
+    receiptPath: join(releaseDirectory, receiptName),
     packagerOptions: {
       osxSign: signingOptions({
         identity,
@@ -124,4 +127,38 @@ export function checksumLine(digest, archiveName) {
   if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error('Release checksum must be a lowercase SHA-256 digest.')
   if (basename(archiveName) !== archiveName) throw new Error('Release checksum must name one archive, not a path.')
   return `${digest}  ${archiveName}\n`
+}
+
+export function releaseReceiptJson({ productName, version, platform, architecture, archiveName, bytes, sha256 }) {
+  if (productName !== 'Agent Commons') throw new Error('Release receipt product identity must remain Agent Commons.')
+  if (!SAFE_VERSION.test(version ?? '')) throw new Error('Release receipt requires a safe semantic package version.')
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(platform ?? '')) throw new Error('Release receipt requires a safe platform name.')
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(architecture ?? '')) {
+    throw new Error('Release receipt requires a safe architecture name.')
+  }
+  const expectedArchive = `Agent-Commons-${version}-${platform}-${architecture}.zip`
+  if (archiveName !== expectedArchive || basename(archiveName) !== archiveName) {
+    throw new Error('Release receipt archive name must match its version, platform, and architecture.')
+  }
+  if (!Number.isSafeInteger(bytes) || bytes <= 0) throw new Error('Release receipt requires a positive archive byte size.')
+  if (!/^[a-f0-9]{64}$/.test(sha256 ?? '')) throw new Error('Release receipt requires a lowercase SHA-256 digest.')
+
+  return `${JSON.stringify({
+    schemaVersion: 1,
+    product: productName,
+    version,
+    platform,
+    architecture,
+    artifact: {
+      file: archiveName,
+      bytes,
+      sha256,
+    },
+    verification: {
+      codeSignature: 'verified',
+      notarizationTicket: 'stapled',
+      gatekeeper: 'accepted',
+      executableSmoke: 'passed',
+    },
+  }, null, 2)}\n`
 }

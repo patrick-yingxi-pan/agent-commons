@@ -138,7 +138,11 @@ boots use explicit profiles:
   independently checks the signature, ticket, and Gatekeeper verdict, creates a
   versioned architecture-specific ZIP, extracts that ZIP into a fresh directory,
   repeats all three checks, and runs the full packaged-app smoke against the
-  extracted executable. Only then does it write the adjacent SHA-256 manifest.
+  extracted executable. Only then does it write the adjacent SHA-256 manifest
+  and a deterministic machine-readable release receipt that binds the product,
+  version, platform, architecture, archive name, byte size, digest, and completed
+  verification stages. The receipt is publishing/audit metadata, not a substitute
+  for the app's Apple code signature or an authenticated download channel.
   Configure the machine once with `xcrun notarytool store-credentials`, then run:
 
   ```bash
@@ -149,10 +153,11 @@ boots use explicit profiles:
 
   Set `APPLE_KEYCHAIN` only when both the certificate and notary profile live in
   a non-default Keychain. Outputs land in ignored `release/` as
-  `Agent-Commons-<version>-macos-<arch>.zip` plus `.sha256`. The command builds
-  the host architecture (`arm64` or `x64`) and treats each version as immutable:
-  if either output already exists, publishing refuses rather than overwrites it.
-  Updater policy remains a separate product decision.
+  `Agent-Commons-<version>-macos-<arch>.zip`, its `.sha256`, and
+  `Agent-Commons-<version>-macos-<arch>.release.json`. The command builds the host
+  architecture (`arm64` or `x64`) and treats each artifact set as immutable: if
+  any output already exists, publishing refuses rather than overwrites it. Updater
+  policy remains a separate product decision.
 - `npm run start:desktop:server` keeps the release-shaped backend available
   without Electron for diagnostics, recovery tooling, and contract-level work.
 - `npm run start:web` preserves the later hosted boundary: remote capabilities,

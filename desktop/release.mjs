@@ -11,9 +11,10 @@ import {
   archiveExtractCommand,
   checksumLine,
   directDownloadReleasePlan,
+  releaseReceiptJson,
   releaseVerificationCommands,
 } from './release-plan.mjs'
-import { publishImmutableReleasePair } from './release-publish.mjs'
+import { publishImmutableRelease } from './release-publish.mjs'
 import { smokePackagedDesktop } from './smoke.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -52,7 +53,7 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
   const manifest = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
   // Resolve all credentials and output names before a build writes anything.
   const plan = directDownloadReleasePlan({ root: ROOT, manifest, env, platform: platform(), arch: arch() })
-  if (existsSync(plan.archivePath) || existsSync(plan.checksumPath)) {
+  if (existsSync(plan.archivePath) || existsSync(plan.checksumPath) || existsSync(plan.receiptPath)) {
     throw new Error('This version already has a direct-download output. Bump the package version before publishing again.')
   }
   await preflightAppleTools()
@@ -78,10 +79,12 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
   const staging = await mkdtemp(join(tmpdir(), 'agent-commons-direct-release-'))
   const stagedArchive = join(staging, plan.archiveName)
   const stagedChecksum = join(staging, `${plan.archiveName}.sha256`)
+  const stagedReceipt = join(staging, plan.receiptName)
   const extracted = join(staging, 'extracted')
   try {
     await run(archiveCreateCommand(plan.appPath, stagedArchive))
-    if ((await stat(stagedArchive)).size === 0) throw new Error('Direct-download archive is empty.')
+    const archiveBytes = (await stat(stagedArchive)).size
+    if (archiveBytes === 0) throw new Error('Direct-download archive is empty.')
     await mkdir(extracted)
     await run(archiveExtractCommand(stagedArchive, extracted))
     const entries = await readdir(extracted)
@@ -96,18 +99,30 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
 
     const digest = await sha256(stagedArchive)
     await writeFile(stagedChecksum, checksumLine(digest, plan.archiveName), { encoding: 'utf8', mode: 0o644 })
+    await writeFile(stagedReceipt, releaseReceiptJson({
+      productName: manifest.productName,
+      version: manifest.version,
+      platform: 'macos',
+      architecture: plan.targetArch,
+      archiveName: plan.archiveName,
+      bytes: archiveBytes,
+      sha256: digest,
+    }), { encoding: 'utf8', mode: 0o644 })
     await mkdir(plan.releaseDirectory, { recursive: true })
-    await publishImmutableReleasePair({
+    await publishImmutableRelease({
       stagedArchive,
-      stagedChecksum,
       archivePath: plan.archivePath,
-      checksumPath: plan.checksumPath,
+      auxiliaryArtifacts: [
+        { stagedPath: stagedReceipt, destinationPath: plan.receiptPath },
+        { stagedPath: stagedChecksum, destinationPath: plan.checksumPath },
+      ],
     })
   } finally {
     await rm(staging, { recursive: true, force: true }).catch(() => {})
   }
   console.log(`[desktop-release] ${plan.archivePath}`)
   console.log(`[desktop-release] ${plan.checksumPath}`)
+  console.log(`[desktop-release] ${plan.receiptPath}`)
   return plan
 }
 

@@ -9,9 +9,10 @@ import {
   archiveExtractCommand,
   checksumLine,
   directDownloadReleasePlan,
+  releaseReceiptJson,
   releaseVerificationCommands,
 } from './release-plan.mjs'
-import { publishImmutableReleasePair } from './release-publish.mjs'
+import { publishImmutableRelease } from './release-publish.mjs'
 
 const root = '/repo'
 const manifest = { version: '0.1.0', productName: 'Agent Commons' }
@@ -68,6 +69,8 @@ test('direct download release pins signing, Keychain notarization, and architect
   assert.equal(plan.archiveName, 'Agent-Commons-0.1.0-macos-arm64.zip')
   assert.equal(plan.archivePath, '/repo/release/Agent-Commons-0.1.0-macos-arm64.zip')
   assert.equal(plan.checksumPath, `${plan.archivePath}.sha256`)
+  assert.equal(plan.receiptName, 'Agent-Commons-0.1.0-macos-arm64.release.json')
+  assert.equal(plan.receiptPath, '/repo/release/Agent-Commons-0.1.0-macos-arm64.release.json')
   assert.deepEqual(plan.packagerOptions.osxNotarize, {
     keychainProfile: 'agent-commons-notary',
     keychain: '/build/release.keychain-db',
@@ -123,47 +126,129 @@ test('release checksum is strict, portable SHA-256 manifest syntax', () => {
   assert.throws(() => checksumLine(digest, '../app.zip'), /not a path/)
 })
 
-test('release publication is immutable and rolls back a newly created half-pair', async () => {
+test('release receipt binds artifact identity, size, digest, and completed verification', () => {
+  const digest = 'b'.repeat(64)
+  const json = releaseReceiptJson({
+    productName: 'Agent Commons',
+    version: '0.1.0',
+    platform: 'macos',
+    architecture: 'arm64',
+    archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+    bytes: 12_345,
+    sha256: digest,
+  })
+  assert.equal(json.endsWith('\n'), true)
+  assert.deepEqual(JSON.parse(json), {
+    schemaVersion: 1,
+    product: 'Agent Commons',
+    version: '0.1.0',
+    platform: 'macos',
+    architecture: 'arm64',
+    artifact: {
+      file: 'Agent-Commons-0.1.0-macos-arm64.zip',
+      bytes: 12_345,
+      sha256: digest,
+    },
+    verification: {
+      codeSignature: 'verified',
+      notarizationTicket: 'stapled',
+      gatekeeper: 'accepted',
+      executableSmoke: 'passed',
+    },
+  })
+  assert.throws(
+    () => releaseReceiptJson({
+      productName: 'Agent Commons',
+      version: '0.1.0',
+      platform: 'macos',
+      architecture: 'arm64',
+      archiveName: 'different.zip',
+      bytes: 12_345,
+      sha256: digest,
+    }),
+    /archive name must match/,
+  )
+  assert.throws(
+    () => releaseReceiptJson({
+      productName: 'Agent Commons',
+      version: '0.1.0',
+      platform: 'macos',
+      architecture: 'arm64',
+      archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+      bytes: 0,
+      sha256: digest,
+    }),
+    /positive archive byte size/,
+  )
+})
+
+test('release publication is immutable and rolls back every newly created verifier', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'agent-commons-release-publish-test-'))
   const stagedArchive = join(directory, 'staged.zip')
   const stagedChecksum = join(directory, 'staged.sha256')
+  const stagedReceipt = join(directory, 'staged.json')
   const archivePath = join(directory, 'release.zip')
   const checksumPath = join(directory, 'release.sha256')
+  const receiptPath = join(directory, 'release.json')
   await writeFile(stagedArchive, 'archive-one')
   await writeFile(stagedChecksum, 'checksum-one')
+  await writeFile(stagedReceipt, 'receipt-one')
   try {
-    await publishImmutableReleasePair({ stagedArchive, stagedChecksum, archivePath, checksumPath })
+    const auxiliaryArtifacts = [
+      { stagedPath: stagedReceipt, destinationPath: receiptPath },
+      { stagedPath: stagedChecksum, destinationPath: checksumPath },
+    ]
+    await publishImmutableRelease({ stagedArchive, archivePath, auxiliaryArtifacts })
     assert.equal(await readFile(archivePath, 'utf8'), 'archive-one')
     assert.equal(await readFile(checksumPath, 'utf8'), 'checksum-one')
+    assert.equal(await readFile(receiptPath, 'utf8'), 'receipt-one')
 
     await writeFile(stagedArchive, 'archive-two')
     await writeFile(stagedChecksum, 'checksum-two')
+    await writeFile(stagedReceipt, 'receipt-two')
     await assert.rejects(
-      publishImmutableReleasePair({ stagedArchive, stagedChecksum, archivePath, checksumPath }),
+      publishImmutableRelease({ stagedArchive, archivePath, auxiliaryArtifacts }),
       /EEXIST/,
     )
     assert.equal(await readFile(archivePath, 'utf8'), 'archive-one')
     assert.equal(await readFile(checksumPath, 'utf8'), 'checksum-one')
+    assert.equal(await readFile(receiptPath, 'utf8'), 'receipt-one')
 
     const partialArchive = join(directory, 'partial.zip')
     const partialChecksum = join(directory, 'partial.sha256')
+    const partialReceipt = join(directory, 'partial.json')
     let copies = 0
     await assert.rejects(
-      publishImmutableReleasePair({
+      publishImmutableRelease({
         stagedArchive,
-        stagedChecksum,
         archivePath: partialArchive,
-        checksumPath: partialChecksum,
+        auxiliaryArtifacts: [
+          { stagedPath: stagedReceipt, destinationPath: partialReceipt },
+          { stagedPath: stagedChecksum, destinationPath: partialChecksum },
+        ],
         async copy(source, destination) {
           copies += 1
-          if (copies === 2) throw new Error('simulated checksum publication failure')
+          if (copies === 3) throw new Error('simulated archive publication failure')
           await copyFile(source, destination)
         },
       }),
-      /simulated checksum publication failure/,
+      /simulated archive publication failure/,
     )
     assert.equal(existsSync(partialArchive), false)
     assert.equal(existsSync(partialChecksum), false)
+    assert.equal(existsSync(partialReceipt), false)
+
+    await assert.rejects(
+      publishImmutableRelease({
+        stagedArchive,
+        archivePath: partialArchive,
+        auxiliaryArtifacts: [
+          { stagedPath: stagedChecksum, destinationPath: partialChecksum },
+          { stagedPath: stagedReceipt, destinationPath: partialChecksum },
+        ],
+      }),
+      /destinations must be unique/,
+    )
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -179,7 +264,9 @@ test('release orchestration verifies the extracted download and runs the executa
   assert.match(source, /await verifyApp\(extractedApp\)/)
   assert.match(source, /await smokePackagedDesktop\(\{/)
   assert.match(source, /checksumLine\(digest, plan\.archiveName\)/)
-  assert.match(source, /publishImmutableReleasePair/)
+  assert.match(source, /releaseReceiptJson\(\{/)
+  assert.match(source, /publishImmutableRelease/)
+  assert.match(source, /destinationPath: plan\.receiptPath/)
   assert.match(source, /version already has a direct-download output/)
   assert.doesNotMatch(source, /rm\(plan\.checksumPath/)
 

@@ -1,25 +1,47 @@
 import { constants as fsConstants } from 'node:fs'
 import { copyFile, rm } from 'node:fs/promises'
 
-/** Publish the already-verified archive and checksum without overwriting an
- * existing version. Publish the checksum first so the downloadable archive is
- * never visible without its verifier; roll back that checksum if the second
- * exclusive copy fails. */
-export async function publishImmutableReleasePair({
+/** Publish already-verified release artifacts without overwriting a version.
+ * Auxiliary evidence is copied first and the downloadable archive last, so an
+ * archive is never visible without all of its verifiers. Any partial set from
+ * this invocation is rolled back if a later exclusive copy fails. */
+export async function publishImmutableRelease({
   stagedArchive,
-  stagedChecksum,
   archivePath,
-  checksumPath,
+  auxiliaryArtifacts,
   copy = copyFile,
   remove = rm,
 }) {
-  let checksumPublished = false
+  if (!Array.isArray(auxiliaryArtifacts) || auxiliaryArtifacts.length === 0) {
+    throw new Error('Immutable release publication requires auxiliary verification artifacts.')
+  }
+  const destinations = [...auxiliaryArtifacts.map((artifact) => artifact.destinationPath), archivePath]
+  if (destinations.some((path) => typeof path !== 'string' || path.length === 0)) {
+    throw new Error('Immutable release publication requires explicit destination paths.')
+  }
+  if (new Set(destinations).size !== destinations.length) {
+    throw new Error('Immutable release publication destinations must be unique.')
+  }
+
+  const published = []
   try {
-    await copy(stagedChecksum, checksumPath, fsConstants.COPYFILE_EXCL)
-    checksumPublished = true
+    for (const artifact of auxiliaryArtifacts) {
+      await copy(artifact.stagedPath, artifact.destinationPath, fsConstants.COPYFILE_EXCL)
+      published.push(artifact.destinationPath)
+    }
     await copy(stagedArchive, archivePath, fsConstants.COPYFILE_EXCL)
   } catch (error) {
-    if (checksumPublished) await remove(checksumPath, { force: true })
+    const cleanupErrors = []
+    for (const path of published.reverse()) {
+      try {
+        await remove(path, { force: true })
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError)
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      throw new AggregateError([error, ...cleanupErrors], 'Release publication failed and rollback was incomplete.')
+    }
     throw error
   }
 }
