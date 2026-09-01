@@ -278,11 +278,14 @@ judgment for duration/jank; `e2e/keyboard-resize.spec.ts` for the keyboard path.
 ### A-5 · Keyboard and screen-reader parity
 Everything drag-operable is keyboard-operable with announced values (UI-11);
 every interactive element is reachable, has a distinct accessible name, and
-shows the app-wide focus-visible ring; landmarks stay unique; icon-only
-buttons carry `title`/`aria-label`.
-**Detection:** `npm run e2e` (keyboard-resize, responsive); sweep: tab through
-each new surface; `rg '<button' src/components/<changed> | rg -v 'title=|aria-label'`
-triaged by hand (text-content buttons are fine).
+shows the app-wide focus-visible ring; landmarks stay unique; a persistent
+resource rail has a first-in-order bypass to main; each addressed resource has
+heading identity; form fields keep names independent of placeholder copy;
+icon-only buttons carry `title`/`aria-label`.
+**Detection:** `npm run e2e` (accessibility-navigation, keyboard-resize,
+responsive); sweep: start from the address bar and tab into each new surface;
+inspect its heading outline and field names; scan changed components for button
+names and triage text-content buttons by hand.
 **Fix:** name/wire at the primitive; add the e2e press-path.
 
 ### A-6 · Responsiveness follows the tier ladder and the container

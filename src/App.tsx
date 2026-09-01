@@ -43,6 +43,7 @@ import { ScheduleMutationNotice } from './components/ScheduleMutationNotice'
 import { ArtifactContentMutationNotice } from './components/ArtifactContentMutationNotice'
 import { ProposalVerdictMutationNotice } from './components/ProposalVerdictMutationNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
+import { SkipToMain } from './components/SkipToMain'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
@@ -123,6 +124,7 @@ export default function App() {
  *  logic lives in the controllers (controller/) and the model (data/). */
 function Workspace() {
   const [searchOpen, setSearchOpen] = useState(false)
+  const mainRef = useRef<HTMLElement>(null)
 
   // Subscribe to the backend's ambient event stream (scheduled runs, standing
   // approvals, connector status). The session list now comes from the server —
@@ -295,6 +297,20 @@ function Workspace() {
 
   const { leftOpen, leftW, leftDragging, toggleLeft, openLeft, closeLeft, startResize, resize, endResize } =
     useLayout(tier)
+
+  // The resource rail can contain more than a hundred keyboard targets before
+  // the focused page. One first-in-order bypass moves directly to the main
+  // landmark. On narrow, dismiss the drawer first so `main[inert]` has cleared
+  // before focus transfers (UI-57).
+  const skipToMain = useCallback(() => {
+    const focusMain = () => mainRef.current?.focus({ preventScroll: true })
+    if (railOverlay && leftOpen) {
+      closeLeft()
+      window.requestAnimationFrame(focusMain)
+      return
+    }
+    focusMain()
+  }, [railOverlay, leftOpen, closeLeft])
 
   // On narrow, picking anything from the rail drawer also dismisses it — the
   // drawer covers the surface the pick navigates to.
@@ -532,6 +548,7 @@ function Workspace() {
   return (
     <RelationsProvider navigate={navigateToSection}>
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
+      <SkipToMain onSkip={skipToMain} />
       <SyncHealthNotice />
       <RelationMutationNotice />
       <SessionMetadataMutationNotice />
@@ -653,6 +670,9 @@ function Workspace() {
             // leaves the tab order / accessibility tree (UI-8) — the drawer and
             // its scrim are siblings, so one attribute covers thread + panel.
             inert={railOverlay && leftOpen}
+            ref={mainRef}
+            id="main-workspace"
+            tabIndex={-1}
             onPointerDownCapture={() => setFocusedArea('main')}
             onFocusCapture={() => setFocusedArea('main')}
             className="flex min-w-0 flex-1 flex-col"

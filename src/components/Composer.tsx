@@ -372,6 +372,7 @@ export function Composer({
             ref={ref}
             value={value}
             rows={1}
+            aria-label="Message"
             disabled={disabled}
             onChange={(e) => {
               setValue(e.target.value)

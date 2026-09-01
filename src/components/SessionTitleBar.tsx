@@ -68,9 +68,9 @@ export function SessionTitleBar({
           `ml-auto` would SPLIT the free space instead and strand the run
           switcher mid-bar — RunHistoryMenu already carries one.) */}
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <span className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
+        <h1 className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
           {session.title}
-        </span>
+        </h1>
         {runOf && (
           <button
             onClick={() => onOpenSchedule(runOf.taskId)}
