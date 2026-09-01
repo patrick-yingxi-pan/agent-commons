@@ -20,6 +20,7 @@ import {
   type CreateProviderRequest,
   type CreatedProvider,
   type ModelProvider,
+  type ProviderDefinitionMutationPatch,
   type UpdateProviderConnectionRequest,
   type UpdateProviderRequest,
   type CreateSystemPromptRequest,
@@ -90,6 +91,7 @@ import { shouldAcceptEntityRevision } from './entityRevision.ts'
 import { mergeScheduleDefinition } from './scheduleRevision.ts'
 import { mergeArtifactContent } from './artifactContentRevision.ts'
 import { mergeAgentConfiguration } from './agentRevision.ts'
+import { mergeProviderConnection, mergeProviderDefinition } from './providerRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -444,19 +446,19 @@ export async function updateProviderConnection(
   idempotencyKey: string,
 ): Promise<ModelProvider> {
   const provider = await apiPatch<ModelProvider>(paths.providerConnection(id), patch, { idempotencyKey })
-  acceptProviderConnection(provider)
-  return provider
+  return acceptProviderConnection(provider)
 }
 
-function acceptProviderConnection(provider: ModelProvider): void {
+function acceptProviderConnection(provider: ModelProvider): ModelProvider {
+  const rows = peek<ModelProvider[]>(keys.providers)
+  const index = rows?.findIndex((candidate) => candidate.id === provider.id) ?? -1
+  if (!rows || index < 0) return provider
+  const merged = mergeProviderConnection(rows[index]!, provider)
   mutate<ModelProvider[]>(keys.providers, (rows) => {
     const current = rows ?? []
-    const index = current.findIndex((candidate) => candidate.id === provider.id)
-    if (index < 0) return [...current, provider]
-    const previous = current[index]!
-    if (!shouldAcceptEntityRevision(previous.connectionRevision, provider.connectionRevision)) return current
-    return current.map((candidate, position) => position === index ? provider : candidate)
+    return current.map((candidate) => candidate.id === provider.id ? merged : candidate)
   })
+  return merged
 }
 
 /** Re-read only the addressed provider after a conflict or uncertain response.
@@ -474,15 +476,50 @@ export async function reconcileProviderConnection(id: string): Promise<ModelProv
     mutate<ModelProvider[]>(keys.providers, (current) => (current ?? []).filter((candidate) => candidate.id !== id))
     return undefined
   }
-  acceptProviderConnection(incoming)
-  return incoming
+  return acceptProviderConnection(incoming)
 }
 
-/** Patch a provider's own fields; refreshes the provider list. */
-export async function updateProvider(id: string, patch: UpdateProviderRequest): Promise<ModelProvider> {
-  const provider = await apiPatch<ModelProvider>(paths.provider(id), patch)
+function acceptProviderDefinition(provider: ModelProvider): ModelProvider {
+  const rows = peek<ModelProvider[]>(keys.providers)
+  const index = rows?.findIndex((candidate) => candidate.id === provider.id) ?? -1
+  if (!rows || index < 0) return provider
+  const merged = mergeProviderDefinition(rows[index]!, provider)
+  mutate<ModelProvider[]>(keys.providers, (current) =>
+    (current ?? []).map((candidate) => candidate.id === provider.id ? merged : candidate),
+  )
+  return merged
+}
+
+/** Re-read only the addressed provider definition before a Retry/Dismiss. */
+export async function reconcileProviderDefinition(id: string): Promise<ModelProvider | undefined> {
+  const rows = await apiGet<ModelProvider[]>(paths.providers)
+  const incoming = rows.find((candidate) => candidate.id === id)
+  const currentRows = peek<ModelProvider[]>(keys.providers)
+  if (!currentRows) {
+    setData(keys.providers, rows)
+    return incoming
+  }
+  if (!incoming) {
+    mutate<ModelProvider[]>(keys.providers, (current) => (current ?? []).filter((candidate) => candidate.id !== id))
+    return undefined
+  }
+  return acceptProviderDefinition(incoming)
+}
+
+/** Patch the sparse provider definition against the revision the editor read. */
+export async function patchProviderDefinition(
+  id: string,
+  patch: ProviderDefinitionMutationPatch,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<ModelProvider> {
+  const request = { ...patch, expectedRevision } satisfies UpdateProviderRequest
+  const provider = await apiPatch<ModelProvider>(paths.provider(id), request, { idempotencyKey })
+  const accepted = acceptProviderDefinition(provider)
+  // Default selection and server-computed projections have separate owners;
+  // revalidate rather than accepting them from a possibly delayed definition ack.
   invalidate(keys.providers)
-  return provider
+  return accepted
 }
 
 /** Remove a provider. Rejects (so the caller can surface the message) when the server

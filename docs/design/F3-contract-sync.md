@@ -49,6 +49,13 @@ version and reads `Capabilities.epoch` to detect a reseed/restart (already wired
   result, not a duplicate. Session/message ids are already server-minted (PORT-7).
 - **Optimistic concurrency** on edits (F1 PD2): a stale write → `409`, client re-reads.
 
+The current implementation applies that rule domain-by-domain rather than with
+one coarse row counter: conversation metadata, routine definitions, artifact
+bodies, Agent configuration, provider definitions, and provider connections each
+carry independent ordering. First-party editors send sparse intent through one
+acknowledgement queue; a provider definition acknowledgement cannot rewind its
+separately moving connection catalog or relay activity.
+
 ### 2.4 The ambient stream at scale (the core of this doc)
 
 The invalidation model — *events carry "what changed", the client refetches the

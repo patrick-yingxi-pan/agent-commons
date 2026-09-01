@@ -135,6 +135,47 @@ test('Agent events keep private rows owner-only and directory invalidations free
   store.deleteAgent(sharedAgent!.id)
 })
 
+test('provider events keep private rows and default pointers tenant-scoped while shared infrastructure reaches all readers', () => {
+  let provider: ReturnType<typeof store.createProvider>
+  const onCreate = emitted(() => {
+    provider = store.createProvider(
+      { label: 'Private event provider', modelFamily: 'claude', effortLevels: ['Low'] },
+      {},
+      OWNER,
+    )
+  })
+  const privateEvent = onCreate.find((event) => event.type === 'provider.changed')
+  assert.ok(privateEvent?.type === 'provider.changed')
+  assert.equal(privateEvent.tenantId, OWNER)
+  assert.equal(store.eventVisibleToTenant(privateEvent, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(privateEvent, OTHER), false)
+
+  const onDefinition = emitted(() => store.updateProvider(provider!.id, { label: 'Renamed provider' }, 0))
+  assert.ok(onDefinition.some((event) => event.type === 'provider.changed' && event.providerId === provider!.id))
+  const onConnection = emitted(() => store.replaceProviderConnection(provider!.id, { model: 'new-model' }, undefined, 0))
+  assert.ok(onConnection.some((event) => event.type === 'provider.changed' && event.providerId === provider!.id))
+
+  const onDefault = emitted(() => store.setDefaultProvider(provider!.id, OWNER))
+  const defaultEvent = onDefault.find((event) => event.type === 'provider.changed')
+  assert.ok(defaultEvent?.type === 'provider.changed')
+  assert.equal(defaultEvent.tenantId, OWNER, 'a viewer-relative pointer never broadcasts through a shared row')
+  assert.equal(store.eventVisibleToTenant(defaultEvent, OTHER), false)
+
+  const onDelete = emitted(() => store.deleteProvider(provider!.id))
+  assert.ok(onDelete.some((event) => event.type === 'provider.changed' && event.tenantId === OWNER))
+
+  let shared: ReturnType<typeof store.createProvider>
+  const onShared = emitted(() => {
+    shared = store.createProvider({ label: 'Shared event provider', modelFamily: 'claude', effortLevels: ['Low'] })
+  })
+  const sharedEvent = onShared.find((event) => event.type === 'provider.changed')
+  assert.ok(sharedEvent?.type === 'provider.changed')
+  assert.equal(sharedEvent.tenantId, undefined)
+  assert.equal(store.eventVisibleToTenant(sharedEvent, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(sharedEvent, OTHER), true)
+  store.deleteProvider(shared!.id)
+})
+
 test('commission mutators emit commission.changed; visibility mirrors the Project’s (the openwork rule)', () => {
   let commission: ReturnType<typeof store.createCommission>
   const onCreate = emitted(() => {

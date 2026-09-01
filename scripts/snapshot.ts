@@ -176,6 +176,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
     },
     { model: 'claude-opus-4-8' },
   )
+  store.updateProvider(provider.id, { modelFamily: 'claude-playground' }, provider.definitionRevision)
   const prompt = store.createSystemPrompt({
     label: 'Playground research prompt',
     body: 'You are a focused research assistant. Cite primary sources and stay terse.',

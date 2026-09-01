@@ -97,13 +97,14 @@ test('no plaintext secret persists — only its hash (restart-recovery key, §6.
   assert.ok(!persisted.includes(p.secret), 'the plaintext secret appears nowhere in persistable state')
 })
 
-test('PATCH cannot flip a provider’s kind or forge relay fields', async () => {
+test('PATCH rejects transport identity and relay fields outside the definition domain', async () => {
   const p = await mintSessionProvider('Patch test')
   const patched = await call('PATCH', `/providers/${p.id}`, { label: 'Renamed', kind: 'endpoint', secretHint: 'zzzz' })
-  assert.equal(patched.status, 200)
-  assert.equal(patched.json.label, 'Renamed')
-  assert.equal(patched.json.kind, 'session', 'the transport identity is fixed at mint')
-  assert.equal(patched.json.secretHint, p.secretHint, 'the fingerprint is server-stamped')
+  assert.equal(patched.status, 400)
+  const current = store.listProviders().find((provider) => provider.id === p.id)!
+  assert.equal(current.label, 'Patch test', 'an invalid mixed patch changes no definition field')
+  assert.equal(current.kind, 'session', 'the transport identity is fixed at mint')
+  assert.equal(current.secretHint, p.secretHint, 'the fingerprint is server-stamped')
 })
 
 // ── The bearer wall + binding-by-secret ───────────────────────────────────────
@@ -354,9 +355,9 @@ test('the observed serving picture: provider reads stamp window + active count; 
     const busy = store.listProviders().find((x) => x.id === p.id)!
     assert.equal(busy.activeConversations, 1, 'the in-flight turn is visible — observed, not attested')
 
-    // Server-stamped means forge-proof: a PATCH naming the fields changes nothing.
+    // Server-stamped means outside this strict write domain.
     const patched = await call('PATCH', `/providers/${p.id}`, { activeConversations: 9, conversationWindow: 99 })
-    assert.equal(patched.status, 200)
+    assert.equal(patched.status, 400)
     const after = store.listProviders().find((x) => x.id === p.id)!
     assert.equal(after.activeConversations, 1, 'the count stays computed')
     assert.equal(after.conversationWindow, 3, 'the window stays negotiated')

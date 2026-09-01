@@ -311,6 +311,15 @@ export interface AgentChangedEvent {
   tenantId?: string
 }
 
+/** A provider definition, connection/catalog, default pointer, credential, or
+ * registry membership changed. Tenant-owned rows are owner-scoped; unstamped
+ * shared infrastructure is visible to every provider-registry reader. */
+export interface ProviderChangedEvent {
+  type: 'provider.changed'
+  providerId: string
+  tenantId?: string
+}
+
 /** A Project's Contributor roster changed — a commission was minted, re-granted, or
  *  removed, possibly by ANOTHER tenant (the P8 cooperation primitive the acting
  *  client's local invalidation can't cover). Visibility mirrors the Project's,
@@ -435,6 +444,7 @@ export type ServerEvent =
   | ScheduleChangedEvent
   | ArtifactChangedEvent
   | AgentChangedEvent
+  | ProviderChangedEvent
   | CommissionChangedEvent
   | ProposalChangedEvent
   | GrantChangedEvent

@@ -197,6 +197,12 @@ verifies the effective Messages connection before committing it, and leaves the
 previous connection intact on failure. A successful desktop key rotation retires
 the prior encrypted key; an interrupted post-save bind is repaired on restart.
 
+**Edit provider** is intentionally a separate definition workflow. It sends only
+the name, model family, or default choice actually changed and compares the
+definition revision the form opened on. A concurrent edit stays visible behind
+the held draft with explicit Retry/Dismiss; it cannot overwrite ownership,
+transport, model catalog, connection ordering, or live Session-relay state.
+
 Headless desktop operation, recovery, and web deployment can supply the built-in
 connection when launching:
 

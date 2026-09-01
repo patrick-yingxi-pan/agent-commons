@@ -244,6 +244,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.providers?.some(([, p]) => p.label === 'Playground provider'),
     'createProvider → providers',
   )
+  assert.equal(
+    s.providers?.find(([, p]) => p.label === 'Playground provider')?.[1].definitionRevision,
+    1,
+    'the edited provider definition revision rides in the snapshot',
+  )
   assert.ok(
     s.providerConfigs?.some(([, c]) => c.model === 'claude-opus-4-8'),
     'the provider config (server-only model id) rides along',
@@ -508,6 +513,7 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   // The Agent Commons registries survive the boot too (D6/D9/D10/D7).
   const provider = store.listProviders().find((p) => p.label === 'Playground provider')
   assert.ok(provider, 'the created provider survives a boot')
+  assert.equal(provider?.definitionRevision, 1, 'the provider definition revision survives a boot')
   assert.equal(store.providerConfig(provider?.id).model, 'claude-opus-4-8', 'its server-only config (model id) survives too')
   assert.ok(store.listSystemPrompts().some((p) => p.label === 'Playground research prompt'), 'the created system prompt survives a boot')
   const agent = store.listAgents().find((a) => a.label === 'Playground research agent')

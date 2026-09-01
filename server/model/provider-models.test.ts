@@ -157,6 +157,13 @@ test('a malformed static catalog is refused loudly (400), never normalized', asy
     const res = await call('POST', '/providers', { label: 'Bad catalog', modelFamily: 'x', effortLevels: [], models })
     assert.equal(res.status, 400, `refused: ${JSON.stringify(models)}`)
   }
+  const unknown = await call('POST', '/providers', {
+    label: 'Unknown catalog shape',
+    modelFamily: 'x',
+    effortLevels: [],
+    models: [{ id: 'a', label: 'A', tenantId: 'tenant-forged' }],
+  })
+  assert.equal(unknown.status, 400, 'unknown nested catalog fields never become durable')
 })
 
 test('a Session provider has no catalog — models are refused at mint and at patch', async () => {
@@ -172,13 +179,15 @@ test('a Session provider has no catalog — models are refused at mint and at pa
   assert.equal(relay.status, 200)
   const patched = await call('PATCH', `/providers/${relay.json.id}`, { models: [{ id: 'x', label: 'X' }] })
   assert.equal(patched.status, 400)
+  const catalog = await call('PATCH', `/providers/${relay.json.id}/models`, { models: [{ id: 'x', label: 'X' }] })
+  assert.equal(catalog.status, 409)
   const refresh = await call('POST', `/providers/${relay.json.id}/models/refresh`)
   assert.equal(refresh.status, 409, 'nothing to list from — refresh refuses')
 })
 
 // ── The refresh funnel + the stale-pick sweep ─────────────────────────────────
 
-test('PATCHing models declares a static catalog and clears session picks the new list drops', async () => {
+test('the dedicated catalog PATCH declares static models and clears picks the new list drops', async () => {
   const created = await call('POST', '/providers', {
     label: 'Shrinking catalog',
     modelFamily: 'claude',
@@ -187,10 +196,38 @@ test('PATCHing models declares a static catalog and clears session picks the new
   })
   const { json: session } = await call('POST', '/sessions', { firstMessage: 'x', providerId: created.json.id, modelId: 'm-old' })
   assert.equal(session.modelId, 'm-old')
-  const patched = await call('PATCH', `/providers/${created.json.id}`, { models: [{ id: 'm-kept', label: 'Kept model' }] })
+  const ordinary = await call('PATCH', `/providers/${created.json.id}`, { models: [{ id: 'm-kept', label: 'Kept model' }] })
+  assert.equal(ordinary.status, 400, 'a catalog cannot ride the provider-definition domain')
+  const forged = await call('PATCH', `/providers/${created.json.id}/models`, {
+    models: [{ id: 'm-kept', label: 'Kept model' }],
+    catalogSource: 'listed',
+  })
+  assert.equal(forged.status, 400, 'the source stamp is earned, never caller-authored')
+  const nestedForgery = await call('PATCH', `/providers/${created.json.id}/models`, {
+    models: [{ id: 'm-kept', label: 'Kept model', connectionRevision: 99 }],
+  })
+  assert.equal(nestedForgery.status, 400, 'unknown nested catalog fields are refused')
+  const headers = { 'idempotency-key': `static-catalog-${created.json.id}` }
+  const patched = await call('PATCH', `/providers/${created.json.id}/models`, {
+    models: [{ id: 'm-kept', label: 'Kept model' }],
+    expectedRevision: 0,
+  }, headers)
   assert.equal(patched.status, 200)
   assert.equal(patched.json.catalogSource, 'static')
+  assert.equal(patched.json.connectionRevision, 1)
   assert.equal(store.getSession(session.id)?.modelId, undefined, 'the dropped model’s pick was cleared (the documented cascade)')
+  const replay = await call('PATCH', `/providers/${created.json.id}/models`, {
+    models: [{ id: 'm-kept', label: 'Kept model' }],
+    expectedRevision: 0,
+  }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.connectionRevision, 1, 'one logical catalog replacement advances ordering once')
+  const stale = await call('PATCH', `/providers/${created.json.id}/models`, {
+    models: [{ id: 'm-new', label: 'New model' }],
+    expectedRevision: 0,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(store.listProviders().find((provider) => provider.id === created.json.id)?.models?.[0]?.id, 'm-kept')
 })
 
 test('POST /providers/:id/models/refresh re-fetches from the endpoint and stamps listed', async () => {

@@ -81,6 +81,11 @@ export interface ModelProvider {
    * without learning the endpoint, model, or credential reference it protects.
    * Legacy/seeded absence reads as zero. */
   connectionRevision?: number
+  /** Server-owned ordering for the editable provider definition (label, model
+   * family, effort vocabulary, plan, and authority). This is deliberately
+   * independent from the write-only connection/catalog revision and transient
+   * Session-relay activity. Legacy/seeded absence reads as zero. */
+  definitionRevision?: number
   /** Session kind only: the tail of the rendezvous secret for the masked
    *  `rv_live_••••3f9a` fingerprint. Never the secret (one-time-shown at mint/rotate). */
   secretHint?: string
@@ -181,23 +186,55 @@ export type UpdateProviderConnectionRequest = ProviderConnectionPatch & {
   expectedRevision?: number
 }
 
+/** Replace a caller-authored static catalog without admitting it through the
+ * provider-definition domain. Catalogs share the endpoint connection's public
+ * ordering because an endpoint replacement also moves the model namespace. */
+export interface UpdateProviderModelsRequest {
+  models: ModelInfo[]
+  expectedRevision?: number
+}
+
 /** Register a provider (the server mints the id). `config` is the write-only endpoint
  *  half — accepted here, verified by the registration probe, stored server-side, and
  *  never present on the `ModelProvider` reads. `kind:'session'` takes no config at all
  *  (there is nothing to dial): the server mints the rendezvous secret and answers with
  *  it exactly once. `secretHint`/`online` are server-stamped — ignored on a request. */
-export type CreateProviderRequest = Omit<ModelProvider, 'id'> & { config?: ProviderEndpointConfig }
+export type ProviderDefinitionFields = Pick<
+  ModelProvider,
+  'label' | 'modelFamily' | 'effortLevels' | 'plan' | 'authority'
+>
+
+/** The only durable public fields ordinary provider editing may change. */
+export type ProviderDefinitionPatch = Partial<ProviderDefinitionFields>
+
+/** User intent for one definition edit; the default flag is a separate
+ * viewer-relative pointer but shares the editor's acknowledgement ceremony. */
+export type ProviderDefinitionMutationPatch = ProviderDefinitionPatch & {
+  isDefault?: boolean
+}
+
+export type CreateProviderRequest = Pick<
+  ModelProvider,
+  'label' | 'modelFamily' | 'effortLevels' | 'plan' | 'authority' | 'kind' | 'models'
+> & {
+  config?: ProviderEndpointConfig
+  isDefault?: boolean
+}
 
 /** `POST /providers` (and `/providers/:id/rotate`) response: the registered provider,
  *  plus — for `kind:'session'` only — the **one-time rendezvous secret**. Shown once,
  *  never readable again (only its hash persists server-side); treat it as a password. */
 export type CreatedProvider = ModelProvider & { secret?: string }
 
-/** Patch a provider's own fields. All optional — only the named fields change.
+/** Patch a provider's definition. All optional — only the named fields change.
  *  `isDefault: true` moves the viewer's default flag here (clearing any other entry's);
  *  `isDefault: false` clears it when this entry holds it — leaving the registry with
- *  no default, which is fine (the flag is a UI shortcut, not an invariant). */
-export type UpdateProviderRequest = Partial<Omit<ModelProvider, 'id'>>
+ *  no default, which is fine (the flag is a UI shortcut, not an invariant).
+ *  `expectedRevision` is an optional compare-and-swap precondition; absence
+ *  retains the explicit legacy unconditional-write meaning. */
+export type UpdateProviderRequest = ProviderDefinitionMutationPatch & {
+  expectedRevision?: number
+}
 
 /** The one entry a picker should pre-select for a registry list (providers, system
  *  prompts): the viewer's flagged default when one exists, else the first entry —

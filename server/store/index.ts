@@ -108,7 +108,7 @@ import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
@@ -1652,6 +1652,7 @@ function replaceProviderModels(
   }
   MODEL_PROVIDERS.set(id, next)
   sweepSessionModelPicks()
+  emitProviderChanged(next)
   persist()
   return next
 }
@@ -1864,6 +1865,16 @@ function emitAgentChanged(agent: Agent, directoryAffected = agent.published === 
         scope: 'owner',
         ...(agent.tenantId ? { tenantId: agent.tenantId } : {}),
       })
+}
+
+/** Tenant-safe invalidation for the provider registry. Shared infrastructure is
+ * visible to every registry reader; tenant-owned providers stay owner-scoped. */
+function emitProviderChanged(provider: ModelProvider): void {
+  emit({
+    type: 'provider.changed',
+    providerId: provider.id,
+    ...(provider.tenantId ? { tenantId: provider.tenantId } : {}),
+  })
 }
 
 // ── The one session mint funnel ──────────────────────────────────────────────
@@ -3500,6 +3511,11 @@ export const store = {
         return e.scope === 'directory'
           ? true
           : (e.tenantId ? e.tenantId === tenantId : true)
+      case 'provider.changed':
+        // Private providers and viewer-relative default-pointer changes stay in
+        // their tenant. An unstamped shared-registry change invalidates every
+        // reader without carrying an owner identifier.
+        return e.tenantId ? e.tenantId === tenantId : true
       case 'delegation.changed':
       case 'contribution.changed': {
         // The ledger's visibility mirrors the Project's, exactly like openwork.changed:
@@ -3945,23 +3961,24 @@ export const store = {
     const defaultId = defaultsFor(tenantId)?.providerId
     return [...MODEL_PROVIDERS.values()]
       .filter((p) => registryVisible(p, tenantId))
-      .map((p) =>
-        p.kind === 'session'
+      .map((p) => {
+        const provider = { ...p, definitionRevision: p.definitionRevision ?? 0 }
+        return p.kind === 'session'
           ? // The relay's live serving picture, stamped per read like `online`
             // (v5 handshake, observed half): how many conversations hold an
             // in-flight turn, and the negotiated admission window. Kept live by
             // `relay.activity` events; never stored, stripped at every patch.
-            { ...p, online: relay.online(p.id), activeConversations: relay.activeConversations(p.id), conversationWindow: relay.window(p.id) }
+            { ...provider, online: relay.online(p.id), activeConversations: relay.activeConversations(p.id), conversationWindow: relay.window(p.id) }
           : // What an UNSET pick resolves to and whether its server-only endpoint
             // can honestly execute. Both are serve-time stamps, never caller or
             // snapshot truth.
             {
-              ...p,
+              ...provider,
               connectionRevision: p.connectionRevision ?? 0,
               defaultModelId: resolvedModelId(PROVIDER_CONFIGS.get(p.id)),
               execution: endpointExecution(PROVIDER_CONFIGS.get(p.id)),
-            },
-      )
+            }
+      })
       .map((p) => (p.id === defaultId ? { ...p, isDefault: true } : p))
   },
   /** Move / clear the caller's **default-provider** flag (the UI shortcut — see
@@ -3971,7 +3988,12 @@ export const store = {
     if (id !== undefined && ![...MODEL_PROVIDERS.values()].some((p) => p.id === id && registryVisible(p, tenantId))) {
       throw new ValidationError(`No provider '${id}' to set as the default.`)
     }
-    setRegistryDefault('providerId', id, tenantId)
+    const ownerTenant = tenantId ?? defaultTenantId()
+    const previous = defaultsFor(ownerTenant)?.providerId
+    if (previous === id) return
+    setRegistryDefault('providerId', id, ownerTenant)
+    const changedId = id ?? previous
+    if (changedId) emit({ type: 'provider.changed', providerId: changedId, tenantId: ownerTenant })
     persist()
   },
   /** Resolve an Agent's Model provider; unset/unknown falls back to the seeded
@@ -4047,69 +4069,58 @@ export const store = {
     // `isDefault` and `defaultModelId` are stripped: both are serve-time stamps
     // (the per-tenant pointer; the config-resolved model) — stored on the entity
     // they would leak across tenants / drift from the config they mirror.
-    const {
-      isDefault: _default,
-      defaultModelId: _dm,
-      execution: _execution,
-      connectionRevision: _connectionRevision,
-      ...fields
-    } = input
     const provider: ModelProvider = {
-      ...fields,
       id: `provider-${(providerSeq += 1)}`,
       tenantId: tenantId ?? input.tenantId,
+      ...(input.kind ? { kind: input.kind } : {}),
+      ...(input.secretHint ? { secretHint: input.secretHint } : {}),
+      label: input.label,
+      modelFamily: input.modelFamily,
+      effortLevels: input.effortLevels,
+      ...(input.models ? { models: input.models } : {}),
+      ...(input.catalogSource ? { catalogSource: input.catalogSource } : {}),
+      ...(input.plan ? { plan: input.plan } : {}),
+      ...(input.authority ? { authority: input.authority } : {}),
+      definitionRevision: 0,
       ...(config.kind === 'session' ? {} : { connectionRevision: 0 }),
     }
     if (!provider.models) delete provider.catalogSource
     else provider.catalogSource ??= 'static'
     MODEL_PROVIDERS.set(provider.id, provider)
     PROVIDER_CONFIGS.set(provider.id, config)
+    emitProviderChanged(provider)
     persist()
     return provider
   },
   /** Patch a provider's own fields (label / family / effort levels / plan / authority).
    *  Re-validates a changed plan against the account plan — the same cascade-root
-   *  invariant `createProvider` asserts. D8 is checked at each child's *own* creation,
-   *  so tightening a provider does NOT retro-invalidate Agents already minted under it
-   *  (no per-turn re-check — the documented model). Undefined when unknown (→ 404). */
-  updateProvider(id: string, patch: Partial<Omit<ModelProvider, 'id'>>): ModelProvider | undefined {
+   *  invariant `createProvider` asserts. A narrowing re-clamps already-minted
+   *  Agents and their commissions through the runtime half of D8. Undefined when
+   *  unknown (→ 404); a supplied revision is compare-and-swap. */
+  updateProvider(
+    id: string,
+    patch: ProviderDefinitionPatch,
+    expectedRevision?: number,
+  ): ModelProvider | undefined {
     const current = MODEL_PROVIDERS.get(id)
     if (!current) return undefined
-    if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
-    // A patched catalog is a *static declaration* — validated before anything
-    // mutates, source-stamped server-side ('listed' is earned only by the fetch
-    // funnel, never claimable on a request), and refused on a Session provider
-    // (nothing to enumerate — same wall as the mint's).
-    if (patch.models !== undefined) {
-      if (PROVIDER_CONFIGS.get(id)?.kind === 'session') {
-        throw new ValidationError('A Session provider has no model catalog — its cognition is whatever session drains its mailbox.')
-      }
-      assertCatalogModels(patch.models)
+    const currentRevision = current.definitionRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This provider definition changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
     }
-    // The transport identity is fixed at mint, and the fingerprint/status are
-    // server-stamped: a PATCH may rename/re-plan a provider but never flip its
-    // kind or forge relay state. `isDefault` is a serve-time stamp too — the route
-    // turns it into a setDefaultProvider call; it never lands on the entity.
-    const {
-      kind: _kind,
-      secretHint: _hint,
-      online: _online,
-      activeConversations: _active,
-      conversationWindow: _window,
-      isDefault: _default,
-      defaultModelId: _dm,
-      execution: _execution,
-      connectionRevision: _connectionRevision,
-      models: patchModels,
-      catalogSource: _src,
-      ...safe
-    } = patch
-    const next: ModelProvider = { ...current, ...safe, id: current.id }
+    if (Object.keys(patch).length === 0) return current
+    if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
+    const next: ModelProvider = {
+      ...current,
+      ...patch,
+      id: current.id,
+      definitionRevision: currentRevision + 1,
+    }
     MODEL_PROVIDERS.set(id, next)
     reclampAgentsOf(next) // D8 runtime: a narrowed provider re-clamps its Agents (+ their commissions)
-    // The catalog replacement funnel last — it re-persists and sweeps stale session
-    // model picks against the new list.
-    if (patchModels !== undefined) return replaceProviderModels(id, patchModels, 'static')
+    emitProviderChanged(next)
     persist()
     return next
   },
@@ -4153,6 +4164,7 @@ export const store = {
     }
     MODEL_PROVIDERS.set(id, next)
     if (catalog !== undefined) sweepSessionModelPicks()
+    emitProviderChanged(next)
     persist()
     return next
   },
@@ -4160,6 +4172,10 @@ export const store = {
    *  route) — the 'listed' source stamp is earned only here and at registration. */
   refreshProviderModels(id: string, models: ModelInfo[], expectedRevision?: number): ModelProvider | undefined {
     return replaceProviderModels(id, models, 'listed', expectedRevision)
+  },
+  /** Replace a caller-authored static catalog through its dedicated route. */
+  replaceStaticProviderModels(id: string, models: ModelInfo[], expectedRevision?: number): ModelProvider | undefined {
+    return replaceProviderModels(id, models, 'static', expectedRevision)
   },
   /** Rotate a Session provider's rendezvous secret — the kill switch (§7.5),
    *  immediate and total: the stored hash is replaced (no old-hash grace), the
@@ -4176,6 +4192,7 @@ export const store = {
     const provider: ModelProvider = { ...current, secretHint: relaySecretHint(secret) }
     MODEL_PROVIDERS.set(id, provider)
     relay.retire(id)
+    emitProviderChanged(provider)
     persist()
     return { provider, secret }
   },
@@ -4186,7 +4203,8 @@ export const store = {
    *  Session provider is rotate-without-a-successor (§7.5): the relay retires and the
    *  secret dies with the config row — a held connector is 401 from here on. */
   deleteProvider(id: string): boolean {
-    if (!MODEL_PROVIDERS.has(id)) return false
+    const removed = MODEL_PROVIDERS.get(id)
+    if (!removed) return false
     if (id === DEFAULT_PROVIDER.id) throw new ConflictError('The default provider can’t be removed.')
     const bound = [...WORKER_AGENTS.values()].filter((a) => a.providerId === id)
     if (bound.length > 0) {
@@ -4213,6 +4231,7 @@ export const store = {
     // A removed provider must not linger as any tenant's default pointer — the flag
     // simply clears (no protection: the default is a UI shortcut, not an invariant).
     dropRegistryDefault('providerId', id)
+    emitProviderChanged(removed)
     persist()
     return true
   },

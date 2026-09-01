@@ -256,7 +256,6 @@ import {
   bindDesktopCredential,
   discardDesktopCredential,
   removeDesktopProviderCredentials,
-  updateProvider,
   deleteProvider,
   rotateProvider,
   refreshProviderModels,
@@ -374,6 +373,7 @@ import {
 import { createProviderConnectionAttempt, replaceProviderConnection } from '../controller/providerConnection'
 import { toggleScheduleEnabled, updateSchedule } from '../controller/scheduleMutations'
 import { updateAgent } from '../controller/agentMutations'
+import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import {
   promptFitWarning,
   defaultEntry,
@@ -8213,7 +8213,10 @@ function FormDialog({
   children: ReactNode
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
-  useFocusTrap(dialogRef, onClose)
+  const close = () => {
+    if (!busy) onClose()
+  }
+  useFocusTrap(dialogRef, close)
   // Land focus on the first field, not the close button useFocusTrap would otherwise
   // pick (this mount effect runs after the trap's, so it wins).
   useEffect(() => {
@@ -8222,7 +8225,7 @@ function FormDialog({
   return createPortal(
     <div
       className="fixed inset-0 z-50 flex justify-center overflow-y-auto px-4 py-4 sm:pt-[8dvh]"
-      onMouseDown={onClose}
+      onMouseDown={close}
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -8240,7 +8243,7 @@ function FormDialog({
             <span className="text-[15px] font-semibold text-ink">{title}</span>
           </div>
           <button
-            onClick={onClose}
+            onClick={close}
             disabled={busy}
             title="Close"
             aria-label="Close"
@@ -8259,7 +8262,7 @@ function FormDialog({
 
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
           <button
-            onClick={onClose}
+            onClick={close}
             disabled={busy}
             className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
           >
@@ -9985,6 +9988,10 @@ function ProviderDialog({
    * a verified endpoint row after its write-only credential lifecycle succeeds. */
   onCreated?: (provider: CreatedProvider) => void
 }) {
+  // Freeze the editor's opening base. Ambient provider events may refresh the
+  // page behind this held draft; sparse intent must still mean what the user
+  // changed, not whatever a newer prop happens to contain.
+  const original = useRef(provider).current
   const [label, setLabel] = useState(provider?.label ?? '')
   const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
   const [kind, setKind] = useState<'endpoint' | 'session'>(provider?.kind ?? 'endpoint')
@@ -10003,23 +10010,32 @@ function ProviderDialog({
   // the user confirms they saved it — only then does the dialog resolve.
   const [minted, setMinted] = useState<CreatedProvider | null>(null)
   const isSession = kind === 'session'
+  const labelChanged = !!provider && label.trim() !== (original?.label ?? '')
+  const familyChanged = !!provider && !isSession && family.trim() !== (original?.modelFamily ?? '')
+  const defaultChanged = !!provider && isDefault !== (original?.isDefault ?? false)
+  const hasEditChanges = labelChanged || familyChanged || defaultChanged
   const canSubmit =
     label.trim().length > 0 &&
     (isSession || (family.trim().length > 0 && (provider !== null || baseURL.trim().length > 0))) &&
+    (!provider || hasEditChanges) &&
     !busy
 
   const submit = async () => {
     if (!canSubmit) return
     setBusy(true)
     setError(null)
-    const defaultChanged = isDefault !== (provider?.isDefault ?? false)
     try {
       if (provider) {
-        await updateProvider(provider.id, {
-          label: label.trim(),
-          modelFamily: family.trim(),
+        const outcome = await updateProviderDefinition(provider.id, {
+          ...(labelChanged ? { label: label.trim() } : {}),
+          ...(familyChanged ? { modelFamily: family.trim() } : {}),
           ...(defaultChanged ? { isDefault } : {}),
         })
+        if (outcome === 'discarded') {
+          setError('Your held edits were not saved. Review the latest provider, then apply what you still want.')
+          setBusy(false)
+          return
+        }
         onClose()
       } else if (isSession) {
         const created = await createProvider({

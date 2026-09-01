@@ -226,7 +226,7 @@ and only the fields the user changed. Conflict or uncertain acknowledgement
 holds that exact intent behind one visible Retry/Dismiss path; Retry reconciles
 authoritative truth before rebase and keeps the logical idempotency key.
 Independently moving activity is fenced or merged separately from configuration.
-**Detection:** `node --test src/components/agent-mutation-ui.test.ts src/api/agent-revision.test.ts server/routes/worker-agents.test.ts`; rendered conflict walks live in `e2e/agent-mutations.spec.ts`.
+**Detection:** `node --test src/components/agent-mutation-ui.test.ts src/components/provider-definition-mutation-ui.test.ts src/api/agent-revision.test.ts src/api/provider-revision.test.ts server/routes/worker-agents.test.ts server/routes/routes-providers.test.ts`; rendered conflict walks live in `e2e/agent-mutations.spec.ts` and `e2e/provider-definition-mutations.spec.ts`.
 **Fix:** add a server-owned domain revision, compare-and-swap route, monotonic
 cache merge, sparse frozen patch, and shared acknowledgement controller before
 shipping the editor.

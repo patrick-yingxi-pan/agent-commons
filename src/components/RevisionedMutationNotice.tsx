@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'routine' | 'artifact' | 'proposal' | 'agent'
+  kind: 'conversation' | 'routine' | 'artifact' | 'proposal' | 'agent' | 'provider'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -28,6 +28,7 @@ export function RevisionedMutationNotice({
       data-artifact-content-mutation={kind === 'artifact' ? phase : undefined}
       data-proposal-verdict-mutation={kind === 'proposal' ? phase : undefined}
       data-agent-mutation={kind === 'agent' ? phase : undefined}
+      data-provider-definition-mutation={kind === 'provider' ? phase : undefined}
       className="relative z-[60] shrink-0 border-b border-line bg-panel-2/95 px-2 pt-2"
     >
       {mutation.busy ? (

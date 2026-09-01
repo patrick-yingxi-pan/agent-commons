@@ -19,9 +19,9 @@ import type {
   RecordViewRequest,
   CreateDispatchRequest,
   CreateProviderRequest,
+  ModelProvider,
   RelayReplyRequest,
   UpdateProviderConnectionRequest,
-  UpdateProviderRequest,
   CreateSystemPromptRequest,
   UpdateSystemPromptRequest,
   CreateAgentRequest,
@@ -96,6 +96,8 @@ import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
 import { providerConnectionUpdate } from './providerConnection.ts'
+import { providerDefinitionUpdate } from './providerDefinition.ts'
+import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
 import type {
   A2aDataPart,
   A2aMessage,
@@ -1172,18 +1174,26 @@ export function buildRouter(): Router {
     // per-tenant pointer move below, never a stored field.)
     // (`catalogSource` is server-derived too — stripped so a request can't claim a
     // 'listed' catalog it declared by hand; the mint funnel stamps 'static'.)
-    const {
-      config: endpoint,
-      kind: _kind,
-      secretHint: _hint,
-      online: _online,
-      isDefault,
-      catalogSource: _src,
-      defaultModelId: _dm,
-      execution: _execution,
-      connectionRevision: _connectionRevision,
-      ...fields
-    } = input
+    const endpoint = input.config
+    const isDefault = input.isDefault
+    let declaredModels
+    try {
+      declaredModels = input.models === undefined ? undefined : providerCatalogModels(input.models)
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
+    // Copy only the declared public registration fields. JSON bodies are not
+    // made safe by their TypeScript annotation; an open spread here would make
+    // unknown or ownership-shaped fields durable.
+    const fields: Omit<ModelProvider, 'id'> = {
+      label: input.label,
+      modelFamily: input.modelFamily,
+      effortLevels: input.effortLevels,
+      ...(input.plan ? { plan: input.plan } : {}),
+      ...(input.authority ? { authority: input.authority } : {}),
+      ...(declaredModels ? { models: declaredModels } : {}),
+    }
     // Pick the three known endpoint fields explicitly (strings only) — a raw spread
     // would let arbitrary unknown JSON ride into the persisted server-only config
     // (including a forged `capabilities` record).
@@ -1249,6 +1259,30 @@ export function buildRouter(): Router {
       throw err
     }
   })
+  // A caller-authored static catalog has its own strict door. It shares the
+  // connection revision because replacing an endpoint can replace this same
+  // model namespace; it never rides the human-authored definition PATCH.
+  r.formPatch(
+    '/providers/:id/models',
+    'Static catalog declaration is a registration protocol form; interactive catalogs come from endpoint refresh.',
+    idempotent(async ({ req, res, params, body }) => {
+      if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
+      try {
+        const input = providerCatalogUpdate(await body<unknown>())
+        if (store.providerConfig(params.id).kind === 'session') {
+          return sendError(res, 'conflict', 'A Session provider has no model catalog.')
+        }
+        const provider = store.replaceStaticProviderModels(params.id, input.models, input.expectedRevision)
+        if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
+        const tenantId = store.identity(req.headers).tenant.id
+        sendJson(res, store.listProviders(tenantId).find((row) => row.id === params.id) ?? provider)
+      } catch (err) {
+        if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+        if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+        throw err
+      }
+    }),
+  )
   // Replace selected fields of the server-only endpoint connection. The route
   // merges against the hidden current config, validates the effective reference,
   // and proves the effective endpoint before ONE store commit. A failed probe
@@ -1310,26 +1344,27 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  r.patch('/providers/:id', async ({ req, res, params, body }) => {
+  r.patch('/providers/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
-    const patch = await body<UpdateProviderRequest>()
     const tenantId = store.identity(req.headers).tenant.id
     try {
-      const provider = store.updateProvider(params.id, patch)
+      const input = providerDefinitionUpdate(await body<unknown>())
+      const provider = store.updateProvider(params.id, input.patch, input.expectedRevision)
       if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
       // The default flag (the UI shortcut): true moves the caller's pointer here;
       // false clears it when this entry holds it — no default left is a valid state.
-      if (patch.isDefault === true) store.setDefaultProvider(params.id, tenantId)
-      else if (patch.isDefault === false && store.listProviders(tenantId).some((p) => p.id === params.id && p.isDefault)) {
+      if (input.isDefault === true) store.setDefaultProvider(params.id, tenantId)
+      else if (input.isDefault === false && store.listProviders(tenantId).some((p) => p.id === params.id && p.isDefault)) {
         store.setDefaultProvider(undefined, tenantId)
       }
       // Re-read so the response carries the serve-time stamps (isDefault, online).
       sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
     } catch (err) {
       if (err instanceof BudgetError || err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   r.delete('/providers/:id', ({ req, res, params }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
     try {

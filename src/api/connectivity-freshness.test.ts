@@ -66,6 +66,11 @@ test('agent.changed refreshes private configuration and public directory project
   assert.match(block, /invalidatePrefix\(keys\.search\(\)\)/)
 })
 
+test('provider.changed refreshes definition, connection, default, and registry projections', () => {
+  const events = src('src', 'api', 'events.ts')
+  assert.match(eventCase(events, 'provider.changed'), /invalidate\(keys\.providers\)/)
+})
+
 test('openwork.changed refreshes the agent directory + the S10 resolved-work family (the D13 credit)', () => {
   const events = src('src', 'api', 'events.ts')
   const block = eventCase(events, 'openwork.changed')

@@ -23,6 +23,7 @@ test('POST creates a provider; GET lists it; PATCH edits its fields', async () =
   assert.ok(created.json.id.startsWith('provider-'))
   assert.equal(created.json.modelFamily, 'open')
   assert.equal(created.json.execution, 'mock', 'execution is computed from server config, never caller-stamped')
+  assert.equal(created.json.definitionRevision, 0, 'definition revision is server-owned')
 
   const one = await call('GET', `/providers/${created.json.id}`)
   assert.equal(one.status, 200)
@@ -31,14 +32,99 @@ test('POST creates a provider; GET lists it; PATCH edits its fields', async () =
   const patched = await call('PATCH', `/providers/${created.json.id}`, {
     label: 'Renamed',
     modelFamily: 'claude',
-    execution: 'configured',
+    expectedRevision: 0,
   })
   assert.equal(patched.status, 200)
   assert.equal(patched.json.label, 'Renamed')
   assert.equal(patched.json.modelFamily, 'claude')
   // The patch is a real merge — the untouched effort levels survive.
   assert.deepEqual(patched.json.effortLevels, ['Low', 'High'])
-  assert.equal(patched.json.execution, 'mock', 'PATCH cannot forge the serve-time execution status')
+  assert.equal(patched.json.definitionRevision, 1)
+  assert.equal(patched.json.execution, 'mock')
+})
+
+test('provider definition PATCH is sparse, compare-and-swap, replay-safe, and ownership-strict', async () => {
+  const created = await call('POST', '/providers', {
+    label: 'Revisioned definition',
+    modelFamily: 'claude',
+    effortLevels: ['Low', 'High'],
+    tenantId: 'tenant-forged',
+    arbitrary: 'not durable',
+  })
+  assert.equal(created.status, 200)
+  assert.notEqual(created.json.tenantId, 'tenant-forged', 'the route stamps ownership from authenticated identity')
+  assert.equal(created.json.arbitrary, undefined, 'unknown create fields never become durable')
+
+  const headers = { 'idempotency-key': `provider-definition-${created.json.id}` }
+  const first = await call('PATCH', `/providers/${created.json.id}`, {
+    label: 'Locally renamed',
+    expectedRevision: 0,
+  }, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.definitionRevision, 1)
+  assert.equal(first.json.modelFamily, 'claude', 'an absent field is preserved')
+
+  const replay = await call('PATCH', `/providers/${created.json.id}`, {
+    label: 'Locally renamed',
+    expectedRevision: 0,
+  }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.definitionRevision, 1, 'one logical retry cannot advance the definition twice')
+
+  const remote = await call('PATCH', `/providers/${created.json.id}`, {
+    modelFamily: 'openai',
+    expectedRevision: 1,
+  })
+  assert.equal(remote.status, 200)
+  assert.equal(remote.json.definitionRevision, 2)
+
+  const stale = await call('PATCH', `/providers/${created.json.id}`, {
+    label: 'Stale overwrite',
+    expectedRevision: 1,
+  })
+  assert.equal(stale.status, 409)
+  const current = await call('GET', `/providers/${created.json.id}`)
+  assert.equal(current.json.label, 'Locally renamed')
+  assert.equal(current.json.modelFamily, 'openai')
+  assert.equal(current.json.definitionRevision, 2)
+
+  for (const forged of [
+    { tenantId: 'tenant-other' },
+    { kind: 'session' },
+    { models: [] },
+    { connectionRevision: 99 },
+    { definitionRevision: 99 },
+    { execution: 'configured' },
+  ]) {
+    const refused = await call('PATCH', `/providers/${created.json.id}`, forged)
+    assert.equal(refused.status, 400, `strict PATCH refuses ${Object.keys(forged)[0]}`)
+  }
+  const afterForgery = await call('GET', `/providers/${created.json.id}`)
+  assert.notEqual(afterForgery.json.tenantId, 'tenant-other')
+  assert.equal(afterForgery.json.kind, undefined)
+  assert.equal(afterForgery.json.connectionRevision, 0)
+  assert.equal(afterForgery.json.definitionRevision, 2)
+})
+
+test('provider definition PATCH validates nested authority and plan shapes before mutation', async () => {
+  const created = await call('POST', '/providers', {
+    label: 'Strict definition',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+  })
+  for (const malformed of [
+    { effortLevels: ['Low', 'Low'] },
+    { authority: { tools: ['read'], tenant: ['other'] } },
+    { plan: { windows: [{ label: '5-hour limit', ceiling: -1 }] } },
+    { expectedRevision: -1, label: 'Nope' },
+    {},
+  ]) {
+    const refused = await call('PATCH', `/providers/${created.json.id}`, malformed)
+    assert.equal(refused.status, 400)
+  }
+  const current = await call('GET', `/providers/${created.json.id}`)
+  assert.equal(current.json.label, 'Strict definition')
+  assert.equal(current.json.definitionRevision, 0)
 })
 
 test('POST without required fields is a 400; PATCH of an unknown id is a 404', async () => {
@@ -256,8 +342,12 @@ test('PATCH connection compares its revision and replays one logical replacement
     assert.equal(store.providerConfig(created.json.id).model, 'after-model')
 
     const forged = await call('PATCH', `/providers/${created.json.id}`, { connectionRevision: 72 })
-    assert.equal(forged.status, 200)
-    assert.equal(forged.json.connectionRevision, 2, 'ordinary provider edits cannot forge connection ordering')
+    assert.equal(forged.status, 400)
+    assert.equal(
+      store.listProviders().find((provider) => provider.id === created.json.id)?.connectionRevision,
+      2,
+      'ordinary provider edits cannot forge connection ordering',
+    )
   } finally {
     if (mock.listening) mock.close()
   }
