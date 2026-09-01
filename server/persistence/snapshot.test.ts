@@ -257,6 +257,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.systemPrompts?.some(([, p]) => p.label === 'Playground research prompt'),
     'createSystemPrompt → systemPrompts',
   )
+  assert.equal(
+    s.systemPrompts?.find(([, p]) => p.label === 'Playground research prompt')?.[1].definitionRevision,
+    1,
+    'the edited prompt definition revision rides in the snapshot',
+  )
   assert.ok(
     s.agents?.some(([, a]) => a.label === 'Playground research agent'),
     'createAgentFromRequest → agents',
@@ -515,7 +520,9 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   assert.ok(provider, 'the created provider survives a boot')
   assert.equal(provider?.definitionRevision, 1, 'the provider definition revision survives a boot')
   assert.equal(store.providerConfig(provider?.id).model, 'claude-opus-4-8', 'its server-only config (model id) survives too')
-  assert.ok(store.listSystemPrompts().some((p) => p.label === 'Playground research prompt'), 'the created system prompt survives a boot')
+  const prompt = store.listSystemPrompts().find((p) => p.label === 'Playground research prompt')
+  assert.ok(prompt, 'the created system prompt survives a boot')
+  assert.equal(prompt?.definitionRevision, 1, 'the prompt definition revision survives a boot')
   const agent = store.listAgents().find((a) => a.label === 'Playground research agent')
   assert.ok(agent && agent.providerId === provider?.id, 'the created agent (bound to the provider) survives a boot')
   assert.equal(agent?.revision, 1, 'the Agent configuration revision survives a boot')

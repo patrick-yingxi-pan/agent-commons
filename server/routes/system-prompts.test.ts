@@ -9,15 +9,18 @@ import { store } from '../store/index.ts'
 import { SP_DEFAULT_ID } from '../data/prompts.ts'
 import { call } from '../testkit/http.ts'
 
-test('POST creates a prompt; GET lists it; PATCH edits its fields', async () => {
+test('POST creates a revisioned prompt; GET lists it; sparse PATCH orders its definition', async () => {
   const created = await call('POST', '/system-prompts', {
-    label: 'Wire prompt',
-    body: 'Be terse.',
-    targetFamily: 'open',
+    label: '  Wire prompt  ',
+    body: '  Be terse.  ',
+    targetFamily: '  open  ',
   })
   assert.equal(created.status, 200)
   assert.ok(created.json.id.startsWith('sp-'))
+  assert.equal(created.json.label, 'Wire prompt')
+  assert.equal(created.json.body, 'Be terse.')
   assert.equal(created.json.targetFamily, 'open')
+  assert.equal(created.json.definitionRevision, 0)
 
   const one = await call('GET', `/system-prompts/${created.json.id}`)
   assert.equal(one.status, 200)
@@ -25,13 +28,121 @@ test('POST creates a prompt; GET lists it; PATCH edits its fields', async () => 
 
   const patched = await call('PATCH', `/system-prompts/${created.json.id}`, {
     label: 'Renamed',
-    body: 'Be terse and precise.',
+    expectedRevision: 0,
   })
   assert.equal(patched.status, 200)
   assert.equal(patched.json.label, 'Renamed')
-  assert.equal(patched.json.body, 'Be terse and precise.')
+  assert.equal(patched.json.body, 'Be terse.')
   // The patch is a real merge — the untouched target family survives.
   assert.equal(patched.json.targetFamily, 'open')
+  assert.equal(patched.json.definitionRevision, 1)
+})
+
+test('PATCH compare-and-swap rejects stale writes and replays one logical edit once', async () => {
+  const created = await call('POST', '/system-prompts', {
+    label: 'CAS prompt',
+    body: 'Opening body.',
+    targetFamily: 'claude',
+  })
+  const id = created.json.id
+  const headers = { 'idempotency-key': `system-prompt-cas-${id}` }
+  const first = await call('PATCH', `/system-prompts/${id}`, {
+    label: 'CAS prompt renamed',
+    expectedRevision: 0,
+  }, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.definitionRevision, 1)
+
+  const replay = await call('PATCH', `/system-prompts/${id}`, {
+    label: 'CAS prompt renamed',
+    expectedRevision: 0,
+  }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.definitionRevision, 1, 'one logical retry cannot advance the definition twice')
+
+  const remote = await call('PATCH', `/system-prompts/${id}`, {
+    body: 'Remote body.',
+    expectedRevision: 1,
+  })
+  assert.equal(remote.status, 200)
+  assert.equal(remote.json.definitionRevision, 2)
+
+  const stale = await call('PATCH', `/system-prompts/${id}`, {
+    targetFamily: 'openai',
+    expectedRevision: 1,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.json.error.code, 'conflict')
+
+  const current = await call('GET', `/system-prompts/${id}`)
+  assert.equal(current.json.label, 'CAS prompt renamed')
+  assert.equal(current.json.body, 'Remote body.')
+  assert.equal(current.json.targetFamily, 'claude')
+  assert.equal(current.json.definitionRevision, 2)
+})
+
+test('POST replays one logical prompt creation without minting a duplicate', async () => {
+  const label = `Idempotent prompt ${Date.now()}`
+  const body = { label, body: 'One logical prompt.', targetFamily: 'claude' }
+  const headers = { 'idempotency-key': `system-prompt-create-${label}` }
+  const first = await call('POST', '/system-prompts', body, headers)
+  const replay = await call('POST', '/system-prompts', body, headers)
+  assert.equal(first.status, 200)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.id, first.json.id)
+  assert.equal(
+    store.listSystemPrompts().filter((prompt) => prompt.label === label).length,
+    1,
+    'the replay cannot mint a second registry row',
+  )
+})
+
+test('prompt mutation shapes reject ownership, identity, revision, and unbounded text forgery', async () => {
+  const forgedCreate = await call('POST', '/system-prompts', {
+    label: 'Forged prompt',
+    body: 'body',
+    targetFamily: 'claude',
+    tenantId: 'tenant-attacker',
+  })
+  assert.equal(forgedCreate.status, 400)
+
+  const created = await call('POST', '/system-prompts', {
+    label: 'Strict prompt',
+    body: 'body',
+    targetFamily: 'claude',
+  })
+  for (const patch of [
+    {},
+    { tenantId: 'tenant-attacker' },
+    { definitionRevision: 99 },
+    { id: 'replacement-id' },
+    { body: 'x'.repeat(8001) },
+    { expectedRevision: -1 },
+    { expectedRevision: 0 },
+  ]) {
+    const response = await call('PATCH', `/system-prompts/${created.json.id}`, patch)
+    assert.equal(response.status, 400, `rejected ${JSON.stringify(Object.keys(patch))}`)
+  }
+  const current = await call('GET', `/system-prompts/${created.json.id}`)
+  assert.equal(current.json.label, 'Strict prompt')
+  assert.equal(current.json.definitionRevision, 0)
+})
+
+test('editing a library prompt does not rewrite Agents that copied its earlier body', async () => {
+  const prompt = store.createSystemPrompt({ label: 'Snapshot source', body: 'Original body.', targetFamily: 'claude' })
+  const agent = store.createAgent({
+    label: 'Prompt snapshot Agent',
+    systemPrompt: prompt.body,
+    systemPromptId: prompt.id,
+    tools: [],
+    instructions: '',
+  })
+  const patched = await call('PATCH', `/system-prompts/${prompt.id}`, {
+    body: 'New library body.',
+    expectedRevision: 0,
+  })
+  assert.equal(patched.status, 200)
+  assert.equal(store.listAgents().find((candidate) => candidate.id === agent.id)?.systemPrompt, 'Original body.')
 })
 
 test('POST without required fields is a 400; PATCH of an unknown id is a 404', async () => {

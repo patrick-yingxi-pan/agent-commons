@@ -98,12 +98,14 @@ test('system-prompt default: create/patch set + move + clear, delete drops the p
   assert.deepEqual(list.filter((p) => p.isDefault).map((p) => p.id), [a.id])
 
   const b = (await call('POST', '/system-prompts', { ...PROMPT_BODY, label: 'Default prompt B' })).json
-  await call('PATCH', `/system-prompts/${b.id}`, { isDefault: true })
+  const moved = await call('PATCH', `/system-prompts/${b.id}`, { isDefault: true, expectedRevision: 0 })
+  assert.equal(moved.json.definitionRevision, 0, 'viewer default intent does not advance authored prompt ordering')
   list = (await call('GET', '/system-prompts')).json
   assert.deepEqual(list.filter((p) => p.isDefault).map((p) => p.id), [b.id], 'moved by PATCH')
 
-  const cleared = await call('PATCH', `/system-prompts/${b.id}`, { isDefault: false })
+  const cleared = await call('PATCH', `/system-prompts/${b.id}`, { isDefault: false, expectedRevision: 0 })
   assert.equal(cleared.json.isDefault, undefined)
+  assert.equal(cleared.json.definitionRevision, 0)
   list = (await call('GET', '/system-prompts')).json
   assert.equal(list.filter((p) => p.isDefault).length, 0)
 

@@ -182,6 +182,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
     body: 'You are a focused research assistant. Cite primary sources and stay terse.',
     targetFamily: 'claude',
   })
+  store.updateSystemPrompt(prompt.id, { targetFamily: 'claude-playground' }, prompt.definitionRevision)
   const playgroundAgent = store.createAgentFromRequest({
     label: 'Playground research agent',
     providerId: provider.id,

@@ -108,7 +108,7 @@ import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptEntry, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, UpdateCommissionRequest, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
@@ -1877,6 +1877,15 @@ function emitProviderChanged(provider: ModelProvider): void {
   })
 }
 
+/** Tenant-safe invalidation for the prompt registry. */
+function emitSystemPromptChanged(prompt: SystemPromptEntry): void {
+  emit({
+    type: 'systemprompt.changed',
+    systemPromptId: prompt.id,
+    ...(prompt.tenantId ? { tenantId: prompt.tenantId } : {}),
+  })
+}
+
 // ── The one session mint funnel ──────────────────────────────────────────────
 // Every session is registered through here — human-created (`store.createSession`,
 // the "New chat" materialized on first send) and agent-created (`ensureRunSession`,
@@ -3516,6 +3525,11 @@ export const store = {
         // their tenant. An unstamped shared-registry change invalidates every
         // reader without carrying an owner identifier.
         return e.tenantId ? e.tenantId === tenantId : true
+      case 'systemprompt.changed':
+        // Same registry visibility as providers: private definitions and
+        // viewer-default pointers stay owner-scoped; shared infrastructure
+        // refreshes every prompt-library reader.
+        return e.tenantId ? e.tenantId === tenantId : true
       case 'delegation.changed':
       case 'contribution.changed': {
         // The ledger's visibility mirrors the Project's, exactly like openwork.changed:
@@ -4244,6 +4258,7 @@ export const store = {
     const defaultId = defaultsFor(tenantId)?.promptId
     return [...SYSTEM_PROMPT_LIB.values()]
       .filter((p) => registryVisible(p, tenantId))
+      .map((p) => ({ ...p, definitionRevision: p.definitionRevision ?? 0 }))
       .map((p) => (p.id === defaultId ? { ...p, isDefault: true } : p))
   },
   /** Move / clear the caller's **default-prompt** flag — `setDefaultProvider`'s twin. */
@@ -4251,7 +4266,12 @@ export const store = {
     if (id !== undefined && ![...SYSTEM_PROMPT_LIB.values()].some((p) => p.id === id && registryVisible(p, tenantId))) {
       throw new ValidationError(`No system prompt '${id}' to set as the default.`)
     }
-    setRegistryDefault('promptId', id, tenantId)
+    const ownerTenant = tenantId ?? defaultTenantId()
+    const previous = defaultsFor(ownerTenant)?.promptId
+    if (previous === id) return
+    setRegistryDefault('promptId', id, ownerTenant)
+    const changedId = id ?? previous
+    if (changedId) emit({ type: 'systemprompt.changed', systemPromptId: changedId, tenantId: ownerTenant })
     persist()
   },
   /** Resolve one library entry by id (undefined when unknown — unlike provider/agent
@@ -4273,26 +4293,46 @@ export const store = {
   /** Add a prompt to the library. A plain registry add (prompt text is not a
    *  capability, so there is no attenuation funnel here — the fit *warning* is the
    *  selection-time check, `promptFitWarning`, surfaced in the picker). */
-  createSystemPrompt(input: Omit<SystemPromptEntry, 'id'>, tenantId?: string): SystemPromptEntry {
+  createSystemPrompt(input: SystemPromptDefinitionFields, tenantId?: string): SystemPromptEntry {
     // Stamp the creating tenant (F2/PD9) so listSystemPrompts(tenant) scopes it; unset ⇒ shared.
-    // `isDefault` is stripped like createProvider's: a serve-time stamp, never stored.
-    const { isDefault: _default, ...fields } = input
-    const entry: SystemPromptEntry = { ...fields, id: `sp-new-${(systemPromptSeq += 1)}`, tenantId: tenantId ?? input.tenantId }
+    const entry: SystemPromptEntry = {
+      id: `sp-new-${(systemPromptSeq += 1)}`,
+      tenantId,
+      label: input.label,
+      body: input.body,
+      targetFamily: input.targetFamily,
+      definitionRevision: 0,
+    }
     SYSTEM_PROMPT_LIB.set(entry.id, entry)
+    emitSystemPromptChanged(entry)
     persist()
     return entry
   },
   /** Patch a library prompt's fields (label / body / target family). A plain registry
    *  edit — no attenuation funnel (prompt text isn't a capability). Undefined when
    *  unknown (→ 404). */
-  updateSystemPrompt(id: string, patch: Partial<Omit<SystemPromptEntry, 'id'>>): SystemPromptEntry | undefined {
+  updateSystemPrompt(
+    id: string,
+    patch: SystemPromptDefinitionPatch,
+    expectedRevision?: number,
+  ): SystemPromptEntry | undefined {
     const current = SYSTEM_PROMPT_LIB.get(id)
     if (!current) return undefined
-    // `isDefault` never lands on the entity (see updateProvider) — the route routes
-    // it to setDefaultSystemPrompt.
-    const { isDefault: _default, ...safe } = patch
-    const next: SystemPromptEntry = { ...current, ...safe, id: current.id }
+    const currentRevision = current.definitionRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This system prompt changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
+    if (Object.keys(patch).length === 0) return current
+    const next: SystemPromptEntry = {
+      ...current,
+      ...patch,
+      id: current.id,
+      definitionRevision: currentRevision + 1,
+    }
     SYSTEM_PROMPT_LIB.set(id, next)
+    emitSystemPromptChanged(next)
     persist()
     return next
   },
@@ -4301,7 +4341,8 @@ export const store = {
    *  references (`systemPromptId`), so the user repoints those Agents first. False when
    *  unknown (→ 404). */
   deleteSystemPrompt(id: string): boolean {
-    if (!SYSTEM_PROMPT_LIB.has(id)) return false
+    const current = SYSTEM_PROMPT_LIB.get(id)
+    if (!current) return false
     if (id === SP_DEFAULT_ID) throw new ConflictError('The default system prompt can’t be removed.')
     const used = [...WORKER_AGENTS.values()].filter((a) => a.systemPromptId === id)
     if (used.length > 0) {
@@ -4312,6 +4353,7 @@ export const store = {
     SYSTEM_PROMPT_LIB.delete(id)
     // Clear any default pointer at it (deleteProvider's twin — the flag just clears).
     dropRegistryDefault('promptId', id)
+    emitSystemPromptChanged(current)
     persist()
     return true
   },

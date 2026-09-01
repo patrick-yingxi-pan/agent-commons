@@ -176,6 +176,44 @@ test('provider events keep private rows and default pointers tenant-scoped while
   store.deleteProvider(shared!.id)
 })
 
+test('system-prompt events keep private rows and default pointers tenant-scoped while shared infrastructure reaches all readers', () => {
+  let prompt: ReturnType<typeof store.createSystemPrompt>
+  const onCreate = emitted(() => {
+    prompt = store.createSystemPrompt(
+      { label: 'Private event prompt', body: 'Private body.', targetFamily: 'claude' },
+      OWNER,
+    )
+  })
+  const privateEvent = onCreate.find((event) => event.type === 'systemprompt.changed')
+  assert.ok(privateEvent?.type === 'systemprompt.changed')
+  assert.equal(privateEvent.tenantId, OWNER)
+  assert.equal(store.eventVisibleToTenant(privateEvent, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(privateEvent, OTHER), false)
+
+  const onDefinition = emitted(() => store.updateSystemPrompt(prompt!.id, { label: 'Renamed prompt' }, 0))
+  assert.ok(onDefinition.some((event) => event.type === 'systemprompt.changed' && event.systemPromptId === prompt!.id))
+
+  const onDefault = emitted(() => store.setDefaultSystemPrompt(prompt!.id, OWNER))
+  const defaultEvent = onDefault.find((event) => event.type === 'systemprompt.changed')
+  assert.ok(defaultEvent?.type === 'systemprompt.changed')
+  assert.equal(defaultEvent.tenantId, OWNER, 'a viewer-relative pointer never broadcasts through a shared row')
+  assert.equal(store.eventVisibleToTenant(defaultEvent, OTHER), false)
+
+  const onDelete = emitted(() => store.deleteSystemPrompt(prompt!.id))
+  assert.ok(onDelete.some((event) => event.type === 'systemprompt.changed' && event.tenantId === OWNER))
+
+  let shared: ReturnType<typeof store.createSystemPrompt>
+  const onShared = emitted(() => {
+    shared = store.createSystemPrompt({ label: 'Shared event prompt', body: 'Shared body.', targetFamily: 'claude' })
+  })
+  const sharedEvent = onShared.find((event) => event.type === 'systemprompt.changed')
+  assert.ok(sharedEvent?.type === 'systemprompt.changed')
+  assert.equal(sharedEvent.tenantId, undefined)
+  assert.equal(store.eventVisibleToTenant(sharedEvent, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(sharedEvent, OTHER), true)
+  store.deleteSystemPrompt(shared!.id)
+})
+
 test('commission mutators emit commission.changed; visibility mirrors the Project’s (the openwork rule)', () => {
   let commission: ReturnType<typeof store.createCommission>
   const onCreate = emitted(() => {

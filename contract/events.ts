@@ -320,6 +320,15 @@ export interface ProviderChangedEvent {
   tenantId?: string
 }
 
+/** A system-prompt definition, viewer-default pointer, or registry membership
+ * changed. Tenant-owned rows are owner-scoped; unstamped shared infrastructure
+ * is visible to every prompt-registry reader. */
+export interface SystemPromptChangedEvent {
+  type: 'systemprompt.changed'
+  systemPromptId: string
+  tenantId?: string
+}
+
 /** A Project's Contributor roster changed — a commission was minted, re-granted, or
  *  removed, possibly by ANOTHER tenant (the P8 cooperation primitive the acting
  *  client's local invalidation can't cover). Visibility mirrors the Project's,
@@ -445,6 +454,7 @@ export type ServerEvent =
   | ArtifactChangedEvent
   | AgentChangedEvent
   | ProviderChangedEvent
+  | SystemPromptChangedEvent
   | CommissionChangedEvent
   | ProposalChangedEvent
   | GrantChangedEvent

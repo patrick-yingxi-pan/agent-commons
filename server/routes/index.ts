@@ -22,8 +22,6 @@ import type {
   ModelProvider,
   RelayReplyRequest,
   UpdateProviderConnectionRequest,
-  CreateSystemPromptRequest,
-  UpdateSystemPromptRequest,
   CreateAgentRequest,
   UpdateAgentRequest,
   UpdateCommissionRequest,
@@ -98,6 +96,7 @@ import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.t
 import { providerConnectionUpdate } from './providerConnection.ts'
 import { providerDefinitionUpdate } from './providerDefinition.ts'
 import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
+import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
 import type {
   A2aDataPart,
   A2aMessage,
@@ -1689,17 +1688,23 @@ export function buildRouter(): Router {
     if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
     sendJson(res, entry)
   })
-  r.post('/system-prompts', async ({ req, res, body }) => {
-    const input = await body<CreateSystemPromptRequest>()
-    if (!input?.label || !input?.body || !input?.targetFamily) {
-      return sendError(res, 'bad_request', 'label, body, and targetFamily are required')
-    }
+  r.post('/system-prompts', idempotent(async ({ req, res, body }) => {
     const tenantId = store.identity(req.headers).tenant.id
-    const entry = store.createSystemPrompt(input, tenantId)
-    // The request flagged the new entry as the caller's default (the UI shortcut).
-    if (input.isDefault === true) store.setDefaultSystemPrompt(entry.id, tenantId)
-    sendJson(res, { ...entry, ...(input.isDefault === true ? { isDefault: true } : {}) })
-  })
+    try {
+      const input = systemPromptCreate(await body<unknown>())
+      const entry = store.createSystemPrompt({
+        label: input.label,
+        body: input.body,
+        targetFamily: input.targetFamily,
+      }, tenantId)
+      // The request flagged the new entry as the caller's default (the UI shortcut).
+      if (input.isDefault === true) store.setDefaultSystemPrompt(entry.id, tenantId)
+      sendJson(res, store.listSystemPrompts(tenantId).find((prompt) => prompt.id === entry.id) ?? entry)
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
+  }))
   // The opt-in prompt-fit probe (D10/OQ5) — the deeper, scored upgrade beside the static
   // tag. Scores the prompt against the chosen provider's model family (default if absent).
   r.post('/system-prompts/:id/probe', async ({ req, res, params, body }) => {
@@ -1712,19 +1717,25 @@ export function buildRouter(): Router {
     if (!result) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
     sendJson(res, result)
   })
-  r.patch('/system-prompts/:id', async ({ req, res, params, body }) => {
+  r.patch('/system-prompts/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listSystemPrompts(t), 'system prompt')) return
-    const patch = await body<UpdateSystemPromptRequest>()
     const tenantId = store.identity(req.headers).tenant.id
-    const entry = store.updateSystemPrompt(params.id, patch)
-    if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
-    // The default flag — same set/clear semantics as the provider PATCH.
-    if (patch.isDefault === true) store.setDefaultSystemPrompt(params.id, tenantId)
-    else if (patch.isDefault === false && store.listSystemPrompts(tenantId).some((p) => p.id === params.id && p.isDefault)) {
-      store.setDefaultSystemPrompt(undefined, tenantId)
+    try {
+      const input = systemPromptDefinitionUpdate(await body<unknown>())
+      const entry = store.updateSystemPrompt(params.id, input.patch, input.expectedRevision)
+      if (!entry) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+      // The default flag — same set/clear semantics as the provider PATCH.
+      if (input.isDefault === true) store.setDefaultSystemPrompt(params.id, tenantId)
+      else if (input.isDefault === false && store.listSystemPrompts(tenantId).some((p) => p.id === params.id && p.isDefault)) {
+        store.setDefaultSystemPrompt(undefined, tenantId)
+      }
+      sendJson(res, store.listSystemPrompts(tenantId).find((p) => p.id === params.id) ?? entry)
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
     }
-    sendJson(res, store.listSystemPrompts(tenantId).find((p) => p.id === params.id) ?? entry)
-  })
+  }))
   r.delete('/system-prompts/:id', ({ req, res, params }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listSystemPrompts(t), 'system prompt')) return
     try {

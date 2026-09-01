@@ -14,6 +14,10 @@ export interface SystemPromptEntry {
   /** The tenant that created it (F2/PD9). Unset ⇒ a seeded/shared entry visible to every
    *  tenant (the default toolkit is shared infra); a created one is private to its tenant. */
   tenantId?: string
+  /** Server-owned ordering for the editable prompt definition (label, body, and
+   *  target family). Viewer-default selection is an independent pointer and does
+   *  not advance this revision. Legacy/seeded absence reads as zero. */
+  definitionRevision?: number
   /** Human label, shown in the picker. */
   label: string
   /** Viewer-relative, stamped at serve time — never stored on the entity: this entry
@@ -30,6 +34,9 @@ export interface SystemPromptEntry {
   targetFamily: string
 }
 
+/** One canonical ceiling for prompt-library text on every write path. */
+export const MAX_SYSTEM_PROMPT_BODY_CHARS = 8000
+
 /** The D10 fit check — pure and shared (like `overBudgetWindow`), so the picker can
  *  warn client-side and the server can assert the same verdict. Returns a human
  *  downgrade warning when the prompt's authored-for family differs from the provider's
@@ -44,8 +51,16 @@ export function promptFitWarning(entry: SystemPromptEntry, providerModelFamily: 
 
 /** Add a library prompt (the server mints the id). `isDefault: true` flags the new
  *  entry as the caller's default (moving the flag off any other entry). */
-export type CreateSystemPromptRequest = Omit<SystemPromptEntry, 'id'>
+export type SystemPromptDefinitionFields = Pick<SystemPromptEntry, 'label' | 'body' | 'targetFamily'>
+export type SystemPromptDefinitionPatch = Partial<SystemPromptDefinitionFields>
+export type SystemPromptDefinitionMutationPatch = SystemPromptDefinitionPatch & { isDefault?: boolean }
+
+export type CreateSystemPromptRequest = SystemPromptDefinitionFields & { isDefault?: boolean }
 
 /** Patch a library prompt's fields. All optional — only the named fields change.
  *  `isDefault` moves/clears the caller's default flag (see `UpdateProviderRequest`). */
-export type UpdateSystemPromptRequest = Partial<Omit<SystemPromptEntry, 'id'>>
+export type UpdateSystemPromptRequest = SystemPromptDefinitionMutationPatch & {
+  /** Optional for compatibility with non-first-party callers. First-party edits
+   *  always send it and therefore receive compare-and-swap protection. */
+  expectedRevision?: number
+}

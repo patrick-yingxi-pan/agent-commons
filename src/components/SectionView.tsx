@@ -260,7 +260,6 @@ import {
   rotateProvider,
   refreshProviderModels,
   createSystemPrompt,
-  updateSystemPrompt,
   deleteSystemPrompt,
   createAgent,
   deleteAgent,
@@ -374,6 +373,7 @@ import { createProviderConnectionAttempt, replaceProviderConnection } from '../c
 import { toggleScheduleEnabled, updateSchedule } from '../controller/scheduleMutations'
 import { updateAgent } from '../controller/agentMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
+import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
 import {
   promptFitWarning,
   defaultEntry,
@@ -422,6 +422,7 @@ import {
   type PromptProbeResult,
   type SystemPromptEntry,
   DEFAULT_PROVIDER_ID,
+  MAX_SYSTEM_PROMPT_BODY_CHARS,
 } from '../../contract/index.ts'
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
@@ -10448,6 +10449,9 @@ function ToolsTab() {
 /** Create / edit a library system prompt. The model family drives the D10 fit warning;
  *  the body is the text an Agent built from this entry drives the model with. */
 function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; onClose: () => void }) {
+  // Freeze the opening row so ambient invalidation cannot reinterpret a remote
+  // change as local intent while this draft is held for conflict recovery.
+  const original = useRef(prompt).current
   const [label, setLabel] = useState(prompt?.label ?? '')
   const [family, setFamily] = useState(prompt?.targetFamily ?? 'claude')
   const [bodyText, setBodyText] = useState(prompt?.body ?? '')
@@ -10455,23 +10459,44 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
   const [isDefault, setIsDefault] = useState(prompt?.isDefault ?? false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const labelChanged = !!prompt && label.trim() !== (original?.label ?? '')
+  const familyChanged = !!prompt && family.trim() !== (original?.targetFamily ?? '')
+  const bodyChanged = !!prompt && bodyText.trim() !== (original?.body ?? '')
+  const defaultChanged = !!prompt && isDefault !== (original?.isDefault ?? false)
+  const hasEditChanges = labelChanged || familyChanged || bodyChanged || defaultChanged
   const canSubmit =
-    label.trim().length > 0 && family.trim().length > 0 && bodyText.trim().length > 0 && !busy
+    label.trim().length > 0 &&
+    family.trim().length > 0 &&
+    bodyText.trim().length > 0 &&
+    bodyText.trim().length <= MAX_SYSTEM_PROMPT_BODY_CHARS &&
+    (!prompt || hasEditChanges) &&
+    !busy
 
   const submit = async () => {
     if (!canSubmit) return
     setBusy(true)
     setError(null)
-    const defaultChanged = isDefault !== (prompt?.isDefault ?? false)
-    const fields = {
-      label: label.trim(),
-      targetFamily: family.trim(),
-      body: bodyText.trim(),
-      ...(defaultChanged ? { isDefault } : {}),
-    }
     try {
-      if (prompt) await updateSystemPrompt(prompt.id, fields)
-      else await createSystemPrompt(fields)
+      if (prompt) {
+        const outcome = await updateSystemPromptDefinition(prompt.id, {
+          ...(labelChanged ? { label: label.trim() } : {}),
+          ...(familyChanged ? { targetFamily: family.trim() } : {}),
+          ...(bodyChanged ? { body: bodyText.trim() } : {}),
+          ...(defaultChanged ? { isDefault } : {}),
+        })
+        if (outcome === 'discarded') {
+          setError('Your held edits were not saved. Review the latest prompt, then apply what you still want.')
+          setBusy(false)
+          return
+        }
+      } else {
+        await createSystemPrompt({
+          label: label.trim(),
+          targetFamily: family.trim(),
+          body: bodyText.trim(),
+          ...(isDefault ? { isDefault: true } : {}),
+        })
+      }
       onClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this prompt.')
@@ -10488,6 +10513,7 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
       onSubmit={submit}
       onClose={onClose}
       error={error}
+      busy={busy}
     >
       <FormField label="Name">
         <input
@@ -10515,6 +10541,7 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
           value={bodyText}
           onChange={(e) => setBodyText(e.target.value)}
           rows={5}
+          maxLength={MAX_SYSTEM_PROMPT_BODY_CHARS}
           placeholder="The system prompt an Agent drives the model with."
           className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
         />

@@ -25,6 +25,7 @@ import {
   type UpdateProviderRequest,
   type CreateSystemPromptRequest,
   type SystemPromptEntry,
+  type SystemPromptDefinitionMutationPatch,
   type UpdateSystemPromptRequest,
   type AgentChangeProposal,
   type AppNotification,
@@ -92,6 +93,7 @@ import { mergeScheduleDefinition } from './scheduleRevision.ts'
 import { mergeArtifactContent } from './artifactContentRevision.ts'
 import { mergeAgentConfiguration } from './agentRevision.ts'
 import { mergeProviderConnection, mergeProviderDefinition } from './providerRevision.ts'
+import { mergeSystemPromptDefinition } from './systemPromptRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -545,11 +547,49 @@ export async function probePrompt(id: string, providerId?: string): Promise<Prom
   return apiPost<PromptProbeResult>(paths.systemPromptProbe(id), { providerId } satisfies PromptProbeRequest)
 }
 
-/** Patch a library prompt's fields; refreshes the prompt list. */
-export async function updateSystemPrompt(id: string, patch: UpdateSystemPromptRequest): Promise<SystemPromptEntry> {
-  const entry = await apiPatch<SystemPromptEntry>(paths.systemPrompt(id), patch)
+function acceptSystemPromptDefinition(prompt: SystemPromptEntry): SystemPromptEntry {
+  const rows = peek<SystemPromptEntry[]>(keys.systemPrompts)
+  const index = rows?.findIndex((candidate) => candidate.id === prompt.id) ?? -1
+  if (!rows || index < 0) return prompt
+  const merged = mergeSystemPromptDefinition(rows[index]!, prompt)
+  mutate<SystemPromptEntry[]>(keys.systemPrompts, (current) =>
+    (current ?? []).map((candidate) => candidate.id === prompt.id ? merged : candidate),
+  )
+  return merged
+}
+
+/** Re-read only the addressed prompt definition before Retry/Dismiss. */
+export async function reconcileSystemPromptDefinition(id: string): Promise<SystemPromptEntry | undefined> {
+  const rows = await apiGet<SystemPromptEntry[]>(paths.systemPrompts)
+  const incoming = rows.find((candidate) => candidate.id === id)
+  const currentRows = peek<SystemPromptEntry[]>(keys.systemPrompts)
+  if (!currentRows) {
+    setData(keys.systemPrompts, rows)
+    return incoming
+  }
+  if (!incoming) {
+    mutate<SystemPromptEntry[]>(keys.systemPrompts, (current) =>
+      (current ?? []).filter((candidate) => candidate.id !== id),
+    )
+    return undefined
+  }
+  return acceptSystemPromptDefinition(incoming)
+}
+
+/** Patch sparse prompt intent against the revision the editor read. */
+export async function patchSystemPromptDefinition(
+  id: string,
+  patch: SystemPromptDefinitionMutationPatch,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<SystemPromptEntry> {
+  const request = { ...patch, expectedRevision } satisfies UpdateSystemPromptRequest
+  const prompt = await apiPatch<SystemPromptEntry>(paths.systemPrompt(id), request, { idempotencyKey })
+  const accepted = acceptSystemPromptDefinition(prompt)
+  // Viewer-default state is independently stamped; refresh it after accepting
+  // only the definition domain from this acknowledgement.
   invalidate(keys.systemPrompts)
-  return entry
+  return accepted
 }
 
 /** Remove a library prompt. Rejects (so the caller can surface the message) when the
