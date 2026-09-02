@@ -7,7 +7,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { SP_DEFAULT_ID } from '../data/prompts.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
+import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 
 test('POST creates a revisioned prompt; GET lists it; sparse PATCH orders its definition', async () => {
   const created = await call('POST', '/system-prompts', {
@@ -81,20 +82,53 @@ test('PATCH compare-and-swap rejects stale writes and replays one logical edit o
   assert.equal(current.json.definitionRevision, 2)
 })
 
-test('POST replays one logical prompt creation without minting a duplicate', async () => {
-  const label = `Idempotent prompt ${Date.now()}`
-  const body = { label, body: 'One logical prompt.', targetFamily: 'claude' }
-  const headers = { 'idempotency-key': `system-prompt-create-${label}` }
+test('a keyed prompt create survives response-cache loss without rewinding its row or default choice', async () => {
+  const tenantId = 'tenant-prompt-create-durable'
+  const label = `Durable prompt ${Date.now()}`
+  const body = { label, body: 'One logical prompt.', targetFamily: 'claude', isDefault: true }
+  const key = `system-prompt-create-${label}`
+  const headers = { 'x-tenant-id': tenantId, 'idempotency-key': key }
+  const expectedId = systemPromptCreationId(tenantId, key)
+  const changed: string[] = []
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type === 'systemprompt.changed' && event.systemPromptId === expectedId) {
+      changed.push(event.systemPromptId)
+    }
+  })
   const first = await call('POST', '/system-prompts', body, headers)
+  assert.equal(first.json.id, expectedId)
+  assert.equal(first.json.isDefault, true, 'initial default selection lands with creation')
   const replay = await call('POST', '/system-prompts', body, headers)
   assert.equal(first.status, 200)
   assert.equal(replay.status, 200)
   assert.equal(replay.json.id, first.json.id)
+
+  // A later default choice is independent truth. A restarted router has no
+  // response cache, but an old creation replay cannot move that pointer back or
+  // overwrite the original prompt with its changed body.
+  store.setDefaultSystemPrompt(SP_DEFAULT_ID, tenantId)
+  const durableReplay = await callFresh('POST', '/system-prompts', {
+    ...body,
+    label: 'Changed retry must not overwrite',
+    body: 'Changed retry body.',
+  }, headers)
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.id, expectedId)
+  assert.equal(durableReplay.json.label, label)
+  assert.equal(durableReplay.json.body, body.body)
+  assert.equal(durableReplay.json.isDefault, undefined)
   assert.equal(
-    store.listSystemPrompts().filter((prompt) => prompt.label === label).length,
+    store.listSystemPrompts(tenantId).filter((prompt) => prompt.id === expectedId).length,
     1,
-    'the replay cannot mint a second registry row',
+    'durable identity, not only the response cache, prevents a duplicate prompt',
   )
+  assert.equal(
+    store.listSystemPrompts(tenantId).find((prompt) => prompt.id === SP_DEFAULT_ID)?.isDefault,
+    true,
+  )
+  unsubscribe()
+  assert.equal(changed.length, 2, 'only first creation and its initial default emit for this row')
 })
 
 test('prompt mutation shapes reject ownership, identity, revision, and unbounded text forgery', async () => {

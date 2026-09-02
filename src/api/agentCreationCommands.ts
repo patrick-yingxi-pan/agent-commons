@@ -3,6 +3,7 @@ import type { Agent } from '../../contract/index.ts'
 import { apiGet, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
+import { mergeAgentConfiguration } from './agentRevision.ts'
 import { agentCreationId } from './agentCreationIdentity.ts'
 import type { AgentCreationIntent } from './agentCreationRevision.ts'
 
@@ -11,9 +12,10 @@ function remember(agent: Agent): void {
   if (cached) {
     mutate<Agent[]>(keys.workerAgents, (current) => {
       const rows = current ?? []
-      return rows.some((candidate) => candidate.id === agent.id)
-        ? rows.map((candidate) => candidate.id === agent.id ? agent : candidate)
-        : [...rows, agent]
+      const existing = rows.find((candidate) => candidate.id === agent.id)
+      if (!existing) return [...rows, agent]
+      const merged = mergeAgentConfiguration(existing, agent)
+      return rows.map((candidate) => candidate.id === agent.id ? merged : candidate)
     })
   }
   // The list may have changed independently while the acknowledgement was in

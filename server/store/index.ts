@@ -4429,20 +4429,44 @@ export const store = {
   /** Add a prompt to the library. A plain registry add (prompt text is not a
    *  capability, so there is no attenuation funnel here — the fit *warning* is the
    *  selection-time check, `promptFitWarning`, surfaced in the picker). */
-  createSystemPrompt(input: SystemPromptDefinitionFields, tenantId?: string): SystemPromptEntry {
+  createSystemPrompt(
+    input: SystemPromptDefinitionFields,
+    tenantId?: string,
+    options: { logicalId?: string; isDefault?: boolean } = {},
+  ): SystemPromptEntry {
+    const ownerTenant = tenantId
+    // Durable keyed creation is side-effect free on replay: neither definition
+    // nor a newer viewer-default choice may be rewound by an old request.
+    if (options.logicalId) {
+      if (!ownerTenant) {
+        throw new ValidationError('A keyed system-prompt creation must be account-scoped.')
+      }
+      const represented = SYSTEM_PROMPT_LIB.get(options.logicalId)
+      if (represented) {
+        if (represented.tenantId !== ownerTenant) {
+          throw new ValidationError('That system-prompt creation identity is already owned by another account.')
+        }
+        return represented
+      }
+    }
     // Stamp the creating tenant (F2/PD9) so listSystemPrompts(tenant) scopes it; unset ⇒ shared.
     const entry: SystemPromptEntry = {
-      id: `sp-new-${(systemPromptSeq += 1)}`,
-      tenantId,
+      id: options.logicalId ?? `sp-new-${(systemPromptSeq += 1)}`,
+      tenantId: ownerTenant,
       label: input.label,
       body: input.body,
       targetFamily: input.targetFamily,
       definitionRevision: 0,
     }
-    SYSTEM_PROMPT_LIB.set(entry.id, entry)
-    emitSystemPromptChanged(entry)
-    persist()
-    return entry
+    return commitMutationBatch(() => {
+      SYSTEM_PROMPT_LIB.set(entry.id, entry)
+      emitSystemPromptChanged(entry)
+      persist()
+      // Creation and its initial default pointer are one acknowledged durable
+      // act. Replays return above and therefore cannot move a later choice.
+      if (options.isDefault === true) this.setDefaultSystemPrompt(entry.id, ownerTenant)
+      return entry
+    })
   },
   /** Patch a library prompt's fields (label / body / target family). A plain registry
    *  edit — no attenuation funnel (prompt text isn't a capability). Undefined when

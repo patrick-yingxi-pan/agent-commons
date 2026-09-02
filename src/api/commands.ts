@@ -23,7 +23,6 @@ import {
   type ProviderDefinitionMutationPatch,
   type UpdateProviderConnectionRequest,
   type UpdateProviderRequest,
-  type CreateSystemPromptRequest,
   type SystemPromptEntry,
   type SystemPromptDefinitionMutationPatch,
   type UpdateSystemPromptRequest,
@@ -596,13 +595,6 @@ export async function deleteProvider(id: string): Promise<void> {
 }
 
 // ── System-prompt library (the Agents hub — docs/agent-commons.md, D10) ──────
-
-/** Add a library prompt; refreshes the prompt list. */
-export async function createSystemPrompt(input: CreateSystemPromptRequest): Promise<SystemPromptEntry> {
-  const entry = await apiPost<SystemPromptEntry>(paths.systemPrompts, input)
-  invalidate(keys.systemPrompts)
-  return entry
-}
 
 /** Run the opt-in prompt-fit probe (docs/agent-commons.md, D10/OQ5) — the deeper, scored
  *  upgrade beside the always-on static tag. An on-demand action (not a cached query), so it

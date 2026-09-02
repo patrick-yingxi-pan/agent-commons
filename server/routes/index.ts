@@ -92,6 +92,7 @@ import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
 import { agentCreationId } from '../agentCreationIdentity.ts'
+import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -1746,15 +1747,23 @@ export function buildRouter(): Router {
   })
   r.post('/system-prompts', idempotent(async ({ req, res, body }) => {
     const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalPromptId = idempotencyKey
+      ? systemPromptCreationId(tenantId, idempotencyKey)
+      : undefined
+    const represented = logicalPromptId
+      ? store.listSystemPrompts(tenantId).find((prompt) => prompt.id === logicalPromptId)
+      : undefined
+    // Durable identity survives response-cache loss. Do not parse or apply a
+    // changed Retry body when this exact logical prompt is already represented.
+    if (represented) return sendJson(res, represented)
     try {
       const input = systemPromptCreate(await body<unknown>())
       const entry = store.createSystemPrompt({
         label: input.label,
         body: input.body,
         targetFamily: input.targetFamily,
-      }, tenantId)
-      // The request flagged the new entry as the caller's default (the UI shortcut).
-      if (input.isDefault === true) store.setDefaultSystemPrompt(entry.id, tenantId)
+      }, tenantId, { logicalId: logicalPromptId, isDefault: input.isDefault })
       sendJson(res, store.listSystemPrompts(tenantId).find((prompt) => prompt.id === entry.id) ?? entry)
     } catch (err) {
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)

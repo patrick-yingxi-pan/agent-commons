@@ -22,6 +22,7 @@ test('New Agent holds one exact creation intent until authoritative acknowledgem
   assert.match(controller, /accountGeneration/, 'late acknowledgement is fenced by account scope')
   assert.match(commands, /agentCreationId\(intent\.tenantId, idempotencyKey\)/, 'reconciliation proves the exact tenant-scoped row')
   assert.match(commands, /apiPost<Agent>[\s\S]*idempotencyKey/, 'Retry retains the logical key')
+  assert.match(commands, /mergeAgentConfiguration\(existing, agent\)/, 'a delayed create response cannot rewind newer Agent truth')
   assert.match(runtime, /mintIdempotencyKey: \(intent\) => intent\.intentId/, 'one key owns transport and durable row identity')
   assert.match(notice, /kind="agent-create"/, 'uncertainty has one shell-owned recovery surface')
   assert.match(shell, /<AgentCreationMutationNotice \/>/, 'Agent creation recovery is mounted exactly once in the shell')

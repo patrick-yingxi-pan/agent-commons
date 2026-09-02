@@ -56,19 +56,19 @@ Read [`../DESIGN.md`](../DESIGN.md) for the governing category, [`../lib/CLAUDE.
 | COMPONENT-E42 | experience | Every thread, reply, position, direct-message, and Commons composer retains and freezes its exact prose until acknowledged truth or explicit shell recovery; foldable/disclosed/popover hosts cannot hide it while held, and only applied truth clears or closes it. | [`AnchorThreadComposer.tsx`](AnchorThreadComposer.tsx) · [`SectionView.tsx`](SectionView.tsx) · [`MessageButton.tsx`](MessageButton.tsx) · [`LocusGutter.tsx`](LocusGutter.tsx) · [`SocialPostMutationNotice.tsx`](SocialPostMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`social-post-mutation-ui.test.ts`](social-post-mutation-ui.test.ts) · [`thread-composer.test.ts`](thread-composer.test.ts) · [`../../e2e/social-post-mutations.spec.ts`](../../e2e/social-post-mutations.spec.ts) | refines UI-E42; requires CONTROLLER-E23 |
 | COMPONENT-E43 | experience | New provider keeps its exact endpoint or Session form visible and disabled until acknowledged creation or explicit recovery; only applied truth closes it or advances to the Session secret ceremony, while one shell notice owns pending, Retry, and Dismiss. | [`SectionView.tsx`](SectionView.tsx) · [`ProviderCreationMutationNotice.tsx`](ProviderCreationMutationNotice.tsx) · [`RevisionedMutationNotice.tsx`](RevisionedMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`provider-creation-mutation-ui.test.ts`](provider-creation-mutation-ui.test.ts) · [`../../e2e/provider-creation.spec.ts`](../../e2e/provider-creation.spec.ts) · [`../../e2e/desktop-provider-setup.spec.ts`](../../e2e/desktop-provider-setup.spec.ts) | refines UI-E43; requires CONTROLLER-E24 |
 | COMPONENT-E44 | experience | New Agent keeps its exact provider, prompt, tool grant, instructions, and name visible and disabled until acknowledged creation or explicit recovery; only applied truth closes it, while one shell notice owns pending, Retry, and Dismiss. | [`SectionView.tsx`](SectionView.tsx) · [`AgentCreationMutationNotice.tsx`](AgentCreationMutationNotice.tsx) · [`RevisionedMutationNotice.tsx`](RevisionedMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`agent-creation-mutation-ui.test.ts`](agent-creation-mutation-ui.test.ts) · [`../../e2e/agent-creation.spec.ts`](../../e2e/agent-creation.spec.ts) | refines UI-E44; requires CONTROLLER-E25 |
+| COMPONENT-E45 | experience | New Prompt keeps its exact name, family, body, and default intent visible and disabled until acknowledged creation or explicit recovery; only applied truth closes it, while one shell notice owns pending, Retry, and Dismiss. | [`SectionView.tsx`](SectionView.tsx) · [`SystemPromptCreationMutationNotice.tsx`](SystemPromptCreationMutationNotice.tsx) · [`RevisionedMutationNotice.tsx`](RevisionedMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`system-prompt-creation-mutation-ui.test.ts`](system-prompt-creation-mutation-ui.test.ts) · [`../../e2e/system-prompt-creation.spec.ts`](../../e2e/system-prompt-creation.spec.ts) | refines UI-E45; requires CONTROLLER-E26 |
 | COMPONENT-V1 | verification | Source scans prove shared structure, pure logic moves to `lib`, and browser-computed facts live in E2E. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`MainSplit.tsx`](MainSplit.tsx) | [`pane-safe-layout.test.ts`](pane-safe-layout.test.ts) · [`../../e2e/project-page.spec.ts`](../../e2e/project-page.spec.ts) | refines UI-V1 |
 <!-- context-rules:end -->
 ## What lives here
+
 Every React surface: the shell (`Sidebar`, `PanelShell`, `OverlayPanelDock`), thread, section views, entity pages, dialogs and controls. These compose [`../lib/`](../lib/CLAUDE.md) primitives and read data through [`../api/`](../api/CLAUDE.md) hooks — never a URL or an SSE event directly.
 
 ## What the suites here can and cannot do
 
-`node --test` has **no DOM**, so a suite beside a `.tsx` file cannot render it.
-What these suites do instead is **scan the source** for the structural facts a
-render would otherwise have to prove — that a control sources the shared
-primitive, that a panel is out of flow, that a dock reserves its space. That is
-a real lock (it fails when someone hand-rolls a copy) and a partial one (it
-cannot see what the browser computes).
+`node --test` has **no DOM**, so a suite beside a `.tsx` file cannot render it. What
+these suites do instead is **scan the source** for structural facts a render would
+otherwise prove — that a control sources the shared primitive or a panel stays out of flow.
+That is a real lock when it fails on a copy, and partial because it cannot see browser geometry.
 
 So the division is deliberate:
 

@@ -249,7 +249,6 @@ import {
   deleteProvider,
   rotateProvider,
   refreshProviderModels,
-  createSystemPrompt,
   deleteSystemPrompt,
   deleteAgent,
   forkAgent,
@@ -390,6 +389,7 @@ import { updateCommissionConfiguration } from '../controller/commissionMutations
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import { enqueueProviderCreation } from '../controller/providerCreationMutations'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
+import { enqueueSystemPromptCreation } from '../controller/systemPromptCreationMutations'
 import {
   enqueueWallPost,
   isWallPostMutationHeld,
@@ -10640,6 +10640,7 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
   // Freeze the opening row so ambient invalidation cannot reinterpret a remote
   // change as local intent while this draft is held for conflict recovery.
   const original = useRef(prompt).current
+  const tenantId = useMe().data?.tenant.id
   const [label, setLabel] = useState(prompt?.label ?? '')
   const [family, setFamily] = useState(prompt?.targetFamily ?? 'claude')
   const [bodyText, setBodyText] = useState(prompt?.body ?? '')
@@ -10657,6 +10658,7 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
     family.trim().length > 0 &&
     bodyText.trim().length > 0 &&
     bodyText.trim().length <= MAX_SYSTEM_PROMPT_BODY_CHARS &&
+    (!!prompt || !!tenantId) &&
     (!prompt || hasEditChanges) &&
     !busy
 
@@ -10678,12 +10680,20 @@ function PromptDialog({ prompt, onClose }: { prompt: SystemPromptEntry | null; o
           return
         }
       } else {
-        await createSystemPrompt({
-          label: label.trim(),
-          targetFamily: family.trim(),
-          body: bodyText.trim(),
-          ...(isDefault ? { isDefault: true } : {}),
+        const outcome = await enqueueSystemPromptCreation({
+          tenantId: tenantId!,
+          request: {
+            label: label.trim(),
+            targetFamily: family.trim(),
+            body: bodyText.trim(),
+            ...(isDefault ? { isDefault: true } : {}),
+          },
         })
+        if (outcome === 'discarded') {
+          setError('Your prompt details are still here. Review them, then create again when ready.')
+          setBusy(false)
+          return
+        }
       }
       onClose()
     } catch (e) {

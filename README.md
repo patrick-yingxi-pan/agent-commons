@@ -52,6 +52,9 @@ its provisional OS-vault key until that exact row is acknowledged and bound.
 New Agent follows the same truth boundary: its complete configuration stays
 visible through Retry/Dismiss, and a tenant-scoped durable identity makes a lost
 response recoverable without minting a duplicate worker.
+New Prompt keeps its complete definition and optional default choice under that
+same held ceremony; the server commits both together and reconciles by exact
+durable identity rather than mutable prose.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server
