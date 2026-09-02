@@ -242,7 +242,6 @@ import {
   type WorkflowStep,
 } from '../data/cowork'
 import {
-  addScheduleFromSeed,
   addSavedContext,
   createCommission,
   createProvider,
@@ -383,6 +382,10 @@ import {
   ROUTINE_RUN_ACTIVE,
   useScheduleRunStatus,
 } from '../controller/scheduleRunMutations'
+import {
+  enqueueScheduleCreation,
+} from '../controller/scheduleCreationMutations'
+import type { RevisionedMutationOutcome } from '../controller/revisionedMutationCore'
 import {
   enqueueDispatch,
   isDispatchHeld,
@@ -1099,6 +1102,14 @@ function ProjectDetail({
   onNewSession: () => void
 }) {
   const rel = useRelations()
+  const tenantId = useMe().data?.tenant.id
+  const projectLocationRef = useRef(`${project.id}\0${sectionId ?? ''}`)
+  projectLocationRef.current = `${project.id}\0${sectionId ?? ''}`
+  const projectMountedRef = useRef(false)
+  useEffect(() => {
+    projectMountedRef.current = true
+    return () => { projectMountedRef.current = false }
+  }, [])
   useRecordView('project', project.id)
   useScheduleMutationStatus()
   useScheduleDeletionStatus()
@@ -1131,12 +1142,21 @@ function ProjectDetail({
   // then drill into its detail to edit cadence/steps (the Scheduled section's own
   // "new schedule" path). Link/unlink move only the project↔schedule edge in the
   // relation graph; delete destroys the routine globally.
-  const createSchedule = async (tpl: ScheduleTemplate) => {
-    const task = await addScheduleFromSeed(tpl.seed)
-    const outcome = await linkSchedule(task)
-    if (outcome === 'applied') rel.navigate('scheduled', task.id)
+  const createSchedule = async (tpl: ScheduleTemplate): Promise<ProjectScheduleCreateOutcome> => {
+    if (!tenantId) return 'discarded'
+    const origin = projectLocationRef.current
+    const created = await enqueueScheduleCreation({ tenantId, seed: tpl.seed })
+    if (created.outcome === 'discarded') return 'discarded'
+    const outcome = await linkSchedule({ id: created.taskId, name: tpl.seed.name })
+    if (outcome === 'applied') {
+      if (projectMountedRef.current && projectLocationRef.current === origin) {
+        rel.navigate('scheduled', created.taskId)
+      }
+      return 'applied'
+    }
+    return 'created-unlinked'
   }
-  const linkSchedule = (task: ScheduledTask) =>
+  const linkSchedule = (task: Pick<ScheduledTask, 'id' | 'name'>) =>
     rel.applyOp({ kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId: project.id, projectName: project.name })
   const unlinkSchedule = (task: ScheduledTask) =>
     rel.applyOp({ kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId: null, projectName: project.name })
@@ -1966,63 +1986,76 @@ function ProjectContextChip({ ctx, onRemove }: { ctx: ProjectContext; onRemove: 
 /** The Scheduled card's create / link control — the header's "Add routine" verb,
  *  whose popover offers a template to spin up a NEW routine (pre-linked to this
  *  project) or an existing unlinked routine to LINK in. Both run on existing
- *  primitives: create = addScheduleFromSeed → link-schedule-project; link =
+ *  primitives: create = acknowledged schedule creation → link-schedule-project; link =
  *  link-schedule-project. */
+type ProjectScheduleCreateOutcome = RevisionedMutationOutcome | 'created-unlinked'
+
 function ProjectScheduleAdd({
   linkedIds,
   onCreate,
   onLink,
 }: {
   linkedIds: Set<string>
-  onCreate: (tpl: ScheduleTemplate) => void
+  onCreate: (tpl: ScheduleTemplate) => Promise<ProjectScheduleCreateOutcome>
   onLink: (task: ScheduledTask) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const [pendingTemplate, setPendingTemplate] = useState<string | null>(null)
+  const [creationError, setCreationError] = useState<string | null>(null)
+  const held = pendingTemplate !== null
+  const ref = useDismissable<HTMLDivElement>(open, () => {
+    if (!held) setOpen(false)
+  })
   const popRef = usePopoverShift<HTMLDivElement>(open)
   const templates = useScheduleTemplates().data ?? []
   const allSchedules = useSchedules().data ?? []
   const linkable = allSchedules.filter((t) => !linkedIds.has(t.id))
-
+  const createFromTemplate = async (tpl: ScheduleTemplate) => {
+    if (pendingTemplate) return
+    setPendingTemplate(tpl.name)
+    setCreationError(null)
+    const outcome = await onCreate(tpl)
+    if (outcome === 'applied') {
+      setOpen(false)
+    } else if (outcome === 'created-unlinked') {
+      setCreationError('The routine was created but not linked. It remains available under Link existing.')
+    } else {
+      setCreationError('The routine was not created. Your template choice is still here.')
+    }
+    setPendingTemplate(null)
+  }
   return (
     <div ref={ref} className="relative">
-      <SectionAction label="Add routine" icon={<Plus size={14} />} onClick={() => setOpen((o) => !o)} open={open} />
+      <SectionAction
+        label="Add routine"
+        icon={<Plus size={14} />}
+        onClick={() => setOpen((o) => !o)}
+        open={open}
+        disabled={pendingTemplate !== null}
+        disabledReason="Routine creation is awaiting confirmation"
+      />
 
       {open && (
         <div
           ref={popRef}
           role="dialog"
           aria-label="Add a scheduled routine"
+          aria-busy={pendingTemplate !== null || undefined}
           className={`absolute right-0 top-full z-30 mt-1.5 max-h-[360px] w-[300px] overflow-y-auto p-2 ${POPOVER_SURFACE}`}
         >
           <p className="px-1.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
             New routine
           </p>
-          {templates.map((tpl) => {
-            const lead = tpl.seed.steps[0]?.tool
-            const blank = tpl.category === 'Start from scratch'
-            return (
-              <button
-                key={tpl.name}
-                onClick={() => {
-                  onCreate(tpl)
-                  setOpen(false)
-                }}
-                className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
-              >
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
-                  {blank ? <Sparkles size={15} className="text-accent" /> : lead ? <ToolGlyph tool={lead} size={15} /> : <Clock size={15} />}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-medium text-ink">{tpl.name}</span>
-                  <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
-                </span>
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
-                  <Plus size={13} />
-                </span>
-              </button>
-            )
-          })}
+          <ScheduleCreationFeedback pendingTemplate={pendingTemplate} error={creationError} />
+          {templates.map((tpl) => (
+            <NewScheduleRow
+              key={tpl.name}
+              tpl={tpl}
+              onAdd={() => void createFromTemplate(tpl)}
+              disabled={pendingTemplate !== null}
+              busy={pendingTemplate === tpl.name}
+            />
+          ))}
           {linkable.length > 0 && (
             <>
               <p className="px-1.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -2037,7 +2070,8 @@ function ProjectScheduleAdd({
                       onLink(t)
                       setOpen(false)
                     }}
-                    className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+                    disabled={pendingTemplate !== null}
+                    className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
                       <ToolGlyph tool={lead} size={15} />
@@ -12650,6 +12684,7 @@ function ScheduledSection({
   // shared with the rail tree). Mutations are commands; the run.*
   // events invalidate the cache, so the list reflects run-now / the daemon live.
   const schedulesQ = useSchedules()
+  const tenantId = useMe().data?.tenant.id
   useScheduleMutationStatus()
   useScheduleDeletionStatus()
   useScheduleRunStatus()
@@ -12663,6 +12698,11 @@ function ScheduledSection({
   const [deleteTarget, setDeleteTarget] = useState<ScheduledTask | null>(null)
   const scheduleIdRef = useRef(scheduleId)
   scheduleIdRef.current = scheduleId
+  const scheduledSectionMountedRef = useRef(false)
+  useEffect(() => {
+    scheduledSectionMountedRef.current = true
+    return () => { scheduledSectionMountedRef.current = false }
+  }, [])
   const scheduleMutationHeld = (id: string) =>
     isScheduleMutationHeld(id) || isScheduleDeletionHeld(id) || isScheduleRunHeld(id)
   const toggleEnabled = (id: string) => {
@@ -12698,9 +12738,17 @@ function ScheduledSection({
     void enqueueScheduleRun(id)
   }
 
-  const addFromTemplate = async (tpl: ScheduleTemplate) => {
-    const task = await addScheduleFromSeed(tpl.seed)
-    onOpenSchedule(task.id)
+  const addFromTemplate = async (tpl: ScheduleTemplate): Promise<RevisionedMutationOutcome> => {
+    if (!tenantId) return 'discarded'
+    const created = await enqueueScheduleCreation({ tenantId, seed: tpl.seed })
+    if (
+      created.outcome === 'applied' &&
+      scheduledSectionMountedRef.current &&
+      scheduleIdRef.current === null
+    ) {
+      onOpenSchedule(created.taskId)
+    }
+    return created.outcome
   }
 
   // Clicking a row drills into the task's workflow + run history.
@@ -12938,9 +12986,18 @@ function MiniPipeline({ task }: { task: ScheduledTask }) {
 /** "New routine" — a template picker cloned from AddContextControl. Picking a
  *  template seeds a fully-formed (paused) task into local state and drills straight
  *  into its detail, so the user lands on a populated workflow rather than a form. */
-function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void }) {
+function NewScheduleControl({
+  onAdd,
+}: {
+  onAdd: (tpl: ScheduleTemplate) => Promise<RevisionedMutationOutcome>
+}) {
   const [open, setOpen] = useState(false)
-  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const [pendingTemplate, setPendingTemplate] = useState<string | null>(null)
+  const [creationError, setCreationError] = useState<string | null>(null)
+  const held = pendingTemplate !== null
+  const ref = useDismissable<HTMLDivElement>(open, () => {
+    if (!held) setOpen(false)
+  })
   const popRef = usePopoverShift<HTMLDivElement>(open)
   const templates = useScheduleTemplates().data ?? []
 
@@ -12955,13 +13012,26 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
     c.items.push(t)
   }
 
+  const createFromTemplate = async (tpl: ScheduleTemplate) => {
+    if (pendingTemplate) return
+    setPendingTemplate(tpl.name)
+    setCreationError(null)
+    const outcome = await onAdd(tpl)
+    if (outcome === 'applied') setOpen(false)
+    else setCreationError('The routine was not created. Your template choice is still here.')
+    setPendingTemplate(null)
+  }
+  const togglePicker = () => setOpen((current) => !current)
+  const openFromRail = () => { if (!held) setOpen(true) }
+
   return (
     <div ref={ref} className="relative">
       <PageActionButton
         icon={<Plus size={15} />}
-        onClick={() => setOpen((o) => !o)}
+        onClick={togglePicker}
+        disabled={held}
         mirrorsRailFor="scheduled"
-        onRailInvoke={() => setOpen(true)}
+        onRailInvoke={openFromRail}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
@@ -12973,9 +13043,11 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
           ref={popRef}
           role="dialog"
           aria-label="New routine"
+          aria-busy={held || undefined}
           className={`absolute right-0 z-30 mt-2 w-[340px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           <div className="max-h-[min(60dvh,440px)] overflow-y-auto p-2">
+            <ScheduleCreationFeedback pendingTemplate={pendingTemplate} error={creationError} />
             {cats.map((c) => (
               <div key={c.label} className="pb-1">
                 <p className="px-1.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -12985,10 +13057,9 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
                   <NewScheduleRow
                     key={t.name}
                     tpl={t}
-                    onAdd={() => {
-                      onAdd(t)
-                      setOpen(false)
-                    }}
+                    onAdd={() => void createFromTemplate(t)}
+                    disabled={held}
+                    busy={pendingTemplate === t.name}
                   />
                 ))}
               </div>
@@ -13000,13 +13071,45 @@ function NewScheduleControl({ onAdd }: { onAdd: (tpl: ScheduleTemplate) => void 
   )
 }
 
-function NewScheduleRow({ tpl, onAdd }: { tpl: ScheduleTemplate; onAdd: () => void }) {
+function ScheduleCreationFeedback({
+  pendingTemplate,
+  error,
+}: {
+  pendingTemplate: string | null
+  error: string | null
+}) {
+  if (!pendingTemplate && !error) return null
+  return (
+    <div
+      role="status"
+      className={`mx-1 mb-2 rounded-md px-2 py-1.5 text-[11px] ${
+        error ? 'bg-removed-bg text-removed' : 'bg-accent/10 text-accent'
+      }`}
+    >
+      {pendingTemplate ? `Creating “${pendingTemplate}”… Keep this picker open until it is confirmed.` : error}
+    </div>
+  )
+}
+
+function NewScheduleRow({
+  tpl,
+  onAdd,
+  disabled = false,
+  busy = false,
+}: {
+  tpl: ScheduleTemplate
+  onAdd: () => void
+  disabled?: boolean
+  busy?: boolean
+}) {
   const lead = tpl.seed.steps[0]?.tool
   const blank = tpl.category === 'Start from scratch'
   return (
     <button
       onClick={onAdd}
-      className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+      disabled={disabled}
+      aria-label={tpl.name}
+      className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:cursor-not-allowed disabled:opacity-50"
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
         {blank ? <Sparkles size={15} className="text-accent" /> : lead ? <ToolGlyph tool={lead} size={15} /> : <Clock size={15} />}
@@ -13016,7 +13119,7 @@ function NewScheduleRow({ tpl, onAdd }: { tpl: ScheduleTemplate; onAdd: () => vo
         <span className="block truncate text-[11px] text-ink-faint">{tpl.preview}</span>
       </span>
       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
-        <Plus size={14} />
+        {busy ? <Spinner size={13} /> : <Plus size={14} />}
       </span>
     </button>
   )

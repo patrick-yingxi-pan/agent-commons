@@ -13,6 +13,11 @@ import {
   retryScheduleRun,
   useScheduleRunStatus,
 } from '../controller/scheduleRunMutations'
+import {
+  discardScheduleCreation,
+  retryScheduleCreation,
+  useScheduleCreationStatus,
+} from '../controller/scheduleCreationMutations'
 import { RevisionedMutationNotice } from './RevisionedMutationNotice'
 
 /** One shell owner for routine definition, execution, and deletion recovery. */
@@ -20,6 +25,7 @@ export function ScheduleMutationNotice() {
   const mutation = useScheduleMutationStatus()
   const run = useScheduleRunStatus()
   const deletion = useScheduleDeletionStatus()
+  const creation = useScheduleCreationStatus()
   return (
     <>
       <RevisionedMutationNotice
@@ -35,6 +41,13 @@ export function ScheduleMutationNotice() {
         pendingLabel="Starting routine run…"
         onRetry={retryScheduleRun}
         onDiscard={discardScheduleRun}
+      />
+      <RevisionedMutationNotice
+        kind="routine-create"
+        mutation={creation}
+        pendingLabel="Creating routine…"
+        onRetry={retryScheduleCreation}
+        onDiscard={discardScheduleCreation}
       />
       <RevisionedMutationNotice
         kind="routine-delete"

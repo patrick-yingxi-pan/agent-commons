@@ -20,6 +20,7 @@ import type {
   SetSocialWatchRequest,
   RecordViewRequest,
   CreateDispatchRequest,
+  CreateScheduleRequest,
   DeleteScheduleRequest,
   CreateProviderRequest,
   ModelProvider,
@@ -80,6 +81,7 @@ import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type Rel
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, summarizeConversation } from '../compaction.ts'
 import { manualScheduleRunId } from '../scheduleRunIdentity.ts'
 import { manualDispatchRunId } from '../dispatchIdentity.ts'
+import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -3971,7 +3973,7 @@ export function buildRouter(): Router {
   }))
   // Add a routine from a template's seed (lands paused, stamped with the caller's tenant).
   r.post('/schedules', idempotent(async ({ req, res, body }) => {
-    const { seed } = await body<{ seed?: Omit<import('../../contract/index.ts').ScheduledTask, 'id'> }>()
+    const { seed } = await body<Partial<CreateScheduleRequest>>()
     if (!seed) return sendError(res, 'bad_request', 'seed is required')
     // Refuse a malformed seed with a descriptive 400 (INV-9) — the store trusts
     // these load-bearing fields, so a drifted machine caller (the MCP door's
@@ -3980,7 +3982,12 @@ export function buildRouter(): Router {
       return sendError(res, 'bad_request', 'seed needs string name/prompt, array steps/runs, and a delivery object (see the ScheduledTask contract)')
     }
     try {
-      sendJson(res, store.addSchedule({ ...seed, tenantId: store.identity(req.headers).tenant.id }))
+      const tenantId = store.identity(req.headers).tenant.id
+      const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+      sendJson(res, store.addSchedule(
+        { ...seed, tenantId },
+        idempotencyKey ? scheduleCreationId(tenantId, idempotencyKey) : undefined,
+      ))
     } catch (err) {
       if (err instanceof ValidationError) return sendError(res, err.code, err.message)
       throw err

@@ -19,7 +19,8 @@ export interface AcknowledgedActionMutationDeps<Input, Baseline> {
   reconcile: (input: Input, baseline: Baseline, idempotencyKey: string) => Promise<boolean>
   describeFailure: (error: unknown) => RevisionedMutationFailure
   setStatus: (status: RevisionedMutationStatus) => void
-  mintIdempotencyKey: () => string
+  /** Derive or mint the one retry identity for this exact logical input. */
+  mintIdempotencyKey: (input: Input) => string
 }
 
 interface QueueEntry<Input, Baseline> {
@@ -99,7 +100,7 @@ export function createAcknowledgedActionMutationController<Input, Baseline>(
         input,
         resourceId: deps.resourceId(input),
         baseline: deps.snapshot(input),
-        idempotencyKey: deps.mintIdempotencyKey(),
+        idempotencyKey: deps.mintIdempotencyKey(input),
         settle,
       })
     })

@@ -388,13 +388,6 @@ export async function patchSchedule(
   return task
 }
 
-/** Add a routine from a template's seed (lands paused); returns the new routine. */
-export async function addScheduleFromSeed(seed: Omit<ScheduledTask, 'id'>): Promise<ScheduledTask> {
-  const task = await apiPost<ScheduledTask>(paths.schedules, { seed })
-  invalidate(keys.schedules)
-  return task
-}
-
 /** Delete one reviewed routine definition. The controller owns confirmation,
  * retry, reconciliation, and navigation; the cache publishes absence only
  * after the server acknowledges the complete run-session cascade. */

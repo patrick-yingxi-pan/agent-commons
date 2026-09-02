@@ -7,7 +7,7 @@ import type { ContextStatus, ContextTypeId, SessionContext } from './contexts.ts
 import type { SessionWorkspace } from './entities.ts'
 import type { FsSource } from './fs.ts'
 import type { Identity } from './identity.ts'
-import type { Project } from './cowork.ts'
+import type { Project, ScheduledTask } from './cowork.ts'
 
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
@@ -214,6 +214,13 @@ export interface PushRecentRequest {
 export interface CreateDispatchRequest {
   title: string
   detail?: string
+}
+
+/** Body of `POST /v1/schedules` — materialize one template seed. Identity is
+ * deliberately absent: a keyed first-party caller gets a server-derived opaque
+ * id, while an unkeyed compatibility caller keeps the legacy server sequence. */
+export interface CreateScheduleRequest {
+  seed: Omit<ScheduledTask, 'id'>
 }
 
 /** The editable definition fields of a routine. Kept separate from the

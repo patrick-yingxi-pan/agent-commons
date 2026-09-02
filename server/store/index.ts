@@ -8647,13 +8647,21 @@ export const store = {
     persist()
     return task
   },
-  /** Add a routine from a template (lands paused), return it. */
-  addSchedule(seed: Omit<ScheduledTask, 'id'>): ScheduledTask {
+  /** Add a routine from a template (lands paused), return it. A keyed caller
+   * supplies its tenant-scoped durable identity so replay still converges after
+   * the route's in-memory response cache is gone. */
+  addSchedule(seed: Omit<ScheduledTask, 'id'>, logicalId?: string): ScheduledTask {
+    if (logicalId) {
+      const ownerTenant = seed.tenantId ?? defaultTenantId()
+      const represented = schedules.find((task) =>
+        task.id === logicalId && (task.tenantId ?? defaultTenantId()) === ownerTenant)
+      if (represented) return represented
+    }
     const timing = scheduleTiming(seed.cadence, seed.timezone, Date.now())
     const binding = scheduleBindingChoice(seed)
     const task: ScheduledTask = {
       ...seed,
-      id: `s-new-${(scheduleSeq += 1)}`,
+      id: logicalId ?? `s-new-${(scheduleSeq += 1)}`,
       revision: 0,
       agentId: binding.agent.id,
       providerId: binding.provider.id,

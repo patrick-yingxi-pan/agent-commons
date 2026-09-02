@@ -8,6 +8,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from '../testkit/http.ts'
 import { manualScheduleRunId } from '../scheduleRunIdentity.ts'
+import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
+import { store } from '../store/index.ts'
 
 async function createRoutine(name: string) {
   const template = (await call('GET', '/schedule-templates')).json[0]
@@ -17,6 +19,33 @@ async function createRoutine(name: string) {
   assert.equal(created.status, 200)
   return created.json
 }
+
+test('a keyed routine create owns one tenant-scoped durable row beyond response-cache lifetime', async () => {
+  const me = (await call('GET', '/me')).json
+  const template = (await call('GET', '/schedule-templates')).json[0]
+  const key = `durable-routine-${Date.now().toString(36)}`
+  const expectedId = scheduleCreationId(me.tenant.id, key)
+  const seed = { ...template.seed, name: `Durable routine ${key}`, runs: [] }
+  const created = await call('POST', '/schedules', { seed }, { 'idempotency-key': key })
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+
+  const replay = await call('POST', '/schedules', { seed }, { 'idempotency-key': key })
+  assert.equal(replay.status, 200)
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+
+  const restartStyleReplay = store.addSchedule(
+    { ...seed, name: 'A changed retry body must not create another row', tenantId: me.tenant.id },
+    expectedId,
+  )
+  assert.equal(restartStyleReplay.id, expectedId)
+  assert.equal(restartStyleReplay.name, seed.name)
+  assert.equal(
+    store.listSchedules(me.tenant.id).filter((task) => task.id === expectedId).length,
+    1,
+    'persisted identity, rather than only the HTTP response cache, deduplicates retry',
+  )
+})
 
 test('PATCH /schedules/:id merges only the provided fields (id, runs, and the rest untouched)', async () => {
   const list = await call('GET', '/schedules')
