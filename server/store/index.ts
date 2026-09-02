@@ -4031,13 +4031,19 @@ export const store = {
     persist()
     return next
   },
-  /** Remove an Agent. Refuses (ConflictError → 409) the seeded default — Conversations
-   *  resolve to it — and any Agent a Commission still assigns (it would orphan that
-   *  Contributor), so the user removes those commissions first. False when unknown
-   *  (→ 404). */
-  deleteAgent(id: string): boolean {
+  /** Remove the exact reviewed Agent definition. The revision precondition and
+   * dependency guards run before effects; proposal history, delegations, the row,
+   * and any invalid session model picks then disappear in one durable/event batch.
+   * Conversations and prior contribution records survive. */
+  deleteAgent(id: string, expectedRevision?: number): boolean {
     const current = WORKER_AGENTS.get(id)
     if (!current) return false
+    const currentRevision = current.revision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This agent changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     if (id === DEFAULT_AGENT.id) throw new ConflictError('The default agent can’t be removed.')
     const commissioned = [...COMMISSIONS.values()].filter((c) => c.agentId === id)
     if (commissioned.length > 0) {
@@ -4045,27 +4051,25 @@ export const store = {
         `${commissioned.length} commission${commissioned.length === 1 ? '' : 's'} still ${commissioned.length === 1 ? 'assigns' : 'assign'} this agent — remove ${commissioned.length === 1 ? 'it' : 'them'} first.`,
       )
     }
-    // D25 hygiene (review finding): drop the agent's proposal queue with it — an
-    // orphaned list would ride the snapshot forever. AFTER the guards: a refused
-    // delete (409) must not lose the queue. No id-reuse hazard (agent ids mint
-    // from a persisted counter), so this is storage hygiene, not correctness.
-    AGENT_PROPOSALS.delete(id)
-    // CW8 hygiene (review finding, Phase F): a delegation must not outlive its
-    // delegate — sweep the agent's rows (cascade-revoke, the proposals
-    // pattern), notifying each affected project's roster readers.
-    for (const projectId of new Set(delegations.filter((d) => d.agentId === id).map((d) => d.projectId))) {
-      emit({ type: 'delegation.changed', projectId })
-    }
-    for (let i = delegations.length - 1; i >= 0; i -= 1) {
-      if (delegations[i].agentId === id) delegations.splice(i, 1)
-    }
-    WORKER_AGENTS.delete(id)
-    // Sessions bound to the deleted Agent resolve to the default Agent now — a
-    // held model pick may name a catalog the new resolution doesn't serve.
-    sweepSessionModelPicks()
-    emitAgentChanged(current)
-    persist()
-    return true
+    return commitMutationBatch(() => {
+      // D25 hygiene: an orphaned proposal queue would ride the snapshot forever.
+      AGENT_PROPOSALS.delete(id)
+      // CW8: a delegation must not outlive its delegate. Notify each affected
+      // Project once after the committed graph is already coherent.
+      for (const projectId of new Set(delegations.filter((d) => d.agentId === id).map((d) => d.projectId))) {
+        emit({ type: 'delegation.changed', projectId })
+      }
+      for (let i = delegations.length - 1; i >= 0; i -= 1) {
+        if (delegations[i].agentId === id) delegations.splice(i, 1)
+      }
+      WORKER_AGENTS.delete(id)
+      // Sessions survive and resolve to the default Agent. Clear only model
+      // picks invalid under that new inheritance chain.
+      sweepSessionModelPicks()
+      emitAgentChanged(current)
+      persist()
+      return true
+    })
   },
 
   // ── Model providers (the cognition source — docs/agent-commons.md, D9) ──

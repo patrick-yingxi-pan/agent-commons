@@ -9,6 +9,7 @@ test('Contributor removal is confirmed, revision-pinned, retained, and shell-rec
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'commissionDeletionMutations.ts')))
   const runtime = stripComments(read(join(ROOT, 'src', 'controller', 'commissionDeletionMutationRuntime.ts')))
   const holds = stripComments(read(join(ROOT, 'src', 'controller', 'commissionMutationHolds.ts')))
+  const exclusive = stripComments(read(join(ROOT, 'src', 'controller', 'exclusiveMutationHolds.ts')))
   const config = stripComments(read(join(ROOT, 'src', 'controller', 'commissionMutations.ts')))
   const notice = stripComments(read(join(ROOT, 'src', 'components', 'CommissionMutationNotice.tsx')))
 
@@ -34,7 +35,9 @@ test('Contributor removal is confirmed, revision-pinned, retained, and shell-rec
     'only acknowledgement or authoritative absence evicts the row')
   assert.match(controller, /heldSnapshots\.set\(commission\.id, commission\)/)
   assert.match(controller, /issuedGeneration !== accountGeneration/)
-  assert.match(holds, /counts\[otherKind\(kind\)\]/, 'configuration and removal cannot race')
+  assert.match(holds, /createExclusiveMutationHolds<CommissionMutationKind>/)
+  assert.match(exclusive, /candidate !== kind && count\(candidate, id\) > 0/,
+    'configuration and removal cannot race')
   assert.match(config, /acquireCommissionMutation\('configuration', commissionId\)/)
   assert.match(notice, /kind="commission-delete"/, 'removal recovery is shell-owned')
 })

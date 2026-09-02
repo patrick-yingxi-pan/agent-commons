@@ -1,6 +1,5 @@
 /** App wiring for conflict-safe Agent definition, binding, grant, and
  * publication edits. */
-import { useSyncExternalStore } from 'react'
 import type { Agent, AgentConfigurationPatch } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
@@ -13,11 +12,15 @@ import {
 } from '../api'
 import {
   createRevisionedMutationController,
-  IDLE_REVISIONED_MUTATION,
   type RevisionedMutationFailure,
   type RevisionedMutationOutcome,
-  type RevisionedMutationStatus,
 } from './revisionedMutationCore'
+import { createMutationStatusStore } from './mutationStatusStore.ts'
+import {
+  acquireAgentMutation,
+  isAgentConfigurationHeld,
+  releaseAgentMutation,
+} from './agentMutationHolds.ts'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -43,12 +46,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
   return { message: 'Couldn’t confirm the agent change. Your edits are still here—retry when the connection recovers.', retryable: true }
 }
 
-let status: RevisionedMutationStatus = IDLE_REVISIONED_MUTATION
-const listeners = new Set<() => void>()
-const publish = (next: RevisionedMutationStatus): void => {
-  status = next
-  for (const listener of listeners) listener()
-}
+const statusStore = createMutationStatusStore()
 
 const cachedAgent = (agentId: string): Agent | undefined =>
   peek<Agent[]>(keys.workerAgents)?.find((agent) => agent.id === agentId)
@@ -65,7 +63,7 @@ const controller = createRevisionedMutationController<Agent, AgentConfigurationP
   revision: (agent) => agent.revision ?? 0,
   mutate: patchAgent,
   describeFailure,
-  setStatus: publish,
+  setStatus: statusStore.publish,
   mintIdempotencyKey: () => crypto.randomUUID(),
 })
 
@@ -75,19 +73,19 @@ export function updateAgent(
   agentId: string,
   patch: AgentConfigurationPatch,
 ): Promise<RevisionedMutationOutcome> {
-  return controller.enqueue(agentId, patch)
+  const lease = acquireAgentMutation('configuration', agentId)
+  if (!lease) return Promise.resolve('discarded')
+  statusStore.refresh()
+  const outcome = controller.enqueue(agentId, patch)
+  void outcome.finally(() => {
+    releaseAgentMutation(lease)
+    statusStore.refresh()
+  })
+  return outcome
 }
 
 export const retryAgentMutation = controller.retry
 export const discardAgentMutation = controller.discard
 
-export function useAgentMutationStatus(): RevisionedMutationStatus {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => status,
-    () => IDLE_REVISIONED_MUTATION,
-  )
-}
+export { isAgentConfigurationHeld as isAgentMutationHeld }
+export const useAgentMutationStatus = statusStore.useStatus

@@ -28,6 +28,7 @@ import type {
   RelayReplyRequest,
   UpdateProviderConnectionRequest,
   CreateAgentRequest,
+  DeleteAgentRequest,
   UpdateAgentRequest,
   ReserveSubGoalRequest,
   PostOpenSubGoalRequest,
@@ -119,6 +120,7 @@ import { providerDefinitionUpdate } from './providerDefinition.ts'
 import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
 import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
 import { commissionConfigurationUpdate, commissionCreate, commissionDelete } from './commissionConfiguration.ts'
+import { revisionedDelete } from './revisionedDeletion.ts'
 import { savedContextFrom } from '../contextRegistry.ts'
 import type {
   A2aDataPart,
@@ -1658,17 +1660,26 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  r.delete('/agents/:id', ({ req, res, params }) => {
+  r.delete('/agents/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listAgents(t), 'agent')) return
+    let input: DeleteAgentRequest
     try {
-      if (!store.deleteAgent(params.id)) return sendError(res, 'not_found', `No agent '${params.id}'`)
+      input = revisionedDelete(await body<unknown>(), 'agent')
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
+      throw err
+    }
+    try {
+      if (!store.deleteAgent(params.id, input.expectedRevision)) {
+        return sendError(res, 'not_found', `No agent '${params.id}'`)
+      }
       sendJson(res, { ok: true })
     } catch (err) {
       // Protected (the default) or still assigned by a Commission — a 409 to re-target.
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   // Agent-to-agent proxy (D15): A's Agent (`fromAgentId`) asks B's Agent (`:id`) to act on B's
   // private resource. B acts under *its own* authority and returns only the result — the
   // requester never holds a B credential (the structural D12 wall). Mock fulfilment.

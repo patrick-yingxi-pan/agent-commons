@@ -247,7 +247,7 @@ person confirmed, and keeps the addressed resource visible but inoperable until
 acknowledgement or exact-absence reconciliation. Retry preserves one key;
 automatic rebase is forbidden, and mutually exclusive edits cannot race it.
 Viewer-relative projections must not advertise destructive controls to non-owners.
-**Detection:** `node --test src/controller/commission-mutation-holds.test.ts src/components/commission-deletion-ui.test.ts server/routes/commission-crud.test.ts server/cross-tenant-cooperation.test.ts`; the rendered stale-consent and early-absence walks live in `e2e/commission-deletion.spec.ts`.
+**Detection:** `node --test src/controller/commission-mutation-holds.test.ts src/controller/agent-mutation-holds.test.ts src/components/commission-deletion-ui.test.ts src/components/agent-deletion-ui.test.ts server/routes/commission-crud.test.ts server/routes/worker-agents.test.ts server/cross-tenant-cooperation.test.ts`; rendered stale-consent, dependency, and early-absence walks live in `e2e/commission-deletion.spec.ts` and `e2e/agent-deletion.spec.ts`.
 **Fix:** add a revision-pinned idempotent DELETE, atomic server cascade, shared
 edit/delete lease, retained row snapshot, named confirmation, and shell-owned
 Retry/Dismiss before exposing the destructive control.

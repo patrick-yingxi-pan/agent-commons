@@ -221,3 +221,9 @@ export type AgentConfigurationPatch = Partial<CreateAgentRequest> & { published?
  * the v1 unconditional-write meaning for external/legacy callers; first-party UI
  * edits always send the revision they read. */
 export type UpdateAgentRequest = AgentConfigurationPatch & { expectedRevision?: number }
+
+/** Body of `DELETE /v1/agents/:id`. First-party removal pins the Agent
+ * definition the person reviewed; omission keeps legacy unconditional delete. */
+export interface DeleteAgentRequest {
+  expectedRevision?: number
+}

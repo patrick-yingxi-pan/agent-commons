@@ -249,7 +249,6 @@ import {
   rotateProvider,
   refreshProviderModels,
   deleteSystemPrompt,
-  deleteAgent,
   forkAgent,
   importAgentCard,
   a2aAgentCardUrl,
@@ -381,8 +380,19 @@ import {
   isDispatchHeld,
   useDispatchMutationStatus,
 } from '../controller/dispatchMutations'
-import { updateAgent } from '../controller/agentMutations'
+import {
+  isAgentMutationHeld,
+  updateAgent,
+  useAgentMutationStatus,
+} from '../controller/agentMutations'
 import { enqueueAgentCreation } from '../controller/agentCreationMutations'
+import {
+  AGENT_DELETE_SCOPE,
+  enqueueAgentDeletion,
+  heldAgentDeletions,
+  isAgentDeletionHeld,
+  useAgentDeletionStatus,
+} from '../controller/agentDeletionMutations.ts'
 import {
   isCommissionMutationHeld,
   updateCommissionConfiguration,
@@ -8613,7 +8623,16 @@ function YourWorkTab({ onOpenProposal }: { onOpenProposal: (agentId: string, pro
  *  distribution state. Full runtime authority and lifecycle controls live on the
  *  canonical Agent page; edit/delete stay as compact row-local management acts. */
 function AgentsTab({ onOpenPage }: { onOpenPage: (agentId: string) => void }) {
-  const agents = useAgents().data ?? []
+  const currentAgents = useAgents().data ?? []
+  useAgentDeletionStatus()
+  // A committed-removal event can refresh the registry before the originating
+  // response settles. Preserve exactly those reviewed rows until reconciliation
+  // releases their destructive intent.
+  const agents = [
+    ...currentAgents,
+    ...heldAgentDeletions().filter((held) =>
+      !currentAgents.some((agent) => agent.id === held.id)),
+  ]
   const providers = useProviders().data ?? []
   // Every creatable agent names its provider (the strict-API rule); only definition-
   // only fork/import stubs (D18/D20 — capability never travels) are unbound, so say
@@ -8661,7 +8680,8 @@ function AgentRow({
    *  their public face to other accounts at the same address. */
   onOpenPage: (agentId: string) => void
 }) {
-  const [error, setError] = useState<string | null>(null)
+  useAgentMutationStatus()
+  useAgentDeletionStatus()
   // D25 — the owner's review queue: fetched only for published definitions (the
   // only ones that can receive proposals).
   const proposals = useAgentProposals(agent.id, manageable && agent.published === true).data ?? []
@@ -8684,13 +8704,16 @@ function AgentRow({
   const rowRef = useRef<HTMLDivElement>(null)
   const agentFocus = pending?.agentId === agent.id && !pending?.proposalId
   const flash = useFocusFlash(agentFocus, rowRef)
-  const del = async () => {
-    setError(null)
-    try {
-      await deleteAgent(agent.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delete this agent.')
-    }
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+  const deleting = isAgentDeletionHeld(agent.id)
+  const mutationHeld = deleting || isAgentMutationHeld(agent.id)
+  const requestRemoval = () => {
+    if (!mutationHeld) setConfirmingRemoval(true)
+  }
+  const confirmRemoval = () => {
+    if (mutationHeld) return
+    setConfirmingRemoval(false)
+    void enqueueAgentDeletion(agent)
   }
   const status = agent.published ? `Published · v${agent.version ?? 1}` : manageable ? 'Private' : 'Built in'
   return (
@@ -8699,7 +8722,9 @@ function AgentRow({
         ref={rowRef}
         title={agent.label}
         description={`Runs on ${providerLabel} · ${agent.tools.length} tool${agent.tools.length === 1 ? '' : 's'}`}
-        meta={status}
+        meta={deleting ? `Removing Agent… · ${status}` : status}
+        prefix={deleting ? <span className="text-ink-faint"><Spinner size={12} /></span> : undefined}
+        busy={deleting}
         onOpen={() => onOpenPage(agent.id)}
         trailing={
           manageable ? (
@@ -8707,7 +8732,8 @@ function AgentRow({
               {agent.published && proposals.length > 0 && (
                 <button
                   onClick={() => setReviewing(true)}
-                  className={INLINE_ACTION_CLASS}
+                  disabled={mutationHeld}
+                  className={`${INLINE_ACTION_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}
                   aria-label={openProposals.length > 0
                     ? `Review ${openProposals.length} proposal${openProposals.length === 1 ? '' : 's'}`
                     : 'Review proposal history'}
@@ -8718,13 +8744,26 @@ function AgentRow({
                     : 'Proposal history'}
                 </button>
               )}
-              <CardActions onEdit={onEdit} onDelete={del} />
+              <CardActions
+                onEdit={onEdit}
+                onDelete={requestRemoval}
+                disabled={mutationHeld}
+                disabledReason="Waiting for this Agent change to settle"
+              />
             </div>
           ) : undefined
         }
         className={flash ? FOCUS_FLASH_CLASS : ''}
       />
-      {error && <p className="py-1 text-[12px] text-removed">{error}</p>}
+      {confirmingRemoval && (
+        <ConfirmDialog
+          title={`Remove ${agent.label}?`}
+          body={AGENT_DELETE_SCOPE}
+          confirmLabel="Remove Agent"
+          onConfirm={confirmRemoval}
+          onCancel={() => setConfirmingRemoval(false)}
+        />
+      )}
       {manageable && reviewing && (
         <ProposalsReviewDialog
           agent={agent}

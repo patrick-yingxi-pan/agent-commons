@@ -8,7 +8,7 @@ test('Agent configuration has one recovery door and the editor replays only user
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'agentMutations.ts')))
 
-  assert.match(section, /import \{ updateAgent \} from '\.\.\/controller\/agentMutations'/,
+  assert.match(section, /import \{[\s\S]{0,180}updateAgent,[\s\S]{0,180}\} from '\.\.\/controller\/agentMutations'/,
     'Agent surfaces enter the acknowledgement queue, not the transport door')
   assert.doesNotMatch(section, /updateAgent,[\s\S]*from '\.\.\/api'/,
     'the component cannot retain a second unconditional command path')

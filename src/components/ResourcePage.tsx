@@ -593,11 +593,12 @@ export const ResourcePageSynopsisRow = forwardRef<
     prefix?: ReactNode
     trailing?: ReactNode
     onOpen?: () => void
+    busy?: boolean
     className?: string
     titleClassName?: string
   }
 >(function ResourcePageSynopsisRow(
-  { title, description, meta, prefix, trailing, onOpen, className = '', titleClassName = 'text-ink' },
+  { title, description, meta, prefix, trailing, onOpen, busy = false, className = '', titleClassName = 'text-ink' },
   ref,
 ) {
   const titleClass = `min-w-0 flex-1 truncate text-left text-[13px] @lg:max-w-[55%] @lg:flex-none ${
@@ -607,6 +608,7 @@ export const ResourcePageSynopsisRow = forwardRef<
     <div
       ref={ref}
       data-resource-synopsis-row
+      aria-busy={busy}
       onClick={onOpen ? cardDoorClick(onOpen) : undefined}
       className={`${LEDGER_ROW_CLASS} group min-w-0 @container ${onOpen ? ROW_DOOR_CLASS : ''} ${className}`}
     >

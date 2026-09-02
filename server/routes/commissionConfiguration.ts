@@ -8,10 +8,10 @@ import {
   type DeleteCommissionRequest,
 } from '../../contract/index.ts'
 import { ValidationError } from '../conflict.ts'
+import { revisionedDelete } from './revisionedDeletion.ts'
 
 const CREATE_FIELDS = ['agentId', 'projectId', 'role', 'authority', 'grant', 'standing'] as const
 const UPDATE_FIELDS = ['role', 'authority', 'grant', 'standing', 'expectedRevision'] as const
-const DELETE_FIELDS = ['expectedRevision'] as const
 const AUTHORITY_FIELDS = ['tools', 'connectors', 'scopes'] as const
 const BUDGET_FIELDS = ['windows'] as const
 const WINDOW_FIELDS = ['label', 'ceiling'] as const
@@ -132,13 +132,5 @@ export function commissionConfigurationUpdate(value: unknown): CommissionConfigu
 }
 
 export function commissionDelete(value: unknown): DeleteCommissionRequest {
-  const input = value === undefined
-    ? {}
-    : record(value, 'A commission deletion precondition must be an object.')
-  rejectUnknown(input, DELETE_FIELDS, 'commission deletion')
-  if (!Object.hasOwn(input, 'expectedRevision')) return {}
-  if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) {
-    throw new ValidationError('expectedRevision must be a non-negative safe integer.')
-  }
-  return { expectedRevision: input.expectedRevision as number }
+  return revisionedDelete(value, 'commission')
 }

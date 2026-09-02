@@ -230,22 +230,79 @@ test('POST rejects an authority over its provider (the D8 funnel, on the wire)',
   assert.equal(over.json.error.code, 'bad_request')
 })
 
-test('DELETE removes an agent; a second DELETE 404s; the default is refused (409)', async () => {
+test('DELETE pins reviewed Agent truth, batches its cascades, and replays one success', async () => {
   const created = await call('POST', '/agents', {
     label: 'Disposable agent',
     providerId: DEFAULT_PROVIDER_ID,
     systemPromptId: 'sp-concise-reviewer',
   })
-  const del = await call('DELETE', `/agents/${created.json.id}`)
+  const id = created.json.id as string
+  const projectId = 'p-insights'
+  const delegation = store.createDelegation(projectId, {
+    agentId: id,
+    actKind: 'approve-envelope',
+    policy: 'Approve bounded read-only work.',
+    mode: 'draft',
+  }, store.defaultTenantId())
+  assert.ok(delegation && typeof delegation === 'object')
+  const changed = await call('PATCH', `/agents/${id}`, {
+    instructions: 'A concurrent definition change.',
+    expectedRevision: 0,
+  })
+  assert.equal(changed.status, 200)
+  assert.equal(changed.json.revision, 1)
+
+  for (const body of [{ expectedRevision: -1 }, { expectedRevision: 0, label: 'No' }]) {
+    const invalid = await call('DELETE', `/agents/${id}`, body)
+    assert.equal(invalid.status, 400, JSON.stringify(body))
+  }
+
+  const key = `agent-delete-${id}`
+  const headers = { 'idempotency-key': key }
+  const stale = await call('DELETE', `/agents/${id}`, { expectedRevision: 0 }, headers)
+  assert.equal(stale.status, 409)
+  assert.equal(store.listAgents().some((agent) => agent.id === id), true)
+  assert.equal(store.listDelegations(projectId).some((row) => row.agentId === id), true,
+    'stale consent preserves the entire cascade')
+
+  const observed: Array<{ agentPresent: boolean; delegationPresent: boolean }> = []
+  const unsubscribe = store.subscribe((event) => {
+    if (
+      (event.type === 'agent.changed' && event.agentId === id) ||
+      (event.type === 'delegation.changed' && event.projectId === projectId)
+    ) {
+      observed.push({
+        agentPresent: store.listAgents().some((agent) => agent.id === id),
+        delegationPresent: store.listDelegations(projectId).some((row) => row.agentId === id),
+      })
+    }
+  })
+  const del = await call('DELETE', `/agents/${id}`, { expectedRevision: 1 }, headers)
+  unsubscribe()
   assert.equal(del.status, 200)
   assert.deepEqual(del.json, { ok: true })
+  assert.ok(observed.length >= 2)
+  assert.ok(observed.every((snapshot) => !snapshot.agentPresent && !snapshot.delegationPresent),
+    'events publish only after the compound removal is coherent')
 
-  const again = await call('DELETE', `/agents/${created.json.id}`)
+  const replay = await call('DELETE', `/agents/${id}`, { expectedRevision: 999 }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+
+  const again = await call('DELETE', `/agents/${id}`)
   assert.equal(again.status, 404)
 
   const protectedDel = await call('DELETE', `/agents/${DEFAULT_AGENT.id}`)
   assert.equal(protectedDel.status, 409)
   assert.equal(protectedDel.json.error.code, 'conflict')
+
+  const legacy = await call('POST', '/agents', {
+    label: 'Legacy-delete agent',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  })
+  assert.equal((await call('DELETE', `/agents/${legacy.json.id}`)).status, 200,
+    'an omitted precondition keeps legacy unconditional removal')
 })
 
 test('DELETE refuses an agent a Commission still assigns (409)', async () => {

@@ -15,6 +15,7 @@ import {
   type Commission,
   type CommissionConfigurationPatch,
   type CreateAgentRequest,
+  type DeleteAgentRequest,
   type DeleteCommissionRequest,
   type UpdateAgentRequest,
   type UpdateCommissionRequest,
@@ -671,23 +672,33 @@ export function acceptAgentConfiguration(agent: Agent): void {
   })
 }
 
+/** Publish one proven Agent absence and invalidate every public/private face
+ * derived from that definition. Project delegation lists heal from the
+ * server's project-addressed events because their ids are not carried here. */
+function acceptAgentAbsence(id: string): void {
+  mutate<Agent[]>(keys.workerAgents, (rows) =>
+    (rows ?? []).filter((candidate) => candidate.id !== id))
+  invalidate(keys.agentProposals(id))
+  invalidatePrefix(keys.directoryAgents())
+  invalidatePrefix(keys.agentForks())
+  invalidatePrefix(keys.ownerProfile())
+  invalidatePrefix(keys.search())
+}
+
 /** Re-read only the addressed Agent after conflict or uncertain acknowledgement.
  * Replacing the whole registry could rewind an unrelated row that moved while
  * this request was in flight. */
 export async function reconcileAgentConfiguration(id: string): Promise<Agent | undefined> {
-  const rows = await apiGet<Agent[]>(paths.agents)
-  const incoming = rows.find((candidate) => candidate.id === id)
-  const currentRows = peek<Agent[]>(keys.workerAgents)
-  if (!currentRows) {
-    setData(keys.workerAgents, rows)
-    return incoming
-  }
-  if (!incoming) {
-    mutate<Agent[]>(keys.workerAgents, (current) => (current ?? []).filter((candidate) => candidate.id !== id))
+  let incoming: Agent
+  try {
+    incoming = await apiGet<Agent>(paths.agent(id))
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
+    acceptAgentAbsence(id)
     return undefined
   }
   acceptAgentConfiguration(incoming)
-  return peek<Agent[]>(keys.workerAgents)?.find((candidate) => candidate.id === id)
+  return incoming
 }
 
 /** Transport one revision-checked Agent configuration edit. The controller
@@ -1169,11 +1180,19 @@ export async function markNotificationsRead(ids?: string[]): Promise<AppNotifica
   return inbox
 }
 
-/** Remove an Agent. Rejects (so the caller can surface the message) when the server
- *  refuses — the default agent, or one a Commission still assigns (409). */
-export async function deleteAgent(id: string): Promise<void> {
-  await apiDelete(paths.agent(id))
-  invalidate(keys.workerAgents)
+/** Remove the reviewed Agent definition. Confirmation and uncertainty remain
+ * controller-owned; only acknowledgement or authoritative 404 publishes absence. */
+export async function deleteAgent(
+  id: string,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiDelete(
+    paths.agent(id),
+    { expectedRevision } satisfies DeleteAgentRequest,
+    { idempotencyKey },
+  )
+  acceptAgentAbsence(id)
 }
 
 /** Claim a sub-goal on a Project for a Contributor (docs/agent-commons.md, D11). The
