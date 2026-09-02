@@ -28,11 +28,14 @@ test('the shell owns one keyboard bypass whose target survives the responsive ra
 test('a conversation exposes resource identity and a persistent composer name', () => {
   const title = stripComments(read(join(ROOT, 'src', 'components', 'SessionTitleBar.tsx')))
   const composer = stripComments(read(join(ROOT, 'src', 'components', 'Composer.tsx')))
+  const audit = stripComments(read(join(ROOT, 'e2e', 'accessibility-audit.spec.ts')))
 
   assert.match(title, /<h1[^>]*>[\s\S]*?\{session\.title\}[\s\S]*?<\/h1>/,
     'the conversation title participates in heading navigation')
   assert.match(composer, /<textarea[\s\S]*?aria-label="Message"[\s\S]*?placeholder=/,
     'the message field keeps its name when placeholder copy changes or disappears')
+  assert.match(audit, /getByRole\('textbox', \{ name: 'Message', exact: true \}\)\)\.toBeEnabled\(\)/,
+    'the rendered contrast audit waits for the named composer to leave its temporary disabled face')
 })
 
 test('page identity survives compact chrome and scrollable code is keyboard reachable', () => {

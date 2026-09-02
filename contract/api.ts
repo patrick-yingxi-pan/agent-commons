@@ -192,6 +192,13 @@ export interface SetConnectorStatusRequest {
   expectedRevision?: number
 }
 
+/** Body of `DELETE /v1/saved-contexts/:id`. A supplied connection revision
+ * pins removal to the reusable setup the person reviewed; absence preserves
+ * legacy unconditional-delete behavior for existing API clients. */
+export interface DeleteSavedContextRequest {
+  expectedRevision?: number
+}
+
 /** Body of `POST /v1/relations/ops` — apply a confirmed relation edit. For a
  *  standing op this is the privileged grant that authorizes the daemon. */
 export interface ApplyOpRequest {

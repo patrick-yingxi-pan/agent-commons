@@ -42,7 +42,9 @@ test('saved contexts are server-stamped, tenant-isolated, and existence-hiding o
   assert.equal(converged?.changed, false, 'a lost-ack replay already at its desired state is a no-op success')
   assert.equal(registry.snapshot('tenant-a').contexts.find((context) => context.id === 'same-id')?.connectionRevision, 1)
   assert.equal(registry.setStatus('seed', 'needs-auth', 'tenant-b'), undefined, 'foreign and unknown mutation share one absence face')
-  assert.equal(registry.remove('same-id', 'tenant-a'), true)
+  assert.throws(() => registry.remove('same-id', 'tenant-a', 0), ConflictError, 'stale removal changes nothing')
+  assert.equal(registry.snapshot('tenant-a').contexts.some((context) => context.id === 'same-id'), true)
+  assert.equal(registry.remove('same-id', 'tenant-a', 1), true)
   assert.equal(registry.snapshot('tenant-b').contexts.some((context) => context.id === 'same-id'), true)
 })
 

@@ -8,6 +8,7 @@ import { ScheduleMutationNotice } from './ScheduleMutationNotice'
 import { SessionMetadataMutationNotice } from './SessionMetadataMutationNotice'
 import { SessionDeletionNotice } from './SessionDeletionNotice'
 import { SavedContextMutationNotice } from './SavedContextMutationNotice'
+import { SavedContextDeletionNotice } from './SavedContextDeletionNotice'
 import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMutationNotice'
 
 /** Durable mutation recovery is requested as one deferred shell cluster at
@@ -20,6 +21,7 @@ export function ShellMutationNotices() {
       <SessionMetadataMutationNotice />
       <SessionDeletionNotice />
       <SavedContextMutationNotice />
+      <SavedContextDeletionNotice />
       <ScheduleMutationNotice />
       <ArtifactContentMutationNotice />
       <ProposalVerdictMutationNotice />

@@ -123,6 +123,7 @@ export function SectionPane({
   const onBack = () => {
     if (stack.length === 0) {
       if (backOut) backOut.go()
+      else setFocus(NO_FOCUS)
       return
     }
     // Pure state updates as SIBLINGS — never a setState inside another's updater

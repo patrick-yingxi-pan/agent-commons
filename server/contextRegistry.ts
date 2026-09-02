@@ -161,9 +161,15 @@ export function createContextRegistry({
       return { snapshot: snapshotFor(tenantId), changed: true }
     },
 
-    remove(id: string, tenantId: string): boolean {
+    remove(id: string, tenantId: string, expectedRevision?: number): boolean {
       const index = contexts.findIndex((context) => context.id === id && ownerOf(context) === tenantId)
       if (index < 0) return false
+      const currentRevision = contexts[index]!.connectionRevision ?? 0
+      if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+        throw new ConflictError(
+          `This context connection changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+        )
+      }
       contexts.splice(index, 1)
       return true
     },

@@ -54,6 +54,7 @@ import {
   type PromptProbeResult,
   type ReserveSubGoalRequest,
   type ContextStatus,
+  type DeleteSavedContextRequest,
   type ContextTypeId,
   type EffectReport,
   type SyncEffectsResult,
@@ -1484,17 +1485,24 @@ export async function addSavedContext(context: SavedContext): Promise<void> {
   }
 }
 
-/** Remove a context from the set-up registry ("Remove from contexts"). */
-export async function removeSavedContext(id: string): Promise<void> {
-  mutate<SavedContextsSnapshot>(keys.savedContexts, (snap) => {
-    if (!snap) return snap as unknown as SavedContextsSnapshot
-    return { ...snap, contexts: snap.contexts.filter((c) => c.id !== id) }
-  })
-  try {
-    await apiDelete(paths.savedContext(id))
-  } catch {
-    invalidate(keys.savedContexts)
-  }
+/** Delete one reviewed reusable setup. The controller owns confirmation,
+ * retry, and lost-ack reconciliation; absence is published only after the
+ * server acknowledges the pinned logical mutation. */
+export async function deleteSavedContext(
+  id: string,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiDelete(
+    paths.savedContext(id),
+    { expectedRevision } satisfies DeleteSavedContextRequest,
+    { idempotencyKey },
+  )
+  mutate<SavedContextsSnapshot>(keys.savedContexts, (snapshot) =>
+    snapshot
+      ? mergeSavedContextConnectionSnapshot(snapshot, id, undefined)
+      : snapshot as unknown as SavedContextsSnapshot,
+  )
 }
 
 // ── Recents (Add-context shortcut lists) ────────────────────────────────────

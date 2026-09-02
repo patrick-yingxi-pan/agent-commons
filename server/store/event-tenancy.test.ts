@@ -19,6 +19,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { store } from './index.ts'
+import { ConflictError } from '../conflict.ts'
 import type { ServerEvent } from '../../contract/index.ts'
 
 const ROOT = new URL('../..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
@@ -97,7 +98,13 @@ test('Contexts setup and recents events are stamped and delivered only to their 
   assert.equal(store.eventVisibleToTenant(recent, OWNER), true)
   assert.equal(store.eventVisibleToTenant(recent, OTHER), false)
 
-  const onRemove = emitted(() => store.removeSavedContext(id, OWNER))
+  const onStaleRemove = emitted(() => {
+    assert.throws(() => store.removeSavedContext(id, OWNER, 0), ConflictError)
+  })
+  assert.ok(!onStaleRemove.some((event) => event.type === 'savedcontext.changed'), 'a stale removal emits nothing')
+  assert.ok(store.savedContexts(OWNER).contexts.some((context) => context.id === id), 'a stale removal persists nothing')
+
+  const onRemove = emitted(() => store.removeSavedContext(id, OWNER, 1))
   const removed = onRemove.find((event) => event.type === 'savedcontext.changed')
   assert.ok(removed?.type === 'savedcontext.changed')
   assert.equal(removed.tenantId, OWNER, 'delete remains gateable after its row is gone')

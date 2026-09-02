@@ -247,7 +247,6 @@ import {
   removeSchedule,
   runScheduleNow,
   addSavedContext,
-  removeSavedContext,
   createCommission,
   createProvider,
   desktopCredentialsAvailable,
@@ -378,6 +377,11 @@ import {
   updateSavedContextConnection,
   useSavedContextConnectionMutationStatus,
 } from '../controller/savedContextConnectionMutations'
+import {
+  enqueueSavedContextDeletion,
+  isSavedContextDeletionHeld,
+  useSavedContextDeletionStatus,
+} from '../controller/savedContextDeletionMutations'
 import {
   promptFitWarning,
   defaultEntry,
@@ -7250,22 +7254,37 @@ function ContextsSection({
   const saved = useSavedContexts()
   const items = saved.data?.contexts ?? []
   useSavedContextConnectionMutationStatus()
+  useSavedContextDeletionStatus()
   const [query, setQuery] = useState('')
+  const [removeTarget, setRemoveTarget] = useState<SavedContext | null>(null)
   const [filter] = useSectionFilter('contexts')
+  const contextIdRef = useRef(contextId)
+  contextIdRef.current = contextId
 
   // Add / remove / connect all route through the SERVER (the registry is the
   // system of record — these once lived in component state and silently
   // evaporated when the section unmounted). Their existing command path updates
   // the local cache, while the broadcast reconciles every other client.
-  const connectionHeld = (id: string) => isSavedContextConnectionHeld(id)
+  const mutationHeld = (id: string) =>
+    isSavedContextConnectionHeld(id) || isSavedContextDeletionHeld(id)
   const toggle = (id: string) => {
     const item = items.find((c) => c.id === id)
-    if (item && !connectionHeld(id)) {
+    if (item && !mutationHeld(id)) {
       void updateSavedContextConnection(id, item.status === 'connected' ? 'needs-auth' : 'connected')
     }
   }
-  const remove = (id: string) => {
-    void removeSavedContext(id)
+  const requestRemove = (context: SavedContext) => {
+    if (!mutationHeld(context.id)) setRemoveTarget(context)
+  }
+  const confirmRemove = () => {
+    const target = removeTarget
+    if (!target) return
+    setRemoveTarget(null)
+    void enqueueSavedContextDeletion(target.id, target.connectionRevision ?? 0).then((outcome) => {
+      // Removal may settle after the person has left this detail. Only the
+      // pane that is still showing the removed row should return to its root.
+      if (outcome === 'applied' && contextIdRef.current === target.id) onBack()
+    })
   }
   const add = (ctx: SavedContext) => {
     void addSavedContext(ctx)
@@ -7274,19 +7293,28 @@ function ContextsSection({
   // through the controller (rel.navigate), so the page has an address and history.
   // A stale id (removed context, dead link) degrades to the list.
   const open = contextId ? (items.find((c) => c.id === contextId) ?? null) : null
+  const removalConfirmation = removeTarget ? (
+    <ConfirmDialog
+      title={`Remove ${removeTarget.label}?`}
+      body="This removes the saved setup from Contexts. Existing session attachments stay, but new sessions cannot reuse it until you add it again."
+      confirmLabel="Remove"
+      onCancel={() => setRemoveTarget(null)}
+      onConfirm={confirmRemove}
+    />
+  ) : null
   if (open)
     return (
-      <ContextDetail
-        ctx={open}
-        onBack={onBack}
-        backTo={backTo}
-        onToggle={() => toggle(open.id)}
-        connectionHeld={connectionHeld(open.id)}
-        onRemove={() => {
-          remove(open.id)
-          onBack()
-        }}
-      />
+      <>
+        <ContextDetail
+          ctx={open}
+          onBack={onBack}
+          backTo={backTo}
+          onToggle={() => toggle(open.id)}
+          mutationHeld={mutationHeld(open.id)}
+          onRemove={() => requestRemove(open)}
+        />
+        {removalConfirmation}
+      </>
     )
   if (contextId) {
     return (
@@ -7346,40 +7374,43 @@ function ContextsSection({
   })
 
   return (
-    <CompositeResourcePage section="contexts" sectionPage={sectionSelected}>
-      <PageHeader
-        title="Contexts"
-        subtitle={selectedLabel ?? (
-          <>
-            Accounts, servers, and repos you’ve set up once. Any session can reuse them from Add context — no
-            re-authenticating, no re-cloning.
-          </>
-        )}
-      >
-        <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
-      </PageHeader>
-      <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" mirrorsRailFor="contexts" />
-      <CompositePageControls
-        section="contexts"
-        filter={<SectionFilterMenu section="contexts" placement="page" />}
-      />
+    <>
+      <CompositeResourcePage section="contexts" sectionPage={sectionSelected}>
+        <PageHeader
+          title="Contexts"
+          subtitle={selectedLabel ?? (
+            <>
+              Accounts, servers, and repos you’ve set up once. Any session can reuse them from Add context — no
+              re-authenticating, no re-cloning.
+            </>
+          )}
+        >
+          <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
+        </PageHeader>
+        <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" mirrorsRailFor="contexts" />
+        <CompositePageControls
+          section="contexts"
+          filter={<SectionFilterMenu section="contexts" placement="page" />}
+        />
 
-      <MainCollectionTemplate
-        projection={projection}
-        renderItem={(item) => (
-          <ContextRow
-            ctx={item.value}
-            onOpen={() => rel.navigate('contexts', item.value.id)}
-            onToggle={() => toggle(item.value.id)}
-            connectionHeld={connectionHeld(item.value.id)}
-            onRemove={() => remove(item.value.id)}
-          />
-        )}
-        renderEmptyGroup={(group) =>
-          group.key === ACCOUNT_MCP_SECTION.id ? <McpAccessCard /> : undefined
-        }
-      />
-    </CompositeResourcePage>
+        <MainCollectionTemplate
+          projection={projection}
+          renderItem={(item) => (
+            <ContextRow
+              ctx={item.value}
+              onOpen={() => rel.navigate('contexts', item.value.id)}
+              onToggle={() => toggle(item.value.id)}
+              mutationHeld={mutationHeld(item.value.id)}
+              onRemove={() => requestRemove(item.value)}
+            />
+          )}
+          renderEmptyGroup={(group) =>
+            group.key === ACCOUNT_MCP_SECTION.id ? <McpAccessCard /> : undefined
+          }
+        />
+      </CompositeResourcePage>
+      {removalConfirmation}
+    </>
   )
 }
 
@@ -7565,13 +7596,13 @@ function ContextRow({
   ctx,
   onOpen,
   onToggle,
-  connectionHeld,
+  mutationHeld,
   onRemove,
 }: {
   ctx: SavedContext
   onOpen: () => void
   onToggle: () => void
-  connectionHeld: boolean
+  mutationHeld: boolean
   onRemove: () => void
 }) {
   const Icon = contextIcon(ctx)
@@ -7643,7 +7674,7 @@ function ContextRow({
             <Tooltip label={connected ? 'Disconnect' : 'Connect'}>
               <button
                 onClick={onToggle}
-                disabled={connectionHeld}
+                disabled={mutationHeld}
                 aria-label={connected ? `Disconnect ${ctx.label}` : `Connect ${ctx.label}`}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:cursor-wait disabled:opacity-50"
               >
@@ -7653,7 +7684,7 @@ function ContextRow({
           )}
           <button
             onClick={onRemove}
-            disabled={connectionHeld}
+            disabled={mutationHeld}
             title="Remove from contexts"
             aria-label={`Remove ${ctx.label} from contexts`}
             className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed disabled:cursor-wait disabled:opacity-50"
@@ -7675,14 +7706,14 @@ function ContextDetail({
   onBack,
   backTo,
   onToggle,
-  connectionHeld,
+  mutationHeld,
   onRemove,
 }: {
   ctx: SavedContext
   onBack: () => void
   backTo: NavLocation | null
   onToggle: () => void
-  connectionHeld: boolean
+  mutationHeld: boolean
   onRemove: () => void
 }) {
   useRecordView('context', ctx.id)
@@ -7726,7 +7757,7 @@ function ContextDetail({
           {!isRepo && (
             <button
               onClick={onToggle}
-              disabled={connectionHeld}
+              disabled={mutationHeld}
               className="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent disabled:cursor-wait disabled:opacity-50"
             >
               {connected ? <Unplug size={14} /> : <Plug size={14} />}
@@ -7735,7 +7766,7 @@ function ContextDetail({
           )}
           <button
             onClick={onRemove}
-            disabled={connectionHeld}
+            disabled={mutationHeld}
             className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed disabled:cursor-wait disabled:opacity-50"
           >
             <Trash2 size={14} />

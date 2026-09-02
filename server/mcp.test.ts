@@ -202,6 +202,29 @@ test('curated body examples: every key is a real mutation route, the spine is co
     200,
     'PATCH /saved-contexts/:id example applies',
   )
+  const deleteCtxId = `${ctxId}-delete`
+  assert.equal(
+    (await toolCall('post_saved_contexts', {
+      body: {
+        context: {
+          id: deleteCtxId,
+          label: 'MCP delete example connector',
+          kind: 'connector',
+          status: 'needs-auth',
+          detail: 'Revision-zero deletion fixture',
+          lastUsedAt: null,
+          sessions: 0,
+        },
+      },
+    }, seam)).status,
+    200,
+    'the delete example gets its own revision-zero fixture',
+  )
+  assert.equal(
+    (await toolCall('delete_saved_contexts_by_id', { id: deleteCtxId, ...ex('DELETE /saved-contexts/:id') }, seam)).status,
+    200,
+    'DELETE /saved-contexts/:id example applies',
+  )
 
   const newSchedule = await toolCall('post_schedules', ex('POST /schedules'), seam)
   assert.equal(newSchedule.status, 200, 'POST /schedules example creates')
@@ -219,7 +242,7 @@ test('curated body examples: every key is a real mutation route, the spine is co
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 11, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 12, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

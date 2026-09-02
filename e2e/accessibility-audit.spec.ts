@@ -17,6 +17,12 @@ async function auditSurface(
   await page.setViewportSize(viewport)
   await page.goto(surface.path)
   await expect(page.getByRole('heading', { level: 1, name: surface.heading })).toBeVisible()
+  // The conversation heading can settle before its keyed controller finishes
+  // hydrating. Measure the resting composer, not the temporary disabled-opacity
+  // face that exists only while the controller becomes writable.
+  if (surface.path.startsWith('/s/')) {
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
+  }
   await assertWcag22Aa(page, `${surface.name} at ${viewport.width}×${viewport.height}`)
 }
 

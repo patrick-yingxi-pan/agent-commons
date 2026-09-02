@@ -54,7 +54,8 @@ expiry. Production now supplies adapters behind that boundary. **Shared** model;
 A connector/MCP attached to a session is a `SessionContext` (type connector/mcp, scope
 = the account/scope); its effects are mediated (D5) and authority-clamped to the project
 (D12). The Contexts page manages set-up (the prototype's saved-contexts), reusable
-across sessions without re-auth.
+across sessions without re-auth. Removing that setup does not rewrite existing
+session attachments; it prevents new reuse until the connector is added again.
 
 ## 3. Failure modes & edge cases
 

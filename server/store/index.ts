@@ -5024,8 +5024,12 @@ export const store = {
   },
   /** Remove a context from the set-up list (the page's "Remove from contexts").
    *  False for an unknown id (→ 404). */
-  removeSavedContext(id: string, tenantId: string = defaultTenantId()): boolean {
-    if (!contextRegistry.remove(id, tenantId)) return false
+  removeSavedContext(
+    id: string,
+    tenantId: string = defaultTenantId(),
+    expectedRevision?: number,
+  ): boolean {
+    if (!contextRegistry.remove(id, tenantId, expectedRevision)) return false
     emit({ type: 'savedcontext.changed', id, tenantId })
     persist()
     return true

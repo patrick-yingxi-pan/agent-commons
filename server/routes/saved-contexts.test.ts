@@ -70,12 +70,35 @@ test('connection revisions conflict before mutation, replay once, and converge a
   await call('DELETE', `/saved-contexts/${id}`)
 })
 
+test('DELETE pins the reviewed connection revision and replays one acknowledged removal', async () => {
+  const id = `rt-context-delete-${Date.now().toString(36)}`
+  const context = {
+    id, label: 'Deletion connector', kind: 'connector', status: 'connected',
+    detail: 'route deletion test', lastUsedAt: null, sessions: 0,
+  }
+  await call('POST', '/saved-contexts', { context })
+  await call('PATCH', `/saved-contexts/${id}`, { status: 'needs-auth', expectedRevision: 0 })
+
+  const stale = await call('DELETE', `/saved-contexts/${id}`, { expectedRevision: 0 })
+  assert.equal(stale.status, 409)
+  assert.match(stale.json.error.message, /changed elsewhere/)
+  assert.equal(find((await call('GET', '/saved-contexts')).json, id).connectionRevision, 1)
+
+  const headers = { 'idempotency-key': `context-delete-${id}` }
+  const removed = await call('DELETE', `/saved-contexts/${id}`, { expectedRevision: 1 }, headers)
+  assert.equal(removed.status, 200)
+  const replay = await call('DELETE', `/saved-contexts/${id}`, { expectedRevision: 1 }, headers)
+  assert.deepEqual(replay.json, removed.json, 'the same logical removal replays after the row is absent')
+  assert.equal(find((await call('GET', '/saved-contexts')).json, id), undefined)
+})
+
 test('PATCH /saved-contexts/:id with an invalid status is 400 bad_request', async () => {
   const r = await call('PATCH', '/saved-contexts/slack', { status: 'bogus' })
   assert.equal(r.status, 400)
   assert.equal((await call('PATCH', '/saved-contexts/slack', {
     status: 'connected', expectedRevision: -1,
   })).status, 400)
+  assert.equal((await call('DELETE', '/saved-contexts/slack', { expectedRevision: -1 })).status, 400)
 })
 
 test('PATCH an unknown saved context is 404 not_found', async () => {

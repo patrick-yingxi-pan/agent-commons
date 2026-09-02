@@ -3,6 +3,7 @@
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import type {
   ApplyOpRequest,
+  DeleteSavedContextRequest,
   Message,
   ReplyStreamEvent,
   CreateCommissionRequest,
@@ -3747,13 +3748,30 @@ export function buildRouter(): Router {
     }
     sendJson(res, store.addSavedContext(context, store.identity(req.headers).tenant.id))
   })
-  // Remove a context from the set-up registry.
-  r.delete('/saved-contexts/:id', ({ req, res, params }) => {
-    if (!store.removeSavedContext(params.id, store.identity(req.headers).tenant.id)) {
-      return sendError(res, 'not_found', `No saved context '${params.id}'`)
+  // Remove the exact reusable setup the caller reviewed. Legacy clients may
+  // omit the precondition; first-party retries retain one idempotency key.
+  r.delete('/saved-contexts/:id', idempotent(async ({ req, res, params, body }) => {
+    const { expectedRevision } = await body<DeleteSavedContextRequest>()
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
+    try {
+      if (!store.removeSavedContext(
+        params.id,
+        store.identity(req.headers).tenant.id,
+        expectedRevision,
+      )) {
+        return sendError(res, 'not_found', `No saved context '${params.id}'`)
+      }
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
     }
     sendJson(res, { ok: true })
-  })
+  }))
   // Set a saved connector / MCP server's auth status (connect / disconnect; the
   // OAuth-callback / token-expiry seam). Broadcasts `connector.status` and returns
   // the updated snapshot so the originating client reconciles immediately.
