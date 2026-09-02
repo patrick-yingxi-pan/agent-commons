@@ -70,5 +70,6 @@ test('each selected collection section becomes the sole forced-open main-page pr
     assert.match(page, /collectionSectionId/, `${name} reads the canonical intermediate page id`)
   }
   const page = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))
-  assert.match(page, /const effectiveFolded = sectionPage \? false : folded/)
+  assert.match(page, /const effectiveFolded = sectionPage \|\| heldOpen \? false : folded/,
+    'selected section pages remain one of the shared primitive’s forced-open states')
 })

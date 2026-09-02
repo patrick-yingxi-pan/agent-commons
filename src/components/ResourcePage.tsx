@@ -355,6 +355,7 @@ export function ResourcePageSection({
   projectionKey,
   actions,
   defaultFolded,
+  heldOpen = false,
   persist = true,
   listPartition = false,
   summary,
@@ -364,6 +365,8 @@ export function ResourcePageSection({
   projectionKey?: string
   actions?: ReactNode
   defaultFolded?: boolean
+  /** A submitted child draft cannot be unmounted while its outcome is unknown. */
+  heldOpen?: boolean
   persist?: boolean
   /** A non-canonical view partition whose list capability is mirrored in the rail. */
   listPartition?: boolean
@@ -376,7 +379,7 @@ export function ResourcePageSection({
   const setFolded = persist ? setStoredFolded : setLocalFolded
   const sectionPage = useContext(CompositeSectionPageContext)
   const projection = useContext(CompositeProjectionContext)
-  const effectiveFolded = sectionPage ? false : folded
+  const effectiveFolded = sectionPage || heldOpen ? false : folded
   const register = useContext(FoldScopeContext)
   const foldId = useId()
 
@@ -401,9 +404,9 @@ export function ResourcePageSection({
         className={`flex items-center justify-between gap-2 ${LEDGER_RULE_CLASS} ${SECTION_RULE_SPACE.above} ${effectiveFolded ? '' : SECTION_RULE_SPACE.below}`}
       >
         <button
-          onClick={() => !sectionPage && setFolded(!effectiveFolded)}
+          onClick={() => !sectionPage && !heldOpen && setFolded(!effectiveFolded)}
           aria-expanded={!effectiveFolded}
-          aria-disabled={sectionPage || undefined}
+          aria-disabled={sectionPage || heldOpen || undefined}
           className={`${FOLD_HEADER_CLASS} min-w-0 ${effectiveFolded ? 'flex-1' : ''}`}
         >
           <span

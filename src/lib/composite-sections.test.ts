@@ -102,5 +102,8 @@ test('a composite section destination renders only that section and forces its c
   const composite = stripComments(resourcePageComponent('CompositeResourcePage'))
   assert.match(composite, /<CompositeSectionPageContext\.Provider value=\{sectionPage\}>/)
   const fold = stripComments(resourcePageComponent('ResourcePageSection'))
-  assert.match(fold, /const effectiveFolded = sectionPage \? false : folded/)
+  assert.match(fold, /const effectiveFolded = sectionPage \|\| heldOpen \? false : folded/,
+    'addressed section pages and submitted child drafts both force their section open')
+  assert.match(fold, /!sectionPage && !heldOpen && setFolded/,
+    'a held draft cannot be unmounted through its local disclosure')
 })

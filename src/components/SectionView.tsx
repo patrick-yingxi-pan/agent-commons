@@ -13389,6 +13389,7 @@ function RailRow({
 function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: ScheduledRun | null; running: boolean }) {
   const rel = useRelations()
   const [editing, setEditing] = useState(false)
+  const [draftHeld, setDraftHeld] = useState(false)
   const reached = run ? run.reachedStep : 0
   const failedAt = run && run.status === 'failed' ? run.reachedStep : -1
   // A standing "save X / open a session each run" edit overrides where the
@@ -13412,6 +13413,7 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
   return (
     <FoldSection
       title="Workflow"
+      heldOpen={draftHeld}
       summary={`${countLabel(task.steps.length, 'step')} · ${task.trigger}`}
       actions={
         !editing ? (
@@ -13428,7 +13430,7 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
         </div>
 
         {editing ? (
-          <StepsEditor task={task} onClose={() => setEditing(false)} />
+          <StepsEditor task={task} onHeldChange={setDraftHeld} onClose={() => setEditing(false)} />
         ) : (
           <div className="relative">
             {task.steps.map((s, i) => (
@@ -13464,9 +13466,19 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
  *  (action text + tool), add to, and remove from, committed as one
  *  updateSchedule({ steps }) on Save (an entity field edit; the standing
  *  scheduleExtraTools overlay is a separate relation surface and is untouched). */
-function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
+function StepsEditor({
+  task,
+  onHeldChange,
+  onClose,
+}: {
+  task: ScheduledTask
+  onHeldChange: (held: boolean) => void
+  onClose: () => void
+}) {
   const [steps, setSteps] = useState<WorkflowStep[]>(() => task.steps.map((s) => ({ ...s })))
   const [picking, setPicking] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const setAction = (i: number, action: string) =>
     setSteps((s) => s.map((x, j) => (j === i ? { ...x, action } : x)))
@@ -13476,99 +13488,117 @@ function StepsEditor({ task, onClose }: { task: ScheduledTask; onClose: () => vo
   }
   const add = () =>
     setSteps((s) => [...s, { id: crypto.randomUUID(), action: '', tool: STEP_TOOLS[0] }])
-  const save = () => {
-    void updateSchedule(task.id, { steps: cleanSteps(steps) })
-    onClose()
+  const save = async () => {
+    if (busy) return
+    setBusy(true)
+    onHeldChange(true)
+    setError(null)
+    const outcome = await updateSchedule(task.id, { steps: cleanSteps(steps) })
+    if (outcome === 'applied') {
+      onHeldChange(false)
+      onClose()
+      return
+    }
+    // Dismiss and account switching are explicit non-success outcomes. Keep
+    // the authored workflow intact so the person can review or submit it again.
+    setError('Your workflow draft was not saved. Review the latest routine, then apply what you still want.')
+    setBusy(false)
+    onHeldChange(false)
   }
 
   return (
-    <div>
-      <div className="space-y-2">
-        {steps.map((s, i) => (
-          <div key={s.id} className="flex items-start gap-2 rounded-lg border border-line bg-panel-2/25 p-2">
-            <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-[11px] font-semibold text-ink-soft">
-              {i + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <div className="relative inline-block">
-                <button
-                  onClick={() => setPicking((p) => (p === s.id ? null : s.id))}
-                  aria-haspopup="dialog"
-                  aria-expanded={picking === s.id}
-                  className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink ring-1 ring-line-strong transition hover:ring-accent"
-                >
-                  <ToolGlyph tool={s.tool} size={12} />
-                  {s.tool.label}
-                  {s.tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-warn" />}
-                  <ChevronDown size={11} className="text-ink-faint" />
-                </button>
-                {picking === s.id && <StepToolPicker onPick={(t) => setTool(i, t)} onClose={() => setPicking(null)} />}
+    <div aria-busy={busy}>
+      <fieldset disabled={busy} className="contents">
+        <div className="space-y-2">
+          {steps.map((s, i) => (
+            <div key={s.id} className="flex items-start gap-2 rounded-lg border border-line bg-panel-2/25 p-2">
+              <span className="mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface text-[11px] font-semibold text-ink-soft">
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="relative inline-block">
+                  <button
+                    onClick={() => setPicking((p) => (p === s.id ? null : s.id))}
+                    aria-haspopup="dialog"
+                    aria-expanded={picking === s.id}
+                    className="inline-flex items-center gap-1 rounded-md bg-surface px-1.5 py-0.5 text-[11px] font-medium text-ink ring-1 ring-line-strong transition hover:ring-accent"
+                  >
+                    <ToolGlyph tool={s.tool} size={12} />
+                    {s.tool.label}
+                    {s.tool.needsAuth && <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-warn" />}
+                    <ChevronDown size={11} className="text-ink-faint" />
+                  </button>
+                  {picking === s.id && <StepToolPicker onPick={(t) => setTool(i, t)} onClose={() => setPicking(null)} />}
+                </div>
+                <textarea
+                  value={s.action}
+                  onChange={(e) => setAction(i, e.target.value)}
+                  rows={2}
+                  placeholder="What this step does…"
+                  className="mt-1.5 w-full resize-none rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] leading-snug text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
+                />
               </div>
-              <textarea
-                value={s.action}
-                onChange={(e) => setAction(i, e.target.value)}
-                rows={2}
-                placeholder="What this step does…"
-                className="mt-1.5 w-full resize-none rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] leading-snug text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
-              />
+              <div className="flex shrink-0 flex-col items-center gap-0.5">
+                <button
+                  onClick={() => setSteps((cur) => moveStep(cur, i, -1))}
+                  disabled={i === 0}
+                  title="Move up"
+                  aria-label="Move step up"
+                  className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:opacity-30"
+                >
+                  <ChevronUp size={13} />
+                </button>
+                <button
+                  onClick={() => setSteps((cur) => moveStep(cur, i, 1))}
+                  disabled={i === steps.length - 1}
+                  title="Move down"
+                  aria-label="Move step down"
+                  className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:opacity-30"
+                >
+                  <ChevronDown size={13} />
+                </button>
+                <button
+                  onClick={() => setSteps((cur) => removeStep(cur, i))}
+                  title="Remove step"
+                  aria-label="Remove step"
+                  className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             </div>
-            <div className="flex shrink-0 flex-col items-center gap-0.5">
-              <button
-                onClick={() => setSteps((cur) => moveStep(cur, i, -1))}
-                disabled={i === 0}
-                title="Move up"
-                aria-label="Move step up"
-                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:opacity-30"
-              >
-                <ChevronUp size={13} />
-              </button>
-              <button
-                onClick={() => setSteps((cur) => moveStep(cur, i, 1))}
-                disabled={i === steps.length - 1}
-                title="Move down"
-                aria-label="Move step down"
-                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:opacity-30"
-              >
-                <ChevronDown size={13} />
-              </button>
-              <button
-                onClick={() => setSteps((cur) => removeStep(cur, i))}
-                title="Remove step"
-                aria-label="Remove step"
-                className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-removed-bg hover:text-removed"
-              >
-                <Trash2 size={12} />
-              </button>
-            </div>
-          </div>
-        ))}
-        {steps.length === 0 && (
-          <p className="rounded-lg border border-dashed border-line py-4 text-center text-[12px] text-ink-faint">
-            No steps yet — add the first one.
-          </p>
-        )}
-      </div>
+          ))}
+          {steps.length === 0 && (
+            <p className="rounded-lg border border-dashed border-line py-4 text-center text-[12px] text-ink-faint">
+              No steps yet — add the first one.
+            </p>
+          )}
+        </div>
 
-      <button
-        onClick={add}
-        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong py-2 text-[12px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
-      >
-        <Plus size={14} />
-        Add step
-      </button>
-
-      <div className="mt-3 flex items-center justify-end gap-2 border-t border-line pt-3">
-        <button onClick={onClose} className="rounded-md px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
-          Cancel
-        </button>
         <button
-          onClick={save}
-          className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
+          onClick={add}
+          className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-line-strong py-2 text-[12px] font-medium text-ink-soft transition hover:border-accent hover:text-ink"
         >
-          <Check size={13} />
-          Save workflow
+          <Plus size={14} />
+          Add step
         </button>
-      </div>
+
+        {error && <p role="status" className="mt-2 text-[12px] text-removed">{error}</p>}
+
+        <div className="mt-3 flex items-center justify-end gap-2 border-t border-line pt-3">
+          <button onClick={onClose} disabled={busy} className="rounded-md px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={busy}
+            className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {busy ? <Spinner size={13} /> : <Check size={13} />}
+            {busy ? 'Saving workflow…' : 'Save workflow'}
+          </button>
+        </div>
+      </fieldset>
     </div>
   )
 }
@@ -14003,6 +14033,7 @@ const TIMEZONES = [
  *  keeps the three coherent. These are entity fields → a per-action updateSchedule. */
 function SchedulePanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
+  const [draftHeld, setDraftHeld] = useState(false)
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     let handle: ReturnType<typeof setTimeout>
@@ -14024,6 +14055,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Schedule"
+      heldOpen={draftHeld}
       defaultFolded
       summary={task.cadence}
       actions={
@@ -14033,8 +14065,10 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
             icon={<Pencil size={13} />}
             onClick={() => setEditing((v) => !v)}
             open={editing}
+            disabled={draftHeld}
+            disabledReason={draftHeld ? ROUTINE_MUTATION_WAIT : undefined}
           />
-          {editing && <CadenceEditor task={task} onClose={() => setEditing(false)} />}
+          {editing && <CadenceEditor task={task} onHeldChange={setDraftHeld} onClose={() => setEditing(false)} />}
         </div>
       }
     >
@@ -14070,9 +14104,20 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
 /** The cadence editor popover — a frequency picker (+ time / weekday / timezone),
  *  with a live preview of the derived cadence + next-run. The server owns the
  *  durable next-fire cursor; Apply sends only authored recurrence intent. */
-function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
+function CadenceEditor({
+  task,
+  onHeldChange,
+  onClose,
+}: {
+  task: ScheduledTask
+  onHeldChange: (held: boolean) => void
+  onClose: () => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const close = busy ? () => {} : onClose
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
-  const ref = useDismissable<HTMLDivElement>(true, onClose)
+  const ref = useDismissable<HTMLDivElement>(true, close)
   const popRef = usePopoverShift<HTMLDivElement>(true)
   const [spec, setSpec] = useState<CadenceSpec>(() => parseCadence(task.cadence) ?? { freq: 'daily', time: '09:00' })
   const [tz, setTz] = useState(task.timezone ?? 'UTC')
@@ -14082,14 +14127,25 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
   const preview = describeCadence(spec)
   const next = nextRunLabel(spec, new Date(), tz)
 
-  const apply = () => {
+  const apply = async () => {
+    if (busy) return
     const derived = describeCadence(spec)
-    void updateSchedule(task.id, {
+    setBusy(true)
+    onHeldChange(true)
+    setError(null)
+    const outcome = await updateSchedule(task.id, {
       cadence: derived.cadence,
       timezone: tz,
       missedFirePolicy,
     })
-    onClose()
+    if (outcome === 'applied') {
+      onHeldChange(false)
+      onClose()
+      return
+    }
+    setError('Your schedule draft was not saved. Review the latest routine, then apply what you still want.')
+    setBusy(false)
+    onHeldChange(false)
   }
 
   return (
@@ -14100,28 +14156,30 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
       }}
       role="dialog"
       aria-label="Edit schedule"
+      aria-busy={busy}
       className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-3 ${POPOVER_SURFACE}`}
     >
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Frequency</div>
-      <div className="mt-1.5 grid grid-cols-2 gap-1">
-        {FREQ_OPTIONS.map((f) => {
-          const on = spec.freq === f.id
-          return (
-            <button
-              key={f.id}
-              onClick={() => setSpec((s) => ({ ...s, freq: f.id, time: s.time ?? '09:00', weekday: s.weekday ?? 1 }))}
-              aria-pressed={on}
-              className={`rounded-md border px-2 py-1 text-[12px] font-medium transition ${
-                on ? 'border-accent bg-accent-tint text-accent-strong' : 'border-line bg-surface text-ink-soft hover:border-line-strong'
-              }`}
-            >
-              {f.label}
-            </button>
-          )
-        })}
-      </div>
+      <fieldset disabled={busy} className="contents">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Frequency</div>
+        <div className="mt-1.5 grid grid-cols-2 gap-1">
+          {FREQ_OPTIONS.map((f) => {
+            const on = spec.freq === f.id
+            return (
+              <button
+                key={f.id}
+                onClick={() => setSpec((s) => ({ ...s, freq: f.id, time: s.time ?? '09:00', weekday: s.weekday ?? 1 }))}
+                aria-pressed={on}
+                className={`rounded-md border px-2 py-1 text-[12px] font-medium transition ${
+                  on ? 'border-accent bg-accent-tint text-accent-strong' : 'border-line bg-surface text-ink-soft hover:border-line-strong'
+                }`}
+              >
+                {f.label}
+              </button>
+            )
+          })}
+        </div>
 
-      {spec.freq === 'weekly' && (
+        {spec.freq === 'weekly' && (
         <label className="mt-2.5 block">
           <span className="text-[11px] font-medium text-ink-soft">Day</span>
           <select
@@ -14136,9 +14194,9 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
             ))}
           </select>
         </label>
-      )}
+        )}
 
-      {timed && (
+        {timed && (
         <label className="mt-2.5 block">
           <span className="text-[11px] font-medium text-ink-soft">Time</span>
           <input
@@ -14148,9 +14206,9 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
             className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-co"
           />
         </label>
-      )}
+        )}
 
-      <label className="mt-2.5 block">
+        <label className="mt-2.5 block">
         <span className="text-[11px] font-medium text-ink-soft">Timezone</span>
         <select
           value={tz}
@@ -14163,9 +14221,9 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
             </option>
           ))}
         </select>
-      </label>
+        </label>
 
-      <label className="mt-2.5 block">
+        <label className="mt-2.5 block">
         <span className="text-[11px] font-medium text-ink-soft">After downtime</span>
         <select
           value={missedFirePolicy}
@@ -14175,24 +14233,28 @@ function CadenceEditor({ task, onClose }: { task: ScheduledTask; onClose: () => 
           <option value="skip">Skip missed run</option>
           <option value="catch-up-once">Run once when back</option>
         </select>
-      </label>
+        </label>
 
-      <div className="mt-3 rounded-lg bg-panel-2/50 px-2.5 py-2 text-[12px] text-ink-soft">
-        <span className="font-medium text-ink">{preview.cadence}</span> · next {next}
-      </div>
+        <div className="mt-3 rounded-lg bg-panel-2/50 px-2.5 py-2 text-[12px] text-ink-soft">
+          <span className="font-medium text-ink">{preview.cadence}</span> · next {next}
+        </div>
 
-      <div className="mt-2.5 flex items-center justify-end gap-2">
-        <button onClick={onClose} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
-          Cancel
-        </button>
-        <button
-          onClick={apply}
-          className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
-        >
-          <Check size={13} />
-          Apply
-        </button>
-      </div>
+        {error && <p role="status" className="mt-2 text-[12px] text-removed">{error}</p>}
+
+        <div className="mt-2.5 flex items-center justify-end gap-2">
+          <button onClick={close} disabled={busy} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            onClick={apply}
+            disabled={busy}
+            className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {busy ? <Spinner size={13} /> : <Check size={13} />}
+            {busy ? 'Applying…' : 'Apply'}
+          </button>
+        </div>
+      </fieldset>
     </div>
   )
 }
