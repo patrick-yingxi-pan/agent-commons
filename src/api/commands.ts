@@ -18,7 +18,6 @@ import {
   type UpdateAgentRequest,
   type CreateCommissionRequest,
   type UpdateCommissionRequest,
-  type CreateProviderRequest,
   type CreatedProvider,
   type ModelProvider,
   type ProviderDefinitionMutationPatch,
@@ -483,16 +482,6 @@ export async function deleteCommission(id: string, projectId: string): Promise<v
 }
 
 // ── Model providers (the Agents hub — docs/agent-commons.md, D9) ─────────────
-
-/** Register a Model provider. The server validates the plan against the account plan
- *  (the D8 cascade root) and rejects an over-plan request (bad_request); on success the
- *  provider list refreshes. Returns the new provider — for `kind:'session'` it carries
- *  the ONE-TIME rendezvous `secret` (never readable again; the caller must show it). */
-export async function createProvider(input: CreateProviderRequest): Promise<CreatedProvider> {
-  const provider = await apiPost<CreatedProvider>(paths.providers, input)
-  invalidate(keys.providers)
-  return provider
-}
 
 /** Rotate a Session provider's rendezvous secret — the kill switch (the old secret dies
  *  instantly; an in-flight relayed turn falls back). Returns the row + the NEW one-time

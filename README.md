@@ -46,6 +46,9 @@ workflow, so another window cannot silently overwrite a newer auth transition.
 Sharing and authored social prose use the same held recovery grammar; social
 posts additionally persist an opaque logical identity so a lost response can be
 reconciled after restart without publishing the words or notifications twice.
+Provider onboarding also owns one durable logical identity: a lost response can
+reconcile the exact provider instead of creating another, and the desktop keeps
+its provisional OS-vault key until that exact row is acknowledged and bound.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server
@@ -202,7 +205,10 @@ the app's user-data directory; Agent Commons' database and HTTP requests retain
 only a generated `PROVIDER_DESKTOP_*` reference. The bridge is write-only—there
 is no renderer operation to read or list keys. Linux installations without a
 real secret store refuse Electron's `basic_text` fallback and use the explicit
-environment-reference workflow instead.
+environment-reference workflow instead. Provider creation holds the form and
+that same provisional reference until the server acknowledges or the client
+reconciles the exact durable row; transport uncertainty never deletes a key that
+a committed provider may already reference.
 
 On a fresh install, the opening draft detects that no model can answer and offers
 one **Connect a model** action. It opens the same Models provider form directly;

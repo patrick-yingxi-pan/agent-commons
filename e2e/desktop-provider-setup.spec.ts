@@ -3,7 +3,10 @@
  * utility path; this browser lane injects that exact narrow face so the shared
  * dialog can be exhaustively measured at every canonical viewport. */
 import { test, expect } from '@playwright/test'
+import { providerCreationId } from '../server/providerCreationIdentity.ts'
 import { ms } from './budget.ts'
+
+const MODEL_PORT = 8830 + Number(process.env.E2E_SHARD ?? 0)
 
 const VIEWPORTS = [
   { width: 320, height: 700 },
@@ -138,4 +141,85 @@ test('a lost rotation acknowledgement retries the exact request and device key o
     ['provision', replacement],
     ['bind', `PROVIDER_DESKTOP_${'E'.repeat(32)}`, provider.id],
   ])
+})
+
+test('a committed provider with a lost acknowledgement keeps and binds its device key', async ({ page }) => {
+  test.setTimeout(ms(90_000))
+  const reference = `PROVIDER_DESKTOP_${'F'.repeat(32)}`
+  await page.addInitScript((credentialReference) => {
+    ;(window as any).__desktopCredentialCalls = []
+    Object.defineProperty(window, 'agentCommonsDesktop', {
+      configurable: false,
+      value: {
+        credentials: {
+          provision: async (secret: string) => {
+            ;(window as any).__desktopCredentialCalls.push(['provision', secret])
+            return credentialReference
+          },
+          bind: async (boundReference: string, providerId: string) => {
+            ;(window as any).__desktopCredentialCalls.push(['bind', boundReference, providerId])
+          },
+          discard: async (discardedReference: string) => {
+            ;(window as any).__desktopCredentialCalls.push(['discard', discardedReference])
+          },
+          removeProvider: async () => undefined,
+        },
+      },
+    })
+  }, reference)
+  await page.goto('/models')
+  const login = await page.request.post('/api/v1/auth/login', {
+    data: { email: 'ada@acme.example', password: 'ada-demo-password' },
+  })
+  expect(login.ok()).toBeTruthy()
+  await page.reload()
+
+  const me = await page.request.get('/api/v1/me')
+  expect(me.ok()).toBeTruthy()
+  const tenantId = ((await me.json()) as { tenant: { id: string } }).tenant.id
+  const requests: Array<{ body: unknown; key: string }> = []
+  await page.route('**/api/v1/providers', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    const request = route.request()
+    requests.push({
+      body: request.postDataJSON(),
+      key: request.headers()['idempotency-key'] ?? '',
+    })
+    const committed = await route.fetch()
+    expect(committed.ok()).toBeTruthy()
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'internal', message: 'Acknowledgement lost after commit.' } }),
+    })
+  })
+
+  const label = `Recovered desktop provider ${Date.now().toString(36)}`
+  const rawKey = 'provider-key-that-must-never-enter-http'
+  await page.getByRole('button', { name: 'New provider', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New provider' })
+  await dialog.getByLabel('Name').fill(label)
+  await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(`http://127.0.0.1:${MODEL_PORT}`)
+  await page.getByPlaceholder('Paste API key', { exact: true }).fill(rawKey)
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(dialog).toBeHidden()
+
+  expect(requests).toHaveLength(1)
+  expect(requests[0]!.key).not.toBe('')
+  expect(requests[0]!.body).toMatchObject({
+    label,
+    config: {
+      baseURL: `http://127.0.0.1:${MODEL_PORT}`,
+      apiKeyEnv: reference,
+    },
+  })
+  expect(JSON.stringify(requests)).not.toContain(rawKey)
+  const expectedId = providerCreationId(tenantId, requests[0]!.key)
+  expect(await page.evaluate(() => (window as any).__desktopCredentialCalls)).toEqual([
+    ['provision', rawKey],
+    ['bind', reference, expectedId],
+  ])
+  const registry = await page.request.get('/api/v1/providers')
+  expect(registry.ok()).toBeTruthy()
+  expect(((await registry.json()) as Array<{ id: string }>).filter((provider) => provider.id === expectedId)).toHaveLength(1)
 })

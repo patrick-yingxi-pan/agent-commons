@@ -64,6 +64,14 @@ function mac(payload: string): Buffer {
   return createHmac('sha256', SECRET).update(payload).digest()
 }
 
+/** Domain-separated deterministic secret material for server-only recovery
+ * ceremonies. Callers receive bytes, never the root signing secret itself. */
+export function deriveServerSecret(purpose: string, material: string): Buffer {
+  return createHmac('sha256', SECRET)
+    .update(`${purpose}\0${material}`)
+    .digest()
+}
+
 /** claims → `base64url(json).base64url(hmac)` */
 export function signSession(claims: SessionClaims): string {
   const payload = b64url(Buffer.from(JSON.stringify(claims), 'utf8'))

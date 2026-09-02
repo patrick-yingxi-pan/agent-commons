@@ -5,6 +5,7 @@
 import { buildRouter } from '../routes/index.ts'
 
 const router = buildRouter()
+type TestRouter = ReturnType<typeof buildRouter>
 
 export interface CallResult {
   status: number
@@ -76,7 +77,8 @@ function makeReq(method: string, bodyObj?: unknown, headers?: Record<string, str
 
 /** Issue one request against the route table. `path` is under the API root
  *  (the version prefix is already stripped before routing in production). */
-export async function call(
+async function dispatch(
+  target: TestRouter,
   method: string,
   path: string,
   bodyObj?: unknown,
@@ -84,8 +86,29 @@ export async function call(
 ): Promise<CallResult> {
   const req = makeReq(method, bodyObj, headers)
   const { res, result } = makeRes()
-  await router.handle(req, res, new URL(`http://test${path}`))
+  await target.handle(req, res, new URL(`http://test${path}`))
   return result()
+}
+
+export function call(
+  method: string,
+  path: string,
+  bodyObj?: unknown,
+  headers?: Record<string, string>,
+): Promise<CallResult> {
+  return dispatch(router, method, path, bodyObj, headers)
+}
+
+/** Drive a newly built route table over the same authoritative store. This
+ * intentionally loses process-local middleware caches, letting durability
+ * tests model a restart without replacing product state or fixture truth. */
+export function callFresh(
+  method: string,
+  path: string,
+  bodyObj?: unknown,
+  headers?: Record<string, string>,
+): Promise<CallResult> {
+  return dispatch(buildRouter(), method, path, bodyObj, headers)
 }
 
 /** Like `call`, but returns the raw response text + status — for the streaming

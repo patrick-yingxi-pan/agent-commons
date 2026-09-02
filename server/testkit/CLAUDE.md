@@ -23,10 +23,12 @@ Read the driver and the real subsystem it starts. Test data remains owned by
 
 ## What lives here
 
-- `http.ts` — `call` / `callRaw`: drive the **real** route table at the handler
+- `http.ts` — `call` / `callFresh` / `callRaw`: drive the **real** route table at the handler
   level. Real `buildRouter()`, real store, no port bound and no entry point
   booted; a minimal fake req/res captures status, JSON body and headers. This is
-  why a route suite reads like HTTP without the process plumbing.
+  why a route suite reads like HTTP without the process plumbing. `callFresh`
+  rebuilds only the router so a durability lock can discard process-local
+  middleware caches while retaining the real store.
 - `connector.ts` — spawn a relay-connector **process** over stdio JSON-RPC
   against a minimal in-test relay backend. Shared by the source-form lock
   (`routes/relay-connector.test.ts`, which spawns the checked-in TS via Node's

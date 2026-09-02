@@ -9,8 +9,9 @@ import { createServer } from 'node:http'
 import { store } from '../store/index.ts'
 import { DEFAULT_PROVIDER_ID } from '../data/providers.ts'
 import { startModelServer } from '../model/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
 import { ConflictError } from '../conflict.ts'
+import { providerCreationId } from '../providerCreationIdentity.ts'
 
 test('POST creates a provider; GET lists it; PATCH edits its fields', async () => {
   const created = await call('POST', '/providers', {
@@ -41,6 +42,68 @@ test('POST creates a provider; GET lists it; PATCH edits its fields', async () =
   assert.deepEqual(patched.json.effortLevels, ['Low', 'High'])
   assert.equal(patched.json.definitionRevision, 1)
   assert.equal(patched.json.execution, 'mock')
+})
+
+test('a keyed Session-provider create survives response-cache loss with one row and the same one-time secret', async () => {
+  const tenantId = 'tenant-provider-create-durable'
+  const key = `provider-create-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': tenantId, 'idempotency-key': key }
+  const body = {
+    label: 'Durable relay provider',
+    modelFamily: 'claude',
+    effortLevels: ['Low', 'Medium', 'High'],
+    kind: 'session',
+    isDefault: true,
+  }
+  const expectedId = providerCreationId(tenantId, key)
+  const created = await call('POST', '/providers', body, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+  assert.match(created.json.secret, /^rv_live_/)
+
+  const cachedReplay = await call('POST', '/providers', body, headers)
+  assert.equal(cachedReplay.headers['idempotency-replayed'], 'true')
+  assert.equal(cachedReplay.json.secret, created.json.secret)
+
+  // A fresh router has no idempotency response cache, like a restarted process,
+  // while the real store still carries the durable provider row.
+  const durableReplay = await callFresh(
+    'POST',
+    '/providers',
+    { ...body, label: 'A changed retry body must not overwrite the represented row' },
+    headers,
+  )
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.id, expectedId)
+  assert.equal(durableReplay.json.label, body.label)
+  assert.equal(durableReplay.json.secret, created.json.secret)
+  assert.equal(
+    store.listProviders(tenantId).filter((provider) => provider.id === expectedId).length,
+    1,
+    'durable identity, not only the response cache, prevents a duplicate provider',
+  )
+
+  // Replaying an old create is not permission to rewind a newer default choice.
+  store.setDefaultProvider(DEFAULT_PROVIDER_ID, tenantId)
+  const afterDefaultMoved = await callFresh('POST', '/providers', body, headers)
+  assert.equal(afterDefaultMoved.status, 200)
+  assert.equal(
+    store.listProviders(tenantId).find((provider) => provider.id === expectedId)?.isDefault,
+    undefined,
+  )
+  assert.equal(
+    store.listProviders(tenantId).find((provider) => provider.id === DEFAULT_PROVIDER_ID)?.isDefault,
+    true,
+  )
+
+  // The create key is recovery, not a permanent alternate credential. Once a
+  // rotation changes durable truth, replaying the old mint cannot reveal or
+  // restore its superseded bearer.
+  store.rotateProviderSecret(expectedId, tenantId)
+  const afterRotation = await callFresh('POST', '/providers', body, headers)
+  assert.equal(afterRotation.status, 409)
+  assert.equal(afterRotation.json.secret, undefined)
 })
 
 test('provider definition PATCH is sparse, compare-and-swap, replay-safe, and ownership-strict', async () => {

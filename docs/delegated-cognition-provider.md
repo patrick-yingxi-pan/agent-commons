@@ -129,12 +129,16 @@ Slice 18's invariant is two invariants fused:
 is selectable in the composer's model selector) → New provider → **kind toggle: "API endpoint" (today) vs
 "My AI session" (new)**. The session form asks for nothing we'd dial (no base URL, no
 key) — just a label ("My laptop's Claude") and effort levels (marked *advisory*). On
-Create, a **one-time panel** shows: the **rendezvous secret** (shown once, Copy), the
+Create, a **one-time panel** shows: the **rendezvous secret** (shown only in the
+creation ceremony, Copy), the
 command to start the user-side connector, and a prominent **"Prose only"** badge. Dismiss
 is gated behind an "I've saved it" checkbox, with the plain warning: *this is a password —
 anyone who has it can put words in your assistant's mouth.* The provider then appears with
 a grey **offline** dot and a `Session · prose-only` subtitle; re-opening it shows only a
 masked `rv_live_••••3f9a` fingerprint + a **Rotate** action, never the secret again.
+If the creation response itself is lost, the same in-flight logical key may reconstruct
+the same bearer long enough to finish that ceremony; an ordinary read cannot, and rotating
+the provider permanently invalidates the old creation recovery path.
 
 ### 4.2 Wire the user side — the drain mechanism
 The user-side integration is **one MCP server** the user runs next to their session; MCP is
@@ -378,7 +382,8 @@ or run tools, because the relay carries plain text, not tool calls.*
   persists** (the spend gate's pre-persist shape), so a dead or busy relay never wedges
   a turn and nothing half-written needs cleanup.
 - **Security walls** (§6.4): bearer secret compared constant-time (`timingSafeEqual`, the
-  `RUNNER_ENROLL_TOKEN` pattern) on every poll/reply; one-time-show; **only a hash persisted**
+  `RUNNER_ENROLL_TOKEN` pattern) on every poll/reply; creation-ceremony-only reveal (including
+  exact lost-response recovery until rotation); **only a hash persisted**
   (§6.1); masked-on-read; never-logged; tenant-scoped dispatch (the route already holds the
   tenant — no re-derivation seam exists); DELETE/rotate invalidates; and the
   **outbound-injection wall** on the connector side (§7.9).

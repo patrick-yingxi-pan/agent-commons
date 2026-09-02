@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 import { call, callRaw } from './testkit/http.ts'
 import { store } from './store/index.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
-import { hashRelaySecret, relayReply, RelayRuntime } from './relay.ts'
+import { deriveRelayCreationSecret, hashRelaySecret, relayReply, RelayRuntime } from './relay.ts'
 
 const PROVIDER_BODY = { label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' }
 const auth = (secret: string) => ({ authorization: `Bearer ${secret}` })
@@ -82,6 +82,14 @@ test('minting a Session provider: one-time secret, masked hint, explicit capabil
   const config = store.providerConfig(p.id)
   assert.equal(config.kind, 'session')
   assert.equal(config.capabilities?.toolUse, true, 'toolUse:true is stamped explicitly, never left to the unset default')
+})
+
+test('a keyed relay mint derives stable, tenant-separated bearer material', () => {
+  const first = deriveRelayCreationSecret('tenant-relay-a', 'logical-create')
+  assert.equal(first, deriveRelayCreationSecret('tenant-relay-a', 'logical-create'))
+  assert.notEqual(first, deriveRelayCreationSecret('tenant-relay-b', 'logical-create'))
+  assert.match(first, /^rv_live_[A-Za-z0-9_-]{43}$/)
+  assert.doesNotMatch(first, /tenant-relay|logical-create/)
 })
 
 test('a Session provider registration refuses an endpoint config (nothing to dial)', async () => {

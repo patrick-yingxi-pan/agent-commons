@@ -77,12 +77,20 @@ import { IdempotencyCache, captureResponse, replayResponse } from '../idempotenc
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
-import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
+import {
+  deriveRelayCreationSecret,
+  relayReply,
+  mintRelaySecret,
+  hashRelaySecret,
+  relaySecretHint,
+  type RelayOutcome,
+} from '../relay.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, summarizeConversation } from '../compaction.ts'
 import { manualScheduleRunId } from '../scheduleRunIdentity.ts'
 import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
+import { providerCreationId } from '../providerCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -1137,24 +1145,47 @@ export function buildRouter(): Router {
     if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
     sendJson(res, provider)
   })
-  r.post('/providers', async ({ req, res, body }) => {
+  r.post('/providers', idempotent(async ({ req, res, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalProviderId = idempotencyKey
+      ? providerCreationId(tenantId, idempotencyKey)
+      : undefined
+    const represented = logicalProviderId
+      ? store.listProviders(tenantId).find((provider) => provider.id === logicalProviderId)
+      : undefined
+    if (represented) {
+      // A Session provider's one-time bearer can be reconstructed only for the
+      // same logical create and only while it still matches durable truth (a
+      // later rotation must make the create key powerless).
+      if (represented.kind === 'session' && idempotencyKey) {
+        const secret = deriveRelayCreationSecret(tenantId, idempotencyKey)
+        if (!store.providerAcceptsRelaySecret(represented.id, secret)) {
+          return sendError(res, 'conflict', 'This Session provider exists, but its enrollment secret changed. Rotate it from the provider page.')
+        }
+        return sendJson(res, { ...represented, secret })
+      }
+      return sendJson(res, represented)
+    }
     const input = await body<CreateProviderRequest>()
     if (!input?.label || !input?.modelFamily || !Array.isArray(input.effortLevels)) {
       return sendError(res, 'bad_request', 'label, modelFamily, and effortLevels are required')
     }
     // A Session provider (docs/delegated-cognition-provider.md): nothing to dial, so no
     // endpoint config and no conformance probe — instead the server mints the rendezvous
-    // secret here and answers with it EXACTLY ONCE (only its hash survives, on the
-    // server-only config). The mint stamps the capability EXPLICITLY (never left to the
+    // secret here and exposes it only in this creation ceremony (including an exact
+    // same-key recovery while its hash still matches). Only its hash survives in the
+    // server-only config. The mint stamps the capability EXPLICITLY (never left to the
     // unset default): `toolUse:true` since the v2 framed mailbox — the relay's tool-use
     // capability is the MAILBOX's, code-owned, not probed — plus the caller's tenant
     // (forced scoping; the store's mint wall re-asserts both).
     if (input.kind === 'session') {
       if (input.config) return sendError(res, 'bad_request', 'A Session provider has no endpoint — omit `config`.')
       if (input.models) return sendError(res, 'bad_request', 'A Session provider has no model catalog — omit `models`.')
-      const secret = mintRelaySecret()
+      const secret = idempotencyKey
+        ? deriveRelayCreationSecret(tenantId, idempotencyKey)
+        : mintRelaySecret()
       try {
-        const tenantId = store.identity(req.headers).tenant.id
         const provider = store.createProvider(
           {
             label: input.label,
@@ -1167,10 +1198,8 @@ export function buildRouter(): Router {
           },
           { kind: 'session', capabilities: { toolUse: true }, secretHash: hashRelaySecret(secret) },
           tenantId,
+          { logicalId: logicalProviderId, isDefault: input.isDefault },
         )
-        // The request flagged the new entry as the caller's default (the UI shortcut) —
-        // one pointer move through the same seam the PATCH path uses.
-        if (input.isDefault === true) store.setDefaultProvider(provider.id, tenantId)
         return sendJson(res, { ...provider, ...(input.isDefault === true ? { isDefault: true } : {}), secret })
       } catch (err) {
         if (err instanceof BudgetError || err instanceof ProviderProbeError) return sendError(res, 'bad_request', err.message)
@@ -1185,7 +1214,7 @@ export function buildRouter(): Router {
     // guard. A probe failure is a 400 — a non-conformant provider is never registered.
     // (`kind`/`secretHint`/`online` are server-stamped relay fields — stripped, so an
     // endpoint registration can't forge them. `isDefault` is split off too: it's the
-    // per-tenant pointer move below, never a stored field.)
+    // per-tenant pointer intent, never a stored field.)
     // (`catalogSource` is server-derived too — stripped so a request can't claim a
     // 'listed' catalog it declared by hand; the mint funnel stamps 'static'.)
     const endpoint = input.config
@@ -1230,9 +1259,10 @@ export function buildRouter(): Router {
       }
     }
     try {
-      const tenantId = store.identity(req.headers).tenant.id
-      const provider = store.createProvider(fields, config, tenantId)
-      if (isDefault === true) store.setDefaultProvider(provider.id, tenantId)
+      const provider = store.createProvider(fields, config, tenantId, {
+        logicalId: logicalProviderId,
+        isDefault,
+      })
       // Re-read so the response carries the serve-time stamps (isDefault,
       // defaultModelId) — the same projection every later GET serves.
       sendJson(res, store.listProviders(tenantId).find((p) => p.id === provider.id) ?? provider)
@@ -1246,7 +1276,7 @@ export function buildRouter(): Router {
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       throw err
     }
-  })
+  }))
   // Re-fetch a provider's model catalog from its endpoint's own list API — the
   // 'listed' source stamp is earned only by this funnel (and the registration-time
   // fetch), never claimable on a request. A Session provider has no endpoint to

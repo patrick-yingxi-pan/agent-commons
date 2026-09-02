@@ -44,17 +44,28 @@ import { deriveConnectorTools } from './model/connectorTools.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv } from './env.ts'
+import { deriveServerSecret } from './auth.ts'
 import { executeToolBatch, toolExecutionLimits, toolLoopLimits } from './toolExecution.ts'
 
 /** ── The rendezvous secret ───────────────────────────────────────────────────
- *  High-entropy bearer token, shown exactly once at mint/rotate. Only its SHA-256
- *  persists (on the server-only `ProviderConfig`) — at once the credential, the
- *  durable re-bind identity, and the restart-recovery key (§6.1). SHA-256 (not a
- *  slow KDF) is right here: the secret is 192 random bits, not a human password. */
+ *  High-entropy bearer token, exposed only by its mint/rotate ceremony. Only its
+ *  SHA-256 persists (on the server-only `ProviderConfig`) — at once the credential,
+ *  durable re-bind identity, and restart-recovery key (§6.1). Unkeyed/rotation
+ *  tokens carry 192 random bits; keyed creation uses 256 HMAC bits, so a fast hash
+ *  (not a password KDF) is appropriate for both. */
 const SECRET_PREFIX = 'rv_live_'
 
 export function mintRelaySecret(): string {
   return `${SECRET_PREFIX}${randomBytes(24).toString('base64url')}`
+}
+
+/** Reconstruct the one-time secret for a keyed provider mint after a response
+ * or backend process was lost. HMAC keeps an observed row id/key from being a
+ * bearer credential; a stable deployment secret makes restart recovery possible
+ * without ever persisting plaintext. */
+export function deriveRelayCreationSecret(tenantId: string, idempotencyKey: string): string {
+  const bytes = deriveServerSecret('provider-relay-creation-v1', `${tenantId}\0${idempotencyKey}`)
+  return `${SECRET_PREFIX}${bytes.toString('base64url')}`
 }
 
 export function hashRelaySecret(secret: string): string {

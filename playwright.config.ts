@@ -98,6 +98,10 @@ export default defineConfig({
       // otherwise stand the mock down and dial a real API — E2E must be deterministic.
       MODEL_PORT: String(MODEL_PORT),
       ANTHROPIC_BASE_URL: `http://127.0.0.1:${MODEL_PORT}`,
+      // The desktop-provider browser lane injects the renderer's narrow vault
+      // face. Its fixed generated reference also has to resolve in this
+      // browser-owned backend; packaged smoke exercises the real IPC handoff.
+      [`PROVIDER_DESKTOP_${'F'.repeat(32)}`]: 'e2e-device-provider-key',
       // A real boot defaults the AUTH GATE ON (server/index.ts). The E2E stack
       // opts out: its specs impersonate tenants via the dev header seam and
       // drive the sign-in flow explicitly where they test it; the gate's WALL

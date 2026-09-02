@@ -4118,7 +4118,28 @@ export const store = {
    *  config that brings its **own endpoint** must arrive already carrying the probed
    *  capability record (`probeProviderEndpoint`, run by the route): an unverified
    *  endpoint is unrepresentable in the registry, same shape as an over-grant. */
-  createProvider(input: Omit<ModelProvider, 'id'>, config: ProviderConfig = {}, tenantId?: string): ModelProvider {
+  createProvider(
+    input: Omit<ModelProvider, 'id'>,
+    config: ProviderConfig = {},
+    tenantId?: string,
+    options: { logicalId?: string; isDefault?: boolean } = {},
+  ): ModelProvider {
+    const ownerTenant = tenantId ?? input.tenantId
+    // A keyed registration owns this exact row beyond the process-local HTTP
+    // response cache. Returning the represented row is deliberately side-effect
+    // free: a later default choice must not be rewound by replaying an old mint.
+    if (options.logicalId) {
+      if (!ownerTenant) {
+        throw new ValidationError('A keyed provider registration must be account-scoped.')
+      }
+      const represented = MODEL_PROVIDERS.get(options.logicalId)
+      if (represented) {
+        if (represented.tenantId !== ownerTenant) {
+          throw new ValidationError('That provider registration identity is already owned by another account.')
+        }
+        return represented
+      }
+    }
     if (input.plan) mintBudget(usageMeter.planCeilings(), input.plan)
     if (config.baseURL && !config.capabilities) {
       throw new ProviderProbeError('A provider endpoint must pass the conformance probe before it is registered.')
@@ -4165,8 +4186,8 @@ export const store = {
     // (the per-tenant pointer; the config-resolved model) — stored on the entity
     // they would leak across tenants / drift from the config they mirror.
     const provider: ModelProvider = {
-      id: `provider-${(providerSeq += 1)}`,
-      tenantId: tenantId ?? input.tenantId,
+      id: options.logicalId ?? `provider-${(providerSeq += 1)}`,
+      tenantId: ownerTenant,
       ...(input.kind ? { kind: input.kind } : {}),
       ...(input.secretHint ? { secretHint: input.secretHint } : {}),
       label: input.label,
@@ -4181,11 +4202,22 @@ export const store = {
     }
     if (!provider.models) delete provider.catalogSource
     else provider.catalogSource ??= 'static'
-    MODEL_PROVIDERS.set(provider.id, provider)
-    PROVIDER_CONFIGS.set(provider.id, config)
-    emitProviderChanged(provider)
-    persist()
-    return provider
+    return commitMutationBatch(() => {
+      MODEL_PROVIDERS.set(provider.id, provider)
+      PROVIDER_CONFIGS.set(provider.id, config)
+      emitProviderChanged(provider)
+      persist()
+      if (options.isDefault === true) this.setDefaultProvider(provider.id, ownerTenant)
+      return provider
+    })
+  },
+  /** Whether a reconstructed create-time relay secret still authenticates the
+   * exact provider. Used only to recover a lost one-time mint response without
+   * widening the provider-config read surface. */
+  providerAcceptsRelaySecret(id: string, secret: string): boolean {
+    const config = PROVIDER_CONFIGS.get(id)
+    return config?.kind === 'session' && !!config.secretHash &&
+      sameSecretHash(config.secretHash, hashRelaySecret(secret))
   },
   /** Patch a provider's own fields (label / family / effort levels / plan / authority).
    *  Re-validates a changed plan against the account plan — the same cascade-root

@@ -244,11 +244,7 @@ import {
 import {
   addSavedContext,
   createCommission,
-  createProvider,
   desktopCredentialsAvailable,
-  provisionDesktopCredential,
-  bindDesktopCredential,
-  discardDesktopCredential,
   removeDesktopProviderCredentials,
   deleteProvider,
   rotateProvider,
@@ -392,6 +388,7 @@ import {
 import { updateAgent } from '../controller/agentMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
+import { enqueueProviderCreation } from '../controller/providerCreationMutations'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
 import {
   enqueueWallPost,
@@ -10166,6 +10163,7 @@ function ProviderDialog({
   // page behind this held draft; sparse intent must still mean what the user
   // changed, not whatever a newer prop happens to contain.
   const original = useRef(provider).current
+  const tenantId = useMe().data?.tenant.id
   const [label, setLabel] = useState(provider?.label ?? '')
   const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
   const [kind, setKind] = useState<'endpoint' | 'session'>(provider?.kind ?? 'endpoint')
@@ -10191,6 +10189,7 @@ function ProviderDialog({
   const canSubmit =
     label.trim().length > 0 &&
     (isSession || (family.trim().length > 0 && (provider !== null || baseURL.trim().length > 0))) &&
+    (!!provider || !!tenantId) &&
     (!provider || hasEditChanges) &&
     !busy
 
@@ -10212,46 +10211,52 @@ function ProviderDialog({
         }
         onClose()
       } else if (isSession) {
-        const created = await createProvider({
-          label: label.trim(),
-          modelFamily: 'claude', // advisory on a session — the far side picks its own model
-          effortLevels: ['Low', 'Medium', 'High'],
-          kind: 'session',
-          ...(isDefault ? { isDefault } : {}),
+        const result = await enqueueProviderCreation({
+          tenantId: tenantId!,
+          request: {
+            label: label.trim(),
+            modelFamily: 'claude', // advisory on a session — the far side picks its own model
+            effortLevels: ['Low', 'Medium', 'High'],
+            kind: 'session',
+            ...(isDefault ? { isDefault } : {}),
+          },
         })
-        setMinted(created) // the one-time reveal takes over; onClose comes from its Done
+        if (result.outcome === 'discarded') {
+          setError('Your provider details are still here. Review them, then create again when ready.')
+          setBusy(false)
+          return
+        }
+        if (!result.provider?.secret) {
+          throw new Error('The provider was created, but its relay secret could not be confirmed. Open the provider and rotate its secret.')
+        }
+        setMinted(result.provider) // the one-time reveal takes over; onClose comes from its Done
       } else {
-        let credentialReference: string | undefined
-        try {
-          if (hasSecureDeviceVault && apiKey.trim()) {
-            credentialReference = await provisionDesktopCredential(apiKey.trim())
-          }
-          const created = await createProvider({
+        const result = await enqueueProviderCreation({
+          tenantId: tenantId!,
+          request: {
             label: label.trim(),
             modelFamily: family.trim(),
             effortLevels: ['Low', 'Medium', 'High'],
             config: {
               baseURL: baseURL.trim(),
               ...(model.trim() ? { model: model.trim() } : {}),
-              ...(credentialReference
-                ? { apiKeyEnv: credentialReference }
-                : apiKeyEnv.trim()
-                  ? { apiKeyEnv: apiKeyEnv.trim() }
-                  : {}),
+              ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
             },
             ...(isDefault ? { isDefault } : {}),
-          })
-          if (credentialReference) {
-            await bindDesktopCredential(credentialReference, created.id).catch(() => {})
-          }
-          onClose()
-          onCreated?.(created)
+          },
+          ...(hasSecureDeviceVault && apiKey.trim() ? { deviceSecret: apiKey.trim() } : {}),
+        })
+        if (result.outcome === 'discarded') {
+          setError('Your provider details are still here. Review them, then create again when ready.')
+          setBusy(false)
           return
-        } catch (error) {
-          if (credentialReference) await discardDesktopCredential(credentialReference).catch(() => {})
-          throw error
+        }
+        if (!result.provider) {
+          throw new Error('The provider acknowledgement was incomplete. Review the registry before trying again.')
         }
         onClose()
+        onCreated?.(result.provider)
+        return
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save this provider.')
