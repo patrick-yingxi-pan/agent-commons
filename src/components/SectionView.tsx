@@ -243,7 +243,6 @@ import {
 } from '../data/cowork'
 import {
   addSavedContext,
-  createCommission,
   desktopCredentialsAvailable,
   removeDesktopProviderCredentials,
   deleteProvider,
@@ -386,6 +385,10 @@ import {
 import { updateAgent } from '../controller/agentMutations'
 import { enqueueAgentCreation } from '../controller/agentCreationMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
+import {
+  enqueueCommissionCreation,
+  isCommissionCreationHeld,
+} from '../controller/commissionCreationMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import { enqueueProviderCreation } from '../controller/providerCreationMutations'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
@@ -2528,28 +2531,49 @@ function CommissionDialog({
 }
 
 /** The "Commission an agent" picker — the Contributors header's verb, listing
- *  the Agents not already contributing. Picking one POSTs a commission (inheriting the
- *  Agent's grant) and the panel refreshes via the commissions cache. The role is
+ *  the Agents not already contributing. Picking one holds an acknowledged commission
+ *  (inheriting the Agent's grant) until exact server truth settles it. The role is
  *  stated, not implied (INV-9 — the request must name one): `joinRole` is the
  *  Project's defaultRole-else-writer, shown in the picker so a click grants exactly
  *  what it says; per-contributor changes live in the row's Edit dialog. */
 function CommissionAdd({ projectId, available, joinRole }: { projectId: string; available: Agent[]; joinRole: ProjectRole }) {
+  const tenantId = useMe().data?.tenant.id
   const [open, setOpen] = useState(false)
-  const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
-  const popRef = usePopoverShift<HTMLDivElement>(open)
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
   const [pending, setPending] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const close = () => {
+    if (isCommissionCreationHeld(projectId)) return
+    setOpen(false)
+    setSelectedAgent(null)
+    setError(null)
+  }
+  const ref = useDismissable<HTMLDivElement>(open, close)
+  const popRef = usePopoverShift<HTMLDivElement>(open)
+  // An ambient roster refresh may represent a committed request before its
+  // transport settles. Keep the submitted row visible until the controller does.
+  const choices = selectedAgent && !available.some((agent) => agent.id === selectedAgent.id)
+    ? [selectedAgent, ...available]
+    : available
 
   const commission = async (agent: Agent) => {
+    if (pending || !tenantId) return
+    setSelectedAgent(agent)
     setPending(agent.id)
+    setError(null)
     try {
-      await createCommission({ agentId: agent.id, projectId, role: joinRole })
+      const outcome = await enqueueCommissionCreation({
+        tenantId,
+        request: { agentId: agent.id, projectId, role: joinRole },
+      })
+      if (outcome === 'discarded') {
+        setError('Your Contributor choice is still here. Review it, then commission again when ready.')
+        return
+      }
       setOpen(false)
-    } catch {
-      // The server funnel rejects an over-grant / unknown id; the picker only ever
-      // creates *inheriting* commissions (no scoped grant), so this is unreachable
-      // today. Handle it anyway — keep the picker open so a retry is possible, and
-      // don't leak an unhandled rejection. (A scoped-commission UI would surface the
-      // error here.)
+      setSelectedAgent(null)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not commission this Agent.')
     } finally {
       setPending(null)
     }
@@ -2562,8 +2586,13 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
       <SectionAction
         label="Commission an agent"
         icon={<Plus size={14} />}
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (open) close()
+          else if (!isCommissionCreationHeld(projectId)) setOpen(true)
+        }}
         open={open}
+        disabled={!tenantId || pending !== null}
+        disabledReason={pending ? 'Waiting for server acknowledgement' : 'Waiting for your account'}
       />
 
       {open && (
@@ -2571,18 +2600,20 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
           ref={popRef}
           role="dialog"
           aria-label="Commission an agent"
+          aria-busy={pending !== null}
           className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
         >
-          {available.length === 0 ? (
+          {choices.length === 0 ? (
             <p className="px-1.5 py-1 text-[12px] text-ink-faint">Every agent is already a Contributor.</p>
           ) : (
             <>
-              {available.map((a) => (
+              {choices.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => commission(a)}
-                  disabled={pending === a.id}
-                  className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:opacity-50"
+                  disabled={pending !== null}
+                  data-pending={pending === a.id || undefined}
+                  className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:opacity-50 ${pending === a.id ? 'bg-accent/10 ring-1 ring-accent/30' : ''}`}
                 >
                   <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
                     <Cpu size={15} />
@@ -2594,7 +2625,7 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
                     </span>
                   </span>
                   <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
-                    <Plus size={13} />
+                    {pending === a.id ? <Spinner size={13} /> : <Plus size={13} />}
                   </span>
                 </button>
               ))}
@@ -2604,6 +2635,7 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
                 Joins as <span className="font-medium text-ink-soft">{joinRole}</span> — change per
                 contributor via its Edit.
               </p>
+              {error && <p role="alert" className="px-1.5 pt-1.5 text-[11px] text-danger">{error}</p>}
             </>
           )}
         </div>

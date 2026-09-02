@@ -16,7 +16,6 @@ import {
   type CommissionConfigurationPatch,
   type CreateAgentRequest,
   type UpdateAgentRequest,
-  type CreateCommissionRequest,
   type UpdateCommissionRequest,
   type CreatedProvider,
   type ModelProvider,
@@ -94,7 +93,8 @@ import { mergeArtifactContent } from './artifactContentRevision.ts'
 import { mergeAgentConfiguration } from './agentRevision.ts'
 import { mergeProviderConnection, mergeProviderDefinition } from './providerRevision.ts'
 import { mergeSystemPromptDefinition } from './systemPromptRevision.ts'
-import { mergeCommissionConfiguration, newestCommissionConfiguration } from './commissionRevision.ts'
+import { newestCommissionConfiguration } from './commissionRevision.ts'
+import { mergeCommissionIntoCachedRosters } from './commissionRosterCache.ts'
 import { mergeSavedContextConnection, mergeSavedContextConnectionSnapshot } from './savedContextRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
@@ -404,30 +404,10 @@ export async function deleteSchedule(
   invalidate(keys.relations)
 }
 
-/** Commission an Agent onto a Project (docs/agent-commons.md, D7/D13) — the leaf of
- *  the D8 cascade. The server funnel rejects an over-grant (400) / unknown ids (404);
- *  on success we refresh that Project's Contributor list. Returns the new commission. */
-export async function createCommission(input: CreateCommissionRequest): Promise<Commission> {
-  const commission = await apiPost<Commission>(paths.commissions(), input)
-  invalidate(keys.commissions(input.projectId))
-  invalidate(keys.commissions())
-  // The roster size rides the directory card ("N contributors", D17).
-  invalidatePrefix(keys.directoryProjects())
-  return commission
-}
-
 /** Re-grant a commission (narrow / restore its Project-clamped reach, D12). Refreshes the
  *  Project's Contributor list, the global list, and the commission's effective authority. */
 function acceptCommissionConfiguration(commission: Commission, projectId: string): Commission {
-  for (const key of [keys.commissions(projectId), keys.commissions()]) {
-    mutate<Commission[]>(key, (rows) => {
-      const current = rows ?? []
-      const index = current.findIndex((row) => row.id === commission.id)
-      if (index < 0) return current
-      const merged = mergeCommissionConfiguration(current[index]!, commission)
-      return current.map((row, position) => position === index ? merged : row)
-    })
-  }
+  mergeCommissionIntoCachedRosters(commission, projectId)
   return newestCommissionConfiguration(
     peek<Commission[]>(keys.commissions(projectId))?.find((row) => row.id === commission.id),
     peek<Commission[]>(keys.commissions())?.find((row) => row.id === commission.id),

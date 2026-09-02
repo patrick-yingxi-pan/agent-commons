@@ -4611,7 +4611,26 @@ export const store = {
     for (const c of COMMISSIONS.values()) if (c.projectId === projectId) n += 1
     return n
   },
-  createCommission(input: Omit<Commission, 'id'>, tenantId?: string): Commission {
+  createCommission(
+    input: Omit<Commission, 'id'>,
+    tenantId?: string,
+    options: { logicalId?: string } = {},
+  ): Commission {
+    const owningTenant = tenantId ?? input.tenantId
+    // Keyed creation is side-effect free on durable replay: it does not re-run
+    // capacity/authority checks or rewind later Contributor configuration.
+    if (options.logicalId) {
+      if (!owningTenant) {
+        throw new ValidationError('A keyed commission creation must be account-scoped.')
+      }
+      const represented = COMMISSIONS.get(options.logicalId)
+      if (represented) {
+        if (represented.tenantId !== owningTenant) {
+          throw new ValidationError('That commission creation identity is already owned by another account.')
+        }
+        return represented
+      }
+    }
     const agent = WORKER_AGENTS.get(input.agentId)
     if (!agent) throw new Error(`createCommission: unknown agent '${input.agentId}'`)
     const project = findProject(input.projectId)
@@ -4641,7 +4660,6 @@ export const store = {
     if (!input.role || !PROJECT_ROLES.includes(input.role)) {
       throw new ValidationError(`A commission must name a project role (${PROJECT_ROLES.join(' / ')}) — got '${input.role ?? ''}'.`)
     }
-    const owningTenant = tenantId ?? input.tenantId
     const role = clampContributorRole(input.role, owningTenant, input.projectId)
     // The D19 standing flag is the commission OWNER's consent to unprompted spend
     // (owner-pays) — normalized so anything but `true` stores as absent.
@@ -4650,7 +4668,7 @@ export const store = {
       ...input,
       role,
       standing,
-      id: `commission-${(commissionSeq += 1)}`,
+      id: options.logicalId ?? `commission-${(commissionSeq += 1)}`,
       tenantId: owningTenant,
       configurationRevision: 0,
     }

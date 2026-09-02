@@ -236,7 +236,7 @@ A first-party create form retains its complete submitted payload until server
 truth settles it. Retry reuses one account-scoped key whose opaque durable row
 identity survives response-cache loss; reconciliation proves that exact identity,
 never mutable labels, bodies, timestamps, or an arbitrary new collection row.
-**Detection:** `node --test src/components/agent-creation-mutation-ui.test.ts src/components/system-prompt-creation-mutation-ui.test.ts src/api/agent-creation-identity.test.ts src/api/system-prompt-creation-identity.test.ts server/agentCreationIdentity.test.ts server/systemPromptCreationIdentity.test.ts server/routes/worker-agents.test.ts server/routes/system-prompts.test.ts`; rendered failure and lost-response walks live in `e2e/agent-creation.spec.ts` and `e2e/system-prompt-creation.spec.ts`.
+**Detection:** `node --test src/components/agent-creation-mutation-ui.test.ts src/components/system-prompt-creation-mutation-ui.test.ts src/components/commission-creation-mutation-ui.test.ts src/api/agent-creation-identity.test.ts src/api/system-prompt-creation-identity.test.ts src/api/commission-creation-identity.test.ts server/agentCreationIdentity.test.ts server/systemPromptCreationIdentity.test.ts server/commissionCreationIdentity.test.ts server/routes/worker-agents.test.ts server/routes/system-prompts.test.ts server/routes/commission.test.ts`; rendered failure and lost-response walks live in `e2e/agent-creation.spec.ts`, `e2e/system-prompt-creation.spec.ts`, and `e2e/commission-creation.spec.ts`.
 **Fix:** route the form through the acknowledged-action FIFO, derive a tenant-
 scoped persisted identity from its stable key, return represented truth before
 parsing Retry input, and close the form only on applied or reconciled truth.

@@ -55,6 +55,9 @@ response recoverable without minting a duplicate worker.
 New Prompt keeps its complete definition and optional default choice under that
 same held ceremony; the server commits both together and reconciles by exact
 durable identity rather than mutable prose.
+Commissioning follows that boundary too: the chosen Agent, Project, and stated
+role remain selected through Retry/Dismiss, and a durable Commission identity
+turns a lost handoff acknowledgement into one exact Contributor instead of two.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server

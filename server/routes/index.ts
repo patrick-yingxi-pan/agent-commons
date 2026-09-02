@@ -93,6 +93,7 @@ import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
 import { agentCreationId } from '../agentCreationIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
+import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -1850,6 +1851,17 @@ export function buildRouter(): Router {
     sendJson(res, authority)
   })
   r.post('/commissions', idempotent(async ({ req, res, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalCommissionId = idempotencyKey
+      ? commissionCreationId(tenantId, idempotencyKey)
+      : undefined
+    const represented = logicalCommissionId
+      ? store.listCommissions(undefined, tenantId).find((commission) => commission.id === logicalCommissionId)
+      : undefined
+    // Durable identity survives response-cache loss. A changed Retry cannot
+    // re-run the cap/authority funnel or overwrite a newer configuration.
+    if (represented) return sendJson(res, represented)
     let input: CreateCommissionRequest
     try {
       input = commissionCreate(await body<unknown>())
@@ -1857,7 +1869,6 @@ export function buildRouter(): Router {
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       throw err
     }
-    const tenantId = store.identity(req.headers).tenant.id
     // Scoped: a tenant may only commission an agent it can see (its own or the shared default),
     // not another tenant's private agent (F2/PD9).
     if (!store.listAgents(tenantId).some((a) => a.id === input.agentId)) {
@@ -1875,7 +1886,7 @@ export function buildRouter(): Router {
       return sendError(res, 'not_found', `No project '${input.projectId}'`)
     }
     try {
-      sendJson(res, store.createCommission(input, tenantId))
+      sendJson(res, store.createCommission(input, tenantId, { logicalId: logicalCommissionId }))
     } catch (err) {
       // An over-grant on either cascade face — the request named an impossible grant —
       // or the funnel's own strict-role wall (belt to the check above).

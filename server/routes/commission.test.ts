@@ -9,7 +9,8 @@ import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
 import { LimitError } from '../limit.ts'
 import { ValidationError } from '../conflict.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
+import { commissionCreationId } from '../commissionCreationIdentity.ts'
 
 test('the seeded commission is present and queryable by project (the Contributor view)', () => {
   assert.ok(store.listCommissions().some((c) => c.id === 'commission-insights-default'))
@@ -122,6 +123,44 @@ test('POST /commissions mints (201); over-grant 400s; unknown agent/project 404s
   })
   assert.equal(over.status, 400)
   assert.equal(over.json.error.code, 'bad_request')
+})
+
+test('a keyed commission survives response-cache loss without rewinding newer configuration', async () => {
+  const headers: Record<string, string> = {
+    'idempotency-key': `commission-create-durable-${Date.now()}`,
+  }
+  const tenantId = store.identity(headers).tenant.id
+  const expectedId = commissionCreationId(tenantId, headers['idempotency-key']!)
+  const body = { role: 'writer' as const, agentId: 'agent-default', projectId: 'p-insights' }
+  const changed: string[] = []
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type === 'commission.changed' && event.projectId === body.projectId) {
+      changed.push(event.projectId)
+    }
+  })
+
+  const first = await call('POST', '/commissions', body, headers)
+  const cachedReplay = await call('POST', '/commissions', body, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.id, expectedId)
+  assert.equal(cachedReplay.json.id, expectedId)
+  assert.equal(cachedReplay.headers['idempotency-replayed'], 'true')
+
+  const newer = store.updateCommission(expectedId, { role: 'reader' }, 0)
+  assert.equal(newer?.configurationRevision, 1)
+  const durableReplay = await callFresh('POST', '/commissions', {
+    ...body,
+    role: 'owner',
+  }, headers)
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.id, expectedId)
+  assert.equal(durableReplay.json.role, 'reader')
+  assert.equal(durableReplay.json.configurationRevision, 1)
+  assert.equal(store.listCommissions(undefined, tenantId).filter((row) => row.id === expectedId).length, 1)
+
+  unsubscribe()
+  assert.equal(changed.length, 2, 'only the first creation and later configuration edit emit')
 })
 
 test('a commission carries a project role (D14) — seeded maintainer, REQUIRED at the funnel, patchable', () => {
