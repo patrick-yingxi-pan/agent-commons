@@ -13,7 +13,8 @@ import { store } from '../store/index.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { DEFAULT_PROVIDER_ID } from '../../contract/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
+import { agentCreationId } from '../agentCreationIdentity.ts'
 
 test('POST resolves the prompt body; an omitted tool grant is the EMPTY set (minimal risk)', async () => {
   const created = await call('POST', '/agents', {
@@ -46,6 +47,52 @@ test('POST with an explicit full-catalog grant carries every tool (the dialog’
   })
   assert.equal(created.status, 200)
   assert.deepEqual(created.json.tools, TOOL_NAMES)
+})
+
+test('a keyed Agent create survives response-cache loss as one immutable row', async () => {
+  const tenantId = 'tenant-agent-create-durable'
+  const key = `agent-create-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': tenantId, 'idempotency-key': key }
+  const body = {
+    label: 'Durable Agent',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+    tools: [...TOOL_NAMES],
+    instructions: 'Keep this original intent.',
+  }
+  const expectedId = agentCreationId(tenantId, key)
+  const changed: string[] = []
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type === 'agent.changed' && event.agentId === expectedId) changed.push(event.agentId)
+  })
+  const created = await call('POST', '/agents', body, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+
+  const cachedReplay = await call('POST', '/agents', body, headers)
+  assert.equal(cachedReplay.headers['idempotency-replayed'], 'true')
+  assert.deepEqual(cachedReplay.json, created.json)
+
+  // A restarted router has no response cache. Durable identity still returns
+  // the represented row before a changed Retry body can be applied.
+  const durableReplay = await callFresh(
+    'POST',
+    '/agents',
+    { ...body, label: 'Changed retry must not overwrite', instructions: 'Changed too.' },
+    headers,
+  )
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.id, expectedId)
+  assert.equal(durableReplay.json.label, body.label)
+  assert.equal(durableReplay.json.instructions, body.instructions)
+  assert.equal(
+    store.listAgents(tenantId).filter((agent) => agent.id === expectedId).length,
+    1,
+    'durable identity, not only the response cache, prevents a duplicate Agent',
+  )
+  unsubscribe()
+  assert.equal(changed.length, 1, 'durable replay emits only the first creation event')
 })
 
 test('GET /agent-tools serves the live catalog the explicit grant names', async () => {

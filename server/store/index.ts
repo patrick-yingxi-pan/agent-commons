@@ -3886,15 +3886,34 @@ export const store = {
    *  The single seam where an Agent's grants are validated — there is no other way to
    *  introduce one. The mutated registry is snapshotted to disk (persist.ts), so a
    *  created Agent survives a restart. */
-  createAgent(input: Omit<Agent, 'id'>, tenantId?: string): Agent {
+  createAgent(
+    input: Omit<Agent, 'id'>,
+    tenantId?: string,
+    options: { logicalId?: string } = {},
+  ): Agent {
+    const ownerTenant = tenantId ?? input.tenantId
+    // A keyed create owns this exact row beyond the HTTP response cache. A
+    // replay is side-effect free and cannot overwrite later configuration.
+    if (options.logicalId) {
+      if (!ownerTenant) {
+        throw new ValidationError('A keyed Agent creation must be account-scoped.')
+      }
+      const represented = WORKER_AGENTS.get(options.logicalId)
+      if (represented) {
+        if (represented.tenantId !== ownerTenant) {
+          throw new ValidationError('That Agent creation identity is already owned by another account.')
+        }
+        return represented
+      }
+    }
     const provider = resolveProvider(input.providerId)
     if (input.authority) mintAuthority(provider.authority, input.authority)
     if (input.budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
     // Stamp the creating tenant (F2/PD9) so listAgents(tenant) scopes it; unset ⇒ shared.
     const agent: Agent = {
       ...input,
-      id: `agent-${(workerAgentSeq += 1)}`,
-      tenantId: tenantId ?? input.tenantId,
+      id: options.logicalId ?? `agent-${(workerAgentSeq += 1)}`,
+      tenantId: ownerTenant,
       revision: 0,
     }
     WORKER_AGENTS.set(agent.id, agent)
@@ -3903,12 +3922,16 @@ export const store = {
     return agent
   },
   /** Create an Agent from a management request: resolve the `systemPrompt` body from the
-   *  chosen library entry (D10), default the tool set to the full catalog (the default
-   *  Agent's), and run the same D8 funnel via `createAgent`. **Strict**: the provider and
+   *  chosen library entry (D10), treat an omitted tool grant as empty, and run the same
+   *  D8 funnel via `createAgent`. **Strict**: the provider and
    *  prompt bindings are required and must resolve — a missing/empty/unknown reference is
    *  a `ValidationError`, never an implicit resolution to a default (default-flagged
    *  entries are a UI pre-selection shortcut; the request must arrive concrete). */
-  createAgentFromRequest(input: CreateAgentRequest, tenantId?: string): Agent {
+  createAgentFromRequest(
+    input: CreateAgentRequest,
+    tenantId?: string,
+    options: { logicalId?: string } = {},
+  ): Agent {
     const provider = input.providerId ? MODEL_PROVIDERS.get(input.providerId) : undefined
     if (!provider) throw new ValidationError(`An agent must name a registered model provider — no provider '${input.providerId ?? ''}'.`)
     const entry = input.systemPromptId ? SYSTEM_PROMPT_LIB.get(input.systemPromptId) : undefined
@@ -3925,7 +3948,7 @@ export const store = {
       instructions: input.instructions ?? '',
       authority: input.authority,
       budget: input.budget,
-    }, tenantId)
+    }, tenantId, options)
   },
   /** Patch an Agent. A present field is applied; an absent one is left unchanged.
    *  **Strict like create**: a present provider / prompt id must resolve — empty string

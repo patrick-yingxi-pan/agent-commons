@@ -665,14 +665,6 @@ export async function deleteSystemPrompt(id: string): Promise<void> {
 
 // ── Worker Agents (the Agents hub — docs/agent-commons.md, D6) ───────────────
 
-/** Create an Agent. The server resolves the prompt body, defaults tools, and validates
- *  authority/budget against the provider (D8); an over-grant rejects (bad_request). */
-export async function createAgent(input: CreateAgentRequest): Promise<Agent> {
-  const agent = await apiPost<Agent>(paths.agents, input)
-  invalidate(keys.workerAgents)
-  return agent
-}
-
 /** Project an acknowledged Agent configuration without letting its response
  * rewind independently moving reputation/fork activity. */
 export function acceptAgentConfiguration(agent: Agent): void {

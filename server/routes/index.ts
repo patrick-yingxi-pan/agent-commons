@@ -91,6 +91,7 @@ import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
+import { agentCreationId } from '../agentCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -1559,7 +1560,7 @@ export function buildRouter(): Router {
   // freed by the D6 rename (host is now `/runners`), so the bare word goes to the worker.
   // The Agents hub manages them (create / patch / delete); the Contributor view +
   // commission picker read this to resolve labels and offer agents. POST resolves the
-  // prompt body from `systemPromptId` and defaults tools to the full catalog, then runs
+  // prompt body from `systemPromptId` and treats an omitted tool grant as empty, then runs
   // the D8 funnel (an over-grant is a 400); DELETE refuses the default or an Agent a
   // Commission still assigns (409). In-memory for now.
   // Tenant-scoped (F2/PD9): the shared default agent plus the caller's own created ones.
@@ -1592,7 +1593,18 @@ export function buildRouter(): Router {
     }
     return null
   }
-  r.post('/agents', async ({ req, res, body }) => {
+  r.post('/agents', idempotent(async ({ req, res, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalAgentId = idempotencyKey
+      ? agentCreationId(tenantId, idempotencyKey)
+      : undefined
+    const represented = logicalAgentId
+      ? store.listAgents(tenantId).find((agent) => agent.id === logicalAgentId)
+      : undefined
+    // Durable row identity survives the process-local response cache. Return
+    // that exact original row before parsing a changed Retry body.
+    if (represented) return sendJson(res, represented)
     const input = await body<CreateAgentRequest>()
     // Strict bindings: an Agent is minted against a NAMED provider + prompt — the API
     // never resolves an absent one to a default (defaults are a UI pre-selection
@@ -1600,11 +1612,10 @@ export function buildRouter(): Router {
     if (!input?.label || !input.providerId || !input.systemPromptId) {
       return sendError(res, 'bad_request', 'label, providerId, and systemPromptId are required')
     }
-    const tenantId = store.identity(req.headers).tenant.id
     const bad = badAgentRef(input, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
     try {
-      sendJson(res, store.createAgentFromRequest(input, tenantId))
+      sendJson(res, store.createAgentFromRequest(input, tenantId, { logicalId: logicalAgentId }))
     } catch (err) {
       // An over-grant on either cascade face — the request named an impossible grant —
       // or a binding the store's own strictness wall refused.
@@ -1613,7 +1624,7 @@ export function buildRouter(): Router {
       }
       throw err
     }
-  })
+  }))
   r.patch('/agents/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listAgents(t), 'agent')) return
     const input = await body<UpdateAgentRequest>()

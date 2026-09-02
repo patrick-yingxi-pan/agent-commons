@@ -231,6 +231,16 @@ Independently moving activity is fenced or merged separately from configuration.
 cache merge, sparse frozen patch, and shared acknowledgement controller before
 shipping the editor.
 
+### F-18 · Creation is one durable logical act
+A first-party create form retains its complete submitted payload until server
+truth settles it. Retry reuses one account-scoped key whose opaque durable row
+identity survives response-cache loss; reconciliation proves that exact identity,
+never mutable labels, bodies, timestamps, or an arbitrary new collection row.
+**Detection:** `node --test src/components/agent-creation-mutation-ui.test.ts src/api/agent-creation-identity.test.ts server/agentCreationIdentity.test.ts server/routes/worker-agents.test.ts`; rendered failure and lost-response walks live in `e2e/agent-creation.spec.ts`.
+**Fix:** route the form through the acknowledged-action FIFO, derive a tenant-
+scoped persisted identity from its stable key, return represented truth before
+parsing Retry input, and close the form only on applied or reconciled truth.
+
 ## 2 · Aesthetic rules (A-·)
 
 The earned UI ledger (UI-1…13) is the hard floor — run its locks first. These

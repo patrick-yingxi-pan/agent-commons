@@ -251,7 +251,6 @@ import {
   refreshProviderModels,
   createSystemPrompt,
   deleteSystemPrompt,
-  createAgent,
   deleteAgent,
   forkAgent,
   importAgentCard,
@@ -386,6 +385,7 @@ import {
   useDispatchMutationStatus,
 } from '../controller/dispatchMutations'
 import { updateAgent } from '../controller/agentMutations'
+import { enqueueAgentCreation } from '../controller/agentCreationMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import { enqueueProviderCreation } from '../controller/providerCreationMutations'
@@ -9036,6 +9036,7 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
   // behind this held draft; dirty-field comparison must not reinterpret those
   // remote changes as edits the user made here.
   const original = useRef(agent).current
+  const tenantId = useMe().data?.tenant.id
   const providers = useProviders().data ?? []
   const prompts = useSystemPrompts().data ?? []
   const catalog = useAgentToolCatalog().data?.tools ?? []
@@ -9093,6 +9094,7 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
     (bespokePrompt || !!effectivePromptId) &&
     // A full-catalog grant needs the catalog loaded — never send [] while showing "all".
     (toolChoice !== 'all' || catalog.length > 0) &&
+    (!!agent || !!tenantId) &&
     (!agent || hasEditChanges) &&
     !busy
 
@@ -9138,13 +9140,21 @@ function AgentDialog({ agent, onClose }: { agent: Agent | null; onClose: () => v
           return
         }
       } else {
-        await createAgent({
-          label: label.trim(),
-          providerId: effectiveProviderId,
-          systemPromptId: effectivePromptId,
-          tools: grantAll ? catalog : [],
-          instructions: instructions.trim(),
+        const outcome = await enqueueAgentCreation({
+          tenantId: tenantId!,
+          request: {
+            label: label.trim(),
+            providerId: effectiveProviderId,
+            systemPromptId: effectivePromptId,
+            tools: grantAll ? catalog : [],
+            instructions: instructions.trim(),
+          },
         })
+        if (outcome === 'discarded') {
+          setError('Your Agent details are still here. Review them, then create again when ready.')
+          setBusy(false)
+          return
+        }
       }
       onClose()
     } catch (e) {

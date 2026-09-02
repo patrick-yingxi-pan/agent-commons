@@ -49,6 +49,9 @@ reconciled after restart without publishing the words or notifications twice.
 Provider onboarding also owns one durable logical identity: a lost response can
 reconcile the exact provider instead of creating another, and the desktop keeps
 its provisional OS-vault key until that exact row is acknowledged and bound.
+New Agent follows the same truth boundary: its complete configuration stays
+visible through Retry/Dismiss, and a tenant-scoped durable identity makes a lost
+response recoverable without minting a duplicate worker.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server
