@@ -4954,7 +4954,11 @@ export const store = {
    *  live run survives a restart — and one caught mid-flight by a restart is swept to
    *  'failed' on rehydrate (the completing timer doesn't survive the process). Returns
    *  the run. */
-  addDispatch(title: string, detail?: string, tenantId?: string): DispatchRun {
+  addDispatch(title: string, detail?: string, tenantId?: string, manualRunId?: string): DispatchRun {
+    if (manualRunId) {
+      const represented = dispatch.find((run) => run.id === manualRunId && rowVisibleTo(run, tenantId ?? defaultTenantId()))
+      if (represented) return represented
+    }
     // Concurrency limit (P7): bound the in-flight one-off runs so unbounded dispatch can't
     // pile up. Opt-in via `DISPATCH_MAX_CONCURRENT` (read per call ⇒ off by default, so the
     // demo + existing tests are unaffected), mirroring the rate-limiter's opt-in shape. Count
@@ -4968,7 +4972,7 @@ export const store = {
       }
     }
     const run: DispatchRun = {
-      id: `d-new-${(dispatchSeq += 1)}`,
+      id: manualRunId ?? `d-new-${(dispatchSeq += 1)}`,
       ...(tenantId ? { tenantId } : {}), // the creator's tenant (F2/PD9)
       title,
       status: 'running',

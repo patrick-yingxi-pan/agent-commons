@@ -69,7 +69,6 @@ import {
   type ReplyStreamEvent,
   type SavedContext,
   type SavedContextsSnapshot,
-  type CreateDispatchRequest,
   type SchedulePatch,
   type ScheduledTask,
   type SendMessageRequest,
@@ -416,14 +415,6 @@ export async function deleteSchedule(
   // even when the routine had no run Session (and therefore no
   // `session.removed` event) to carry the ordinary relation refresh.
   invalidate(keys.relations)
-}
-
-/** Kick off a one-off dispatch (a single on-demand agent run). The server mints it
- *  'running' and flips it to 'done' a beat later, broadcasting dispatch.changed each
- *  time; we also nudge the feed so it shows immediately. */
-export async function createDispatch(title: string, detail?: string): Promise<void> {
-  await apiPost(paths.dispatch, { title, detail } satisfies CreateDispatchRequest)
-  invalidate(keys.dispatch)
 }
 
 /** Commission an Agent onto a Project (docs/agent-commons.md, D7/D13) — the leaf of

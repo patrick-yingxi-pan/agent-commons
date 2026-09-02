@@ -32,6 +32,17 @@ test('the cap is off by default (unset ⇒ unlimited)', () => {
   for (let i = 0; i < 6; i += 1) assert.equal(store.addDispatch(`unlimited ${i}`).status, 'running')
 })
 
+test('a durable logical replay returns its represented row even when capacity is full', () => {
+  const inFlight = store.listDispatch().filter((run) => run.status === 'running' && run.id.startsWith('d-new-')).length
+  process.env.DISPATCH_MAX_CONCURRENT = String(inFlight + 1)
+  const manualRunId = `d-new-${'f'.repeat(24)}`
+  const created = store.addDispatch('capacity-filling logical run', undefined, undefined, manualRunId)
+  assert.equal(created.id, manualRunId)
+
+  const replay = store.addDispatch('changed retry body', undefined, undefined, manualRunId)
+  assert.equal(replay, created, 'capacity policy cannot turn an already-admitted logical act into a refusal')
+})
+
 test('POST /dispatch returns 429 when the concurrency cap is reached (route mapping)', async () => {
   // Cap = current in-flight + 1, so exactly one more run fills the last slot and the next is
   // refused — robust to runs the earlier tests left in-flight (their timers haven't fired yet).

@@ -21,7 +21,8 @@ function harness() {
   const reconciled: { resourceId: string; baseline: readonly string[]; idempotencyKey: string }[] = []
   const realized = new Set<string>()
   let key = 0
-  const deps: AcknowledgedActionMutationDeps<readonly string[]> = {
+  const deps: AcknowledgedActionMutationDeps<string, readonly string[]> = {
+    resourceId: (resourceId) => resourceId,
     snapshot: (resourceId) => [`before:${resourceId}`],
     mutate: (resourceId, idempotencyKey) => new Promise<void>((resolve, reject) => {
       calls.push({ resourceId, idempotencyKey, resolve, reject })
@@ -115,4 +116,24 @@ test('clearing the account scope discards queued work and ignores a late acknowl
   h.calls[0]!.resolve()
   await tick()
   assert.equal(h.calls.length, 1, 'the retired account cannot drain its old queue')
+})
+
+test('an action input may carry payload while exposing a stable recovery resource id', async () => {
+  type Intent = { intentId: string; title: string }
+  const statuses: RevisionedMutationStatus[] = []
+  const calls: Intent[] = []
+  const controller = createAcknowledgedActionMutationController<Intent, string[]>({
+    resourceId: (intent: Intent) => intent.intentId,
+    snapshot: () => [] as string[],
+    mutate: async (intent: Intent) => { calls.push(intent) },
+    reconcile: async () => false,
+    describeFailure: () => ({ message: 'held', retryable: true }),
+    setStatus: (status: RevisionedMutationStatus) => statuses.push(status),
+    mintIdempotencyKey: () => 'dispatch-key',
+  })
+  const intent = { intentId: 'dispatch-intent-1', title: 'Triage support' }
+
+  assert.equal(await controller.enqueue(intent), 'applied')
+  assert.deepEqual(calls, [intent])
+  assert.equal(statuses.find((status) => status.busy)?.activeResourceId, intent.intentId)
 })

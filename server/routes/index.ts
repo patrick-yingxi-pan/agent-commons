@@ -79,6 +79,7 @@ import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fe
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, summarizeConversation } from '../compaction.ts'
 import { manualScheduleRunId } from '../scheduleRunIdentity.ts'
+import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -3729,7 +3730,14 @@ export function buildRouter(): Router {
     const { title, detail } = await body<CreateDispatchRequest>()
     if (!title || !title.trim()) return sendError(res, 'bad_request', 'title is required')
     try {
-      sendJson(res, store.addDispatch(title.trim(), detail, store.identity(req.headers).tenant.id))
+      const tenantId = store.identity(req.headers).tenant.id
+      const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+      sendJson(res, store.addDispatch(
+        title.trim(),
+        detail,
+        tenantId,
+        idempotencyKey ? manualDispatchRunId(tenantId, idempotencyKey) : undefined,
+      ))
     } catch (err) {
       if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err

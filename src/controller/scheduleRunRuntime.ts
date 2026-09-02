@@ -45,7 +45,8 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
   }
 }
 
-const controller = createAcknowledgedActionMutationController<readonly string[]>({
+const controller = createAcknowledgedActionMutationController<string, readonly string[]>({
+  resourceId: (id) => id,
   snapshot: scheduleRunBaseline,
   mutate: runScheduleNow,
   reconcile: reconcileScheduleRun,

@@ -11,17 +11,19 @@ import {
   type RevisionedMutationStatus,
 } from './revisionedMutationCore.ts'
 
-export interface AcknowledgedActionMutationDeps<Baseline> {
-  snapshot: (resourceId: string) => Baseline
-  mutate: (resourceId: string, idempotencyKey: string) => Promise<void>
+export interface AcknowledgedActionMutationDeps<Input, Baseline> {
+  resourceId: (input: Input) => string
+  snapshot: (input: Input) => Baseline
+  mutate: (input: Input, idempotencyKey: string) => Promise<void>
   /** Return true when authoritative state proves the held action already landed. */
-  reconcile: (resourceId: string, baseline: Baseline, idempotencyKey: string) => Promise<boolean>
+  reconcile: (input: Input, baseline: Baseline, idempotencyKey: string) => Promise<boolean>
   describeFailure: (error: unknown) => RevisionedMutationFailure
   setStatus: (status: RevisionedMutationStatus) => void
   mintIdempotencyKey: () => string
 }
 
-interface QueueEntry<Baseline> {
+interface QueueEntry<Input, Baseline> {
+  input: Input
   resourceId: string
   baseline: Baseline
   idempotencyKey: string
@@ -30,10 +32,10 @@ interface QueueEntry<Baseline> {
 
 export { IDLE_REVISIONED_MUTATION as IDLE_ACKNOWLEDGED_ACTION_MUTATION }
 
-export function createAcknowledgedActionMutationController<Baseline>(
-  deps: AcknowledgedActionMutationDeps<Baseline>,
+export function createAcknowledgedActionMutationController<Input, Baseline>(
+  deps: AcknowledgedActionMutationDeps<Input, Baseline>,
 ) {
-  let queue: QueueEntry<Baseline>[] = []
+  let queue: QueueEntry<Input, Baseline>[] = []
   let running = false
   let failure: RevisionedMutationFailure | null = null
   let generation = 0
@@ -50,7 +52,7 @@ export function createAcknowledgedActionMutationController<Baseline>(
   }
 
   const complete = (
-    entry: QueueEntry<Baseline>,
+    entry: QueueEntry<Input, Baseline>,
     outcome: RevisionedMutationOutcome,
   ): void => {
     if (queue[0] !== entry) return
@@ -68,7 +70,7 @@ export function createAcknowledgedActionMutationController<Baseline>(
     const issuedGeneration = generation
     running = true
     publish()
-    void deps.mutate(entry.resourceId, entry.idempotencyKey).then(
+    void deps.mutate(entry.input, entry.idempotencyKey).then(
       () => {
         if (generation !== issuedGeneration || queue[0] !== entry) return
         complete(entry, 'applied')
@@ -77,7 +79,7 @@ export function createAcknowledgedActionMutationController<Baseline>(
         if (generation !== issuedGeneration || queue[0] !== entry) return
         let realized = false
         try {
-          realized = await deps.reconcile(entry.resourceId, entry.baseline, entry.idempotencyKey)
+          realized = await deps.reconcile(entry.input, entry.baseline, entry.idempotencyKey)
         } catch {
           // Preserve the original mutation error. Retry or Dismiss will make a
           // fresh bounded truth read rather than replacing it with a read error.
@@ -91,11 +93,12 @@ export function createAcknowledgedActionMutationController<Baseline>(
     )
   }
 
-  const enqueue = (resourceId: string): Promise<RevisionedMutationOutcome> => {
+  const enqueue = (input: Input): Promise<RevisionedMutationOutcome> => {
     const outcome = new Promise<RevisionedMutationOutcome>((settle) => {
       queue.push({
-        resourceId,
-        baseline: deps.snapshot(resourceId),
+        input,
+        resourceId: deps.resourceId(input),
+        baseline: deps.snapshot(input),
         idempotencyKey: deps.mintIdempotencyKey(),
         settle,
       })
@@ -119,7 +122,7 @@ export function createAcknowledgedActionMutationController<Baseline>(
     failure = null
     running = true
     publish()
-    void deps.reconcile(entry.resourceId, entry.baseline, entry.idempotencyKey).then(
+    void deps.reconcile(entry.input, entry.baseline, entry.idempotencyKey).then(
       (realized) => {
         if (generation !== issuedGeneration || queue[0] !== entry) return
         complete(entry, realized ? 'applied' : 'discarded')

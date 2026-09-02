@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
+import { manualDispatchRunId } from '../dispatchIdentity.ts'
 
 test('POST /dispatch kicks off a one-off run — lands running, newest-first in the feed', async () => {
   const before = await call('GET', '/dispatch')
@@ -29,6 +30,33 @@ test('POST /dispatch kicks off a one-off run — lands running, newest-first in 
 test('POST /dispatch 400s without a title', async () => {
   const res = await call('POST', '/dispatch', { detail: 'no title' })
   assert.equal(res.status, 400)
+})
+
+test('a keyed Dispatch owns one tenant-scoped durable row beyond response-cache lifetime', async () => {
+  const me = (await call('GET', '/me')).json
+  const key = `durable-dispatch-${Date.now().toString(36)}`
+  const created = await call(
+    'POST',
+    '/dispatch',
+    { title: 'Durable one-off task', detail: 'Keep one logical run.' },
+    { 'idempotency-key': key },
+  )
+  const expectedId = manualDispatchRunId(me.tenant.id, key)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+
+  const replay = store.addDispatch(
+    'A changed retry body cannot create another row',
+    undefined,
+    me.tenant.id,
+    expectedId,
+  )
+  assert.equal(replay.id, expectedId)
+  assert.equal(
+    store.listDispatch(me.tenant.id).filter((run) => run.id === expectedId).length,
+    1,
+    'persisted identity, rather than only the HTTP response cache, deduplicates retry',
+  )
 })
 
 test('addDispatch finishes the run done a beat later and broadcasts dispatch.changed each time', async () => {

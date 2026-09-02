@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'conversation-delete' | 'routine' | 'routine-run' | 'routine-delete' | 'artifact' | 'proposal' | 'agent' | 'provider' | 'system-prompt' | 'commission' | 'saved-context' | 'saved-context-delete'
+  kind: 'conversation' | 'conversation-delete' | 'routine' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'provider' | 'system-prompt' | 'commission' | 'saved-context' | 'saved-context-delete'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -36,6 +36,7 @@ export function RevisionedMutationNotice({
       data-saved-context-deletion={kind === 'saved-context-delete' ? phase : undefined}
       data-schedule-run={kind === 'routine-run' ? phase : undefined}
       data-schedule-deletion={kind === 'routine-delete' ? phase : undefined}
+      data-dispatch-creation={kind === 'dispatch-create' ? phase : undefined}
       className="relative z-[60] shrink-0 border-b border-line bg-panel-2/95 px-2 pt-2"
     >
       {mutation.busy ? (

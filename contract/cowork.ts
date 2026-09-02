@@ -284,6 +284,8 @@ export interface ArtifactItem {
 }
 
 export interface DispatchRun {
+  /** Opaque durable identity. A keyed first-party create derives the same id
+   * for this tenant across response loss or server restart. */
   id: string
   /** The tenant this one-off run belongs to (F2/PD9) — unset ⇒ the backend's
    *  default tenant, mirroring sessions/routines. */

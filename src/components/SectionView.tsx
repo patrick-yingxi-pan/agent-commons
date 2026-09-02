@@ -243,7 +243,6 @@ import {
 } from '../data/cowork'
 import {
   addScheduleFromSeed,
-  createDispatch,
   addSavedContext,
   createCommission,
   createProvider,
@@ -384,6 +383,11 @@ import {
   ROUTINE_RUN_ACTIVE,
   useScheduleRunStatus,
 } from '../controller/scheduleRunMutations'
+import {
+  enqueueDispatch,
+  isDispatchHeld,
+  useDispatchMutationStatus,
+} from '../controller/dispatchMutations'
 import { updateAgent } from '../controller/agentMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
@@ -12499,12 +12503,21 @@ function GenericSection({ section }: { section: SectionId }) {
 function NewDispatchDialog({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('')
   const [detail, setDetail] = useState('')
+  useDispatchMutationStatus()
+  const tenantId = useMe().data?.tenant.id
+  const held = isDispatchHeld()
 
-  const canCreate = title.trim().length > 0
+  const canCreate = title.trim().length > 0 && Boolean(tenantId)
   const submit = () => {
-    if (!canCreate) return
-    void createDispatch(title.trim(), detail.trim() || undefined)
-    onClose()
+    if (!canCreate || held || !tenantId) return
+    const input = {
+      tenantId,
+      title: title.trim(),
+      detail: detail.trim() || undefined,
+    }
+    void enqueueDispatch(input).then((outcome) => {
+      if (outcome === 'applied') onClose()
+    })
   }
 
   return (
@@ -12513,7 +12526,8 @@ function NewDispatchDialog({ onClose }: { onClose: () => void }) {
       icon={<SendHorizontal size={18} className="text-cap-workspace" />}
       submitLabel="Dispatch"
       submitIcon={<SendHorizontal size={15} />}
-      canSubmit={canCreate}
+      canSubmit={canCreate && !held}
+      busy={held}
       onSubmit={submit}
       onClose={onClose}
     >
