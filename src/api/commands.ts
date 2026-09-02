@@ -15,6 +15,7 @@ import {
   type Commission,
   type CommissionConfigurationPatch,
   type CreateAgentRequest,
+  type DeleteCommissionRequest,
   type UpdateAgentRequest,
   type UpdateCommissionRequest,
   type CreatedProvider,
@@ -414,6 +415,18 @@ function acceptCommissionConfiguration(commission: Commission, projectId: string
   ) ?? commission
 }
 
+/** Publish one proven Contributor absence without replacing either roster.
+ * Coordination refreshes with it because un-commissioning releases every work
+ * item held by that assignment in the same server commit. */
+function acceptCommissionAbsence(id: string, projectId: string): void {
+  for (const key of [keys.commissions(projectId), keys.commissions()]) {
+    mutate<Commission[]>(key, (rows) => (rows ?? []).filter((row) => row.id !== id))
+  }
+  invalidate(keys.commissionAuthority(id))
+  invalidate(keys.projectSubGoals(projectId))
+  invalidatePrefix(keys.directoryProjects())
+}
+
 /** Re-read only the addressed contributor before Retry/Dismiss. */
 export async function reconcileCommissionConfiguration(
   id: string,
@@ -426,9 +439,7 @@ export async function reconcileCommissionConfiguration(
     if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
   }
   if (!incoming) {
-    for (const key of [keys.commissions(projectId), keys.commissions()]) {
-      mutate<Commission[]>(key, (rows) => (rows ?? []).filter((row) => row.id !== id))
-    }
+    acceptCommissionAbsence(id, projectId)
     return undefined
   }
   return acceptCommissionConfiguration(incoming, projectId)
@@ -450,14 +461,21 @@ export async function patchCommissionConfiguration(
   return accepted
 }
 
-/** Un-commission an Agent from a Project. Refreshes both Contributor lists and the
- *  Project's coordination panel (a delete cascade-releases the Contributor's sub-goals). */
-export async function deleteCommission(id: string, projectId: string): Promise<void> {
-  await apiDelete(paths.commission(id))
-  invalidate(keys.commissions(projectId))
-  invalidate(keys.commissions())
-  invalidate(keys.projectSubGoals(projectId))
-  invalidatePrefix(keys.directoryProjects())
+/** Delete the reviewed Contributor assignment. The controller owns confirmation,
+ * Retry/Dismiss, and reconciliation; absence is published only after an
+ * acknowledgement or authoritative 404 proves the cascade landed. */
+export async function deleteCommission(
+  id: string,
+  projectId: string,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiDelete(
+    paths.commission(id),
+    { expectedRevision } satisfies DeleteCommissionRequest,
+    { idempotencyKey },
+  )
+  acceptCommissionAbsence(id, projectId)
 }
 
 // ── Model providers (the Agents hub — docs/agent-commons.md, D9) ─────────────

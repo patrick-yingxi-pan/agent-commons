@@ -241,6 +241,17 @@ never mutable labels, bodies, timestamps, or an arbitrary new collection row.
 scoped persisted identity from its stable key, return represented truth before
 parsing Retry input, and close the form only on applied or reconciled truth.
 
+### F-19 · Destruction retains reviewed truth until acknowledged absence
+A destructive first-party act names its durable scope, freezes the revision the
+person confirmed, and keeps the addressed resource visible but inoperable until
+acknowledgement or exact-absence reconciliation. Retry preserves one key;
+automatic rebase is forbidden, and mutually exclusive edits cannot race it.
+Viewer-relative projections must not advertise destructive controls to non-owners.
+**Detection:** `node --test src/controller/commission-mutation-holds.test.ts src/components/commission-deletion-ui.test.ts server/routes/commission-crud.test.ts server/cross-tenant-cooperation.test.ts`; the rendered stale-consent and early-absence walks live in `e2e/commission-deletion.spec.ts`.
+**Fix:** add a revision-pinned idempotent DELETE, atomic server cascade, shared
+edit/delete lease, retained row snapshot, named confirmation, and shell-owned
+Retry/Dismiss before exposing the destructive control.
+
 ## 2 · Aesthetic rules (A-·)
 
 The earned UI ledger (UI-1…13) is the hard floor — run its locks first. These

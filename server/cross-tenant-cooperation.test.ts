@@ -99,6 +99,7 @@ test('redaction — a shared project’s Contributor list hides foreign authorit
   // resolve a foreign agentId against its own registry — this is how the UI names WHO
   // contributes without leaking WHAT they reach).
   assert.equal(seenByC.agentLabel, 'A worker', 'the public face carries the server-resolved agent label')
+  assert.equal(seenByC.mine, false, 'the visitor-relative face cannot expose owner-only row controls')
   // by-id is consistent with the list: the foreign contributor is visible, redacted (not 404).
   const byId = store.commissionVisibleToTenant(comm.id, 'tenant-C')
   assert.ok(byId && byId.authority === undefined, 'by-id returns the redacted contributor, consistent with the list')
@@ -106,6 +107,7 @@ test('redaction — a shared project’s Contributor list hides foreign authorit
   // The OWNER still sees the full commission (authority + grant intact).
   const seenByA = store.listCommissions('p-redact2', A).find((c) => c.id === comm.id)
   assert.ok(seenByA?.authority && seenByA?.grant, 'the owner sees the full commission')
+  assert.equal(seenByA?.mine, true, 'the owner-relative face enables its row controls')
 })
 
 test('graph projection — a shared project is visible cross-tenant; a private one is not', () => {

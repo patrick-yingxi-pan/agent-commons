@@ -9,7 +9,7 @@ test('contributor configuration uses one orthogonal sparse held-draft recovery p
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'commissionMutations.ts')))
   const route = stripComments(read(join(ROOT, 'server', 'routes', 'commissionConfiguration.ts')))
 
-  assert.match(section, /import \{ updateCommissionConfiguration \} from '\.\.\/controller\/commissionMutations'/)
+  assert.match(section, /import \{[\s\S]{0,180}updateCommissionConfiguration,[\s\S]{0,180}\} from '\.\.\/controller\/commissionMutations'/)
   assert.doesNotMatch(section, /updateCommission,[\s\S]*from '\.\.\/api'/)
   assert.match(section, /const original = useRef\(commission\)\.current/)
   assert.match(section, /roleChanged[\s\S]*standingChanged[\s\S]*connectorsChanged[\s\S]*scopesChanged/)

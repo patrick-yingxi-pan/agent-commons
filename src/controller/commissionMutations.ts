@@ -1,5 +1,4 @@
 /** App wiring for conflict-safe contributor configuration edits. */
-import { useSyncExternalStore } from 'react'
 import type { Commission, CommissionConfigurationPatch } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
@@ -13,11 +12,15 @@ import {
 } from '../api'
 import {
   createRevisionedMutationController,
-  IDLE_REVISIONED_MUTATION,
   type RevisionedMutationFailure,
   type RevisionedMutationOutcome,
-  type RevisionedMutationStatus,
 } from './revisionedMutationCore'
+import { createMutationStatusStore } from './mutationStatusStore.ts'
+import {
+  acquireCommissionMutation,
+  isCommissionConfigurationHeld,
+  releaseCommissionMutation,
+} from './commissionMutationHolds.ts'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -44,12 +47,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
 const target = (commissionId: string, projectId: string): string => JSON.stringify([commissionId, projectId])
 const ids = (resourceId: string): [string, string] => JSON.parse(resourceId) as [string, string]
 
-let status: RevisionedMutationStatus = IDLE_REVISIONED_MUTATION
-const listeners = new Set<() => void>()
-const publish = (next: RevisionedMutationStatus): void => {
-  status = next
-  for (const listener of listeners) listener()
-}
+const statusStore = createMutationStatusStore()
 
 const cachedCommission = (resourceId: string): Commission | undefined => {
   const [commissionId, projectId] = ids(resourceId)
@@ -75,7 +73,7 @@ const controller = createRevisionedMutationController<Commission, CommissionConf
     return patchCommissionConfiguration(commissionId, projectId, patch, expectedRevision, idempotencyKey)
   },
   describeFailure,
-  setStatus: publish,
+  setStatus: statusStore.publish,
   mintIdempotencyKey: () => crypto.randomUUID(),
 })
 
@@ -86,19 +84,19 @@ export function updateCommissionConfiguration(
   projectId: string,
   patch: CommissionConfigurationPatch,
 ): Promise<RevisionedMutationOutcome> {
-  return controller.enqueue(target(commissionId, projectId), patch)
+  const lease = acquireCommissionMutation('configuration', commissionId)
+  if (!lease) return Promise.resolve('discarded')
+  statusStore.refresh()
+  const outcome = controller.enqueue(target(commissionId, projectId), patch)
+  void outcome.finally(() => {
+    releaseCommissionMutation(lease)
+    statusStore.refresh()
+  })
+  return outcome
 }
 
 export const retryCommissionMutation = controller.retry
 export const discardCommissionMutation = controller.discard
 
-export function useCommissionMutationStatus(): RevisionedMutationStatus {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => status,
-    () => IDLE_REVISIONED_MUTATION,
-  )
-}
+export { isCommissionConfigurationHeld as isCommissionMutationHeld }
+export const useCommissionMutationStatus = statusStore.useStatus

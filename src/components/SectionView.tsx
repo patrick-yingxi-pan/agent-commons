@@ -266,7 +266,6 @@ import {
   useAgentProposals,
   useMe,
   useWatchState,
-  deleteCommission,
   reserveSubGoal,
   releaseSubGoal,
   probePrompt,
@@ -384,11 +383,22 @@ import {
 } from '../controller/dispatchMutations'
 import { updateAgent } from '../controller/agentMutations'
 import { enqueueAgentCreation } from '../controller/agentCreationMutations'
-import { updateCommissionConfiguration } from '../controller/commissionMutations'
+import {
+  isCommissionMutationHeld,
+  updateCommissionConfiguration,
+  useCommissionMutationStatus,
+} from '../controller/commissionMutations'
 import {
   enqueueCommissionCreation,
   isCommissionCreationHeld,
 } from '../controller/commissionCreationMutations'
+import {
+  COMMISSION_DELETE_SCOPE,
+  enqueueCommissionDeletion,
+  heldCommissionDeletions,
+  isCommissionDeletionHeld,
+  useCommissionDeletionStatus,
+} from '../controller/commissionDeletionMutations.ts'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import { enqueueProviderCreation } from '../controller/providerCreationMutations'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
@@ -2157,7 +2167,16 @@ function ShareToggle({ project }: { project: Project }) {
  *  (share switch, default role) moved to the rail's Sharing panel, so this section
  *  reads the same for owner and visitor — the commissioned agents, carded. */
 function ContributorsPanel({ project }: { project: Project }) {
-  const commissions = useCommissions(project.id).data ?? []
+  const currentCommissions = useCommissions(project.id).data ?? []
+  useCommissionDeletionStatus()
+  // The server may broadcast committed absence before the originating DELETE
+  // response settles. Retain exactly those reviewed rows until reconciliation
+  // releases their destructive intent.
+  const commissions = [
+    ...currentCommissions,
+    ...heldCommissionDeletions(project.id).filter((held) =>
+      !currentCommissions.some((commission) => commission.id === held.id)),
+  ]
   const agents = useAgents().data ?? []
   const agentsById = new Map(agents.map((a) => [a.id, a]))
   const commissionedIds = new Set(commissions.map((c) => c.agentId))
@@ -2264,6 +2283,8 @@ function ContributorRow({
    *  non-standing commission (no unprompted acts to summarize). */
   resolvedHere?: { count: number; lastAt: number }
 }) {
+  useCommissionMutationStatus()
+  useCommissionDeletionStatus()
   const reach = useCommissionAuthority(commission.id).data
   // Post-clamp the connectors are always a concrete set (the Project admits a concrete
   // list); show them as the visible isolation boundary. Each connector that resolves
@@ -2276,18 +2297,26 @@ function ContributorRow({
     .allProjects()
     .find((p) => p.id === commission.projectId)
   const [editing, setEditing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const del = async () => {
-    setError(null)
-    try {
-      await deleteCommission(commission.id, commission.projectId)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not remove this contributor.')
-    }
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+  const deleting = isCommissionDeletionHeld(commission.id)
+  const mutationHeld = deleting || isCommissionMutationHeld(commission.id)
+  const requestRemoval = () => {
+    if (!mutationHeld) setConfirmingRemoval(true)
+  }
+  const confirmRemoval = () => {
+    if (mutationHeld) return
+    setConfirmingRemoval(false)
+    void enqueueCommissionDeletion(commission)
   }
   return (
-    <div className="group flex items-start gap-2.5">
-      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-ok" />
+    <div
+      className="group flex items-start gap-2.5"
+      aria-busy={deleting}
+      data-commission-removal={deleting || undefined}
+    >
+      <span className="mt-1 flex h-2.5 w-2.5 shrink-0 items-center justify-center text-ok">
+        {deleting ? <Spinner size={10} /> : <span className="h-1.5 w-1.5 rounded-full bg-ok" />}
+      </span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-[13px] font-medium text-ink">{agentLabel}</span>
@@ -2349,11 +2378,25 @@ function ContributorRow({
               : 'Standing · no items taken yet'}
           </div>
         )}
-        {error && <div className="text-[11px] text-removed">{error}</div>}
+        {deleting && <div className="text-[11px] text-ink-faint">Removing Contributor…</div>}
       </div>
-      <CardActions onEdit={project ? () => setEditing(true) : undefined} onDelete={del} />
+      <CardActions
+        onEdit={project && commission.mine !== false ? () => setEditing(true) : undefined}
+        onDelete={commission.mine !== false ? requestRemoval : undefined}
+        disabled={mutationHeld}
+        disabledReason="Waiting for this Contributor change to settle"
+      />
       {editing && project && (
         <CommissionDialog commission={commission} project={project} onClose={() => setEditing(false)} />
+      )}
+      {confirmingRemoval && (
+        <ConfirmDialog
+          title={`Remove ${agentLabel}?`}
+          body={COMMISSION_DELETE_SCOPE}
+          confirmLabel="Remove Contributor"
+          onConfirm={confirmRemoval}
+          onCancel={() => setConfirmingRemoval(false)}
+        />
       )}
     </div>
   )
@@ -8348,15 +8391,26 @@ function MetricTile({ children }: { children: ReactNode }) {
 
 /** Hover-revealed edit / delete actions on a management row — the same idiom as the
  *  Contexts rows. Shared so every hub row exposes the same cue. */
-function CardActions({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () => void }) {
+function CardActions({
+  onEdit,
+  onDelete,
+  disabled = false,
+  disabledReason,
+}: {
+  onEdit?: () => void
+  onDelete?: () => void
+  disabled?: boolean
+  disabledReason?: string
+}) {
   return (
     <div className={`flex shrink-0 items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
       {onEdit && (
         <button
           onClick={onEdit}
-          title="Edit"
+          disabled={disabled}
+          title={disabled ? disabledReason : 'Edit'}
           aria-label="Edit"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Pencil size={14} />
         </button>
@@ -8364,9 +8418,10 @@ function CardActions({ onEdit, onDelete }: { onEdit?: () => void; onDelete?: () 
       {onDelete && (
         <button
           onClick={onDelete}
-          title="Delete"
+          disabled={disabled}
+          title={disabled ? disabledReason : 'Delete'}
           aria-label="Delete"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Trash2 size={14} />
         </button>

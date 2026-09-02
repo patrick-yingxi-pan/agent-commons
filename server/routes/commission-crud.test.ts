@@ -128,14 +128,44 @@ test('commission mutation bodies reject unknown, malformed, and unbounded input'
     role: 'writer', agentId: 'agent-default', projectId: GUARDED, reservationId: 'forged',
   })
   assert.equal(createUnknown.status, 400)
+
+  for (const body of [
+    { expectedRevision: -1 },
+    { expectedRevision: 0, role: 'reader' },
+  ]) {
+    const deletion = await call('DELETE', `/commissions/${commission.id}`, body)
+    assert.equal(deletion.status, 400, JSON.stringify(body))
+    assert.equal(deletion.json.error.code, 'bad_request')
+  }
 })
 
-test('DELETE un-commissions; a second DELETE 404s', async () => {
+test('DELETE pins the reviewed revision, retains one retry key, and un-commissions once', async () => {
   const commission = store.createCommission({ role: 'writer', agentId: DEFAULT_AGENT.id, projectId: GUARDED })
-  const del = await call('DELETE', `/commissions/${commission.id}`)
+  const subGoal = `stale-delete-${commission.id}`
+  store.reserveSubGoal(GUARDED, commission.id, subGoal)
+  const changed = store.updateCommission(commission.id, { role: 'reader' }, 0)
+  assert.equal(changed?.configurationRevision, 1)
+  const key = `commission-delete-${Date.now()}`
+  const headers = { 'idempotency-key': key }
+
+  const stale = await call('DELETE', `/commissions/${commission.id}`, { expectedRevision: 0 }, headers)
+  assert.equal(stale.status, 409)
+  assert.equal(stale.json.error.code, 'conflict')
+  assert.equal(store.getCommission(commission.id)?.role, 'reader', 'stale consent changes nothing')
+  assert.ok(
+    store.projectSubGoals(GUARDED).some((item) => item.subGoal === subGoal),
+    'the destructive precondition guards the entire removal cascade',
+  )
+
+  const del = await call('DELETE', `/commissions/${commission.id}`, { expectedRevision: 1 }, headers)
   assert.equal(del.status, 200)
   assert.deepEqual(del.json, { ok: true })
   assert.equal(store.getCommission(commission.id), undefined)
+  assert.ok(!store.projectSubGoals(GUARDED).some((item) => item.subGoal === subGoal))
+
+  const replay = await call('DELETE', `/commissions/${commission.id}`, { expectedRevision: 999 }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
 
   const again = await call('DELETE', `/commissions/${commission.id}`)
   assert.equal(again.status, 404)

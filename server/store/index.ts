@@ -4533,7 +4533,13 @@ export const store = {
     // A FOREIGN Contributor on a shared project is exposed as identity-only (redacted); the
     // caller's own (registryVisible) — and internal callers with no tenant — keep full detail,
     // so the D12 authority/grant posture never crosses the tenant boundary.
-    return scoped.map((c) => (registryVisible(c, tenantId) ? c : publicCommission(c)))
+    return scoped.map((c) => {
+      if (tenantId === undefined) return c
+      const mine = (c.tenantId ?? defaultTenantId()) === tenantId
+      return registryVisible(c, tenantId)
+        ? { ...c, mine }
+        : { ...publicCommission(c), mine: false }
+    })
   },
   /** Resolve one commission by id (undefined when unknown). Unredacted — internal callers only. */
   getCommission(id: string): Commission | undefined {
@@ -4546,8 +4552,14 @@ export const store = {
   commissionVisibleToTenant(id: string, tenantId?: string): Commission | undefined {
     const c = COMMISSIONS.get(id)
     if (!c) return undefined
-    if (registryVisible(c, tenantId)) return c
-    return findProject(c.projectId)?.shared === true ? publicCommission(c) : undefined
+    if (registryVisible(c, tenantId)) {
+      return tenantId === undefined
+        ? c
+        : { ...c, mine: (c.tenantId ?? defaultTenantId()) === tenantId }
+    }
+    return findProject(c.projectId)?.shared === true
+      ? { ...publicCommission(c), mine: false }
+      : undefined
   },
   /** The tenant that PAYS for a commissioned run (D13 owner-pays): the tenant that owns the
    *  commissioned Agent — NOT the Project's tenant. On a cross-tenant Contributor (P8) these
@@ -4746,20 +4758,28 @@ export const store = {
     persist()
     return next
   },
-  /** Un-commission an Agent from its Project. Cascade-releases any in-flight sub-goals
-   *  this Contributor held at the Guardian (freeing them for re-claim), so removing a
-   *  Contributor leaves no dangling reservation. False when unknown (→ 404). No protected
-   *  default — a commission has no fallback role to preserve (unlike a provider/agent). */
-  deleteCommission(id: string): boolean {
+  /** Un-commission the exact reviewed Agent assignment from its Project. Its
+   * configuration revision is the destructive precondition; the row and every
+   * in-flight sub-goal it holds disappear in one durable/event batch. False when
+   * unknown (→ 404). No protected default — a commission has no fallback role. */
+  deleteCommission(id: string, expectedRevision?: number): boolean {
     const commission = COMMISSIONS.get(id)
     if (!commission) return false
-    this.projectSubGoals(commission.projectId)
-      .filter((s) => s.holder === id)
-      .forEach((s) => this.releaseSubGoal(s.reservationId))
-    COMMISSIONS.delete(id)
-    emit({ type: 'commission.changed', projectId: commission.projectId })
-    persist()
-    return true
+    const currentRevision = commission.configurationRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This contributor changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
+    return commitMutationBatch(() => {
+      this.projectSubGoals(commission.projectId)
+        .filter((subGoal) => subGoal.holder === id)
+        .forEach((subGoal) => this.releaseSubGoal(subGoal.reservationId))
+      COMMISSIONS.delete(id)
+      emit({ type: 'commission.changed', projectId: commission.projectId })
+      persist()
+      return true
+    })
   },
 
   /** The **effective authority** a Contributor carries onto its Project (D12,

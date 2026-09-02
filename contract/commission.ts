@@ -15,6 +15,9 @@ import type { ProjectRole } from './roles.ts'
 
 export interface Commission {
   id: string
+  /** Viewer-relative write ownership. Server list/detail projections always
+   * stamp this for authenticated reads; absent remains legacy-compatible. */
+  mine?: boolean
   /** Server-owned ordering for editable contributor configuration (role, standing,
    *  authority, and grant). Legacy/seeded absence reads as revision 0. */
   configurationRevision?: number
@@ -89,5 +92,12 @@ export interface CommissionConfigurationPatch {
 /** `expectedRevision` is an optional compare-and-swap precondition. Absence keeps
  * the legacy unconditional-write meaning; first-party editors always send it. */
 export type UpdateCommissionRequest = CommissionConfigurationPatch & {
+  expectedRevision?: number
+}
+
+/** Body of `DELETE /v1/commissions/:id`. A supplied configuration revision
+ * pins removal to the Contributor the person reviewed; absence preserves the
+ * legacy unconditional-delete meaning for existing API clients. */
+export interface DeleteCommissionRequest {
   expectedRevision?: number
 }

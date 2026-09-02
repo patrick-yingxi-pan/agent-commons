@@ -58,6 +58,8 @@ durable identity rather than mutable prose.
 Commissioning follows that boundary too: the chosen Agent, Project, and stated
 role remain selected through Retry/Dismiss, and a durable Commission identity
 turns a lost handoff acknowledgement into one exact Contributor instead of two.
+Removal completes that lifecycle with a named consequence preview, revision-
+pinned consent, held-row recovery, and an atomic release of its claimed work.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server

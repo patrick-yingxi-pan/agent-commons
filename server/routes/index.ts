@@ -7,6 +7,7 @@ import type {
   Message,
   ReplyStreamEvent,
   CreateCommissionRequest,
+  DeleteCommissionRequest,
   CreateProjectRequest,
   CreateGrantRequest,
   OpenDiscussionRequest,
@@ -117,7 +118,7 @@ import { providerConnectionUpdate } from './providerConnection.ts'
 import { providerDefinitionUpdate } from './providerDefinition.ts'
 import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
 import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
-import { commissionConfigurationUpdate, commissionCreate } from './commissionConfiguration.ts'
+import { commissionConfigurationUpdate, commissionCreate, commissionDelete } from './commissionConfiguration.ts'
 import { savedContextFrom } from '../contextRegistry.ts'
 import type {
   A2aDataPart,
@@ -1916,11 +1917,25 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  r.delete('/commissions/:id', ({ req, res, params }) => {
+  r.delete('/commissions/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listCommissions(undefined, t), 'commission')) return
-    if (!store.deleteCommission(params.id)) return sendError(res, 'not_found', `No commission '${params.id}'`)
+    let input: DeleteCommissionRequest
+    try {
+      input = commissionDelete(await body<unknown>())
+    } catch (error) {
+      if (error instanceof ValidationError) return sendError(res, error.code, error.message)
+      throw error
+    }
+    try {
+      if (!store.deleteCommission(params.id, input.expectedRevision)) {
+        return sendError(res, 'not_found', `No commission '${params.id}'`)
+      }
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
     sendJson(res, { ok: true })
-  })
+  }))
 
   // ── Multi-principal coordination — sub-goal reservation (D11) ──────────────
   // A guarded Project's in-flight sub-goals (who's handling what). `POST` claims one
