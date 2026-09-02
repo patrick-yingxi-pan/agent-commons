@@ -75,6 +75,7 @@ export const isScheduleMutationHeld = (id: string): boolean => (heldResourceCoun
 export function enqueueScheduleMutation(
   scheduleId: string,
   patch: SchedulePatch,
+  expectedRevision?: number,
 ): Promise<RevisionedMutationOutcome> {
   // The rendered surfaces hold these controls, and this final seam closes the
   // race for an already-open editor: a definition write cannot start after
@@ -82,7 +83,7 @@ export function enqueueScheduleMutation(
   if (isScheduleDeletionHeld(scheduleId)) return Promise.resolve('discarded')
   const issuedGeneration = accountGeneration
   heldResourceCounts.set(scheduleId, (heldResourceCounts.get(scheduleId) ?? 0) + 1)
-  const outcome = controller.enqueue(scheduleId, patch)
+  const outcome = controller.enqueue(scheduleId, patch, expectedRevision)
   void outcome.finally(() => {
     if (issuedGeneration !== accountGeneration) return
     const remaining = (heldResourceCounts.get(scheduleId) ?? 1) - 1

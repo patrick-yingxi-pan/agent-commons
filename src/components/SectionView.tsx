@@ -13125,6 +13125,43 @@ function NewScheduleRow({
   )
 }
 
+/** One routine draft has one settlement grammar regardless of which field owns
+ * it. The shared revision controller retains the logical key and patch through
+ * Retry; this hook retains the editor, its frozen controls, and the person's
+ * exact authored values until that controller reports applied or discarded. */
+function useScheduleDraftCommit(
+  scheduleId: string,
+  draftLabel: string,
+  onApplied: () => void,
+  onHeldChange?: (held: boolean) => void,
+) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const busyRef = useRef(false)
+
+  const commit = async (
+    patch: Parameters<typeof updateSchedule>[1],
+    expectedRevision: number,
+  ) => {
+    if (busyRef.current) return
+    busyRef.current = true
+    setBusy(true)
+    setError(null)
+    onHeldChange?.(true)
+    const outcome = await updateSchedule(scheduleId, patch, expectedRevision)
+    busyRef.current = false
+    setBusy(false)
+    onHeldChange?.(false)
+    if (outcome === 'applied') {
+      onApplied()
+      return
+    }
+    setError(`Your ${draftLabel} draft was not saved. Review the latest routine, then apply what you still want.`)
+  }
+
+  return { busy, error, clearError: () => setError(null), commit }
+}
+
 /** Drill-down for one scheduled task: the instruction, the workflow rail (lit by
  *  whichever run is selected), recent runs, and the schedule / delivery / tools /
  *  model side panels. */
@@ -13158,6 +13195,24 @@ function ScheduledDetail({
   // settings live in DeliveryPanel below.
   const [editingName, setEditingName] = useState(false)
   const [nameDraft, setNameDraft] = useState(task.name)
+  const nameBaseRevision = useRef(task.revision ?? 0)
+  const {
+    busy: nameBusy,
+    error: nameError,
+    clearError: clearNameError,
+    commit,
+  } = useScheduleDraftCommit(task.id, 'name', () => setEditingName(false))
+  const cancelName = () => {
+    if (nameBusy) return
+    setNameDraft(task.name)
+    clearNameError()
+    setEditingName(false)
+  }
+  const saveName = async () => {
+    const next = nameDraft.trim()
+    if (!next || next === task.name || nameBusy) return
+    await commit({ name: next }, nameBaseRevision.current)
+  }
 
   // The rail reflects the freshest run (a live "Run now" overrides it with an
   // in-flight state until the new run resolves). Inspecting an *older* run is now
@@ -13195,31 +13250,46 @@ function ScheduledDetail({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               {editingName ? (
-                <input
-                  autoFocus
-                  disabled={mutationHeld}
-                  value={nameDraft}
-                  onChange={(e) => setNameDraft(e.target.value)}
-                  onBlur={() => setEditingName(false)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') {
-                      setNameDraft(task.name)
-                      setEditingName(false)
-                    }
-                    if (e.key === 'Enter') {
-                      const next = nameDraft.trim()
-                      if (next && next !== task.name) void updateSchedule(task.id, { name: next })
-                      setEditingName(false)
-                    }
-                  }}
-                  aria-label="Routine name"
-                  className={`${PAGE_TITLE_CLASS} min-w-0 max-w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 outline-none`}
-                />
+                <>
+                  <h1 className="sr-only">{task.name}</h1>
+                  <div className="flex min-w-0 items-center gap-1" aria-busy={nameBusy}>
+                    <input
+                      autoFocus
+                      disabled={nameBusy}
+                      value={nameDraft}
+                      onChange={(e) => setNameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') cancelName()
+                        if (e.key === 'Enter') void saveName()
+                      }}
+                      aria-label="Routine name"
+                      className={`${PAGE_TITLE_CLASS} min-w-0 max-w-full rounded-md border border-accent bg-surface px-1.5 py-0.5 outline-none disabled:opacity-60`}
+                    />
+                    <button
+                      onClick={() => void saveName()}
+                      disabled={nameBusy || !nameDraft.trim() || nameDraft.trim() === task.name}
+                      aria-label={nameBusy ? 'Saving routine name…' : 'Save routine name'}
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-accent transition hover:bg-accent-tint disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      {nameBusy ? <Spinner size={13} /> : <Check size={13} />}
+                    </button>
+                    <button
+                      onClick={cancelName}
+                      disabled={nameBusy}
+                      aria-label="Cancel routine rename"
+                      className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                </>
               ) : task.own !== false ? (
                 <button
                   disabled={mutationHeld}
                   onClick={() => {
                     setNameDraft(task.name)
+                    nameBaseRevision.current = task.revision ?? 0
+                    clearNameError()
                     setEditingName(true)
                   }}
                   title={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Rename routine'}
@@ -13243,6 +13313,7 @@ function ScheduledDetail({
               )}
             </div>
             <p className="mt-0.5 truncate text-[13px] text-ink-soft">{task.subtitle}</p>
+            {nameError && <p role="status" className="mt-1 text-[12px] text-removed">{nameError}</p>}
             {selectedSection && (
               <p className="mt-0.5 text-[13px] font-medium text-ink-soft">{selectedSection.label}</p>
             )}
@@ -13283,7 +13354,7 @@ function ScheduledDetail({
             </div>
           )}
           {showScheduleSection('instruction') && (
-            <PromptCard prompt={task.prompt} onSave={own ? (prompt) => void updateSchedule(task.id, { prompt }) : undefined} />
+            <PromptCard task={task} editable={own} />
           )}
           {showScheduleSection('workflow') && <WorkflowCard task={task} run={shownRun} running={running} />}
 
@@ -13356,24 +13427,39 @@ function ScheduledDetail({
   )
 }
 
-/** The verbatim instruction every run executes against — an entity field, so it's
- *  inline-editable (✎ → textarea, ⌘/Ctrl+Enter or Save commits via updateSchedule).
- *  Copy stays available in read mode. */
-/** `onSave` ABSENT = read-only (a granted visitor): the instruction is payload
- *  they may read, editing it is the owner's act. */
-function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: string) => void }) {
+/** The verbatim instruction every run executes against. A granted visitor sees
+ * the payload; an owner edits one retained draft whose Save does not close the
+ * section until the revisioned write is acknowledged. */
+function PromptCard({ task, editable }: { task: ScheduledTask; editable: boolean }) {
   const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState(prompt)
+  const [draft, setDraft] = useState(task.prompt)
+  const baseRevision = useRef(task.revision ?? 0)
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const { busy, error, clearError, commit } = useScheduleDraftCommit(
+    task.id,
+    'instruction',
+    () => setEditing(false),
+  )
 
   const startEdit = () => {
-    setDraft(prompt)
+    setDraft(task.prompt)
+    baseRevision.current = task.revision ?? 0
+    clearError()
     setEditing(true)
   }
-  const save = () => {
-    const next = draft.trim()
-    if (next && next !== prompt) onSave?.(next)
+  const close = () => {
+    if (busy) return
+    clearError()
     setEditing(false)
+  }
+  const save = async () => {
+    const next = draft.trim()
+    if (!next || busy) return
+    if (next === task.prompt) {
+      close()
+      return
+    }
+    await commit({ prompt: next }, baseRevision.current)
   }
   useEffect(() => {
     if (editing) taRef.current?.focus()
@@ -13382,49 +13468,53 @@ function PromptCard({ prompt, onSave }: { prompt: string; onSave?: (prompt: stri
   return (
     <FoldSection
       title="Instruction"
-      summary={prompt}
+      heldOpen={busy}
+      summary={task.prompt}
       actions={
         !editing ? (
           <>
-            {onSave && <SectionAction label="Edit instruction" icon={<Pencil size={13} />} onClick={startEdit} />}
-            <CopyButton text={prompt} ariaLabel="Copy instruction" variant="section" />
+            {editable && <SectionAction label="Edit instruction" icon={<Pencil size={13} />} onClick={startEdit} />}
+            <CopyButton text={task.prompt} ariaLabel="Copy instruction" variant="section" />
           </>
         ) : undefined
       }
     >
       {editing ? (
-        <div>
+        <fieldset disabled={busy} className="contents">
           <textarea
             ref={taRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setEditing(false)
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save()
+              if (e.key === 'Escape') close()
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void save()
             }}
             rows={5}
             placeholder="What should this routine do each time it runs?"
-            className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
+            className="w-full resize-none rounded-md border border-line bg-surface px-3 py-2.5 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co disabled:opacity-60"
           />
+          {error && <p role="status" className="mt-2 text-[12px] text-removed">{error}</p>}
           <div className="mt-2 flex items-center justify-end gap-2">
             <button
-              onClick={() => setEditing(false)}
-              className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink"
+              onClick={close}
+              disabled={busy}
+              className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
             </button>
             <button
-              onClick={save}
-              className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
+              onClick={() => void save()}
+              disabled={busy || !draft.trim()}
+              className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
             >
-              <Check size={13} />
-              Save
+              {busy ? <Spinner size={13} /> : <Check size={13} />}
+              {busy ? 'Saving instruction…' : 'Save'}
             </button>
           </div>
-        </div>
+        </fieldset>
       ) : (
         <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-ink">
-          {prompt}
+          {task.prompt}
         </p>
       )}
     </FoldSection>
@@ -13580,8 +13670,8 @@ function StepsEditor({
 }) {
   const [steps, setSteps] = useState<WorkflowStep[]>(() => task.steps.map((s) => ({ ...s })))
   const [picking, setPicking] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const baseRevision = useRef(task.revision ?? 0)
+  const { busy, error, commit } = useScheduleDraftCommit(task.id, 'workflow', onClose, onHeldChange)
 
   const setAction = (i: number, action: string) =>
     setSteps((s) => s.map((x, j) => (j === i ? { ...x, action } : x)))
@@ -13592,21 +13682,7 @@ function StepsEditor({
   const add = () =>
     setSteps((s) => [...s, { id: crypto.randomUUID(), action: '', tool: STEP_TOOLS[0] }])
   const save = async () => {
-    if (busy) return
-    setBusy(true)
-    onHeldChange(true)
-    setError(null)
-    const outcome = await updateSchedule(task.id, { steps: cleanSteps(steps) })
-    if (outcome === 'applied') {
-      onHeldChange(false)
-      onClose()
-      return
-    }
-    // Dismiss and account switching are explicit non-success outcomes. Keep
-    // the authored workflow intact so the person can review or submit it again.
-    setError('Your workflow draft was not saved. Review the latest routine, then apply what you still want.')
-    setBusy(false)
-    onHeldChange(false)
+    await commit({ steps: cleanSteps(steps) }, baseRevision.current)
   }
 
   return (
@@ -13903,16 +13979,37 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   const [tool, setTool] = useState<StepTool>(task.delivery.tool)
   const [target, setTarget] = useState(task.delivery.target)
   const [picking, setPicking] = useState(false)
+  const baseRevision = useRef(task.revision ?? 0)
+  const { busy, error, clearError, commit } = useScheduleDraftCommit(
+    task.id,
+    'delivery',
+    () => setEditing(false),
+  )
 
   const startEdit = () => {
     setTool(task.delivery.tool)
     setTarget(task.delivery.target)
+    baseRevision.current = task.revision ?? 0
+    clearError()
     setEditing(true)
   }
-  const save = () => {
-    const t = target.trim()
-    if (t) void updateSchedule(task.id, { delivery: { tool, target: t, note: task.delivery.note } })
+  const close = () => {
+    if (busy) return
+    clearError()
+    setPicking(false)
     setEditing(false)
+  }
+  const save = async () => {
+    const t = target.trim()
+    if (!t || busy) return
+    if (tool.id === task.delivery.tool.id && t === task.delivery.target) {
+      close()
+      return
+    }
+    await commit(
+      { delivery: { tool, target: t, note: task.delivery.note } },
+      baseRevision.current,
+    )
   }
 
   const DeliveryIcon = stepToolIcon(task.delivery.tool.id)
@@ -13921,6 +14018,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Delivers to"
+      heldOpen={busy}
       defaultFolded
       summary={displayTarget}
       actions={
@@ -13930,7 +14028,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
       }
     >
       {editing ? (
-        <div>
+        <fieldset disabled={busy} className="contents">
           <div className="relative inline-block">
             <button
               onClick={() => setPicking((p) => !p)}
@@ -13956,26 +14054,28 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') setEditing(false)
-              if (e.key === 'Enter') save()
+              if (e.key === 'Escape') close()
+              if (e.key === 'Enter') void save()
             }}
             placeholder="Where each run delivers…"
             aria-label="Delivery target"
             className="mt-1.5 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
           />
+          {error && <p role="status" className="mt-2 text-[12px] text-removed">{error}</p>}
           <div className="mt-2 flex items-center justify-end gap-2">
-            <button onClick={() => setEditing(false)} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
+            <button onClick={close} disabled={busy} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50">
               Cancel
             </button>
             <button
-              onClick={save}
-              className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] `}
+              onClick={() => void save()}
+              disabled={busy || !target.trim()}
+              className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
             >
-              <Check size={13} />
-              Save
+              {busy ? <Spinner size={13} /> : <Check size={13} />}
+              {busy ? 'Saving delivery…' : 'Save'}
             </button>
           </div>
-        </div>
+        </fieldset>
       ) : (
         <>
           <div className="flex items-center gap-2">
@@ -14007,7 +14107,12 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
           <Bell size={13} />
           Notify me on failure
         </span>
-        <Toggle on={notifyOnFail} onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })} ariaLabel="Notify me on failure" />
+        <Toggle
+          on={notifyOnFail}
+          onToggle={() => void updateSchedule(task.id, { notifyOnFailure: !notifyOnFail })}
+          ariaLabel="Notify me on failure"
+          disabled={busy}
+        />
       </label>
     </FoldSection>
   )
@@ -14216,8 +14321,8 @@ function CadenceEditor({
   onHeldChange: (held: boolean) => void
   onClose: () => void
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const baseRevision = useRef(task.revision ?? 0)
+  const { busy, error, commit } = useScheduleDraftCommit(task.id, 'schedule', onClose, onHeldChange)
   const close = busy ? () => {} : onClose
   // Mounted only while open, so dismiss listeners live for its whole lifetime.
   const ref = useDismissable<HTMLDivElement>(true, close)
@@ -14231,24 +14336,15 @@ function CadenceEditor({
   const next = nextRunLabel(spec, new Date(), tz)
 
   const apply = async () => {
-    if (busy) return
     const derived = describeCadence(spec)
-    setBusy(true)
-    onHeldChange(true)
-    setError(null)
-    const outcome = await updateSchedule(task.id, {
-      cadence: derived.cadence,
-      timezone: tz,
-      missedFirePolicy,
-    })
-    if (outcome === 'applied') {
-      onHeldChange(false)
-      onClose()
-      return
-    }
-    setError('Your schedule draft was not saved. Review the latest routine, then apply what you still want.')
-    setBusy(false)
-    onHeldChange(false)
+    await commit(
+      {
+        cadence: derived.cadence,
+        timezone: tz,
+        missedFirePolicy,
+      },
+      baseRevision.current,
+    )
   }
 
   return (
@@ -14366,23 +14462,36 @@ function CadenceEditor({
  *  model remain orthogonal: changing one never silently rewrites the other. */
 function ModelPanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
+  const [draftHeld, setDraftHeld] = useState(false)
   const agents = useAgents().data ?? []
   const agent = agents.find((candidate) => candidate.id === task.agentId) ?? agents[0]
   return (
-    <FoldSection title="Agent & model" defaultFolded summary={`${agent?.label ?? 'Unavailable Agent'} · ${task.model}`}>
+    <FoldSection
+      title="Agent & model"
+      heldOpen={draftHeld}
+      defaultFolded
+      summary={`${agent?.label ?? 'Unavailable Agent'} · ${task.model}`}
+    >
       <div className="relative">
         <button
           onClick={() => setEditing((v) => !v)}
+          disabled={draftHeld}
           title="Change Agent, model & effort"
           aria-haspopup="dialog"
           aria-expanded={editing}
-          className="group inline-flex max-w-full items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong"
+          className="group inline-flex max-w-full items-center gap-1.5 rounded-lg bg-panel-2 px-3 py-1 text-[12px] font-medium text-ink ring-1 ring-transparent transition hover:ring-line-strong disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ClaudeMark size={13} />
           <span className="truncate">{agent?.label ?? 'Unavailable Agent'} · {task.model}</span>
           <ChevronDown size={12} className="shrink-0 text-ink-faint transition group-hover:text-ink-soft" />
         </button>
-        {editing && <ScheduleModelPicker task={task} onClose={() => setEditing(false)} />}
+        {editing && (
+          <ScheduleModelPicker
+            task={task}
+            onHeldChange={setDraftHeld}
+            onClose={() => setEditing(false)}
+          />
+        )}
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
         Runs headless under this Agent’s tool, authority, and budget limits.
@@ -14392,11 +14501,17 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
 }
 
 /** The model + effort picker for a routine — endpoint providers only because a
- *  Session provider has no unattended drain loop. Structured ids route execution;
- *  the composed label survives only as a legacy/readable projection. */
-function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: () => void }) {
-  // Mounted only while open, so dismiss listeners live for its whole lifetime.
-  const ref = useDismissable<HTMLDivElement>(true, onClose)
+ * Session provider has no unattended drain loop. Agent, provider, model, and
+ * effort form one staged execution binding and land in one revisioned write. */
+function ScheduleModelPicker({
+  task,
+  onHeldChange,
+  onClose,
+}: {
+  task: ScheduledTask
+  onHeldChange: (held: boolean) => void
+  onClose: () => void
+}) {
   const popRef = usePopoverShift<HTMLDivElement>(true)
   const providers = useProviders().data ?? []
   const agents = useAgents().data ?? []
@@ -14411,23 +14526,44 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
         effort: task.effort,
       }
     : legacy
+  const [agentId, setAgentId] = useState(agent?.id ?? task.agentId ?? '')
   const [pick, setPick] = useState<ModelPick>(init.pick)
   const [effort, setEffort] = useState<string | undefined>(init.effort)
+  const baseRevision = useRef(task.revision ?? 0)
+  useEffect(() => {
+    if (!agentId && agent?.id) setAgentId(agent.id)
+  }, [agent?.id, agentId])
+  const { busy, error, commit } = useScheduleDraftCommit(
+    task.id,
+    'Agent and model',
+    onClose,
+    onHeldChange,
+  )
+  const close = busy ? () => {} : onClose
+  // Mounted only while open, so dismiss listeners live for its whole lifetime.
+  const ref = useDismissable<HTMLDivElement>(true, close)
 
-  const commit = (nextPick: ModelPick, nextEffort?: string) => {
+  const stageModel = (nextPick: ModelPick, nextEffort?: string) => {
     setPick(nextPick)
     setEffort(nextEffort)
-    void updateSchedule(task.id, {
-      providerId: nextPick.providerId ?? DEFAULT_PROVIDER_ID,
-      modelId: nextPick.modelId ?? null,
-      effort: nextEffort ?? null,
-    })
   }
   const pickProvider = (providerId?: string) => {
     const nextPick: ModelPick = { ...(providerId ? { providerId } : {}) }
     const provider = pickedProvider(providers, nextPick)
     const model = pickedModel(provider, nextPick)
-    commit(nextPick, resolveEffort(effortLevelsFor(provider, model), undefined))
+    stageModel(nextPick, resolveEffort(effortLevelsFor(provider, model), undefined))
+  }
+  const apply = async () => {
+    if (!agentId || busy) return
+    await commit(
+      {
+        agentId,
+        providerId: pick.providerId ?? DEFAULT_PROVIDER_ID,
+        modelId: pick.modelId ?? null,
+        effort: effort ?? null,
+      },
+      baseRevision.current,
+    )
   }
 
   return (
@@ -14438,34 +14574,50 @@ function ScheduleModelPicker({ task, onClose }: { task: ScheduledTask; onClose: 
       }}
       role="dialog"
       aria-label="Model and effort"
+      aria-busy={busy}
       className={`absolute bottom-full right-0 z-30 mb-1.5 w-[300px] overflow-hidden ${POPOVER_SURFACE}`}
     >
-      <label className="block px-3 pt-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Agent</span>
-        <select
-          aria-label="Routine agent"
-          value={agent?.id ?? ''}
-          disabled={agents.length === 0}
-          onChange={(event) => void updateSchedule(task.id, { agentId: event.currentTarget.value })}
-          className={`${FORM_INPUT_CLASS} mt-1 w-full`}
-        >
-          {agents.length === 0 && <option value="">No Agent available</option>}
-          {agents.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
-        </select>
-      </label>
-      <ModelPickerMenu
-        endpointOnly
-        pick={pick}
-        effort={effort}
-        onPickModel={(next) => commit(next, effort)}
-        onPickEffort={(e) => commit(pick, e)}
-        onPickProvider={pickProvider}
-      />
-      <div className="flex justify-end px-3 pb-2">
-        <button onClick={onClose} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink">
-          Done
-        </button>
-      </div>
+      <fieldset disabled={busy} className="contents">
+        <label className="block px-3 pt-2">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Agent</span>
+          <select
+            aria-label="Routine agent"
+            value={agentId}
+            disabled={busy || agents.length === 0}
+            onChange={(event) => setAgentId(event.currentTarget.value)}
+            className={`${FORM_INPUT_CLASS} mt-1 w-full`}
+          >
+            {agents.length === 0 && <option value="">No Agent available</option>}
+            {agents.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
+          </select>
+        </label>
+        <ModelPickerMenu
+          endpointOnly
+          pick={pick}
+          effort={effort}
+          onPickModel={(next) => stageModel(next, effort)}
+          onPickEffort={(nextEffort) => stageModel(pick, nextEffort)}
+          onPickProvider={pickProvider}
+        />
+        {error && <p role="status" className="px-3 pb-2 text-[12px] text-removed">{error}</p>}
+        <div className="flex justify-end gap-2 px-3 pb-2">
+          <button
+            onClick={close}
+            disabled={busy}
+            className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => void apply()}
+            disabled={busy || !agentId}
+            className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            {busy ? <Spinner size={13} /> : <Check size={13} />}
+            {busy ? 'Applying…' : 'Apply'}
+          </button>
+        </div>
+      </fieldset>
     </div>
   )
 }

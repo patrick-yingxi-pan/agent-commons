@@ -40,10 +40,14 @@ test('unattended routines bind structured endpoint choices and exclude Session p
   assert.ok(routine.includes('endpointOnly'), 'the routine picker excludes foreground Session providers')
   const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenu.tsx')))
   assert.ok(menu.includes("candidate.kind !== 'session'"), 'legacy kind absence remains an endpoint, not an empty picker')
-  assert.ok(routine.includes('agentId: event.currentTarget.value'), 'the routine writes an explicit Agent id')
-  assert.ok(routine.includes('providerId: nextPick.providerId'), 'the routine writes an explicit provider id')
-  assert.ok(routine.includes('modelId: nextPick.modelId'), 'the routine writes an explicit model id')
-  assert.ok(routine.includes('effort: nextEffort'), 'the routine writes explicit effort')
+  assert.ok(routine.includes('setAgentId(event.currentTarget.value)'), 'the routine stages an explicit Agent id')
+  assert.ok(routine.includes('providerId: pick.providerId'), 'Apply writes an explicit provider id')
+  assert.ok(routine.includes('modelId: pick.modelId'), 'Apply writes an explicit model id')
+  assert.ok(routine.includes('effort: effort'), 'Apply writes explicit effort')
+  assert.match(routine, /await commit\(\s*\{[\s\S]*agentId[\s\S]*providerId[\s\S]*modelId[\s\S]*effort/,
+    'the complete unattended execution binding lands in one acknowledged patch')
+  assert.doesNotMatch(routine, /onPick(?:Model|Effort|Provider)=\{[^}]*commit/,
+    'picker gestures stage locally rather than emitting partial writes')
   assert.doesNotMatch(routine, /updateSchedule\([^)]*,\s*\{\s*model:/,
     'the display label is not the execution routing field')
 })

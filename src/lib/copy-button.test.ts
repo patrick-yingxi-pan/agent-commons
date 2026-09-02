@@ -25,7 +25,7 @@ test('SectionView sources its copy buttons from the shared component', () => {
   assert.ok((src.match(/<CopyButton\b/g) ?? []).length >= 4, 'multiple copy affordances wear the shared component')
   assert.match(
     src,
-    /<CopyButton\s+text=\{prompt\}\s+ariaLabel="Copy instruction"\s+variant="section"/,
+    /<CopyButton\s+text=\{task\.prompt\}\s+ariaLabel="Copy instruction"\s+variant="section"/,
     'a copy verb in a section header keeps the copy funnel but wears the section-action cue',
   )
 })

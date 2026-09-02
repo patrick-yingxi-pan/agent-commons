@@ -38,6 +38,9 @@ export interface RevisionedMutationDeps<Resource, Patch> {
 interface QueueEntry<Patch> {
   resourceId: string
   patch: Patch
+  /** Optional user-reviewed base for the first attempt. It is consumed once:
+   * an explicit Retry rebases on the authoritative reconciliation as before. */
+  expectedRevision?: number
   idempotencyKey: string
   settle: (outcome: RevisionedMutationOutcome) => void
 }
@@ -77,10 +80,12 @@ export function createRevisionedMutationController<Resource, Patch>(
 
     void (async () => {
       const current = deps.snapshot(entry.resourceId) ?? await deps.reconcile(entry.resourceId)
+      const expectedRevision = entry.expectedRevision ?? deps.revision(current)
+      entry.expectedRevision = undefined
       return deps.mutate(
         entry.resourceId,
         entry.patch,
-        deps.revision(current),
+        expectedRevision,
         entry.idempotencyKey,
       )
     })().then(
@@ -109,9 +114,13 @@ export function createRevisionedMutationController<Resource, Patch>(
     )
   }
 
-  const enqueue = (resourceId: string, patch: Patch): Promise<RevisionedMutationOutcome> => {
+  const enqueue = (
+    resourceId: string,
+    patch: Patch,
+    expectedRevision?: number,
+  ): Promise<RevisionedMutationOutcome> => {
     const result = new Promise<RevisionedMutationOutcome>((settle) => {
-      queue.push({ resourceId, patch, idempotencyKey: deps.mintIdempotencyKey(), settle })
+      queue.push({ resourceId, patch, expectedRevision, idempotencyKey: deps.mintIdempotencyKey(), settle })
     })
     publish()
     drain()

@@ -98,6 +98,24 @@ test('a stale conflict refreshes server truth and Retry keeps the logical key', 
   assert.equal(await outcome, 'applied')
 })
 
+test('a form may pin its opening revision while explicit Retry rebases it', async () => {
+  const h = harness()
+  h.records.set('s1', session('s1', 4, 'Updated while the form stayed open'))
+  const outcome = h.controller.enqueue('s1', { title: 'My reviewed draft' }, 0)
+  const key = h.calls[0]!.idempotencyKey
+  assert.equal(h.calls[0]!.expectedRevision, 0, 'the first attempt uses the version the person actually reviewed')
+
+  h.calls[0]!.reject(new Error('changed elsewhere'))
+  await tick()
+  h.controller.retry()
+  assert.equal(h.calls[1]!.expectedRevision, 4, 'Retry alone rebases on reconciled truth')
+  assert.equal(h.calls[1]!.idempotencyKey, key, 'rebasing does not mint a second logical act')
+
+  h.calls[1]!.resolve(session('s1', 5, 'My reviewed draft'))
+  await tick()
+  assert.equal(await outcome, 'applied')
+})
+
 test('Dismiss reconciles uncertain state and advances the held queue', async () => {
   const h = harness()
   const first = h.controller.enqueue('s1', { title: 'One' })
