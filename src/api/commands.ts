@@ -32,9 +32,7 @@ import {
   type AppNotification,
   type OpenSubGoal,
   type Contribution,
-  type CreateGrantRequest,
   type Discussion,
-  type Grant,
   type OpenDiscussionRequest,
   type OpenProposalRequest,
   type PostToDiscussionRequest,
@@ -800,14 +798,6 @@ export async function commentOnWorkItem(projectId: string, itemId: string, body:
   return item
 }
 
-/** Create (or re-grant — the server replaces per subject×audience) a social
- *  grant (S1). A present `note` is the publish act (INV-9: absent = silent). */
-export async function createGrant(req: CreateGrantRequest): Promise<Grant> {
-  const g = await apiPost<Grant>(paths.grantCreate(), req)
-  invalidate(keys.grants(req.subject.kind, req.subject.id))
-  return g
-}
-
 /** Redeem a share-link token (S6): the signed-in caller becomes audience at
  *  the grant's tier; returns the subject so the caller can land on its page.
  *  An unknown/rotated token throws (the 404). */
@@ -818,12 +808,6 @@ export async function redeemShareLink(token: string): Promise<{ subject: { kind:
   invalidate(keys.relations)
   invalidate(keys.commons)
   return out
-}
-
-/** Revoke a grant — the granter's act, or the audience declining. */
-export async function revokeGrant(id: string, subject: { kind: string; id: string }): Promise<void> {
-  await apiDelete(paths.grantRevoke(id))
-  invalidate(keys.grants(subject.kind, subject.id))
 }
 
 /** Open a discussion on an anchor (social S2) — a locus-free anchor is the

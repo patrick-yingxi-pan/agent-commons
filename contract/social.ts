@@ -152,6 +152,17 @@ export type Audience =
 export const SHARE_TIERS = ['view', 'comment', 'propose', 'co-own'] as const
 export type ShareTier = (typeof SHARE_TIERS)[number]
 
+/** One canonical boundary for the optional publish note. Whitespace-only input
+ *  means the same thing as absence: a silent access grant, not an empty feed
+ *  post. UI and store both use this function so re-granting without prose also
+ *  removes any older published note. */
+export const MAX_GRANT_NOTE_CHARS = 2000
+export function canonicalGrantNote(note: unknown): string | undefined {
+  if (typeof note !== 'string') return undefined
+  const trimmed = note.trim()
+  return trimmed ? trimmed.slice(0, MAX_GRANT_NOTE_CHARS) : undefined
+}
+
 /** `GET /v1/social/capability?kind=&id=` — what the CALLER may do on one
  *  subject, computed at serve time by the very predicates the write paths use.
  *

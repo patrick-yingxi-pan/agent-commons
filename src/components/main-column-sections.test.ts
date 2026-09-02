@@ -492,7 +492,7 @@ test('no section holds a standing form — the composer hangs off the header ver
     const body = stripComments(read(join(ROOT, 'src', 'components', file)))
     // `[\s\S]*?` and not `[^}]*`: the subject prop is an object literal, so it
     // carries braces of its own and a negated-brace class stops at the first.
-    const hosts = [...body.matchAll(/<GrantsPanel[\s\S]{0,160}?\/>/g)].map((m) => m[0])
+    const hosts = [...body.matchAll(/<GrantsPanel[\s\S]{0,320}?\/>/g)].map((m) => m[0])
     assert.ok(hosts.length > 0, `${file} hosts GrantsPanel (the enumeration is current)`)
     for (const h of hosts) {
       const disclosed = /composing=\{/.test(h)
@@ -503,7 +503,7 @@ test('no section holds a standing form — the composer hangs off the header ver
   }
   assert.match(
     read(join(ROOT, 'src', 'components', 'GrantsPanel.tsx')),
-    /composing = true \}: \{ subject: SocialEntityRef; composing\?: boolean \}/,
+    /export function GrantsPanel\(\{[\s\S]{0,120}?composing = true,[\s\S]{0,160}?composing\?: boolean/,
     'and GrantsPanel defaults to open — so the act surfaces get it by saying nothing',
   )
 })

@@ -8,6 +8,12 @@
 > capability_unavailable` so native-only features gate on flags, never on sniffing
 > Electron vs web. See [`../../README.md`](../../README.md#architecture).
 
+## Recent reliability ratchet
+
+| ID | Requirement | Implementation | Verified by | Status |
+|----|-------------|----------------|-------------|--------|
+| SYNC-30 | **Acknowledged grant changes:** first-party share, link rotation, and revoke use one account-scoped payload FIFO and one logical key. POST/DELETE replay successful responses in the tenant scope; the UI keeps the exact audience/note or revoke intent frozen and its host mounted through Retry/Dismiss. Reconciliation requires exact directed desired state, a link token changed from the frozen baseline, or authoritative revoke absence, so unrelated roster activity cannot claim success. Blank/absent note is canonical silent access and actively clears older publish prose. | `contract/social.ts`, `server/store/index.ts`, `server/routes/index.ts`, `src/api/grantRevision.ts`, `src/api/grantMutationCommands.ts`, `src/controller/acknowledgedActionMutationCore.ts`, `src/controller/grantMutations.ts`, `src/components/GrantsPanelContent.tsx`, `src/components/GrantMutationNotice.tsx` | `server/routes/social.test.ts`, `src/api/grant-revision.test.ts`, `src/components/grant-mutation-ui.test.ts`, `e2e/grant-mutations.spec.ts` | ✅ |
+
 ## Requirements (L2)
 
 | ID | Requirement | Implementation | Verified by | Status |

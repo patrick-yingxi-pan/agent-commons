@@ -70,6 +70,12 @@
 > pair above is superseded for composite pages. Page-wide disclosure now lives
 > in the focus-aware `Organize pane` menu; thread-local placement is unchanged.
 
+## Built — S1 acknowledgement and publish semantics
+
+| ID | Requirement | Implementation | Verified by | Status |
+|----|-------------|----------------|-------------|--------|
+| SOCIAL-22 | **A share is one acknowledged security-sensitive act.** First-party grant creation, link rotation, and revocation retain one exact intent and idempotency key through uncertainty; the generic panel freezes its values and host, shell Retry/Dismiss owns recovery, and authoritative roster reconciliation recognizes exact directed state, a changed link token, or revoked absence. Server replay cannot rotate twice or turn a completed revoke into a false 404. Grant-note absence is complete-set silence: blank or omitted prose removes an older publication instead of inheriting it. | `contract/social.ts`, `server/store/index.ts`, `server/routes/index.ts`, `src/api/grantRevision.ts`, `src/api/grantMutationCommands.ts`, `src/controller/grantMutations.ts`, `src/components/GrantsPanelContent.tsx`, `src/components/GrantMutationNotice.tsx` | `contract/social.test.ts`, `server/routes/social.test.ts`, `src/api/grant-revision.test.ts`, `src/components/grant-mutation-ui.test.ts`, `e2e/grant-mutations.spec.ts` | ✅ |
+
 ## Not built — the declared S6 tail
 
 | ID | Requirement | Anchor / where it would live | Status |

@@ -36,6 +36,6 @@ test('nothing re-hardcodes the label — the roster and the folded stub read one
   }
   assert.deepEqual(offenders, [], `these render an audience without the shared label: ${offenders.join(', ')}`)
   // Vacuity guard: the scan must have had the real subject in front of it.
-  const panel = read('src/components/GrantsPanel.tsx')
+  const panel = read('src/components/GrantsPanelContent.tsx')
   assert.match(panel, /audienceLabel\(/, 'the roster routes through the shared label')
 })

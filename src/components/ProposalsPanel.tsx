@@ -55,6 +55,7 @@ export type MainPageSectionComponent = ComponentType<{
   summary: ReactNode
   actions?: ReactNode
   defaultFolded?: boolean
+  heldOpen?: boolean
   persist?: boolean
   children: ReactNode
 }>

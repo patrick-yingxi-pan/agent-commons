@@ -81,6 +81,7 @@ import {
   parseCadence,
   seedGraph,
   FOLLOW_ROSTER_CAP,
+  canonicalGrantNote,
   PROPOSABLE_SCHEDULE_FIELDS,
   SHARE_TIERS,
   tierPermits,
@@ -479,8 +480,6 @@ const follows = new Map<string, Set<string>>(SEED_FOLLOWS.map(([t, names]) => [t
 const discussionReads = new Map<string, Map<string, number>>()
 const READ_MARKS_PER_TENANT = 500
 const MAX_GRANTS_PER_SUBJECT = 100
-const MAX_GRANT_NOTE_CHARS = 2000
-
 /** Wire face: strip the raw tenant anchors AND the redemption roster (who
  *  clicked a link is nobody's business — the `publicDelegation` pattern). */
 function publicGrant(g: StoredGrant): Grant {
@@ -6997,6 +6996,7 @@ export const store = {
       return this.grantSubjectVisible(req.subject, tenantId) ? 'forbidden' : undefined
     }
     if (!SHARE_TIERS.includes(req.tier)) return 'invalid'
+    const note = canonicalGrantNote(req.note)
     // S6 — a LINK grant: the server mints the token (never caller-supplied —
     // a guessable token would be a wall with a hole); "anyone with the link"
     // means anyone SIGNED IN who redeems it. Anonymous rendering through the
@@ -7010,7 +7010,8 @@ export const store = {
         existing.audience = { kind: 'link', token }
         existing.tier = req.tier
         existing.redeemedBy = [] // rotation invalidates every prior redemption
-        if (typeof req.note === 'string') existing.note = req.note.slice(0, MAX_GRANT_NOTE_CHARS)
+        if (note === undefined) delete existing.note
+        else existing.note = note
         emit({ type: 'grant.changed', subject: req.subject, parties: [existing.granterTenant] })
         persist()
         return publicGrant(existing)
@@ -7021,7 +7022,7 @@ export const store = {
         subject: { kind: req.subject.kind, id: req.subject.id },
         audience: { kind: 'link', token },
         tier: req.tier,
-        ...(typeof req.note === 'string' ? { note: req.note.slice(0, MAX_GRANT_NOTE_CHARS) } : {}),
+        ...(note === undefined ? {} : { note }),
         grantedBy: tenantName(tenantId),
         grantedAt: Date.now(),
         granterTenant: tenantId,
@@ -7046,7 +7047,8 @@ export const store = {
       // a lateral or narrowing re-grant is not — silence over noise).
       const escalated = tierRank(req.tier) > tierRank(existing.tier)
       existing.tier = req.tier
-      if (typeof req.note === 'string') existing.note = req.note.slice(0, MAX_GRANT_NOTE_CHARS)
+      if (note === undefined) delete existing.note
+      else existing.note = note
       emit({ type: 'grant.changed', subject: req.subject, parties: [existing.granterTenant, audienceTenant] })
       if (escalated) {
         notifyTenants([audienceTenant], tenantId, {
@@ -7065,7 +7067,7 @@ export const store = {
       subject: { kind: req.subject.kind, id: req.subject.id },
       audience: req.audience,
       tier: req.tier,
-      ...(typeof req.note === 'string' ? { note: req.note.slice(0, MAX_GRANT_NOTE_CHARS) } : {}),
+      ...(note === undefined ? {} : { note }),
       grantedBy: tenantName(tenantId),
       grantedAt: Date.now(),
       granterTenant: tenantId,

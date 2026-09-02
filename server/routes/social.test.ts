@@ -116,7 +116,7 @@ test('grant: creation is the owner’s act; refusals are argued (link/S6, discus
   assert.equal(ghost.status, 404)
 })
 
-test('grant: re-grant replaces (one live grant per subject×audience); note publishes; grantedTier reads the union', async () => {
+test('grant: re-grant replaces, and omitting prose removes an older published note', async () => {
   const { projectId, subject } = socialArena()
   const first = await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'view' }, { 'x-tenant-id': OWNER })
   assert.equal(first.status, 200)
@@ -125,9 +125,34 @@ test('grant: re-grant replaces (one live grant per subject×audience); note publ
   assert.equal(second.status, 200)
   assert.equal(second.json.id, first.json.id, 'the same row, re-granted — no accretion')
   assert.equal(second.json.note, 'Tear it apart', 'a present note is the publish act')
+  const silent = await call('POST', '/grants', { subject, audience: { kind: 'org', orgId: AUDIENCE }, tier: 'propose' }, { 'x-tenant-id': OWNER })
+  assert.equal(silent.json.id, first.json.id)
+  assert.equal(silent.json.note, undefined, 'absent prose actively restores a silent share')
   const list = await call('GET', `/grants?kind=project&id=${projectId}`, undefined, { 'x-tenant-id': OWNER })
   assert.equal(list.json.length, 1)
+  assert.equal(list.json[0].note, undefined)
   assert.equal(store.grantedTier({ kind: 'project', id: projectId }, AUDIENCE), 'propose', 'the read-side hook reflects the replace')
+})
+
+test('grant create and revoke replay one logical idempotency key without rotating or 404ing', async () => {
+  const { projectId, subject } = socialArena()
+  const key = `grant-replay-${projectId}`
+  const headers = { 'x-tenant-id': OWNER, 'idempotency-key': key }
+  const input = { subject, audience: { kind: 'link', token: '' }, tier: 'comment' }
+  const first = await call('POST', '/grants', input, headers)
+  const replay = await call('POST', '/grants', input, headers)
+  assert.equal(first.status, 200)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.id, first.json.id)
+  assert.equal(replay.json.audience.token, first.json.audience.token, 'replay returns the first token instead of rotating again')
+  const listed = await call('GET', `/grants?kind=project&id=${projectId}`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(listed.json.filter((grant: any) => grant.audience.kind === 'link').length, 1)
+
+  const revokeHeaders = { 'x-tenant-id': OWNER, 'idempotency-key': `grant-revoke-replay-${projectId}` }
+  const removed = await call('DELETE', `/grants/${first.json.id}`, undefined, revokeHeaders)
+  const removedReplay = await call('DELETE', `/grants/${first.json.id}`, undefined, revokeHeaders)
+  assert.equal(removed.status, 200)
+  assert.equal(removedReplay.status, 200, 'replay returns the acknowledged deletion instead of a misleading 404')
 })
 
 test('grant: either party revokes, nobody else; revocation empties the roster and the tier', async () => {

@@ -303,8 +303,6 @@ import {
   useSocialCapability,
   useGrants,
   openSocialProposal,
-  createGrant,
-  revokeGrant,
   reactToDiscussionPost,
   openWallPost,
   deleteDiscussionPost,
@@ -386,6 +384,7 @@ import {
   enqueueScheduleCreation,
 } from '../controller/scheduleCreationMutations'
 import type { RevisionedMutationOutcome } from '../controller/revisionedMutationCore'
+import { SHARING_MUTATION_WAIT } from '../controller/grantMutations.ts'
 import {
   enqueueDispatch,
   isDispatchHeld,
@@ -1220,6 +1219,7 @@ function ProjectDetail({
   // for the reason that keeps recurring: the verb lives in the section header,
   // so the state it drives has to live where the header can reach it.
   const [sharing, setSharing] = useState(false)
+  const [sharingHeld, setSharingHeld] = useState(false)
   const projectVerbs =
     own && !editingAbout ? (
       <SectionAction
@@ -1468,6 +1468,7 @@ function ProjectDetail({
           {showProjectSection('sharing') && <FoldSection
             title="Sharing"
             defaultFolded
+            heldOpen={sharingHeld}
             summary={
               grants.length > 0 ? grants.map((g) => audienceLabel(g.audience)).join(' · ')
               : project.shared === true ? 'Shared — no audiences yet'
@@ -1484,6 +1485,8 @@ function ProjectDetail({
                 icon={<Plus size={14} />}
                 onClick={() => setSharing((v) => !v)}
                 expanded={sharing}
+                disabled={sharingHeld}
+                disabledReason={sharingHeld ? SHARING_MUTATION_WAIT : undefined}
               />
               : undefined
             }
@@ -1492,7 +1495,11 @@ function ProjectDetail({
             {/* The grants roster (social S1) — audience-scoped shares over the
                 generic subject ref; org-wide `shared` above stays the legacy
                 everyone-switch. */}
-            <GrantsPanel subject={{ kind: 'project', id: project.id }} composing={sharingPage || sharing} />
+            <GrantsPanel
+              subject={{ kind: 'project', id: project.id }}
+              composing={sharingPage || sharing}
+              onHeldChange={setSharingHeld}
+            />
             <DefaultRolePicker project={project} />
           </FoldSection>}
 
@@ -13226,6 +13233,7 @@ function ScheduledDetail({
   const scheduleGrants = useGrants('schedule', task.id).data ?? []
   // …and its grant composer's disclosure, the same as the project page's.
   const [sharingSchedule, setSharingSchedule] = useState(false)
+  const [sharingHeld, setSharingHeld] = useState(false)
   const selectedSection = scheduleSection(sectionId)
   // A direct Sharing address is the share act itself, not an overview section
   // waiting for a second disclosure click (UI-18's host-vs-payload distinction).
@@ -13380,6 +13388,7 @@ function ScheduledDetail({
           {showScheduleSection('sharing') && <FoldSection
             title="Sharing"
             defaultFolded
+            heldOpen={sharingHeld}
             summary={
               scheduleGrants.length > 0 ? scheduleGrants.map((g) => audienceLabel(g.audience)).join(' · ') : 'Not shared'
             }
@@ -13395,11 +13404,17 @@ function ScheduledDetail({
                 icon={<Plus size={14} />}
                 onClick={() => setSharingSchedule((v) => !v)}
                 expanded={sharingSchedule}
+                disabled={sharingHeld}
+                disabledReason={sharingHeld ? SHARING_MUTATION_WAIT : undefined}
               />
               : undefined
             }
           >
-            <GrantsPanel subject={{ kind: 'schedule', id: task.id }} composing={sharingPage || sharingSchedule} />
+            <GrantsPanel
+              subject={{ kind: 'schedule', id: task.id }}
+              composing={sharingPage || sharingSchedule}
+              onHeldChange={setSharingHeld}
+            />
           </FoldSection>}
 
           {showScheduleSection('schedule') && <SchedulePanel task={task} />}

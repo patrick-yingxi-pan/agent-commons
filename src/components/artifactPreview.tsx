@@ -37,6 +37,7 @@ import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { BackButton } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SectionAction } from './SectionAction'
+import { SHARING_MUTATION_WAIT } from '../controller/grantMutations.ts'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -768,6 +769,7 @@ export function ArtifactDetailPage({
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
+  const [sharingHeld, setSharingHeld] = useState(false)
   const edit: DocEdit | undefined = own
     ? {
         index: editing,
@@ -879,6 +881,7 @@ export function ArtifactDetailPage({
           <Section
             title="Sharing"
             defaultFolded
+            heldOpen={sharingHeld}
             summary="Audience and permissions"
             actions={
               <SectionAction
@@ -886,10 +889,16 @@ export function ArtifactDetailPage({
                 icon={<Plus size={14} />}
                 onClick={() => setSharing((value) => !value)}
                 expanded={sharing}
+                disabled={sharingHeld}
+                disabledReason={sharingHeld ? SHARING_MUTATION_WAIT : undefined}
               />
             }
           >
-            <GrantsPanel subject={{ kind: 'artifact', id: artifact.id }} composing={sharing} />
+            <GrantsPanel
+              subject={{ kind: 'artifact', id: artifact.id }}
+              composing={sharing}
+              onHeldChange={setSharingHeld}
+            />
           </Section>
         )}
         <Section title="Provenance" summary={`From ${artifact.source}`}>
