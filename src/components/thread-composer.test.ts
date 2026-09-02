@@ -19,20 +19,23 @@ import { ROOT, read, filesUnder, stripComments, sectionViewComponent } from '../
 const FUNNEL = join('src', 'components', 'AnchorThreadComposer.tsx')
 const SECTION_VIEW = join(ROOT, 'src', 'components', 'SectionView.tsx')
 
-test('posting to a thread has exactly ONE caller — the shared composer', () => {
+test('posting to a thread has exactly ONE UI caller — the shared composer', () => {
   // The real one-home lock. A hand-rolled composer can vary its textarea, its
   // Post button and its error line freely, but it cannot avoid calling the API —
-  // so this catches the class, not the styling symptom.
+  // so this catches the class, not the styling symptom. The acknowledgement
+  // controller is now the transport owner; UI surfaces may only enter through
+  // its one eager `enqueueThreadPost` door.
   const callers: string[] = []
   for (const file of filesUnder('src')) {
-    if (file.startsWith(join(ROOT, 'src', 'api'))) continue // the api module DEFINES them
+    if (file.startsWith(join(ROOT, 'src', 'api'))) continue
+    if (file.startsWith(join(ROOT, 'src', 'controller'))) continue
     const src = stripComments(read(file))
-    if (/\b(postToDiscussion|openDiscussion)\s*\(/.test(src)) callers.push(file.slice(ROOT.length + 1))
+    if (/\benqueueThreadPost\s*\(/.test(src)) callers.push(file.slice(ROOT.length + 1))
   }
   assert.deepEqual(
     callers,
     [FUNNEL],
-    'only AnchorThreadComposer may post to a thread — route the surface through it instead of re-implementing it',
+    'only AnchorThreadComposer may enqueue a thread post — route the surface through it instead of re-implementing it',
   )
 })
 
@@ -117,7 +120,7 @@ test('the shared composer can be a disclosed one — it closes and cancels', () 
   // It is told WHICH thread the post landed in, not merely that it landed:
   // get-or-create is the server's rule, so a caller that passed `thread: null`
   // (the DM door, every first post) cannot otherwise know what it just created.
-  assert.match(src, /onPosted\?\.\(landed\)/, 'a disclosed composer is told when — and where — the post landed, so it can close and open it')
+  assert.match(src, /onPosted\?\.\(result\.discussion\)/, 'a disclosed composer is told when — and where — the post landed, so it can close and open it')
   assert.ok(src.includes('onCancel &&'), 'a composer opened by an affordance can be closed without posting')
   assert.ok(src.includes('autoFocus'), 'the caret lands where the verb promised')
   // ONE focus mechanism, because there is now one kind of disclosed composer.

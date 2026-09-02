@@ -33,9 +33,7 @@ import {
   type OpenSubGoal,
   type Contribution,
   type Discussion,
-  type OpenDiscussionRequest,
   type OpenProposalRequest,
-  type PostToDiscussionRequest,
   type SetFollowRequest,
   type MarkDiscussionReadRequest,
   type SocialProposal,
@@ -810,37 +808,6 @@ export async function redeemShareLink(token: string): Promise<{ subject: { kind:
   return out
 }
 
-/** Open a discussion on an anchor (social S2) — a locus-free anchor is the
- *  subject's root thread (the server get-or-creates it). */
-export async function openDiscussion(req: OpenDiscussionRequest): Promise<Discussion> {
-  const d = await apiPost<Discussion>(paths.discussionOpen(), req)
-  invalidate(keys.discussions(req.anchor.ref.kind, req.anchor.ref.id))
-  invalidate(keys.discussion(d.id))
-  // A principal anchor IS a direct message (S7), so the inbox is stale — and it
-  // is a different key from the anchored list above, because the server lists a
-  // DM in the inbox and nowhere else.
-  if (req.anchor.ref.kind === 'principal') invalidate(keys.directMessages)
-  return d
-}
-
-/** Append a post to a discussion's thread. */
-export async function postToDiscussion(
-  did: string,
-  body: string,
-  anchorRef: { kind: string; id: string },
-  /** Answer one post rather than the thread (S9). Absent = a top-level post. */
-  replyTo?: string,
-): Promise<Discussion> {
-  const d = await apiPost<Discussion>(paths.discussionPosts(did), {
-    body,
-    ...(replyTo !== undefined ? { replyTo } : {}),
-  } satisfies PostToDiscussionRequest)
-  invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
-  invalidate(keys.discussion(did))
-  if (anchorRef.kind === 'principal') invalidate(keys.directMessages)
-  return d
-}
-
 /** ── The person layer (S7) ───────────────────────────────────────────────────
  *  Follow / unfollow a workspace by its public display name. Explicit state,
  *  never a toggle: two clients pressing at once must converge on what the user
@@ -959,17 +926,6 @@ export async function landSocialProposal(
   invalidate(keys.schedules)
   invalidate(keys.artifactContent)
   return p
-}
-
-/** Say something on your own wall (social S8) — a post. It is a Discussion
- *  anchored to you, so everything under it (replies, reactions, retract) is the
- *  machinery the layer already had; what is new is only that you can speak
- *  without a resource to speak ABOUT. */
-export async function openWallPost(body: string): Promise<Discussion> {
-  const d = await apiPost<Discussion>(paths.posts, { body })
-  invalidate(keys.commons)
-  invalidatePrefix(keys.ownerProfile())
-  return d
 }
 
 const cachedArtifactRows = (): ArtifactItem[] => [

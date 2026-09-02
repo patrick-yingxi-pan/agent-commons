@@ -8,6 +8,7 @@ import { ProviderDefinitionMutationNotice } from './ProviderDefinitionMutationNo
 import { RelationMutationNotice } from './RelationMutationNotice'
 import { ScheduleMutationNotice } from './ScheduleMutationNotice'
 import { SessionMetadataMutationNotice } from './SessionMetadataMutationNotice'
+import { SocialPostMutationNotice } from './SocialPostMutationNotice'
 import { SessionDeletionNotice } from './SessionDeletionNotice'
 import { SavedContextMutationNotice } from './SavedContextMutationNotice'
 import { SavedContextDeletionNotice } from './SavedContextDeletionNotice'
@@ -27,6 +28,7 @@ export function ShellMutationNotices() {
       <ScheduleMutationNotice />
       <DispatchMutationNotice />
       <GrantMutationNotice />
+      <SocialPostMutationNotice />
       <ArtifactContentMutationNotice />
       <ProposalVerdictMutationNotice />
       <AgentMutationNotice />

@@ -78,6 +78,7 @@ export function LocusGutter({
   // Asked of the THREAD on this locus when one exists — see `useCanComment`.
   const canComment = useCanComment(subject, thread, enabled)
   const [composing, setComposing] = useState(false)
+  const [postingHeld, setPostingHeld] = useState(false)
   if (!enabled) return null
 
   return (
@@ -93,8 +94,9 @@ export function LocusGutter({
         {thread && (
           <button
             onClick={() => rel.navigate('discussions', thread.id)}
-            title={`Open this ${noun}’s thread`}
-            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+            disabled={postingHeld}
+            title={postingHeld ? 'Wait for this post to be confirmed' : `Open this ${noun}’s thread`}
+            className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:opacity-50"
           >
             <MessagesSquare size={12} />
             <span className="tabular-nums">{thread.posts.length}</span>
@@ -103,6 +105,7 @@ export function LocusGutter({
         {action?.enabled && (
           <button
             onClick={action.onAct}
+            disabled={postingHeld}
             title={action.label}
             className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
           >
@@ -131,7 +134,8 @@ export function LocusGutter({
             ariaLabel={`Post to this ${noun}’s discussion`}
             autoFocus
             onPosted={() => setComposing(false)}
-            onCancel={() => setComposing(false)}
+            onCancel={() => { if (!postingHeld) setComposing(false) }}
+            onHeldChange={setPostingHeld}
           />
         </div>
       )}

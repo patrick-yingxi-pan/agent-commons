@@ -10,6 +10,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
+import { discussionPostId } from '../discussionPostIdentity.ts'
 
 const OWNER = 'tenant-disc-owner'
 const BYSTANDER = 'tenant-disc-bystander'
@@ -39,6 +40,47 @@ test('root-thread rule: a locus-free open is get-or-create — one public stream
   assert.equal(second.json.posts.length, 2, 'as an appended post')
   const list = await call('GET', `/discussions?kind=${ref.kind}&id=${ref.id}`, undefined, { 'x-tenant-id': OWNER })
   assert.equal(list.json.length, 1, 'one root, not two')
+})
+
+test('keyed social prose persists one opaque post identity across response-cache loss', async () => {
+  const { ref } = await arena()
+  const openKey = `discussion-open-${ref.id}`
+  const openInput = { anchor: { ref }, firstPost: 'One durable opening' }
+  const headers = { 'x-tenant-id': OWNER, 'idempotency-key': openKey }
+  const opened = await call('POST', '/discussions', openInput, headers)
+  const openedReplay = await call('POST', '/discussions', openInput, headers)
+  const openingId = discussionPostId(OWNER, openKey)
+  assert.equal(opened.status, 200)
+  assert.equal(openedReplay.headers['idempotency-replayed'], 'true')
+  assert.equal(opened.json.posts[0].id, openingId)
+  assert.equal(openedReplay.json.posts[0].id, openingId)
+  const durableOpen = store.openDiscussion(openInput, OWNER, openingId)
+  assert.equal(typeof durableOpen, 'object')
+  assert.equal((durableOpen as any).posts.filter((post: any) => post.id === openingId).length, 1)
+
+  const appendKey = `discussion-append-${ref.id}`
+  const appendHeaders = { 'x-tenant-id': OWNER, 'idempotency-key': appendKey }
+  const appended = await call('POST', `/discussions/${opened.json.id}/posts`, { body: 'One durable reply' }, appendHeaders)
+  const appendedReplay = await call('POST', `/discussions/${opened.json.id}/posts`, { body: 'One durable reply' }, appendHeaders)
+  const replyId = discussionPostId(OWNER, appendKey)
+  assert.equal(appended.status, 200)
+  assert.equal(appendedReplay.headers['idempotency-replayed'], 'true')
+  assert.equal(appended.json.posts.at(-1).id, replyId)
+  const durableAppend = store.postToDiscussion(opened.json.id, 'One durable reply', OWNER, undefined, replyId)
+  assert.equal(typeof durableAppend, 'object')
+  assert.equal((durableAppend as any).posts.filter((post: any) => post.id === replyId).length, 1)
+
+  const wallKey = `wall-post-${ref.id}`
+  const wallHeaders = { 'x-tenant-id': OWNER, 'idempotency-key': wallKey }
+  const wall = await call('POST', '/posts', { body: 'One durable wall post' }, wallHeaders)
+  const wallReplay = await call('POST', '/posts', { body: 'One durable wall post' }, wallHeaders)
+  const wallPostId = discussionPostId(OWNER, wallKey)
+  assert.equal(wall.status, 200)
+  assert.equal(wallReplay.headers['idempotency-replayed'], 'true')
+  assert.equal(wall.json.posts[0].id, wallPostId)
+  const durableWall = store.openWallPost('One durable wall post', OWNER, wallPostId)
+  assert.equal(typeof durableWall, 'object')
+  assert.equal((durableWall as any).posts.filter((post: any) => post.id === wallPostId).length, 1)
 })
 
 test('SOCIAL-6b: the same rule per POSITION — one public stream per (subject, locus)', async () => {

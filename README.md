@@ -43,6 +43,9 @@ lists are strict viewer-tenant state: routes, search, model/routine resolution,
 persistence, and ambient invalidations all project the same partition. Connection
 status has its own monotonic revision and an acknowledgement-gated Retry/Dismiss
 workflow, so another window cannot silently overwrite a newer auth transition.
+Sharing and authored social prose use the same held recovery grammar; social
+posts additionally persist an opaque logical identity so a lost response can be
+reconciled after restart without publishing the words or notifications twice.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server

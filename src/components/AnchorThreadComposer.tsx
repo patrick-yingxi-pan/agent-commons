@@ -11,9 +11,14 @@
  *  (subject, locus) — `openDiscussion` in server/store/index.ts). So callers that
  *  don't already hold the thread may pass `thread: null` and still land in the
  *  right conversation — two clients racing the first post can't fork it. */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { AnchorLocus, Discussion, SocialEntityRef } from '../../contract/index.ts'
-import { openDiscussion, postToDiscussion } from '../api'
+import { useMe } from '../api'
+import {
+  enqueueThreadPost,
+  isSocialPostMutationHeld,
+  useSocialPostMutationStatus,
+} from '../controller/socialPostMutations.ts'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS } from '../lib/formInput'
@@ -30,6 +35,7 @@ export function AnchorThreadComposer({
   onPosted,
   onCancel,
   replyTo,
+  onHeldChange,
 }: {
   subject: SocialEntityRef
   /** The thread already on this anchor, when the caller holds it — used only to
@@ -62,10 +68,19 @@ export function AnchorThreadComposer({
    *  depth: the reply lands where it was aimed, and how deep that is becomes
    *  the reader's problem to fold, not the writer's to lose. */
   replyTo?: string
+  /** Lets a disclosure/popover keep the exact composer mounted while its post
+   *  is uncertain. Every duplicate projection observes the controller hold. */
+  onHeldChange?: (held: boolean) => void
 }) {
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [acting, setActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const tenantId = useMe().data?.tenant.id
+  useSocialPostMutationStatus()
+  const anchorLocus = thread?.anchor.locus ?? locus
+  const sharedHeld = isSocialPostMutationHeld(subject, anchorLocus)
+  const held = acting || sharedHeld
+  useEffect(() => onHeldChange?.(held), [held, onHeldChange])
   // ── The @-mention picker (S8) ──────────────────────────────────────────────
   // A mention only rings if the author reproduces a whole display name, and
   // every name in this world contains a space — so the composer offers the
@@ -96,26 +111,43 @@ export function AnchorThreadComposer({
     },
   })
   const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
+    const body = draft.trim()
+    if (held || !body) return
+    if (!tenantId) {
+      setError('Sign in again before posting.')
+      return
+    }
+    setActing(true)
     setError(null)
+    onHeldChange?.(true)
     try {
-      const landed =
-        thread ?
-          await postToDiscussion(thread.id, draft.trim(), subject, replyTo)
-        : await openDiscussion({ anchor: { ref: subject, ...(locus ? { locus } : {}) }, firstPost: draft.trim() })
-      setDraft('')
-      // The clear never reaches the field's `onChange`, so the picker is told.
-      mention.close()
-      onPosted?.(landed)
+      const result = await enqueueThreadPost({
+        tenantId,
+        subject,
+        ...(thread ? { discussionId: thread.id } : {}),
+        ...(anchorLocus ? { locus: anchorLocus } : {}),
+        body,
+        ...(replyTo !== undefined ? { replyTo } : {}),
+      })
+      if (result.outcome === 'applied' && result.discussion) {
+        setDraft('')
+        // The clear never reaches the field's `onChange`, so the picker is told.
+        mention.close()
+        onPosted?.(result.discussion)
+      } else if (result.outcome === 'discarded') {
+        setError('That post was not applied. Your words are still here.')
+      } else {
+        setError('The post landed, but its thread could not be confirmed. Refresh the thread before posting again.')
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not post.')
+      setError(e instanceof Error ? e.message : 'Could not start that post.')
     } finally {
-      setBusy(false)
+      setActing(false)
+      onHeldChange?.(isSocialPostMutationHeld(subject, anchorLocus))
     }
   }
   return (
-    <div>
+    <div aria-busy={held || undefined}>
       {/* The verbs live INSIDE the field (owner directive 2026-08-08), on the
           box's own baseline — so the composer reads as one object rather than a
           field with controls drifting off its edge, and the submit stays pinned
@@ -123,41 +155,43 @@ export function AnchorThreadComposer({
           affirmative soft verb, Cancel stays ghost text. Rendering both as the
           same grey text makes "send it" and "throw it away" look like one
           control typed twice. */}
-      <div className={FIELD_SHELL_CLASS}>
-        <textarea
-          {...mention.fieldProps}
-          aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
-          value={draft}
-          placeholder={placeholder ?? (thread ? 'Reply…' : 'Start the discussion…')}
-          rows={composerRows(draft, 6)}
-          autoFocus={autoFocus}
-          className={`${FIELD_BARE_CLASS} resize-none`}
-        />
-        {onCancel && (
-          <button onClick={onCancel} className={`${INLINE_ACTION_CLASS} shrink-0 px-1 py-1.5`}>
-            Cancel
+      <fieldset disabled={held} className="min-w-0 border-0 p-0">
+        <div className={FIELD_SHELL_CLASS}>
+          <textarea
+            {...mention.fieldProps}
+            aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
+            value={draft}
+            placeholder={placeholder ?? (thread ? 'Reply…' : 'Start the discussion…')}
+            rows={composerRows(draft, 6)}
+            autoFocus={autoFocus}
+            className={`${FIELD_BARE_CLASS} resize-none`}
+          />
+          {onCancel && (
+            <button onClick={onCancel} className={`${INLINE_ACTION_CLASS} shrink-0 px-1 py-1.5`}>
+              Cancel
+            </button>
+          )}
+          {/* Named after its target, like the field above: a page can host two
+              composers (a routine's root thread and one of its runs'), and two
+              buttons announced identically as "Post" are ambiguous to a screen
+              reader — and to a test. */}
+          <button
+            onClick={() => void send()}
+            disabled={held || !draft.trim()}
+            aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
+            // The shortcut is discoverable from the control it fires — a keystroke
+            // nothing on screen mentions is a keystroke only its author knows.
+            // ⌘+Enter works too and is deliberately not spelled out: naming both
+            // in a tooltip costs more reading than the Mac reflex it would serve.
+            title="Post (Ctrl+Enter)"
+            className={`${SOFT_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[13px] disabled:opacity-45`}
+          >
+            {acting ? 'Posting…' : 'Post'}
           </button>
-        )}
-        {/* Named after its target, like the field above: a page can host two
-            composers (a routine's root thread and one of its runs'), and two
-            buttons announced identically as "Post" are ambiguous to a screen
-            reader — and to a test. */}
-        <button
-          onClick={() => void send()}
-          disabled={busy || !draft.trim()}
-          aria-label={ariaLabel ?? `Post to this ${subject.kind}’s discussion`}
-          // The shortcut is discoverable from the control it fires — a keystroke
-          // nothing on screen mentions is a keystroke only its author knows.
-          // ⌘+Enter works too and is deliberately not spelled out: naming both
-          // in a tooltip costs more reading than the Mac reflex it would serve.
-          title="Post (Ctrl+Enter)"
-          className={`${SOFT_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[13px] disabled:opacity-45`}
-        >
-          Post
-        </button>
-      </div>
+        </div>
+      </fieldset>
       {mention.list}
-      {error && <p className="mt-1 text-[11px] text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-1 text-[11px] text-danger">{error}</p>}
     </div>
   )
 }

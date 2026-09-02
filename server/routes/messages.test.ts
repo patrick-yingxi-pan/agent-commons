@@ -317,7 +317,7 @@ test('the per-subject thread cap does not apply to a person — a DM is per-PAIR
   // would bound how many DIFFERENT PEOPLE may ever write to someone, since each
   // sender legitimately gets their own thread on the same anchor.
   const src = readFileSync(join(ROOT, 'server', 'store', 'index.ts'), 'utf8')
-  const start = src.indexOf('openDiscussion(req: OpenDiscussionRequest')
+  const start = src.indexOf('openDiscussion(\n    req: OpenDiscussionRequest')
   const body = src.slice(start, src.indexOf('\n  },', start))
   const capLine = body.indexOf('MAX_DISCUSSIONS_PER_SUBJECT')
   assert.ok(capLine > 0, 'the cap is still applied somewhere in openDiscussion')

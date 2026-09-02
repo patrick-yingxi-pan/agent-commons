@@ -739,10 +739,16 @@ function discussionBell(
  *  monotonic across the whole store and can never be reused — deriving it from
  *  the thread's surviving posts would hand a deleted post's ordinal to the next
  *  one, and a reader whose mark sat on it would never see that message. */
-function mintPost(body: string, tenantId: string, at = Date.now(), replyTo?: string): StoredDiscussionPost {
+function mintPost(
+  body: string,
+  tenantId: string,
+  at = Date.now(),
+  replyTo?: string,
+  logicalPostId?: string,
+): StoredDiscussionPost {
   const seq = (discussionSeq += 1)
   return {
-    id: `dpost-${seq}`,
+    id: logicalPostId ?? `dpost-${seq}`,
     author: tenantName(tenantId),
     authorTenant: tenantId,
     body: body.slice(0, MAX_DISCUSSION_CHARS),
@@ -751,6 +757,15 @@ function mintPost(body: string, tenantId: string, at = Date.now(), replyTo?: str
     seq,
     ...(replyTo !== undefined ? { replyTo } : {}),
   }
+}
+
+/** Find the durable representation of one keyed post. Tenant ownership is part
+ *  of the lookup even though the id already hashes it: callers can never use a
+ *  copied public post id as a replay credential. */
+function discussionForLogicalPost(postId: string, tenantId: string): StoredDiscussion | undefined {
+  return discussions.find((discussion) =>
+    discussion.posts.some((post) => post.id === postId && post.authorTenant === tenantId),
+  )
 }
 
 /** ── S9: where a reply actually attaches ─────────────────────────────────────
@@ -6512,7 +6527,19 @@ export const store = {
    *  (subject, locus). Locus-free is the subject's root (the original
    *  root-thread rule); SOCIAL-6b generalizes the same rule to every locus so a
    *  gutter affordance can't fork a second thread on the turn it points at. */
-  openDiscussion(req: OpenDiscussionRequest, tenantId: string): Discussion | 'forbidden' | 'capped' | undefined {
+  openDiscussion(
+    req: OpenDiscussionRequest,
+    tenantId: string,
+    logicalPostId?: string,
+  ): Discussion | 'forbidden' | 'capped' | undefined {
+    if (logicalPostId) {
+      const represented = discussionForLogicalPost(logicalPostId, tenantId)
+      if (represented) {
+        return this.discussionReadableBy(represented, tenantId)
+          ? publicDiscussion(represented, tenantId)
+          : undefined
+      }
+    }
     // Get-or-create, resolved FIRST for a principal. For a RESOURCE the key is
     // (subject, locus) — one public stream per position. For a PRINCIPAL there
     // is no public stream to be one of, so the key is the unordered PAIR:
@@ -6545,7 +6572,7 @@ export const store = {
     // things you say are two posts, not one conversation with itself — which is
     // also what keeps the old bug dead, since a post never looks a thread up.
     const isPost = dmTarget !== undefined && dmTarget === tenantId
-    if (isPost) return this.openWallPost(req.firstPost, tenantId)
+    if (isPost) return this.openWallPost(req.firstPost, tenantId, logicalPostId)
     const held =
       dmTarget !== undefined ?
         discussions.find((d) => {
@@ -6560,7 +6587,7 @@ export const store = {
             sameLocus(d.anchor.locus, req.anchor.locus),
         )
     if (held) {
-      const out = this.postToDiscussion(held.id, req.firstPost, tenantId)
+      const out = this.postToDiscussion(held.id, req.firstPost, tenantId, undefined, logicalPostId)
       // An OPEN never answers a post — it passes no `replyTo` — so the S9
       // reply-parent refusal is unreachable here. Narrowed rather than widening
       // this function's own contract with a case none of its callers can hit.
@@ -6589,7 +6616,7 @@ export const store = {
       // S7 — capture the addressee's raw id NOW (see `StoredDiscussion`): the
       // anchor's display name is a public face, not an identity.
       ...(dmTarget !== undefined ? { targetTenant: dmTarget } : {}),
-      posts: [mintPost(req.firstPost, tenantId, now)],
+      posts: [mintPost(req.firstPost, tenantId, now, undefined, logicalPostId)],
     }
     discussions.push(d)
     // The FIRST post rings too — it is the moment someone starts talking about
@@ -6620,13 +6647,21 @@ export const store = {
    *  anchor, and applying it here would cap a person at 100 posts for life —
    *  the same lifetime-cap trap S7 had to step around for correspondents. The
    *  real bound on utterance volume is the router's rate limit. */
-  openWallPost(body: string, tenantId: string): Discussion | 'capped' | undefined {
+  openWallPost(body: string, tenantId: string, logicalPostId?: string): Discussion | 'capped' | undefined {
+    if (logicalPostId) {
+      const represented = discussionForLogicalPost(logicalPostId, tenantId)
+      if (represented) {
+        return this.discussionReadableBy(represented, tenantId)
+          ? publicDiscussion(represented, tenantId)
+          : undefined
+      }
+    }
     const text = body.trim()
     if (!text) return undefined
     const mine = discussions.filter((d) => isWallThread(d) && d.openerTenant === tenantId)
     if (mine.length >= MAX_POSTS_PER_AUTHOR) return 'capped'
     const now = Date.now()
-    const post = mintPost(text, tenantId, now)
+    const post = mintPost(text, tenantId, now, undefined, logicalPostId)
     const d: StoredDiscussion = {
       id: `disc-${(discussionSeq += 1)}`,
       anchor: { ref: { kind: 'principal', id: tenantName(tenantId) } },
@@ -6697,7 +6732,21 @@ export const store = {
   },
   /** Append a post — commentable callers only; allowed after resolve too (the
    *  CW7 aftermath rule: a resolved thread's story keeps accruing). */
-  postToDiscussion(id: string, body: string, tenantId: string, replyTo?: string): Discussion | 'forbidden' | 'capped' | 'no-parent' | undefined {
+  postToDiscussion(
+    id: string,
+    body: string,
+    tenantId: string,
+    replyTo?: string,
+    logicalPostId?: string,
+  ): Discussion | 'forbidden' | 'capped' | 'no-parent' | undefined {
+    if (logicalPostId) {
+      const represented = discussionForLogicalPost(logicalPostId, tenantId)
+      if (represented) {
+        return this.discussionReadableBy(represented, tenantId)
+          ? publicDiscussion(represented, tenantId)
+          : undefined
+      }
+    }
     const d = discussions.find((x) => x.id === id)
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     if (!this.discussionWritableBy(d, tenantId)) return 'forbidden'
@@ -6710,7 +6759,7 @@ export const store = {
     // counted as a prior participant (notifyTenants drops the actor anyway, but
     // the set should mean what it says).
     const audience = this.discussionAudience(d)
-    const post = mintPost(body, tenantId, Date.now(), parent)
+    const post = mintPost(body, tenantId, Date.now(), parent, logicalPostId)
     d.posts.push(post)
     // S9 — a REPLY rings the person it answers, and that row REPLACES the
     // generic one for them: being answered is why they care, and two bells for

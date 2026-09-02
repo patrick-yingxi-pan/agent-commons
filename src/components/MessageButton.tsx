@@ -38,7 +38,8 @@ export function MessageButton({ name, dmId, onOpenDiscussion }: {
   onOpenDiscussion: (discussionId: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const [held, setHeld] = useState(false)
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => { if (!held) setOpen(false) })
   const panelRef = usePopoverShift<HTMLDivElement>(open)
 
   const CHROME =
@@ -57,7 +58,13 @@ export function MessageButton({ name, dmId, onOpenDiscussion }: {
   }
   return (
     <div ref={wrapRef} className="relative shrink-0">
-      <button onClick={() => setOpen((v) => !v)} aria-expanded={open} title={`Send ${name} a direct message`} className={CHROME}>
+      <button
+        onClick={() => { if (!held) setOpen((v) => !v) }}
+        disabled={held}
+        aria-expanded={open}
+        title={held ? 'Wait for this message to be confirmed' : `Send ${name} a direct message`}
+        className={`${CHROME} disabled:opacity-50`}
+      >
         <Mail size={14} /> Message
       </button>
       {open && (
@@ -70,7 +77,8 @@ export function MessageButton({ name, dmId, onOpenDiscussion }: {
             ariaLabel={`Send ${name} a direct message`}
             autoFocus
             onPosted={landed}
-            onCancel={() => setOpen(false)}
+            onCancel={() => { if (!held) setOpen(false) }}
+            onHeldChange={setHeld}
           />
         </div>
       )}

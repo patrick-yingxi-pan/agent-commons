@@ -82,6 +82,7 @@ import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, summarizeConversat
 import { manualScheduleRunId } from '../scheduleRunIdentity.ts'
 import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
+import { discussionPostId } from '../discussionPostIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -2121,17 +2122,23 @@ export function buildRouter(): Router {
    *  composer look its own display name up first and send it back as the thing
    *  it is addressing, which is a client reconstructing its own identity. The
    *  server already knows who is calling. One field, no anchor. */
-  r.post('/posts', async ({ req, res, body }) => {
+  r.post('/posts', idempotent(async ({ req, res, body }) => {
     const input = await body<{ body?: string }>()
     if (typeof input?.body !== 'string' || !input.body.trim()) {
       return sendError(res, 'bad_request', 'a non-empty body is required')
     }
-    const out = store.openWallPost(input.body, store.identity(req.headers).tenant.id)
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const out = store.openWallPost(
+      input.body,
+      tenantId,
+      idempotencyKey ? discussionPostId(tenantId, idempotencyKey) : undefined,
+    )
     if (out === 'capped') return sendError(res, 'conflict', 'Your wall is at its post cap')
     if (!out) return sendError(res, 'bad_request', 'a non-empty body is required')
     sendJson(res, out)
-  })
-  r.post('/discussions', async ({ req, res, body }) => {
+  }))
+  r.post('/discussions', idempotent(async ({ req, res, body }) => {
     const input = await body<OpenDiscussionRequest>()
     if (!input?.anchor?.ref?.kind || !input.anchor.ref.id || typeof input.firstPost !== 'string' || !input.firstPost.trim()) {
       return sendError(res, 'bad_request', 'anchor {ref} and a non-empty firstPost are required')
@@ -2144,18 +2151,24 @@ export function buildRouter(): Router {
     if (input.anchor.locus !== undefined && !isAnchorLocus(input.anchor.locus)) {
       return sendError(res, 'bad_request', 'anchor.locus must be a declared AnchorLocus variant')
     }
-    const out = store.openDiscussion({ ...input, firstPost: input.firstPost.trim() }, store.identity(req.headers).tenant.id)
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const out = store.openDiscussion(
+      { ...input, firstPost: input.firstPost.trim() },
+      tenantId,
+      idempotencyKey ? discussionPostId(tenantId, idempotencyKey) : undefined,
+    )
     if (out === undefined) return sendError(res, 'not_found', `No ${input.anchor.ref.kind} '${input.anchor.ref.id}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Commenting needs the comment tier (a view grant reads silently)')
     if (out === 'capped') return sendError(res, 'conflict', 'This subject’s discussions are at their cap')
     sendJson(res, out)
-  })
+  }))
   r.get('/discussions/:did', ({ req, res, params }) => {
     const out = store.getDiscussion(params.did, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
     sendJson(res, out)
   })
-  r.post('/discussions/:did/posts', async ({ req, res, params, body }) => {
+  r.post('/discussions/:did/posts', idempotent(async ({ req, res, params, body }) => {
     const input = await body<PostToDiscussionRequest>()
     if (typeof input?.body !== 'string' || !input.body.trim()) return sendError(res, 'bad_request', 'a non-empty body is required')
     // S9 — `replyTo` is optional (absent = a top-level post) but TYPED when
@@ -2163,7 +2176,15 @@ export function buildRouter(): Router {
     if (input.replyTo !== undefined && typeof input.replyTo !== 'string') {
       return sendError(res, 'bad_request', 'replyTo must be the id of a post in this discussion')
     }
-    const out = store.postToDiscussion(params.did, input.body.trim(), store.identity(req.headers).tenant.id, input.replyTo)
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const out = store.postToDiscussion(
+      params.did,
+      input.body.trim(),
+      tenantId,
+      input.replyTo,
+      idempotencyKey ? discussionPostId(tenantId, idempotencyKey) : undefined,
+    )
     if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Commenting needs the comment tier (a view grant reads silently)')
     if (out === 'capped') return sendError(res, 'conflict', 'This discussion is at its post cap')
@@ -2171,7 +2192,7 @@ export function buildRouter(): Router {
     // is worse than one that fails, because the author cannot see it happen.
     if (out === 'no-parent') return sendError(res, 'bad_request', 'replyTo must name a post in this discussion')
     sendJson(res, out)
-  })
+  }))
   r.post('/discussions/:did/posts/:pid/react', ({ req, res, params }) => {
     const out = store.toggleDiscussionReaction(params.did, params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)

@@ -304,7 +304,6 @@ import {
   useGrants,
   openSocialProposal,
   reactToDiscussionPost,
-  openWallPost,
   deleteDiscussionPost,
   reportDiscussionPost,
   setDiscussionState,
@@ -394,6 +393,11 @@ import { updateAgent } from '../controller/agentMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
+import {
+  enqueueWallPost,
+  isWallPostMutationHeld,
+  useSocialPostMutationStatus,
+} from '../controller/socialPostMutations.ts'
 import {
   isSavedContextConnectionHeld,
   updateSavedContextConnection,
@@ -3534,7 +3538,7 @@ type ThreadFold = ReturnType<typeof useThreadFold>
  *  posts to build it from. */
 const NO_POSTS: DiscussionPost[] = []
 
-function useThreadFold(posts: DiscussionPost[]) {
+function useThreadFold(posts: DiscussionPost[], held = false) {
   // Which post is open for a reply — transient composing state, so it lives
   // here rather than in the page (the same call the turn gutter makes).
   const [replyingTo, setReplyingTo] = useState<string | null>(null)
@@ -3557,6 +3561,7 @@ function useThreadFold(posts: DiscussionPost[]) {
    *  and leaving `replyingTo` set would spring the half-written reply back open
    *  on some later unfold. */
   const toggle = (id: string) => {
+    if (held) return
     const willFold = !folded.has(id)
     setFolded((f) => {
       const next = new Set(f)
@@ -3572,21 +3577,26 @@ function useThreadFold(posts: DiscussionPost[]) {
     posts,
     folded,
     replyingTo,
+    held,
     setReplyingTo,
     toggle,
     /** Whether each act has work — the render gate for either projection of the
      *  pair. `posts.length > 1` because one post is not a thread to fold. */
-    canFold: posts.length > 1 && foldable.length > 0,
-    canUnfold: posts.length > 1 && folded.size > 0,
-    foldAll: () => setFolded(foldAllRoots(tree, folded, spared)),
-    unfoldAll: () => setFolded(new Set()),
+    canFold: !held && posts.length > 1 && foldable.length > 0,
+    canUnfold: !held && posts.length > 1 && folded.size > 0,
+    foldAll: () => { if (!held) setFolded(foldAllRoots(tree, folded, spared)) },
+    unfoldAll: () => { if (!held) setFolded(new Set()) },
     /** Fold every post but one line of the thread — the row-level "Fold
      *  everything else". Draft-guarded like the sweep it is. */
-    foldAllBut: (pid: string) => setFolded(unfoldBranch(foldOthers(tree, pid, folded), spared)),
+    foldAllBut: (pid: string) => {
+      if (!held) setFolded(unfoldBranch(foldOthers(tree, pid, folded), spared))
+    },
     /** The discard at BRANCH scope: this post and everything folded inside it,
      *  at every depth. Not a toggle and not invertible — see the control's own
      *  note at its render site. */
-    unfoldBranch: (ids: Iterable<string>) => setFolded((f) => unfoldBranch(f, ids)),
+    unfoldBranch: (ids: Iterable<string>) => {
+      if (!held) setFolded((f) => unfoldBranch(f, ids))
+    },
   }
 }
 
@@ -3749,7 +3759,7 @@ function DiscussionPostList({
   // The thread and the reader's posture over it come from the HOST's handle —
   // see `useThreadFold`. Destructured so the body below reads exactly as it did
   // when this component owned them.
-  const { tree, posts, folded, replyingTo, setReplyingTo, toggle } = fold
+  const { tree, posts, folded, replyingTo, setReplyingTo, toggle, held } = fold
   const { roots, childrenOf } = tree
   // Post by id — so the cascade option can ask whether the viewer may delete
   // every post in a branch, from the `canDelete` the server already stamped on
@@ -3832,6 +3842,7 @@ function DiscussionPostList({
       <Tooltip label="Unfold this branch and everything folded inside it">
         <button
           onClick={() => fold.unfoldBranch([p.id, ...kin])}
+          disabled={held}
           // NOT a disclosure, and `aria-expanded` here would claim a toggle
           // that is not one: this control has no second state to be in. It is
           // IDEMPOTENT — pressing it drives the branch to open and pressing it
@@ -3890,6 +3901,7 @@ function DiscussionPostList({
           <div className={`${FOLD_GUTTER_CLASS} relative mt-0.5 flex h-4 items-center`}>
           <button
             onClick={() => toggle(p.id)}
+            disabled={held}
             aria-expanded={!hidden}
             aria-label={branch > 0 ? `${p.author}’s post, ${replies}` : `${p.author}’s post`}
             title={hidden ? 'Unfold this post' : 'Fold this post'}
@@ -3941,7 +3953,7 @@ function DiscussionPostList({
           {hidden && (
             <div
               onClick={(e) => {
-                if (!isCardControlClick(e.target instanceof Element ? e.target : null, e.currentTarget)) toggle(p.id)
+                if (!held && !isCardControlClick(e.target instanceof Element ? e.target : null, e.currentTarget)) toggle(p.id)
               }}
               className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-0.5 pr-1.5 transition hover:bg-panel-2"
             >
@@ -4056,6 +4068,7 @@ function DiscussionPostList({
                     <Tooltip label="Fold everything else">
                       <button
                         onClick={() => fold.foldAllBut(p.id)}
+                        disabled={held}
                         aria-label={`Fold every post but ${p.author}’s`}
                         className={`${POST_ACT_CLASS} text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
                       >
@@ -4067,6 +4080,7 @@ function DiscussionPostList({
                     <Tooltip label="Reply to this post">
                       <button
                         onClick={() => setReplyingTo((cur) => (cur === p.id ? null : p.id))}
+                        disabled={held}
                         aria-expanded={replyingTo === p.id}
                         // Names the POST, not just its author: a DM's thread
                         // composer is already "Reply to ‹counterpart›", and this
@@ -4254,10 +4268,11 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   // to sit permanently open below the thread, the one section on the page whose
   // primary act was a standing form instead of a header verb.
   const [composing, setComposing] = useState(false)
+  const [postingHeld, setPostingHeld] = useState(false)
   // The thread's fold posture, held HERE so its two acts can render in the
   // section header's cluster with the section's other verbs (owner directive
   // 2026-08-13) rather than as a floating row above the roots.
-  const fold = useThreadFold(root?.posts ?? NO_POSTS)
+  const fold = useThreadFold(root?.posts ?? NO_POSTS, postingHeld)
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, subject)
   }
@@ -4269,8 +4284,10 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
       key="compose"
       label={root ? 'Reply to this discussion' : 'Start the discussion'}
       icon={<MessageSquarePlus size={14} />}
-      onClick={() => setComposing((v) => !v)}
+      onClick={() => { if (!postingHeld) setComposing((v) => !v) }}
       expanded={composing}
+      disabled={postingHeld}
+      disabledReason="Wait for this post to be confirmed"
     />
   ) : null
   const resolveVerb =
@@ -4280,12 +4297,15 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
         label={root.state === 'open' ? 'Resolve this discussion' : 'Reopen this discussion'}
         icon={root.state === 'open' ? <CheckCircle2 size={14} /> : <MessageSquare size={14} />}
         onClick={flip}
+        disabled={postingHeld}
+        disabledReason="Wait for this post to be confirmed"
       />
     ) : null
   const verbs = [...threadFoldVerbs(fold), composeVerb, resolveVerb].filter(Boolean)
   return (
     <FoldSection
       title="Discussion"
+      heldOpen={postingHeld}
       summary={root === null ? 'No discussion yet' : countLabel(root.posts.length, 'post')}
       // Undefined, not an empty fragment: a view-tier reader on an unfoldable,
       // unresolvable thread has no verbs, and the header must render no cluster
@@ -4332,6 +4352,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
                     autoFocus
                     onPosted={done}
                     onCancel={done}
+                    onHeldChange={setPostingHeld}
                   />
                 )
               : undefined
@@ -4347,6 +4368,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
             autoFocus
             onPosted={() => setComposing(false)}
             onCancel={() => setComposing(false)}
+            onHeldChange={setPostingHeld}
           />
         </div>
       )}
@@ -4367,6 +4389,7 @@ const RootThreadComposer = ({
   autoFocus,
   onPosted,
   onCancel,
+  onHeldChange,
 }: {
   subject: SocialEntityRef
   root: Discussion | null
@@ -4381,6 +4404,7 @@ const RootThreadComposer = ({
   autoFocus?: boolean
   onPosted?: () => void
   onCancel?: () => void
+  onHeldChange?: (held: boolean) => void
 }) => {
   // Capability shapes affordances: a `view`-tier reader reads the thread and
   // may not post to it, so they get no composer rather than a refusal.
@@ -4395,6 +4419,7 @@ const RootThreadComposer = ({
       autoFocus={autoFocus}
       onPosted={onPosted}
       onCancel={onCancel}
+      onHeldChange={onHeldChange}
     />
   )
 }
@@ -4427,7 +4452,8 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
   // A card has no section header to put the thread's verbs in, so it keeps the
   // TEXT pair above the roots — see `<ThreadFoldControls>`. The handle is held
   // here all the same, because the list no longer owns it either way.
-  const fold = useThreadFold(shown)
+  const [postingHeld, setPostingHeld] = useState(false)
+  const fold = useThreadFold(shown, postingHeld)
   // The conversation is DISCLOSED, and Reply is what discloses it (owner
   // directive 2026-08-08). It used to be a door to `/discussions/:id` — but that
   // page is the same thread in another projection, so the trip bought the reader
@@ -4541,9 +4567,11 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
         {!standalone && (shown.length > 0 || canComment) && (
           <button
             onClick={() => {
+              if (postingHeld) return
               setOpen(!open)
               setJustOpened(!open)
             }}
+            disabled={postingHeld}
             aria-expanded={open}
             className={cardActClass(open)}
             title={open ? 'Hide the conversation' : 'Open the conversation'}
@@ -4612,6 +4640,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
               // way again — the ref the standing version needed is gone. Only for
               // the press that opened it, though: see `justOpened`.
               autoFocus={justOpened}
+              onHeldChange={setPostingHeld}
             />
           </div>
         </div>
@@ -4757,8 +4786,14 @@ function LikeButton({ item }: { item: CommonsItem }) {
  *  courted attention would undo them. */
 function PostComposer() {
   const [body, setBody] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [acting, setActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const me = useMe().data
+  useSocialPostMutationStatus()
+  const tenantId = me?.tenant.id
+  const authorName = me?.tenant.name
+  const sharedHeld = authorName ? isWallPostMutationHeld(authorName) : false
+  const held = acting || sharedHeld
   // The picker the placeholder promises. A post has no thread yet — it IS the
   // first word — so `threadVoices` is empty exactly here, where the copy tells
   // the writer to reach someone: the square's roster is the people they follow
@@ -4770,17 +4805,27 @@ function PostComposer() {
   const mention = useMentionPicker<HTMLTextAreaElement>({ roster: voices, draft: body, setDraft: setBody })
   const send = async () => {
     const text = body.trim()
-    if (!text || busy) return
-    setBusy(true)
+    if (!text || held) return
+    if (!tenantId || !authorName) {
+      setError('Sign in again before posting.')
+      return
+    }
+    setActing(true)
     setError(null)
     try {
-      await openWallPost(text)
-      setBody('')
-      mention.close()
+      const result = await enqueueWallPost({ tenantId, authorName, body: text })
+      if (result.outcome === 'applied') {
+        setBody('')
+        mention.close()
+      } else if (result.outcome === 'discarded') {
+        setError('That post was not applied. Your words are still here.')
+      } else {
+        setError('The post landed, but could not be confirmed. Refresh the Commons before posting again.')
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not post that.')
+      setError(e instanceof Error ? e.message : 'Could not start that post.')
     } finally {
-      setBusy(false)
+      setActing(false)
     }
   }
   return (
@@ -4788,34 +4833,36 @@ function PostComposer() {
     // field — two frames on one ground, which read as a box inside a box the
     // moment the field grew its own verb. The card carried nothing else, so it
     // went: the field IS the composer, exactly as it is on a feed card below.
-    <div className="mb-4">
+    <div className="mb-4" aria-busy={held || undefined}>
       {/* The submit sits INSIDE the box, on its bottom-right (owner directive
           2026-08-08) — the same shell the thread composer wears, so the square's
           composer and a card's are one shape at two sizes. It wears the soft
           verb at a stated SIZE: the face deliberately carries none
           (lib/button.ts leaves padding + text to the caller), and this one call
           site passed nothing, which is why it shipped as a cramped tint. */}
-      <div className={FIELD_SHELL_CLASS}>
-        <textarea
-          {...mention.fieldProps}
-          aria-label="Say something"
-          value={body}
-          // Opens on ONE line, like every other composer, so Post sits on that
-          // line instead of below it — the shared rule, not a local one.
-          rows={composerRows(body, 8)}
-          placeholder="Say something — mention someone with @ to reach them"
-          className={`${FIELD_BARE_CLASS} resize-none`}
-        />
-        <button
-          onClick={() => void send()}
-          disabled={!body.trim() || busy}
-          className={`${SOFT_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[13px] disabled:opacity-45`}
-        >
-          {busy ? 'Posting…' : 'Post'}
-        </button>
-      </div>
+      <fieldset disabled={held} className="min-w-0 border-0 p-0">
+        <div className={FIELD_SHELL_CLASS}>
+          <textarea
+            {...mention.fieldProps}
+            aria-label="Say something"
+            value={body}
+            // Opens on ONE line, like every other composer, so Post sits on that
+            // line instead of below it — the shared rule, not a local one.
+            rows={composerRows(body, 8)}
+            placeholder="Say something — mention someone with @ to reach them"
+            className={`${FIELD_BARE_CLASS} resize-none`}
+          />
+          <button
+            onClick={() => void send()}
+            disabled={!body.trim() || held}
+            className={`${SOFT_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[13px] disabled:opacity-45`}
+          >
+            {acting ? 'Posting…' : 'Post'}
+          </button>
+        </div>
+      </fieldset>
       {mention.list}
-      {error && <p className="mt-1 truncate text-[11px] text-danger">{error}</p>}
+      {error && <p role="alert" className="mt-1 truncate text-[11px] text-danger">{error}</p>}
     </div>
   )
 }
@@ -5022,7 +5069,8 @@ function DiscussionPage({
   // in and it keeps the text pair above the roots (`<ThreadFoldControls>`).
   // Declared here, above the not-found return, for the same reason the reads
   // above are: hook order must not depend on whether the thread resolved.
-  const fold = useThreadFold(d?.posts ?? NO_POSTS)
+  const [postingHeld, setPostingHeld] = useState(false)
+  const fold = useThreadFold(d?.posts ?? NO_POSTS, postingHeld)
   // Opening a message marks it read — that is what "opened" means for an inbox,
   // and leaving the dot lit on a thread the reader is looking at would be a
   // visible lie. Keyed on the newest post so a reply while the page is open
@@ -5120,6 +5168,7 @@ function DiscussionPage({
           {d.canResolve === true && (
             <button
               onClick={() => void setDiscussionState(d.id, d.state === 'open' ? 'resolved' : 'open', d.anchor.ref)}
+              disabled={postingHeld}
               className={INLINE_ACTION_CLASS}
             >
               {d.state === 'open' ? 'Resolve' : 'Reopen'}
@@ -5159,6 +5208,7 @@ function DiscussionPage({
                   autoFocus
                   onPosted={done}
                   onCancel={done}
+                  onHeldChange={setPostingHeld}
                 />
               )
             : undefined
@@ -5184,6 +5234,7 @@ function DiscussionPage({
               // both the accurate description and the one that tells a screen
               // reader which of several open conversations it belongs to.
               ariaLabel={isDm ? `Reply to ${d.counterpart ?? d.openedBy}` : 'Reply to this discussion'}
+              onHeldChange={setPostingHeld}
             />
           </div>
         )}
