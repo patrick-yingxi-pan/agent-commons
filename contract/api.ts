@@ -187,6 +187,9 @@ export interface AttachContextRequest {
  *  the server also broadcasts `connector.status` so every client reconciles. */
 export interface SetConnectorStatusRequest {
   status: ContextStatus
+  /** Compare-and-swap precondition for the connection/auth dimension. Absence
+   *  retains the legacy unconditional-write meaning for existing API clients. */
+  expectedRevision?: number
 }
 
 /** Body of `POST /v1/relations/ops` — apply a confirmed relation edit. For a

@@ -40,7 +40,9 @@ issues commands through controllers against a versioned API. The server owns
 state, authorization, persistence, scheduling, model tool execution, and the SSE
 event stream. Saved connectors, MCP servers, repositories, and their recent-use
 lists are strict viewer-tenant state: routes, search, model/routine resolution,
-persistence, and ambient invalidations all project the same partition.
+persistence, and ambient invalidations all project the same partition. Connection
+status has its own monotonic revision and an acknowledgement-gated Retry/Dismiss
+workflow, so another window cannot silently overwrite a newer auth transition.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server

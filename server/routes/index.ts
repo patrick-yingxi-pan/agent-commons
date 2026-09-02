@@ -3757,15 +3757,31 @@ export function buildRouter(): Router {
   // Set a saved connector / MCP server's auth status (connect / disconnect; the
   // OAuth-callback / token-expiry seam). Broadcasts `connector.status` and returns
   // the updated snapshot so the originating client reconciles immediately.
-  r.patch('/saved-contexts/:id', async ({ req, res, params, body }) => {
-    const { status } = await body<SetConnectorStatusRequest>()
+  r.patch('/saved-contexts/:id', idempotent(async ({ req, res, params, body }) => {
+    const { status, expectedRevision } = await body<SetConnectorStatusRequest>()
     if (status !== 'connected' && status !== 'needs-auth') {
       return sendError(res, 'bad_request', "status must be 'connected' or 'needs-auth'")
     }
-    const snapshot = store.setConnectorStatus(params.id, status, store.identity(req.headers).tenant.id)
-    if (!snapshot) return sendError(res, 'not_found', `No saved context '${params.id}'`)
-    sendJson(res, snapshot)
-  })
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
+    try {
+      const snapshot = store.setConnectorStatus(
+        params.id,
+        status,
+        store.identity(req.headers).tenant.id,
+        expectedRevision,
+      )
+      if (!snapshot) return sendError(res, 'not_found', `No saved context '${params.id}'`)
+      sendJson(res, snapshot)
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
+  }))
   r.get('/connectors/detail', ({ res, url }) => {
     const label = url.searchParams.get('label')
     if (!label) return sendError(res, 'bad_request', 'label is required')

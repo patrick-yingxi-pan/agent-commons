@@ -4997,12 +4997,18 @@ export const store = {
    *  the Contexts page, and the seam a real OAuth callback or token-expiry would use.
    *  Mutates the record, broadcasts `connector.status` so every client reconciles,
    *  and persists. Returns the new snapshot, or undefined for an unknown id. */
-  setConnectorStatus(id: string, status: ContextStatus, tenantId: string = defaultTenantId()): SavedContextsSnapshot | undefined {
-    const snapshot = contextRegistry.setStatus(id, status, tenantId)
-    if (!snapshot) return undefined
+  setConnectorStatus(
+    id: string,
+    status: ContextStatus,
+    tenantId: string = defaultTenantId(),
+    expectedRevision?: number,
+  ): SavedContextsSnapshot | undefined {
+    const result = contextRegistry.setStatus(id, status, tenantId, expectedRevision)
+    if (!result) return undefined
+    if (!result.changed) return result.snapshot
     emit({ type: 'connector.status', id, status, tenantId })
     persist()
-    return snapshot
+    return result.snapshot
   },
   /** Save a context to the account's set-up list (the Contexts page's Add). The
    *  registry is the system of record — the page's add once lived in component

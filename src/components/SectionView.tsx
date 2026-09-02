@@ -248,7 +248,6 @@ import {
   runScheduleNow,
   addSavedContext,
   removeSavedContext,
-  setConnectorStatus,
   createCommission,
   createProvider,
   desktopCredentialsAvailable,
@@ -374,6 +373,11 @@ import { updateAgent } from '../controller/agentMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
+import {
+  isSavedContextConnectionHeld,
+  updateSavedContextConnection,
+  useSavedContextConnectionMutationStatus,
+} from '../controller/savedContextConnectionMutations'
 import {
   promptFitWarning,
   defaultEntry,
@@ -7081,7 +7085,7 @@ const connectorSaved = (o: { id: string; label: string; kind?: Connector['kind']
     kind: 'connector',
     connectorKind: o.kind ?? 'connector',
     status: 'connected',
-    detail: 'Connected',
+    detail: 'Saved connection',
     lastUsedAt: Date.now(),
     sessions: 0,
   }
@@ -7210,7 +7214,10 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] font-medium text-ink">{ctx.label}</span>
-        <span className="block truncate text-[11px] text-ink-faint">{ctx.detail}</span>
+        <span className="block truncate text-[11px] text-ink-faint">
+          {ctx.detail}
+          {ctx.kind !== 'repo' && ctx.status !== 'connected' ? ' · Needs authentication' : ''}
+        </span>
       </span>
       <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
         <Plus size={14} />
@@ -7242,6 +7249,7 @@ function ContextsSection({
   // bundled demo row is not a truthful substitute for server-owned state.
   const saved = useSavedContexts()
   const items = saved.data?.contexts ?? []
+  useSavedContextConnectionMutationStatus()
   const [query, setQuery] = useState('')
   const [filter] = useSectionFilter('contexts')
 
@@ -7249,9 +7257,12 @@ function ContextsSection({
   // system of record — these once lived in component state and silently
   // evaporated when the section unmounted). Their existing command path updates
   // the local cache, while the broadcast reconciles every other client.
+  const connectionHeld = (id: string) => isSavedContextConnectionHeld(id)
   const toggle = (id: string) => {
     const item = items.find((c) => c.id === id)
-    if (item) void setConnectorStatus(id, item.status === 'connected' ? 'needs-auth' : 'connected')
+    if (item && !connectionHeld(id)) {
+      void updateSavedContextConnection(id, item.status === 'connected' ? 'needs-auth' : 'connected')
+    }
   }
   const remove = (id: string) => {
     void removeSavedContext(id)
@@ -7270,6 +7281,7 @@ function ContextsSection({
         onBack={onBack}
         backTo={backTo}
         onToggle={() => toggle(open.id)}
+        connectionHeld={connectionHeld(open.id)}
         onRemove={() => {
           remove(open.id)
           onBack()
@@ -7359,6 +7371,7 @@ function ContextsSection({
             ctx={item.value}
             onOpen={() => rel.navigate('contexts', item.value.id)}
             onToggle={() => toggle(item.value.id)}
+            connectionHeld={connectionHeld(item.value.id)}
             onRemove={() => remove(item.value.id)}
           />
         )}
@@ -7552,11 +7565,13 @@ function ContextRow({
   ctx,
   onOpen,
   onToggle,
+  connectionHeld,
   onRemove,
 }: {
   ctx: SavedContext
   onOpen: () => void
   onToggle: () => void
+  connectionHeld: boolean
   onRemove: () => void
 }) {
   const Icon = contextIcon(ctx)
@@ -7628,8 +7643,9 @@ function ContextRow({
             <Tooltip label={connected ? 'Disconnect' : 'Connect'}>
               <button
                 onClick={onToggle}
+                disabled={connectionHeld}
                 aria-label={connected ? `Disconnect ${ctx.label}` : `Connect ${ctx.label}`}
-                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:cursor-wait disabled:opacity-50"
               >
                 {connected ? <Unplug size={14} /> : <Plug size={14} />}
               </button>
@@ -7637,9 +7653,10 @@ function ContextRow({
           )}
           <button
             onClick={onRemove}
+            disabled={connectionHeld}
             title="Remove from contexts"
             aria-label={`Remove ${ctx.label} from contexts`}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed disabled:cursor-wait disabled:opacity-50"
           >
             <Trash2 size={14} />
           </button>
@@ -7658,12 +7675,14 @@ function ContextDetail({
   onBack,
   backTo,
   onToggle,
+  connectionHeld,
   onRemove,
 }: {
   ctx: SavedContext
   onBack: () => void
   backTo: NavLocation | null
   onToggle: () => void
+  connectionHeld: boolean
   onRemove: () => void
 }) {
   useRecordView('context', ctx.id)
@@ -7707,7 +7726,8 @@ function ContextDetail({
           {!isRepo && (
             <button
               onClick={onToggle}
-              className="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent"
+              disabled={connectionHeld}
+              className="flex items-center gap-1.5 rounded-md border border-line-strong bg-surface px-3 py-1.5 text-[13px] font-medium text-ink transition hover:border-accent disabled:cursor-wait disabled:opacity-50"
             >
               {connected ? <Unplug size={14} /> : <Plug size={14} />}
               {connected ? 'Disconnect' : 'Connect'}
@@ -7715,7 +7735,8 @@ function ContextDetail({
           )}
           <button
             onClick={onRemove}
-            className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed"
+            disabled={connectionHeld}
+            className="flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-[13px] font-medium text-ink-soft transition hover:border-removed hover:bg-removed-bg hover:text-removed disabled:cursor-wait disabled:opacity-50"
           >
             <Trash2 size={14} />
             Remove

@@ -30,6 +30,11 @@ export function ConnectorDetailBody({
     : connected
       ? 'Connected'
       : 'Needs auth'
+  const blurb = connected
+    ? detail.blurb
+    : isMcp
+      ? 'Start this server to make its tools available.'
+      : 'Reconnect to make this service available in sessions.'
 
   return (
     <>
@@ -42,7 +47,7 @@ export function ConnectorDetailBody({
         {statusLabel}
       </div>
 
-      <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">{detail.blurb}</p>
+      <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">{blurb}</p>
 
       <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
         {isMcp ? 'Scope' : 'Access'}

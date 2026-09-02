@@ -29,6 +29,10 @@ export interface SavedContext {
   label: string
   kind: SavedContextKind
   status: ContextStatus
+  /** Server-owned ordering for the connection/auth dimension only. Usage
+   *  counters and descriptive metadata remain orthogonal. Legacy rows omit it
+   *  and therefore begin at revision zero. */
+  connectionRevision?: number
   /** Account, scope, or path · branch — the row's one-line subtitle. */
   detail: string
   /** When it was last attached (epoch ms); `null` when never attached. The UI

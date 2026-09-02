@@ -5,6 +5,7 @@ import type {
   SavedContext,
   SavedContextsSnapshot,
 } from '../contract/index.ts'
+import { ConflictError } from './conflict.ts'
 
 type OwnedSavedContext = SavedContext & { tenantId?: string }
 
@@ -62,7 +63,10 @@ const cloneRecents = (value: RecentsSnapshot): RecentsSnapshot => ({
   mcp: [...value.mcp],
 })
 
-const publicContext = ({ tenantId: _tenantId, ...context }: OwnedSavedContext): SavedContext => context
+const publicContext = ({ tenantId: _tenantId, ...context }: OwnedSavedContext): SavedContext => ({
+  ...context,
+  connectionRevision: context.connectionRevision ?? 0,
+})
 
 /**
  * Viewer-owned Contexts setup state. Ownership never comes from the request
@@ -124,6 +128,7 @@ export function createContextRegistry({
         detail,
         lastUsedAt,
         sessions,
+        connectionRevision: 0,
         ...(connectorKind !== undefined ? { connectorKind } : {}),
         ...(origin !== undefined ? { origin } : {}),
         ...(dependsOnGitHub !== undefined ? { dependsOnGitHub } : {}),
@@ -133,11 +138,27 @@ export function createContextRegistry({
       return { context: publicContext(owned), created: true }
     },
 
-    setStatus(id: string, status: ContextStatus, tenantId: string): SavedContextsSnapshot | undefined {
+    setStatus(
+      id: string,
+      status: ContextStatus,
+      tenantId: string,
+      expectedRevision?: number,
+    ): { snapshot: SavedContextsSnapshot; changed: boolean } | undefined {
       const context = ownedContext(id, tenantId)
       if (!context) return undefined
+      const currentRevision = context.connectionRevision ?? 0
+      // Convergent retry: if an acknowledgement was lost and the idempotency
+      // cache did not survive a restart, the already-realized desired state is
+      // success rather than a false conflict or a second revision.
+      if (context.status === status) return { snapshot: snapshotFor(tenantId), changed: false }
+      if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+        throw new ConflictError(
+          `This context connection changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+        )
+      }
       context.status = status
-      return snapshotFor(tenantId)
+      context.connectionRevision = currentRevision + 1
+      return { snapshot: snapshotFor(tenantId), changed: true }
     },
 
     remove(id: string, tenantId: string): boolean {

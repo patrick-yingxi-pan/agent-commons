@@ -98,6 +98,7 @@ import { mergeAgentConfiguration } from './agentRevision.ts'
 import { mergeProviderConnection, mergeProviderDefinition } from './providerRevision.ts'
 import { mergeSystemPromptDefinition } from './systemPromptRevision.ts'
 import { mergeCommissionConfiguration, newestCommissionConfiguration } from './commissionRevision.ts'
+import { mergeSavedContextConnection, mergeSavedContextConnectionSnapshot } from './savedContextRevision.ts'
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -1415,24 +1416,55 @@ export async function resolveMessageRelation(
 
 // ── Saved contexts (the Contexts page) ──────────────────────────────────────
 
-/** Set a saved connector / MCP server's auth status (connect / disconnect on the
- *  Contexts page). Optimistically flips the cached status so the row updates
- *  instantly, then PATCHes; the server broadcasts `connector.status`, reconciling
- *  this client and every other one (and the Add-context "Connected" quick list). */
-export async function setConnectorStatus(id: string, status: ContextStatus): Promise<void> {
-  mutate<SavedContextsSnapshot>(keys.savedContexts, (snap) => {
-    if (!snap) return snap as unknown as SavedContextsSnapshot
-    return { ...snap, contexts: snap.contexts.map((c) => (c.id === id ? { ...c, status } : c)) }
-  })
-  try {
-    const updated = await apiPatch<SavedContextsSnapshot>(
-      paths.savedContext(id),
-      { status } satisfies SetConnectorStatusRequest,
-    )
-    setData(keys.savedContexts, updated)
-  } catch {
-    invalidate(keys.savedContexts)
+/** Publish one status acknowledgement through its orthogonal monotonic fence.
+ * A removed row is never resurrected by a late response. */
+function acceptSavedContextConnection(incoming: SavedContext): SavedContext {
+  const current = peek<SavedContextsSnapshot>(keys.savedContexts)
+    ?.contexts.find((context) => context.id === incoming.id)
+  const accepted = current ? mergeSavedContextConnection(current, incoming) : incoming
+  mutate<SavedContextsSnapshot>(keys.savedContexts, (snapshot) =>
+    snapshot
+      ? mergeSavedContextConnectionSnapshot(snapshot, incoming.id, incoming)
+      : snapshot as unknown as SavedContextsSnapshot,
+  )
+  return accepted
+}
+
+/** Re-read only one Context connection after conflict or uncertainty. The GET is
+ * a full registry for API compatibility, but applying it cannot rewind sibling
+ * rows or resurrect a locally acknowledged removal. */
+export async function reconcileSavedContextConnection(id: string): Promise<SavedContext | undefined> {
+  const incomingSnapshot = await apiGet<SavedContextsSnapshot>(paths.savedContexts)
+  const incoming = incomingSnapshot.contexts.find((context) => context.id === id)
+  const currentSnapshot = peek<SavedContextsSnapshot>(keys.savedContexts)
+  if (!currentSnapshot) {
+    setData(keys.savedContexts, incomingSnapshot)
+    return incoming
   }
+  mutate<SavedContextsSnapshot>(keys.savedContexts, (snapshot) =>
+    snapshot
+      ? mergeSavedContextConnectionSnapshot(snapshot, id, incoming)
+      : snapshot as unknown as SavedContextsSnapshot,
+  )
+  return incoming
+}
+
+/** Transport one revision-checked connect/disconnect intent. The controller
+ * owns serialization and recovery; this door publishes only acknowledged state. */
+export async function patchSavedContextConnection(
+  id: string,
+  status: ContextStatus,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<SavedContext> {
+  const snapshot = await apiPatch<SavedContextsSnapshot>(
+    paths.savedContext(id),
+    { status, expectedRevision } satisfies SetConnectorStatusRequest,
+    { idempotencyKey },
+  )
+  const incoming = snapshot.contexts.find((context) => context.id === id)
+  if (!incoming) throw new ApiRequestError('internal', 'The updated context was missing from its acknowledgement.', 500)
+  return acceptSavedContextConnection(incoming)
 }
 
 /** Save a context to the set-up registry (the Contexts page's Add). Optimistic —

@@ -11,11 +11,13 @@ const find = (snap: any, id: string) => snap.contexts.find((c: any) => c.id === 
 test('PATCH /saved-contexts/:id disconnects a connector; the snapshot + connected list reflect it', async () => {
   const before = (await call('GET', '/saved-contexts')).json
   assert.equal(find(before, 'slack').status, 'connected', 'slack seeds connected')
+  assert.equal(find(before, 'slack').connectionRevision, 0, 'legacy/seed rows project revision zero')
   assert.ok(before.connectedConnectorIds.includes('slack'))
 
-  const patched = await call('PATCH', '/saved-contexts/slack', { status: 'needs-auth' })
+  const patched = await call('PATCH', '/saved-contexts/slack', { status: 'needs-auth', expectedRevision: 0 })
   assert.equal(patched.status, 200)
   assert.equal(find(patched.json, 'slack').status, 'needs-auth')
+  assert.equal(find(patched.json, 'slack').connectionRevision, 1)
   assert.ok(!patched.json.connectedConnectorIds.includes('slack'), 'dropped from the Connected quick list')
 
   // Server-owned, not just the response: a fresh GET reflects the change.
@@ -24,16 +26,56 @@ test('PATCH /saved-contexts/:id disconnects a connector; the snapshot + connecte
 })
 
 test('PATCH /saved-contexts/:id reconnects, and the connected list comes back', async () => {
-  await call('PATCH', '/saved-contexts/slack', { status: 'needs-auth' })
-  const back = await call('PATCH', '/saved-contexts/slack', { status: 'connected' })
+  const current = find((await call('GET', '/saved-contexts')).json, 'slack')
+  if (current.status === 'connected') {
+    await call('PATCH', '/saved-contexts/slack', {
+      status: 'needs-auth', expectedRevision: current.connectionRevision ?? 0,
+    })
+  }
+  const disconnected = find((await call('GET', '/saved-contexts')).json, 'slack')
+  const back = await call('PATCH', '/saved-contexts/slack', {
+    status: 'connected', expectedRevision: disconnected.connectionRevision ?? 0,
+  })
   assert.equal(back.status, 200)
   assert.equal(find(back.json, 'slack').status, 'connected')
   assert.ok(back.json.connectedConnectorIds.includes('slack'))
 })
 
+test('connection revisions conflict before mutation, replay once, and converge after a lost acknowledgement', async () => {
+  const id = `rt-context-revision-${Date.now().toString(36)}`
+  const context = {
+    id, label: 'Revision connector', kind: 'connector', status: 'connected',
+    detail: 'route revision test', lastUsedAt: null, sessions: 0,
+  }
+  const added = await call('POST', '/saved-contexts', { context })
+  assert.equal(added.json.connectionRevision, 0)
+
+  const headers = { 'idempotency-key': `context-status-${id}` }
+  const first = await call('PATCH', `/saved-contexts/${id}`, { status: 'needs-auth', expectedRevision: 0 }, headers)
+  assert.equal(first.status, 200)
+  assert.equal(find(first.json, id).connectionRevision, 1)
+  const replay = await call('PATCH', `/saved-contexts/${id}`, { status: 'needs-auth', expectedRevision: 0 }, headers)
+  assert.deepEqual(replay.json, first.json, 'the same logical request replays its acknowledgement')
+
+  const stale = await call('PATCH', `/saved-contexts/${id}`, { status: 'connected', expectedRevision: 0 })
+  assert.equal(stale.status, 409)
+  assert.match(stale.json.error.message, /changed elsewhere/)
+  const afterStale = find((await call('GET', '/saved-contexts')).json, id)
+  assert.equal(afterStale.status, 'needs-auth')
+  assert.equal(afterStale.connectionRevision, 1, 'the refused transition advances nothing')
+
+  const converged = await call('PATCH', `/saved-contexts/${id}`, { status: 'needs-auth', expectedRevision: 0 })
+  assert.equal(converged.status, 200, 'already-realized desired state heals a post-restart replay')
+  assert.equal(find(converged.json, id).connectionRevision, 1, 'convergence invents no ordering')
+  await call('DELETE', `/saved-contexts/${id}`)
+})
+
 test('PATCH /saved-contexts/:id with an invalid status is 400 bad_request', async () => {
   const r = await call('PATCH', '/saved-contexts/slack', { status: 'bogus' })
   assert.equal(r.status, 400)
+  assert.equal((await call('PATCH', '/saved-contexts/slack', {
+    status: 'connected', expectedRevision: -1,
+  })).status, 400)
 })
 
 test('PATCH an unknown saved context is 404 not_found', async () => {

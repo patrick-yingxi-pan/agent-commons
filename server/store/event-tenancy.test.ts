@@ -84,6 +84,11 @@ test('Contexts setup and recents events are stamped and delivered only to their 
   assert.ok(status?.type === 'connector.status')
   assert.equal(status.tenantId, OWNER)
   assert.equal(store.eventVisibleToTenant(status, OTHER), false)
+  const revision = store.savedContexts(OWNER).contexts.find((context) => context.id === id)?.connectionRevision
+  assert.equal(revision, 1)
+  const onStatusReplay = emitted(() => store.setConnectorStatus(id, 'needs-auth', OWNER, 0))
+  assert.ok(!onStatusReplay.some((event) => event.type === 'connector.status'), 'a converged replay emits no duplicate change')
+  assert.equal(store.savedContexts(OWNER).contexts.find((context) => context.id === id)?.connectionRevision, 1)
 
   const onRecent = emitted(() => store.pushRecent('connector', id, OWNER))
   const recent = onRecent.find((event) => event.type === 'recents.changed')
