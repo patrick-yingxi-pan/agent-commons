@@ -1,5 +1,4 @@
 /** App wiring for revision-checked routine definition edits. */
-import { useSyncExternalStore } from 'react'
 import type { SchedulePatch, ScheduledTask } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
@@ -12,12 +11,11 @@ import {
 } from '../api'
 import {
   createRevisionedMutationController,
-  IDLE_REVISIONED_MUTATION,
   type RevisionedMutationFailure,
   type RevisionedMutationOutcome,
-  type RevisionedMutationStatus,
 } from './revisionedMutationCore'
 import { isScheduleDeletionHeld } from './scheduleDeletionMutations'
+import { createMutationStatusStore } from './mutationStatusStore'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -43,13 +41,9 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
   return { message: 'Couldn’t confirm the routine change. Your request is still here—retry when the connection recovers.', retryable: true }
 }
 
-let status: RevisionedMutationStatus = IDLE_REVISIONED_MUTATION
-const listeners = new Set<() => void>()
+const statusStore = createMutationStatusStore()
 const heldResourceCounts = new Map<string, number>()
-const publish = (next: RevisionedMutationStatus): void => {
-  status = next
-  for (const listener of listeners) listener()
-}
+let accountGeneration = 0
 
 const cachedSchedule = (scheduleId: string): ScheduledTask | undefined =>
   peek<ScheduledTask[]>(keys.schedules)?.find((task) => task.id === scheduleId)
@@ -66,11 +60,12 @@ const controller = createRevisionedMutationController<ScheduledTask, SchedulePat
   revision: (task) => task.revision ?? 0,
   mutate: patchSchedule,
   describeFailure,
-  setStatus: publish,
+  setStatus: statusStore.publish,
   mintIdempotencyKey: () => crypto.randomUUID(),
 })
 
 onAccountSwitch(() => {
+  accountGeneration += 1
   heldResourceCounts.clear()
   controller.clearAll()
 })
@@ -85,13 +80,15 @@ export function enqueueScheduleMutation(
   // race for an already-open editor: a definition write cannot start after
   // permanent deletion owns the aggregate.
   if (isScheduleDeletionHeld(scheduleId)) return Promise.resolve('discarded')
+  const issuedGeneration = accountGeneration
   heldResourceCounts.set(scheduleId, (heldResourceCounts.get(scheduleId) ?? 0) + 1)
   const outcome = controller.enqueue(scheduleId, patch)
   void outcome.finally(() => {
+    if (issuedGeneration !== accountGeneration) return
     const remaining = (heldResourceCounts.get(scheduleId) ?? 1) - 1
     if (remaining > 0) heldResourceCounts.set(scheduleId, remaining)
     else heldResourceCounts.delete(scheduleId)
-    publish(status)
+    statusStore.refresh()
   })
   return outcome
 }
@@ -109,13 +106,4 @@ export function toggleScheduleEnabled(
 export const retryScheduleMutation = controller.retry
 export const discardScheduleMutation = controller.discard
 
-export function useScheduleMutationStatus(): RevisionedMutationStatus {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => status,
-    () => IDLE_REVISIONED_MUTATION,
-  )
-}
+export const useScheduleMutationStatus = statusStore.useStatus

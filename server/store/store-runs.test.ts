@@ -53,6 +53,30 @@ test('runSchedule persists a queued attempt, then the worker transition finishes
   assert.deepEqual(events, ['run.started', 'run.progress', 'run.finished'])
 })
 
+test('a manual logical run id survives completion and in-memory replay-cache loss', () => {
+  const source = steppedTask()
+  const { id: _id, tenantId: _tenant, ...seed } = structuredClone(source)
+  const task = store.addSchedule({
+    ...seed,
+    name: `Durable manual run ${Date.now().toString(36)}`,
+    runs: [],
+    enabled: false,
+  })
+  const manualRunId = 'run-manual-test-replay'
+  const started = store.runSchedule(task.id, { manualRunId })!
+  complete(task.id, started.id)
+
+  const replay = store.runSchedule(task.id, { manualRunId })!
+  assert.equal(replay.id, started.id, 'a replay after completion resolves the persisted logical run')
+  assert.equal(replay.status, 'ok', 'replay never restarts a completed run')
+  assert.equal(
+    store.listSchedules().find((candidate) => candidate.id === task.id)?.runs.length,
+    1,
+    'one logical manual request has one durable row',
+  )
+  store.removeSchedule(task.id)
+})
+
 test('routine resolution accepts a configured model on a catalog-less endpoint', () => {
   const provider = store.createProvider(
     { label: 'Catalog-less endpoint', modelFamily: 'claude', effortLevels: [] },

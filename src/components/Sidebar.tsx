@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -22,7 +24,6 @@ import {
   Pencil,
   Pin,
   PinOff,
-  Play,
   PlayCircle,
   Plus,
   Bell,
@@ -61,7 +62,6 @@ import {
   sidebarEntryClass,
 } from '../lib/sidebar'
 import {
-  runScheduleNow,
   useMe,
   useDiscussions,
   useNotifications,
@@ -115,6 +115,9 @@ import {
 } from '../lib/collectionProjection'
 import { collectionEmptyCopy } from '../lib/collectionEmpty'
 
+const RoutineRowMenu = lazy(() =>
+  import('./RoutineRowMenu').then((module) => ({ default: module.RoutineRowMenu })),
+)
 
 /** Does this section's row expand? Every child kind counts (UI-19) — fixed
  *  surfaces and canonical doors, section-detail rows, or Sessions' canonical
@@ -488,13 +491,6 @@ export function Sidebar({
     )
 
   const routineMenuItems = (t: ScheduledTask): RowMenuItem[] => [
-    {
-      kind: 'action',
-      key: 'run',
-      label: 'Run now',
-      icon: <Play size={15} />,
-      onSelect: () => void runScheduleNow(t.id),
-    },
     {
       kind: 'action',
       key: 'toggle',
@@ -1320,7 +1316,9 @@ function RoutineRow({
         >
           {task.name}
         </button>
-        <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} disabled={mutationHeld} />
+        <Suspense fallback={<span className="h-6 w-6 shrink-0" aria-hidden="true" />}>
+          <RoutineRowMenu task={task} items={menuItems} mutationHeld={mutationHeld} />
+        </Suspense>
       </div>
       {disclosed && (
         <RailTreeBranch data-routine-tree={task.id}>

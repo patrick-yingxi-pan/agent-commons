@@ -94,7 +94,9 @@ import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { readReplyEvents } from './replyStream.ts'
 import { shouldAcceptRelationGraph } from './relationRevision.ts'
 import { shouldAcceptEntityRevision } from './entityRevision.ts'
-import { mergeScheduleDefinition } from './scheduleRevision.ts'
+import {
+  mergeScheduleDefinition,
+} from './scheduleRevision.ts'
 import { mergeArtifactContent } from './artifactContentRevision.ts'
 import { mergeAgentConfiguration } from './agentRevision.ts'
 import { mergeProviderConnection, mergeProviderDefinition } from './providerRevision.ts'
@@ -334,13 +336,6 @@ export async function rebaseRelationOp(op: RelationOp): Promise<RelationOp> {
 }
 
 // ── Scheduled routines ──────────────────────────────────────────────────────
-
-/** Run a routine now. The server appends the run + broadcasts run.* events, which
- *  invalidate the feed; we also nudge the local caches so it shows immediately. */
-export async function runScheduleNow(id: string): Promise<void> {
-  await apiPost(paths.scheduleRun(id))
-  invalidate(keys.schedules)
-}
 
 /** Project an acknowledged routine-definition response without replacing run
  * progress/history that a newer ambient fetch may already have published. */

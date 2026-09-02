@@ -8251,12 +8251,17 @@ export const store = {
   },
   /** Begin a durable background turn. The store records the job before handing
    *  it to the configured routine worker; model I/O never lives in this state
-   *  module. A scheduled run is idempotent by `(routine id, scheduledFor)` and
-   *  manual run-now carries no fire time. */
-  runSchedule(id: string, options?: { scheduledFor?: number; startedAt?: number }): ScheduledRun | undefined {
+   *  module. A scheduled run is idempotent by `(routine id, scheduledFor)`;
+   *  keyed manual Run-now uses its supplied durable identity, while an active
+   *  different run is returned for the route to reject as an overlap. */
+  runSchedule(id: string, options?: { scheduledFor?: number; startedAt?: number; manualRunId?: string }): ScheduledRun | undefined {
     return commitMutationBatch(() => {
       const task = schedules.find((t) => t.id === id)
       if (!task) return undefined
+      if (options?.manualRunId !== undefined) {
+        const represented = task.runs.find((run) => run.id === options.manualRunId)
+        if (represented) return represented
+      }
       if (options?.scheduledFor !== undefined) {
         const represented = task.runs.find((r) => r.scheduledFor === options.scheduledFor)
         if (represented) return represented
@@ -8268,7 +8273,7 @@ export const store = {
       const startedAt = options?.startedAt ?? Date.now()
       const binding = scheduleBindingChoice(task)
       const run: ScheduledRun = {
-        id: `run-live-${(runSeq += 1)}`,
+        id: options?.manualRunId ?? `run-live-${(runSeq += 1)}`,
         status: 'running',
         duration: '—',
         reachedStep: 0,

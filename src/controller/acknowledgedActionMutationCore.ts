@@ -1,0 +1,145 @@
+/** Transport-neutral acknowledgement FIFO for append/action commands.
+ *
+ * Unlike a revisioned edit, an action has no document to rebase. It still owns
+ * one logical idempotency key, keeps later intent behind an uncertain head,
+ * reconciles before declaring failure or Dismiss complete, and drops late work
+ * when the account scope changes. */
+import {
+  IDLE_REVISIONED_MUTATION,
+  type RevisionedMutationFailure,
+  type RevisionedMutationOutcome,
+  type RevisionedMutationStatus,
+} from './revisionedMutationCore.ts'
+
+export interface AcknowledgedActionMutationDeps<Baseline> {
+  snapshot: (resourceId: string) => Baseline
+  mutate: (resourceId: string, idempotencyKey: string) => Promise<void>
+  /** Return true when authoritative state proves the held action already landed. */
+  reconcile: (resourceId: string, baseline: Baseline, idempotencyKey: string) => Promise<boolean>
+  describeFailure: (error: unknown) => RevisionedMutationFailure
+  setStatus: (status: RevisionedMutationStatus) => void
+  mintIdempotencyKey: () => string
+}
+
+interface QueueEntry<Baseline> {
+  resourceId: string
+  baseline: Baseline
+  idempotencyKey: string
+  settle: (outcome: RevisionedMutationOutcome) => void
+}
+
+export { IDLE_REVISIONED_MUTATION as IDLE_ACKNOWLEDGED_ACTION_MUTATION }
+
+export function createAcknowledgedActionMutationController<Baseline>(
+  deps: AcknowledgedActionMutationDeps<Baseline>,
+) {
+  let queue: QueueEntry<Baseline>[] = []
+  let running = false
+  let failure: RevisionedMutationFailure | null = null
+  let generation = 0
+
+  const publish = (): void => {
+    deps.setStatus({
+      ...IDLE_REVISIONED_MUTATION,
+      busy: running,
+      error: failure?.message ?? null,
+      retryable: failure?.retryable ?? false,
+      activeResourceId: queue[0]?.resourceId ?? null,
+      pendingCount: queue.length,
+    })
+  }
+
+  const complete = (
+    entry: QueueEntry<Baseline>,
+    outcome: RevisionedMutationOutcome,
+  ): void => {
+    if (queue[0] !== entry) return
+    running = false
+    failure = null
+    queue.shift()
+    entry.settle(outcome)
+    publish()
+    drain()
+  }
+
+  const drain = (): void => {
+    if (running || failure || queue.length === 0) return
+    const entry = queue[0]!
+    const issuedGeneration = generation
+    running = true
+    publish()
+    void deps.mutate(entry.resourceId, entry.idempotencyKey).then(
+      () => {
+        if (generation !== issuedGeneration || queue[0] !== entry) return
+        complete(entry, 'applied')
+      },
+      async (error: unknown) => {
+        if (generation !== issuedGeneration || queue[0] !== entry) return
+        let realized = false
+        try {
+          realized = await deps.reconcile(entry.resourceId, entry.baseline, entry.idempotencyKey)
+        } catch {
+          // Preserve the original mutation error. Retry or Dismiss will make a
+          // fresh bounded truth read rather than replacing it with a read error.
+        }
+        if (generation !== issuedGeneration || queue[0] !== entry) return
+        if (realized) return complete(entry, 'applied')
+        running = false
+        failure = deps.describeFailure(error)
+        publish()
+      },
+    )
+  }
+
+  const enqueue = (resourceId: string): Promise<RevisionedMutationOutcome> => {
+    const outcome = new Promise<RevisionedMutationOutcome>((settle) => {
+      queue.push({
+        resourceId,
+        baseline: deps.snapshot(resourceId),
+        idempotencyKey: deps.mintIdempotencyKey(),
+        settle,
+      })
+    })
+    publish()
+    drain()
+    return outcome
+  }
+
+  const retry = (): void => {
+    if (!failure || running || queue.length === 0 || !failure.retryable) return
+    failure = null
+    publish()
+    drain()
+  }
+
+  const discard = (): void => {
+    if (!failure || running || queue.length === 0) return
+    const entry = queue[0]!
+    const issuedGeneration = generation
+    failure = null
+    running = true
+    publish()
+    void deps.reconcile(entry.resourceId, entry.baseline, entry.idempotencyKey).then(
+      (realized) => {
+        if (generation !== issuedGeneration || queue[0] !== entry) return
+        complete(entry, realized ? 'applied' : 'discarded')
+      },
+      () => {
+        if (generation !== issuedGeneration || queue[0] !== entry) return
+        complete(entry, 'discarded')
+      },
+    )
+  }
+
+  const clearAll = (): void => {
+    generation += 1
+    running = false
+    failure = null
+    const abandoned = queue
+    queue = []
+    for (const entry of abandoned) entry.settle('discarded')
+    publish()
+  }
+
+  return { enqueue, retry, discard, clearAll }
+}

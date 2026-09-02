@@ -134,6 +134,8 @@ export interface ScheduledExecution {
  *  (drives the detail rail's relight: steps 0..reachedStep-1 turn green; a failed
  *  run stops red at `reachedStep`). `summary` is the one line of what it produced. */
 export interface ScheduledRun {
+  /** Opaque durable identity. A keyed manual request derives the same id across
+   * response loss or server restart; callers must not parse its representation. */
   id: string
   status: 'ok' | 'failed' | 'running' | 'skipped'
   duration: string

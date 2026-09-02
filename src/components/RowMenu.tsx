@@ -27,6 +27,7 @@ export type RowMenuItem =
       icon: ReactNode
       onSelect: () => void
       danger?: boolean
+      disabled?: boolean
       /** When set, the item asks first: the popover swaps to this confirm message
        *  with Cancel / Confirm before `onSelect` fires. */
       confirm?: string
@@ -187,6 +188,7 @@ export function RowMenu({
                     label={item.label}
                     icon={item.icon}
                     danger={item.danger}
+                    disabled={item.disabled}
                     onSelect={() =>
                       item.confirm
                         ? setConfirming({ message: item.confirm, onSelect: item.onSelect })
@@ -263,21 +265,24 @@ function ActionRow({
   label,
   icon,
   danger,
+  disabled,
   onSelect,
 }: {
   label: string
   icon: ReactNode
   danger?: boolean
+  disabled?: boolean
   onSelect: () => void
 }) {
   return (
     <button
       type="button"
       role="menuitem"
+      disabled={disabled}
       onClick={onSelect}
       className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
         danger ? 'text-removed hover:bg-removed-bg' : 'text-ink hover:bg-panel-2'
-      }`}
+      } disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent`}
     >
       <span className="flex h-4 w-4 shrink-0 items-center justify-center">{icon}</span>
       <span className="flex-1">{label}</span>

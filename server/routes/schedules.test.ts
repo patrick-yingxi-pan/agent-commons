@@ -7,6 +7,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from '../testkit/http.ts'
+import { manualScheduleRunId } from '../scheduleRunIdentity.ts'
 
 async function createRoutine(name: string) {
   const template = (await call('GET', '/schedule-templates')).json[0]
@@ -42,6 +43,40 @@ test('PATCH /schedules/:id sets enabled to the explicit value (the toggle path k
   const res = await call('PATCH', `/schedules/${task.id}`, { enabled: !task.enabled })
   assert.equal(res.status, 200)
   assert.equal(res.json.enabled, !task.enabled)
+})
+
+test('Run now replays one durable logical run and acknowledgement', async () => {
+  const task = await createRoutine(`Idempotent manual run ${Date.now().toString(36)}`)
+  const key = `manual-run-${task.id}`
+  const headers = { 'idempotency-key': key }
+  const started = await call('POST', `/schedules/${task.id}/run`, undefined, headers)
+  assert.equal(started.status, 200)
+  assert.equal(started.json.id, manualScheduleRunId(key))
+
+  const replay = await call('POST', `/schedules/${task.id}/run`, undefined, headers)
+  assert.equal(replay.status, 200)
+  assert.deepEqual(replay.json, started.json)
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+  const current = (await call('GET', '/schedules')).json.find(
+    (candidate: { id: string }) => candidate.id === task.id,
+  )
+  assert.equal(current.runs.length, 1, 'the logical request creates one run row')
+})
+
+test('a keyed manual run never acknowledges a different overlapping run', async () => {
+  const task = await createRoutine(`Overlapping manual run ${Date.now().toString(36)}`)
+  const active = await call('POST', `/schedules/${task.id}/run`)
+  assert.equal(active.status, 200)
+
+  const key = `held-manual-run-${task.id}`
+  const refused = await call('POST', `/schedules/${task.id}/run`, undefined, { 'idempotency-key': key })
+  assert.equal(refused.status, 409)
+  assert.match(refused.json.error.message, /already in progress/i)
+  assert.notEqual(active.json.id, manualScheduleRunId(key))
+  const current = (await call('GET', '/schedules')).json.find(
+    (candidate: { id: string }) => candidate.id === task.id,
+  )
+  assert.deepEqual(current.runs.map((run: { id: string }) => run.id), [active.json.id])
 })
 
 test('PATCH /schedules/:id with no enabled key leaves enabled unchanged (no implicit toggle)', async () => {

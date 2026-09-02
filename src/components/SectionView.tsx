@@ -244,7 +244,6 @@ import {
 import {
   addScheduleFromSeed,
   createDispatch,
-  runScheduleNow,
   addSavedContext,
   createCommission,
   createProvider,
@@ -379,6 +378,12 @@ import {
   ROUTINE_MUTATION_WAIT,
   useScheduleDeletionStatus,
 } from '../controller/scheduleDeletionMutations'
+import {
+  enqueueScheduleRun,
+  isScheduleRunHeld,
+  ROUTINE_RUN_ACTIVE,
+  useScheduleRunStatus,
+} from '../controller/scheduleRunMutations'
 import { updateAgent } from '../controller/agentMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
@@ -1093,6 +1098,7 @@ function ProjectDetail({
   useRecordView('project', project.id)
   useScheduleMutationStatus()
   useScheduleDeletionStatus()
+  useScheduleRunStatus()
   const convs = rel.sessionsForProject(project.id)
   const artifacts = rel.artifactsForProject(project.id)
   const contexts = rel.contextsForProject(project.id)
@@ -1105,29 +1111,15 @@ function ProjectDetail({
   const staticSchedules = project.scheduled.filter((s) => !realNames.has(s.name))
   const hasSchedules = realSchedules.length > 0 || staticSchedules.length > 0
 
-  // "Run now" spinners — an id is in the set until its run resolves (cleared on a
-  // timer as a safety net), mirroring the Scheduled section's own controls.
-  const [running, setRunning] = useState<Set<string>>(new Set())
-  const timers = useRef<number[]>([])
-  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
-
   const scheduleMutationHeld = (id: string) =>
-    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id)
+    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id) || isScheduleRunHeld(id)
   const toggleEnabled = (id: string, enabled: boolean) => {
     if (!scheduleMutationHeld(id)) void toggleScheduleEnabled(id, !enabled)
   }
   const runNow = (id: string) => {
-    if (running.has(id) || scheduleMutationHeld(id)) return
-    setRunning((prev) => new Set(prev).add(id))
-    void runScheduleNow(id)
-    const timer = window.setTimeout(() => {
-      setRunning((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-    }, 2000)
-    timers.current.push(timer)
+    const task = realSchedules.find((schedule) => schedule.id === id)
+    if (!task || scheduleMutationHeld(id) || task.runs.some((run) => run.status === 'running')) return
+    void enqueueScheduleRun(id)
   }
 
   // ── Scheduled-run CRUD — all on existing primitives, no new backend op ──
@@ -1512,7 +1504,7 @@ function ProjectDetail({
                   <ProjectScheduleRow
                     key={t.id}
                     task={t}
-                    running={running.has(t.id)}
+                    running={isScheduleRunHeld(t.id) || t.runs.some((run) => run.status === 'running')}
                     mutationHeld={scheduleMutationHeld(t.id)}
                     onToggle={() => toggleEnabled(t.id, t.enabled)}
                     onRun={() => runNow(t.id)}
@@ -1901,7 +1893,7 @@ function ProjectScheduleRow({
         </div>
       </button>
       <div className="flex shrink-0 items-center gap-0.5">
-        <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Run now'}>
+        <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : running ? ROUTINE_RUN_ACTIVE : 'Run now'}>
           <button
             onClick={onRun}
             disabled={running || mutationHeld}
@@ -12646,6 +12638,7 @@ function ScheduledSection({
   const schedulesQ = useSchedules()
   useScheduleMutationStatus()
   useScheduleDeletionStatus()
+  useScheduleRunStatus()
   const items = schedulesQ.data ?? []
   const rel = useRelations()
   const projects = rel.allProjects()
@@ -12656,14 +12649,8 @@ function ScheduledSection({
   const [deleteTarget, setDeleteTarget] = useState<ScheduledTask | null>(null)
   const scheduleIdRef = useRef(scheduleId)
   scheduleIdRef.current = scheduleId
-  // Ids with a "Run now" in flight — drives the button spinner until the run's
-  // run.finished event lands (cleared on a timer as a safety net).
-  const [running, setRunning] = useState<Set<string>>(new Set())
-  const timers = useRef<number[]>([])
-  useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
-
   const scheduleMutationHeld = (id: string) =>
-    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id)
+    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id) || isScheduleRunHeld(id)
   const toggleEnabled = (id: string) => {
     const t = items.find((x) => x.id === id)
     // The toggle is always rendered from `items`, so `t` is present; guard rather
@@ -12692,17 +12679,9 @@ function ScheduledSection({
   ) : null
 
   const runNow = (id: string) => {
-    if (running.has(id) || scheduleMutationHeld(id)) return
-    setRunning((prev) => new Set(prev).add(id))
-    void runScheduleNow(id)
-    const timer = window.setTimeout(() => {
-      setRunning((prev) => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-    }, 2000)
-    timers.current.push(timer)
+    const task = items.find((schedule) => schedule.id === id)
+    if (!task || scheduleMutationHeld(id) || task.runs.some((run) => run.status === 'running')) return
+    void enqueueScheduleRun(id)
   }
 
   const addFromTemplate = async (tpl: ScheduleTemplate) => {
@@ -12718,7 +12697,7 @@ function ScheduledSection({
         <ScheduledDetail
           task={open}
           sectionId={scheduleSectionId}
-          running={running.has(open.id)}
+          running={isScheduleRunHeld(open.id) || open.runs.some((run) => run.status === 'running')}
           mutationHeld={scheduleMutationHeld(open.id)}
           onBack={onBack}
           backTo={backTo}
@@ -12807,7 +12786,7 @@ function ScheduledSection({
         renderItem={(item) => (
           <ScheduledRow
             task={item.value}
-            running={running.has(item.value.id)}
+            running={isScheduleRunHeld(item.value.id) || item.value.runs.some((run) => run.status === 'running')}
             mutationHeld={scheduleMutationHeld(item.value.id)}
             onOpen={() => onOpenSchedule(item.value.id)}
             onToggle={() => toggleEnabled(item.value.id)}
@@ -12889,7 +12868,7 @@ function ScheduledRow({
         </span>
 
         <div className={`flex items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
-          <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Run now'}>
+          <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : running ? ROUTINE_RUN_ACTIVE : 'Run now'}>
             <button
               onClick={onRunNow}
               disabled={running || mutationHeld}
@@ -13164,7 +13143,7 @@ function ScheduledDetail({
               icon={running ? <Spinner size={14} /> : <Play size={14} />}
               onClick={onRunNow}
               disabled={running || mutationHeld}
-              disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : undefined}
+              disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : running ? ROUTINE_RUN_ACTIVE : undefined}
             />
             <SectionAction
               label={task.enabled ? 'Pause routine' : 'Resume routine'}

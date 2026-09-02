@@ -78,6 +78,7 @@ import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
 import { relayReply, mintRelaySecret, hashRelaySecret, relaySecretHint, type RelayOutcome } from '../relay.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, summarizeConversation } from '../compaction.ts'
+import { manualScheduleRunId } from '../scheduleRunIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -3924,12 +3925,19 @@ export function buildRouter(): Router {
     return !!task && !store.scheduleOwnedBy(task, store.identity(req.headers).tenant.id)
   }
   // Run a routine now (server appends + broadcasts the run).
-  r.post('/schedules/:id/run', ({ req, res, params }) => {
+  r.post('/schedules/:id/run', idempotent(({ req, res, params }) => {
     if (notMySchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
-    const run = store.runSchedule(params.id)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalRunId = idempotencyKey ? manualScheduleRunId(idempotencyKey) : undefined
+    const run = store.runSchedule(params.id, logicalRunId
+      ? { manualRunId: logicalRunId }
+      : undefined)
     if (!run) return sendError(res, 'not_found', `No schedule '${params.id}'`)
+    if (logicalRunId && run.id !== logicalRunId) {
+      return sendError(res, 'conflict', 'Another run is already in progress. Retry after it finishes.')
+    }
     sendJson(res, run)
-  })
+  }))
   // Patch a routine's own fields — enabled, name, prompt, cadence, model, … (the
   // entity edits behind the detail page). Cross-entity bindings (deliver to an
   // artifact/session, add a tool) go through POST /relations/ops instead.
