@@ -55,6 +55,7 @@ import {
   type ReserveSubGoalRequest,
   type ContextStatus,
   type DeleteSavedContextRequest,
+  type DeleteScheduleRequest,
   type ContextTypeId,
   type EffectReport,
   type SyncEffectsResult,
@@ -400,10 +401,26 @@ export async function addScheduleFromSeed(seed: Omit<ScheduledTask, 'id'>): Prom
   return task
 }
 
-/** Remove a routine. */
-export async function removeSchedule(id: string): Promise<void> {
-  await apiDelete(paths.schedule(id))
-  invalidate(keys.schedules)
+/** Delete one reviewed routine definition. The controller owns confirmation,
+ * retry, reconciliation, and navigation; the cache publishes absence only
+ * after the server acknowledges the complete run-session cascade. */
+export async function deleteSchedule(
+  id: string,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiDelete(
+    paths.schedule(id),
+    { expectedRevision } satisfies DeleteScheduleRequest,
+    { idempotencyKey },
+  )
+  mutate<ScheduledTask[]>(keys.schedules, (tasks) =>
+    (tasks ?? []).filter((task) => task.id !== id),
+  )
+  // Deletion also removes the routine's Project edge. Revalidate the graph
+  // even when the routine had no run Session (and therefore no
+  // `session.removed` event) to carry the ordinary relation refresh.
+  invalidate(keys.relations)
 }
 
 /** Kick off a one-off dispatch (a single on-demand agent run). The server mints it

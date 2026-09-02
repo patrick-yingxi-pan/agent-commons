@@ -61,14 +61,23 @@ import {
   sidebarEntryClass,
 } from '../lib/sidebar'
 import {
-  removeSchedule,
   runScheduleNow,
   useMe,
   useDiscussions,
   useNotifications,
   useSchedules,
 } from '../api'
-import { toggleScheduleEnabled } from '../controller/scheduleMutations'
+import {
+  isScheduleMutationHeld,
+  toggleScheduleEnabled,
+  useScheduleMutationStatus,
+} from '../controller/scheduleMutations'
+import {
+  enqueueScheduleDeletion,
+  isScheduleDeletionHeld,
+  ROUTINE_DELETE_SCOPE,
+  useScheduleDeletionStatus,
+} from '../controller/scheduleDeletionMutations'
 import { AccountChip } from './AccountMenu'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
@@ -231,6 +240,10 @@ export function Sidebar({
   onResizeEnd: () => void
 }) {
   const inSession = activeSection === null
+  const activeSectionRef = useRef(activeSection)
+  const activeSeedRef = useRef(activeSeed)
+  activeSectionRef.current = activeSection
+  activeSeedRef.current = activeSeed
   // Rail navigation is an inline disclosure tree (VSCode-explorer style): a section with
   // children carries a chevron and expands IN PLACE to show them indented below it — no
   // push, no back button, siblings stay visible. Several sections can be open at once.
@@ -348,6 +361,22 @@ export function Sidebar({
   // branch lists recurring routines (not runs) from the same live source as its
   // main page; a routine then discloses its sections and canonical resources.
   const routines = useSchedules().data ?? []
+  useScheduleMutationStatus()
+  useScheduleDeletionStatus()
+  const routineMutationHeld = (id: string) =>
+    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id)
+  const deleteRoutine = (task: ScheduledTask) => {
+    if (routineMutationHeld(task.id)) return
+    void enqueueScheduleDeletion(task.id, task.revision ?? 0).then((outcome) => {
+      if (
+        outcome === 'applied' &&
+        activeSectionRef.current === 'scheduled' &&
+        activeSeedRef.current?.scheduleId === task.id
+      ) {
+        onOpenSection('scheduled')
+      }
+    })
+  }
 
   const { applyOp, projectIdForSession, scheduleProjectId, allProjects } = useRelations()
   // The LIVE project registry — seeds + runtime-created (graph.extraProjects), the
@@ -482,8 +511,8 @@ export function Sidebar({
       label: 'Delete',
       icon: <Trash2 size={15} />,
       danger: true,
-      confirm: `Delete the “${t.name}” routine? A server restart restores the seed.`,
-      onSelect: () => void removeSchedule(t.id),
+      confirm: `Delete “${t.name}”? ${ROUTINE_DELETE_SCOPE}`,
+      onSelect: () => deleteRoutine(t),
     },
   ]
 
@@ -731,6 +760,7 @@ export function Sidebar({
                             onLeafNavigate?.()
                           }}
                           menuItems={routineMenuItems(t)}
+                          mutationHeld={routineMutationHeld(t.id)}
                           foldSignal={foldSignalForPane(path)}
                         />
                       )}
@@ -1238,6 +1268,7 @@ function RoutineRow({
   onOpenRun,
   onOpenDiscussion,
   menuItems,
+  mutationHeld,
   foldSignal,
 }: {
   task: ScheduledTask
@@ -1249,6 +1280,7 @@ function RoutineRow({
   onOpenRun: (runId: string) => void
   onOpenDiscussion: (discussionId: string) => void
   menuItems: RowMenuItem[]
+  mutationHeld: boolean
   foldSignal?: RailFoldSignal | null
 }) {
   // A routine is the composite; a run is one of its children. The old row
@@ -1258,7 +1290,8 @@ function RoutineRow({
   // branch so the current place is always visible.
   const [expanded, setExpanded] = useState(pageActive || activeSectionId !== null || activeRunId !== null)
   const nodeKey = railNodeKey('section', 'scheduled', 'item', task.id)
-  const disclosed = expanded || useRailRootAncestorKeys().has(nodeKey)
+  const rootAncestorKeys = useRailRootAncestorKeys()
+  const disclosed = expanded || rootAncestorKeys.has(nodeKey)
   useEffect(() => {
     if (pageActive || activeSectionId !== null || activeRunId !== null) setExpanded(true)
   }, [pageActive, activeSectionId, activeRunId])
@@ -1287,7 +1320,7 @@ function RoutineRow({
         >
           {task.name}
         </button>
-        <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} />
+        <RowMenu ariaLabel={`Actions for ${task.name}`} items={menuItems} disabled={mutationHeld} />
       </div>
       {disclosed && (
         <RailTreeBranch data-routine-tree={task.id}>

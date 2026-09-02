@@ -7,7 +7,7 @@
  *  drift-prone copy, all permanent noise. These lock that:
  *    1. the shared class is the compact ghost square with an active (data-open) state,
  *    2. the SectionAction component sources the class and NAMES its verb
- *       (title + aria-label — the icon alone must still announce itself),
+ *       (aria-label stays the verb; title may add a held-state explanation),
  *    3. the section surfaces consume the shared component,
  *    4. the class is defined once — no component re-hardcodes the literal. */
 import { test } from 'node:test'
@@ -26,7 +26,11 @@ test('the SectionAction component sources the class and names its verb', () => {
   const src = read(join(ROOT, 'src', 'components', 'SectionAction.tsx'))
   assert.match(src, /from\s+'(\.\.\/)+lib\/sectionAction'/, 'imports the shared module')
   assert.ok(src.includes('SECTION_ACTION_CLASS'), 'wears the shared class')
-  assert.ok(src.includes('title={label}'), 'the verb is the tooltip')
+  assert.match(
+    src,
+    /title=\{disabled && disabledReason \? `\$\{label\} — \$\{disabledReason\}` : label\}/,
+    'the tooltip keeps the verb and may explain why a held action is unavailable',
+  )
   assert.ok(src.includes('aria-label={label}'), 'the verb is the accessible name')
   assert.ok(src.includes('disabled={disabled}'), 'an in-flight action keeps native disabled semantics')
   assert.ok(src.includes('data-open={state || undefined}'), 'open/expanded triggers stamp data-open for the cluster reveal')

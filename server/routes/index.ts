@@ -20,6 +20,7 @@ import type {
   SetSocialWatchRequest,
   RecordViewRequest,
   CreateDispatchRequest,
+  DeleteScheduleRequest,
   CreateProviderRequest,
   ModelProvider,
   RelayReplyRequest,
@@ -3969,12 +3970,27 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  // Remove a routine.
-  r.delete('/schedules/:id', ({ req, res, params }) => {
+  // Remove the exact routine definition the caller reviewed. Run progress is
+  // orthogonal; deletion deliberately abandons it and cascades its sessions.
+  r.delete('/schedules/:id', idempotent(async ({ req, res, params, body }) => {
     if (notMySchedule(req, params.id)) return sendError(res, 'not_found', `No schedule '${params.id}'`)
-    store.removeSchedule(params.id)
+    const { expectedRevision } = await body<DeleteScheduleRequest>()
+    if (
+      expectedRevision !== undefined &&
+      (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
+    }
+    try {
+      // Absence is convergent success: an acknowledgement can be lost after
+      // the durable cascade and the idempotency cache need not survive restart.
+      store.removeSchedule(params.id, expectedRevision)
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
     sendJson(res, { ok: true })
-  })
+  }))
   // The left rail's recent-runs feed (a single live source, the caller's routines only).
   r.aliasGet('/runs/recent', 'GET /schedules', 'recent routine runs are already represented by the schedules and routine-state projection in the UI', ({ req, res }) => {
     sendJson(res, store.recentRuns(store.identity(req.headers).tenant.id))

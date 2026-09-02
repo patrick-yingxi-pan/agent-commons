@@ -17,6 +17,7 @@ import {
   type RevisionedMutationOutcome,
   type RevisionedMutationStatus,
 } from './revisionedMutationCore'
+import { isScheduleDeletionHeld } from './scheduleDeletionMutations'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -44,6 +45,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
 
 let status: RevisionedMutationStatus = IDLE_REVISIONED_MUTATION
 const listeners = new Set<() => void>()
+const heldResourceCounts = new Map<string, number>()
 const publish = (next: RevisionedMutationStatus): void => {
   status = next
   for (const listener of listeners) listener()
@@ -68,13 +70,30 @@ const controller = createRevisionedMutationController<ScheduledTask, SchedulePat
   mintIdempotencyKey: () => crypto.randomUUID(),
 })
 
-onAccountSwitch(() => controller.clearAll())
+onAccountSwitch(() => {
+  heldResourceCounts.clear()
+  controller.clearAll()
+})
+
+export const isScheduleMutationHeld = (id: string): boolean => (heldResourceCounts.get(id) ?? 0) > 0
 
 export function enqueueScheduleMutation(
   scheduleId: string,
   patch: SchedulePatch,
 ): Promise<RevisionedMutationOutcome> {
-  return controller.enqueue(scheduleId, patch)
+  // The rendered surfaces hold these controls, and this final seam closes the
+  // race for an already-open editor: a definition write cannot start after
+  // permanent deletion owns the aggregate.
+  if (isScheduleDeletionHeld(scheduleId)) return Promise.resolve('discarded')
+  heldResourceCounts.set(scheduleId, (heldResourceCounts.get(scheduleId) ?? 0) + 1)
+  const outcome = controller.enqueue(scheduleId, patch)
+  void outcome.finally(() => {
+    const remaining = (heldResourceCounts.get(scheduleId) ?? 1) - 1
+    if (remaining > 0) heldResourceCounts.set(scheduleId, remaining)
+    else heldResourceCounts.delete(scheduleId)
+    publish(status)
+  })
+  return outcome
 }
 
 /** Intent-shaped conveniences used by the routine surfaces. Both still enter

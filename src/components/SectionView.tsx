@@ -244,7 +244,6 @@ import {
 import {
   addScheduleFromSeed,
   createDispatch,
-  removeSchedule,
   runScheduleNow,
   addSavedContext,
   createCommission,
@@ -367,7 +366,19 @@ import {
   markNotificationsRead,
 } from '../api'
 import { createProviderConnectionAttempt, replaceProviderConnection } from '../controller/providerConnection'
-import { toggleScheduleEnabled, updateSchedule } from '../controller/scheduleMutations'
+import {
+  isScheduleMutationHeld,
+  toggleScheduleEnabled,
+  updateSchedule,
+  useScheduleMutationStatus,
+} from '../controller/scheduleMutations'
+import {
+  enqueueScheduleDeletion,
+  isScheduleDeletionHeld,
+  ROUTINE_DELETE_SCOPE,
+  ROUTINE_MUTATION_WAIT,
+  useScheduleDeletionStatus,
+} from '../controller/scheduleDeletionMutations'
 import { updateAgent } from '../controller/agentMutations'
 import { updateCommissionConfiguration } from '../controller/commissionMutations'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
@@ -1080,6 +1091,8 @@ function ProjectDetail({
 }) {
   const rel = useRelations()
   useRecordView('project', project.id)
+  useScheduleMutationStatus()
+  useScheduleDeletionStatus()
   const convs = rel.sessionsForProject(project.id)
   const artifacts = rel.artifactsForProject(project.id)
   const contexts = rel.contextsForProject(project.id)
@@ -1098,9 +1111,13 @@ function ProjectDetail({
   const timers = useRef<number[]>([])
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
 
-  const toggleEnabled = (id: string, enabled: boolean) => void toggleScheduleEnabled(id, !enabled)
+  const scheduleMutationHeld = (id: string) =>
+    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id)
+  const toggleEnabled = (id: string, enabled: boolean) => {
+    if (!scheduleMutationHeld(id)) void toggleScheduleEnabled(id, !enabled)
+  }
   const runNow = (id: string) => {
-    if (running.has(id)) return
+    if (running.has(id) || scheduleMutationHeld(id)) return
     setRunning((prev) => new Set(prev).add(id))
     void runScheduleNow(id)
     const timer = window.setTimeout(() => {
@@ -1127,7 +1144,9 @@ function ProjectDetail({
     rel.applyOp({ kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId: project.id, projectName: project.name })
   const unlinkSchedule = (task: ScheduledTask) =>
     rel.applyOp({ kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId: null, projectName: project.name })
-  const deleteSchedule = (id: string) => void removeSchedule(id)
+  const deleteSchedule = (task: ScheduledTask) => {
+    if (!scheduleMutationHeld(task.id)) void enqueueScheduleDeletion(task.id, task.revision ?? 0)
+  }
 
   // Remove a session from this project — the file-session op with a null project
   // (the graph patch drops it from sessionsForProject, so the row disappears).
@@ -1494,11 +1513,12 @@ function ProjectDetail({
                     key={t.id}
                     task={t}
                     running={running.has(t.id)}
+                    mutationHeld={scheduleMutationHeld(t.id)}
                     onToggle={() => toggleEnabled(t.id, t.enabled)}
                     onRun={() => runNow(t.id)}
                     onOpen={() => rel.navigate('scheduled', t.id)}
                     onUnlink={() => unlinkSchedule(t)}
-                    onDelete={() => deleteSchedule(t.id)}
+                    onDelete={() => deleteSchedule(t)}
                   />
                 ))}
                 {staticSchedules.map((s, i) => (
@@ -1834,6 +1854,7 @@ function ProjectInstructions({ project }: { project: Project }) {
 function ProjectScheduleRow({
   task,
   running,
+  mutationHeld,
   onToggle,
   onRun,
   onOpen,
@@ -1842,6 +1863,7 @@ function ProjectScheduleRow({
 }: {
   task: ScheduledTask
   running: boolean
+  mutationHeld: boolean
   onToggle: () => void
   onRun: () => void
   onOpen: () => void
@@ -1860,7 +1882,7 @@ function ProjectScheduleRow({
       label: 'Delete routine',
       icon: <Trash2 size={14} />,
       danger: true,
-      confirm: `Delete “${task.name}”? This removes the routine everywhere, not just from this project.`,
+      confirm: `Delete “${task.name}”? ${ROUTINE_DELETE_SCOPE}`,
       onSelect: onDelete,
     },
   ]
@@ -1879,17 +1901,18 @@ function ProjectScheduleRow({
         </div>
       </button>
       <div className="flex shrink-0 items-center gap-0.5">
-        <Tooltip label="Run now">
+        <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Run now'}>
           <button
             onClick={onRun}
+            disabled={running || mutationHeld}
             aria-label={`Run ${task.name} now`}
-            className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
+            className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 ${HOVER_REVEAL}`}
           >
             {running ? <Spinner size={13} /> : <Play size={13} />}
           </button>
         </Tooltip>
-        <RowMenu ariaLabel={`Actions for ${task.name}`} items={menu} />
-        <Toggle on={task.enabled} onToggle={onToggle} ariaLabel={`${task.name} enabled`} />
+        <RowMenu ariaLabel={`Actions for ${task.name}`} items={menu} disabled={mutationHeld} />
+        <Toggle on={task.enabled} onToggle={onToggle} ariaLabel={`${task.name} enabled`} disabled={mutationHeld} />
       </div>
     </div>
   )
@@ -12621,6 +12644,8 @@ function ScheduledSection({
   // shared with the rail tree). Mutations are commands; the run.*
   // events invalidate the cache, so the list reflects run-now / the daemon live.
   const schedulesQ = useSchedules()
+  useScheduleMutationStatus()
+  useScheduleDeletionStatus()
   const items = schedulesQ.data ?? []
   const rel = useRelations()
   const projects = rel.allProjects()
@@ -12628,22 +12653,46 @@ function ScheduledSection({
   const [rawRoutineFilter, updateRoutineFilter] = useRoutineFilter()
   const routineFilter = clampRoutineFilter(rawRoutineFilter, projectIds)
   const [query, setQuery] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<ScheduledTask | null>(null)
+  const scheduleIdRef = useRef(scheduleId)
+  scheduleIdRef.current = scheduleId
   // Ids with a "Run now" in flight — drives the button spinner until the run's
   // run.finished event lands (cleared on a timer as a safety net).
   const [running, setRunning] = useState<Set<string>>(new Set())
   const timers = useRef<number[]>([])
   useEffect(() => () => timers.current.forEach((t) => window.clearTimeout(t)), [])
 
+  const scheduleMutationHeld = (id: string) =>
+    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id)
   const toggleEnabled = (id: string) => {
     const t = items.find((x) => x.id === id)
     // The toggle is always rendered from `items`, so `t` is present; guard rather
     // than send an unresolved state (the server applies an explicit value only).
-    if (t) void toggleScheduleEnabled(id, !t.enabled)
+    if (t && !scheduleMutationHeld(id)) void toggleScheduleEnabled(id, !t.enabled)
   }
-  const remove = (id: string) => void removeSchedule(id)
+  const requestDelete = (task: ScheduledTask) => {
+    if (!scheduleMutationHeld(task.id)) setDeleteTarget(task)
+  }
+  const confirmDelete = () => {
+    const task = deleteTarget
+    if (!task || scheduleMutationHeld(task.id)) return
+    setDeleteTarget(null)
+    void enqueueScheduleDeletion(task.id, task.revision ?? 0).then((outcome) => {
+      if (outcome === 'applied' && scheduleIdRef.current === task.id) onBack()
+    })
+  }
+  const deletionDialog = deleteTarget ? (
+    <ConfirmDialog
+      title={`Delete “${deleteTarget.name}”?`}
+      body={ROUTINE_DELETE_SCOPE}
+      confirmLabel="Delete routine"
+      onConfirm={confirmDelete}
+      onCancel={() => setDeleteTarget(null)}
+    />
+  ) : null
 
   const runNow = (id: string) => {
-    if (running.has(id)) return
+    if (running.has(id) || scheduleMutationHeld(id)) return
     setRunning((prev) => new Set(prev).add(id))
     void runScheduleNow(id)
     const timer = window.setTimeout(() => {
@@ -12665,20 +12714,21 @@ function ScheduledSection({
   const open = scheduleId ? (items.find((t) => t.id === scheduleId) ?? null) : null
   if (open)
     return (
-      <ScheduledDetail
-        task={open}
-        sectionId={scheduleSectionId}
-        running={running.has(open.id)}
-        onBack={onBack}
-        backTo={backTo}
-        onToggleEnabled={() => toggleEnabled(open.id)}
-        onRunNow={() => runNow(open.id)}
-        onOpenSession={onOpenSession}
-        onRemove={() => {
-          remove(open.id)
-          onBack()
-        }}
-      />
+      <>
+        <ScheduledDetail
+          task={open}
+          sectionId={scheduleSectionId}
+          running={running.has(open.id)}
+          mutationHeld={scheduleMutationHeld(open.id)}
+          onBack={onBack}
+          backTo={backTo}
+          onToggleEnabled={() => toggleEnabled(open.id)}
+          onRunNow={() => runNow(open.id)}
+          onOpenSession={onOpenSession}
+          onRemove={() => requestDelete(open)}
+        />
+        {deletionDialog}
+      </>
     )
   if (scheduleId) {
     return (
@@ -12731,6 +12781,7 @@ function ScheduledSection({
   })
 
   return (
+    <>
     <CompositeResourcePage section="scheduled">
       <PageHeader
         title="Routines"
@@ -12757,20 +12808,24 @@ function ScheduledSection({
           <ScheduledRow
             task={item.value}
             running={running.has(item.value.id)}
+            mutationHeld={scheduleMutationHeld(item.value.id)}
             onOpen={() => onOpenSchedule(item.value.id)}
             onToggle={() => toggleEnabled(item.value.id)}
             onRunNow={() => runNow(item.value.id)}
-            onRemove={() => remove(item.value.id)}
+            onRemove={() => requestDelete(item.value)}
           />
         )}
       />
     </CompositeResourcePage>
+    {deletionDialog}
+    </>
   )
 }
 
 function ScheduledRow({
   task,
   running,
+  mutationHeld,
   onOpen,
   onToggle,
   onRunNow,
@@ -12778,6 +12833,7 @@ function ScheduledRow({
 }: {
   task: ScheduledTask
   running: boolean
+  mutationHeld: boolean
   onOpen: () => void
   onToggle: () => void
   onRunNow: () => void
@@ -12833,26 +12889,28 @@ function ScheduledRow({
         </span>
 
         <div className={`flex items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
-          <Tooltip label="Run now">
+          <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Run now'}>
             <button
               onClick={onRunNow}
+              disabled={running || mutationHeld}
               aria-label={`Run ${task.name} now`}
-              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
             >
               {running ? <Spinner size={14} /> : <Play size={14} />}
             </button>
           </Tooltip>
           <button
             onClick={onRemove}
-            title="Delete routine"
+            disabled={mutationHeld}
+            title={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Delete routine'}
             aria-label={`Delete ${task.name}`}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-removed-bg hover:text-removed disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Trash2 size={14} />
           </button>
         </div>
 
-        <Toggle on={task.enabled} onToggle={onToggle} ariaLabel={`${task.name} enabled`} />
+        <Toggle on={task.enabled} onToggle={onToggle} ariaLabel={`${task.name} enabled`} disabled={mutationHeld} />
       </div>
     </div>
   )
@@ -12978,6 +13036,7 @@ function ScheduledDetail({
   task,
   sectionId,
   running,
+  mutationHeld,
   onBack,
   backTo,
   onToggleEnabled,
@@ -12988,6 +13047,7 @@ function ScheduledDetail({
   task: ScheduledTask
   sectionId?: string | null
   running: boolean
+  mutationHeld: boolean
   onBack: () => void
   backTo: NavLocation | null
   onToggleEnabled: () => void
@@ -13041,6 +13101,7 @@ function ScheduledDetail({
               {editingName ? (
                 <input
                   autoFocus
+                  disabled={mutationHeld}
                   value={nameDraft}
                   onChange={(e) => setNameDraft(e.target.value)}
                   onBlur={() => setEditingName(false)}
@@ -13060,12 +13121,13 @@ function ScheduledDetail({
                 />
               ) : task.own !== false ? (
                 <button
+                  disabled={mutationHeld}
                   onClick={() => {
                     setNameDraft(task.name)
                     setEditingName(true)
                   }}
-                  title="Rename routine"
-                  className="group flex min-w-0 items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60"
+                  title={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Rename routine'}
+                  className="group flex min-w-0 items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
                   <Pencil size={14} className={`shrink-0 text-ink-faint ${HOVER_CUE}`} />
@@ -13101,14 +13163,17 @@ function ScheduledDetail({
               label={running ? 'Running now' : 'Run now'}
               icon={running ? <Spinner size={14} /> : <Play size={14} />}
               onClick={onRunNow}
-              disabled={running}
+              disabled={running || mutationHeld}
+              disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : undefined}
             />
             <SectionAction
               label={task.enabled ? 'Pause routine' : 'Resume routine'}
               icon={task.enabled ? <PauseCircle size={14} /> : <PlayCircle size={14} />}
               onClick={onToggleEnabled}
+              disabled={mutationHeld}
+              disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : undefined}
             />
-            <SectionAction label="Delete routine" icon={<Trash2 size={14} />} onClick={onRemove} />
+            <SectionAction label="Delete routine" icon={<Trash2 size={14} />} onClick={onRemove} disabled={mutationHeld} disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : undefined} />
           </SectionActions>
         )}
       </header>
@@ -14765,7 +14830,17 @@ function DispatchStatus({ status }: { status: DispatchRun['status'] }) {
   return <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-ok" />
 }
 
-function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void; ariaLabel?: string }) {
+function Toggle({
+  on,
+  onToggle,
+  ariaLabel,
+  disabled = false,
+}: {
+  on: boolean
+  onToggle: () => void
+  ariaLabel?: string
+  disabled?: boolean
+}) {
   return (
     <button
       type="button"
@@ -14775,8 +14850,9 @@ function Toggle({ on, onToggle, ariaLabel }: { on: boolean; onToggle: () => void
       aria-checked={on}
       aria-label={ariaLabel}
       onClick={onToggle}
-      className={`relative h-5 w-9 shrink-0 rounded-full transition ${on ? 'bg-accent' : 'bg-line-strong'}`}
-      title={on ? 'Enabled' : 'Disabled'}
+      disabled={disabled}
+      className={`relative h-5 w-9 shrink-0 rounded-full transition disabled:cursor-not-allowed disabled:opacity-50 ${on ? 'bg-accent' : 'bg-line-strong'}`}
+      title={disabled ? ROUTINE_MUTATION_WAIT : on ? 'Enabled' : 'Disabled'}
     >
       <span
         className={`absolute top-0.5 h-4 w-4 rounded-full bg-surface ring-1 ring-line-strong transition-all ${

@@ -8,6 +8,15 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from '../testkit/http.ts'
 
+async function createRoutine(name: string) {
+  const template = (await call('GET', '/schedule-templates')).json[0]
+  const created = await call('POST', '/schedules', {
+    seed: { ...template.seed, name, runs: [] },
+  })
+  assert.equal(created.status, 200)
+  return created.json
+}
+
 test('PATCH /schedules/:id merges only the provided fields (id, runs, and the rest untouched)', async () => {
   const list = await call('GET', '/schedules')
   assert.equal(list.status, 200)
@@ -179,4 +188,68 @@ test('routine definition revision is independent of run history and validates it
 test('PATCH /schedules/:id 404s for an unknown routine', async () => {
   const res = await call('PATCH', '/schedules/s-does-not-exist', { name: 'x' })
   assert.equal(res.status, 404)
+})
+
+test('DELETE pins the reviewed routine revision, replays once, and converges after durable absence', async () => {
+  const task = await createRoutine(`Revision-safe deletion ${Date.now().toString(36)}`)
+  const changed = await call('PATCH', `/schedules/${task.id}`, {
+    name: `${task.name} changed elsewhere`,
+    expectedRevision: task.revision ?? 0,
+  })
+  assert.equal(changed.status, 200)
+
+  const stale = await call('DELETE', `/schedules/${task.id}`, {
+    expectedRevision: task.revision ?? 0,
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(stale.json.error.code, 'conflict')
+  assert.ok(
+    (await call('GET', '/schedules')).json.some((candidate: { id: string }) => candidate.id === task.id),
+    'a stale destructive precondition changes nothing',
+  )
+
+  const headers = { 'idempotency-key': `schedule-delete-${task.id}` }
+  const removed = await call('DELETE', `/schedules/${task.id}`, {
+    expectedRevision: changed.json.revision,
+  }, headers)
+  assert.equal(removed.status, 200)
+  assert.deepEqual(removed.json, { ok: true })
+
+  const replay = await call('DELETE', `/schedules/${task.id}`, {
+    expectedRevision: changed.json.revision,
+  }, headers)
+  assert.equal(replay.status, removed.status)
+  assert.deepEqual(replay.json, removed.json, 'the same logical request replays its acknowledgement')
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+
+  const afterRestartStyleReplay = await call('DELETE', `/schedules/${task.id}`, {
+    expectedRevision: changed.json.revision,
+  })
+  assert.equal(afterRestartStyleReplay.status, 200, 'absence converges when an idempotency cache cannot answer')
+  assert.ok(
+    !(await call('GET', '/schedules')).json.some((candidate: { id: string }) => candidate.id === task.id),
+  )
+})
+
+test('DELETE validates its revision precondition and keeps legacy unconditional deletion', async () => {
+  const task = await createRoutine(`Legacy deletion ${Date.now().toString(36)}`)
+  const malformed = await call('DELETE', `/schedules/${task.id}`, { expectedRevision: -1 })
+  assert.equal(malformed.status, 400)
+  assert.ok((await call('GET', '/schedules')).json.some((candidate: { id: string }) => candidate.id === task.id))
+
+  const legacy = await call('DELETE', `/schedules/${task.id}`)
+  assert.equal(legacy.status, 200)
+})
+
+test('DELETE keeps a foreign routine existence-hidden and unchanged', async () => {
+  const task = await createRoutine(`Owned deletion ${Date.now().toString(36)}`)
+  const denied = await call(
+    'DELETE',
+    `/schedules/${task.id}`,
+    { expectedRevision: task.revision ?? 0 },
+    { 'x-tenant-id': 'tenant-routine-delete-stranger' },
+  )
+  assert.equal(denied.status, 404)
+  assert.ok((await call('GET', '/schedules')).json.some((candidate: { id: string }) => candidate.id === task.id))
+  assert.equal((await call('DELETE', `/schedules/${task.id}`, { expectedRevision: task.revision ?? 0 })).status, 200)
 })

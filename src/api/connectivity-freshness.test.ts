@@ -32,7 +32,9 @@ test('run.*/schedule.changed refresh the schedules list (the rail pane + the sec
   // run.started/progress fall through to run.finished — the block lives on the last label.
   assert.ok(events.includes("case 'run.started'"), 'run.started is handled')
   assert.match(eventCase(events, 'run.finished'), /invalidate\(keys\.schedules\)/)
-  assert.match(eventCase(events, 'schedule.changed'), /invalidate\(keys\.schedules\)/)
+  const schedule = eventCase(events, 'schedule.changed')
+  assert.match(schedule, /invalidate\(keys\.schedules\)/)
+  assert.match(schedule, /invalidate\(keys\.relations\)/, 'routine deletion heals Project membership on every client')
 })
 
 test('session.removed refreshes its list, detail, and relation membership projections', () => {

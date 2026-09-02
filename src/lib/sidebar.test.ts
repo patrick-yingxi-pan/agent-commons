@@ -144,3 +144,22 @@ test('semantic role never restyles entries at the same nested depth', () => {
   assert.match(SIDEBAR_NESTED_ENTRY_LAYOUT, /text-\[13px\]/, 'every nested row uses one readable type scale')
   assert.doesNotMatch(SIDEBAR_NESTED_ENTRY_LAYOUT, /font-/, 'semantic kind does not change resting weight')
 })
+
+test('routine disclosure reads rail context on every render before combining local state', () => {
+  const src = sidebarSrc()
+  const start = src.indexOf('function RoutineRow(')
+  const end = src.indexOf('\nfunction RoutineSectionRows(', start)
+  assert.ok(start >= 0 && end > start, 'the routine row has an enumerable source body')
+  const routineRow = src.slice(start, end)
+  assert.match(
+    routineRow,
+    /const rootAncestorKeys = useRailRootAncestorKeys\(\)/,
+    'the context hook is unconditional even when the row is already expanded',
+  )
+  assert.match(
+    routineRow,
+    /const disclosed = expanded \|\| rootAncestorKeys\.has\(nodeKey\)/,
+    'rendered disclosure combines the unconditional context read with local state',
+  )
+  assert.doesNotMatch(routineRow, /\|\|\s*use[A-Z]/, 'boolean short-circuiting never controls a hook call')
+})

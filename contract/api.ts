@@ -252,6 +252,13 @@ export interface UpdateScheduleRequest extends SchedulePatch {
   expectedRevision?: number
 }
 
+/** Body of `DELETE /v1/schedules/:id`. A supplied definition revision pins
+ * destruction to the routine the person reviewed; absence preserves legacy
+ * unconditional-delete behavior for existing API clients. */
+export interface DeleteScheduleRequest {
+  expectedRevision?: number
+}
+
 /** One owner's intent to rewrite one addressable prose block. The block index
  * and replacement stay separate from the precondition so the client can hold
  * and rebase the exact edit after a conflict. */

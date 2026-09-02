@@ -114,6 +114,10 @@ function route(e: ServerEvent): void {
     // branch and its main page read the same list, so one refetch heals both.
     case 'schedule.changed':
       invalidate(keys.schedules)
+      // Routine deletion also removes its Project edge. The event is shared
+      // with definition edits, so this modest extra read keeps other clients'
+      // graph projections truthful without inventing a second deletion event.
+      invalidate(keys.relations)
       // Applying proposals freeze the routine definition revision at offer
       // time; refresh their derived `stale` flag when that target moves.
       invalidatePrefix(keys.socialProposals())

@@ -8672,19 +8672,60 @@ export const store = {
     persist()
     return task
   },
-  /** Remove a routine — and its runs' sessions with it (they are the routine's
-   *  conversations; `schedule.changed` already tells clients the whole history is
-   *  gone, so the rows go without per-row broadcasts). */
-  removeSchedule(id: string): void {
+  /** Remove one reviewed routine definition and every run-session projection in
+   * one durable batch. Run conversations are routine-owned; their independent
+   * context/workspace/preferences/project joins must not survive as orphans.
+   * Artifacts they produced remain independent provenance-bearing resources. */
+  removeSchedule(id: string, expectedRevision?: number): boolean {
     const i = schedules.findIndex((t) => t.id === id)
-    if (i < 0) return
-    const [gone] = schedules.splice(i, 1)
-    for (let j = SESSIONS.length - 1; j >= 0; j -= 1) {
-      if (SESSIONS[j].scheduledRunOf?.taskId === gone.id) SESSIONS.splice(j, 1)
+    if (i < 0) return false
+    const currentRevision = schedules[i]!.revision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This routine changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
     }
-    // Stamped from the removed row — the gate can no longer resolve it by id.
-    emit({ type: 'schedule.changed', taskId: gone.id, tenantId: gone.tenantId })
-    persist()
+    return commitMutationBatch(() => {
+      const [gone] = schedules.splice(i, 1)
+      const removedSessions: Session[] = []
+      for (let j = SESSIONS.length - 1; j >= 0; j -= 1) {
+        const session = SESSIONS[j]!
+        if (session.scheduledRunOf?.taskId !== gone.id) continue
+        removedSessions.push(...SESSIONS.splice(j, 1))
+        sessionContextBindings.delete(session.id)
+        sessionWorkspaces.delete(session.id)
+        removeSessionPreferences(session.id)
+      }
+
+      let graphChanged = false
+      const sessionProject = { ...graph.sessionProject }
+      for (const session of removedSessions) {
+        if (!Object.prototype.hasOwnProperty.call(sessionProject, session.id)) continue
+        delete sessionProject[session.id]
+        graphChanged = true
+      }
+      const scheduleProject = { ...graph.scheduleProject }
+      if (Object.prototype.hasOwnProperty.call(scheduleProject, gone.id)) {
+        delete scheduleProject[gone.id]
+        graphChanged = true
+      }
+      if (graphChanged) {
+        graph = {
+          ...graph,
+          sessionProject,
+          scheduleProject,
+          revision: (graph.revision ?? 0) + 1,
+        }
+      }
+
+      // Open run panes need the definitive gone signal; schedule.changed alone
+      // only refreshes routine projections and cannot identify every run session.
+      for (const session of removedSessions) emit({ type: 'session.removed', session })
+      // Stamped from the removed row — the gate can no longer resolve it by id.
+      emit({ type: 'schedule.changed', taskId: gone.id, tenantId: gone.tenantId })
+      persist()
+      return true
+    })
   },
 
   // ── Recents (per-user Add-context shortcut lists) ──

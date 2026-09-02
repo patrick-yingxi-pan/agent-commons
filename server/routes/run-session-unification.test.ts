@@ -147,11 +147,69 @@ test('deleting a run session retires its run; deleting a routine retires its run
     'the run left its routine’s history with its conversation',
   )
 
-  const rest = fresh.runs.map((r) => runSessionId(task.id, r.id))
-  store.removeSchedule(task.id)
+  const liveRun = store.runSchedule(task.id)!
+  const rest = store.listSchedules().find((candidate) => candidate.id === task.id)!
+    .runs.map((r) => runSessionId(task.id, r.id))
+  const ownedSessionId = runSessionId(task.id, liveRun.id)
+  const workspace = {
+    workspaces: [],
+    repos: [],
+    connectors: [{ id: 'routine-delete-connector', label: 'Routine delete connector', kind: 'connector' as const }],
+    attachments: [],
+  }
+  store.updateSessionContextState(
+    ownedSessionId,
+    [{ action: 'attach', context: { id: 'routine-delete-connector', type: 'connector', label: 'Routine delete connector' } }],
+    workspace,
+  )
+  store.setSessionPreferences('routine-delete-viewer', ownedSessionId, {
+    kind: 'connector', id: 'routine-delete-connector',
+  })
+  const project = store.listProjects(store.defaultTenantId())[0]!
+  store.applyRelationOp({
+    kind: 'file-session', sessionId: ownedSessionId, sessionTitle: task.name,
+    projectId: project.id, projectName: project.name,
+  })
+  store.applyRelationOp({
+    kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name,
+    projectId: project.id, projectName: project.name,
+  })
+  const artifactName = `Routine deletion survivor ${Date.now().toString(36)}`
+  store.applyRelationOp({
+    kind: 'save-artifact',
+    artifact: { name: artifactName, kind: 'doc', meta: 'Document' },
+    sessionId: ownedSessionId,
+    sessionTitle: task.name,
+  })
+  const graphRevision = store.relationGraph().revision ?? 0
+  const removedSessionIds: string[] = []
+  const off = store.subscribe((event) => {
+    if (event.type === 'session.removed') removedSessionIds.push(event.session.id)
+  })
+  try {
+    store.removeSchedule(task.id, task.revision ?? 0)
+  } finally {
+    off()
+  }
   for (const id of rest) {
     assert.equal(store.getSession(id), undefined, 'the routine’s run sessions go with it')
   }
+  assert.deepEqual(new Set(removedSessionIds), new Set(rest), 'every open run pane receives a definitive gone signal')
+  assert.deepEqual(store.sessionContexts(ownedSessionId), [], 'run authorization bindings are gone')
+  assert.deepEqual(
+    store.sessionWorkspace(ownedSessionId),
+    { workspaces: [], repos: [], connectors: [], attachments: [] },
+    'the run workspace is gone rather than reachable through a ghost id',
+  )
+  assert.deepEqual(store.sessionPreferences('routine-delete-viewer', ownedSessionId), {}, 'viewer preferences are gone')
+  const graph = store.relationGraph()
+  assert.equal(graph.sessionProject[ownedSessionId], undefined, 'run Project membership is removed')
+  assert.equal(graph.scheduleProject[task.id], undefined, 'routine Project membership is removed')
+  assert.ok(
+    graph.extraArtifacts.some((artifact) => artifact.name === artifactName),
+    'an independently saved run artifact survives as promised by the confirmation',
+  )
+  assert.equal(graph.revision, graphRevision + 1, 'all graph cleanup advances ordering once')
 })
 
 test('renaming a routine renames its run sessions (no stale mirror)', () => {

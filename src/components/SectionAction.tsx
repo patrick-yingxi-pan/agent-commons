@@ -13,6 +13,7 @@ export function SectionAction({
   open,
   expanded,
   disabled,
+  disabledReason,
 }: {
   /** The verb, spelled out — becomes the tooltip and the accessible name. */
   label: string
@@ -28,6 +29,8 @@ export function SectionAction({
   expanded?: boolean
   /** Preserve native one-shot action semantics while work is in flight. */
   disabled?: boolean
+  /** Explain a held action without changing its stable accessible name. */
+  disabledReason?: string
 }) {
   const state = open ?? expanded
   return (
@@ -35,7 +38,7 @@ export function SectionAction({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={label}
+      title={disabled && disabledReason ? `${label} — ${disabledReason}` : label}
       aria-label={label}
       {...(open !== undefined ? { 'aria-haspopup': 'dialog' as const } : {})}
       {...(state !== undefined ? { 'aria-expanded': state } : {})}

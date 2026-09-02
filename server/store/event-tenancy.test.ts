@@ -124,7 +124,14 @@ test('every schedule mutator emits schedule.changed, stamped with the owning ten
   assert.ok(onToggle.some((e) => e.type === 'schedule.changed' && e.taskId === task!.id), 'setScheduleEnabled broadcasts')
   const onPatch = emitted(() => store.updateSchedule(task!.id, { name: 'renamed' }))
   assert.ok(onPatch.some((e) => e.type === 'schedule.changed' && e.taskId === task!.id), 'updateSchedule broadcasts')
-  const onRemove = emitted(() => store.removeSchedule(task!.id))
+  const currentRevision = task!.revision ?? 0
+  const onStaleRemove = emitted(() => {
+    assert.throws(() => store.removeSchedule(task!.id, currentRevision - 1), ConflictError)
+  })
+  assert.deepEqual(onStaleRemove, [], 'a stale routine removal publishes no invalidation')
+  assert.ok(store.listSchedules().some((candidate) => candidate.id === task!.id), 'a stale removal keeps the row')
+
+  const onRemove = emitted(() => store.removeSchedule(task!.id, currentRevision))
   assert.ok(
     onRemove.some((e) => e.type === 'schedule.changed' && e.taskId === task!.id && e.tenantId === OWNER),
     'removeSchedule broadcasts, stamped from the removed row (the gate can no longer resolve the id)',

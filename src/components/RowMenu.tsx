@@ -59,11 +59,14 @@ export function RowMenu({
   items,
   triggerIcon,
   triggerClassName,
+  disabled = false,
 }: {
   ariaLabel: string
   items: RowMenuItem[]
   triggerIcon?: ReactNode
   triggerClassName?: string
+  /** Hold every row action while an acknowledgement-gated mutation owns it. */
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
@@ -104,6 +107,10 @@ export function RowMenu({
     }
   }, [open])
 
+  useEffect(() => {
+    if (disabled) close()
+  }, [disabled])
+
   const run = (fn: () => void) => {
     close()
     fn()
@@ -113,19 +120,20 @@ export function RowMenu({
     <>
       <button
         ref={triggerRef}
+        disabled={disabled}
         onClick={(e) => {
           e.stopPropagation()
           setOpen((o) => !o)
         }}
         aria-label={ariaLabel}
-        title={ariaLabel}
+        title={disabled ? `${ariaLabel} — waiting for the current change to finish` : ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
         data-contextual-action={triggerClassName == null || undefined}
         className={
           triggerClassName ??
-          `flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus:opacity-100 focus:outline-none data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[open=true]:opacity-100 ${HOVER_REVEAL}`
+          `flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus:opacity-100 focus:outline-none data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[open=true]:opacity-100 disabled:cursor-wait disabled:opacity-50 ${HOVER_REVEAL}`
         }
       >
         {triggerIcon ?? <MoreVertical size={15} />}
