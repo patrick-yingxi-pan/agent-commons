@@ -10,9 +10,10 @@
  *  carry without a DOM or a fetch.
  *
  *  What the funnel owns (module state per controller):
- *  - `materializing` — the in-flight createSession, so a rapid second send on
- *    the same fresh draft COALESCES into one session (the composer stays live
- *    while streaming).
+ *  - `materializing` + `materializationKey` — the in-flight createSession and
+ *    its durable logical identity, so rapid sends coalesce and response-loss
+ *    Retry returns the same persisted session (the composer stays live while
+ *    streaming).
  *  - `pendingContexts` — contexts attached to the draft before first send (a
  *    FWD-1 seed or a manual attach): a draft can't persist bindings (no server
  *    id), so they buffer here and FLUSH onto the real session before the turn
@@ -45,7 +46,12 @@ import {
 /** What the draft funnel needs from the outside world — the api commands in
  *  the app, a fake in tests. */
 export interface DraftDeps {
-  createSession: (firstMessage: string, providerId?: string, modelId?: string) => Promise<Session>
+  createSession: (
+    firstMessage: string,
+    providerId: string | undefined,
+    modelId: string | undefined,
+    idempotencyKey: string,
+  ) => Promise<Session>
   updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest) => Promise<unknown>
   patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
   /** FWD-2: remember the draft's panel choice on the real session. */
@@ -70,6 +76,10 @@ export type DraftController = ReturnType<typeof createDraftController>
 export function createDraftController(deps: DraftDeps) {
   /** The in-flight materialization (null = none) — the coalesce handle. */
   let materializing: Promise<Session> | null = null
+  /** One key for the whole lifetime of this unsaved draft. A response may be
+   * lost after the row commits; Retry must address that exact row, not mint a
+   * second conversation. Reset is the only action that begins a new identity. */
+  let materializationKey: string | null = null
   /** Contexts attached to the draft before first send, awaiting the flush. */
   let pendingContexts: AddedContext[] = []
   /** Bumped by every `reset()` — a generation stamp captured at dispatch. If it
@@ -186,6 +196,7 @@ export function createDraftController(deps: DraftDeps) {
    *  session. */
   const reset = (seed?: AddedContext): void => {
     materializing = null
+    materializationKey = null
     resetGen += 1
     if (seed) {
       const seeded = addContextToLive(EMPTY_LIVE, seed)
@@ -217,10 +228,23 @@ export function createDraftController(deps: DraftDeps) {
     const draftFocus = deps.store.get(DRAFT_ID).focus
     const draftModel = sanitizePick(getPick())
     const genAtDispatch = resetGen
+    const creationKey = materializationKey ?? crypto.randomUUID()
+    materializationKey = creationKey
     let sid: string = DRAFT_ID
     let createdSession: Session | null = null
+    let pending: Promise<Session> | null = null
     try {
-      const pending = materializing ?? deps.createSession(text, draftModel.providerId, draftModel.modelId)
+      const create = () => deps.createSession(
+        text,
+        draftModel.providerId,
+        draftModel.modelId,
+        creationKey,
+      )
+      // A failed response is ambiguous: the row may already be durable. One
+      // bounded same-key retry either returns that represented row or safely
+      // performs the still-missing create. Only two failures may degrade to an
+      // ephemeral draft turn.
+      pending = materializing ?? create().catch(() => create())
       materializing = pending
       const created = await pending
       createdSession = created
@@ -273,7 +297,10 @@ export function createDraftController(deps: DraftDeps) {
       // If session creation itself failed, retry the mint. If the session was
       // created but its atomic context transaction failed, retain that row and
       // retry against it — never mint a trail of blank duplicate sessions.
-      if (!createdSession) materializing = null
+      if (!createdSession && materializing === pending) materializing = null
+      // A superseded draft owns neither this failure nor its fallback send.
+      // Let the abandoned attempt end without poisoning the newly reset draft.
+      if (resetGen !== genAtDispatch) return
       sid = DRAFT_ID
     }
     await deps.store.sendTurn(sid, text)

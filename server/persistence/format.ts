@@ -238,6 +238,10 @@ export interface PersistedState {
    * stamps it. The stored value, never today's environment, governs rehydrate. */
   initialWorld?: InitialWorld
   sessions: Session[]
+  /** Durable tombstones for keyed human-session creates. They prevent a late
+   * Retry from resurrecting a row that was explicitly removed on another
+   * device. Additive-optional so older snapshots begin with no retired keys. */
+  retiredSessionCreationIds?: string[]
   bindings: [string, SessionContext[]][]
   workspaces: [string, SessionWorkspace][]
   /** Per-user, per-session presentation intent. Nested map entries keep viewer
@@ -416,6 +420,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   version: 'singleton',
   initialWorld: 'singleton',
   sessions: 'array',
+  retiredSessionCreationIds: 'array',
   bindings: 'mapEntries',
   workspaces: 'mapEntries',
   sessionPreferences: 'mapEntries',

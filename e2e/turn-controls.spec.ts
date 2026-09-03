@@ -4,12 +4,15 @@
  *  semantics are node-locked in server/routes/turns.test.ts; this locks the UI
  *  wiring: button → cancelTurn → stream end → coherent thread.) */
 import { test, expect, type Page } from '@playwright/test'
+import type { Identity } from '../contract/index.ts'
+import { sessionCreationId } from '../server/sessionCreationIdentity.ts'
 import { ms } from './budget.ts'
 
 const STAMP = Date.now().toString(36)
 const PACED_MESSAGE = `paced stop me please ${STAMP}`
 const RETRY_MESSAGE = `recover one logical turn ${STAMP}`
 const DRAFT_RETRY_MESSAGE = `recover draft materialization ${STAMP}`
+const LOST_DRAFT_RESPONSE_MESSAGE = `recover one committed draft ${STAMP}`
 
 test('Stop mid-stream: the partial persists, the streaming state stands down', async ({ page }) => {
   test.setTimeout(ms(60_000))
@@ -105,11 +108,15 @@ test('Retry replays one logical send without duplicating the user turn or work',
 
 test('Retry rematerializes a failed draft before sending its preserved user turn', async ({ page }) => {
   test.setTimeout(ms(60_000))
-  let failCreate = true
+  const creationKeys: string[] = []
+  let failedCreates = 0
   let failDraftSend = true
   await page.route('**/api/v1/sessions', async (route) => {
-    if (route.request().method() === 'POST' && failCreate) {
-      failCreate = false
+    if (route.request().method() === 'POST') {
+      creationKeys.push((await route.request().headerValue('idempotency-key')) ?? '')
+    }
+    if (route.request().method() === 'POST' && failedCreates < 2) {
+      failedCreates += 1
       await route.abort('connectionrefused')
       return
     }
@@ -150,5 +157,50 @@ test('Retry rematerializes a failed draft before sending its preserved user turn
     })
     .toEqual({ roles: ['user', 'assistant'], live: null })
   const full = await (await page.request.get(`/api/v1/sessions/${session.id}`)).json()
+  expect((full.messages ?? []).filter((message: { role: string }) => message.role === 'user')).toHaveLength(1)
+  expect(creationKeys).toHaveLength(3)
+  expect(new Set(creationKeys)).toEqual(new Set([creationKeys[0]!]))
+})
+
+test('a committed draft is adopted automatically when its materialization response was lost', async ({ page }) => {
+  test.setTimeout(ms(60_000))
+  const keys: string[] = []
+  const bodies: unknown[] = []
+  let attempts = 0
+  await page.route('**/api/v1/sessions', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    attempts += 1
+    keys.push((await route.request().headerValue('idempotency-key')) ?? '')
+    bodies.push(route.request().postDataJSON())
+    if (attempts > 1) return route.continue()
+    const committed = await route.fetch()
+    expect(committed.ok(), 'the first draft row committed before acknowledgement was lost').toBe(true)
+    await committed.body()
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'internal', message: 'Materialization acknowledgement lost.' } }),
+    })
+  })
+
+  await page.goto('/')
+  await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
+  await page.getByPlaceholder('Reply to Claude…').fill(LOST_DRAFT_RESPONSE_MESSAGE)
+  await page.keyboard.press('Enter')
+
+  await expect(page).toHaveURL(/\/s\/sess-new-/, { timeout: ms(20_000) })
+  await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(20_000) })
+
+  expect(attempts).toBe(2)
+  expect(keys[0]).not.toBe('')
+  expect(keys[1]).toBe(keys[0])
+  expect(bodies[1]).toEqual(bodies[0])
+  const me = (await (await page.request.get('/api/v1/me')).json()) as Identity
+  const expectedId = sessionCreationId(me.tenant.id, keys[0]!)
+  await expect(page).toHaveURL(new RegExp(`/s/${expectedId}$`))
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  const list = await (await page.request.get('/api/v1/sessions')).json() as Array<{ id: string }>
+  expect(list.filter((session) => session.id === expectedId)).toHaveLength(1)
+  const full = await (await page.request.get(`/api/v1/sessions/${expectedId}`)).json()
   expect((full.messages ?? []).filter((message: { role: string }) => message.role === 'user')).toHaveLength(1)
 })

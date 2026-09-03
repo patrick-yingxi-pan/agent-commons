@@ -101,6 +101,7 @@ import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
+import { sessionCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -3194,20 +3195,39 @@ export function buildRouter(): Router {
     providerId && !store.listProviders(tenantId).some((p) => p.id === providerId)
       ? `No provider '${providerId}'`
       : null
-  r.post('/sessions', idempotent(async ({ req, res, body }) => {
+  // Draft creation owns durable identity itself. Bypassing the generic response
+  // cache means Retry sees current row truth and can never replay a deleted or
+  // since-renamed HTTP envelope.
+  r.post('/sessions', async ({ req, res, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalSessionId = idempotencyKey
+      ? sessionCreationId(tenantId, idempotencyKey)
+      : undefined
+    const represented = logicalSessionId
+      ? store.getSessionCreation(logicalSessionId, tenantId)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') return sendError(res, 'bad_request', 'This conversation creation identity is not valid for this account')
+    if (represented === 'retired') return sendError(res, 'not_found', 'This draft was already removed')
     const { firstMessage, providerId, modelId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
     // Stamp the creating tenant so the scoped list/read above see it (F2/PD9).
-    const tenantId = store.identity(req.headers).tenant.id
     const bad = badSessionProvider(providerId, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
     try {
-      sendJson(res, store.createSession(firstMessage, tenantId, providerId, modelId))
+      sendJson(res, store.createSession(
+        firstMessage,
+        tenantId,
+        providerId,
+        modelId,
+        { logicalId: logicalSessionId },
+      ))
     } catch (err) {
       // A model pick outside the effective provider's catalog — refused, never normalized.
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       throw err
     }
-  }))
+  })
   // Edit a session's row fields (rename / pin / archive / model pick) from the
   // sidebar menu and the composer's model selector.
   r.patch('/sessions/:id', idempotent(async ({ req, res, params, body }) => {

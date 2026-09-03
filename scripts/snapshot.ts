@@ -130,6 +130,16 @@ export async function buildComprehensive(): Promise<PersistedState> {
     projectId: PROJECT_ID,
     projectName: PROJECT_NAME,
   })
+  // A keyed draft that was explicitly removed exercises the durable retirement
+  // slice: a delayed first-send Retry must not resurrect it after restore.
+  const retiredDraft = store.createSession(
+    'Retired playground draft',
+    store.defaultTenantId(),
+    undefined,
+    undefined,
+    { logicalId: 'sess-new-000000000000000000000000' },
+  )
+  store.removeSession(retiredDraft.id)
 
   // ── Artifacts ── created (filed + unfiled), and seed artifacts moved around.
   store.applyRelationOp({

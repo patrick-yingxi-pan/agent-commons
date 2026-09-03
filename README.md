@@ -76,6 +76,10 @@ lost response cannot create a second review record.
 Offering a change now retains the complete typed change and rationale across
 Project, routine, and artifact forms until one exact Proposal is acknowledged;
 its review thread and owner notification cannot be duplicated by response loss.
+The opening draft now carries that same identity discipline without adding form
+ceremony: one bounded same-key recovery adopts a post-commit Session before its
+first reply, visible Retry keeps that identity through an outage, and deletion
+retires it so a delayed first-send request cannot resurrect the conversation.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server

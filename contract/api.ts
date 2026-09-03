@@ -13,13 +13,14 @@ import type { Project, ScheduledTask } from './cowork.ts'
 export const API_VERSION = 'v1'
 
 /** Opt-in request header for safe retries of durable mutations (design F3 PD15). A
- *  client sets it to a unique value per logical operation; the backend records the
- *  first successful response for that (tenant, key) and replays it on any retry, so a
- *  double-submit or a retried-after-timeout request can't create a duplicate or
- *  advance a metadata revision twice. Honoured on the non-streaming create
- *  routes (`POST /sessions`, `/projects`, `/dispatch`, `/schedules`, `/relations/ops`) and
- *  revision-checked `PATCH /sessions/:id`, `PATCH /schedules/:id`, and
- *  `PATCH /artifacts/:id/content`, and revision-checked `DELETE /sessions/:id`. */
+ *  client sets it to a unique value per logical operation. Most routes replay the
+ *  first successful (tenant, key) response; creation routes whose key derives the
+ *  durable row identity may instead return that row's current representation, so a
+ *  retry cannot duplicate, overwrite, or resurrect it. Honoured on non-streaming
+ *  create routes (`POST /sessions`, `/projects`, `/dispatch`, `/schedules`,
+ *  `/relations/ops`) and revision-checked `PATCH /sessions/:id`,
+ *  `PATCH /schedules/:id`, `PATCH /artifacts/:id/content`, and
+ *  `DELETE /sessions/:id`. */
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
 /** The path the UI talks to. Dev: Vite proxies `/api` → the mock server. Native:
  *  the host injects an absolute `http://127.0.0.1:<port>`. Web: same-origin. */
@@ -100,8 +101,9 @@ export interface SendMessageRequest {
 }
 
 /** Body of `POST /v1/sessions` — materialize a new persisted session (the desktop
- *  app's "New chat" the moment it's first sent to). `firstMessage`, when given,
- *  seeds the session's title + preview. Returns the created `Session`. */
+ *  app's "New session" the moment it's first sent to). `firstMessage`, when given,
+ *  seeds the session's title + preview. A supplied Idempotency-Key owns one opaque
+ *  tenant-scoped Session identity across response loss and restart. */
 export interface CreateSessionRequest {
   firstMessage?: string
   /** The model picked in the draft's composer before first send — becomes the

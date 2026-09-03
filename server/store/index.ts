@@ -130,6 +130,7 @@ import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type Persis
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
 import { resolveInitialWorld, type InitialWorld } from '../initialWorld.ts'
+import { isSessionCreationId } from '../sessionCreationIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -304,6 +305,10 @@ const DISPATCH_SETTLE_MS = 1_200
  *  (SCHEDULED_TASKS / DISPATCH_RUNS stay pristine on their own: `schedules` /
  *  `dispatch` are deep copies, but `SESSIONS` is spliced directly). */
 const SEED_SESSIONS: readonly Session[] = JSON.parse(JSON.stringify(SESSIONS))
+/** Keyed human-session identities remain retired after explicit deletion, so a
+ * delayed first-send Retry cannot resurrect a conversation another device
+ * deliberately removed. */
+let retiredSessionCreationIds = new Set<string>()
 // (Seeded runs materialize their session rows below, right after the mint-funnel
 // definitions — deliberately AFTER this pristine capture: run sessions are
 // derived rows, re-ensured from the schedules on every boot, not seed-session
@@ -2295,6 +2300,7 @@ function snapshot(): PersistedState {
     version: STORE_VERSION,
     initialWorld: worldMode,
     sessions: SESSIONS,
+    retiredSessionCreationIds: [...retiredSessionCreationIds],
     bindings: [...sessionContextBindings.entries()],
     workspaces: [...sessionWorkspaces.entries()],
     sessionPreferences: persistedSessionPreferences(),
@@ -2393,6 +2399,7 @@ function cleanFirstBootState(): PersistedState {
 
   clean.initialWorld = 'clean'
   clean.sessions = []
+  clean.retiredSessionCreationIds = []
   clean.bindings = []
   clean.workspaces = []
   clean.sessionPreferences = []
@@ -2732,6 +2739,9 @@ function rehydrate(s: PersistedState): void {
     tenantMeters.clear()
   }
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
+  retiredSessionCreationIds = new Set(
+    (s.retiredSessionCreationIds ?? []).filter(isSessionCreationId),
+  )
   schedules.splice(0, schedules.length, ...s.schedules)
   // Legacy live runs relied on an in-memory completion timer, so a restart lost
   // their worker and must fail them closed. Execution-aware rows carry durable
@@ -3697,6 +3707,14 @@ export const store = {
     if (!session) return undefined
     return { ...session, workspace: this.sessionWorkspace(id), contexts: this.sessionContexts(id) }
   },
+  /** Exact creator-only state for a keyed draft materialization. */
+  getSessionCreation(id: string, tenantId: string): Session | 'invalid' | 'retired' | undefined {
+    if (retiredSessionCreationIds.has(id)) return 'retired'
+    const session = SESSIONS.find((candidate) => candidate.id === id)
+    if (!session) return undefined
+    if ((session.tenantId ?? defaultTenantId()) !== tenantId || session.scheduledRunOf) return 'invalid'
+    return this.getSession(id)
+  },
   /** Find a message's tool activity without mutating it — the route reads a
    *  pending API or connector action here BEFORE executing it on confirm. */
   getToolActivity(sessionId: string, activityId: string): ToolActivity | undefined {
@@ -3864,12 +3882,31 @@ export const store = {
     persist()
     return fork
   },
-  createSession(firstMessage?: string, tenantId: string = defaultTenantId(), providerId?: string, modelId?: string): Session {
+  createSession(
+    firstMessage?: string,
+    tenantId: string = defaultTenantId(),
+    providerId?: string,
+    modelId?: string,
+    options: { logicalId?: string } = {},
+  ): Session {
+    if (options.logicalId) {
+      if (!isSessionCreationId(options.logicalId)) {
+        throw new ValidationError('That conversation creation identity is malformed.')
+      }
+      const represented = this.getSessionCreation(options.logicalId, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That conversation creation identity is already owned by another account.')
+      }
+      if (represented === 'retired') {
+        throw new ValidationError('That conversation creation identity was already retired.')
+      }
+    }
     // A draft's concrete model pick must name an entry in its effective provider's
     // catalog (the picked provider's, else the default Agent's) — refused otherwise.
     if (modelId) assertModelInCatalog(modelId, providerId)
     return mintSession({
-      id: `sess-${(sessionSeq += 1)}`,
+      id: options.logicalId ?? `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
       preview: (firstMessage ?? '').slice(0, 120),
       tenantId,
@@ -5014,6 +5051,7 @@ export const store = {
       )
     }
     const [removed] = SESSIONS.splice(i, 1)
+    if (isSessionCreationId(id)) retiredSessionCreationIds.add(id)
     sessionContextBindings.delete(id)
     sessionWorkspaces.delete(id)
     removeSessionPreferences(id)

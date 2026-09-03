@@ -22,11 +22,13 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   const prefs: Array<{ id: string; focus: PanelFocus | null }> = []
   const patches: Array<{ id: string; providerId: string; modelId: string }> = []
   let created = 0
+  const creationKeys: string[] = []
   let contextAttempts = 0
   const contextRequests: Array<{ sid: string; operations: number }> = []
   const deps: DraftDeps = {
-    createSession: (text) => {
+    createSession: (text, _providerId, _modelId, idempotencyKey) => {
       created += 1
+      creationKeys.push(idempotencyKey)
       log.push(`create:${text}`)
       return opts?.failCreate ? Promise.reject(new Error('unreachable')) : Promise.resolve(session(`real-${created}`))
     },
@@ -64,7 +66,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
       },
     },
   }
-  return { deps, log, prefs, patches, focuses, contextRequests, createdCount: () => created }
+  return { deps, log, prefs, patches, focuses, contextRequests, creationKeys, createdCount: () => created }
 }
 
 test('first send materializes, adopts, then streams under the real id — in that order', async () => {
@@ -178,13 +180,64 @@ test('a model pick changed WHILE materializing flushes as a sanitized PATCH; a s
 })
 
 test('unreachable server: the turn streams against the draft id, and a retry re-materializes', async () => {
-  const { deps, log } = fakeDeps({ failCreate: true })
+  const { deps, log, creationKeys } = fakeDeps({ failCreate: true })
   const draft = createDraftController(deps)
   await draft.sendDraftTurn('go', () => ({}))
   assert.ok(log.includes(`send:${DRAFT_ID}:go`), 'graceful degradation — the reply still renders')
-  // The coalesce handle was dropped, so a retry attempts a fresh createSession.
+  // Each send gets one bounded same-key reconciliation before it degrades; the
+  // later manual Retry keeps that same logical identity too.
   await draft.sendDraftTurn('retry', () => ({}))
-  assert.equal(log.filter((l) => l.startsWith('create:')).length, 2)
+  assert.equal(log.filter((l) => l.startsWith('create:')).length, 4)
+  assert.deepEqual(new Set(creationKeys), new Set([creationKeys[0]!]),
+    'automatic reconciliation and manual Retry retain one durable creation identity')
+})
+
+test('a lost materialization response automatically recovers the exact committed session', async () => {
+  const { deps, log } = fakeDeps()
+  const rows = new Map<string, Session>()
+  const keys: string[] = []
+  let attempts = 0
+  deps.createSession = (text, _providerId, _modelId, idempotencyKey) => {
+    attempts += 1
+    keys.push(idempotencyKey)
+    const represented = rows.get(idempotencyKey) ?? session(`real-${rows.size + 1}`)
+    rows.set(idempotencyKey, represented)
+    return attempts === 1
+      ? Promise.reject(new Error('response lost after commit'))
+      : Promise.resolve(represented)
+  }
+  const draft = createDraftController(deps)
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.equal(keys[1], keys[0])
+  assert.equal(rows.size, 1, 'one logical draft owns one server row')
+  assert.ok(log.includes('adopt:draft->real-1'))
+  assert.ok(log.includes('send:real-1:go'))
+  assert.equal(log.includes(`send:${DRAFT_ID}:go`), false,
+    'represented server truth wins before any ephemeral fallback')
+})
+
+test('a failed superseded materialization cannot clear or send into the new draft', async () => {
+  const { deps, log } = fakeDeps()
+  const attempts: Array<{ key: string; resolve: (value: Session) => void; reject: (error: Error) => void }> = []
+  deps.createSession = (_text, _providerId, _modelId, key) => new Promise<Session>((resolve, reject) => {
+    attempts.push({ key, resolve, reject })
+  })
+  const draft = createDraftController(deps)
+  const abandoned = draft.sendDraftTurn('old', () => ({}))
+  draft.reset()
+  const current = draft.sendDraftTurn('new', () => ({}))
+  attempts[0]!.reject(new Error('old response lost'))
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  assert.equal(attempts[2]!.key, attempts[0]!.key, 'the abandoned request still reconciles only its own row')
+  attempts[2]!.reject(new Error('old retry lost'))
+  await abandoned
+  const coalesced = draft.sendDraftTurn('newer', () => ({}))
+  assert.equal(attempts.length, 3, 'the old rejection does not clear the new coalesce handle')
+  assert.notEqual(attempts[1]!.key, attempts[0]!.key, 'reset begins a new durable identity')
+  assert.equal(log.some((line) => line === `send:${DRAFT_ID}:old`), false,
+    'the abandoned failure never targets the replacement draft')
+  attempts[1]!.resolve(session('real-new'))
+  await Promise.all([current, coalesced])
 })
 
 test('a failed context transaction retries against the already-created session instead of minting a duplicate', async () => {

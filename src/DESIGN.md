@@ -826,7 +826,11 @@ split tree is the ONLY render path — no privileged pane kind: conversations
 (the fresh DRAFT included, through the shared draft funnel `draftCore.ts`),
 section pages, and context panels are equal store-backed panes; a `null` tree
 is the BACKGROUND, repopulated by the rail's doors. Every navigation lands in
-the FOCUSED pane, and **the address bar projects the focused pane**. Wide tiles
+the FOCUSED pane, and **the address bar projects the focused pane**. A draft's
+first send carries one creation key until reset: one bounded same-key recovery
+adopts committed truth before generation, while failure can still degrade to
+the existing ephemeral conversation without minting another durable identity.
+Wide tiles
 the tree; the overlay tiers preserve that same mounted tree while exposing the
 focused path alone with the `OverlayPanelDock` docked panel (ADAPT-11), so a
 window resize cannot erase pane-local in-flight state. `useSessionWorkspace.ts` is only

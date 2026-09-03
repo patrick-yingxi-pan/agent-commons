@@ -215,10 +215,20 @@ export async function cancelTurn(sessionId: string, turnId: string): Promise<voi
 // ── Sessions (the conversation, server-owned) ───────────────────────────────
 
 /** Materialize a draft into a real persisted session on its first send. The
- *  server mints the id + titles it from the first message; we prime the caches so
- *  the controller can resolve the new session immediately and the sidebar shows it. */
-export async function createSession(firstMessage?: string, providerId?: string, modelId?: string): Promise<Session> {
-  const session = await apiPost<Session>(paths.sessions, { firstMessage, providerId, modelId })
+ *  server owns the id (deriving it from a logical key when supplied) and titles
+ *  the row from the first message; we prime the caches so the controller can
+ *  resolve the new session immediately and the sidebar shows it. */
+export async function createSession(
+  firstMessage?: string,
+  providerId?: string,
+  modelId?: string,
+  idempotencyKey?: string,
+): Promise<Session> {
+  const session = await apiPost<Session>(
+    paths.sessions,
+    { firstMessage, providerId, modelId },
+    { idempotencyKey },
+  )
   setData(keys.session(session.id), session)
   invalidate(keys.sessions)
   return session

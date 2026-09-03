@@ -5,9 +5,10 @@
  *  *persistence* is what these assert. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { call, callRaw } from '../testkit/http.ts'
+import { call, callFresh, callRaw } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
 import { turns } from '../turns.ts'
+import { sessionCreationId } from '../sessionCreationIdentity.ts'
 import type { Message } from '../../contract/index.ts'
 
 test('POST /sessions materializes a real, listed session titled from the first message', async () => {
@@ -26,6 +27,45 @@ test('POST /sessions with no firstMessage falls back to a neutral title', async 
   const create = await call('POST', '/sessions', {})
   assert.equal(create.status, 200)
   assert.equal(create.json.title, 'New session')
+})
+
+test('a keyed draft materialization owns one current session beyond response cache and deletion', async () => {
+  const key = `draft-materialization-${Date.now()}`
+  const headers = { 'idempotency-key': key }
+  const expectedId = sessionCreationId(store.defaultTenantId(), key)
+  const request = { firstMessage: 'One durable first conversation' }
+
+  const created = await call('POST', '/sessions', request, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+  const renamed = await call('PATCH', `/sessions/${expectedId}`, {
+    title: 'Current conversation title',
+    expectedRevision: 0,
+  })
+  assert.equal(renamed.status, 200)
+
+  const sameRouterReplay = await call('POST', '/sessions', {
+    firstMessage: 'Changed Retry must not mint or overwrite',
+    providerId: 'missing-provider',
+  }, headers)
+  assert.equal(sameRouterReplay.status, 200)
+  assert.equal(sameRouterReplay.headers['idempotency-replayed'], undefined,
+    'domain replay returns current truth instead of a cached creation envelope')
+  assert.equal(sameRouterReplay.json.id, expectedId)
+  assert.equal(sameRouterReplay.json.title, 'Current conversation title')
+  const freshRouterReplay = await callFresh('POST', '/sessions', null, headers)
+  assert.equal(freshRouterReplay.status, 200,
+    'durable identity answers before changed malformed input after response-cache loss')
+  assert.equal(freshRouterReplay.json.id, expectedId)
+  assert.equal(store.listSessions().filter((session) => session.id === expectedId).length, 1)
+
+  const removed = await call('DELETE', `/sessions/${expectedId}`, { expectedRevision: 1 })
+  assert.equal(removed.status, 200)
+  assert.equal((await call('POST', '/sessions', request, headers)).status, 404,
+    'same-process Retry cannot resurrect an explicitly removed draft')
+  assert.equal((await callFresh('POST', '/sessions', request, headers)).status, 404,
+    'fresh-router Retry cannot resurrect an explicitly removed draft')
+  assert.equal(store.listSessions().some((session) => session.id === expectedId), false)
 })
 
 test('session metadata PATCH refuses stale revisions and replays one logical retry', async () => {
