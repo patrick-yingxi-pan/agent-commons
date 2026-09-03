@@ -304,7 +304,6 @@ import {
   reviewContribution,
   requireContributionReview,
   useDelegations,
-  createDelegation,
   deleteDelegation,
   runDelegation,
   useAttention,
@@ -429,6 +428,11 @@ import {
   useSystemPromptDefinitionMutationStatus,
 } from '../controller/systemPromptDefinitionMutations'
 import { enqueueSystemPromptCreation } from '../controller/systemPromptCreationMutations'
+import {
+  enqueueDelegationCreation,
+  isDelegationCreationHeld,
+  useDelegationCreationStatus,
+} from '../controller/delegationCreationMutations.ts'
 import {
   SYSTEM_PROMPT_DELETE_SCOPE,
   enqueueSystemPromptDeletion,
@@ -6405,40 +6409,50 @@ function AttentionPanel({ project, standalone = false }: { project: Project; sta
 function DelegationPanel({ project }: { project: Project }) {
   const list = useDelegations(project.id).data ?? []
   const agents = useAgents().data ?? []
+  const tenantId = useMe().data?.tenant.id
+  useDelegationCreationStatus()
   const [composing, setComposing] = useState(false)
   const [agentId, setAgentId] = useState('')
   const [actKind, setActKind] = useState<DelegatedActKind>('approve-envelope')
   const [mode, setMode] = useState<'draft' | 'decide'>('draft')
   const [policy, setPolicy] = useState('')
   const [extraTriggers, setExtraTriggers] = useState<Set<EscalationTrigger>>(new Set())
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const held = isDelegationCreationHeld(project.id)
   const mint = async () => {
     const agent = agentId || agents[0]?.id
-    if (busy || !agent || !policy.trim()) return
-    setBusy(true)
+    if (held || !tenantId || !agent || !policy.trim()) return
     setError(null)
     try {
-      await createDelegation(project.id, { agentId: agent, actKind, policy: policy.trim(), mode, escalation: [...extraTriggers] })
-      setPolicy('')
-      setComposing(false)
+      const outcome = await enqueueDelegationCreation({
+        tenantId,
+        projectId: project.id,
+        request: { agentId: agent, actKind, policy: policy.trim(), mode, escalation: [...extraTriggers] },
+      })
+      if (outcome === 'applied') {
+        setPolicy('')
+        setComposing(false)
+      } else {
+        setError('Your Delegation is still here. Review it, then delegate again when ready.')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not delegate.')
-    } finally {
-      setBusy(false)
     }
   }
   return (
     <FoldSection
       title="Delegation"
       defaultFolded
+      heldOpen={held}
       summary={list.length === 0 ? 'No judgment delegated' : `${list.length} standing ${list.length === 1 ? 'policy' : 'policies'}`}
       actions={
         <SectionAction
-          label="Delegate a judgment — labor moves, liability stays yours"
+          label="Delegate judgment"
           icon={<Plus size={14} />}
-          onClick={() => setComposing((v) => !v)}
+          onClick={() => { if (!held) setComposing((v) => !v) }}
           expanded={composing}
+          disabled={held || !tenantId}
+          disabledReason={held ? 'Waiting for server acknowledgement' : 'Waiting for your account'}
         />
       }
     >
@@ -6480,11 +6494,15 @@ function DelegationPanel({ project }: { project: Project }) {
         </div>
       )}
       {composing && (
-        <div className="mt-2.5 space-y-1.5">
+        <div data-delegation-creation-form className="mt-2.5 space-y-2" aria-busy={held}>
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            Choose what this Agent may judge and write the rule it must follow. Labor moves; liability stays yours.
+          </p>
           <select
             value={agentId || agents[0]?.id || ''}
             onChange={(e) => setAgentId(e.target.value)}
             aria-label="Delegate agent"
+            disabled={held}
             className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           >
             {agents.map((a) => (
@@ -6498,6 +6516,7 @@ function DelegationPanel({ project }: { project: Project }) {
               value={actKind}
               onChange={(e) => setActKind(e.target.value as DelegatedActKind)}
               aria-label="Delegated act"
+              disabled={held}
               className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
             >
               <option value="approve-envelope">approve envelopes</option>
@@ -6507,11 +6526,12 @@ function DelegationPanel({ project }: { project: Project }) {
               value={mode}
               onChange={(e) => setMode(e.target.value as 'draft' | 'decide')}
               aria-label="Autonomy rung"
-              title="draft records what it WOULD decide; decide executes as you"
+              title="A recommendation waits for you; an automatic decision acts as you when the policy fits"
+              disabled={held}
               className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
             >
-              <option value="draft">draft (L1)</option>
-              <option value="decide">decide (L2)</option>
+              <option value="draft">recommend only</option>
+              <option value="decide">decide within policy</option>
             </select>
           </div>
           <input
@@ -6519,20 +6539,22 @@ function DelegationPanel({ project }: { project: Project }) {
             onChange={(e) => setPolicy(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void mint()
-              if (e.key === 'Escape') setComposing(false)
+              if (e.key === 'Escape' && !held) setComposing(false)
             }}
             placeholder="Your policy, in your words (required)…"
             aria-label="Delegation policy"
+            disabled={held}
             className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-soft">
-            <span className="text-ink-faint" title="The floor is not delegable — always escalates">
-              ✓ effectful (always)
+            <span className="text-ink-faint" title="The floor is not delegable">
+              ✓ Irreversible action (always asks you)
             </span>
             {(['unreviewed', 'stranger'] as EscalationTrigger[]).map((t) => (
               <CheckboxRow
                 key={t}
                 checked={extraTriggers.has(t)}
+                disabled={held}
                 onToggle={() =>
                   setExtraTriggers((s) => {
                     const next = new Set(s)
@@ -6542,15 +6564,15 @@ function DelegationPanel({ project }: { project: Project }) {
                   })
                 }
               >
-                {t}
+                {t === 'unreviewed' ? 'No adversarial review' : 'Outside contributor'}
               </CheckboxRow>
             ))}
             <button
               onClick={() => void mint()}
-              disabled={busy || !policy.trim() || agents.length === 0}
+              disabled={held || !tenantId || !policy.trim() || agents.length === 0}
               className={`ml-auto ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
             >
-              Delegate
+              {held ? 'Establishing…' : 'Delegate'}
             </button>
           </div>
           {error && <p className="text-[11px] text-removed">{error}</p>}

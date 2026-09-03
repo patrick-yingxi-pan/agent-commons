@@ -98,6 +98,7 @@ import { providerCreationId } from '../providerCreationIdentity.ts'
 import { agentCreationId } from '../agentCreationIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
+import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -2523,18 +2524,34 @@ export function buildRouter(): Router {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     sendJson(res, store.listDelegations(params.id, store.identity(req.headers).tenant.id))
   })
-  r.post('/projects/:id/delegations', async ({ req, res, params, body }) => {
-    const input = await body<CreateDelegationRequest>()
-    if (!input?.agentId || !input?.actKind) return sendError(res, 'bad_request', 'agentId and actKind are required')
+  r.post('/projects/:id/delegations', idempotent(async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.createDelegation(params.id, input, who.tenant.id)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalDelegationId = idempotencyKey
+      ? delegationCreationId(who.tenant.id, params.id, idempotencyKey)
+      : undefined
+    const represented = logicalDelegationId
+      ? store.listDelegations(params.id, who.tenant.id)
+        .find((delegation) => delegation.id === logicalDelegationId)
+      : undefined
+    // The durable row identity outlives the response cache. A changed Retry
+    // cannot widen an authority grant that was already established.
+    if (represented) return sendJson(res, represented)
+    const input = await body<CreateDelegationRequest>()
+    if (!input?.agentId || !input?.actKind) return sendError(res, 'bad_request', 'agentId and actKind are required')
+    const out = store.createDelegation(
+      params.id,
+      input,
+      who.tenant.id,
+      { logicalId: logicalDelegationId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No project '${params.id}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may delegate their judgment')
     if (out === 'capped') return sendError(res, 'conflict', 'This project’s delegation roster is at its cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'a delegation needs YOUR OWN agent, a valid act kind, a non-empty policy, and known escalation triggers (effectful is always included — the floor is not delegable)')
     sendJson(res, out)
-  })
+  }))
   r.delete('/projects/:id/delegations/:did', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const out = store.deleteDelegation(params.id, params.did, store.identity(req.headers).tenant.id)

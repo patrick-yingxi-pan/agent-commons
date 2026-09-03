@@ -10,7 +10,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
+import { delegationCreationId } from '../delegationCreationIdentity.ts'
 
 const A = 'tenant-contrib-A' // project owner
 const B = 'tenant-contrib-B' // contributor
@@ -596,6 +597,52 @@ test('delegations (CW8): the mint funnel, the conservation law, SoD, mechanical 
   store.deleteAgent(agentId)
   const swept = await call('GET', `/projects/${projectId}/delegations`, undefined, { 'x-tenant-id': A })
   assert.equal(swept.json.length, 0, 'the dead delegate’s rows are gone')
+})
+
+test('a keyed Delegation owns one immutable authority row beyond response-cache lifetime', async () => {
+  const projectId = `p-deleg-keyed-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Durable Delegation', projectDescription: '' }, A)
+  const agent = store.createAgent({ label: 'Durable delegate', providerId: 'provider-claude', tools: [] } as any, A)
+  const key = `delegation-create-${n}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+  const request = {
+    agentId: agent.id,
+    actKind: 'approve-envelope',
+    policy: 'Approve only reviewed monotonic work.',
+    mode: 'draft',
+  }
+  const expectedId = delegationCreationId(A, projectId, key)
+
+  const created = await call('POST', `/projects/${projectId}/delegations`, request, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+  const cachedReplay = await call('POST', `/projects/${projectId}/delegations`, {
+    ...request,
+    actKind: 'land',
+    policy: 'Changed retry must not widen authority.',
+    mode: 'decide',
+  }, headers)
+  assert.equal(cachedReplay.status, 200)
+  assert.equal(cachedReplay.headers['idempotency-replayed'], 'true')
+  assert.equal(cachedReplay.json.policy, request.policy)
+
+  // A fresh router models process-local response-cache loss. Durable identity
+  // must answer before changed Retry input or current roster capacity.
+  const durableReplay = await callFresh('POST', `/projects/${projectId}/delegations`, {
+    agentId: null,
+    actKind: 'land',
+    policy: '',
+    mode: 'decide',
+  }, headers)
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.id, expectedId)
+  assert.equal(durableReplay.json.actKind, request.actKind)
+  assert.equal(durableReplay.json.mode, request.mode)
+  assert.equal(durableReplay.json.policy, request.policy)
+  const roster = store.listDelegations(projectId, A)
+  assert.equal(roster.filter((delegation) => delegation.id === expectedId).length, 1,
+    'durable identity, not only the response cache, prevents duplicate authority')
 })
 
 test('attention (CW9): the ledger counts, per-caller triage, and the self-proposed optimization', async () => {

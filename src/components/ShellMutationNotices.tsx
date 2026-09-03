@@ -4,6 +4,7 @@ import { ArtifactContentMutationNotice } from './ArtifactContentMutationNotice'
 import { CommissionMutationNotice } from './CommissionMutationNotice'
 import { CommissionCreationMutationNotice } from './CommissionCreationMutationNotice'
 import { DispatchMutationNotice } from './DispatchMutationNotice'
+import { DelegationCreationMutationNotice } from './DelegationCreationMutationNotice'
 import { GrantMutationNotice } from './GrantMutationNotice'
 import { ProposalVerdictMutationNotice } from './ProposalVerdictMutationNotice'
 import { ProviderDefinitionMutationNotice } from './ProviderDefinitionMutationNotice'
@@ -31,6 +32,7 @@ export function ShellMutationNotices() {
       <SavedContextDeletionNotice />
       <ScheduleMutationNotice />
       <DispatchMutationNotice />
+      <DelegationCreationMutationNotice />
       <GrantMutationNotice />
       <SocialPostMutationNotice />
       <ArtifactContentMutationNotice />

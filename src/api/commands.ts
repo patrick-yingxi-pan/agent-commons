@@ -43,8 +43,6 @@ import {
   type OpenContributionRequest,
   type ProposeEnvelopeRequest,
   type CrystallizeRequest,
-  type Delegation,
-  type CreateDelegationRequest,
   type ProposeAgentChangeRequest,
   type WatchState,
   type PostOpenSubGoalRequest,
@@ -1035,14 +1033,6 @@ export async function crystallizeContribution(projectId: string, cid: string, re
   const c = await apiPost<Contribution>(paths.contributionChangeset(projectId, cid), req)
   invalidate(keys.contributions(projectId))
   return c
-}
-
-/** Mint a Delegation (CW8, Phase F) — the funnel refuses a blank policy, a
- *  foreign agent, or any path around the mandatory `effectful` escalation. */
-export async function createDelegation(projectId: string, req: CreateDelegationRequest): Promise<Delegation> {
-  const d = await apiPost<Delegation>(paths.delegations(projectId), req)
-  invalidate(keys.delegations(projectId))
-  return d
 }
 
 /** Revoke a Delegation — the delegator's one-tap descent. */

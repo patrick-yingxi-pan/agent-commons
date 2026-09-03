@@ -7865,11 +7865,23 @@ export const store = {
    *  (the floor is not delegable — the server ADDS it if merely omitted, so
    *  stating it is optional but escaping it is impossible), and a delegate
    *  agent the delegator doesn't own. Project-owner only, raw tenant ids. */
-  createDelegation(projectId: string, req: CreateDelegationRequest, tenantId: string): Delegation | 'forbidden' | 'invalid' | 'capped' | undefined {
+  createDelegation(
+    projectId: string,
+    req: CreateDelegationRequest,
+    tenantId: string,
+    options: { logicalId?: string } = {},
+  ): Delegation | 'forbidden' | 'invalid' | 'capped' | undefined {
     const project = findProject(projectId)
     if (!project) return undefined
     const ownerTenant = project.tenantId ?? defaultTenantId()
     if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
+    if (options.logicalId) {
+      const represented = delegations.find((delegation) => delegation.id === options.logicalId)
+      if (represented) {
+        if (represented.projectId !== projectId || represented.delegatorTenant !== tenantId) return 'invalid'
+        return publicDelegation(represented, tenantId)
+      }
+    }
     if (delegations.filter((d) => d.projectId === projectId).length >= MAX_DELEGATIONS_PER_PROJECT) return 'capped'
     const agent = WORKER_AGENTS.get(req.agentId)
     if (
@@ -7880,22 +7892,26 @@ export const store = {
       (req.mode !== undefined && req.mode !== 'draft' && req.mode !== 'decide')
     ) return 'invalid'
     const escalation = [...new Set(['effectful' as const, ...(req.escalation ?? [])])]
-    const d: StoredDelegation = {
-      id: `delegation-${(delegationSeq += 1)}`,
-      projectId,
-      agentId: req.agentId,
-      agentLabel: agent.label,
-      actKind: req.actKind,
-      policy: req.policy.trim().slice(0, MAX_DELEGATION_POLICY_CHARS),
-      escalation,
-      mode: req.mode ?? 'draft',
-      createdAt: Date.now(),
-      delegatorTenant: tenantId,
-    }
-    delegations.push(d)
-    emit({ type: 'delegation.changed', projectId })
-    persist()
-    return publicDelegation(d, tenantId)
+    return commitMutationBatch(() => {
+      const id = options.logicalId ?? `delegation-${delegationSeq + 1}`
+      if (!options.logicalId) delegationSeq += 1
+      const d: StoredDelegation = {
+        id,
+        projectId,
+        agentId: req.agentId,
+        agentLabel: agent.label,
+        actKind: req.actKind,
+        policy: req.policy.trim().slice(0, MAX_DELEGATION_POLICY_CHARS),
+        escalation,
+        mode: req.mode ?? 'draft',
+        createdAt: Date.now(),
+        delegatorTenant: tenantId,
+      }
+      delegations.push(d)
+      emit({ type: 'delegation.changed', projectId })
+      persist()
+      return publicDelegation(d, tenantId)
+    })
   },
   /** Revoke — the delegator's one-tap descent (always free, CW8's ladder).
    *  The PROJECT OWNER's write-union may also revoke (review finding: a seat-

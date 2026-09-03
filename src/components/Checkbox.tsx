@@ -27,11 +27,13 @@ export function CheckboxRow({
   onToggle,
   children,
   className,
+  disabled = false,
 }: {
   checked: boolean
   onToggle: () => void
   children: React.ReactNode
   className?: string
+  disabled?: boolean
 }) {
   return (
     <button
@@ -39,7 +41,8 @@ export function CheckboxRow({
       role="checkbox"
       aria-checked={checked}
       onClick={onToggle}
-      className={`flex items-start gap-2 text-left ${className ?? ''}`}
+      disabled={disabled}
+      className={`flex items-start gap-2 text-left disabled:cursor-not-allowed disabled:opacity-50 ${className ?? ''}`}
     >
       <CheckSquare checked={checked} className="mt-0.5" />
       {children}

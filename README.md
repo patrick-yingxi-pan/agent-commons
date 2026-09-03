@@ -67,6 +67,9 @@ role remain selected through Retry/Dismiss, and a durable Commission identity
 turns a lost handoff acknowledgement into one exact Contributor instead of two.
 Removal completes that lifecycle with a named consequence preview, revision-
 pinned consent, held-row recovery, and an atomic release of its claimed work.
+Delegating judgment now keeps the complete Agent, act, autonomy, policy, and
+escalation choice visible until durable truth settles it; a lost response
+reconciles one exact authority row instead of granting the same policy twice.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server
