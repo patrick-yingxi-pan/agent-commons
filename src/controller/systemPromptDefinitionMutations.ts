@@ -1,5 +1,4 @@
 /** App wiring for conflict-safe system-prompt definition edits. */
-import { useSyncExternalStore } from 'react'
 import type { SystemPromptDefinitionMutationPatch, SystemPromptEntry } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
@@ -12,11 +11,15 @@ import {
 } from '../api'
 import {
   createRevisionedMutationController,
-  IDLE_REVISIONED_MUTATION,
   type RevisionedMutationFailure,
   type RevisionedMutationOutcome,
-  type RevisionedMutationStatus,
 } from './revisionedMutationCore'
+import { createMutationStatusStore } from './mutationStatusStore.ts'
+import {
+  acquireSystemPromptMutation,
+  isSystemPromptDefinitionHeld,
+  releaseSystemPromptMutation,
+} from './systemPromptMutationHolds.ts'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -40,12 +43,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
   return { message: 'Couldn’t confirm the prompt change. Your edits are still here—retry when the connection recovers.', retryable: true }
 }
 
-let status: RevisionedMutationStatus = IDLE_REVISIONED_MUTATION
-const listeners = new Set<() => void>()
-const publish = (next: RevisionedMutationStatus): void => {
-  status = next
-  for (const listener of listeners) listener()
-}
+const statusStore = createMutationStatusStore()
 
 const cachedPrompt = (promptId: string): SystemPromptEntry | undefined =>
   peek<SystemPromptEntry[]>(keys.systemPrompts)?.find((prompt) => prompt.id === promptId)
@@ -62,7 +60,7 @@ const controller = createRevisionedMutationController<SystemPromptEntry, SystemP
   revision: (prompt) => prompt.definitionRevision ?? 0,
   mutate: patchSystemPromptDefinition,
   describeFailure,
-  setStatus: publish,
+  setStatus: statusStore.publish,
   mintIdempotencyKey: () => crypto.randomUUID(),
 })
 
@@ -72,19 +70,19 @@ export function updateSystemPromptDefinition(
   promptId: string,
   patch: SystemPromptDefinitionMutationPatch,
 ): Promise<RevisionedMutationOutcome> {
-  return controller.enqueue(promptId, patch)
+  const lease = acquireSystemPromptMutation('definition', promptId)
+  if (!lease) return Promise.resolve('discarded')
+  statusStore.refresh()
+  const outcome = controller.enqueue(promptId, patch)
+  void outcome.finally(() => {
+    releaseSystemPromptMutation(lease)
+    statusStore.refresh()
+  })
+  return outcome
 }
 
 export const retrySystemPromptDefinitionMutation = controller.retry
 export const discardSystemPromptDefinitionMutation = controller.discard
 
-export function useSystemPromptDefinitionMutationStatus(): RevisionedMutationStatus {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => status,
-    () => IDLE_REVISIONED_MUTATION,
-  )
-}
+export { isSystemPromptDefinitionHeld }
+export const useSystemPromptDefinitionMutationStatus = statusStore.useStatus

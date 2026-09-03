@@ -59,6 +59,9 @@ consequences, pins the reviewed definition, and retains the row through recovery
 New Prompt keeps its complete definition and optional default choice under that
 same held ceremony; the server commits both together and reconciles by exact
 durable identity rather than mutable prose.
+Prompt removal now begins on the canonical page, names its library/default and
+Agent-dependency scope, pins the reviewed definition, and retains the page until
+acknowledgement or exact absence settles it.
 Commissioning follows that boundary too: the chosen Agent, Project, and stated
 role remain selected through Retry/Dismiss, and a durable Commission identity
 turns a lost handoff acknowledgement into one exact Contributor instead of two.

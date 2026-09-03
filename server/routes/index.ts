@@ -48,6 +48,7 @@ import type {
   UpdateScheduleRequest,
   UpdateSessionRequest,
   DeleteSessionRequest,
+  DeleteSystemPromptRequest,
   UpdateSessionPreferencesRequest,
   UpdateSessionContextStateRequest,
   OpsSummary,
@@ -1829,17 +1830,26 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  r.delete('/system-prompts/:id', ({ req, res, params }) => {
+  r.delete('/system-prompts/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listSystemPrompts(t), 'system prompt')) return
+    let input: DeleteSystemPromptRequest
     try {
-      if (!store.deleteSystemPrompt(params.id)) return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+      input = revisionedDelete(await body<unknown>(), 'system prompt')
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
+      throw err
+    }
+    try {
+      if (!store.deleteSystemPrompt(params.id, input.expectedRevision)) {
+        return sendError(res, 'not_found', `No system prompt '${params.id}'`)
+      }
       sendJson(res, { ok: true })
     } catch (err) {
       // Protected (the default) or still referenced by an Agent — a 409 to re-target.
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
 
   // ── Commissions (the agent→Project assignment — docs/agent-commons.md, D7/D13) ──
   // A Project's Contributors. `GET /commissions?project=<id>` filters to one Project.

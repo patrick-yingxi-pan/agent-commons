@@ -8,7 +8,7 @@ test('system-prompt definitions use one bounded sparse held-draft recovery path'
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'systemPromptDefinitionMutations.ts')))
 
-  assert.match(section, /import \{ updateSystemPromptDefinition \} from '\.\.\/controller\/systemPromptDefinitionMutations'/,
+  assert.match(section, /import \{[\s\S]*?updateSystemPromptDefinition[\s\S]*?\} from '\.\.\/controller\/systemPromptDefinitionMutations'/,
     'prompt surfaces enter the acknowledgement queue, not the transport door')
   assert.doesNotMatch(section, /updateSystemPrompt,[\s\S]*from '\.\.\/api'/,
     'the component has no unconditional prompt-definition command path')

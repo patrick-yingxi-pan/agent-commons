@@ -244,7 +244,6 @@ import {
 import {
   addSavedContext,
   desktopCredentialsAvailable,
-  deleteSystemPrompt,
   forkAgent,
   importAgentCard,
   a2aAgentCardUrl,
@@ -424,8 +423,19 @@ import {
   isProviderDeletionHeld,
   useProviderDeletionStatus,
 } from '../controller/providerDeletionMutations.ts'
-import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
+import {
+  isSystemPromptDefinitionHeld,
+  updateSystemPromptDefinition,
+  useSystemPromptDefinitionMutationStatus,
+} from '../controller/systemPromptDefinitionMutations'
 import { enqueueSystemPromptCreation } from '../controller/systemPromptCreationMutations'
+import {
+  SYSTEM_PROMPT_DELETE_SCOPE,
+  enqueueSystemPromptDeletion,
+  heldSystemPromptDeletions,
+  isSystemPromptDeletionHeld,
+  useSystemPromptDeletionStatus,
+} from '../controller/systemPromptDeletionMutations.ts'
 import {
   enqueueWallPost,
   isWallPostMutationHeld,
@@ -8130,9 +8140,17 @@ function AgentCommonsSection({
   onBack: () => void
   backTo: NavLocation | null
 }) {
+  const promptIdRef = useRef(promptId)
+  promptIdRef.current = promptId
   const promptsQ = useSystemPrompts()
   const toolsQ = useAgentToolCatalog()
-  const prompts = promptsQ.data ?? []
+  const currentPrompts = promptsQ.data ?? []
+  useSystemPromptDeletionStatus()
+  const prompts = [
+    ...currentPrompts,
+    ...heldSystemPromptDeletions().filter((held) =>
+      !currentPrompts.some((prompt) => prompt.id === held.id)),
+  ]
   const tools = toolsQ.data?.entries ?? []
   const prompt = promptId ? prompts.find((entry) => entry.id === promptId) ?? null : null
   const tool = toolId ? tools.find((entry) => entry.name === toolId) ?? null : null
@@ -8150,6 +8168,9 @@ function AgentCommonsSection({
         onBack={onBack}
         backTo={backTo}
         onRetry={() => retryResourceQueries([keys.systemPrompts])}
+        onDeleted={() => {
+          if (promptIdRef.current === promptId) onBack()
+        }}
       />
     )
   }
@@ -10734,7 +10755,13 @@ function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvid
  *  entry the New-agent picker pre-selects). */
 function PromptsTab() {
   const rel = useRelations()
-  const prompts = useSystemPrompts().data ?? []
+  const currentPrompts = useSystemPrompts().data ?? []
+  useSystemPromptDeletionStatus()
+  const prompts = [
+    ...currentPrompts,
+    ...heldSystemPromptDeletions().filter((held) =>
+      !currentPrompts.some((prompt) => prompt.id === held.id)),
+  ]
   const providers = useProviders().data ?? []
   const providerFamily = defaultEntry(providers)?.modelFamily ?? 'claude'
   const [editing, setEditing] = useState<SystemPromptEntry | null>(null)
@@ -10769,18 +10796,17 @@ function LibraryPromptCard({
   onOpen: () => void
   onEdit: () => void
 }) {
-  const [error, setError] = useState<string | null>(null)
+  useSystemPromptDefinitionMutationStatus()
+  useSystemPromptDeletionStatus()
   const warning = promptFitWarning(prompt, providerFamily)
-  const del = async () => {
-    setError(null)
-    try {
-      await deleteSystemPrompt(prompt.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delete this prompt.')
-    }
-  }
+  const deleting = isSystemPromptDeletionHeld(prompt.id)
+  const mutationHeld = deleting || isSystemPromptDefinitionHeld(prompt.id)
   return (
-    <div onClick={cardDoorClick(onOpen)} className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS} group w-full items-center text-left`}>
+    <div
+      onClick={cardDoorClick(onOpen)}
+      aria-busy={deleting}
+      className={`${LEDGER_ROW_CLASS} ${ROW_DOOR_CLASS} group w-full items-center text-left`}
+    >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-panel-2 text-ink-soft">
         <FileText size={15} />
       </span>
@@ -10789,14 +10815,19 @@ function LibraryPromptCard({
           {prompt.label}
         </button>
         <span className="mt-0.5 line-clamp-1 text-[12px] text-ink-soft">{prompt.body}</span>
-        <span className="mt-0.5 block text-[11px] text-ink-faint">Tuned for {prompt.targetFamily}</span>
-        {error && <span className="mt-1 block text-[12px] text-removed">{error}</span>}
+        <span className="mt-0.5 block text-[11px] text-ink-faint">
+          {deleting ? 'Removing prompt… · ' : ''}Tuned for {prompt.targetFamily}
+        </span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
         {prompt.isDefault && <DefaultBadge />}
         {warning && <span title={warning} className="shrink-0 text-warn-strong"><AlertCircle size={15} /></span>}
         {prompt.tenantId ? (
-          <CardActions onEdit={onEdit} onDelete={del} />
+          <CardActions
+            onEdit={onEdit}
+            disabled={mutationHeld}
+            disabledReason="Waiting for this prompt change to settle"
+          />
         ) : (
           <StatusPill tone="neutral" label="Built in" />
         )}
@@ -11590,16 +11621,21 @@ function PromptDetailPage({
   onBack,
   backTo,
   onRetry,
+  onDeleted,
 }: {
   prompt: SystemPromptEntry | null
   state: ResourceUnavailableState
   onBack: () => void
   backTo: NavLocation | null
   onRetry: () => void
+  onDeleted: () => void
 }) {
   const providers = useProviders().data ?? []
   const defaultFamily = defaultEntry(providers)?.modelFamily ?? 'claude'
   const [editing, setEditing] = useState(false)
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
+  useSystemPromptDefinitionMutationStatus()
+  useSystemPromptDeletionStatus()
   if (!prompt) {
     return (
       <UnavailableResourcePage
@@ -11612,19 +11648,49 @@ function PromptDetailPage({
       />
     )
   }
+  const deleting = isSystemPromptDeletionHeld(prompt.id)
+  const mutationHeld = deleting || isSystemPromptDefinitionHeld(prompt.id)
+  const confirmRemoval = () => {
+    if (mutationHeld) return
+    const outcome = enqueueSystemPromptDeletion(prompt)
+    setConfirmingRemoval(false)
+    void outcome.then((settled) => {
+      if (settled === 'applied') onDeleted()
+    })
+  }
   const warning = promptFitWarning(prompt, defaultFamily)
   return (
-    <AtomicResourcePage>
+    <AtomicResourcePage aria-busy={deleting}>
       <PageHeader
         title={prompt.label}
         badge={prompt.tenantId
           ? (prompt.isDefault ? <StatusPill tone="ok" label="Default" /> : undefined)
           : <StatusPill tone="neutral" label={prompt.isDefault ? 'Built in · Default' : 'Built in'} />}
-        subtitle={`Prompt · Tuned for ${prompt.targetFamily}`}
+        subtitle={`${deleting ? 'Removing prompt… · ' : ''}Prompt · Tuned for ${prompt.targetFamily}`}
       >
-        {prompt.tenantId && <PageActionButton icon={<Pencil size={14} />} onClick={() => setEditing(true)}>Edit prompt</PageActionButton>}
+        {prompt.tenantId && (
+          <PageActionButton
+            icon={<Pencil size={14} />}
+            onClick={() => setEditing(true)}
+            disabled={mutationHeld}
+          >
+            Edit prompt
+          </PageActionButton>
+        )}
       </PageHeader>
-      <FoldSection title="Prompt" summary="Text injected into an agent before its task instructions.">
+      <FoldSection
+        title="Prompt"
+        summary="Text injected into an agent before its task instructions."
+        actions={prompt.tenantId ? (
+          <SectionAction
+            label="Remove prompt"
+            icon={<Trash2 size={14} />}
+            onClick={() => setConfirmingRemoval(true)}
+            disabled={mutationHeld}
+            disabledReason="Waiting for this prompt change to settle"
+          />
+        ) : undefined}
+      >
         <pre className="whitespace-pre-wrap rounded-lg border border-line bg-panel-2 p-3 font-sans text-[12px] leading-relaxed text-ink-soft">{prompt.body}</pre>
       </FoldSection>
       <FoldSection title="Compatibility" summary={`Authored for ${prompt.targetFamily}`}>
@@ -11635,6 +11701,15 @@ function PromptDetailPage({
         </div>
       </FoldSection>
       {editing && prompt.tenantId && <PromptDialog prompt={prompt} onClose={() => setEditing(false)} />}
+      {confirmingRemoval && (
+        <ConfirmDialog
+          title={`Remove ${prompt.label}?`}
+          body={SYSTEM_PROMPT_DELETE_SCOPE}
+          confirmLabel="Remove prompt"
+          onConfirm={confirmRemoval}
+          onCancel={() => setConfirmingRemoval(false)}
+        />
+      )}
     </AtomicResourcePage>
   )
 }

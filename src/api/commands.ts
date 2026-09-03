@@ -18,6 +18,7 @@ import {
   type DeleteAgentRequest,
   type DeleteCommissionRequest,
   type DeleteProviderRequest,
+  type DeleteSystemPromptRequest,
   type ProviderDeletionPrecondition as ProviderDeletePrecondition,
   type UpdateAgentRequest,
   type UpdateCommissionRequest,
@@ -618,21 +619,25 @@ function acceptSystemPromptDefinition(prompt: SystemPromptEntry): SystemPromptEn
   return merged
 }
 
-/** Re-read only the addressed prompt definition before Retry/Dismiss. */
-export async function reconcileSystemPromptDefinition(id: string): Promise<SystemPromptEntry | undefined> {
-  const rows = await apiGet<SystemPromptEntry[]>(paths.systemPrompts)
-  const incoming = rows.find((candidate) => candidate.id === id)
-  const currentRows = peek<SystemPromptEntry[]>(keys.systemPrompts)
-  if (!currentRows) {
-    setData(keys.systemPrompts, rows)
-    return incoming
-  }
-  if (!incoming) {
-    mutate<SystemPromptEntry[]>(keys.systemPrompts, (current) =>
-      (current ?? []).filter((candidate) => candidate.id !== id),
-    )
+function acceptSystemPromptAbsence(id: string): void {
+  mutate<SystemPromptEntry[]>(keys.systemPrompts, (current) =>
+    (current ?? []).filter((candidate) => candidate.id !== id))
+}
+
+async function readSystemPromptExact(id: string): Promise<SystemPromptEntry | undefined> {
+  try {
+    return await apiGet<SystemPromptEntry>(paths.systemPrompt(id))
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
+    acceptSystemPromptAbsence(id)
     return undefined
   }
+}
+
+/** Re-read only the addressed prompt definition before Retry/Dismiss. */
+export async function reconcileSystemPromptDefinition(id: string): Promise<SystemPromptEntry | undefined> {
+  const incoming = await readSystemPromptExact(id)
+  if (!incoming) return undefined
   return acceptSystemPromptDefinition(incoming)
 }
 
@@ -652,11 +657,19 @@ export async function patchSystemPromptDefinition(
   return accepted
 }
 
-/** Remove a library prompt. Rejects (so the caller can surface the message) when the
- *  server refuses — the default prompt, or one an Agent still references (409). */
-export async function deleteSystemPrompt(id: string): Promise<void> {
-  await apiDelete(paths.systemPrompt(id))
-  invalidate(keys.systemPrompts)
+/** Remove one reviewed reusable prompt. The deletion controller owns named
+ * confirmation, Retry/Dismiss, and exact-absence reconciliation. */
+export async function deleteSystemPrompt(
+  id: string,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiDelete(
+    paths.systemPrompt(id),
+    { expectedRevision } satisfies DeleteSystemPromptRequest,
+    { idempotencyKey },
+  )
+  acceptSystemPromptAbsence(id)
 }
 
 // ── Worker Agents (the Agents hub — docs/agent-commons.md, D6) ───────────────

@@ -64,3 +64,10 @@ export type UpdateSystemPromptRequest = SystemPromptDefinitionMutationPatch & {
    *  always send it and therefore receive compare-and-swap protection. */
   expectedRevision?: number
 }
+
+/** Body of `DELETE /v1/system-prompts/:id`. First-party removal pins the
+ * reusable prompt definition the person reviewed; omission preserves the
+ * legacy unconditional-delete meaning for existing API clients. */
+export interface DeleteSystemPromptRequest {
+  expectedRevision?: number
+}

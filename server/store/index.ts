@@ -4531,9 +4531,15 @@ export const store = {
    *  default Agent's body is single-sourced from it — and any prompt an Agent still
    *  references (`systemPromptId`), so the user repoints those Agents first. False when
    *  unknown (→ 404). */
-  deleteSystemPrompt(id: string): boolean {
+  deleteSystemPrompt(id: string, expectedRevision?: number): boolean {
     const current = SYSTEM_PROMPT_LIB.get(id)
     if (!current) return false
+    const currentRevision = current.definitionRevision ?? 0
+    if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This system prompt changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
     if (id === SP_DEFAULT_ID) throw new ConflictError('The default system prompt can’t be removed.')
     const used = [...WORKER_AGENTS.values()].filter((a) => a.systemPromptId === id)
     if (used.length > 0) {
@@ -4541,12 +4547,14 @@ export const store = {
         `${used.length} agent${used.length === 1 ? '' : 's'} still ${used.length === 1 ? 'uses' : 'use'} this prompt — repoint ${used.length === 1 ? 'it' : 'them'} first.`,
       )
     }
-    SYSTEM_PROMPT_LIB.delete(id)
-    // Clear any default pointer at it (deleteProvider's twin — the flag just clears).
-    dropRegistryDefault('promptId', id)
-    emitSystemPromptChanged(current)
-    persist()
-    return true
+    return commitMutationBatch(() => {
+      SYSTEM_PROMPT_LIB.delete(id)
+      // The viewer-default flag is a shortcut, not a protection invariant.
+      dropRegistryDefault('promptId', id)
+      emitSystemPromptChanged(current)
+      persist()
+      return true
+    })
   },
 
   // ── Commissions (the agent→Project assignment — docs/agent-commons.md, D7/D13) ──

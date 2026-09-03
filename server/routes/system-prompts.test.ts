@@ -189,18 +189,64 @@ test('POST without required fields is a 400; PATCH of an unknown id is a 404', a
   assert.equal(missing.json.error.code, 'not_found')
 })
 
-test('DELETE removes an unreferenced prompt; a second DELETE 404s', async () => {
+test('DELETE pins reviewed prompt truth, clears its default atomically, and replays one success', async () => {
   const created = await call('POST', '/system-prompts', {
     label: 'Disposable',
     body: 'temp',
     targetFamily: 'claude',
   })
-  const del = await call('DELETE', `/system-prompts/${created.json.id}`)
+  const id = created.json.id as string
+  const changed = await call('PATCH', `/system-prompts/${id}`, {
+    body: 'changed before removal',
+    expectedRevision: 0,
+  })
+  assert.equal(changed.status, 200)
+  assert.equal(changed.json.definitionRevision, 1)
+  store.setDefaultSystemPrompt(id, store.defaultTenantId())
+
+  for (const body of [
+    { expectedRevision: -1 },
+    { expectedRevision: 1, label: 'No' },
+  ]) {
+    const invalid = await call('DELETE', `/system-prompts/${id}`, body)
+    assert.equal(invalid.status, 400, JSON.stringify(body))
+  }
+
+  const key = `system-prompt-delete-${id}`
+  const headers = { 'idempotency-key': key }
+  const stale = await call('DELETE', `/system-prompts/${id}`, { expectedRevision: 0 }, headers)
+  assert.equal(stale.status, 409)
+  assert.equal(store.listSystemPrompts().some((prompt) => prompt.id === id), true)
+
+  const observed: Array<{ present: boolean; stillDefault: boolean }> = []
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type !== 'systemprompt.changed' || event.systemPromptId !== id) return
+    const current = store.listSystemPrompts(store.defaultTenantId())
+    observed.push({
+      present: current.some((prompt) => prompt.id === id),
+      stillDefault: current.some((prompt) => prompt.id === id && prompt.isDefault === true),
+    })
+  })
+  const del = await call('DELETE', `/system-prompts/${id}`, { expectedRevision: 1 }, headers)
+  unsubscribe()
   assert.equal(del.status, 200)
   assert.deepEqual(del.json, { ok: true })
+  assert.deepEqual(observed, [{ present: false, stillDefault: false }],
+    'the invalidation publishes only after prompt and viewer-default absence are coherent')
 
-  const again = await call('DELETE', `/system-prompts/${created.json.id}`)
+  const replay = await call('DELETE', `/system-prompts/${id}`, { expectedRevision: 99 }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+
+  const again = await call('DELETE', `/system-prompts/${id}`)
   assert.equal(again.status, 404)
+
+  const legacy = await call('POST', '/system-prompts', {
+    label: 'Legacy prompt removal',
+    body: 'legacy body',
+    targetFamily: 'claude',
+  })
+  assert.equal((await call('DELETE', `/system-prompts/${legacy.json.id}`)).status, 200)
 })
 
 test('DELETE refuses the default prompt (409 — the default Agent is sourced from it)', async () => {
