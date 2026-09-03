@@ -99,6 +99,7 @@ import { agentCreationId } from '../agentCreationIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
+import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -2483,20 +2484,33 @@ export function buildRouter(): Router {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     sendJson(res, store.listContributions(params.id, store.identity(req.headers).tenant.id))
   })
-  r.post('/projects/:id/contributions', async ({ req, res, params, body }) => {
-    const input = await body<OpenContributionRequest>()
-    if (!input?.title?.trim()) return sendError(res, 'bad_request', 'a non-empty title is required')
+  r.post('/projects/:id/contributions', idempotent(async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalContributionId = idempotencyKey
+      ? contributionCreationId(who.tenant.id, params.id, idempotencyKey)
+      : undefined
+    const represented = logicalContributionId
+      ? store.listContributions(params.id, who.tenant.id)
+        .find((contribution) => contribution.id === logicalContributionId)
+      : undefined
+    // The durable row identity outlives the response cache. A changed Retry
+    // cannot duplicate or rewrite work that was already declared.
+    if (represented) return sendJson(res, represented)
+    const input = await body<OpenContributionRequest>()
+    if (!input?.title?.trim()) return sendError(res, 'bad_request', 'a non-empty title is required')
     const out = store.openContribution(
       params.id,
       { ...input, title: input.title.trim(), ...(typeof input.summary === 'string' ? { summary: input.summary.trim() } : {}) },
       who.tenant.id,
       userPrincipal(who),
+      { logicalId: logicalContributionId },
     )
     if (out === 'capped') return sendError(res, 'conflict', 'This project’s ledger is at its open-contribution cap')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This Contribution identity is not valid for this Project')
     sendJson(res, out)
-  })
+  }))
   r.post('/projects/:id/contributions/:cid/comments', async ({ req, res, params, body }) => {
     const input = await body<PostContributionNoteRequest>()
     if (typeof input?.body !== 'string' || !input.body.trim()) {

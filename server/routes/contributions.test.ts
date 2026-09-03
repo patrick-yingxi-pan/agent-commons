@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
+import { contributionCreationId } from '../contributionCreationIdentity.ts'
 
 const A = 'tenant-contrib-A' // project owner
 const B = 'tenant-contrib-B' // contributor
@@ -209,6 +210,51 @@ test('the TOTAL cap bounds an open→land loop — self-landing cannot grow a le
   }
   const over = await call('POST', `/projects/${totalId}/contributions`, { title: 'one too many' }, { 'x-tenant-id': B })
   assert.equal(over.status, 409, 'the 201st row is refused even with zero open')
+})
+
+test('a keyed Contribution owns one immutable ledger row beyond response-cache lifetime', async () => {
+  const projectId = `p-contrib-keyed-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Durable Contribution', projectDescription: '' }, A)
+  const key = `contribution-create-${n}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+  const request = {
+    title: 'Declare one durable change',
+    summary: 'Keep the exact intent through acknowledgement loss.',
+    subGoal: 'Reliable ledger entry',
+  }
+  const expectedId = contributionCreationId(A, projectId, key)
+
+  const created = await call('POST', `/projects/${projectId}/contributions`, request, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+  const cachedReplay = await call('POST', `/projects/${projectId}/contributions`, {
+    title: 'Changed retry must not duplicate work',
+    summary: 'Changed summary',
+  }, headers)
+  assert.equal(cachedReplay.status, 200)
+  assert.equal(cachedReplay.headers['idempotency-replayed'], 'true')
+  assert.equal(cachedReplay.json.title, request.title)
+
+  // Fill the open ledger after the original commit. A fresh router models
+  // process-local response-cache loss: durable identity must answer before a
+  // changed body or current admission cap can create or reject different work.
+  for (let i = 0; i < 49; i += 1) {
+    const filler = store.openContribution(projectId, { title: `filler ${i}` }, A, undefined)
+    assert.notEqual(filler, 'capped')
+  }
+  const durableReplay = await callFresh('POST', `/projects/${projectId}/contributions`, {
+    title: null,
+    summary: 'Invalid changed retry',
+  }, headers)
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.id, expectedId)
+  assert.equal(durableReplay.json.title, request.title)
+  assert.equal(durableReplay.json.summary, request.summary)
+  assert.equal(durableReplay.json.subGoal, request.subGoal)
+  const roster = store.listContributions(projectId, A)
+  assert.equal(roster.filter((contribution) => contribution.id === expectedId).length, 1,
+    'durable identity, not only the response cache, prevents duplicate declared work')
 })
 
 test('envelope: propose is open deliberation; APPROVE is owner-only (the floor rule); amendment invalidates approval', async () => {

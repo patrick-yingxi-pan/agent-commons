@@ -79,7 +79,7 @@ test('share → feed → discuss → improve: one thread, one ledger, across two
   await expect(grace.page.getByText(COMMENT)).toBeVisible()
 
   // ── Grace offers a change (propose tier); the consent buttons are the OWNER's ──
-  await grace.page.getByRole('button', { name: 'Offer a change — the owner lands it by consent' }).click()
+  await grace.page.getByRole('button', { name: 'Offer a change' }).click()
   await grace.page.getByLabel('The change you propose').fill(CHANGE)
   await grace.page.getByLabel('Why this change').fill('Retention questions dominate the reviews.')
   await grace.page.getByRole('button', { name: 'Offer', exact: true }).click()

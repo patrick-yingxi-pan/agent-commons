@@ -294,7 +294,6 @@ import {
   reportDiscussionPost,
   setDiscussionState,
   markDiscussionRead,
-  openContribution,
   noteContribution,
   landContribution,
   proposeEnvelope,
@@ -433,6 +432,11 @@ import {
   isDelegationCreationHeld,
   useDelegationCreationStatus,
 } from '../controller/delegationCreationMutations.ts'
+import {
+  enqueueContributionCreation,
+  isContributionCreationHeld,
+  useContributionCreationStatus,
+} from '../controller/contributionCreationMutations.ts'
 import {
   SYSTEM_PROMPT_DELETE_SCOPE,
   enqueueSystemPromptDeletion,
@@ -5717,6 +5721,8 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
   const subject: SocialEntityRef = { kind: 'project', id: project.id }
   const contributionList = useContributions(project.id).data ?? []
   const proposalList = useSocialProposals(subject.kind, subject.id).data ?? []
+  const tenantId = useMe().data?.tenant.id
+  useContributionCreationStatus()
   // Capability shapes affordances: offering needs the `propose` tier, so a
   // comment-tier visitor is not shown a form the server would refuse.
   const canPropose = useSocialCapability(subject.kind, subject.id).data?.canPropose === true
@@ -5725,38 +5731,45 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
   const [summary, setSummary] = useState('')
   const [text, setText] = useState('')
   const [rationale, setRationale] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [offerBusy, setOfferBusy] = useState(false)
+  const [contributionError, setContributionError] = useState<string | null>(null)
+  const [offerError, setOfferError] = useState<string | null>(null)
+  const contributionHeld = isContributionCreationHeld(project.id)
   const openPage = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
   const declare = async () => {
-    if (busy || !title.trim()) return
-    setBusy(true)
-    setError(null)
+    if (contributionHeld || !tenantId || !title.trim()) return
+    setContributionError(null)
     try {
-      const c = await openContribution(project.id, { title: title.trim(), summary: summary.trim() || undefined })
-      setTitle('')
-      setSummary('')
-      setComposing(null)
-      openPage(c.id)
+      const result = await enqueueContributionCreation({
+        tenantId,
+        projectId: project.id,
+        request: { title: title.trim(), summary: summary.trim() || undefined },
+      })
+      if (result.outcome === 'applied') {
+        setTitle('')
+        setSummary('')
+        setComposing(null)
+        openPage(result.contributionId)
+      } else {
+        setContributionError('Your Contribution is still here. Review it, then declare it again when ready.')
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not open this contribution.')
-    } finally {
-      setBusy(false)
+      setContributionError(e instanceof Error ? e.message : 'Could not declare this Contribution.')
     }
   }
   const offer = async () => {
-    if (busy || !text.trim() || !rationale.trim()) return
-    setBusy(true)
-    setError(null)
+    if (offerBusy || !text.trim() || !rationale.trim()) return
+    setOfferBusy(true)
+    setOfferError(null)
     try {
       await openSocialProposal({ subject, delta: { kind: 'suggestion', text: text.trim() }, rationale: rationale.trim() })
       setText('')
       setRationale('')
       setComposing(null)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not offer this change.')
+      setOfferError(e instanceof Error ? e.message : 'Could not offer this change.')
     } finally {
-      setBusy(false)
+      setOfferBusy(false)
     }
   }
   const rows = [
@@ -5778,21 +5791,26 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
   return (
     <FoldSection
       title="Changes"
+      heldOpen={contributionHeld}
       summary={countOr(rows.length, 'entry', 'entries', 'Nothing yet')}
       actions={
         <>
           <SectionAction
-            label="Open a contribution — declare work before doing it"
+            label="Declare work"
             icon={<Plus size={14} />}
-            onClick={() => setComposing((v) => (v === 'contribution' ? null : 'contribution'))}
+            onClick={() => { if (!contributionHeld) setComposing((v) => (v === 'contribution' ? null : 'contribution')) }}
             expanded={composing === 'contribution'}
+            disabled={contributionHeld || !tenantId}
+            disabledReason={contributionHeld ? 'Waiting for server acknowledgement' : 'Waiting for your account'}
           />
           {canPropose && (
             <SectionAction
-              label="Offer a change — the owner lands it by consent"
+              label="Offer a change"
               icon={<Sparkles size={14} />}
               onClick={() => setComposing((v) => (v === 'proposal' ? null : 'proposal'))}
               expanded={composing === 'proposal'}
+              disabled={contributionHeld}
+              disabledReason="Finish declaring this Contribution first"
             />
           )}
         </>
@@ -5804,6 +5822,7 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
             aria-label="The change you propose"
             value={text}
             onChange={(e) => setText(e.target.value)}
+            disabled={offerBusy}
             placeholder="The change — what should be different?"
             rows={2}
             className={`${FORM_INPUT_CLASS} resize-none`}
@@ -5812,12 +5831,56 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
             aria-label="Why this change"
             value={rationale}
             onChange={(e) => setRationale(e.target.value)}
+            disabled={offerBusy}
             placeholder="Why — opens the review thread"
             className={FORM_INPUT_CLASS}
           />
-          <button onClick={() => void offer()} disabled={busy || !text.trim() || !rationale.trim()} className={INLINE_ACTION_CLASS}>
-            Offer
+          <button onClick={() => void offer()} disabled={offerBusy || !text.trim() || !rationale.trim()} className={INLINE_ACTION_CLASS}>
+            {offerBusy ? 'Offering…' : 'Offer'}
           </button>
+          {offerError && <p className="text-[11px] text-danger">{offerError}</p>}
+        </div>
+      )}
+      {composing === 'contribution' && (
+        <div data-contribution-creation-form className="mb-3 space-y-1.5" aria-busy={contributionHeld}>
+          <p className="text-[11px] leading-relaxed text-ink-faint">
+            Name the intended change before work begins. This becomes its durable record for review and landing.
+          </p>
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void declare()
+              if (e.key === 'Escape' && !contributionHeld) setComposing(null)
+            }}
+            placeholder="What will change? (required)"
+            aria-label="Contribution title"
+            disabled={contributionHeld}
+            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+          />
+          <div className="flex items-center gap-1.5">
+            <input
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void declare()
+                if (e.key === 'Escape' && !contributionHeld) setComposing(null)
+              }}
+              placeholder="Why, scope, or constraints (optional)…"
+              aria-label="Contribution summary"
+              disabled={contributionHeld}
+              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            />
+            <button
+              onClick={() => void declare()}
+              disabled={contributionHeld || !tenantId || !title.trim()}
+              className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
+            >
+              {contributionHeld ? 'Declaring…' : 'Declare'}
+            </button>
+          </div>
+          {contributionError && <p className="text-[11px] text-danger">{contributionError}</p>}
         </div>
       )}
       {rows.length === 0 && composing === null ? (
@@ -5906,43 +5969,6 @@ function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: 
           })}
         </CardList>
       ) : null}
-      {composing === 'contribution' && (
-        <div className="mt-2 space-y-1.5">
-          <input
-            autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void declare()
-              if (e.key === 'Escape') setComposing(null)
-            }}
-            placeholder="What will this contribution do? (one line)"
-            aria-label="Contribution title"
-            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-          />
-          <div className="flex items-center gap-1.5">
-            <input
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void declare()
-                if (e.key === 'Escape') setComposing(null)
-              }}
-              placeholder="Summary — what changes, and why (optional)…"
-              aria-label="Contribution summary"
-              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-            />
-            <button
-              onClick={() => void declare()}
-              disabled={busy || !title.trim()}
-              className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-            >
-              Open
-            </button>
-          </div>
-        </div>
-      )}
-      {error && <p className="mt-2 text-[11px] text-danger">{error}</p>}
     </FoldSection>
   )
 }

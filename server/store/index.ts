@@ -7679,7 +7679,20 @@ export const store = {
   /** Open (declare) a contribution — the CW1 intent made visible. Any tenant that
    *  can SEE the Project may open one (the route validates visibility, the
    *  open-subgoal pattern); free text is capped at the funnel. */
-  openContribution(projectId: string, req: OpenContributionRequest, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'capped' {
+  openContribution(
+    projectId: string,
+    req: OpenContributionRequest,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): Contribution | 'capped' | 'invalid' {
+    if (options.logicalId) {
+      const represented = contributions.find((contribution) => contribution.id === options.logicalId)
+      if (represented) {
+        if (represented.projectId !== projectId || represented.contributorTenant !== tenantId) return 'invalid'
+        return publicContribution(represented, tenantId)
+      }
+    }
     const rows = contributions.filter((c) => c.projectId === projectId)
     if (rows.length >= MAX_CONTRIBUTIONS_PER_PROJECT || rows.filter((c) => c.status === 'open').length >= MAX_OPEN_CONTRIBUTIONS_PER_PROJECT) {
       return 'capped'
@@ -7691,24 +7704,30 @@ export const store = {
     // ride the public ledger as a leaked private identifier (review finding).
     const namedSession = req.sessionId ? SESSIONS.find((s) => s.id === req.sessionId) : undefined
     const sessionOk = namedSession !== undefined && this.sessionVisibleToTenant(namedSession, tenantId)
-    const c: StoredContribution = {
-      id: `contrib-${(contributionSeq += 1)}`,
-      projectId,
-      title: req.title.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-      summary: (req.summary ?? '').slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-      ...(req.subGoal?.trim() ? { subGoal: req.subGoal.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
-      ...(sessionOk ? { sessionId: req.sessionId } : {}),
-      contributor: actor,
-      contributorTenant: tenantId,
-      ...(principal ? { contributorPrincipal: principal } : {}),
-      status: 'open',
-      openedAt: now,
-      events: [{ id: `cev-${(contributionSeq += 1)}`, kind: 'opened', at: now, actor, ...(principal ? { principal } : {}) }],
-    }
-    contributions.push(c)
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
+    return commitMutationBatch(() => {
+      const id = options.logicalId ?? `contrib-${contributionSeq + 1}`
+      if (!options.logicalId) contributionSeq += 1
+      const eventId = `cev-${contributionSeq + 1}`
+      contributionSeq += 1
+      const c: StoredContribution = {
+        id,
+        projectId,
+        title: req.title.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        summary: (req.summary ?? '').slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        ...(req.subGoal?.trim() ? { subGoal: req.subGoal.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
+        ...(sessionOk ? { sessionId: req.sessionId } : {}),
+        contributor: actor,
+        contributorTenant: tenantId,
+        ...(principal ? { contributorPrincipal: principal } : {}),
+        status: 'open',
+        openedAt: now,
+        events: [{ id: eventId, kind: 'opened', at: now, actor, ...(principal ? { principal } : {}) }],
+      }
+      contributions.push(c)
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
+    })
   },
   /** Append a note to a contribution's timeline — the flat discussion thread.
    *  Deliberately allowed AFTER landing too: the page keeps accruing (CW7 — a

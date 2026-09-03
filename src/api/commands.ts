@@ -40,7 +40,6 @@ import {
   type MarkDiscussionReadRequest,
   type SocialProposal,
   type SocialEntityRef,
-  type OpenContributionRequest,
   type ProposeEnvelopeRequest,
   type CrystallizeRequest,
   type ProposeAgentChangeRequest,
@@ -1003,13 +1002,6 @@ export async function declineSocialProposal(
   acceptSocialProposal(subject, p)
   invalidate(keys.socialProposals(subject.kind, subject.id))
   return p
-}
-
-/** Open (declare) a contribution on a project's ledger (workflow Phase A). */
-export async function openContribution(projectId: string, req: OpenContributionRequest): Promise<Contribution> {
-  const c = await apiPost<Contribution>(paths.contributions(projectId), req)
-  invalidate(keys.contributions(projectId))
-  return c
 }
 
 /** Append a note to a contribution's timeline (allowed after landing too — CW7). */

@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'conversation-delete' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
+  kind: 'conversation' | 'conversation-delete' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'contribution-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -42,6 +42,7 @@ export function RevisionedMutationNotice({
       data-commission-creation={kind === 'commission-create' ? phase : undefined}
       data-commission-deletion={kind === 'commission-delete' ? phase : undefined}
       data-delegation-creation={kind === 'delegation-create' ? phase : undefined}
+      data-contribution-creation={kind === 'contribution-create' ? phase : undefined}
       data-saved-context-mutation={kind === 'saved-context' ? phase : undefined}
       data-saved-context-deletion={kind === 'saved-context-delete' ? phase : undefined}
       data-schedule-run={kind === 'routine-run' ? phase : undefined}
