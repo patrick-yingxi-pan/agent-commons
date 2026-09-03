@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { filesUnder, read, ROOT, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
-import { SHARE_TIERS } from '../../contract/social.ts'
+import { SHARE_TIERS, type ProposableScheduleField } from '../../contract/social.ts'
 import { TIER_LABELS, TIER_BADGE_CLASS } from './tierBadge.ts'
 
 // The ONE source walker (tests/helpers/source.ts) — it THROWS when a scan
@@ -232,6 +232,19 @@ test('the artifact offer form and the server validator share ONE patchability pr
   assert.equal(artifactPatchDelta(1, '   ', 'Prose.'), null, 'blank text')
   assert.equal(artifactPatchDelta(1, 'Prose.', 'Prose.'), null, 'identical — a no-op that would burn an L#')
   assert.deepEqual(artifactPatchDelta(1, ' New. ', 'Prose.'), { kind: 'artifact-patch', block: 1, text: 'New.' })
+})
+
+test('the typed routine offer form speaks in human labels, never wire keys', async () => {
+  const { scheduleProposalFieldLabel, scheduleProposalBooleanLabel } = await import('./proposalForm.ts')
+  assert.deepEqual(
+    ['enabled', 'name', 'prompt', 'cadence', 'timezone', 'notifyOnFailure'].map((field) =>
+      scheduleProposalFieldLabel(field as ProposableScheduleField)),
+    ['Run status', 'Name', 'Instructions', 'Schedule', 'Time zone', 'Failure alerts'],
+  )
+  assert.equal(scheduleProposalBooleanLabel('enabled', true), 'On')
+  assert.equal(scheduleProposalBooleanLabel('enabled', false), 'Off')
+  assert.equal(scheduleProposalBooleanLabel('notifyOnFailure', true), 'Notify on failure')
+  assert.equal(scheduleProposalBooleanLabel('notifyOnFailure', false), 'Don’t notify')
 })
 
 /** An offer form that can never submit is the dead affordance this layer's

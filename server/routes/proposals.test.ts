@@ -9,7 +9,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
+import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 
 const OWNER = 'tenant-prop-owner'
 const BYSTANDER = 'tenant-prop-bystander'
@@ -25,7 +26,7 @@ async function arena(tier: 'comment' | 'propose' = 'propose') {
     { 'x-tenant-id': OWNER },
   )
   assert.equal(g.status, 200)
-  return { projectId, subject: { kind: 'project', id: projectId } }
+  return { projectId, subject: { kind: 'project', id: projectId }, grantId: g.json.id as string }
 }
 
 test('offer: propose tier required; the review thread anchors to the proposal and inherits the subject wall', async () => {
@@ -59,6 +60,86 @@ test('offer: propose tier required; the review thread anchors to the proposal an
   assert.equal(asBystander.status, 404)
   const ghostList = await call('GET', `/proposals?kind=project&id=${projectId}`, undefined, { 'x-tenant-id': BYSTANDER })
   assert.equal(ghostList.status, 404, 'the proposals list walls like the subject')
+})
+
+test('a keyed change offer owns one immutable proposal and review thread beyond response-cache lifetime', async () => {
+  const { subject } = await arena('propose')
+  const key = `social-proposal-create-${(n += 1)}`
+  const headers = { 'x-tenant-id': AUDIENCE, 'idempotency-key': key }
+  const request = {
+    subject,
+    delta: { kind: 'suggestion' as const, text: 'Keep one durable improvement' },
+    rationale: 'The exact rationale must remain the opening review post.',
+  }
+  const expectedId = socialProposalCreationId(AUDIENCE, key)
+
+  const created = await call('POST', '/proposals', request, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+  assert.equal(store.listNotifications(OWNER).filter((notification) =>
+    notification.kind === 'social.offered' && notification.subjectId === subject.id).length, 1)
+  const sameRouterReplay = await call('POST', '/proposals', {
+    subject,
+    delta: { kind: 'suggestion', text: 'Changed Retry must not replace the offer' },
+    rationale: 'Changed rationale.',
+  }, headers)
+  assert.equal(sameRouterReplay.status, 200)
+  assert.equal(sameRouterReplay.headers['idempotency-replayed'], undefined,
+    'domain replay rechecks current truth instead of serving a cached envelope')
+  assert.equal(sameRouterReplay.json.delta.text, request.delta.text)
+  assert.equal(store.listNotifications(OWNER).filter((notification) =>
+    notification.kind === 'social.offered' && notification.subjectId === subject.id).length, 1)
+
+  // Fill admission after the original commit. A fresh router models response-
+  // cache loss: durable identity must answer before malformed changed input or
+  // the current subject cap can reject or duplicate the original offer.
+  for (let i = 0; i < 99; i += 1) {
+    const filler = store.openSocialProposal({
+      subject,
+      delta: { kind: 'suggestion', text: `filler ${i}` },
+      rationale: `filler rationale ${i}`,
+    }, AUDIENCE)
+    assert.equal(typeof filler, 'object')
+  }
+  const durableReplay = await callFresh('POST', '/proposals', {
+    subject: null,
+    delta: null,
+    rationale: null,
+  }, headers)
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.id, expectedId)
+  assert.equal(durableReplay.json.delta.text, request.delta.text)
+  const rows = store.listSocialProposals(subject, AUDIENCE)
+  assert.equal(rows.filter((proposal) => proposal.id === expectedId).length, 1)
+  assert.equal(store.listNotifications(OWNER).filter((notification) =>
+    notification.kind === 'social.offered' && notification.subjectId === subject.id).length, 100,
+    'fresh-router replay rings no second bell beyond the 99 deliberate fillers')
+  const review = await call('GET', `/discussions/${created.json.discussionId}`, undefined, { 'x-tenant-id': AUDIENCE })
+  assert.equal(review.status, 200)
+  assert.equal(review.json.posts[0].body, request.rationale)
+})
+
+test('durable change-offer replay still obeys the subject’s current visibility wall', async () => {
+  const { subject, grantId } = await arena('propose')
+  const key = `social-proposal-wall-${(n += 1)}`
+  const headers = { 'x-tenant-id': AUDIENCE, 'idempotency-key': key }
+  const request = {
+    subject,
+    delta: { kind: 'suggestion' as const, text: 'A once-visible improvement' },
+    rationale: 'Visibility may be revoked after the offer.',
+  }
+  const offered = await call('POST', '/proposals', request, headers)
+  assert.equal(offered.status, 200)
+  assert.equal((await call('DELETE', `/grants/${grantId}`, undefined, { 'x-tenant-id': OWNER })).status, 200)
+
+  const sameRouterReplay = await call('POST', '/proposals', request, headers)
+  assert.equal(sameRouterReplay.status, 404,
+    'an earlier success envelope never bypasses revoked subject access')
+  const freshRouterReplay = await callFresh('POST', '/proposals', request, headers)
+  assert.equal(freshRouterReplay.status, 404,
+    'durable representation never bypasses revoked subject access')
+  assert.equal((await call('GET', `/proposals/${offered.json.id}`, undefined, { 'x-tenant-id': AUDIENCE })).status, 404)
 })
 
 test('land: owner-only consent, monotonic per-subject L#, a relation-op delta actually applies', async () => {

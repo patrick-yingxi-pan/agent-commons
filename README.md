@@ -73,6 +73,9 @@ reconciles one exact authority row instead of granting the same policy twice.
 Declaring work follows the same rule: its title and summary stay visible before
 the Changes ledger until one exact durable Contribution is acknowledged, so a
 lost response cannot create a second review record.
+Offering a change now retains the complete typed change and rationale across
+Project, routine, and artifact forms until one exact Proposal is acknowledged;
+its review thread and owner notification cannot be duplicated by response loss.
 
 ```text
 contract/   Framework-free wire types and reducers imported verbatim by UI and server

@@ -6,9 +6,12 @@
  *  handler runs exactly once, while failures remain retryable.
  *  Keying includes the tenant (identity F2), so two tenants' keys can't collide.
  *
- *  Transient by design: this is a short-lived dedup cache (like reservations), TTL'd
- *  and never persisted. Production would back it with the shared store (F6) so it
- *  spans instances; the in-process map is the single-instance form.
+ *  This middleware is deliberately a short-lived response cache (like
+ *  reservations), TTL'd and never persisted. Creation domains that require
+ *  restart-safe acknowledgement additionally derive a persisted resource id
+ *  from the same key and return that represented truth before changed Retry
+ *  input is parsed. Routes without that domain identity retain only this
+ *  single-process replay guarantee.
  *
  *  Known limitations of this prototype slice (production hardening, not bugs):
  *   • Sequential dedup only — two *truly concurrent* same-key requests can both run

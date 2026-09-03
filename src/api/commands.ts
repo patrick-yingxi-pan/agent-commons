@@ -35,7 +35,6 @@ import {
   type OpenSubGoal,
   type Contribution,
   type Discussion,
-  type OpenProposalRequest,
   type SetFollowRequest,
   type MarkDiscussionReadRequest,
   type SocialProposal,
@@ -878,14 +877,6 @@ export async function setDiscussionState(did: string, state: 'open' | 'resolved'
   invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
   invalidate(keys.discussion(did))
   return d
-}
-
-/** Offer a change to a subject (social S3) — the rationale opens the review
- *  thread; the server walls on the propose tier. */
-export async function openSocialProposal(req: OpenProposalRequest): Promise<SocialProposal> {
-  const p = await apiPost<SocialProposal>(paths.socialProposalOpen(), req)
-  invalidate(keys.socialProposals(req.subject.kind, req.subject.id))
-  return p
 }
 
 /** Publish one acknowledged proposal verdict into the addressed list without

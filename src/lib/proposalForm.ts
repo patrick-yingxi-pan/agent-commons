@@ -19,6 +19,27 @@ import {
 /** Boolean fields render as a two-option select rather than a text box. */
 export const BOOLEAN_SCHEDULE_FIELDS = new Set<ProposableScheduleField>(['enabled', 'notifyOnFailure'])
 
+/** Human labels for the typed routine form; wire keys never become UI copy. */
+export function scheduleProposalFieldLabel(field: ProposableScheduleField): string {
+  switch (field) {
+    case 'enabled': return 'Run status'
+    case 'name': return 'Name'
+    case 'prompt': return 'Instructions'
+    case 'cadence': return 'Schedule'
+    case 'timezone': return 'Time zone'
+    case 'notifyOnFailure': return 'Failure alerts'
+  }
+}
+
+export function scheduleProposalBooleanLabel(
+  field: ProposableScheduleField,
+  enabled: boolean,
+): string {
+  return field === 'notifyOnFailure'
+    ? enabled ? 'Notify on failure' : 'Don’t notify'
+    : enabled ? 'On' : 'Off'
+}
+
 /** An empty or whitespace value yields NO delta, so the form can't post
  *  something the server's `isSchedulePatch` would refuse. */
 export function schedulePatchDelta(field: ProposableScheduleField, value: string): ProposalDelta | null {

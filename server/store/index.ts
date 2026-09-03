@@ -7358,11 +7358,30 @@ export const store = {
     if (!p || !this.grantSubjectVisible(p.subject, viewerTenant)) return undefined
     return publicSocialProposal(p, viewerTenant)
   },
+  /** Exact creator-only representation used before a keyed Retry body is read. */
+  getSocialProposalCreation(id: string, tenantId: string): SocialProposal | 'invalid' | undefined {
+    const p = socialProposals.find((candidate) => candidate.id === id)
+    if (!p) return undefined
+    if (p.offererTenant !== tenantId) return 'invalid'
+    if (!this.grantSubjectVisible(p.subject, tenantId)) return undefined
+    return publicSocialProposal(p, tenantId)
+  },
   /** Offer a change. Subject must be READABLE (else the existence-hiding 404)
    *  and the offerer PROPOSABLE. The rationale opens the review thread — a
    *  normal Discussion anchored to the new proposal (recursion, one thread
    *  machinery). */
-  openSocialProposal(req: OpenProposalRequest, tenantId: string): SocialProposal | 'forbidden' | 'capped' | 'invalid' | undefined {
+  openSocialProposal(
+    req: OpenProposalRequest,
+    tenantId: string,
+    options: { logicalId?: string } = {},
+  ): SocialProposal | 'forbidden' | 'capped' | 'invalid' | undefined {
+    if (options.logicalId) {
+      const represented = this.getSocialProposalCreation(options.logicalId, tenantId)
+      if (represented !== undefined) return represented
+      // A represented row may have become unreadable since it was offered.
+      // Its identity remains occupied; never reuse it for changed Retry input.
+      if (socialProposals.some((candidate) => candidate.id === options.logicalId)) return undefined
+    }
     if (!this.grantSubjectVisible(req.subject, tenantId)) return undefined
     if (!this.socialSubjectProposable(req.subject, tenantId)) return 'forbidden'
     if (req.delta.kind === 'suggestion' && !req.delta.text.trim()) return 'invalid'
@@ -7408,7 +7427,7 @@ export const store = {
     const rows = socialProposals.filter((p) => p.subject.kind === req.subject.kind && p.subject.id === req.subject.id)
     if (rows.length >= MAX_PROPOSALS_PER_SUBJECT) return 'capped'
     const p: StoredSocialProposal = {
-      id: `sprop-${(socialProposalSeq += 1)}`,
+      id: options.logicalId ?? `sprop-${(socialProposalSeq += 1)}`,
       subject: { kind: req.subject.kind, id: req.subject.id },
       delta: req.delta.kind === 'suggestion' ? { kind: 'suggestion', text: req.delta.text.slice(0, MAX_PROPOSAL_CHARS) } : req.delta,
       state: 'offered',

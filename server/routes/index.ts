@@ -100,6 +100,7 @@ import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
+import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -2441,12 +2442,31 @@ export function buildRouter(): Router {
     if (!store.grantSubjectVisible(ref, tenant)) return sendError(res, 'not_found', `No ${ref.kind} '${ref.id}'`)
     sendJson(res, store.listSocialProposals(ref, tenant))
   })
+  // This create owns idempotence in its durable Proposal identity rather than
+  // the generic response cache: every Retry must recheck the current subject
+  // wall and return the current represented row, not an older HTTP envelope.
   r.post('/proposals', async ({ req, res, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalProposalId = idempotencyKey
+      ? socialProposalCreationId(tenantId, idempotencyKey)
+      : undefined
+    const represented = logicalProposalId
+      ? store.getSocialProposalCreation(logicalProposalId, tenantId)
+      : undefined
+    // Durable proposal identity outlives the response cache. Its current
+    // subject wall is checked before changed Retry input can be parsed.
+    if (represented && represented !== 'invalid') return sendJson(res, represented)
+    if (represented === 'invalid') return sendError(res, 'bad_request', 'This change-offer identity is not valid for this account')
     const input = await body<OpenProposalRequest>()
     if (!input?.subject?.kind || !input.subject.id || !input.delta?.kind || typeof input.rationale !== 'string' || !input.rationale.trim()) {
       return sendError(res, 'bad_request', 'subject {kind,id}, a typed delta, and a non-empty rationale are required')
     }
-    const out = store.openSocialProposal({ ...input, rationale: input.rationale.trim() }, store.identity(req.headers).tenant.id)
+    const out = store.openSocialProposal(
+      { ...input, rationale: input.rationale.trim() },
+      tenantId,
+      { logicalId: logicalProposalId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No ${input.subject.kind} '${input.subject.id}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Proposing needs the propose tier')
     if (out === 'capped') return sendError(res, 'conflict', 'This subject’s proposals are at their cap')

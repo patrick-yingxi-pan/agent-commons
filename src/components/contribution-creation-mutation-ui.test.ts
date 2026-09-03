@@ -27,11 +27,12 @@ test('Declare work holds one exact Contribution until server truth', () => {
   assert.doesNotMatch(panel, /openContribution\(/,
     'the form cannot bypass acknowledgement-owned creation')
   assert.match(panel, /enqueueContributionCreation\(\{[\s\S]*?tenantId,[\s\S]*?projectId: project\.id,[\s\S]*?request:/)
-  assert.match(panel, /heldOpen=\{contributionHeld\}/,
+  assert.match(panel, /const changesHeld = contributionHeld \|\| proposalHeld/)
+  assert.match(panel, /heldOpen=\{changesHeld\}/,
     'the Changes section cannot fold away held work intent')
-  assert.match(panel, /data-contribution-creation-form[\s\S]*?aria-busy=\{contributionHeld\}/)
-  assert.match(panel, /disabled=\{contributionHeld\}/, 'value-bearing fields freeze')
-  assert.match(panel, /e\.key === 'Escape' && !contributionHeld/,
+  assert.match(panel, /data-contribution-creation-form[\s\S]*?aria-busy=\{changesHeld\}/)
+  assert.match(panel, /disabled=\{changesHeld\}/, 'value-bearing fields freeze')
+  assert.match(panel, /e\.key === 'Escape' && !changesHeld/,
     'the keyboard cannot dismiss unresolved work')
   assert.match(panel, /result\.outcome === 'applied'[\s\S]*?openPage\(result\.contributionId\)/,
     'only acknowledged or reconciled truth navigates to the server-derived row')

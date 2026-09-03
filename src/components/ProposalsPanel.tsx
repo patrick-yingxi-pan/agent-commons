@@ -26,7 +26,7 @@ import {
   type SocialProposal,
 } from '../../contract/index.ts'
 import {
-  openSocialProposal,
+  useMe,
   useArtifactContent,
   useSocialCapability,
   useSocialProposals,
@@ -39,10 +39,17 @@ import {
   artifactPatchDelta,
   offerFormFor,
   patchableBlocks,
+  scheduleProposalBooleanLabel,
+  scheduleProposalFieldLabel,
   schedulePatchDelta,
   suggestionDelta,
 } from '../lib/proposalForm'
 import { useRelations } from '../controller/useRelations'
+import {
+  enqueueSocialProposalCreation,
+  isSocialProposalCreationHeld,
+  useSocialProposalCreationStatus,
+} from '../controller/socialProposalCreationMutations.ts'
 import { SectionAction } from './SectionAction'
 import { ProposalVerdictActions } from './ProposalVerdictActions'
 
@@ -71,12 +78,15 @@ export function ProposalsPanel({
 }) {
   const list = useSocialProposals(subject.kind, subject.id).data ?? []
   const canPropose = useSocialCapability(subject.kind, subject.id).data?.canPropose === true
+  const tenantId = useMe().data?.tenant.id
+  useSocialProposalCreationStatus()
   const [composing, setComposing] = useState(false)
   const [field, setField] = useState<ProposableScheduleField>('cadence')
   const [value, setValue] = useState('')
   const [block, setBlock] = useState<number | null>(null)
   const [rationale, setRationale] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const held = isSocialProposalCreationHeld(subject)
 
   // An artifact subject resolves its body through the ONE name-keyed library
   // the previews read — already the server's per-caller projection, so the
@@ -108,14 +118,21 @@ export function ProposalsPanel({
         : suggestionDelta(value)
 
   const offer = async () => {
-    if (!delta || !rationale.trim()) return
+    if (held || !tenantId || !delta || !rationale.trim()) return
     setError(null)
     try {
-      await openSocialProposal({ subject, delta, rationale: rationale.trim() })
-      setValue('')
-      setBlock(null)
-      setRationale('')
-      setComposing(false)
+      const outcome = await enqueueSocialProposalCreation({
+        tenantId,
+        request: { subject, delta, rationale: rationale.trim() },
+      })
+      if (outcome === 'applied') {
+        setValue('')
+        setBlock(null)
+        setRationale('')
+        setComposing(false)
+      } else {
+        setError('Your change offer is still here. Review it, then offer it again when ready.')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not offer that change.')
     }
@@ -133,25 +150,29 @@ export function ProposalsPanel({
   return (
     <Section
       title="Improvements"
+      heldOpen={held}
       summary={rows.length === 0 ? 'No improvements offered' : `${rows.length} improvement${rows.length === 1 ? '' : 's'}`}
       actions={
         canPropose ? (
           <SectionAction
-            label={composing ? 'Cancel change offer' : 'Offer a change'}
+            label={held ? 'Offering change' : composing ? 'Cancel change offer' : 'Offer a change'}
             icon={<Plus size={14} />}
-            onClick={() => setComposing((v) => !v)}
+            onClick={() => { if (!held) setComposing((v) => !v) }}
             expanded={composing}
+            disabled={held || !tenantId}
+            disabledReason={held ? 'Waiting for server acknowledgement' : 'Waiting for your account'}
           />
         ) : undefined
       }
     >
       {composing && (
-        <div className="space-y-1.5 border-b border-line pb-3">
+        <div data-social-proposal-creation-form className="space-y-1.5 border-b border-line pb-3" aria-busy={held}>
           {form === 'schedule-fields' ? (
             <div className="flex flex-wrap gap-1.5">
               <select
                 aria-label="Field to change"
                 value={field}
+                disabled={held}
                 onChange={(e) => {
                   setField(e.target.value as ProposableScheduleField)
                   setValue('')
@@ -160,21 +181,22 @@ export function ProposalsPanel({
               >
                 {PROPOSABLE_SCHEDULE_FIELDS.map((f) => (
                   <option key={f} value={f}>
-                    {f}
+                    {scheduleProposalFieldLabel(f)}
                   </option>
                 ))}
               </select>
               {BOOLEAN_SCHEDULE_FIELDS.has(field) ? (
-                <select aria-label="New value" value={value} onChange={(e) => setValue(e.target.value)} className={`${FORM_INPUT_CLASS} w-32 shrink-0`}>
+                <select aria-label="New value" value={value} onChange={(e) => setValue(e.target.value)} disabled={held} className={`${FORM_INPUT_CLASS} w-32 shrink-0`}>
                   <option value="">choose…</option>
-                  <option value="true">on</option>
-                  <option value="false">off</option>
+                  <option value="true">{scheduleProposalBooleanLabel(field, true)}</option>
+                  <option value="false">{scheduleProposalBooleanLabel(field, false)}</option>
                 </select>
               ) : (
                 <input
                   aria-label="New value"
                   value={value}
                   onChange={(e) => setValue(e.target.value)}
+                  disabled={held}
                   placeholder={field === 'cadence' ? 'e.g. Every 2 hours' : 'New value'}
                   className={`${FORM_INPUT_CLASS} min-w-24 flex-1`}
                 />
@@ -185,6 +207,7 @@ export function ProposalsPanel({
               <select
                 aria-label="Block to rewrite"
                 value={block ?? ''}
+                disabled={held}
                 onChange={(e) => {
                   const next = e.target.value === '' ? null : Number(e.target.value)
                   setBlock(next)
@@ -206,7 +229,7 @@ export function ProposalsPanel({
                 value={value}
                 onChange={(e) => setValue(e.target.value)}
                 rows={3}
-                disabled={block === null}
+                disabled={held || block === null}
                 placeholder="The rewritten text"
                 className={`${FORM_INPUT_CLASS} w-full resize-y`}
               />
@@ -216,6 +239,7 @@ export function ProposalsPanel({
               aria-label="Suggested change"
               value={value}
               onChange={(e) => setValue(e.target.value)}
+              disabled={held}
               rows={3}
               placeholder="What should change"
               className={`${FORM_INPUT_CLASS} w-full resize-y`}
@@ -225,12 +249,13 @@ export function ProposalsPanel({
             aria-label="Why this change"
             value={rationale}
             onChange={(e) => setRationale(e.target.value)}
+            disabled={held}
             placeholder="Why — this opens the review thread"
             className={FORM_INPUT_CLASS}
           />
           <div className="flex items-center gap-2">
-            <button onClick={() => void offer()} disabled={!delta || !rationale.trim()} className={INLINE_ACTION_CLASS}>
-              Offer
+            <button onClick={() => void offer()} disabled={held || !tenantId || !delta || !rationale.trim()} className={INLINE_ACTION_CLASS}>
+              {held ? 'Offering…' : 'Offer'}
             </button>
             {error && <span className="min-w-0 truncate text-[11px] text-danger">{error}</span>}
           </div>

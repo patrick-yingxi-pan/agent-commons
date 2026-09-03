@@ -45,10 +45,16 @@ test('a clean draft connects a verified model and returns ready for its first co
     { width: 1280, height: 800 },
   ]) {
     await page.setViewportSize(viewport)
-    const box = await setupCard.boundingBox()
-    expect(box, `${viewport.width}x${viewport.height} setup card`).not.toBeNull()
-    expect(box!.x).toBeGreaterThanOrEqual(8)
-    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width - 8)
+    // Narrowing the shell collapses its rail with a short transition. Assert
+    // the settled geometry instead of sampling one intermediate animation
+    // frame and reporting a false overflow.
+    await expect.poll(async () => {
+      const box = await setupCard.boundingBox()
+      return box !== null && box.x >= 8 && box.x + box.width <= viewport.width - 8
+    }, {
+      message: `${viewport.width}x${viewport.height} setup card stays inside its 8px inset`,
+      timeout: ms(5_000),
+    }).toBe(true)
     await expect(page.getByRole('button', { name: 'Connect a model', exact: true })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
   }

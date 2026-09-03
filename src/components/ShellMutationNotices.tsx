@@ -6,6 +6,7 @@ import { CommissionCreationMutationNotice } from './CommissionCreationMutationNo
 import { DispatchMutationNotice } from './DispatchMutationNotice'
 import { DelegationCreationMutationNotice } from './DelegationCreationMutationNotice'
 import { ContributionCreationMutationNotice } from './ContributionCreationMutationNotice'
+import { SocialProposalCreationMutationNotice } from './SocialProposalCreationMutationNotice'
 import { GrantMutationNotice } from './GrantMutationNotice'
 import { ProposalVerdictMutationNotice } from './ProposalVerdictMutationNotice'
 import { ProviderDefinitionMutationNotice } from './ProviderDefinitionMutationNotice'
@@ -35,6 +36,7 @@ export function ShellMutationNotices() {
       <DispatchMutationNotice />
       <DelegationCreationMutationNotice />
       <ContributionCreationMutationNotice />
+      <SocialProposalCreationMutationNotice />
       <GrantMutationNotice />
       <SocialPostMutationNotice />
       <ArtifactContentMutationNotice />
