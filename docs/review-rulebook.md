@@ -242,12 +242,13 @@ scoped persisted identity from its stable key, return represented truth before
 parsing Retry input, and close the form only on applied or reconciled truth.
 
 ### F-19 · Destruction retains reviewed truth until acknowledged absence
-A destructive first-party act names its durable scope, freezes the revision the
+A destructive first-party act names its durable scope, freezes every revision the
 person confirmed, and keeps the addressed resource visible but inoperable until
 acknowledgement or exact-absence reconciliation. Retry preserves one key;
 automatic rebase is forbidden, and mutually exclusive edits cannot race it.
-Viewer-relative projections must not advertise destructive controls to non-owners.
-**Detection:** `node --test src/controller/commission-mutation-holds.test.ts src/controller/agent-mutation-holds.test.ts src/components/commission-deletion-ui.test.ts src/components/agent-deletion-ui.test.ts server/routes/commission-crud.test.ts server/routes/worker-agents.test.ts server/cross-tenant-cooperation.test.ts`; rendered stale-consent, dependency, and early-absence walks live in `e2e/commission-deletion.spec.ts` and `e2e/agent-deletion.spec.ts`.
+Viewer-relative projections must not advertise destructive controls to non-owners;
+device cleanup after server commit remains explicit and independently retryable.
+**Detection:** `node --test src/controller/commission-mutation-holds.test.ts src/controller/agent-mutation-holds.test.ts src/controller/provider-mutation-holds.test.ts src/components/commission-deletion-ui.test.ts src/components/agent-deletion-ui.test.ts src/components/provider-deletion-ui.test.ts server/routes/commission-crud.test.ts server/routes/worker-agents.test.ts server/routes/routes-providers.test.ts server/cross-tenant-cooperation.test.ts`; rendered stale-consent, dependency, early-absence, and device-cleanup walks live in `e2e/commission-deletion.spec.ts`, `e2e/agent-deletion.spec.ts`, and `e2e/provider-deletion.spec.ts`.
 **Fix:** add a revision-pinned idempotent DELETE, atomic server cascade, shared
 edit/delete lease, retained row snapshot, named confirmation, and shell-owned
 Retry/Dismiss before exposing the destructive control.

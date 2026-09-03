@@ -582,12 +582,13 @@ test('delete = rotate without a successor: the secret dies with the row', async 
   await withEnv({ RELAY_POLL_MS: '30' }, async () => {
     await call('GET', '/relay/poll', undefined, auth(p.secret))
   })
-  // The retirement event must be routable to the OWNING tenant — i.e. emitted
-  // while the provider row still exists (delete-then-emit would misroute it to
-  // the default tenant, since the tenant gate resolves the row).
+  // The retirement event must be routable to the OWNING tenant. Atomic deletion
+  // publishes only after the row is gone, so emission freezes that routing fact.
   const routed: boolean[] = []
   const unsub = store.subscribe((e) => {
-    if (e.type === 'relay.disconnected' && e.providerId === p.id) routed.push(store.eventVisibleToTenant(e, 'tenant-zeta'))
+    if (e.type === 'relay.disconnected' && e.providerId === p.id) {
+      routed.push(e.tenantId === 'tenant-zeta' && store.eventVisibleToTenant(e, 'tenant-zeta'))
+    }
   })
   try {
     const del = await call('DELETE', `/providers/${p.id}`, undefined, foreign)

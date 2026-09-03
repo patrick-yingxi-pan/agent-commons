@@ -208,7 +208,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /getByPlaceholder\('Paste API key'/)
   assert.match(smoke, /Connect a model to begin/)
   assert.match(smoke, /first-run model handoff/)
-  assert.match(smoke, /agentCommonsDesktop\.credentials\.removeProvider/)
+  assert.match(smoke, /getByRole\('button', \{ name: 'Remove provider'/,
+    'packaged cleanup must cross the product confirmation/controller path')
   assert.match(smoke, /agentCommonsDesktop\.data\.createBackup/)
   assert.match(smoke, /agentCommonsDesktop\.data\.getRecoveryStatus/)
   assert.match(smoke, /agentCommonsDesktop\?\.data\?\.restoreBackup/)

@@ -8,7 +8,7 @@ test('provider definitions use one sparse held-draft recovery path', () => {
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'providerDefinitionMutations.ts')))
 
-  assert.match(section, /import \{ updateProviderDefinition \} from '\.\.\/controller\/providerDefinitionMutations'/,
+  assert.match(section, /import \{[\s\S]{0,200}updateProviderDefinition,[\s\S]{0,200}\} from '\.\.\/controller\/providerDefinitionMutations'/,
     'provider surfaces enter the acknowledgement queue, not the transport door')
   assert.doesNotMatch(section, /updateProvider,[\s\S]*from '\.\.\/api'/,
     'the component has no unconditional provider-definition command path')

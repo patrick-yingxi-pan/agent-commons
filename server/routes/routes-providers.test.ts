@@ -100,7 +100,14 @@ test('a keyed Session-provider create survives response-cache loss with one row 
   // The create key is recovery, not a permanent alternate credential. Once a
   // rotation changes durable truth, replaying the old mint cannot reveal or
   // restore its superseded bearer.
+  const beforeRotationRevision = store.listProviders(tenantId)
+    .find((provider) => provider.id === expectedId)?.connectionRevision ?? 0
   store.rotateProviderSecret(expectedId, tenantId)
+  assert.equal(
+    store.listProviders(tenantId).find((provider) => provider.id === expectedId)?.connectionRevision,
+    beforeRotationRevision + 1,
+    'secret rotation advances the connection truth a removal must pin',
+  )
   const afterRotation = await callFresh('POST', '/providers', body, headers)
   assert.equal(afterRotation.status, 409)
   assert.equal(afterRotation.json.secret, undefined)
@@ -530,18 +537,87 @@ test('POST with a non-conformant endpoint is a 400 — the provider is never reg
   assert.equal(store.listProviders().length, countBefore, 'nothing minted')
 })
 
-test('DELETE removes an unbound provider; a second DELETE 404s', async () => {
+test('DELETE pins both Provider revisions, batches session fallback, and replays one success', async () => {
   const created = await call('POST', '/providers', {
     label: 'Disposable',
     modelFamily: 'claude',
     effortLevels: ['Low'],
   })
-  const del = await call('DELETE', `/providers/${created.json.id}`)
+  const id = created.json.id as string
+  const changed = await call('PATCH', `/providers/${id}`, {
+    label: 'Disposable but changed',
+    expectedRevision: 0,
+  })
+  assert.equal(changed.status, 200)
+  const catalog = store.replaceStaticProviderModels(id, [{ id: 'picked', label: 'Picked' }], 0)
+  assert.equal(catalog?.connectionRevision, 1)
+  const session = store.createSession('Provider removal fallback', store.defaultTenantId(), id, 'picked')
+
+  for (const body of [
+    { expectedDefinitionRevision: 1 },
+    { expectedDefinitionRevision: -1, expectedConnectionRevision: 1 },
+    { expectedDefinitionRevision: 1, expectedConnectionRevision: 1, label: 'No' },
+  ]) {
+    const invalid = await call('DELETE', `/providers/${id}`, body)
+    assert.equal(invalid.status, 400, JSON.stringify(body))
+  }
+
+  const key = `provider-delete-${id}`
+  const headers = { 'idempotency-key': key }
+  for (const stale of [
+    { expectedDefinitionRevision: 0, expectedConnectionRevision: 1 },
+    { expectedDefinitionRevision: 1, expectedConnectionRevision: 0 },
+  ]) {
+    const refused = await call('DELETE', `/providers/${id}`, stale, headers)
+    assert.equal(refused.status, 409, JSON.stringify(stale))
+    assert.equal(store.listProviders().some((provider) => provider.id === id), true)
+    const currentSession = store.listSessions().find((candidate) => candidate.id === session.id)
+    assert.equal(currentSession?.providerId, id)
+    assert.equal(currentSession?.modelId, 'picked')
+  }
+
+  const observed: Array<{ providerPresent: boolean; providerId?: string; modelId?: string }> = []
+  const unsubscribe = store.subscribe((event) => {
+    if (
+      (event.type === 'provider.changed' && event.providerId === id) ||
+      (event.type === 'session.updated' && event.session.id === session.id)
+    ) {
+      const currentSession = store.listSessions().find((candidate) => candidate.id === session.id)
+      observed.push({
+        providerPresent: store.listProviders().some((provider) => provider.id === id),
+        ...(currentSession?.providerId ? { providerId: currentSession.providerId } : {}),
+        ...(currentSession?.modelId ? { modelId: currentSession.modelId } : {}),
+      })
+    }
+  })
+  const del = await call('DELETE', `/providers/${id}`, {
+    expectedDefinitionRevision: 1,
+    expectedConnectionRevision: 1,
+  }, headers)
+  unsubscribe()
   assert.equal(del.status, 200)
   assert.deepEqual(del.json, { ok: true })
+  assert.ok(observed.length >= 2)
+  assert.ok(observed.every((snapshot) =>
+    !snapshot.providerPresent && snapshot.providerId === undefined && snapshot.modelId === undefined),
+  'events publish only after Provider absence and conversation fallback are coherent')
 
-  const again = await call('DELETE', `/providers/${created.json.id}`)
+  const replay = await call('DELETE', `/providers/${id}`, {
+    expectedDefinitionRevision: 99,
+    expectedConnectionRevision: 99,
+  }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+
+  const again = await call('DELETE', `/providers/${id}`)
   assert.equal(again.status, 404)
+
+  const legacy = await call('POST', '/providers', {
+    label: 'Legacy Provider removal',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+  })
+  assert.equal((await call('DELETE', `/providers/${legacy.json.id}`)).status, 200)
 })
 
 test('DELETE refuses the default provider (409 — sessions resolve to it)', async () => {

@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'conversation-delete' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-delete' | 'provider' | 'provider-create' | 'system-prompt' | 'system-prompt-create' | 'commission' | 'commission-create' | 'commission-delete' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
+  kind: 'conversation' | 'conversation-delete' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'commission' | 'commission-create' | 'commission-delete' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -34,6 +34,7 @@ export function RevisionedMutationNotice({
       data-agent-deletion={kind === 'agent-delete' ? phase : undefined}
       data-provider-definition-mutation={kind === 'provider' ? phase : undefined}
       data-provider-creation={kind === 'provider-create' ? phase : undefined}
+      data-provider-deletion={kind === 'provider-delete' ? phase : undefined}
       data-system-prompt-definition-mutation={kind === 'system-prompt' ? phase : undefined}
       data-system-prompt-creation={kind === 'system-prompt-create' ? phase : undefined}
       data-commission-mutation={kind === 'commission' ? phase : undefined}

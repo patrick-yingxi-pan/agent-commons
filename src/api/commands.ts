@@ -17,6 +17,8 @@ import {
   type CreateAgentRequest,
   type DeleteAgentRequest,
   type DeleteCommissionRequest,
+  type DeleteProviderRequest,
+  type ProviderDeletionPrecondition as ProviderDeletePrecondition,
   type UpdateAgentRequest,
   type UpdateCommissionRequest,
   type CreatedProvider,
@@ -525,21 +527,27 @@ function acceptProviderConnection(provider: ModelProvider): ModelProvider {
   return merged
 }
 
+function acceptProviderAbsence(id: string): void {
+  mutate<ModelProvider[]>(keys.providers, (current) =>
+    (current ?? []).filter((candidate) => candidate.id !== id))
+}
+
+async function readProviderExact(id: string): Promise<ModelProvider | undefined> {
+  try {
+    return await apiGet<ModelProvider>(paths.provider(id))
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || error.status !== 404) throw error
+    acceptProviderAbsence(id)
+    return undefined
+  }
+}
+
 /** Re-read only the addressed provider after a conflict or uncertain response.
  * Other registry rows remain untouched so one reconciliation cannot rewind an
  * unrelated edit that landed while the list request was in flight. */
 export async function reconcileProviderConnection(id: string): Promise<ModelProvider | undefined> {
-  const rows = await apiGet<ModelProvider[]>(paths.providers)
-  const incoming = rows.find((candidate) => candidate.id === id)
-  const currentRows = peek<ModelProvider[]>(keys.providers)
-  if (!currentRows) {
-    setData(keys.providers, rows)
-    return incoming
-  }
-  if (!incoming) {
-    mutate<ModelProvider[]>(keys.providers, (current) => (current ?? []).filter((candidate) => candidate.id !== id))
-    return undefined
-  }
+  const incoming = await readProviderExact(id)
+  if (!incoming) return undefined
   return acceptProviderConnection(incoming)
 }
 
@@ -556,17 +564,8 @@ function acceptProviderDefinition(provider: ModelProvider): ModelProvider {
 
 /** Re-read only the addressed provider definition before a Retry/Dismiss. */
 export async function reconcileProviderDefinition(id: string): Promise<ModelProvider | undefined> {
-  const rows = await apiGet<ModelProvider[]>(paths.providers)
-  const incoming = rows.find((candidate) => candidate.id === id)
-  const currentRows = peek<ModelProvider[]>(keys.providers)
-  if (!currentRows) {
-    setData(keys.providers, rows)
-    return incoming
-  }
-  if (!incoming) {
-    mutate<ModelProvider[]>(keys.providers, (current) => (current ?? []).filter((candidate) => candidate.id !== id))
-    return undefined
-  }
+  const incoming = await readProviderExact(id)
+  if (!incoming) return undefined
   return acceptProviderDefinition(incoming)
 }
 
@@ -586,11 +585,17 @@ export async function patchProviderDefinition(
   return accepted
 }
 
-/** Remove a provider. Rejects (so the caller can surface the message) when the server
- *  refuses — the default provider, or one an Agent still binds (409 conflict). */
-export async function deleteProvider(id: string): Promise<void> {
-  await apiDelete(paths.provider(id))
-  invalidate(keys.providers)
+export type ProviderDeletionPrecondition = ProviderDeletePrecondition
+
+/** Remove the reviewed provider across both definition and connection truth.
+ * The deletion controller owns confirmation, device cleanup, and recovery. */
+export async function deleteProvider(
+  id: string,
+  expected: ProviderDeletionPrecondition,
+  idempotencyKey: string,
+): Promise<void> {
+  await apiDelete(paths.provider(id), expected, { idempotencyKey })
+  acceptProviderAbsence(id)
 }
 
 // ── System-prompt library (the Agents hub — docs/agent-commons.md, D10) ──────

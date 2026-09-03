@@ -150,6 +150,19 @@ export interface ModelProvider {
   authority?: Authority
 }
 
+/** Body of `DELETE /v1/providers/:id`. A first-party removal pins both public
+ * revision domains because either a definition edit or a write-only
+ * connection/catalog change can make the reviewed provider materially stale.
+ * Omitting both fields retains the v1 unconditional-delete meaning. */
+export interface ProviderDeletionPrecondition {
+  expectedDefinitionRevision: number
+  expectedConnectionRevision: number
+}
+
+export type DeleteProviderRequest =
+  | ProviderDeletionPrecondition
+  | { expectedDefinitionRevision?: never; expectedConnectionRevision?: never }
+
 /** The endpoint half of a registration — **write-only**: it may ride a create request
  *  (that's how a user brings a provider's endpoint) but is never echoed on the read
  *  type above. Integrating a provider is supplying *data*, not code: any endpoint

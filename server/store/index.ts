@@ -1915,12 +1915,24 @@ let mutationBatchDepth = 0
 let mutationBatchNeedsPersist = false
 let mutationBatchEvents: ServerEvent[] = []
 
+/** Relay liveness is transient, but its visibility is durable Provider
+ * ownership. Snapshot that routing fact while the row exists: a compound
+ * Provider removal publishes only after durable absence, when a live lookup
+ * would otherwise misroute its queued disconnect to the default tenant. */
+function scopeRelayEventAtEmission(e: ServerEvent): ServerEvent {
+  if (e.type !== 'relay.connected' && e.type !== 'relay.disconnected' && e.type !== 'relay.activity') return e
+  if (e.tenantId !== undefined) return e
+  const tenantId = MODEL_PROVIDERS.get(e.providerId)?.tenantId
+  return tenantId ? { ...e, tenantId } : e
+}
+
 function emit(e: ServerEvent): void {
+  const scoped = scopeRelayEventAtEmission(e)
   if (mutationBatchDepth > 0) {
-    mutationBatchEvents.push(e)
+    mutationBatchEvents.push(scoped)
     return
   }
-  publishEvent(e)
+  publishEvent(scoped)
 }
 
 /** One tenant-safe invalidation face for the Agent registry. A directory event
@@ -3569,9 +3581,10 @@ export const store = {
         // A Session provider is forced tenant-scoped (the mint wall), so its liveness
         // flips — and its per-turn delivery/settle activity (v5) — are that tenant's
         // private signal: another tenant must not observe when someone's delegated
-        // session comes and goes, nor how busy it is. Gate on the provider row.
+        // session comes and goes, nor how busy it is. Prefer the server-owned
+        // emission snapshot: atomic removal publishes after its row is gone.
         const p = MODEL_PROVIDERS.get(e.providerId)
-        return (p?.tenantId ?? defaultTenantId()) === tenantId
+        return (e.tenantId ?? p?.tenantId ?? defaultTenantId()) === tenantId
       }
       case 'run.started':
       case 'run.progress':
@@ -4343,22 +4356,38 @@ export const store = {
     if (!current || config?.kind !== 'session') return undefined
     const secret = mintRelaySecret()
     PROVIDER_CONFIGS.set(id, { ...config, secretHash: hashRelaySecret(secret) })
-    const provider: ModelProvider = { ...current, secretHint: relaySecretHint(secret) }
+    const provider: ModelProvider = {
+      ...current,
+      secretHint: relaySecretHint(secret),
+      connectionRevision: (current.connectionRevision ?? 0) + 1,
+    }
     MODEL_PROVIDERS.set(id, provider)
     relay.retire(id)
     emitProviderChanged(provider)
     persist()
     return { provider, secret }
   },
-  /** Remove a provider. Refuses (ConflictError → 409) the seeded default — sessions
-   *  resolve to it — and any provider an Agent still binds, so the user repoints those
-   *  Agents first rather than silently orphaning them onto the fallback. False when
-   *  unknown (→ 404). The removal is snapshotted to disk (persist.ts). Deleting a
-   *  Session provider is rotate-without-a-successor (§7.5): the relay retires and the
-   *  secret dies with the config row — a held connector is 401 from here on. */
-  deleteProvider(id: string): boolean {
+  /** Remove the exact reviewed provider across both public revision domains.
+   * Definition/connection and dependency guards precede effects; session-pick
+   * repair, registry/config absence, default cleanup, relay retirement, durability,
+   * and their events then commit as one coherent transition. False when unknown. */
+  deleteProvider(
+    id: string,
+    expected?: { definitionRevision: number; connectionRevision: number },
+  ): boolean {
     const removed = MODEL_PROVIDERS.get(id)
     if (!removed) return false
+    const definitionRevision = removed.definitionRevision ?? 0
+    const connectionRevision = removed.connectionRevision ?? 0
+    if (
+      expected &&
+      (expected.definitionRevision !== definitionRevision ||
+        expected.connectionRevision !== connectionRevision)
+    ) {
+      throw new ConflictError(
+        `This provider changed elsewhere (expected definition revision ${expected.definitionRevision} and connection revision ${expected.connectionRevision}; current revisions ${definitionRevision} and ${connectionRevision}).`,
+      )
+    }
     if (id === DEFAULT_PROVIDER.id) throw new ConflictError('The default provider can’t be removed.')
     const bound = [...WORKER_AGENTS.values()].filter((a) => a.providerId === id)
     if (bound.length > 0) {
@@ -4366,28 +4395,26 @@ export const store = {
         `${bound.length} agent${bound.length === 1 ? '' : 's'} still ${bound.length === 1 ? 'runs' : 'run'} on this provider — repoint ${bound.length === 1 ? 'it' : 'them'} first.`,
       )
     }
-    // Retire the relay BEFORE the rows drop: `relay.disconnected` is tenant-gated
-    // by looking up the provider row, so emitting after the delete would misroute
-    // the event to the default tenant instead of the owner.
-    if (PROVIDER_CONFIGS.get(id)?.kind === 'session') relay.retire(id)
-    // Clear any session-level model picks of this provider (the composer selector's
-    // `session.providerId`): unlike an Agent binding — which blocks the delete above —
-    // a pick is a lightweight per-session choice, so it falls back to the Agent's
-    // provider rather than wedging the delete. Broadcast so open selectors reconcile.
-    for (const s of SESSIONS.filter((s) => s.providerId === id)) {
-      delete s.providerId
-      delete s.modelId // the model pick named the deleted provider's catalog — same cascade
-      s.metadataRevision = (s.metadataRevision ?? 0) + 1
-      emit({ type: 'session.updated', session: s })
-    }
-    MODEL_PROVIDERS.delete(id)
-    PROVIDER_CONFIGS.delete(id)
-    // A removed provider must not linger as any tenant's default pointer — the flag
-    // simply clears (no protection: the default is a UI shortcut, not an invariant).
-    dropRegistryDefault('providerId', id)
-    emitProviderChanged(removed)
-    persist()
-    return true
+    return commitMutationBatch(() => {
+      // Retire before the row drops so relay.disconnected captures the Provider's
+      // tenant. The surrounding batch delays publication until every related row
+      // is coherent; the event's routing snapshot then survives registry absence.
+      if (PROVIDER_CONFIGS.get(id)?.kind === 'session') relay.retire(id)
+      // A direct conversation pick is lightweight, unlike an Agent binding. It
+      // falls back to the Agent provider and its provider-local model pick clears.
+      for (const s of SESSIONS.filter((s) => s.providerId === id)) {
+        delete s.providerId
+        delete s.modelId
+        s.metadataRevision = (s.metadataRevision ?? 0) + 1
+        emit({ type: 'session.updated', session: s })
+      }
+      MODEL_PROVIDERS.delete(id)
+      PROVIDER_CONFIGS.delete(id)
+      dropRegistryDefault('providerId', id)
+      emitProviderChanged(removed)
+      persist()
+      return true
+    })
   },
 
   // ── System-prompt library (docs/agent-commons.md, D10) ──

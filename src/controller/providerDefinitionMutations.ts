@@ -1,5 +1,4 @@
 /** App wiring for conflict-safe provider-definition edits. */
-import { useSyncExternalStore } from 'react'
 import type { ModelProvider, ProviderDefinitionMutationPatch } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
@@ -12,11 +11,15 @@ import {
 } from '../api'
 import {
   createRevisionedMutationController,
-  IDLE_REVISIONED_MUTATION,
   type RevisionedMutationFailure,
   type RevisionedMutationOutcome,
-  type RevisionedMutationStatus,
 } from './revisionedMutationCore'
+import { createMutationStatusStore } from './mutationStatusStore.ts'
+import {
+  acquireProviderMutation,
+  isProviderDefinitionHeld,
+  releaseProviderMutation,
+} from './providerMutationHolds.ts'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -42,12 +45,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
   return { message: 'Couldn’t confirm the provider change. Your edits are still here—retry when the connection recovers.', retryable: true }
 }
 
-let status: RevisionedMutationStatus = IDLE_REVISIONED_MUTATION
-const listeners = new Set<() => void>()
-const publish = (next: RevisionedMutationStatus): void => {
-  status = next
-  for (const listener of listeners) listener()
-}
+const statusStore = createMutationStatusStore()
 
 const cachedProvider = (providerId: string): ModelProvider | undefined =>
   peek<ModelProvider[]>(keys.providers)?.find((provider) => provider.id === providerId)
@@ -64,7 +62,7 @@ const controller = createRevisionedMutationController<ModelProvider, ProviderDef
   revision: (provider) => provider.definitionRevision ?? 0,
   mutate: patchProviderDefinition,
   describeFailure,
-  setStatus: publish,
+  setStatus: statusStore.publish,
   mintIdempotencyKey: () => crypto.randomUUID(),
 })
 
@@ -74,19 +72,19 @@ export function updateProviderDefinition(
   providerId: string,
   patch: ProviderDefinitionMutationPatch,
 ): Promise<RevisionedMutationOutcome> {
-  return controller.enqueue(providerId, patch)
+  const lease = acquireProviderMutation('definition', providerId)
+  if (!lease) return Promise.resolve('discarded')
+  statusStore.refresh()
+  const outcome = controller.enqueue(providerId, patch)
+  void outcome.finally(() => {
+    releaseProviderMutation(lease)
+    statusStore.refresh()
+  })
+  return outcome
 }
 
 export const retryProviderDefinitionMutation = controller.retry
 export const discardProviderDefinitionMutation = controller.discard
 
-export function useProviderDefinitionMutationStatus(): RevisionedMutationStatus {
-  return useSyncExternalStore(
-    (listener) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    () => status,
-    () => IDLE_REVISIONED_MUTATION,
-  )
-}
+export { isProviderDefinitionHeld }
+export const useProviderDefinitionMutationStatus = statusStore.useStatus

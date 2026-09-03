@@ -238,13 +238,11 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (replacementReferences.length !== 1 || replacementReferences[0] === previousReference) {
         throw new Error('The packaged credential rotation did not retire the previous provider key.')
       }
-      const removed = await page.evaluate(async (providerId) => {
-        const response = await fetch(`/api/v1/providers/${encodeURIComponent(providerId)}`, { method: 'DELETE' })
-        if (!response.ok) return false
-        await window.agentCommonsDesktop.credentials.removeProvider(providerId)
-        return true
-      }, created.id)
-      if (!removed) throw new Error('The packaged provider workflow could not remove its temporary provider.')
+      await page.getByRole('button', { name: 'Remove provider', exact: true }).click()
+      const removal = page.getByRole('dialog', { name: 'Remove Packaged credential smoke?', exact: true })
+      await removal.waitFor()
+      await removal.getByRole('button', { name: 'Remove provider', exact: true }).click()
+      await page.waitForURL(`${origin}/models`)
       const pruned = JSON.parse(await readFile(vaultPath, 'utf8'))
       if (Object.keys(pruned.entries ?? {}).length !== 0) throw new Error('Provider deletion left a credential in the packaged vault.')
     } else {

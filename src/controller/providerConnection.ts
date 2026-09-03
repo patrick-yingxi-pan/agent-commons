@@ -3,14 +3,16 @@
  * discard it only when the server rejects the replacement. Once acknowledged,
  * a failed local bind is recoverable at startup from the server's write-only
  * reference and must not roll back/delete the now-active key. */
-import type { ModelProvider } from '../../contract/index.ts'
+import type { CreatedProvider, ModelProvider } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
   ApiRequestError,
   bindDesktopCredential,
   discardDesktopCredential,
   provisionDesktopCredential,
+  refreshProviderModels,
   reconcileProviderConnection,
+  rotateProvider,
   updateProviderConnection,
 } from '../api'
 import {
@@ -18,6 +20,11 @@ import {
   type ProviderConnectionAttempt,
   type ProviderConnectionDependencies,
 } from './providerConnectionCore'
+import {
+  acquireProviderMutation,
+  isProviderConnectionHeld,
+  releaseProviderMutation,
+} from './providerMutationHolds.ts'
 
 const runtimeDependencies: ProviderConnectionDependencies = {
   provision: provisionDesktopCredential,
@@ -33,6 +40,8 @@ export async function replaceProviderConnection(
   attempt: ProviderConnectionAttempt,
   dependencies: ProviderConnectionDependencies = runtimeDependencies,
 ): Promise<ModelProvider> {
+  const lease = acquireProviderMutation('connection', providerId)
+  if (!lease) throw new Error('Wait for the current provider change to settle before updating its connection.')
   try {
     return await replaceProviderConnectionCore(providerId, attempt, dependencies)
   } catch (error) {
@@ -59,7 +68,28 @@ export async function replaceProviderConnection(
       )
     }
     throw error
+  } finally {
+    releaseProviderMutation(lease)
   }
 }
 
+async function withConnectionHold<T>(providerId: string, work: () => Promise<T>): Promise<T> {
+  const lease = acquireProviderMutation('connection', providerId)
+  if (!lease) throw new Error('Wait for the current provider change to settle before changing its connection.')
+  try {
+    return await work()
+  } finally {
+    releaseProviderMutation(lease)
+  }
+}
+
+export function refreshProviderCatalog(providerId: string): Promise<ModelProvider> {
+  return withConnectionHold(providerId, () => refreshProviderModels(providerId))
+}
+
+export function rotateProviderSecret(providerId: string): Promise<CreatedProvider> {
+  return withConnectionHold(providerId, () => rotateProvider(providerId))
+}
+
 export { createProviderConnectionAttempt } from './providerConnectionCore'
+export { isProviderConnectionHeld }

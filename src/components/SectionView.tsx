@@ -244,10 +244,6 @@ import {
 import {
   addSavedContext,
   desktopCredentialsAvailable,
-  removeDesktopProviderCredentials,
-  deleteProvider,
-  rotateProvider,
-  refreshProviderModels,
   deleteSystemPrompt,
   forkAgent,
   importAgentCard,
@@ -350,7 +346,13 @@ import {
   useNotifications,
   markNotificationsRead,
 } from '../api'
-import { createProviderConnectionAttempt, replaceProviderConnection } from '../controller/providerConnection'
+import {
+  createProviderConnectionAttempt,
+  isProviderConnectionHeld,
+  refreshProviderCatalog,
+  replaceProviderConnection,
+  rotateProviderSecret,
+} from '../controller/providerConnection'
 import {
   isScheduleMutationHeld,
   toggleScheduleEnabled,
@@ -409,8 +411,19 @@ import {
   isCommissionDeletionHeld,
   useCommissionDeletionStatus,
 } from '../controller/commissionDeletionMutations.ts'
-import { updateProviderDefinition } from '../controller/providerDefinitionMutations'
+import {
+  isProviderDefinitionHeld,
+  updateProviderDefinition,
+  useProviderDefinitionMutationStatus,
+} from '../controller/providerDefinitionMutations'
 import { enqueueProviderCreation } from '../controller/providerCreationMutations'
+import {
+  PROVIDER_DELETE_SCOPE,
+  enqueueProviderDeletion,
+  heldProviderDeletions,
+  isProviderDeletionHeld,
+  useProviderDeletionStatus,
+} from '../controller/providerDeletionMutations.ts'
 import { updateSystemPromptDefinition } from '../controller/systemPromptDefinitionMutations'
 import { enqueueSystemPromptCreation } from '../controller/systemPromptCreationMutations'
 import {
@@ -9448,8 +9461,18 @@ function ModelsSection({
   backTo: NavLocation | null
 }) {
   const rel = useRelations()
+  const providerIdRef = useRef(providerId)
+  providerIdRef.current = providerId
   const providersQ = useProviders()
-  const providers = providersQ.data ?? []
+  const currentProviders = providersQ.data ?? []
+  useProviderDeletionStatus()
+  // Keep the exact reviewed detail page mounted if an early provider event
+  // observes committed absence before server/device acknowledgement settles.
+  const providers = [
+    ...currentProviders,
+    ...heldProviderDeletions().filter((held) =>
+      !currentProviders.some((provider) => provider.id === held.id)),
+  ]
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
   const [updatingConnectionId, setUpdatingConnectionId] = useState<string | null>(null)
@@ -9505,7 +9528,9 @@ function ModelsSection({
           onAdd={() => setEditing('new')}
           onBack={onBack}
           backTo={backTo}
-          onDeleted={onBack}
+          onDeleted={() => {
+            if (providerIdRef.current === openProvider.id) onBack()
+          }}
         >
           {editing && (
             <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
@@ -9607,8 +9632,10 @@ function ProviderDetailPage({
   onDeleted: () => void
   children?: ReactNode
 }) {
+  useProviderDeletionStatus()
+  const deleting = isProviderDeletionHeld(provider.id)
   return (
-    <AtomicResourcePage>
+    <AtomicResourcePage aria-busy={deleting}>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-1">
           <BackButton to={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }} onBack={onBack} />
@@ -9616,8 +9643,10 @@ function ProviderDetailPage({
             <div className="flex items-center gap-2">
               <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{provider.label}</h1>
               {provider.isDefault && <DefaultBadge />}
+              {deleting && <Spinner size={13} />}
             </div>
             <p className="mt-1 text-[13px] text-ink-soft">
+              {deleting ? 'Removing Provider… · ' : ''}
               {provider.kind === 'session' ? 'Session provider · relay' : provider.modelFamily}
             </p>
           </div>
@@ -9629,6 +9658,7 @@ function ProviderDetailPage({
         onUpdateConnection={onUpdateConnection}
         onAdd={onAdd}
         onDeleted={onDeleted}
+        deleting={deleting}
       />
       {children}
     </AtomicResourcePage>
@@ -9686,43 +9716,55 @@ function ProviderDetailSections({
   onUpdateConnection,
   onAdd,
   onDeleted,
+  deleting,
 }: {
   provider: ModelProvider
   onEdit: () => void
   onUpdateConnection?: () => void
   onAdd: () => void
   onDeleted: () => void
+  deleting: boolean
 }) {
   const [error, setError] = useState<string | null>(null)
+  useProviderDefinitionMutationStatus()
+  useProviderDeletionStatus()
   // Rotate mints a fresh rendezvous secret (kill switch) — shown once via the panel.
   const [rotated, setRotated] = useState<CreatedProvider | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [rotating, setRotating] = useState(false)
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
   const isSession = provider.kind === 'session'
-  const del = async () => {
-    setError(null)
-    try {
-      await deleteProvider(provider.id)
-      await removeDesktopProviderCredentials(provider.id).catch(() => {})
-      onDeleted?.()
-    } catch (e) {
-      // The server refuses the default / a still-bound provider (409) — show its reason.
-      setError(e instanceof Error ? e.message : 'Could not delete this provider.')
-    }
+  const manageable = provider.tenantId !== undefined
+  const mutationHeld = deleting || isProviderDefinitionHeld(provider.id) || isProviderConnectionHeld(provider.id)
+  const controlsHeld = mutationHeld || refreshing || rotating
+  const requestRemoval = () => {
+    if (!controlsHeld) setConfirmingRemoval(true)
+  }
+  const confirmRemoval = () => {
+    if (controlsHeld) return
+    const outcome = enqueueProviderDeletion(provider)
+    if (!outcome) return
+    setConfirmingRemoval(false)
+    void outcome.then(() => onDeleted())
   }
   const rotate = async () => {
+    if (controlsHeld) return
     setError(null)
+    setRotating(true)
     try {
-      setRotated(await rotateProvider(provider.id))
+      setRotated(await rotateProviderSecret(provider.id))
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not rotate the secret.')
+    } finally {
+      setRotating(false)
     }
   }
   const refresh = async () => {
-    if (refreshing) return
+    if (controlsHeld) return
     setError(null)
     setRefreshing(true)
     try {
-      await refreshProviderModels(provider.id)
+      await refreshProviderCatalog(provider.id)
     } catch (e) {
       // The endpoint didn't answer a model list (400) — the catalog stays untouched.
       setError(e instanceof Error ? e.message : 'Could not refresh the model catalog.')
@@ -9830,11 +9872,33 @@ function ProviderDetailSections({
             {!isSession && provider.execution === 'unconfigured' && (
               <SectionAction label="Add configured provider" icon={<Plus size={14} />} onClick={onAdd} />
             )}
-            <SectionAction label="Edit provider" icon={<Pencil size={14} />} onClick={onEdit} />
-            {onUpdateConnection && (
-              <SectionAction label="Update connection" icon={<Plug size={14} />} onClick={onUpdateConnection} />
+            {manageable && (
+              <SectionAction
+                label="Edit provider"
+                icon={<Pencil size={14} />}
+                onClick={onEdit}
+                disabled={controlsHeld}
+                disabledReason="Waiting for this Provider change to settle"
+              />
             )}
-            <SectionAction label="Delete provider" icon={<Trash2 size={14} />} onClick={() => void del()} />
+            {manageable && onUpdateConnection && (
+              <SectionAction
+                label="Update connection"
+                icon={<Plug size={14} />}
+                onClick={onUpdateConnection}
+                disabled={controlsHeld}
+                disabledReason="Waiting for this Provider change to settle"
+              />
+            )}
+            {manageable && (
+              <SectionAction
+                label="Remove provider"
+                icon={<Trash2 size={14} />}
+                onClick={requestRemoval}
+                disabled={controlsHeld}
+                disabledReason="Waiting for this Provider change to settle"
+              />
+            )}
           </>
         }
       >
@@ -9845,12 +9909,13 @@ function ProviderDetailSections({
           title="Models"
           summary={`${provider.models?.length ?? 0} model${provider.models?.length === 1 ? '' : 's'}`}
           actions={
-            provider.catalogSource === 'listed' ? (
+            manageable && provider.catalogSource === 'listed' ? (
               <SectionAction
                 label={refreshing ? 'Refreshing model catalog' : 'Refresh model catalog'}
                 icon={<RefreshCw size={14} />}
                 onClick={() => void refresh()}
-                disabled={refreshing}
+                disabled={controlsHeld}
+                disabledReason="Waiting for this Provider change to settle"
               />
             ) : undefined
           }
@@ -9863,11 +9928,28 @@ function ProviderDetailSections({
           title="Relay"
           summary={provider.online ? 'Session connected' : 'Offline'}
           actions={
-            <SectionAction label="Rotate relay secret" icon={<RefreshCw size={14} />} onClick={() => void rotate()} />
+            manageable ? (
+              <SectionAction
+                label={rotating ? 'Rotating relay secret' : 'Rotate relay secret'}
+                icon={<RefreshCw size={14} />}
+                onClick={() => void rotate()}
+                disabled={controlsHeld}
+                disabledReason="Waiting for this Provider change to settle"
+              />
+            ) : undefined
           }
         >
           {relay}
         </FoldSection>
+      )}
+      {confirmingRemoval && (
+        <ConfirmDialog
+          title={`Remove ${provider.label}?`}
+          body={PROVIDER_DELETE_SCOPE}
+          confirmLabel="Remove provider"
+          onConfirm={confirmRemoval}
+          onCancel={() => setConfirmingRemoval(false)}
+        />
       )}
     </>
   )

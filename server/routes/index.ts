@@ -27,6 +27,7 @@ import type {
   ModelProvider,
   RelayReplyRequest,
   UpdateProviderConnectionRequest,
+  DeleteProviderRequest,
   CreateAgentRequest,
   DeleteAgentRequest,
   UpdateAgentRequest,
@@ -117,6 +118,7 @@ import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEf
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
 import { providerConnectionUpdate } from './providerConnection.ts'
 import { providerDefinitionUpdate } from './providerDefinition.ts'
+import { providerDelete } from './providerDeletion.ts'
 import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
 import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
 import { commissionConfigurationUpdate, commissionCreate, commissionDelete } from './commissionConfiguration.ts'
@@ -1415,17 +1417,30 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  r.delete('/providers/:id', ({ req, res, params }) => {
+  r.delete('/providers/:id', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
+    let input: DeleteProviderRequest
     try {
-      if (!store.deleteProvider(params.id)) return sendError(res, 'not_found', `No provider '${params.id}'`)
+      input = providerDelete(await body<unknown>())
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
+      throw err
+    }
+    try {
+      const expected = input.expectedDefinitionRevision === undefined
+        ? undefined
+        : {
+            definitionRevision: input.expectedDefinitionRevision,
+            connectionRevision: input.expectedConnectionRevision,
+          }
+      if (!store.deleteProvider(params.id, expected)) return sendError(res, 'not_found', `No provider '${params.id}'`)
       sendJson(res, { ok: true })
     } catch (err) {
       // Protected (the default) or still bound by an Agent — a 409 to re-target.
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   // Rotate a Session provider's rendezvous secret — the kill switch (§7.5). The old
   // secret dies on the spot (a held connector meets 401; an in-flight turn falls back
   // immediately); the response carries the NEW secret exactly once, like the mint.

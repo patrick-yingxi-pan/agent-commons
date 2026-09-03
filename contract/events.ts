@@ -214,6 +214,8 @@ export interface ReservationChangedEvent {
 export interface RelayConnectedEvent {
   type: 'relay.connected'
   providerId: string
+  /** Server-owned routing snapshot. Optional only for legacy/default events. */
+  tenantId?: string
 }
 /** A Session provider went quiet — no parked poll and no in-flight turn for the
  *  TTL (or its secret was rotated / the provider deleted). Dot goes grey; the
@@ -221,6 +223,8 @@ export interface RelayConnectedEvent {
 export interface RelayDisconnectedEvent {
   type: 'relay.disconnected'
   providerId: string
+  /** Preserves the owner after an atomic Provider removal drops the live row. */
+  tenantId?: string
 }
 /** A relay's in-flight set changed — an entry was DELIVERED to the far session
  *  or SETTLED (answered / timed out / cancelled). The observed half of the v5
@@ -231,6 +235,8 @@ export interface RelayDisconnectedEvent {
 export interface RelayActivityEvent {
   type: 'relay.activity'
   providerId: string
+  /** Server-owned routing snapshot. Optional only for legacy/default events. */
+  tenantId?: string
 }
 
 /** The Dispatch feed changed — a one-off dispatch was kicked off, or one finished.

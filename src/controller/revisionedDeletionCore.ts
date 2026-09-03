@@ -10,26 +10,26 @@ import {
   type RevisionedMutationStatus,
 } from './revisionedMutationCore.ts'
 
-export interface RevisionedDeletionMutationDeps<Resource> {
+export interface RevisionedDeletionMutationDeps<Resource, Revision = number> {
   reconcile: (resourceId: string) => Promise<Resource | null>
-  mutate: (resourceId: string, expectedRevision: number, idempotencyKey: string) => Promise<void>
-  revision: (resource: Resource) => number
+  mutate: (resourceId: string, expectedRevision: Revision, idempotencyKey: string) => Promise<void>
+  revision: (resource: Resource) => Revision
   describeFailure: (error: unknown) => RevisionedMutationFailure & { rebaseOnRetry: boolean }
   setStatus: (status: RevisionedMutationStatus) => void
   mintIdempotencyKey: () => string
 }
 
-interface QueueEntry {
+interface QueueEntry<Revision> {
   resourceId: string
-  expectedRevision: number
+  expectedRevision: Revision
   idempotencyKey: string
   settle: Array<(outcome: RevisionedMutationOutcome) => void>
 }
 
-export function createRevisionedDeletionMutationController<Resource>(
-  deps: RevisionedDeletionMutationDeps<Resource>,
+export function createRevisionedDeletionMutationController<Resource, Revision = number>(
+  deps: RevisionedDeletionMutationDeps<Resource, Revision>,
 ) {
-  let queue: QueueEntry[] = []
+  let queue: QueueEntry<Revision>[] = []
   let running = false
   let failure: RevisionedMutationFailure | null = null
   let generation = 0
@@ -44,7 +44,7 @@ export function createRevisionedDeletionMutationController<Resource>(
     })
   }
 
-  const settleHead = (entry: QueueEntry, outcome: RevisionedMutationOutcome): void => {
+  const settleHead = (entry: QueueEntry<Revision>, outcome: RevisionedMutationOutcome): void => {
     queue.shift()
     for (const settle of entry.settle) settle(outcome)
     publish()
@@ -100,7 +100,7 @@ export function createRevisionedDeletionMutationController<Resource>(
     )
   }
 
-  const enqueue = (resourceId: string, expectedRevision: number): Promise<RevisionedMutationOutcome> => {
+  const enqueue = (resourceId: string, expectedRevision: Revision): Promise<RevisionedMutationOutcome> => {
     const existing = queue.find((entry) => entry.resourceId === resourceId)
     if (existing) return new Promise((settle) => existing.settle.push(settle))
     const result = new Promise<RevisionedMutationOutcome>((settle) => {
