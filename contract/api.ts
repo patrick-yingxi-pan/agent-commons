@@ -106,6 +106,11 @@ export interface SendMessageRequest {
  *  tenant-scoped Session identity across response loss and restart. */
 export interface CreateSessionRequest {
   firstMessage?: string
+  /** Atomically persist `firstMessage` as the unresolved first user turn. This is
+   *  for handoffs that must survive a process exit between Session creation and
+   *  generation; omitted means `firstMessage` remains metadata-only, preserving
+   *  the draft materialization contract. Requires a non-blank `firstMessage`. */
+  persistFirstMessage?: true
   /** The model picked in the draft's composer before first send — becomes the
    *  session's `providerId`. Validated against the caller's visible providers. */
   providerId?: string

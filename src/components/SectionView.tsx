@@ -275,8 +275,6 @@ import {
   useCommissions,
   useCommissionAuthority,
   useOpenSubGoals,
-  createSession,
-  sendMessage,
   useContributions,
   useDiscussion,
   useDiscussions,
@@ -453,6 +451,11 @@ import {
   isWallPostMutationHeld,
   useSocialPostMutationStatus,
 } from '../controller/socialPostMutations.ts'
+import {
+  enqueueDiscussionSessionLaunch,
+  isDiscussionSessionLaunchHeld,
+  useDiscussionSessionLaunchStatus,
+} from '../controller/discussionSessionLaunchMutations.ts'
 import {
   isSavedContextConnectionHeld,
   updateSavedContextConnection,
@@ -5173,6 +5176,17 @@ function DiscussionPage({
   const rel = useRelations()
   const q = useDiscussion(discussionId)
   const d = q.data ?? null
+  const tenantId = useMe().data?.tenant.id
+  useDiscussionSessionLaunchStatus()
+  const launchHeld = d ? isDiscussionSessionLaunchHeld(d.id) : false
+  const [launchError, setLaunchError] = useState<string | null>(null)
+  const discussionLocationRef = useRef(discussionId)
+  discussionLocationRef.current = discussionId
+  const discussionMountedRef = useRef(false)
+  useEffect(() => {
+    discussionMountedRef.current = true
+    return () => { discussionMountedRef.current = false }
+  }, [])
   useRecordView('discussion', discussionId)
   // Read BEFORE the not-found early return, so hook order is stable; disabled
   // until the anchor is known.
@@ -5229,6 +5243,31 @@ function DiscussionPage({
       />
     )
   }
+  const launchConversation = async (): Promise<void> => {
+    if (!tenantId || launchHeld) return
+    const origin = discussionId
+    setLaunchError(null)
+    try {
+      const result = await enqueueDiscussionSessionLaunch({
+        tenantId,
+        discussionId: d.id,
+        digest: discussionDigest(d),
+      })
+      if (
+        result.outcome === 'applied' &&
+        discussionMountedRef.current &&
+        discussionLocationRef.current === origin
+      ) {
+        onOpenSession(result.sessionId)
+      } else if (result.outcome === 'discarded' && discussionMountedRef.current) {
+        setLaunchError('The conversation wasn’t started. Review the discussion and try again.')
+      }
+    } catch (error) {
+      if (discussionMountedRef.current) {
+        setLaunchError(error instanceof Error ? error.message : 'Could not start that conversation.')
+      }
+    }
+  }
   return (
     <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
@@ -5267,18 +5306,12 @@ function DiscussionPage({
               a new session seeded with the thread digest as its first message.
               The full Context-type attach is the recorded follow-up. */}
           <button
-            onClick={() => {
-              // Create → fire the turn (fire-and-forget; the server owns the
-              // stream and the open pane reattaches) → open. The digest rides
-              // as the first REAL message, so the model actually reads it.
-              void createSession(discussionDigest(d)).then((s) => {
-                void sendMessage(s.id, discussionDigest(d), {})
-                onOpenSession(s.id)
-              })
-            }}
+            onClick={() => void launchConversation()}
+            disabled={launchHeld || !tenantId}
+            aria-busy={launchHeld || undefined}
             className={INLINE_ACTION_CLASS}
           >
-            Discuss with Claude
+            {launchHeld ? 'Starting conversation…' : 'Discuss with Claude'}
           </button>
           {/* `canResolve`, not `mine`: standing is the opener OR the anchor's
               owner, so gating on `mine` denied the owner a control they hold. */}
@@ -5293,6 +5326,7 @@ function DiscussionPage({
           )}
         </div>
       </header>
+      {launchError && <p role="alert" className="px-6 pb-2 text-[12px] text-danger">{launchError}</p>}
       {/* A post's page renders the POST — the very card the feed shows, opened
           (owner report, 2026-08-08: "the page of the post … doesn't correspond
           to the post as viewed from the commons page"). It is the same component,

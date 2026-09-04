@@ -3210,7 +3210,13 @@ export function buildRouter(): Router {
     if (typeof represented === 'object') return sendJson(res, represented)
     if (represented === 'invalid') return sendError(res, 'bad_request', 'This conversation creation identity is not valid for this account')
     if (represented === 'retired') return sendError(res, 'not_found', 'This draft was already removed')
-    const { firstMessage, providerId, modelId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
+    const { firstMessage, persistFirstMessage, providerId, modelId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
+    if (persistFirstMessage !== undefined && persistFirstMessage !== true) {
+      return sendError(res, 'bad_request', 'persistFirstMessage, when present, must be true')
+    }
+    if (persistFirstMessage && (typeof firstMessage !== 'string' || !firstMessage.trim())) {
+      return sendError(res, 'bad_request', 'persistFirstMessage requires a non-empty firstMessage')
+    }
     // Stamp the creating tenant so the scoped list/read above see it (F2/PD9).
     const bad = badSessionProvider(providerId, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
@@ -3220,7 +3226,7 @@ export function buildRouter(): Router {
         tenantId,
         providerId,
         modelId,
-        { logicalId: logicalSessionId },
+        { logicalId: logicalSessionId, persistFirstMessage },
       ))
     } catch (err) {
       // A model pick outside the effective provider's catalog — refused, never normalized.

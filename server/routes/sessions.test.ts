@@ -29,6 +29,58 @@ test('POST /sessions with no firstMessage falls back to a neutral title', async 
   assert.equal(create.json.title, 'New session')
 })
 
+test('a recovery-safe handoff commits its first user turn with the keyed Session', async () => {
+  const key = `staged-session-${Date.now()}`
+  const headers = { 'idempotency-key': key }
+  const expectedId = sessionCreationId(store.defaultTenantId(), key)
+  const firstMessage = 'Work through this durable discussion digest.'
+
+  const created = await call('POST', '/sessions', {
+    firstMessage,
+    persistFirstMessage: true,
+  }, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, expectedId)
+  assert.deepEqual(
+    created.json.messages.map((message: Message) => ({ role: message.role, content: message.content })),
+    [{ role: 'user', content: firstMessage }],
+    'Session identity and its unresolved first turn commit together',
+  )
+
+  const replay = await call('POST', '/sessions', {
+    firstMessage: 'Changed retry input must not append another turn.',
+    persistFirstMessage: true,
+  }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.id, expectedId)
+  assert.deepEqual(
+    replay.json.messages.map((message: Message) => message.content),
+    [firstMessage],
+    'same-key replay returns represented truth without duplicating or replacing intent',
+  )
+
+  const afterRestart = await callFresh('POST', '/sessions', null, headers)
+  assert.equal(afterRestart.status, 200)
+  assert.deepEqual(afterRestart.json.messages.map((message: Message) => message.content), [firstMessage])
+})
+
+test('persistFirstMessage has strict present and text requirements', async () => {
+  const before = store.listSessions().length
+  const missing = await call('POST', '/sessions', { persistFirstMessage: true })
+  assert.equal(missing.status, 400)
+  assert.match(missing.json.error.message, /non-empty firstMessage/)
+
+  const blank = await call('POST', '/sessions', { firstMessage: '   ', persistFirstMessage: true })
+  assert.equal(blank.status, 400)
+
+  const falseValue = await call('POST', '/sessions', {
+    firstMessage: 'false is not an alternate wire meaning',
+    persistFirstMessage: false,
+  })
+  assert.equal(falseValue.status, 400)
+  assert.equal(store.listSessions().length, before, 'invalid handoff bodies create no row')
+})
+
 test('a keyed draft materialization owns one current session beyond response cache and deletion', async () => {
   const key = `draft-materialization-${Date.now()}`
   const headers = { 'idempotency-key': key }

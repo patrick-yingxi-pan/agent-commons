@@ -26,7 +26,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   let contextAttempts = 0
   const contextRequests: Array<{ sid: string; operations: number }> = []
   const deps: DraftDeps = {
-    createSession: (text, _providerId, _modelId, idempotencyKey) => {
+    createSession: (text, { idempotencyKey }) => {
       created += 1
       creationKeys.push(idempotencyKey)
       log.push(`create:${text}`)
@@ -197,7 +197,7 @@ test('a lost materialization response automatically recovers the exact committed
   const rows = new Map<string, Session>()
   const keys: string[] = []
   let attempts = 0
-  deps.createSession = (text, _providerId, _modelId, idempotencyKey) => {
+  deps.createSession = (text, { idempotencyKey }) => {
     attempts += 1
     keys.push(idempotencyKey)
     const represented = rows.get(idempotencyKey) ?? session(`real-${rows.size + 1}`)
@@ -219,7 +219,7 @@ test('a lost materialization response automatically recovers the exact committed
 test('a failed superseded materialization cannot clear or send into the new draft', async () => {
   const { deps, log } = fakeDeps()
   const attempts: Array<{ key: string; resolve: (value: Session) => void; reject: (error: Error) => void }> = []
-  deps.createSession = (_text, _providerId, _modelId, key) => new Promise<Session>((resolve, reject) => {
+  deps.createSession = (_text, { idempotencyKey: key }) => new Promise<Session>((resolve, reject) => {
     attempts.push({ key, resolve, reject })
   })
   const draft = createDraftController(deps)

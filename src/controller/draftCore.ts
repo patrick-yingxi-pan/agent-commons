@@ -48,9 +48,11 @@ import {
 export interface DraftDeps {
   createSession: (
     firstMessage: string,
-    providerId: string | undefined,
-    modelId: string | undefined,
-    idempotencyKey: string,
+    options: {
+      providerId: string | undefined
+      modelId: string | undefined
+      idempotencyKey: string
+    },
   ) => Promise<Session>
   updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest) => Promise<unknown>
   patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
@@ -236,9 +238,11 @@ export function createDraftController(deps: DraftDeps) {
     try {
       const create = () => deps.createSession(
         text,
-        draftModel.providerId,
-        draftModel.modelId,
-        creationKey,
+        {
+          providerId: draftModel.providerId,
+          modelId: draftModel.modelId,
+          idempotencyKey: creationKey,
+        },
       )
       // A failed response is ambiguous: the row may already be durable. One
       // bounded same-key retry either returns that represented row or safely

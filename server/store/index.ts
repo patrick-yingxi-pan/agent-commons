@@ -3887,7 +3887,7 @@ export const store = {
     tenantId: string = defaultTenantId(),
     providerId?: string,
     modelId?: string,
-    options: { logicalId?: string } = {},
+    options: { logicalId?: string; persistFirstMessage?: true } = {},
   ): Session {
     if (options.logicalId) {
       if (!isSessionCreationId(options.logicalId)) {
@@ -3902,6 +3902,9 @@ export const store = {
         throw new ValidationError('That conversation creation identity was already retired.')
       }
     }
+    if (options.persistFirstMessage && (typeof firstMessage !== 'string' || !firstMessage.trim())) {
+      throw new ValidationError('Persisting a first message requires non-empty text.')
+    }
     // A draft's concrete model pick must name an entry in its effective provider's
     // catalog (the picked provider's, else the default Agent's) — refused otherwise.
     if (modelId) assertModelInCatalog(modelId, providerId)
@@ -3913,6 +3916,15 @@ export const store = {
       // The composer's model pick, when the draft made one (route-validated).
       providerId,
       modelId,
+      ...(options.persistFirstMessage
+        ? {
+            messages: [{
+              id: this.mintMessageId('user'),
+              role: 'user' as const,
+              content: firstMessage!,
+            }],
+          }
+        : {}),
     })
   },
 
