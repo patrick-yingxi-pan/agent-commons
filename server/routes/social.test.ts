@@ -13,7 +13,8 @@ import {
 } from '../../contract/social.ts'
 import { RELATIONS } from '../../contract/relations.ts'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { sessionForkCreationId } from '../sessionCreationIdentity.ts'
+import { call, callFresh } from '../testkit/http.ts'
 
 test('the social nouns = the relation graph\'s five entities + discussion + proposal + principal', () => {
   const relationEnds = new Set(RELATIONS.flatMap((r) => r.ends))
@@ -402,12 +403,54 @@ test('SOCIAL-7: continuing a conversation from a turn is a DIRECT act, not a pro
   assert.equal(made.forkedFrom?.sessionId, source.id, 'provenance records the source')
   assert.equal(made.forkedFrom?.atMessageId, at, '…and the turn it was taken at')
 
+  // First-party recovery gives one logical branch one durable identity. Domain
+  // replay returns current truth after the response cache is gone, before it
+  // parses changed retry input, and deletion retires rather than resurrects it.
+  const logicalKey = `session-fork-${Date.now()}`
+  const keyedHeaders = { 'x-tenant-id': AUDIENCE, 'idempotency-key': logicalKey }
+  const expectedId = sessionForkCreationId(AUDIENCE, logicalKey)
+  const bellsBefore = store.listNotifications(store.defaultTenantId())
+    .filter((notification) => notification.kind === 'social.forked').length
+  const keyed = await call('POST', `/sessions/${source.id}/fork`, { atMessageId: at }, keyedHeaders)
+  assert.equal(keyed.status, 200)
+  assert.equal(keyed.json.id, expectedId)
+  assert.equal(keyed.json.messages.length, 1)
+
+  const renamed = await call('PATCH', `/sessions/${expectedId}`, {
+    title: 'Current branch title',
+    expectedRevision: 0,
+  }, { 'x-tenant-id': AUDIENCE, 'idempotency-key': `rename-${logicalKey}` })
+  assert.equal(renamed.status, 200)
+  const replay = await callFresh('POST', `/sessions/${source.id}/fork`, {}, keyedHeaders)
+  assert.equal(replay.status, 200, 'durable identity answers before changed retry input')
+  assert.equal(replay.json.title, 'Current branch title', 'replay returns current represented truth')
+  assert.equal(store.listSessions(AUDIENCE).filter((session) => session.id === expectedId).length, 1)
+  assert.equal(
+    store.listNotifications(store.defaultTenantId())
+      .filter((notification) => notification.kind === 'social.forked').length,
+    bellsBefore + 1,
+    'replay neither copies the Session nor credits the branch twice',
+  )
+
+  const removed = await call('DELETE', `/sessions/${expectedId}`, { expectedRevision: 1 }, {
+    'x-tenant-id': AUDIENCE,
+    'idempotency-key': `delete-${logicalKey}`,
+  })
+  assert.equal(removed.status, 200)
+  assert.equal(
+    (await callFresh('POST', `/sessions/${source.id}/fork`, { atMessageId: at }, keyedHeaders)).status,
+    404,
+    'a delayed same-key retry cannot resurrect an explicitly removed branch',
+  )
+
   // The source is untouched — that is why no consent was needed.
   assert.equal(store.getSession(source.id)!.messages?.length, msgs.length)
 
   // INV-9: the turn is required, and an unknown one is refused rather than
   // silently taking everything.
   assert.equal((await call('POST', `/sessions/${source.id}/fork`, {}, { 'x-tenant-id': AUDIENCE })).status, 400)
+  assert.equal((await call('POST', `/sessions/${source.id}/fork`, { atMessageId: 42 }, { 'x-tenant-id': AUDIENCE })).status, 400)
+  assert.equal((await call('POST', `/sessions/${source.id}/fork`, { atMessageId: '  ' }, { 'x-tenant-id': AUDIENCE })).status, 400)
   assert.equal(
     (await call('POST', `/sessions/${source.id}/fork`, { atMessageId: 'nope' }, { 'x-tenant-id': AUDIENCE })).status,
     404,

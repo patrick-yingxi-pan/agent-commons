@@ -1,11 +1,11 @@
 import { motion } from 'framer-motion'
 import { lazy, Suspense, useRef } from 'react'
-import { ArrowRight, Check, GitFork, Radio } from 'lucide-react'
+import { ArrowRight, Check, Radio } from 'lucide-react'
 import type { EscalationProposal, Message as MessageT } from '../types'
 import { renderRich } from '../lib/rich'
 import { driverByline } from '../lib/driverByline'
 import { FOCUS_FLASH_CLASS, useFocusFlash, usePendingFocus } from '../lib/focusContext'
-import { forkSession, useAgents, useProviders, useSession, useSocialCapability } from '../api'
+import { useAgents, useProviders } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
@@ -14,6 +14,9 @@ import { LocusGutter } from './LocusGutter'
 import { DRAFT_ID } from '../data/liveSession'
 
 const ConversationSummary = lazy(() => import('./ConversationSummary'))
+const SessionForkAction = lazy(() =>
+  import('./SessionForkAction.tsx').then((module) => ({ default: module.SessionForkAction })),
+)
 
 /** Whether this turn's cognition came over a Session provider — the
  *  delegated-cognition relay. Those words came from the user's OWN session's model,
@@ -60,16 +63,22 @@ function EscalationOutcome({ escalation }: { escalation: EscalationProposal }) {
   )
 }
 
-function TurnMessageRow({ message, sessionId, onOpenSession }: { message: MessageT; sessionId: string; onOpenSession?: (id: string) => void }) {
+function TurnMessageRow({
+  message,
+  sessionId,
+  tenantId,
+  onOpenSession,
+}: {
+  message: MessageT
+  sessionId: string
+  tenantId?: string
+  onOpenSession?: (id: string) => void
+}) {
   const relayed = useIsRelayed(message)
   // A turn is an ADDRESSABLE position (SOCIAL-6b): a discussion can anchor to
   // it, and the chip on that thread doors back here. Reading `pending` at
   // render is deliberate — `useFocusFlash` consumes it in the same effect that
   // lights the flash, so a later read would already be null.
-  // Continuing someone's conversation needs the `propose` tier on it, and is
-  // pointless on your own — both answers come from the server, never guessed.
-  const canPropose = useSocialCapability('session', sessionId, sessionId !== DRAFT_ID).data?.canPropose === true
-  const own = useSession(sessionId === DRAFT_ID ? '' : sessionId).data?.own
   const { pending } = usePendingFocus()
   const rowRef = useRef<HTMLDivElement>(null)
   const flash = useFocusFlash(pending?.messageId === message.id, rowRef)
@@ -139,16 +148,16 @@ function TurnMessageRow({ message, sessionId, onOpenSession }: { message: Messag
             subject={{ kind: 'session', id: sessionId }}
             locus={{ kind: 'session-turn', messageId: message.id }}
             noun="turn"
-            action={{
-              label: 'Continue from here',
-              icon: <GitFork size={12} />,
-              // Offered only to someone who can PROPOSE and doesn't already own
-              // it: forking your own conversation is just scrolling up.
-              enabled: canPropose && own !== true,
-              onAct: () => {
-                void forkSession(sessionId, message.id).then((s) => onOpenSession?.(s.id))
-              },
-            }}
+            action={(
+              <Suspense fallback={null}>
+                <SessionForkAction
+                  sessionId={sessionId}
+                  messageId={message.id}
+                  tenantId={tenantId}
+                  onOpenSession={onOpenSession}
+                />
+              </Suspense>
+            )}
             enabled={sessionId !== DRAFT_ID}
           />
         </div>
@@ -157,7 +166,12 @@ function TurnMessageRow({ message, sessionId, onOpenSession }: { message: Messag
   )
 }
 
-export function MessageRow(props: { message: MessageT; sessionId: string; onOpenSession?: (id: string) => void }) {
+export function MessageRow(props: {
+  message: MessageT
+  sessionId: string
+  tenantId?: string
+  onOpenSession?: (id: string) => void
+}) {
   return props.message.compactedFrom ? (
     <Suspense fallback={<div role="status" className="px-4 py-3 text-center text-[12px] text-ink-faint">Loading conversation summary…</div>}>
       <ConversationSummary message={props.message} sessionId={props.sessionId} />

@@ -62,7 +62,7 @@ export function LocusGutter({
   subject: SocialEntityRef
   locus: AnchorLocus
   noun: string
-  action?: { label: string; icon: ReactNode; onAct: () => void; enabled: boolean }
+  action?: ReactNode
   enabled?: boolean
 }) {
   const rel = useRelations()
@@ -102,17 +102,7 @@ export function LocusGutter({
             <span className="tabular-nums">{thread.posts.length}</span>
           </button>
         )}
-        {action?.enabled && (
-          <button
-            onClick={action.onAct}
-            disabled={postingHeld}
-            title={action.label}
-            className={`flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
-          >
-            {action.icon}
-            {action.label}
-          </button>
-        )}
+        {action}
         {!composing && canComment && (
           <button
             onClick={() => setComposing(true)}

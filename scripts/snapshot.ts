@@ -140,6 +140,14 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { logicalId: 'sess-new-000000000000000000000000' },
   )
   store.removeSession(retiredDraft.id)
+  const retiredFork = store.forkSession(
+    session.id,
+    store.getSession(session.id)!.messages![0]!.id,
+    store.defaultTenantId(),
+    { logicalId: 'sess-fork-000000000000000000000000' },
+  )
+  if (!retiredFork || retiredFork === 'forbidden') throw new Error('Could not create the retirement fixture branch')
+  store.removeSession(retiredFork.id)
 
   // ── Artifacts ── created (filed + unfiled), and seed artifacts moved around.
   store.applyRelationOp({

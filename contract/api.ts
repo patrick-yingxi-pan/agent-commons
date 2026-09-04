@@ -17,7 +17,7 @@ export const API_VERSION = 'v1'
  *  first successful (tenant, key) response; creation routes whose key derives the
  *  durable row identity may instead return that row's current representation, so a
  *  retry cannot duplicate, overwrite, or resurrect it. Honoured on non-streaming
- *  create routes (`POST /sessions`, `/projects`, `/dispatch`, `/schedules`,
+ *  create routes (`POST /sessions`, `/sessions/:id/fork`, `/projects`, `/dispatch`, `/schedules`,
  *  `/relations/ops`) and revision-checked `PATCH /sessions/:id`,
  *  `PATCH /schedules/:id`, `PATCH /artifacts/:id/content`, and
  *  `DELETE /sessions/:id`. */
@@ -118,6 +118,14 @@ export interface CreateSessionRequest {
    *  `modelId`. Must name an entry in the effective provider's catalog (refused
    *  otherwise); unset = inherit the provider's configured model. */
   modelId?: string
+}
+
+/** Body of `POST /v1/sessions/:id/fork` — copy a readable conversation through
+ * the named turn into the caller's namespace. The turn is required because
+ * absence cannot guess a branch point. A supplied Idempotency-Key owns one
+ * opaque fork Session identity across response loss, restart, and deletion. */
+export interface ForkSessionRequest {
+  atMessageId: string
 }
 
 /** The shared row fields `PATCH /v1/sessions/:id` can change. Kept separate

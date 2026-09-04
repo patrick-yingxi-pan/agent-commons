@@ -130,7 +130,11 @@ import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type Persis
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
 import { resolveInitialWorld, type InitialWorld } from '../initialWorld.ts'
-import { isSessionCreationId } from '../sessionCreationIdentity.ts'
+import {
+  isDraftSessionCreationId,
+  isForkSessionCreationId,
+  isSessionCreationId,
+} from '../sessionCreationIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -3707,7 +3711,7 @@ export const store = {
     if (!session) return undefined
     return { ...session, workspace: this.sessionWorkspace(id), contexts: this.sessionContexts(id) }
   },
-  /** Exact creator-only state for a keyed draft materialization. */
+  /** Exact creator-only state for a keyed human Session creation. */
   getSessionCreation(id: string, tenantId: string): Session | 'invalid' | 'retired' | undefined {
     if (retiredSessionCreationIds.has(id)) return 'retired'
     const session = SESSIONS.find((candidate) => candidate.id === id)
@@ -3855,32 +3859,52 @@ export const store = {
    *
    *  The copy stops AT the named turn inclusive: that is what "from turn 12"
    *  means, and taking the whole thread would make the locus decorative. */
-  forkSession(sourceId: string, atMessageId: string, tenantId: string): Session | 'forbidden' | undefined {
+  forkSession(
+    sourceId: string,
+    atMessageId: string,
+    tenantId: string,
+    options: { logicalId?: string } = {},
+  ): Session | 'forbidden' | undefined {
+    if (options.logicalId) {
+      if (!isForkSessionCreationId(options.logicalId)) {
+        throw new ValidationError('That conversation branch identity is malformed.')
+      }
+      const represented = this.getSessionCreation(options.logicalId, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That conversation branch identity is already owned by another account.')
+      }
+      if (represented === 'retired') {
+        throw new ValidationError('That conversation branch identity was already retired.')
+      }
+    }
     const source = SESSIONS.find((x) => x.id === sourceId)
     if (!source || !this.sessionVisibleToTenant(source, tenantId)) return undefined
     if (!this.socialSubjectProposable({ kind: 'session', id: sourceId }, tenantId)) return 'forbidden'
     const msgs = source.messages ?? []
     const cut = msgs.findIndex((m) => m.id === atMessageId)
     if (cut < 0) return undefined
-    const taken = msgs.slice(0, cut + 1).map((m) => ({ ...m }))
-    const fork = mintSession({
-      id: `sess-${(sessionSeq += 1)}`,
-      title: source.title,
-      preview: source.preview,
-      tenantId,
-      messages: taken,
-      forkedFrom: { sessionId: source.id, title: source.title, atMessageId },
+    const taken = structuredClone(msgs.slice(0, cut + 1))
+    return commitMutationBatch(() => {
+      const fork = mintSession({
+        id: options.logicalId ?? `sess-${(sessionSeq += 1)}`,
+        title: source.title,
+        preview: source.preview,
+        tenantId,
+        messages: taken,
+        forkedFrom: { sessionId: source.id, title: source.title, atMessageId },
+      })
+      // Public credit, like a definition fork: the source's owner is told.
+      notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
+        kind: 'social.forked',
+        actor: tenantName(tenantId),
+        subjectKind: 'session',
+        subjectId: source.id,
+        subjectName: source.title,
+      })
+      persist()
+      return fork
     })
-    // Public credit, like a definition fork: the source's owner is told.
-    notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
-      kind: 'social.forked',
-      actor: tenantName(tenantId),
-      subjectKind: 'session',
-      subjectId: source.id,
-      subjectName: source.title,
-    })
-    persist()
-    return fork
   },
   createSession(
     firstMessage?: string,
@@ -3890,7 +3914,7 @@ export const store = {
     options: { logicalId?: string; persistFirstMessage?: true } = {},
   ): Session {
     if (options.logicalId) {
-      if (!isSessionCreationId(options.logicalId)) {
+      if (!isDraftSessionCreationId(options.logicalId)) {
         throw new ValidationError('That conversation creation identity is malformed.')
       }
       const represented = this.getSessionCreation(options.logicalId, tenantId)

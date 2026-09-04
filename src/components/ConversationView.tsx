@@ -23,7 +23,7 @@ import { TurnControls } from './TurnControls'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { EscalationPrompt } from './EscalationPrompt'
 import { DEFAULT_PROVIDER_ID, estimateTokens } from '../../contract/index.ts'
-import { useAgents, useProviders, useSessions } from '../api'
+import { useAgents, useMe, useProviders, useSessions } from '../api'
 import { MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
 import { usePendingFocus } from '../lib/focusContext'
 import { messageWindow } from '../lib/messageWindow'
@@ -114,6 +114,7 @@ export function ConversationView({
   /** The thread's vertical padding (the primary's draft indent quirk). */
   threadPadClass?: string
 }) {
+  const tenantId = useMe().data?.tenant.id
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const didMount = useRef(false)
@@ -268,7 +269,13 @@ export function ConversationView({
               </div>
             )}
             {window.items.map((m) => (
-              <MessageRow key={m.id} message={m} sessionId={sessionId} onOpenSession={onOpenSession} />
+              <MessageRow
+                key={`${sessionId}:${m.id}`}
+                message={m}
+                sessionId={sessionId}
+                tenantId={tenantId}
+                onOpenSession={onOpenSession}
+              />
             ))}
             <AnimatePresence>
               {typing && atLatest && <TypingRow waitingOn={onRelay ? RELAY_WAIT : undefined} />}

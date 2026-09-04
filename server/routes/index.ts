@@ -42,6 +42,7 @@ import type {
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
+  ForkSessionRequest,
   SetRunnerCapabilitiesRequest,
   SetConnectorStatusRequest,
   UpdateArtifactContentRequest,
@@ -101,7 +102,7 @@ import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
-import { sessionCreationId } from '../sessionCreationIdentity.ts'
+import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -3178,9 +3179,31 @@ export function buildRouter(): Router {
   // CONTINUE a conversation from one of its turns, into the caller's namespace
   // (social S3). Existence-hiding on an unreadable source; `propose` tier to act.
   r.post('/sessions/:id/fork', async ({ req, res, params, body }) => {
-    const { atMessageId } = await body<{ atMessageId?: string }>()
-    if (!atMessageId) return sendError(res, 'bad_request', 'atMessageId is required (a fork names the turn it continues from)')
-    const out = store.forkSession(params.id, atMessageId, store.identity(req.headers).tenant.id)
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalSessionId = idempotencyKey
+      ? sessionForkCreationId(tenantId, idempotencyKey)
+      : undefined
+    // This create owns its durable identity rather than a cached response. A
+    // replay returns current creator truth before parsing changed retry input,
+    // and deletion retirement prevents a delayed resurrection.
+    const represented = logicalSessionId
+      ? store.getSessionCreation(logicalSessionId, tenantId)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') return sendError(res, 'bad_request', 'This conversation branch identity is not valid for this account')
+    if (represented === 'retired') return sendError(res, 'not_found', 'This conversation branch was already removed')
+    const { atMessageId } = await body<Partial<ForkSessionRequest>>()
+    if (typeof atMessageId !== 'string' || !atMessageId.trim()) {
+      return sendError(res, 'bad_request', 'atMessageId is required (a fork names the turn it continues from)')
+    }
+    let out: ReturnType<typeof store.forkSession>
+    try {
+      out = store.forkSession(params.id, atMessageId, tenantId, { logicalId: logicalSessionId })
+    } catch (error) {
+      if (error instanceof ValidationError) return sendError(res, 'bad_request', error.message)
+      throw error
+    }
     if (out === undefined) return sendError(res, 'not_found', `No session '${params.id}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Continuing a conversation needs the propose tier')
     sendJson(res, out)
