@@ -111,7 +111,7 @@ import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
@@ -136,6 +136,7 @@ import {
   isSessionCreationId,
 } from '../sessionCreationIdentity.ts'
 import { isAgentCreationId } from '../agentCreationIdentity.ts'
+import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -1156,7 +1157,6 @@ const MAX_PROPOSAL_NOTE_CHARS = 2000
 // project (and its snapshot); the tighter anti-spam bound is the per-tenant
 // notification inbox cap (200), which governs the fan-out a poster can inflict.
 const MAX_OPEN_WORK_PER_PROJECT = 1000
-const MAX_WORK_FIELD_CHARS = 2000
 
 /** The one redaction seam stored → wire: drop the proposer's raw tenant id and the
  *  act principals (FWD-5 Phase 1); serve display names + principal KINDs only. */
@@ -6441,11 +6441,38 @@ export const store = {
     proposals.sort((a, b) => pband(a) - pband(b) || b.at - a.at)
     return { posted, proposals }
   },
+  /** Exact creator/Project state for one keyed native open-work post. */
+  getOpenWorkCreation(
+    id: string,
+    projectId: string,
+    tenantId: string,
+  ): OpenSubGoal | 'invalid' | undefined {
+    if (!isOpenWorkCreationId(id)) return 'invalid'
+    const represented = openSubGoals.find((item) => item.id === id)
+    if (!represented) return undefined
+    if (represented.projectId !== projectId || represented.postedByTenant !== tenantId) return 'invalid'
+    return publicOpenSubGoal(represented, tenantId)
+  },
   /** Post a work item onto a Project's backlog (D19) — the issues-tray act — then
    *  dispatch it to the Project's standing Contributors synchronously. Returns the item
    *  in its post-dispatch state: `done` when a standing Commission took it, `open` when
    *  none could (it stays visible in the backlog). The route validates visibility. */
-  postOpenSubGoal(projectId: string, req: PostOpenSubGoalRequest, tenantId: string, principal: PrincipalRef | undefined, via?: 'a2a', verifiedPeer?: string): OpenSubGoal | 'capped' {
+  postOpenSubGoal(
+    projectId: string,
+    req: PostOpenSubGoalRequest,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    via?: 'a2a',
+    verifiedPeer?: string,
+    options: { logicalId?: string } = {},
+  ): OpenSubGoal | 'capped' {
+    if (options.logicalId) {
+      const represented = this.getOpenWorkCreation(options.logicalId, projectId, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That open-work creation identity is not valid for this account and Project.')
+      }
+    }
     // The backlog is a bounded queue, not a blob store: refuse once the project
     // holds too many OPEN items (a hostile poster otherwise grows another
     // tenant's backlog + the snapshot without limit), and cap every free-text
@@ -6453,40 +6480,42 @@ export const store = {
     if (openSubGoals.filter((o) => o.projectId === projectId && o.status === 'open').length >= MAX_OPEN_WORK_PER_PROJECT) {
       return 'capped'
     }
-    const item: StoredOpenSubGoal = {
-      id: `work-${(openSubGoalSeq += 1)}`,
-      projectId,
-      subGoal: req.subGoal.slice(0, MAX_WORK_FIELD_CHARS),
-      type: req.type,
-      target: req.target.slice(0, MAX_WORK_FIELD_CHARS),
-      note: (req.note ?? '').slice(0, MAX_WORK_FIELD_CHARS),
-      // D28: a verified peer's REGISTERED name is the attribution (never the
-      // caller-supplied dev-seam headers); the stamp marks it verified.
-      postedBy: verifiedPeer ?? tenantName(tenantId),
-      ...(verifiedPeer ? { verifiedPeer } : {}),
-      // The strict retract-authorization anchor — server-private (redacted on read).
-      postedByTenant: tenantId,
-      ...(principal ? { postedByPrincipal: principal } : {}),
-      postedAt: Date.now(),
-      status: 'open',
-      // Provenance only (D20): an A2A-posted item passes the identical walls.
-      ...(via ? { via } : {}),
-    }
-    openSubGoals.push(item)
-    // The posted-notification fans out BEFORE dispatch so the two acts read in
-    // order in every inbox (posted, then — when a standing taker fired — resolved).
-    notifyTenants(workItemAudience(item), tenantId, {
-      kind: 'work.posted',
-      actor: item.postedBy,
-      projectId,
-      projectName: findProject(projectId)?.name ?? '',
-      subGoal: item.subGoal,
-      workItemId: item.id,
+    return commitMutationBatch(() => {
+      const item: StoredOpenSubGoal = {
+        id: options.logicalId ?? `work-${(openSubGoalSeq += 1)}`,
+        projectId,
+        subGoal: req.subGoal.trim().slice(0, OPEN_WORK_FIELD_MAX),
+        type: req.type,
+        target: req.target.trim().slice(0, OPEN_WORK_FIELD_MAX),
+        note: (req.note ?? '').trim().slice(0, OPEN_WORK_FIELD_MAX),
+        // D28: a verified peer's REGISTERED name is the attribution (never the
+        // caller-supplied dev-seam headers); the stamp marks it verified.
+        postedBy: verifiedPeer ?? tenantName(tenantId),
+        ...(verifiedPeer ? { verifiedPeer } : {}),
+        // The strict retract-authorization anchor — server-private (redacted on read).
+        postedByTenant: tenantId,
+        ...(principal ? { postedByPrincipal: principal } : {}),
+        postedAt: Date.now(),
+        status: 'open',
+        // Provenance only (D20): an A2A-posted item passes the identical walls.
+        ...(via ? { via } : {}),
+      }
+      openSubGoals.push(item)
+      // The posted-notification fans out BEFORE dispatch so the two acts read in
+      // order in every inbox (posted, then — when a standing taker fired — resolved).
+      notifyTenants(workItemAudience(item), tenantId, {
+        kind: 'work.posted',
+        actor: item.postedBy,
+        projectId,
+        projectName: findProject(projectId)?.name ?? '',
+        subGoal: item.subGoal,
+        workItemId: item.id,
+      })
+      this.dispatchOpenSubGoal(item)
+      emit({ type: 'openwork.changed', projectId })
+      persist()
+      return publicOpenSubGoal(item, tenantId)
     })
-    this.dispatchOpenSubGoal(item)
-    emit({ type: 'openwork.changed', projectId })
-    persist()
-    return publicOpenSubGoal(item, tenantId)
   },
   /** Standing dispatch (D19): offer an open item to the Project's `standing`
    *  Commissions, in role-rank order (ties first-come by id), and let the FIRST one

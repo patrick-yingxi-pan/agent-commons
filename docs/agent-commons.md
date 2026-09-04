@@ -837,7 +837,12 @@ first-come), the first whose **role permits** (D14) and whose **clamped reach ad
 effect (D12) claims the sub-goal through the Guardian (D11) and fires it through the *same*
 `runProjectEffect` path a human-driven turn uses — credit (D13), audit (D15), serialization
 (D11) all inherited. An item no standing Contributor can take **stays open** in the backlog,
-visible. **[COMMONS]**
+visible. Native posting is one acknowledgement-owned effect intent: tenant + Project + one
+logical key derive its durable work identity, replay returns current truth before changed
+input, capacity, or dispatch, and first application commits the row plus any standing effect
+and consequences atomically. The form requires an explicit human-labeled effect and warns
+that a standing Contributor may act immediately. A2A remains the deliberately unkeyed
+compatibility dialect. **[COMMONS]**
 
 **Why.** Everything before this slice made agents excellent *instruments*: they act when a
 human sends a turn or a schedule fires. "A cooperation platform where agents are the main
@@ -1752,9 +1757,12 @@ session↔context binding, mediation handle, and single-resource escrow).
   prompted path (role D14 / reach D12 / Guardian D11, then credit D13 + audit D15 inside
   `runProjectEffect`); an untakeable item stays open; flipping a commission to standing
   re-dispatches the backlog once; `openwork.changed` (visibility mirrors the Project's)
-  keeps the Coordination panel's **Open work** list live
-  (`server/routes/standing-dispatch.test.ts`, persistence in `server/persistence/snapshot.test.ts`).
-  Spec rows COMMONS-7/8/9; federation stays exploration (BROKER-EXP-5, § Beyond one
+  keeps the Coordination panel's **Open work** list live. Native posting now holds one
+  explicit, human-labeled effect intent through acknowledgement; its durable identity replays
+  before validation/capacity/dispatch, and first application batches the item with any
+  synchronous effect and consequences (`server/routes/standing-dispatch.test.ts`,
+  `e2e/open-work-creation.spec.ts`, persistence in `server/persistence/snapshot.test.ts`).
+  Spec rows COMMONS-7/8/9 + SYNC-48; federation stays exploration (BROKER-EXP-5, § Beyond one
   instance). typecheck + full suite + build green; verified live.
 - **Slice 20 — A2A at the edge (D20). ✅ Built.** The platform shell's objects re-served
   in the Agent2Agent wire format, with zero new authority paths

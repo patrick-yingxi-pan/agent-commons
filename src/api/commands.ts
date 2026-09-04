@@ -43,7 +43,6 @@ import {
   type CrystallizeRequest,
   type ProposeAgentChangeRequest,
   type WatchState,
-  type PostOpenSubGoalRequest,
   type PromptProbeRequest,
   type PromptProbeResult,
   type ReserveSubGoalRequest,
@@ -768,23 +767,6 @@ export async function patchAgent(
  *  validator. `new URL` leaves an absolute `VITE_API_BASE` untouched. */
 export function a2aAgentCardUrl(id: string): string {
   return new URL(`${API_BASE}${paths.a2aAgentCard(id)}`, window.location.origin).toString()
-}
-
-/** Post a work item onto a Project's backlog (docs/agent-commons.md, D19) — the
- *  issues-tray act. The server dispatches it to the Project's standing Contributors
- *  synchronously; the returned item is already `done` when one took it. Refreshes the
- *  backlog, the coordination panel, and the agent list (a taker earned a contribution). */
-export async function postOpenSubGoal(projectId: string, input: PostOpenSubGoalRequest): Promise<OpenSubGoal> {
-  const item = await apiPost<OpenSubGoal>(paths.openSubGoals(projectId), input)
-  invalidate(keys.openSubGoals(projectId))
-  invalidate(keys.projectSubGoals(projectId))
-  invalidate(keys.workerAgents)
-  invalidatePrefix(keys.directoryProjects())
-  // A standing taker may have resolved it synchronously — its D13 credit rides the
-  // agent directory and the S10 resolved-work list, not just the caller's own list.
-  invalidatePrefix(keys.directoryAgents())
-  invalidatePrefix(keys.agentResolvedWork())
-  return item
 }
 
 /** Append a comment to a work item's discussion thread (D23). The thread rides

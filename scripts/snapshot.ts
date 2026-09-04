@@ -303,7 +303,15 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // the standing playground Contributor takes a charge item (→ done, crediting D13),
   // and a connector item the created project can't admit stays open (the backlog face).
   store.updateCommission(playgroundCommission.id, { standing: true })
-  store.postOpenSubGoal('p-insights', { subGoal: 'playground-open-work', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
+  store.postOpenSubGoal(
+    'p-insights',
+    { subGoal: 'playground-open-work', type: 'charge', target: 'budget:playground' },
+    store.defaultTenantId(),
+    builder,
+    undefined,
+    undefined,
+    { logicalId: 'work-new-000000000000000000000000' },
+  )
   store.postOpenSubGoal('p-insights', { subGoal: 'playground-backlog', type: 'connector.write', target: 'no-such-connector' }, store.defaultTenantId(), builder)
 
   // ── The contribution ledger (Phase A) ── exercise the contributions persisted

@@ -105,6 +105,7 @@ import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
+import { openWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2055,13 +2056,45 @@ export function buildRouter(): Router {
     sendJson(res, store.listOpenSubGoals(params.id, store.identity(req.headers).tenant.id))
   })
   r.post('/projects/:id/open-subgoals', async ({ req, res, params, body }) => {
-    const input = await body<PostOpenSubGoalRequest>()
-    if (!input?.subGoal?.trim() || typeof input?.target !== 'string' || !PROJECT_EFFECT_TYPES.includes(input.type)) {
-      return sendError(res, 'bad_request', 'subGoal, target, and a valid type are required')
-    }
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.postOpenSubGoal(params.id, { ...input, subGoal: input.subGoal.trim() }, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalWorkId = idempotencyKey
+      ? openWorkCreationId(who.tenant.id, params.id, idempotencyKey)
+      : undefined
+    // The work item is the durable acknowledgement. A lost-response Retry
+    // returns its CURRENT lifecycle before parsing changed input or dispatching
+    // the effect again.
+    const represented = logicalWorkId
+      ? store.getOpenWorkCreation(logicalWorkId, params.id, who.tenant.id)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This open-work identity is not valid for this account and Project')
+    }
+    const input = await body<PostOpenSubGoalRequest>()
+    if (
+      typeof input?.subGoal !== 'string' || !input.subGoal.trim() ||
+      typeof input?.target !== 'string' || !input.target.trim() ||
+      (input.note !== undefined && typeof input.note !== 'string') ||
+      !PROJECT_EFFECT_TYPES.includes(input.type)
+    ) {
+      return sendError(res, 'bad_request', 'subGoal, target, and a valid type are required')
+    }
+    const out = store.postOpenSubGoal(
+      params.id,
+      {
+        ...input,
+        subGoal: input.subGoal.trim(),
+        target: input.target.trim(),
+        ...(input.note !== undefined ? { note: input.note.trim() } : {}),
+      },
+      who.tenant.id,
+      userPrincipal(who),
+      undefined,
+      undefined,
+      { logicalId: logicalWorkId },
+    )
     if (out === 'capped') return sendError(res, 'conflict', 'This project’s backlog is at its open-item cap')
     sendJson(res, out)
   })

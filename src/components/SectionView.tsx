@@ -245,7 +245,6 @@ import {
   addSavedContext,
   desktopCredentialsAvailable,
   a2aAgentCardUrl,
-  postOpenSubGoal,
   commentOnWorkItem,
   retractWorkItem,
   setProjectWatch,
@@ -443,6 +442,11 @@ import {
   useContributionCreationStatus,
 } from '../controller/contributionCreationMutations.ts'
 import {
+  enqueueOpenWorkCreation,
+  heldOpenWorkIntent,
+  useOpenWorkCreationStatus,
+} from '../controller/openWorkCreationMutations.ts'
+import {
   enqueueSocialProposalCreation,
   isSocialProposalCreationHeld,
   useSocialProposalCreationStatus,
@@ -480,6 +484,7 @@ import {
   projectAdmittedAuthority,
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
+  OPEN_WORK_FIELD_MAX,
   SHARE_TIERS,
   discussionTitle,
   type CommonsItem,
@@ -2937,46 +2942,83 @@ function renderCommentBody(body: string): ReactNode[] {
  *  project's STANDING contributors (through the same role/reach/guardian walls as a
  *  prompted effect); the returned item is already done when one took it. Live on
  *  `openwork.changed`. */
+const OPEN_WORK_ACTION_LABELS: Record<ProjectEffectType, string> = {
+  'connector.read': 'Read from a connector',
+  'connector.write': 'Write through a connector',
+  'mcp.query': 'Query an MCP tool',
+  'mcp.mutate': 'Change something with an MCP tool',
+  charge: 'Record a charge',
+}
+
+const openWorkTargetPlaceholder = (type: ProjectEffectType | ''): string => {
+  if (type.startsWith('connector.')) return 'Connector or resource…'
+  if (type.startsWith('mcp.')) return 'MCP server or tool…'
+  if (type === 'charge') return 'Budget or charge description…'
+  return 'Choose an action first…'
+}
+
 function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolean }) {
   const items = useOpenSubGoals(projectId).data ?? []
   // Read once here rather than per row: every row's mention roster drops the
   // caller, and this is one cached query either way.
-  const myName = useMe().data?.tenant.name
+  const me = useMe().data
+  const myName = me?.tenant.name
+  useOpenWorkCreationStatus()
+  const heldIntent = heldOpenWorkIntent(projectId)
+  const held = heldIntent !== null
   const [subGoal, setSubGoal] = useState('')
-  const [type, setType] = useState<ProjectEffectType>('charge')
+  const [type, setType] = useState<ProjectEffectType | ''>('')
   const [target, setTarget] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState('')
   const [error, setError] = useState<string | null>(null)
   // The post form is ON DEMAND, disclosed by the section header's verb — the
   // backlog reads as a backlog, not as a permanently-open form.
   const [composing, setComposing] = useState(false)
+  useEffect(() => {
+    if (!heldIntent) return
+    setSubGoal(heldIntent.request.subGoal)
+    setType(heldIntent.request.type)
+    setTarget(heldIntent.request.target)
+    setNote(heldIntent.request.note ?? '')
+    setComposing(true)
+  }, [heldIntent])
 
   const post = async () => {
-    if (busy || !subGoal.trim() || !target.trim()) return
-    setBusy(true)
+    if (held || !me || !subGoal.trim() || !type || !target.trim()) return
     setError(null)
     try {
-      await postOpenSubGoal(projectId, { subGoal: subGoal.trim(), type, target: target.trim() })
-      setSubGoal('')
-      setTarget('')
-      setComposing(false)
+      const result = await enqueueOpenWorkCreation({
+        tenantId: me.tenant.id,
+        projectId,
+        request: { subGoal, type, target, ...(note.trim() ? { note } : {}) },
+      })
+      if (result.outcome === 'applied') {
+        setSubGoal('')
+        setType('')
+        setTarget('')
+        setNote('')
+        setComposing(false)
+      } else {
+        setError('The work item wasn’t posted. Review it and try again when ready.')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post this work item.')
-    } finally {
-      setBusy(false)
     }
   }
 
   return (
     <FoldSection
       title="Open work"
+      heldOpen={held}
       summary={countOr(items.length, 'item', 'items', 'Nothing posted')}
       actions={
         <SectionAction
           label="Post a work item"
           icon={<Plus size={14} />}
-          onClick={() => setComposing((v) => !v)}
+          onClick={() => { if (!held) setComposing((v) => !v) }}
           expanded={composing}
+          disabled={held || !me}
+          disabledReason={held ? 'Waiting for server acknowledgement' : 'Waiting for your account'}
         />
       }
     >
@@ -2994,26 +3036,34 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
         </CardList>
       )}
       {composing && (
-      <div className="mt-2 space-y-1.5">
+      <div
+        data-open-work-creation-form
+        aria-busy={held || undefined}
+        className="mt-2 space-y-1.5"
+      >
         <input
           autoFocus
           value={subGoal}
           onChange={(e) => setSubGoal(e.target.value)}
-          onKeyDown={(e) => e.key === 'Escape' && setComposing(false)}
-          placeholder="Post a work item (sub-goal)…"
+          onKeyDown={(e) => e.key === 'Escape' && !held && setComposing(false)}
+          placeholder="What needs doing?"
           aria-label="Work item sub-goal"
+          maxLength={OPEN_WORK_FIELD_MAX}
+          disabled={held}
           className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <select
             value={type}
             onChange={(e) => setType(e.target.value as ProjectEffectType)}
             aria-label="Effect type"
+            disabled={held}
             className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           >
+            <option value="" disabled>Choose an action…</option>
             {PROJECT_EFFECT_TYPES.map((t) => (
               <option key={t} value={t}>
-                {t}
+                {OPEN_WORK_ACTION_LABELS[t]}
               </option>
             ))}
           </select>
@@ -3021,16 +3071,19 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
             value={target}
             onChange={(e) => setTarget(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') post()
-              if (e.key === 'Escape') setComposing(false)
+              if (e.key === 'Enter') void post()
+              if (e.key === 'Escape' && !held) setComposing(false)
             }}
-            placeholder="Target (connector / descriptor)…"
+            placeholder={openWorkTargetPlaceholder(type)}
             aria-label="Effect target"
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+            maxLength={OPEN_WORK_FIELD_MAX}
+            disabled={held || !type}
+            className="min-w-44 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <button
-            onClick={post}
-            disabled={busy || !subGoal.trim() || !target.trim()}
+            onClick={() => void post()}
+            disabled={held || !me || !subGoal.trim() || !type || !target.trim()}
+            aria-busy={held || undefined}
             // Named, because the project page carries a SECOND "Post" (the
             // discussion composer): identical accessible names on two buttons
             // that do different things is ambiguous to a screen reader, and it
@@ -3038,9 +3091,22 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
             aria-label="Post work item"
             className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
           >
-            Post
+            {held ? 'Posting…' : 'Post work'}
           </button>
         </div>
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => e.key === 'Escape' && !held && setComposing(false)}
+          placeholder="Helpful context (optional)"
+          aria-label="Work item context"
+          maxLength={OPEN_WORK_FIELD_MAX}
+          disabled={held}
+          className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+        />
+        <p className="text-[11px] text-ink-faint">
+          Posting adds this to the Project backlog. A standing contributor may act on it immediately.
+        </p>
         {error && <p className="text-[11px] text-removed">{error}</p>}
       </div>
       )}

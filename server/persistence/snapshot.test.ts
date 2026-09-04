@@ -321,6 +321,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'postOpenSubGoal + standing dispatch → openSubGoals (D19, resolved state)',
   )
   assert.ok(
+    s.openSubGoals?.some((o) => o.id === 'work-new-000000000000000000000000'),
+    'acknowledgement-owned open work keeps its durable identity',
+  )
+  assert.ok(
     s.openSubGoals?.some((o) => o.status === 'open'),
     'postOpenSubGoal → openSubGoals (D19, open/backlog state)',
   )
@@ -560,6 +564,15 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     'retired',
     'a removed keyed Agent Card import remains retired after a real boot',
   )
+  const keyedWork = store.getOpenWorkCreation(
+    'work-new-000000000000000000000000',
+    'p-insights',
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof keyedWork, 'object', 'a keyed work-item acknowledgement survives a real boot')
+  if (typeof keyedWork === 'object') {
+    assert.equal(keyedWork.id, 'work-new-000000000000000000000000')
+  }
 
   // The Agent Commons registries survive the boot too (D6/D9/D10/D7).
   const provider = store.listProviders().find((p) => p.label === 'Playground provider')

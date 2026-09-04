@@ -28,6 +28,10 @@ export const PROJECT_EFFECT_TYPES = [
 ] as const
 export type ProjectEffectType = (typeof PROJECT_EFFECT_TYPES)[number]
 
+/** Shared cap for each user-authored open-work field. The UI trims to the same
+ * bound the server persists so an acknowledgement can be compared exactly. */
+export const OPEN_WORK_FIELD_MAX = 2_000
+
 /** Is a Project-level effect **monotonic** (CALM)? A monotonic effect only observes /
  *  queries — it adds no irreversible outside change another Contributor acted on, so it
  *  is coordination-free and bypasses the Guardian. Non-monotonic effects (a connector

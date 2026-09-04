@@ -7,7 +7,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { openWorkCreationId } from '../openWorkCreationIdentity.ts'
+import { call, callFresh } from '../testkit/http.ts'
 
 const A = 'tenant-work-A'
 const B = 'tenant-work-B'
@@ -43,6 +44,71 @@ test('a standing Contributor takes a posted item: done + credited + audited, thr
   )
   // Nothing is left held at the Guardian (reserve → commit → release ran to completion).
   assert.equal(store.projectSubGoals(id).length, 0, 'no dangling reservation')
+})
+
+test('a keyed post replays current work-item truth before changed input or another dispatch', async () => {
+  const { id } = arena()
+  const key = `open-work-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+  const expectedId = openWorkCreationId(A, id, key)
+  const request = {
+    subGoal: '  preserve this exact work  ',
+    type: 'connector.write',
+    target: '  remote-system  ',
+    note: '  do not repeat the effect  ',
+  }
+
+  const first = await call('POST', `/projects/${id}/open-subgoals`, request, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.id, expectedId)
+  assert.deepEqual(
+    { subGoal: first.json.subGoal, type: first.json.type, target: first.json.target, note: first.json.note },
+    { subGoal: 'preserve this exact work', type: 'connector.write', target: 'remote-system', note: 'do not repeat the effect' },
+  )
+  assert.equal(store.listOpenSubGoals(id, A).filter((item) => item.id === expectedId).length, 1)
+
+  const commented = store.commentOnOpenSubGoal(id, expectedId, 'current discussion', A, undefined)
+  assert.equal(typeof commented, 'object')
+  const retracted = store.retractOpenSubGoal(id, expectedId, A, undefined)
+  assert.equal(typeof retracted, 'object')
+
+  const replay = await callFresh('POST', `/projects/${id}/open-subgoals`, {}, headers)
+  assert.equal(replay.status, 200, 'durable replay precedes body validation')
+  assert.equal(replay.json.id, expectedId)
+  assert.equal(replay.json.status, 'retracted', 'replay returns current lifecycle truth')
+  assert.equal(replay.json.comments?.[0]?.body, 'current discussion')
+  assert.equal(replay.json.subGoal, 'preserve this exact work')
+  assert.equal(store.listOpenSubGoals(id, A).filter((item) => item.id === expectedId).length, 1)
+})
+
+test('a keyed post dispatches its standing Contributor effect exactly once', async () => {
+  const { id, agent } = arena({ standing: true })
+  const key = `open-work-effect-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+  const target = `budget:one-effect-${key}`
+  const beforeCredit = store.getAgent(agent.id).contributions ?? 0
+  const beforeAudit = store.listAuditLog(A).filter((entry) => entry.target === target).length
+
+  const first = await call('POST', `/projects/${id}/open-subgoals`, {
+    subGoal: 'run this once',
+    type: 'charge',
+    target,
+  }, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.status, 'done')
+  assert.equal(store.getAgent(agent.id).contributions, beforeCredit + 1)
+  assert.equal(store.listAuditLog(A).filter((entry) => entry.target === target).length, beforeAudit + 1)
+
+  const replay = await callFresh('POST', `/projects/${id}/open-subgoals`, {}, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.id, first.json.id)
+  assert.equal(store.getAgent(agent.id).contributions, beforeCredit + 1, 'Retry cannot credit twice')
+  assert.equal(
+    store.listAuditLog(A).filter((entry) => entry.target === target).length,
+    beforeAudit + 1,
+    'Retry cannot run the external effect twice',
+  )
+  assert.equal(store.listOpenSubGoals(id, A).filter((item) => item.id === first.json.id).length, 1)
 })
 
 test('no standing Contributor ⇒ the item stays OPEN; flipping a commission to standing re-dispatches it', async () => {

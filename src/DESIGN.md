@@ -487,6 +487,15 @@ opens only the exact copy while the source view still owns the act. Direct-creat
 and copy namespaces are disjoint, and deletion persists retirement so a delayed
 Retry cannot resurrect removed work.
 
+Effectful creation obeys the boundary before side effects, not merely before its
+own row write. Native open-work posting derives identity from tenant, Project, and
+one logical key; replay returns the current item before parsing, capacity checks,
+or standing dispatch. First application commits the backlog row and any immediate
+Contributor effect, credit, audit, notification, event, and snapshot as one
+transition. Its form requires an explicit human-named effect, states that standing
+Contributors may act immediately, and remains held until exact authored truth is
+acknowledged or reconciled.
+
 The initiating surface stays coherent while it waits: transient create dialogs
 and editors remain open and disabled, consent cards show their own delivery
 state, and one shell-level `RelationMutationNotice` owns Retry/Dismiss for edits
