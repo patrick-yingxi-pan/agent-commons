@@ -464,7 +464,15 @@ export async function buildComprehensive(): Promise<PersistedState> {
   accounts.mintApiToken('user-ada', 'playground token')
   store.accountsMutated()
   const watchedItem = store.postOpenSubGoal(PROJECT_ID, { subGoal: 'playground-watched-item', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
-  store.commentOnOpenSubGoal(PROJECT_ID, watchedItem.id, 'playground discussion — still needed?', store.defaultTenantId(), builder)
+  store.commentOnOpenSubGoal(
+    PROJECT_ID,
+    watchedItem.id,
+    'playground discussion — still needed?',
+    store.defaultTenantId(),
+    builder,
+    undefined,
+    { logicalId: 'work-comment-new-000000000000000000000000' },
+  )
 
   // Run the created routine through the worker-facing durable transition seam.
   // Snapshot manufacture stays deterministic and offline; the routine worker's

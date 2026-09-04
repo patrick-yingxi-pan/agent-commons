@@ -1004,6 +1004,13 @@ credit already accrued and cannot be un-happened). Retract finally makes A2A
 (the caller's identity must be the poster's), with `retracted` → the spec's
 `canceled` task state — previously declined as "no native retract act". **[COMMONS]**
 
+Native comment submission is acknowledgement-owned: tenant + Project + item + one
+logical key derive an embedded durable comment identity. Replay returns the containing
+item's current lifecycle and thread before changed input, capacity, or another generic /
+mention notification fan-out; first application commits comment, bells, event, and
+snapshot together. The compact row and canonical timeline reconstruct one held draft
+through navigation and shell recovery. A2A remains the unkeyed compatibility dialect.
+
 **Why.** Contributors today coordinate only through Guardian reservations — machine
 serialization with no human/agent *discussion* channel, so "why does this item need
 the charge target?" or "I'll take this tomorrow unless someone objects" had nowhere
@@ -1799,10 +1806,13 @@ session↔context binding, mediation handle, and single-resource escrow).
   see the project — the same wall as reading the backlog) and a third terminal
   status, **`retracted`** (poster or Project owner, open items only — `done` is
   immutable history). A retracted item leaves every open-work count but stays
-  readable. **A2A `tasks/cancel`** now maps to the same store method (`retracted` →
+  readable. Native comments now carry tenant/Project/item-scoped durable identities:
+  replay precedes body/cap/fan-out, one commit contains prose plus bells, and both UI
+  projections retain the same draft through Retry/Dismiss. **A2A `tasks/cancel`** now maps to the same store method (`retracted` →
   `canceled`), exactly as the a2a design log predicted. Surfaced in `OpenWorkList`
   (thread fold + composer + Retract). Locked by `server/routes/work-discussion.test.ts` +
-  `e2e/work-discussion.spec.ts`; spec row COMMONS-16; parity ledger rows 1–2
+  `e2e/work-discussion.spec.ts` + `e2e/work-item-comment-creation.spec.ts`; spec rows
+  COMMONS-16 + SYNC-49; parity ledger rows 1–2
   ([`github-parity.md`](github-parity.md)).
 - **Slice 23 — watching + the notification inbox (D24). ✅ Built.** The bell that
   makes the commons ambient: a visibility-walled **watch** flag per (tenant,

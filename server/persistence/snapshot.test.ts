@@ -333,6 +333,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'commentOnOpenSubGoal → the item’s discussion thread (D23)',
   )
   assert.ok(
+    s.openSubGoals?.some((o) => o.comments?.some((c) => c.id === 'work-comment-new-000000000000000000000000')),
+    'acknowledgement-owned work-item comments keep their durable identity',
+  )
+  assert.ok(
     s.grants?.some((g) => g.subject.id === 'p-playground' && g.note !== undefined),
     'createGrant → grants (social S1, the published share persists)',
   )
@@ -573,6 +577,16 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   if (typeof keyedWork === 'object') {
     assert.equal(keyedWork.id, 'work-new-000000000000000000000000')
   }
+  const keyedCommentItem = store.listOpenSubGoals('p-playground', store.defaultTenantId())
+    .find((item) => item.comments?.some((comment) => comment.id === 'work-comment-new-000000000000000000000000'))
+  assert.ok(keyedCommentItem, 'the work item containing a keyed comment survives a real boot')
+  const keyedComment = keyedCommentItem && store.getWorkItemCommentCreation(
+    'work-comment-new-000000000000000000000000',
+    'p-playground',
+    keyedCommentItem.id,
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof keyedComment, 'object', 'a keyed comment acknowledgement survives a real boot')
 
   // The Agent Commons registries survive the boot too (D6/D9/D10/D7).
   const provider = store.listProviders().find((p) => p.label === 'Playground provider')

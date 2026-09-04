@@ -68,6 +68,10 @@ export interface WorkItemComment {
   at: number
 }
 
+/** Shared cap for one authored work-item comment. The client normalizes to the
+ * same bound the server persists so exact acknowledgement comparison is stable. */
+export const WORK_ITEM_COMMENT_MAX = 2_000
+
 /** ── Open work — the Project backlog (docs/agent-commons.md, D19) ────────────
  *  A posted work item: a sub-goal plus the externally-effectful action it needs.
  *  The issues-tray analog — the same object that shows a human what a Project

@@ -106,6 +106,7 @@ import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { openWorkCreationId } from '../openWorkCreationIdentity.ts'
+import { workItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2101,13 +2102,34 @@ export function buildRouter(): Router {
   // D23 — the item's flat discussion thread: anyone who can SEE the project may
   // comment (the same wall as reading the backlog); attribution is the display name.
   r.post('/projects/:id/open-subgoals/:itemId/comments', async ({ req, res, params, body }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalCommentId = idempotencyKey
+      ? workItemCommentCreationId(who.tenant.id, params.id, params.itemId, idempotencyKey)
+      : undefined
+    // The embedded comment is the durable acknowledgement. Return the containing
+    // item's CURRENT lifecycle/thread before changed input, capacity, or fan-out.
+    const represented = logicalCommentId
+      ? store.getWorkItemCommentCreation(logicalCommentId, params.id, params.itemId, who.tenant.id)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This comment identity is not valid for this work item')
+    }
     const input = await body<PostWorkItemCommentRequest>()
     if (typeof input?.body !== 'string' || !input.body.trim()) {
       return sendError(res, 'bad_request', 'a non-empty comment body is required')
     }
-    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    const who = store.identity(req.headers)
-    const out = store.commentOnOpenSubGoal(params.id, params.itemId, input.body, who.tenant.id, userPrincipal(who))
+    const out = store.commentOnOpenSubGoal(
+      params.id,
+      params.itemId,
+      input.body,
+      who.tenant.id,
+      userPrincipal(who),
+      undefined,
+      { logicalId: logicalCommentId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No work item '${params.itemId}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This item’s discussion is at its cap')
     sendJson(res, out)

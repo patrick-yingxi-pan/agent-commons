@@ -245,7 +245,6 @@ import {
   addSavedContext,
   desktopCredentialsAvailable,
   a2aAgentCardUrl,
-  commentOnWorkItem,
   retractWorkItem,
   setProjectWatch,
   setSocialWatch,
@@ -447,6 +446,11 @@ import {
   useOpenWorkCreationStatus,
 } from '../controller/openWorkCreationMutations.ts'
 import {
+  enqueueWorkItemCommentCreation,
+  heldWorkItemCommentIntent,
+  useWorkItemCommentCreationStatus,
+} from '../controller/workItemCommentCreationMutations.ts'
+import {
   enqueueSocialProposalCreation,
   isSocialProposalCreationHeld,
   useSocialProposalCreationStatus,
@@ -485,6 +489,7 @@ import {
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
   OPEN_WORK_FIELD_MAX,
+  WORK_ITEM_COMMENT_MAX,
   SHARE_TIERS,
   discussionTitle,
   type CommonsItem,
@@ -3030,7 +3035,13 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
         <CardList>
           {items.map((o) => (
             <div key={o.id} className="py-3">
-              <WorkItemRow item={o} projectId={projectId} shared={shared} myName={myName} />
+              <WorkItemRow
+                item={o}
+                projectId={projectId}
+                shared={shared}
+                myName={myName}
+                tenantId={me?.tenant.id}
+              />
             </div>
           ))}
         </CardList>
@@ -3204,6 +3215,7 @@ function WorkItemRow({
   projectId,
   shared,
   myName,
+  tenantId,
 }: {
   item: OpenSubGoal
   projectId: string
@@ -3211,6 +3223,7 @@ function WorkItemRow({
    *  fan-out, and therefore the wall on the hint that promises it. */
   shared: boolean
   myName?: string
+  tenantId?: string
 }) {
   const comments = o.comments ?? []
   // Remembered across a trip out of this page (`lib/disclosure`), for the same
@@ -3221,6 +3234,14 @@ function WorkItemRow({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  useWorkItemCommentCreationStatus()
+  const heldComment = heldWorkItemCommentIntent(projectId, o.id)
+  const commentHeld = heldComment !== null
+  const effectiveThreadOpen = threadOpen || commentHeld
+  useEffect(() => {
+    if (!heldComment) return
+    setDraft(heldComment.body)
+  }, [heldComment])
   // The SERVER's answer, not a display-name comparison: standing is compared by
   // raw tenant id (names are attacker-controlled and renameable), and those ids
   // are stripped from the wire face — so the client cannot derive this. Gating
@@ -3266,17 +3287,18 @@ function WorkItemRow({
     },
   })
   const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
+    if (commentHeld || busy || !tenantId || !draft.trim()) return
     setError(null)
     try {
-      await commentOnWorkItem(projectId, o.id, draft.trim())
-      setDraft('')
-      mention.close()
+      const result = await enqueueWorkItemCommentCreation({ tenantId, projectId, itemId: o.id, body: draft })
+      if (result.outcome === 'applied') {
+        setDraft('')
+        mention.close()
+      } else {
+        setError('The comment wasn’t posted. Review it and try again when ready.')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post this comment.')
-    } finally {
-      setBusy(false)
     }
   }
   const retract = async () => {
@@ -3352,7 +3374,13 @@ function WorkItemRow({
           )}
         </div>
         <div className="mt-0.5 flex items-center gap-3 text-[11px]">
-          <button onClick={() => setThreadOpen(!threadOpen)} aria-expanded={threadOpen} className={INLINE_ACTION_CLASS}>
+          <button
+            onClick={() => { if (!commentHeld) setThreadOpen(!effectiveThreadOpen) }}
+            aria-expanded={effectiveThreadOpen}
+            aria-disabled={commentHeld || undefined}
+            disabled={commentHeld}
+            className={INLINE_ACTION_CLASS}
+          >
             {comments.length === 0
               ? 'Comment'
               : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
@@ -3363,7 +3391,7 @@ function WorkItemRow({
             </button>
           )}
         </div>
-        {threadOpen && (
+        {effectiveThreadOpen && (
           <div className="mt-1.5 space-y-1.5 border-l-2 border-line pl-2.5">
             {comments.map((c) => (
               <div
@@ -3379,20 +3407,26 @@ function WorkItemRow({
                 <div className="whitespace-pre-wrap">{renderCommentBody(c.body)}</div>
               </div>
             ))}
-            <div className="flex items-center gap-1.5">
+            <div
+              data-work-item-comment-form
+              aria-busy={commentHeld || undefined}
+              className="flex items-center gap-1.5"
+            >
               <input
                 {...mention.fieldProps}
                 value={draft}
                 placeholder={mentionHint(shared)}
                 aria-label={`Comment on ${o.subGoal}`}
+                maxLength={WORK_ITEM_COMMENT_MAX}
+                disabled={commentHeld || busy}
                 className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <button
-                onClick={send}
-                disabled={busy || !draft.trim()}
+                onClick={() => void send()}
+                disabled={commentHeld || busy || !tenantId || !draft.trim()}
                 className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
               >
-                Post
+                {commentHeld ? 'Posting…' : 'Post'}
               </button>
               {mention.list}
             </div>
@@ -3427,11 +3461,19 @@ function WorkItemPage({
 }) {
   const items = useOpenSubGoals(project.id).data ?? []
   const o = items.find((i) => i.id === workItemId) ?? null
-  const myName = useMe().data?.tenant.name
+  const me = useMe().data
+  const myName = me?.tenant.name
   const rel = useRelations()
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  useWorkItemCommentCreationStatus()
+  const heldComment = heldWorkItemCommentIntent(project.id, workItemId)
+  const commentHeld = heldComment !== null
+  useEffect(() => {
+    if (!heldComment) return
+    setDraft(heldComment.body)
+  }, [heldComment])
 
   // A bell's comment anchor (docs/notification-routing.md): flash the named
   // comment on arrival — the page-level face of the backlog row's same behavior.
@@ -3450,17 +3492,23 @@ function WorkItemPage({
   // picker's roster is this item's own participants, and both it and `send`
   // have to exist before the early exit that only some renders take.
   const send = async () => {
-    if (!o || busy || !draft.trim()) return
-    setBusy(true)
+    if (!o || commentHeld || busy || !me || !draft.trim()) return
     setError(null)
     try {
-      await commentOnWorkItem(project.id, o.id, draft.trim())
-      setDraft('')
-      mention.close()
+      const result = await enqueueWorkItemCommentCreation({
+        tenantId: me.tenant.id,
+        projectId: project.id,
+        itemId: o.id,
+        body: draft,
+      })
+      if (result.outcome === 'applied') {
+        setDraft('')
+        mention.close()
+      } else {
+        setError('The comment wasn’t posted. Review it and try again when ready.')
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post this comment.')
-    } finally {
-      setBusy(false)
     }
   }
   // Walled to a shared Project for the same reason the backlog row's is: on a
@@ -3644,20 +3692,26 @@ function WorkItemPage({
           backlog row's composer (anyone who can see the project may comment),
           and the same mention picker: the two composers post to one route, so
           they must offer one thing. */}
-      <div className="mt-4 flex items-center gap-1.5">
+      <div
+        data-work-item-comment-form
+        aria-busy={commentHeld || undefined}
+        className="mt-4 flex items-center gap-1.5"
+      >
         <input
           {...mention.fieldProps}
           value={draft}
           placeholder={mentionHint(project.shared === true)}
           aria-label={`Comment on ${o.subGoal}`}
+          maxLength={WORK_ITEM_COMMENT_MAX}
+          disabled={commentHeld || busy}
           className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
         <button
-          onClick={send}
-          disabled={busy || !draft.trim()}
+          onClick={() => void send()}
+          disabled={commentHeld || busy || !me || !draft.trim()}
           className={`shrink-0 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
         >
-          Post
+          {commentHeld ? 'Posting…' : 'Post'}
         </button>
         {mention.list}
       </div>

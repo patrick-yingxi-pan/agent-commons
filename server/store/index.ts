@@ -111,7 +111,7 @@ import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
@@ -137,6 +137,7 @@ import {
 } from '../sessionCreationIdentity.ts'
 import { isAgentCreationId } from '../agentCreationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
+import { isWorkItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -1085,7 +1086,7 @@ function publicContribution(c: StoredContribution, viewerTenant?: string): Contr
 // D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
 // gets a cap, not a forum). Coarse by design; the design log records the trade-off.
 const MAX_WORK_ITEM_COMMENTS = 100
-const MAX_WORK_ITEM_COMMENT_CHARS = 2000
+const MAX_AGENT_PROPOSAL_COMMENT_CHARS = 2000
 // D29 — max notification RECIPIENTS one comment's `@mentions` may fan out to (review
 // F1: the cap is on resolved targets, not token matches — a display name borne by K
 // workspaces still can't ring K bells, so a comment can't become an amplifier).
@@ -5928,7 +5929,7 @@ export const store = {
       id: `${proposal.id}-c${comments.length + 1}`, // append-only ⇒ stable count ⇒ unique
       author: tenantName(tenantId),
       ...(principal ? { principal } : {}),
-      body: body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS),
+      body: body.trim().slice(0, MAX_AGENT_PROPOSAL_COMMENT_CHARS),
       at: Date.now(),
     }
     comments.push(comment)
@@ -6567,53 +6568,75 @@ export const store = {
     }
     return false
   },
+  /** Current containing item for one keyed native comment acknowledgement. */
+  getWorkItemCommentCreation(
+    id: string,
+    projectId: string,
+    itemId: string,
+    viewerTenant: string,
+  ): OpenSubGoal | 'invalid' | undefined {
+    if (!isWorkItemCommentCreationId(id)) return 'invalid'
+    const item = openSubGoals.find((candidate) => candidate.id === itemId && candidate.projectId === projectId)
+    if (!item) return undefined
+    if (!item.comments?.some((comment) => comment.id === id)) {
+      const collision = openSubGoals.some((candidate) => candidate.comments?.some((comment) => comment.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    return publicOpenSubGoal(item, viewerTenant)
+  },
   /** Append a comment to a work item's flat discussion thread (D23): anyone who can
    *  see the Project may comment (the route enforces visibility with the same wall
    *  the backlog read uses); attribution is the display name, like `postedBy`.
    *  Append-only, trimmed + capped (per comment and per item — a bound, not a forum).
    *  Returns the updated item; `'capped'` when the thread is full; undefined for an
    *  unknown item (→ 404). */
-  commentOnOpenSubGoal(projectId: string, itemId: string, body: string, tenantId: string, principal: PrincipalRef | undefined, verifiedPeer?: string): OpenSubGoal | 'capped' | undefined {
+  commentOnOpenSubGoal(
+    projectId: string,
+    itemId: string,
+    body: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    verifiedPeer?: string,
+    options: { logicalId?: string } = {},
+  ): OpenSubGoal | 'capped' | undefined {
+    if (options.logicalId) {
+      const represented = this.getWorkItemCommentCreation(options.logicalId, projectId, itemId, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That comment creation identity is not valid for this work item.')
+      }
+    }
     const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
     if (!item) return undefined
     const comments = (item.comments ??= [])
     if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
-    // Parse mentions from the STORED text (trimmed + sliced) so a mention past the
-    // char cap — not visible in the comment — never notifies.
-    const storedBody = body.trim().slice(0, MAX_WORK_ITEM_COMMENT_CHARS)
-    const comment: StoredWorkItemComment = {
-      // Deterministic per-item id: comments are append-only (no delete act), so the
-      // running count is stable — no new persisted sequence needed.
-      id: `${item.id}-c${comments.length + 1}`,
-      // D28: a verified peer's registered name attributes the comment.
-      author: verifiedPeer ?? tenantName(tenantId),
-      ...(principal ? { principal } : {}),
-      body: storedBody,
-      at: Date.now(),
-    }
-    comments.push(comment)
-    const project = findProject(projectId)
-    const projectName = project?.name ?? ''
-    // D29 — `@mention` fan-out, but ONLY on a shared Project: its backlog is already
-    // world-visible (D17), so naming any workspace on it leaks nothing; on a private
-    // Project (audience = owner alone) naming an outsider would leak its existence,
-    // so mentions there resolve to no one (the D24 stale-audience wall).
-    const mentioned = project?.shared === true ? resolveMentions(storedBody) : new Set<string>()
-    // A mentioned party gets the more-specific `mentioned` bell, not ALSO a generic
-    // `work.commented` — fan the comment audience MINUS the mention set.
-    const commentAudience = new Set([...workItemAudience(item)].filter((t) => !mentioned.has(t)))
-    notifyTenants(commentAudience, tenantId, {
-      kind: 'work.commented',
-      actor: verifiedPeer ?? tenantName(tenantId),
-      projectId,
-      projectName,
-      subGoal: item.subGoal,
-      workItemId: item.id,
-      commentId: comment.id,
-    })
-    if (mentioned.size > 0) {
-      notifyTenants(mentioned, tenantId, {
-        kind: 'mentioned',
+    return commitMutationBatch(() => {
+      // Parse mentions from the STORED text (trimmed + sliced) so a mention past the
+      // char cap — not visible in the comment — never notifies.
+      const storedBody = body.trim().slice(0, WORK_ITEM_COMMENT_MAX)
+      const comment: StoredWorkItemComment = {
+        // Unkeyed compatibility keeps the stable append-only sequence; native UI
+        // comments use the durable operation identity.
+        id: options.logicalId ?? `${item.id}-c${comments.length + 1}`,
+        // D28: a verified peer's registered name attributes the comment.
+        author: verifiedPeer ?? tenantName(tenantId),
+        ...(principal ? { principal } : {}),
+        body: storedBody,
+        at: Date.now(),
+      }
+      comments.push(comment)
+      const project = findProject(projectId)
+      const projectName = project?.name ?? ''
+      // D29 — `@mention` fan-out, but ONLY on a shared Project: its backlog is already
+      // world-visible (D17), so naming any workspace on it leaks nothing; on a private
+      // Project (audience = owner alone) naming an outsider would leak its existence,
+      // so mentions there resolve to no one (the D24 stale-audience wall).
+      const mentioned = project?.shared === true ? resolveMentions(storedBody) : new Set<string>()
+      // A mentioned party gets the more-specific `mentioned` bell, not ALSO a generic
+      // `work.commented` — fan the comment audience MINUS the mention set.
+      const commentAudience = new Set([...workItemAudience(item)].filter((t) => !mentioned.has(t)))
+      notifyTenants(commentAudience, tenantId, {
+        kind: 'work.commented',
         actor: verifiedPeer ?? tenantName(tenantId),
         projectId,
         projectName,
@@ -6621,13 +6644,24 @@ export const store = {
         workItemId: item.id,
         commentId: comment.id,
       })
-    }
-    emit({ type: 'openwork.changed', projectId })
-    persist()
-    return publicOpenSubGoal(item, tenantId)
+      if (mentioned.size > 0) {
+        notifyTenants(mentioned, tenantId, {
+          kind: 'mentioned',
+          actor: verifiedPeer ?? tenantName(tenantId),
+          projectId,
+          projectName,
+          subGoal: item.subGoal,
+          workItemId: item.id,
+          commentId: comment.id,
+        })
+      }
+      emit({ type: 'openwork.changed', projectId })
+      persist()
+      return publicOpenSubGoal(item, tenantId)
+    })
   },
   /** Retract a work item (D23) — the honest close: permitted only to the item's
-   *  POSTER (name-compared, the platform's public identity) or the Project's OWNER
+   *  POSTER (raw-tenant compared) or the Project's OWNER
    *  tenant, and only while the item is still `open` — a `done` item is immutable
    *  history (the D13 credit cannot be un-happened). Returns the updated item;
    *  `'forbidden'` / `'closed'` for the two refusals; undefined for an unknown

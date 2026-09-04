@@ -769,14 +769,6 @@ export function a2aAgentCardUrl(id: string): string {
   return new URL(`${API_BASE}${paths.a2aAgentCard(id)}`, window.location.origin).toString()
 }
 
-/** Append a comment to a work item's discussion thread (D23). The thread rides
- *  the item, so refreshing the backlog refreshes the conversation. */
-export async function commentOnWorkItem(projectId: string, itemId: string, body: string): Promise<OpenSubGoal> {
-  const item = await apiPost<OpenSubGoal>(paths.openSubGoalComments(projectId, itemId), { body })
-  invalidate(keys.openSubGoals(projectId))
-  return item
-}
-
 /** Redeem a share-link token (S6): the signed-in caller becomes audience at
  *  the grant's tier; returns the subject so the caller can land on its page.
  *  An unknown/rotated token throws (the 404). */

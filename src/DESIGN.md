@@ -496,6 +496,13 @@ transition. Its form requires an explicit human-named effect, states that standi
 Contributors may act immediately, and remains held until exact authored truth is
 acknowledged or reconciled.
 
+Append-only public prose follows the same identity rule. A native work-item
+comment is keyed by tenant, Project, item, and one logical intent; replay returns
+the current containing thread before changed input, capacity, or notification
+fan-out. Compact and canonical projections reconstruct one held draft, and exact
+embedded identity plus body—not similar words or an optimistic response—earns
+clearing it.
+
 The initiating surface stays coherent while it waits: transient create dialogs
 and editors remain open and disabled, consent cards show their own delivery
 state, and one shell-level `RelationMutationNotice` owns Retry/Dismiss for edits

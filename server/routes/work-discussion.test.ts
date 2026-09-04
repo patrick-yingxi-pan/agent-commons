@@ -10,7 +10,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { accounts } from '../accounts.ts'
-import { call } from '../testkit/http.ts'
+import { workItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
+import { call, callFresh } from '../testkit/http.ts'
 
 const A = 'tenant-disc-A' // project owner
 const B = 'tenant-disc-B' // poster / commenter
@@ -47,6 +48,34 @@ test('anyone who can see the project may comment; attribution is the display nam
   // The thread rides the backlog read — one object, no separate visibility.
   const list = await call('GET', `/projects/${projectId}/open-subgoals`, undefined, { 'x-tenant-id': A })
   assert.equal(list.json.find((o: any) => o.id === itemId).comments.length, 2)
+})
+
+test('a keyed comment replays current truth before changed input, capacity, or notification fan-out', async () => {
+  const { projectId, itemId } = await arena()
+  const key = `work-comment-${Date.now().toString(36)}`
+  const expectedId = workItemCommentCreationId(C, projectId, itemId, key)
+  const headers = { 'x-tenant-id': C, 'idempotency-key': key }
+  const body = '  preserve this exact comment  '
+
+  const first = await call('POST', `/projects/${projectId}/open-subgoals/${itemId}/comments`, { body }, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.comments.at(-1).id, expectedId)
+  assert.equal(first.json.comments.at(-1).body, 'preserve this exact comment')
+
+  const closed = store.retractOpenSubGoal(projectId, itemId, B, undefined)
+  assert.equal(typeof closed, 'object')
+  const replay = await callFresh('POST', `/projects/${projectId}/open-subgoals/${itemId}/comments`, {}, headers)
+  assert.equal(replay.status, 200, 'durable representation precedes changed body validation')
+  assert.equal(replay.json.status, 'retracted', 'replay returns the containing item’s current lifecycle')
+  assert.equal(replay.json.comments.filter((comment: any) => comment.id === expectedId).length, 1)
+
+  for (const tenantId of [A, B]) {
+    assert.equal(
+      store.listNotifications(tenantId).filter((notice) => notice.kind === 'work.commented' && notice.commentId === expectedId).length,
+      1,
+      `Retry cannot ring ${tenantId} twice`,
+    )
+  }
 })
 
 test('the discussion wall IS the project wall: a foreign private project 404s; bounds hold', async () => {
