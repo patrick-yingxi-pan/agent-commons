@@ -288,7 +288,6 @@ import {
   noteContribution,
   proposeEnvelope,
   approveEnvelope,
-  runEnvelopeEffect,
   crystallizeContribution,
   reviewContribution,
   requireContributionReview,
@@ -442,6 +441,12 @@ import {
   isContributionLandingHeld,
   useContributionLandingStatus,
 } from '../controller/contributionLandingMutations.ts'
+import {
+  enqueueContributionEffectExecution,
+  heldContributionEffectExecutionIntent,
+  isContributionEffectExecutionHeld,
+  useContributionEffectExecutionStatus,
+} from '../controller/contributionEffectExecutionMutations.ts'
 import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
@@ -6226,6 +6231,7 @@ function ContributionPage({
   const delegationList = useDelegations(project.id).data ?? []
   const me = useMe().data
   useContributionLandingStatus()
+  useContributionEffectExecutionStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6235,6 +6241,8 @@ function ContributionPage({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
+  const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
+  const lifecycleHeld = landingHeld || effectExecutionHeld
 
   if (!c) {
     return (
@@ -6291,7 +6299,7 @@ function ContributionPage({
     }
   }
   const land = () => {
-    if (busy || landingHeld || !me) return
+    if (busy || lifecycleHeld || !me) return
     setError(null)
     void enqueueContributionLanding({
       tenantId: me.tenant.id,
@@ -6302,7 +6310,7 @@ function ContributionPage({
     })
   }
   const runReview = async () => {
-    if (busy || landingHeld) return
+    if (busy || lifecycleHeld) return
     setBusy(true)
     setError(null)
     try {
@@ -6314,7 +6322,7 @@ function ContributionPage({
     }
   }
   const tighten = async () => {
-    if (busy || landingHeld) return
+    if (busy || lifecycleHeld) return
     setBusy(true)
     setError(null)
     try {
@@ -6326,7 +6334,7 @@ function ContributionPage({
     }
   }
   const askDelegate = async (did: string) => {
-    if (busy || landingHeld) return
+    if (busy || lifecycleHeld) return
     setBusy(true)
     setError(null)
     try {
@@ -6400,7 +6408,7 @@ function ContributionPage({
             {mayRequire && (
               <button
                 onClick={() => void tighten()}
-                disabled={busy || landingHeld}
+                disabled={busy || lifecycleHeld}
                 title="Tighten the gate: force adversarial review before this can land (there is no un-require)"
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6410,7 +6418,7 @@ function ContributionPage({
             {mayReview && (
               <button
                 onClick={() => void runReview()}
-                disabled={busy || landingHeld}
+                disabled={busy || lifecycleHeld}
                 title={`Run the adversarial review over v${latestVersion} (mock reviewer — the model seam)`}
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6420,7 +6428,7 @@ function ContributionPage({
             {applicableDelegation && (
               <button
                 onClick={() => void askDelegate(applicableDelegation.id)}
-                disabled={busy || landingHeld}
+                disabled={busy || lifecycleHeld}
                 title={`Ask ${applicableDelegation.agentLabel} to ${applicableDelegation.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${applicableDelegation.escalation.join(', ')}`}
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6430,7 +6438,7 @@ function ContributionPage({
             {mayLand && (
               <button
                 onClick={() => void land()}
-                disabled={busy || landingHeld}
+                disabled={busy || lifecycleHeld}
                 title={`Land this contribution — it becomes L${
                   Math.max(
                     list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
@@ -6447,12 +6455,12 @@ function ContributionPage({
 
         {/* The changeset (CW3/CW4, Phase D) — the work's mergeable payload as
             before→after diffs, versioned append-only. */}
-        <ChangesetCard project={project} c={c} lifecycleHeld={landingHeld} />
+        <ChangesetCard project={project} c={c} lifecycleHeld={lifecycleHeld} />
 
         {/* The effect envelope (CW1, Phase C) — the plan's authorization,
             visually its own block: an external act must never hide inside the
             prose/diff idiom (CW3). */}
-        <EnvelopeCard project={project} c={c} lifecycleHeld={landingHeld} />
+        <EnvelopeCard project={project} c={c} lifecycleHeld={lifecycleHeld} />
 
         {/* The timeline — lifecycle transitions + the conversation, one record
             in time order (append-only, CW4; it keeps accruing after landing, CW7). */}
@@ -7011,6 +7019,7 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
 function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Contribution; lifecycleHeld: boolean }) {
   const own = project.own !== false
   const mayAct = c.mine === true || own
+  const me = useMe().data
   const env = c.envelope
   const [composing, setComposing] = useState(false)
   const [type, setType] = useState<ProjectEffectType>('connector.write')
@@ -7019,6 +7028,7 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
   const [harness, setHarness] = useState<EnvelopeHarness>('draft-escrow')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const heldExecution = heldContributionEffectExecutionIntent(project.id, c.id)
   // No envelope and nothing left to declare (landed) — nothing to show.
   if (!env && (c.status !== 'open' || !mayAct)) return null
 
@@ -7045,6 +7055,20 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
       setTarget('')
       setComposing(false)
     }, 'Could not propose the envelope.')
+  const run = (lineId: string) => {
+    if (busy || lifecycleHeld || !me) return
+    setError(null)
+    void enqueueContributionEffectExecution({
+      tenantId: me.tenant.id,
+      projectId: project.id,
+      contributionId: c.id,
+      lineId,
+    }).then((outcome) => {
+      if (outcome === 'discarded') {
+        setError('Effect execution was dismissed. Review the current envelope before trying again.')
+      }
+    })
+  }
 
   return (
     <div className="mt-5 rounded-xl border border-line bg-surface">
@@ -7101,7 +7125,7 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
             </span>
             {env.status === 'approved' && c.status === 'open' && mayAct && (
               <button
-                onClick={() => void act(() => runEnvelopeEffect(project.id, c.id, l.id), 'Could not run this act.')}
+                onClick={() => run(l.id)}
                 disabled={busy || lifecycleHeld || l.used >= l.cardinality}
                 title={
                   l.used >= l.cardinality
@@ -7110,7 +7134,7 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
                 }
                 className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
               >
-                Run
+                {heldExecution?.lineId === l.id ? 'Running…' : 'Run'}
               </button>
             )}
           </div>

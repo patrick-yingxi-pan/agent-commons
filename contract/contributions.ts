@@ -160,6 +160,11 @@ export interface ContributionEvent {
   actor: string
   /** What KIND of principal acted (FWD-5) — absent = unattributed. */
   actorKind?: PrincipalKind
+  /** The exact envelope line addressed by an effect attempt. Present only for
+   *  `effect-executed` / `effect-refused`; its event id is the durable receipt
+   *  for a keyed native attempt, so clients can reconcile repeated acts without
+   *  mistaking another line's cardinality movement for their own. */
+  lineId?: string
   /** `note`: the comment body. The envelope/effect kinds: a one-line record
    *  ("v2 · 2 acts", "connector.write → gmail · draft-escrow", the refusal
    *  reason). `opened` / `landed` carry no body — the contribution's own

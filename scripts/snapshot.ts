@@ -334,7 +334,14 @@ export async function buildComprehensive(): Promise<PersistedState> {
     )
     store.approveEnvelope('p-insights', landedContribution.id, store.defaultTenantId(), builder)
     if (typeof withEnvelope === 'object' && withEnvelope?.envelope) {
-      store.runEnvelopeEffect('p-insights', landedContribution.id, withEnvelope.envelope.lines[0].id, store.defaultTenantId(), builder)
+      store.runEnvelopeEffect(
+        'p-insights',
+        landedContribution.id,
+        withEnvelope.envelope.lines[0].id,
+        store.defaultTenantId(),
+        builder,
+        { logicalId: 'contribution-effect-000000000000000000000000' },
+      )
     }
     // Phase D: crystallize a changeset version too, so the persisted
     // append-only versions (entries + before/after) round-trip.

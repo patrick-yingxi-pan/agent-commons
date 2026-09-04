@@ -146,8 +146,13 @@ export interface StoredContribution extends Omit<Contribution, 'events'> {
 }
 
 /** A contribution timeline event as STORED — the wire row plus the acting
- *  principal (FWD-5); the projection strips it and serves only `actorKind`. */
-export type StoredContributionEvent = ContributionEvent & { principal?: PrincipalRef }
+ *  principal (FWD-5). Effect receipts additionally retain the raw tenant that
+ *  owns the retry identity; the projection strips both private anchors. */
+export type StoredContributionEvent = ContributionEvent & {
+  principal?: PrincipalRef
+  effectByTenant?: string
+  effectResult?: 'executed' | 'unapproved' | 'refused'
+}
 
 /** A Delegation as STORED (CW8, Phase F) — the wire row plus the DELEGATOR's
  *  raw tenant id (the conservation-law anchor: the delegated decision executes

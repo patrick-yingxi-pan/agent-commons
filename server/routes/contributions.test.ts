@@ -13,6 +13,7 @@ import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
+import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
@@ -423,6 +424,105 @@ test('envelope: acts match MECHANICALLY — consume cardinality, refuse outside/
   const late = await call('POST', `/projects/${other.projectId}/contributions/${other.cid}/effects`,
     { lineId: app2.json.envelope.lines[0].id }, { 'x-tenant-id': B })
   assert.equal(late.status, 409, 'a landed contribution’s plan is immutable — no act fires after landing')
+})
+
+test('a keyed envelope act owns one durable exact receipt across cache loss, later history, and changed Retry input', async () => {
+  const { projectId, cid } = await arena()
+  await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'connector.write', target: 'gmail:durable', cardinality: 2 }] }, { 'x-tenant-id': B })
+  const approved = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope/approve`,
+    undefined,
+    { 'x-tenant-id': A },
+  )
+  const lineId = approved.json.envelope.lines[0].id as string
+  const key = `contribution-effect-${n}`
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+  const expectedId = contributionEffectExecutionId(B, projectId, cid, key)
+
+  const first = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/effects`,
+    { lineId },
+    headers,
+  )
+  assert.equal(first.status, 200)
+  assert.equal(first.json.envelope.lines[0].used, 1)
+  const receipt = first.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'effect-executed')
+  assert.equal(receipt.lineId, lineId, 'the public receipt names the exact approved line')
+  assert.equal(receipt.effectByTenant, undefined, 'raw retry authority never crosses the wire')
+  assert.equal(receipt.effectResult, undefined, 'the private replay outcome never crosses the wire')
+
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'History added after the effect acknowledgement was serialized.' },
+    { 'x-tenant-id': A },
+  )
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/effects`,
+    { lineId },
+    headers,
+  )
+  assert.equal(replay.status, 200)
+  assert.equal(replay.headers['idempotency-replayed'], undefined)
+  assert.equal(replay.json.envelope.lines[0].used, 1, 'durable replay cannot consume cardinality twice')
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+  assert.equal(replay.json.events.at(-1).body, 'History added after the effect acknowledgement was serialized.',
+    'durable replay returns current ledger history')
+
+  const changedLine = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/effects`,
+    { lineId: 'eline-changed-retry' },
+    headers,
+  )
+  assert.equal(changedLine.status, 400, 'one logical key cannot be redirected to another envelope line')
+})
+
+test('a keyed mechanical refusal is one durable attempt and cannot become an execution after approval', async () => {
+  const { projectId, cid } = await arena()
+  const proposed = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'charge', target: 'budget:durable-refusal', cardinality: 1 }] }, { 'x-tenant-id': B })
+  const lineId = proposed.json.envelope.lines[0].id as string
+  const key = `contribution-effect-refusal-${n}`
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+  const expectedId = contributionEffectExecutionId(B, projectId, cid, key)
+
+  const refused = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/effects`,
+    { lineId },
+    headers,
+  )
+  assert.equal(refused.status, 409)
+  await call('POST', `/projects/${projectId}/contributions/${cid}/envelope/approve`, undefined, { 'x-tenant-id': A })
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/effects`,
+    { lineId },
+    headers,
+  )
+  assert.equal(replay.status, 409, 'the same refused attempt cannot turn into a later execution')
+
+  const ledger = await call('GET', `/projects/${projectId}/contributions`, undefined, { 'x-tenant-id': B })
+  const contribution = ledger.json.find((candidate: any) => candidate.id === cid)
+  assert.equal(contribution.envelope.lines[0].used, 0)
+  assert.equal(contribution.events.filter((event: any) => event.id === expectedId).length, 1,
+    'Retry records neither another refusal nor an execution')
+  assert.equal(contribution.events.find((event: any) => event.id === expectedId).kind, 'effect-refused')
+
+  const freshAttempt = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/effects`,
+    { lineId },
+    { ...headers, 'idempotency-key': `${key}-new-attempt` },
+  )
+  assert.equal(freshAttempt.status, 200, 'a deliberate new act receives a new receipt and may run')
+  assert.equal(freshAttempt.json.envelope.lines[0].used, 1)
 })
 
 test('the timeline-event cap bounds the envelope kinds too — no unbounded growth via propose/refuse loops', async () => {

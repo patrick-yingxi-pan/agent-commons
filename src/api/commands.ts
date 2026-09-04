@@ -1024,14 +1024,6 @@ export async function approveEnvelope(projectId: string, cid: string): Promise<C
   return c
 }
 
-/** Fire one act against an approved envelope line — the mechanical match;
- *  a 409 means the refusal was recorded on the timeline. */
-export async function runEnvelopeEffect(projectId: string, cid: string, lineId: string): Promise<Contribution> {
-  const c = await apiPost<Contribution>(paths.contributionEffects(projectId, cid), { lineId })
-  invalidate(keys.contributions(projectId))
-  return c
-}
-
 /** Open a change proposal against a published definition (D25). */
 export async function proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest): Promise<AgentChangeProposal> {
   const proposal = await apiPost<AgentChangeProposal>(paths.agentProposals(agentId), req)

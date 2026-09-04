@@ -9,6 +9,7 @@ import { DispatchMutationNotice } from './DispatchMutationNotice'
 import { DelegationCreationMutationNotice } from './DelegationCreationMutationNotice'
 import { ContributionCreationMutationNotice } from './ContributionCreationMutationNotice'
 import { ContributionLandingMutationNotice } from './ContributionLandingMutationNotice'
+import { ContributionEffectExecutionMutationNotice } from './ContributionEffectExecutionMutationNotice'
 import { OpenWorkCreationMutationNotice } from './OpenWorkCreationMutationNotice'
 import { WorkItemCommentCreationMutationNotice } from './WorkItemCommentCreationMutationNotice'
 import { WorkItemRetractionMutationNotice } from './WorkItemRetractionMutationNotice'
@@ -48,6 +49,7 @@ export function ShellMutationNotices() {
       <DelegationCreationMutationNotice />
       <ContributionCreationMutationNotice />
       <ContributionLandingMutationNotice />
+      <ContributionEffectExecutionMutationNotice />
       <OpenWorkCreationMutationNotice />
       <WorkItemCommentCreationMutationNotice />
       <WorkItemRetractionMutationNotice />

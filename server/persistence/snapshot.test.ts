@@ -347,6 +347,14 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'acknowledgement-owned Contribution landing keeps its private durable operation and actor anchors',
   )
   assert.ok(
+    s.contributions?.some((contribution) => contribution.events.some((event) =>
+      event.id === 'contribution-effect-000000000000000000000000' &&
+      typeof event.effectByTenant === 'string' &&
+      event.effectResult === 'executed' &&
+      typeof event.lineId === 'string')),
+    'acknowledgement-owned Contribution effects keep a durable receipt and private actor anchor',
+  )
+  assert.ok(
     s.grants?.some((g) => g.subject.id === 'p-playground' && g.note !== undefined),
     'createGrant → grants (social S1, the published share persists)',
   )

@@ -109,6 +109,7 @@ import { openWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { workItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
 import { workItemRetractionId } from '../workItemRetractionIdentity.ts'
 import { contributionLandingId } from '../contributionLandingIdentity.ts'
+import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2756,19 +2757,49 @@ export function buildRouter(): Router {
     if (out === 'conflict') return sendError(res, 'conflict', 'Nothing awaiting approval — the envelope is already approved, or the contribution landed')
     sendJson(res, out)
   })
-  r.post('/projects/:id/contributions/:cid/effects', async ({ req, res, params, body }) => {
+  r.post('/projects/:id/contributions/:cid/effects', idempotent(async ({ req, res, params, body }) => {
     const input = await body<RunEnvelopeEffectRequest>()
     if (typeof input?.lineId !== 'string' || !input.lineId) return sendError(res, 'bad_request', 'lineId is required')
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.runEnvelopeEffect(params.id, params.cid, input.lineId, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalExecutionId = idempotencyKey
+      ? contributionEffectExecutionId(who.tenant.id, params.id, params.cid, idempotencyKey)
+      : undefined
+    const represented = logicalExecutionId
+      ? store.getContributionEffectExecution(
+          logicalExecutionId,
+          params.id,
+          params.cid,
+          input.lineId,
+          who.tenant.id,
+        )
+      : undefined
+    if (typeof represented === 'object') {
+      if (represented.result === 'executed') return sendJson(res, represented.contribution)
+      if (represented.result === 'unapproved') {
+        return sendError(res, 'conflict', 'No approved envelope covers this act — the refusal is on the timeline')
+      }
+      return sendError(res, 'conflict', 'Outside the approved envelope — the refusal is on the timeline; amend and re-approve')
+    }
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This effect identity is not valid for this account, Contribution, and envelope line')
+    }
+    const out = store.runEnvelopeEffect(
+      params.id,
+      params.cid,
+      input.lineId,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalExecutionId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the contributor or the project owner may fire an envelope act')
     if (out === 'closed') return sendError(res, 'conflict', 'A landed contribution’s plan is immutable — remaining cardinality does not survive the landing')
     if (out === 'unapproved') return sendError(res, 'conflict', 'No approved envelope covers this act — the refusal is on the timeline')
     if (out === 'refused') return sendError(res, 'conflict', 'Outside the approved envelope — the refusal is on the timeline; amend and re-approve')
     sendJson(res, out)
-  })
+  }))
   r.post('/projects/:id/contributions/:cid/land', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)

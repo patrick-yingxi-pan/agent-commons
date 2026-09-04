@@ -140,6 +140,7 @@ import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { isWorkItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
 import { isWorkItemRetractionId } from '../workItemRetractionIdentity.ts'
 import { isContributionLandingId } from '../contributionLandingIdentity.ts'
+import { isContributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -416,7 +417,7 @@ const MAX_CHANGESET_VERSIONS = 20
 const MAX_CONTRIBUTION_EVENTS = 300
 
 function publicContributionEvent(ev: StoredContributionEvent): import('../../contract/index.ts').ContributionEvent {
-  const { principal, ...pub } = ev
+  const { principal, effectByTenant, effectResult, ...pub } = ev
   return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
 }
 /** The Project delegation rosters (CW8, Phase F) — judgment handed to a worker
@@ -8543,13 +8544,61 @@ export const store = {
     persist()
     return publicContribution(c, tenantId)
   },
+  /** Current containing ledger row and outcome for one durable effect receipt. */
+  getContributionEffectExecution(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    lineId: string,
+    tenantId: string,
+  ): { contribution: Contribution; result: 'executed' | 'unapproved' | 'refused' } | 'invalid' | undefined {
+    if (!isContributionEffectExecutionId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    if (
+      (event.kind !== 'effect-executed' && event.kind !== 'effect-refused') ||
+      event.lineId !== lineId ||
+      event.effectByTenant !== tenantId ||
+      event.effectResult === undefined
+    ) return 'invalid'
+    return { contribution: publicContribution(contribution, tenantId), result: event.effectResult }
+  },
   /** Fire ONE act against an envelope line — the MECHANICAL match (CW1/CW6):
    *  envelope approved, line exists, cardinality remaining; a matching act
    *  consumes and records, a deviating one is refused AND recorded (the
    *  refusal is timeline material — never silent). Contributor or owner only.
    *  The external effect itself is the platform's mock boundary — the record
    *  IS the act here, the same way connector effects are canned elsewhere. */
-  runEnvelopeEffect(projectId: string, cid: string, lineId: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | 'unapproved' | 'refused' | undefined {
+  runEnvelopeEffect(
+    projectId: string,
+    cid: string,
+    lineId: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): Contribution | 'forbidden' | 'closed' | 'unapproved' | 'refused' | undefined {
+    if (options.logicalId) {
+      const represented = this.getContributionEffectExecution(
+        options.logicalId,
+        projectId,
+        cid,
+        lineId,
+        tenantId,
+      )
+      if (typeof represented === 'object') {
+        return represented.result === 'executed' ? represented.contribution : represented.result
+      }
+      if (represented === 'invalid') {
+        throw new ValidationError('That Contribution effect identity is not valid for this account, ledger row, and envelope line.')
+      }
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
@@ -8563,35 +8612,51 @@ export const store = {
     const now = Date.now()
     const actor = tenantName(tenantId)
     const refuse = (reason: string): 'unapproved' | 'refused' => {
+      const result = reason.startsWith('no approved envelope') ? 'unapproved' : 'refused'
       // The refusal is recorded — unless the timeline is at its bound (the
       // record IS the act here, so an unrecordable act is refused unrecorded).
       if (c.events.length < MAX_CONTRIBUTION_EVENTS) {
-        c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'effect-refused', at: now, actor, body: reason, ...(principal ? { principal } : {}) })
-        emit({ type: 'contribution.changed', projectId })
-        persist()
+        commitMutationBatch(() => {
+          c.events.push({
+            id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+            kind: 'effect-refused',
+            at: now,
+            actor,
+            body: reason,
+            lineId,
+            ...(options.logicalId ? { effectByTenant: tenantId, effectResult: result } : {}),
+            ...(principal ? { principal } : {}),
+          })
+          emit({ type: 'contribution.changed', projectId })
+          persist()
+        })
       }
-      return reason.startsWith('no approved envelope') ? 'unapproved' : 'refused'
+      return result
     }
     if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'refused'
     if (!c.envelope || c.envelope.status !== 'approved') return refuse('no approved envelope covers this act')
     const line = c.envelope.lines.find((l) => l.id === lineId)
     if (!line) return refuse('outside the approved envelope — amend and re-approve')
     if (line.used >= line.cardinality) return refuse(`${line.type} → ${line.target}: cardinality exhausted (${line.cardinality} of ${line.cardinality} used)`)
-    line.used += 1
-    // The floor covers history: once an irreversible act runs, the Tier-2
-    // stamp is permanent (never unset — see the contract field's rationale).
-    if (!isProjectEffectMonotonic(line.type)) c.effectsFired = true
-    c.events.push({
-      id: `cev-${(contributionSeq += 1)}`,
-      kind: 'effect-executed',
-      at: now,
-      actor,
-      body: `${line.type} → ${line.target} · ${line.harness} · ${line.used}/${line.cardinality}`,
-      ...(principal ? { principal } : {}),
+    return commitMutationBatch(() => {
+      line.used += 1
+      // The floor covers history: once an irreversible act runs, the Tier-2
+      // stamp is permanent (never unset — see the contract field's rationale).
+      if (!isProjectEffectMonotonic(line.type)) c.effectsFired = true
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind: 'effect-executed',
+        at: now,
+        actor,
+        body: `${line.type} → ${line.target} · ${line.harness} · ${line.used}/${line.cardinality}`,
+        lineId,
+        ...(options.logicalId ? { effectByTenant: tenantId, effectResult: 'executed' } : {}),
+        ...(principal ? { principal } : {}),
+      })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
     })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
   },
 
   // ── D28 — peer credentials (verified identity at the A2A edge) ──
