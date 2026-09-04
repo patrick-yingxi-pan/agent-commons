@@ -610,7 +610,7 @@ test('P8 Phase 2b review — project-binding: a self-owned commission cannot act
 
   // Same wall on the guardian-DoS vector: holding a sub-goal on the victim's guardian.
   const reserve = await call('POST', '/projects/proj-vic/subgoals', { 'x-tenant-id': 'tenant-atk' }, { holder: atkComm.json.id, subGoal: 'sg-steal' })
-  assert.equal(reserve.status, 403, 'a self-owned commission cannot hold a sub-goal on a different project’s guardian')
+  assert.equal(reserve.status, 404, 'the Project visibility wall hides a private foreign guardian before actor details')
 
   // Control: the commission works on its OWN project (private, same-tenant) — binding passes.
   const own = await call('POST', '/projects/proj-atk/effects', { 'x-tenant-id': 'tenant-atk' }, { commissionId: atkComm.json.id, subGoal: 'sg-own', type: 'connector.write', target: 'Linear' })

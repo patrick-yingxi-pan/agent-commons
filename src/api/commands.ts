@@ -1155,12 +1155,6 @@ export async function reserveSubGoal(projectId: string, holder: string, subGoal:
   return reservation
 }
 
-/** Release a sub-goal claim, freeing it for another Contributor; refreshes the panel. */
-export async function releaseSubGoal(reservationId: string, projectId: string): Promise<void> {
-  await apiPost(paths.reservationRelease(reservationId))
-  invalidate(keys.projectSubGoals(projectId))
-}
-
 // ── Sessions (the sidebar row menu's edits) ─────────────────────────────────
 
 /** Project an acknowledged session-metadata response into every live cache

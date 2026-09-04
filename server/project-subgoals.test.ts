@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from './store/index.ts'
 import { GuardianError } from './guardian.ts'
-import { isProjectEffectMonotonic } from '../contract/index.ts'
+import { SELF_PROJECT_HOLDER, isProjectEffectMonotonic } from '../contract/index.ts'
 import { call } from './testkit/http.ts'
 
 const GUARDED = 'p-insights'
@@ -58,18 +58,66 @@ test('routes: GET lists in-flight sub-goals; POST claims; a conflicting claim 40
   assert.equal(list.status, 200)
   assert.ok(list.json.some((s: any) => s.subGoal === 'auth-refactor'))
 
-  const claimed = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: 'route-contrib', subGoal: 'route-goal' })
+  const claimed = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: SELF_PROJECT_HOLDER, subGoal: 'route-goal' })
   assert.equal(claimed.status, 200)
   assert.equal(claimed.json.status, 'held')
 
   // A different holder on the seeded sub-goal → 409 conflict.
-  const conflict = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: 'route-contrib', subGoal: 'auth-refactor' })
+  const conflict = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: SELF_PROJECT_HOLDER, subGoal: 'auth-refactor' })
   assert.equal(conflict.status, 409)
   assert.equal(conflict.json.error.code, 'conflict')
 
   // Missing fields → 400.
   const bad = await call('POST', `/projects/${GUARDED}/subgoals`, { holder: 'x' })
   assert.equal(bad.status, 400)
+})
+
+test('project claim reads and writes share the project wall; only the authenticated holder may release', async () => {
+  const stamp = Date.now().toString(36)
+  const projectId = `project-claim-wall-${stamp}`
+  const owner = { 'x-user-id': 'user-ada', 'x-tenant-id': 'tenant-acme' }
+  const visitor = { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' }
+  const create = await call('POST', '/relations/ops', {
+    op: { kind: 'create-project', projectId, projectName: `Claim wall ${stamp}`, projectDescription: '' },
+  }, owner)
+  assert.equal(create.status, 200)
+
+  assert.equal((await call('GET', `/projects/${projectId}/subgoals`, undefined, visitor)).status, 404)
+  assert.equal((await call('POST', `/projects/${projectId}/subgoals`, {
+    holder: SELF_PROJECT_HOLDER,
+    subGoal: 'foreign private claim',
+  }, visitor)).status, 404)
+
+  const share = await call('POST', '/relations/ops', {
+    op: { kind: 'share-project', projectId, projectName: `Claim wall ${stamp}`, shared: true },
+  }, owner)
+  assert.equal(share.status, 200)
+  const claimed = await call('POST', `/projects/${projectId}/subgoals`, {
+    holder: SELF_PROJECT_HOLDER,
+    subGoal: 'owner claim',
+  }, owner)
+  assert.equal(claimed.status, 200)
+
+  const ownerView = await call('GET', `/projects/${projectId}/subgoals`, undefined, owner)
+  const visitorView = await call('GET', `/projects/${projectId}/subgoals`, undefined, visitor)
+  assert.equal(ownerView.json[0].canRelease, true)
+  assert.equal(visitorView.json[0].canRelease, undefined)
+  assert.notEqual(visitorView.json[0].holderLabel, SELF_PROJECT_HOLDER, 'a foreign self-claim uses its public actor label')
+  assert.equal('ownerTenant' in ownerView.json[0], false)
+
+  const aliased = await call('POST', `/projects/${projectId}/subgoals`, {
+    holder: SELF_PROJECT_HOLDER,
+    subGoal: 'owner claim',
+  }, visitor)
+  assert.equal(aliased.status, 409, 'the shared self sentinel cannot re-enter another tenant’s hold')
+  assert.equal((await call('POST', `/reservations/${claimed.json.id}/release`, undefined, visitor)).status, 403)
+  assert.equal((await call('POST', `/reservations/${claimed.json.id}/release`, undefined, owner)).status, 200)
+
+  const invented = await call('POST', `/projects/${projectId}/subgoals`, {
+    holder: 'invented-principal',
+    subGoal: 'forged holder',
+  }, owner)
+  assert.equal(invented.status, 400, 'a caller cannot invent a holder outside self or an owned Contributor')
 })
 
 test('a sub-goal surfaces its holder’s role; a higher role does not preempt an in-flight hold (D14)', async () => {

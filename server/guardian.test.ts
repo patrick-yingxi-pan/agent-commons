@@ -32,6 +32,22 @@ test('reserve is re-entrant for the same holder (no second slot)', () => {
   assert.equal(g.status('res-B').active.length, 1)
 })
 
+test('reservation ownership is private, exact, and part of re-entrant identity', () => {
+  const { g } = make()
+  const owned = g.reserve('res-owned', 'you', { ownerTenant: 'tenant-a' })
+  assert.equal('ownerTenant' in owned, false, 'the private authority anchor never crosses the wire')
+  assert.equal('ownerTenant' in g.status('res-owned').active[0], false)
+  assert.equal(g.ownedBy(owned.id, 'tenant-a'), true)
+  assert.equal(g.ownedBy(owned.id, 'tenant-b'), false)
+  assert.equal(g.heldBy('res-owned', 'you', 'tenant-a'), true)
+  assert.equal(g.heldBy('res-owned', 'you', 'tenant-b'), false)
+  assert.throws(
+    () => g.reserve('res-owned', 'you', { ownerTenant: 'tenant-b' }),
+    isConflict,
+    'two tenants using the self sentinel are distinct holders rather than re-entrant aliases',
+  )
+})
+
 test('a second distinct holder is refused at capacity 1 (conflict)', () => {
   const { g } = make()
   g.reserve('res-C', 'sessA')

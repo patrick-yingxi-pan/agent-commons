@@ -484,6 +484,20 @@ default inter-agent protocol. And the **consent gate is the serialization gate**
 a Contributor's irreversible effect is confirmed is the moment its reservation is
 validated.
 
+Reservation authority follows the human principal, not its display token. The
+literal self sentinel is accepted only as the authenticated caller, while a
+Contributor holder must resolve to a Commission whose Agent that caller owns and
+which belongs to the Project. The Guardian keeps the caller's tenant as private
+reservation state, so two tenants both rendered as a person never become one holder;
+the Project projection replaces that sentinel with a human label and emits
+`canRelease` only for the exact viewer. Claim reads and writes pass through the same
+Project visibility wall; generic resource read/capacity/reserve refuses every Project
+Guardian namespace, and even the lower-level commit/release routes recheck the private
+owner. In the first-party UI, Release is a retained desired-state action:
+one key can replay an acknowledged transition while the process lives, and the exact
+claim's authoritative absence settles an uncertain response or a restart-expired
+transient reservation.
+
 This is where the coordination doc's multi-principal residue (its "honest residue"
 item 3, [`shared-resource-coordination.md`](shared-resource-coordination.md#the-honest-residue-genuinely-open)) is
 forced to the front. In single-user multi-host, every Commission shared one principal,

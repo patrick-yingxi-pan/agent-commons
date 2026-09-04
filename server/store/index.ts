@@ -1762,10 +1762,11 @@ const COMMISSIONS = new Map<string, Commission>(SEED_COMMISSIONS.map((c) => [c.i
 let commissionSeq = 0
 
 // Resolve a sub-goal holder (D11) to a human label: a Contributor identity is a
-// commission id → its Agent's label; any other principal shows verbatim.
-function holderLabel(holder: string): string {
+// commission id → its Agent's label; a person-shaped sentinel uses the private
+// owning tenant's public account name rather than leaking the sentinel itself.
+function holderLabel(holder: string, ownerTenant?: string): string {
   const commission = COMMISSIONS.get(holder)
-  if (!commission) return holder
+  if (!commission) return ownerTenant ? tenantName(ownerTenant) : holder
   return WORKER_AGENTS.get(commission.agentId)?.label ?? holder
 }
 
@@ -2268,6 +2269,14 @@ const guardian = new ResourceGuardian(emit)
 // exclusion → first-come wins, the second re-reasons).
 const subGoalKey = (guardianId: string, subGoal: string) => `${guardianId}:${subGoal}`
 
+/** Project guardian namespaces are reachable only through Project-aware routes,
+ * where visibility, Contributor ownership, and role are enforced. */
+const projectForGuardianResource = (resourceId: string): Project | undefined =>
+  [...baseProjects(), ...graph.extraProjects].find((project) =>
+    !!project.guardianId
+    && (resourceId === project.guardianId || resourceId.startsWith(`${project.guardianId}:`)),
+  )
+
 /** Run `effect` while holding `resourceKey` at the guardian, committing the irreversible
  *  step — releasing **only what this call acquired**, so a holder that already held the
  *  resource (a reservation kept across a consent gate, or a seeded hold) keeps it after.
@@ -2275,9 +2284,14 @@ const subGoalKey = (guardianId: string, subGoal: string) => `${guardianId}:${sub
  *  pre-existing hold. Mirrors the invoke route's `acquiredHere` care, shared so the two
  *  guard methods can't drift. A concurrent *different* holder is refused before `effect`
  *  runs (`reserve` throws `GuardianError` 'conflict'). */
-function guardedRun<T>(resourceKey: string, holder: string, effect: () => T): T {
-  const heldBefore = guardian.status(resourceKey).active.some((r) => r.holder === holder)
-  const reservation = guardian.reserve(resourceKey, holder)
+function guardedRun<T>(
+  resourceKey: string,
+  holder: string,
+  effect: () => T,
+  ownerTenant?: string,
+): T {
+  const heldBefore = guardian.heldBy(resourceKey, holder, ownerTenant)
+  const reservation = guardian.reserve(resourceKey, holder, { ownerTenant })
   try {
     const result = effect()
     guardian.commit(reservation.id)
@@ -2294,6 +2308,7 @@ function guardedRun<T>(resourceKey: string, holder: string, effect: () => T): T 
 // the rest of the guardian ledger — rebuilt from this line on each boot.)
 guardian.reserve(subGoalKey('p-insights', 'auth-refactor'), 'commission-insights-default', {
   ttlMs: 365 * 24 * 60 * 60 * 1000,
+  ownerTenant: defaultTenantId(),
 })
 
 // ── Filesystem persistence ──────────────────────────────────────────────────
@@ -3716,8 +3731,7 @@ export const store = {
         // class, C31). Gate on the OWNING Project like openwork.changed: everyone
         // while shared, owner-only while private; an unresolvable guardian (a bare
         // context-element key with no project) stays flagship-scoped.
-        const guardianId = e.resourceId.split(':')[0]
-        const p = baseProjects().find((x) => x.guardianId === guardianId) ?? graph.extraProjects.find((x) => x.guardianId === guardianId)
+        const p = projectForGuardianResource(e.resourceId)
         if (!p) return seedVisibleTo(tenantId)
         return p.shared === true || rowVisibleTo(p, tenantId)
       }
@@ -5585,6 +5599,9 @@ export const store = {
   findProject(id: string): Project | undefined {
     return findProject(id)
   },
+  isProjectGuardianResource(resourceId: string): boolean {
+    return !!projectForGuardianResource(resourceId)
+  },
   /** Route a non-monotonic Project effect through the Project's guardian (D11,
    *  docs/agent-commons.md): a guarded Project is a shared resource, so its
    *  irreversible effects serialize at its guardian. Reserves the Project's guardian
@@ -5597,7 +5614,12 @@ export const store = {
   guardProjectEffect<T>(projectId: string, holder: string, effect: () => T): T {
     const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) return effect()
-    return guardedRun(project.guardianId, holder, effect)
+    return guardedRun(
+      project.guardianId,
+      holder,
+      effect,
+      this.commissionOwnerTenant(holder) ?? defaultTenantId(),
+    )
   },
 
   // ── Multi-principal coordination — sub-goal reservation (D11) ──
@@ -5607,12 +5629,14 @@ export const store = {
    *  proceed concurrently); the *same* sub-goal is capacity-1, so a second *different*
    *  holder is refused (`GuardianError` 'conflict') and re-reasons. Re-entrant for the
    *  same holder. Throws if the Project isn't guarded. */
-  reserveSubGoal(projectId: string, holder: string, subGoal: string): Reservation {
+  reserveSubGoal(projectId: string, holder: string, subGoal: string, ownerTenant?: string): Reservation {
     const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) {
       throw new GuardianError('conflict', `Project '${projectId}' is not a guarded resource`)
     }
-    return guardian.reserve(subGoalKey(project.guardianId, subGoal), holder)
+    return guardian.reserve(subGoalKey(project.guardianId, subGoal), holder, {
+      ownerTenant: ownerTenant ?? this.commissionOwnerTenant(holder) ?? defaultTenantId(),
+    })
   },
   /** Release a sub-goal claim (free the lease so another Contributor may take it). */
   releaseSubGoal(reservationId: string): Reservation {
@@ -5625,7 +5649,12 @@ export const store = {
   guardSubGoalEffect<T>(projectId: string, holder: string, subGoal: string, effect: () => T): T {
     const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) return effect()
-    return guardedRun(subGoalKey(project.guardianId, subGoal), holder, effect)
+    return guardedRun(
+      subGoalKey(project.guardianId, subGoal),
+      holder,
+      effect,
+      this.commissionOwnerTenant(holder) ?? defaultTenantId(),
+    )
   },
   /** Fire a Contributor's externally-effectful action on a shared Project (D11/D12) — the
    *  real path through the Guardian seam (the slice-4 "forward" effect, now wired). A
@@ -5732,7 +5761,7 @@ export const store = {
   /** The sub-goals currently in flight on a Project — one entry per active Contributor
    *  claim (held or committed), the Coordination panel's read. Enumerates the guardian's
    *  resources under the Project's prefix; holders are resolved to their Agent label. */
-  projectSubGoals(projectId: string): ProjectSubGoal[] {
+  projectSubGoals(projectId: string, viewerTenant?: string): ProjectSubGoal[] {
     const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     if (!project?.guardianId) return []
     const prefix = `${project.guardianId}:`
@@ -5741,11 +5770,13 @@ export const store = {
       if (!key.startsWith(prefix)) continue
       const subGoal = key.slice(prefix.length)
       for (const r of guardian.status(key).active) {
+        const ownerTenant = guardian.ownerTenantOf(r.id)
         out.push({
           subGoal,
           holder: r.holder,
-          holderLabel: holderLabel(r.holder),
+          holderLabel: holderLabel(r.holder, ownerTenant),
           holderRole: holderRole(r.holder),
+          ...(viewerTenant && guardian.ownedBy(r.id, viewerTenant) ? { canRelease: true } : {}),
           reservationId: r.id,
           status: r.status,
           at: r.at,

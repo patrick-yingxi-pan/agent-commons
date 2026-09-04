@@ -130,10 +130,15 @@ Legend for **Now?**: ✅ lockable today · 🔧 needs a small fix first (see §4
 > the agent owner's tenant (D13 owner-pays *attribution*), **C12** CALM monotonic
 > bypass. **C7 owner-pays *compute* metering is DEFERRED** (needs a commissioned-
 > *generation* path — metering mock effects would be mock-gilding; the attribution
-> primitive is wired into audit + reputation instead). **C9 raw
-> `/reservations/:id/release|commit` authorization** is a remaining item (the
-> cooperation path is guarded via `/subgoals`; the low-level escrow route is a
-> follow-up). Original pre-build matrix kept below for provenance.
+> primitive is wired into audit + reputation instead). **UPDATE (C9 hardening,
+> 2026-09-04): built.** Every reservation now carries a private authenticated
+> tenant owner; raw commit/release is holder-only, Project claim reads/writes
+> share the Project visibility wall, and public rows expose only a human holder
+> label plus exact viewer-relative release capability. Generic resource
+> read/capacity/reserve refuses every Project Guardian namespace, closing the
+> remaining low-level pre-claim/capacity bypass. The owner release is a
+> same-key recoverable desired-state act whose authoritative proof is the exact
+> reservation's absence. Original pre-build matrix is kept below for provenance.
 
 | ID | Case | Layer | Now? | Notes |
 |----|------|-------|------|-------|
@@ -145,7 +150,7 @@ Legend for **Now?**: ✅ lockable today · 🔧 needs a small fix first (see §4
 | C6 | **D13 reputation cross-tenant** — a successful effect credits **B's** agent (the contributor), not A's | L1 | 🏗 | recordContribution is agent-scoped (store.ts:1768) so should hold; never asserted across tenants |
 | C7 | **owner-pays metering (D13)** — a commissioned run charges `commissionOwnerTenant`'s meter, not the project owner's and not nobody's | L1+L2 | 🏗 | **BUG-4:** `commissionOwnerTenant` is **dead code** (defined store.ts:1265, called nowhere). A commissioned effect is currently **free**. Needs the commissioned-execution seam. |
 | C8 | **caller-identity authorization** — a caller may act only as a commission **whose agent it owns**; forging another tenant's `commissionId` on `/projects/:id/effects` \| `/subgoals` \| `/runners/:id/invoke` → denied | L2 | 🔧/🏗 | **BUG-3:** these routes never resolve `store.identity(headers)`; commissionId/holder is client-supplied and trusted (routes:759/780/327). Latent auth hole + coverage gap. |
-| C9 | **reservation release authorization** — a tenant cannot `release`/`commit` a reservation it doesn't hold (routes:841/833) | L2 | 🔧 | **BUG-3b:** `/reservations/:id/release` is unauthenticated; any caller can free another's claim by guessing the id |
+| C9 | **reservation lifecycle authorization** — a tenant cannot read/resize/pre-claim through the generic door or `release`/`commit` a reservation it doesn't hold | L2+L3 | ✅ | Private tenant ownership; Project Guardian namespace exclusion; holder-only raw lifecycle routes; same-label tenants remain distinct principals; Project visibility/capability projections; forged cross-tenant release 403; owner same-key Retry and lost-acknowledgement recovery locked. |
 | C10 | D12 bypass via **omitted** commissionId — the "legacy single-tenant path" on `/runners/:id/invoke` (routes:367) must not skip the clamp on a shared project | L2 | 🔧 | make commission attribution mandatory on shared-project effects |
 | C11 | **audit lands under the right tenant** — a cross-tenant effect is recorded in the **commission owner's** Audit hub, not the backend/reader tenant | L1+L2 | 🔧 | `recordAudit` stamps the backend-resolved tenant (store.ts:1741); store comment itself flags this as a later slice |
 | C12 | monotonic effects (`fs.read`/`fs.list`) bypass the guardian cross-tenant (CALM); non-monotonic serialize | L1 | 🏗 | isProjectEffectMonotonic; lock cross-tenant |
@@ -308,11 +313,13 @@ Each phase: implement → `npm run typecheck` + `node --test` → adversarial
 - **Phase 2 — the bridge + the cooperation auth/metering (BUG-2/3/4/6).**
   guardianId + admitted contexts + default cap for created projects + `findProject`
   on the effect/sub-goal routes (BUG-2); caller-identity authorization on
-  effect/sub-goal/invoke/reservation routes — you may act only as a commission whose
-  agent you own (BUG-3, C8/C9/C10); owner-pays metering via `commissionOwnerTenant`
+  effect/sub-goal/invoke routes — you may act only as a commission whose agent you
+  own (BUG-3, C8/C10); owner-pays metering via `commissionOwnerTenant`
   (BUG-4, C7); per-effect audit under the commission owner's tenant (BUG-6, C11).
   Then lock the full Stage C cross-tenant matrix (C1–C12). This is the heart of the
   reviewer's question — *agents actually working together across tenants.*
+  C9's raw reservation actor wall and first-party recovery followed as an explicit
+  hardening checkpoint once the shared lifecycle was rendered end to end.
   *Known limitation to design here:* cross-tenant role **elevation** — the commission
   is owned by the contributing tenant (only it can PATCH, via `denyForeignEntry`), yet
   it may not self-elevate (B8), so no path currently promotes a cross-tenant

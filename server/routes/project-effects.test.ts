@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
+import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const P = 'p-insights' // guarded; the seeded commission reaches Linear + Figma
 const C = 'commission-insights-default'
@@ -36,7 +37,7 @@ test('a non-monotonic effect within reach commits through the Guardian (D11)', a
 
 test('a non-monotonic effect on a sub-goal a different principal holds is 409 (escrow)', async () => {
   // Another principal claims the sub-goal first.
-  const held = await call('POST', `/projects/${P}/subgoals`, { holder: 'squatter', subGoal: 'sg-contended' })
+  const held = await call('POST', `/projects/${P}/subgoals`, { holder: SELF_PROJECT_HOLDER, subGoal: 'sg-contended' })
   assert.equal(held.status, 200)
   // The Contributor's non-monotonic effect on that same sub-goal is refused up front.
   const r = await call('POST', `/projects/${P}/effects`, {
@@ -47,7 +48,8 @@ test('a non-monotonic effect on a sub-goal a different principal holds is 409 (e
 })
 
 test('a monotonic effect is coordination-free — runs even on a contended sub-goal', async () => {
-  await call('POST', `/projects/${P}/subgoals`, { holder: 'squatter2', subGoal: 'sg-ro' })
+  const held = await call('POST', `/projects/${P}/subgoals`, { holder: SELF_PROJECT_HOLDER, subGoal: 'sg-ro' })
+  assert.equal(held.status, 200)
   const r = await call('POST', `/projects/${P}/effects`, {
     commissionId: C, subGoal: 'sg-ro', type: 'connector.read', target: 'Linear',
   })

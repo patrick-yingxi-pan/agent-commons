@@ -211,17 +211,21 @@ test('two tenants each contribute an agent to co-author an article on one shared
   await reloadApp(bo.page)
   await openProject(bo.page, PROJECT)
   await expect(bo.page.getByText(`held by ${ADA_AGENT}`)).toBeVisible()
+  await expect(bo.page.getByRole('button', { name: `Release ${INTRO}` })).toHaveCount(0)
   await claimAs(bo.page, BO_AGENT, INTRO)
   await expect(bo.page.getByText(/held by another Contributor — pick a different sub-goal/)).toBeVisible()
   // …so it takes the conclusion instead.
   await claimAs(bo.page, BO_AGENT, CONCLUSION)
   await expect(bo.page.getByText(`held by ${BO_AGENT}`)).toBeVisible()
+  await expect(bo.page.getByRole('button', { name: `Release ${CONCLUSION}` })).toBeVisible()
 
   // Both sections are in flight on ONE shared project, across two tenants.
   await reloadApp(ada.page)
   await openProject(ada.page, PROJECT)
   await expect(ada.page.getByText(INTRO)).toBeVisible()
   await expect(ada.page.getByText(CONCLUSION)).toBeVisible()
+  await expect(ada.page.getByRole('button', { name: `Release ${INTRO}` })).toBeVisible()
+  await expect(ada.page.getByRole('button', { name: `Release ${CONCLUSION}` })).toHaveCount(0)
 
   // Each agent writes its section to the shared draft doc — the real effect route:
   // D12-clamped to the admitted connector, D11-serialized on the held sub-goal,

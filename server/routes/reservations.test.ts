@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from '../testkit/http.ts'
+import { store } from '../store/index.ts'
 
 test('reserve grants a held reservation; status reflects it', async () => {
   const r = await call('POST', '/resources/rt-1/reserve', { holder: 'sA' })
@@ -39,6 +40,54 @@ test('reserve → commit → release lifecycle frees the slot', async () => {
   assert.equal((await call('POST', `/reservations/${id}/release`)).json.status, 'released')
   // released — sB gets in
   assert.equal((await call('POST', '/resources/rt-4/reserve', { holder: 'sB' })).status, 200)
+})
+
+test('only the authenticated reservation owner may commit or release a claim', async () => {
+  const owner = { 'x-tenant-id': 'tenant-reservation-owner' }
+  const stranger = { 'x-tenant-id': 'tenant-reservation-stranger' }
+  const reserved = await call('POST', '/resources/rt-owned/reserve', { holder: 'same-visible-holder' }, owner)
+  const id = reserved.json.id
+
+  assert.equal((await call('POST', `/reservations/${id}/commit`, undefined, stranger)).status, 403)
+  assert.equal((await call('POST', `/reservations/${id}/release`, undefined, stranger)).status, 403)
+  assert.equal((await call('POST', `/reservations/${id}/commit`, undefined, owner)).json.status, 'committed')
+
+  const firstRelease = await call(
+    'POST',
+    `/reservations/${id}/release`,
+    undefined,
+    { ...owner, 'idempotency-key': 'release-owned-claim' },
+  )
+  const replay = await call(
+    'POST',
+    `/reservations/${id}/release`,
+    undefined,
+    { ...owner, 'idempotency-key': 'release-owned-claim' },
+  )
+  assert.equal(firstRelease.json.status, 'released')
+  assert.equal(replay.json.status, 'released')
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+})
+
+test('generic resource routes cannot bypass a Project guardian wall', async () => {
+  const projectId = `project:guardian:${Date.now().toString(36)}`
+  const tenantId = 'tenant-project-guardian-wall'
+  store.applyRelationOp({
+    kind: 'create-project',
+    projectId,
+    projectName: 'Guardian namespace wall',
+    projectDescription: '',
+  }, tenantId)
+  store.applyRelationOp({
+    kind: 'share-project',
+    projectId,
+    projectName: 'Guardian namespace wall',
+    shared: true,
+  }, tenantId)
+  const resource = `${projectId}:raw-route-bypass`
+  assert.equal((await call('GET', `/resources/${resource}`)).status, 404)
+  assert.equal((await call('PATCH', `/resources/${resource}`, { capacity: 2 })).status, 404)
+  assert.equal((await call('POST', `/resources/${resource}/reserve`, { holder: 'invented' })).status, 404)
 })
 
 test('reserve without holder is 400 bad_request', async () => {

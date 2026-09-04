@@ -11,6 +11,7 @@ import { ContributionCreationMutationNotice } from './ContributionCreationMutati
 import { OpenWorkCreationMutationNotice } from './OpenWorkCreationMutationNotice'
 import { WorkItemCommentCreationMutationNotice } from './WorkItemCommentCreationMutationNotice'
 import { WorkItemRetractionMutationNotice } from './WorkItemRetractionMutationNotice'
+import { ProjectSubGoalReleaseMutationNotice } from './ProjectSubGoalReleaseMutationNotice'
 import { SocialProposalCreationMutationNotice } from './SocialProposalCreationMutationNotice'
 import { GrantMutationNotice } from './GrantMutationNotice'
 import { ProposalVerdictMutationNotice } from './ProposalVerdictMutationNotice'
@@ -48,6 +49,7 @@ export function ShellMutationNotices() {
       <OpenWorkCreationMutationNotice />
       <WorkItemCommentCreationMutationNotice />
       <WorkItemRetractionMutationNotice />
+      <ProjectSubGoalReleaseMutationNotice />
       <SocialProposalCreationMutationNotice />
       <GrantMutationNotice />
       <SocialPostMutationNotice />

@@ -13,6 +13,7 @@ import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
+import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
 const B = 'tenant-contrib-B' // contributor
@@ -751,7 +752,7 @@ test('the in-flight lease is revealed: project sub-goal holds carry at/expiresAt
   // Sharing assigns the guardianId (the created-project convention) — an
   // unguarded project has no reservation ledger to project.
   store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Lease', shared: true }, A)
-  const reserved = await call('POST', `/projects/${projectId}/subgoals`, { holder: 'session-lease-demo', subGoal: 'lease-goal' }, { 'x-tenant-id': A })
+  const reserved = await call('POST', `/projects/${projectId}/subgoals`, { holder: SELF_PROJECT_HOLDER, subGoal: 'lease-goal' }, { 'x-tenant-id': A })
   assert.equal(reserved.status, 200)
   const holds = (await call('GET', `/projects/${projectId}/subgoals`, undefined, { 'x-tenant-id': A })).json
   const hold = holds.find((s: any) => s.subGoal === 'lease-goal')

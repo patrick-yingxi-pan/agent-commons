@@ -256,7 +256,6 @@ import {
   useMe,
   useWatchState,
   reserveSubGoal,
-  releaseSubGoal,
   probePrompt,
   mintApiToken,
   revokeApiToken,
@@ -456,6 +455,12 @@ import {
   useWorkItemRetractionStatus,
 } from '../controller/workItemRetractionMutations.ts'
 import {
+  enqueueProjectSubGoalRelease,
+  isProjectSubGoalReleaseHeld,
+  isProjectSubGoalReleaseScopeHeld,
+  useProjectSubGoalReleaseStatus,
+} from '../controller/projectSubGoalReleaseMutations.ts'
+import {
   enqueueSocialProposalCreation,
   isSocialProposalCreationHeld,
   useSocialProposalCreationStatus,
@@ -495,6 +500,7 @@ import {
   PROJECT_EFFECT_TYPES,
   OPEN_WORK_FIELD_MAX,
   WORK_ITEM_COMMENT_MAX,
+  SELF_PROJECT_HOLDER,
   SHARE_TIERS,
   discussionTitle,
   type CommonsItem,
@@ -2758,22 +2764,20 @@ function CommissionAdd({ projectId, available, joinRole }: { projectId: string; 
   )
 }
 
-/** The demo principal a UI claim is made as — a *second* Contributor, distinct from
- *  the seeded one, so claiming the seeded sub-goal demonstrates a multi-principal
- *  conflict (D11). */
-const VIEWER_PRINCIPAL = 'you'
-
 /** The project's "Coordination" card (docs/agent-commons.md, D11) — the in-flight
  *  sub-goals different Contributors are handling, reserved at the Project's Guardian.
  *  Claiming a sub-goal already held by another Contributor is refused (409) and surfaced
  *  as a re-reason prompt — "conflict is a question, not an abort". Only meaningful for a
  *  guarded Project; an unguarded one reserves nothing. */
 function CoordinationPanel({ project }: { project: Project }) {
+  const tenantId = useMe().data?.tenant.id
   const subGoals = useProjectSubGoals(project.id).data ?? []
   const guarded = !!project.guardianId
   const [draft, setDraft] = useState('')
   const [conflict, setConflict] = useState<string | null>(null)
+  const [releaseError, setReleaseError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  useProjectSubGoalReleaseStatus()
   // Claim AS a principal you control: yourself, or one of YOUR agents commissioned on
   // this Project (P8 cross-tenant cooperation: an agent's sub-goal claim is how it
   // "works" here). A FOREIGN Contributor's agent never resolves in this tenant's
@@ -2783,19 +2787,22 @@ function CoordinationPanel({ project }: { project: Project }) {
   const agents = useAgents().data ?? []
   const ownAgentById = new Map(agents.map((a) => [a.id, a]))
   const ownCommissions = commissions.filter((c) => ownAgentById.has(c.agentId))
-  const [holder, setHolder] = useState(VIEWER_PRINCIPAL)
+  const [holder, setHolder] = useState<string>(SELF_PROJECT_HOLDER)
   // The claim form is ON DEMAND — the section header's verb discloses it (the
   // always-open form read as noise on a page you're only reading).
   const [claiming, setClaiming] = useState(false)
 
   const claim = async () => {
     const subGoal = draft.trim()
-    if (!subGoal || busy) return
+    if (!subGoal || busy || isProjectSubGoalReleaseScopeHeld(project.id, subGoal)) return
     setBusy(true)
     setConflict(null)
+    setReleaseError(null)
     try {
       // An unknown (deleted) commission still selected falls back to claiming as yourself.
-      const as = holder === VIEWER_PRINCIPAL || ownCommissions.some((c) => c.id === holder) ? holder : VIEWER_PRINCIPAL
+      const as = holder === SELF_PROJECT_HOLDER || ownCommissions.some((c) => c.id === holder)
+        ? holder
+        : SELF_PROJECT_HOLDER
       await reserveSubGoal(project.id, as, subGoal)
       setDraft('')
       setClaiming(false)
@@ -2815,117 +2822,139 @@ function CoordinationPanel({ project }: { project: Project }) {
     }
   }
 
-  return (
-    <>
-    <FoldSection
-      title="Coordination"
-      summary={
-        !guarded ? 'Not a guarded resource'
-        : countOr(subGoals.length, 'claim', 'claims', 'Nothing claimed')
+  const releaseClaim = (reservationId: string, subGoal: string) => {
+    if (!tenantId || isProjectSubGoalReleaseHeld(reservationId)) return
+    setReleaseError(null)
+    void enqueueProjectSubGoalRelease({ tenantId, projectId: project.id, reservationId, subGoal }).then((outcome) => {
+      if (outcome === 'discarded') {
+        setReleaseError(`“${subGoal}” may still be claimed. Review Coordination before trying again.`)
       }
-      actions={
-        guarded ? (
-          <SectionAction
-            label="Claim a sub-goal"
-            icon={<Plus size={14} />}
-            onClick={() => setClaiming((v) => !v)}
-            expanded={claiming}
-          />
-        ) : undefined
-      }
-    >
-      {!guarded ? (
-        <p className="text-[12px] text-ink-faint">This project isn’t a guarded resource.</p>
-      ) : (
-        <>
-          {subGoals.length === 0 ? (
-            <p className="text-[12px] text-ink-faint">No sub-goals in flight.</p>
-          ) : (
-            <CardList>
-              {subGoals.map((s) => (
-                <div key={s.reservationId} className="group flex items-start gap-2.5 py-3">
-                  <span
-                    className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                      s.status === 'committed' ? 'bg-accent' : 'bg-ok'
-                    }`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[13px] font-medium text-ink">{s.subGoal}</div>
-                    {/* CW1 — a visible intent carries its lease: claimed-when +
-                        renews-until, from the reservation's own stamps (pure
-                        reveal), so abandonment self-heals in view of everyone. */}
-                    <div className="text-[11px] text-ink-faint">
-                      held by {s.holderLabel}
-                      {s.at ? ` · claimed ${relativeTime(s.at)}` : ''}
-                      {s.expiresAt ? ` · ${leaseLabel(s.expiresAt)}` : ''}
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => void releaseSubGoal(s.reservationId, project.id)}
-                    aria-label={`Release ${s.subGoal}`}
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
-                  >
-                    <X size={13} />
-                  </button>
-                </div>
-              ))}
-            </CardList>
-          )}
+    })
+  }
 
-          {claiming && (
-          <div className="mt-2.5">
-            {ownCommissions.length > 0 && (
-              <select
-                value={holder}
-                onChange={(e) => setHolder(e.target.value)}
-                aria-label="Claim as"
-                data-testid="claim-as"
-                className="mb-1.5 w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-              >
-                <option value={VIEWER_PRINCIPAL}>Claim as: You</option>
-                {ownCommissions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    Claim as: {ownAgentById.get(c.agentId)?.label ?? c.agentId}
-                  </option>
-                ))}
-              </select>
+  return (
+    <FoldSection
+        title="Coordination"
+        summary={
+          !guarded ? 'Not a guarded resource'
+          : countOr(subGoals.length, 'claim', 'claims', 'Nothing claimed')
+        }
+        actions={
+          guarded ? (
+            <SectionAction
+              label="Claim a sub-goal"
+              icon={<Plus size={14} />}
+              onClick={() => setClaiming((v) => !v)}
+              expanded={claiming}
+            />
+          ) : undefined
+        }
+      >
+        {!guarded ? (
+          <p className="text-[12px] text-ink-faint">This project isn’t a guarded resource.</p>
+        ) : (
+          <>
+            {subGoals.length === 0 ? (
+              <p className="text-[12px] text-ink-faint">No sub-goals in flight.</p>
+            ) : (
+              <CardList>
+                {subGoals.map((s) => {
+                  const releaseHeld = isProjectSubGoalReleaseHeld(s.reservationId)
+                  return (
+                    <div key={s.reservationId} className="group flex items-start gap-2.5 py-3">
+                      <span
+                        className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
+                          s.status === 'committed' ? 'bg-accent' : 'bg-ok'
+                        }`}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-medium text-ink">{s.subGoal}</div>
+                        {/* CW1 — a visible intent carries its lease: claimed-when +
+                            renews-until, from the reservation's own stamps (pure
+                            reveal), so abandonment self-heals in view of everyone. */}
+                        <div className="text-[11px] text-ink-faint">
+                          held by {s.holderLabel}
+                          {s.at ? ` · claimed ${relativeTime(s.at)}` : ''}
+                          {s.expiresAt ? ` · ${leaseLabel(s.expiresAt)}` : ''}
+                        </div>
+                      </div>
+                      {s.canRelease === true && (
+                        <button
+                          onClick={() => releaseClaim(s.reservationId, s.subGoal)}
+                          disabled={busy || releaseHeld}
+                          aria-label={`${releaseHeld ? 'Releasing' : 'Release'} ${s.subGoal}`}
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 disabled:opacity-60 ${releaseHeld ? 'opacity-100' : HOVER_REVEAL}`}
+                        >
+                          {releaseHeld ? <Spinner size={12} /> : <X size={13} />}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </CardList>
             )}
-            <div className="flex items-center gap-1.5">
-              <input
-                autoFocus
-                value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value)
-                  setConflict(null)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') claim()
-                  if (e.key === 'Escape') setClaiming(false)
-                }}
-                placeholder="Claim a sub-goal…"
-                className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-              />
-              <button
-                onClick={claim}
-                disabled={busy || !draft.trim()}
-                className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-              >
-                Claim
-              </button>
-            </div>
-            {conflict && (
-              <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warn-text">
+
+            {releaseError && (
+              <p role="alert" className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warn-text">
                 <AlertCircle size={12} className="mt-0.5 shrink-0" />
-                {conflict}
+                {releaseError}
               </p>
             )}
-          </div>
-          )}
-        </>
-      )}
-    </FoldSection>
 
-    </>
+            {claiming && (
+              <div className="mt-2.5">
+                {ownCommissions.length > 0 && (
+                  <select
+                    value={holder}
+                    onChange={(e) => setHolder(e.target.value)}
+                    aria-label="Claim as"
+                    data-testid="claim-as"
+                    disabled={busy}
+                    className="mb-1.5 w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong disabled:opacity-60"
+                  >
+                    <option value={SELF_PROJECT_HOLDER}>Claim as: You</option>
+                    {ownCommissions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        Claim as: {ownAgentById.get(c.agentId)?.label ?? c.agentId}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    autoFocus
+                    value={draft}
+                    onChange={(e) => {
+                      setDraft(e.target.value)
+                      setConflict(null)
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') claim()
+                      if (e.key === 'Escape') setClaiming(false)
+                    }}
+                    placeholder="Claim a sub-goal…"
+                    disabled={busy || isProjectSubGoalReleaseScopeHeld(project.id, draft.trim())}
+                    className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong disabled:opacity-60"
+                  />
+                  <button
+                    onClick={claim}
+                    disabled={busy || !draft.trim() || isProjectSubGoalReleaseScopeHeld(project.id, draft.trim())}
+                    className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
+                  >
+                    Claim
+                  </button>
+                </div>
+                {conflict && (
+                  <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warn-text">
+                    <AlertCircle size={12} className="mt-0.5 shrink-0" />
+                    {conflict}
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+    </FoldSection>
   )
 }
 

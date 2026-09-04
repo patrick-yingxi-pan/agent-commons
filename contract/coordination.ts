@@ -32,6 +32,10 @@ export type ProjectEffectType = (typeof PROJECT_EFFECT_TYPES)[number]
  * bound the server persists so an acknowledgement can be compared exactly. */
 export const OPEN_WORK_FIELD_MAX = 2_000
 
+/** Wire sentinel for a person claiming as themself. The server resolves its
+ * authenticated tenant; callers may otherwise name only a Commission they own. */
+export const SELF_PROJECT_HOLDER = 'you' as const
+
 /** Is a Project-level effect **monotonic** (CALM)? A monotonic effect only observes /
  *  queries — it adds no irreversible outside change another Contributor acted on, so it
  *  is coordination-free and bypasses the Guardian. Non-monotonic effects (a connector
@@ -83,6 +87,9 @@ export interface ProjectSubGoal {
    *  it never preempts this in-flight hold (a contender is refused, not the holder displaced).
    *  Absent for a non-commission principal. */
   holderRole?: ProjectRole
+  /** Viewer-relative release capability. Omitted/false means the claim belongs
+   * to another tenant; authority is computed by the server, never the caller. */
+  canRelease?: boolean
   /** The underlying reservation, so a holder can release its claim. */
   reservationId: string
   status: ReservationStatus
@@ -96,7 +103,7 @@ export interface ProjectSubGoal {
 
 /** Body of `POST /v1/projects/:id/subgoals` — claim a sub-goal on a Project. */
 export interface ReserveSubGoalRequest {
-  /** The Contributor (or principal) claiming the sub-goal. */
+  /** An owned Commission id, or `SELF_PROJECT_HOLDER` for the signed-in person. */
   holder: string
   /** The sub-goal label to reserve. */
   subGoal: string

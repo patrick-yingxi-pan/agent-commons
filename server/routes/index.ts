@@ -127,7 +127,7 @@ import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { executeConnectorActivity } from '../connectorRuntime.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
-import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
+import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, SELF_PROJECT_HOLDER, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
 import { providerConnectionUpdate } from './providerConnection.ts'
 import { providerDefinitionUpdate } from './providerDefinition.ts'
@@ -1075,7 +1075,8 @@ export function buildRouter(): Router {
     // Resource guardian (D5): a non-monotonic effect must hold a reservation on the
     // resource (the context element). Monotonic effects (fs.read) are
     // coordination-free and skip it (CALM). `reserve` is re-entrant for this
-    // session; `conflict` (409) when another session holds the resource — the escrow
+    // authenticated tenant + session; `conflict` (409) when another principal
+    // holds the resource — the escrow
     // that refuses a concurrent irreversible writer up front. Held (TTL'd) on success
     // so the session keeps the resource; released if the effect itself fails.
     let reservation
@@ -1083,11 +1084,12 @@ export function buildRouter(): Router {
     if (!isMonotonic(request.capability)) {
       // Release on failure must free only what *this* invoke acquired — never a hold
       // the session already had (e.g. an explicit reservation kept across a consent gate).
-      const heldBefore = store.guardian
-        .status(ctx.id)
-        .active.some((r) => r.holder === request.sessionId)
+      const reservationOwnerTenant = store.identity(req.headers).tenant.id
+      const heldBefore = store.guardian.heldBy(ctx.id, request.sessionId, reservationOwnerTenant)
       try {
-        reservation = store.guardian.reserve(ctx.id, request.sessionId)
+        reservation = store.guardian.reserve(ctx.id, request.sessionId, {
+          ownerTenant: reservationOwnerTenant,
+        })
       } catch (err) {
         if (err instanceof GuardianError) return sendError(res, err.code, err.message)
         throw err
@@ -2006,31 +2008,50 @@ export function buildRouter(): Router {
     sendJson(res, { ok: true })
   }))
 
+  // The ONE social Project wall, shared by coordination, open work, changes,
+  // and every other Project-scoped public capability below.
+  const projectHiddenFrom = (req: IncomingMessage, projectId: string): boolean => {
+    const tenantId = store.identity(req.headers).tenant.id
+    return !store.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)
+  }
+
   // ── Multi-principal coordination — sub-goal reservation (D11) ──────────────
   // A guarded Project's in-flight sub-goals (who's handling what). `POST` claims one
   // for a Contributor; a *different* Contributor claiming the *same* sub-goal conflicts
   // (409 → re-reason). Release reuses POST /reservations/:id/release.
-  // NOTE (prototype): `holder` is client-supplied and release is unauthenticated — fine
-  // for this single-user mock, but a real deployment derives the holder from the
-  // authenticated principal and authorizes who may release a claim.
-  r.get('/projects/:id/subgoals', ({ res, params }) => {
-    sendJson(res, store.projectSubGoals(params.id))
+  // The only person-shaped holder input is the explicit `you` sentinel. The
+  // server stamps its authenticated tenant privately; any other id must resolve
+  // to a Commission whose Agent that tenant owns.
+  r.get('/projects/:id/subgoals', ({ req, res, params }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const tenantId = store.identity(req.headers).tenant.id
+    sendJson(res, store.projectSubGoals(params.id, tenantId))
   })
   r.post('/projects/:id/subgoals', async ({ req, res, params, body }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const { holder, subGoal } = await body<ReserveSubGoalRequest>()
     if (!holder || !subGoal) return sendError(res, 'bad_request', 'holder and subGoal are required')
     // Project-binding + caller-identity + shared-gate (P8 Phase 2b): when the holder is a
     // Contributor (commission), it must be one on THIS project, whose agent you own, and
-    // cross-tenant only while shared. A bare-string holder is ungated (as below).
-    if (commissionActorDenied(req, res, holder, params.id)) return
+    // cross-tenant only while shared. No other caller-invented holder is accepted.
+    const commission = store.getCommission(holder)
+    if (!commission && holder !== SELF_PROJECT_HOLDER) {
+      return sendError(res, 'bad_request', `holder must be '${SELF_PROJECT_HOLDER}' or an owned Contributor`)
+    }
+    if (commission && commissionActorDenied(req, res, holder, params.id)) return
     // D14 role permission: when the holder is a Contributor (a known commission), reserving a
     // sub-goal requires its role to permit 'reserve' — a reader may not claim work. A
-    // non-commission principal (no role) is ungated.
-    if (store.getCommission(holder) && !store.commissionRolePermits(holder, 'reserve')) {
+    // An authenticated self principal has no Contributor role to check.
+    if (commission && !store.commissionRolePermits(holder, 'reserve')) {
       return sendError(res, 'forbidden', `Contributor '${holder}' (role) may not reserve sub-goals`)
     }
     try {
-      sendJson(res, store.reserveSubGoal(params.id, holder, subGoal))
+      sendJson(res, store.reserveSubGoal(
+        params.id,
+        holder,
+        subGoal,
+        store.identity(req.headers).tenant.id,
+      ))
     } catch (err) {
       if (err instanceof GuardianError) return sendError(res, err.code, err.message)
       throw err
@@ -2044,15 +2065,6 @@ export function buildRouter(): Router {
   // prompted effect path enforces (role D14 / reach D12 / Guardian D11 / credit D13 /
   // audit D15). An item nothing can take stays open in the backlog. Visibility of the
   // backlog mirrors the Project's (owner or shared ⇒ readable; else 404, no leak).
-  const projectHiddenFrom = (req: IncomingMessage, projectId: string): boolean => {
-    // The ONE social read wall (S1): owner read-union (incl. the flagship
-    // faces on unstamped seeds) ∪ the legacy everyone-switch ∪ grants. This
-    // wall once hand-rolled the union WITHOUT the flagship rule, so Ada
-    // 404'd watching her own seed project from the feed (found live) —
-    // unified onto the store's wall instead of a fourth copy.
-    const tenantId = store.identity(req.headers).tenant.id
-    return !store.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)
-  }
   r.get('/projects/:id/open-subgoals', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     sendJson(res, store.listOpenSubGoals(params.id, store.identity(req.headers).tenant.id))
@@ -3066,43 +3078,67 @@ export function buildRouter(): Router {
   // capacity invariant — the escrow that lets the broker refuse a second session's
   // irreversible write up front (docs/shared-resource-coordination.md). `reserve`
   // is reversible (releasable, TTL'd); `commit` records the irreversible step.
-  // `conflict` (409) when the resource is at capacity / held by another session.
+  // `conflict` (409) when the resource is at capacity / held by another principal.
+  // A Project guardian namespace is never reachable through this generic door;
+  // its Project-aware routes own visibility, claimant identity, and role policy.
   r.formGet('/resources/:key', 'capability-broker guardian primitive; the UI exposes resource-specific coordination instead', ({ res, params }) => {
+    if (store.isProjectGuardianResource(params.key)) {
+      return sendError(res, 'not_found', `No generic resource '${params.key}'`)
+    }
     sendJson(res, store.guardian.status(params.key))
   })
   r.formPatch('/resources/:key', 'capability-broker capacity primitive; excluded until a direct UI control exists', async ({ res, params, body }) => {
+    if (store.isProjectGuardianResource(params.key)) {
+      return sendError(res, 'not_found', `No generic resource '${params.key}'`)
+    }
     const { capacity } = await body<SetCapacityRequest>()
     if (typeof capacity !== 'number' || capacity < 1) {
       return sendError(res, 'bad_request', 'capacity must be a positive number')
     }
     sendJson(res, store.guardian.setCapacity(params.key, capacity))
   })
-  r.formPost('/resources/:key/reserve', 'capability-broker reservation primitive; UI reservations use their resource-specific route', async ({ res, params, body }) => {
+  r.formPost('/resources/:key/reserve', 'capability-broker reservation primitive; UI reservations use their resource-specific route', async ({ req, res, params, body }) => {
+    if (store.isProjectGuardianResource(params.key)) {
+      return sendError(res, 'not_found', `No generic resource '${params.key}'`)
+    }
     const input = await body<ReserveRequest>()
     if (!input?.holder) return sendError(res, 'bad_request', 'holder is required')
     try {
-      sendJson(res, store.guardian.reserve(params.key, input.holder, { ttlMs: input.ttlMs }))
+      sendJson(res, store.guardian.reserve(params.key, input.holder, {
+        ttlMs: input.ttlMs,
+        ownerTenant: store.identity(req.headers).tenant.id,
+      }))
     } catch (err) {
       if (err instanceof GuardianError) return sendError(res, err.code, err.message)
       throw err
     }
   })
-  r.formPost('/reservations/:id/commit', 'capability-broker escrow primitive; effects commit it internally rather than through a UI act', ({ res, params }) => {
+  const reservationActorDenied = (req: IncomingMessage, res: ServerResponse, id: string): boolean => {
+    try {
+      if (store.guardian.ownedBy(id, store.identity(req.headers).tenant.id)) return false
+      sendError(res, 'forbidden', 'Only the reservation holder may change this claim')
+      return true
+    } catch (err) {
+      if (err instanceof GuardianError) {
+        sendError(res, err.code, err.message)
+        return true
+      }
+      throw err
+    }
+  }
+  r.formPost('/reservations/:id/commit', 'capability-broker escrow primitive; effects commit it internally rather than through a UI act', idempotent(({ req, res, params }) => {
+    if (reservationActorDenied(req, res, params.id)) return
     try {
       sendJson(res, store.guardian.commit(params.id))
     } catch (err) {
       if (err instanceof GuardianError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
-  r.post('/reservations/:id/release', ({ res, params }) => {
-    try {
-      sendJson(res, store.guardian.release(params.id))
-    } catch (err) {
-      if (err instanceof GuardianError) return sendError(res, err.code, err.message)
-      throw err
-    }
-  })
+  }))
+  r.post('/reservations/:id/release', idempotent(({ req, res, params }) => {
+    if (reservationActorDenied(req, res, params.id)) return
+    sendJson(res, store.guardian.release(params.id))
+  }))
 
   // ── Served filesystem sources (Files / Photos / Folder — contract/fs.ts) ──────
   // The three context types served from a REAL filesystem, addressed by `?source=`:

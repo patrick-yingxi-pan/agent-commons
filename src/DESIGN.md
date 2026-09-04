@@ -509,6 +509,15 @@ non-reopenability, and retained history. Once confirmed, one private keyed
 operation survives projection changes; the item’s authoritative terminal state
 settles ambiguity, and comments cannot race the close.
 
+Transient coordination uses the same visible recovery grammar without pretending
+that a lease is durable product data. A Project claim belongs to the authenticated
+tenant behind its public human label, and `canRelease` is projected only to that
+viewer. Release keeps one Project/sub-goal/reservation intent and process-scoped key
+through navigation; acknowledgement or the exact claim's authoritative absence
+settles it, including when a restart naturally expires transient Guardian state. The
+generic resource door cannot address a Project Guardian; Project-aware policy remains
+the only way to read, resize, or acquire that namespace.
+
 The initiating surface stays coherent while it waits: transient create dialogs
 and editors remain open and disabled, consent cards show their own delivery
 state, and one shell-level `RelationMutationNotice` owns Retry/Dismiss for edits

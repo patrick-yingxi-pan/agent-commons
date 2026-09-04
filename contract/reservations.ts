@@ -4,9 +4,10 @@
  *  docs/shared-resource-coordination.md). A shared resource (a context element,
  *  keyed by its id) has a **guardian** enforcing a **capacity** invariant via a
  *  **reservation ledger**: a non-monotonic effect must hold a reservation, and
- *  `capacity` bounds how many distinct sessions may hold one at once (1 =
- *  exclusive). A reservation is reversible while `held` (it can be released, and it
- *  lapses by TTL); `commit` records the single irreversible step. */
+ *  `capacity` bounds how many distinct authenticated tenant + holder principals may
+ *  hold one at once (1 = exclusive). Tenant ownership is private server authority,
+ *  never a wire field. A reservation is reversible while `held` (it can be released,
+ *  and it lapses by TTL); `commit` records the single irreversible step. */
 
 export type ReservationStatus = 'held' | 'committed' | 'released'
 
@@ -15,7 +16,7 @@ export interface Reservation {
   id: string
   /** The shared resource — a context element id (e.g. a repo / folder id). */
   resourceId: string
-  /** Who holds it — the session id. Re-entrant: a holder gets one per resource. */
+  /** Public holder token, normally a session id. Re-entrancy also compares private tenant ownership. */
   holder: string
   status: ReservationStatus
   /** Epoch-ms when granted. */
@@ -26,7 +27,7 @@ export interface Reservation {
 
 /** Body of `POST /v1/resources/:key/reserve` — acquire (or re-enter) a reservation. */
 export interface ReserveRequest {
-  /** The session acquiring the reservation. */
+  /** The public holder token; the server binds it to the authenticated tenant. */
   holder: string
   /** Optional lease lifetime (ms); the server applies a default when omitted. */
   ttlMs?: number
