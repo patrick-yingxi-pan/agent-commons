@@ -473,6 +473,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
     undefined,
     { logicalId: 'work-comment-new-000000000000000000000000' },
   )
+  store.retractOpenSubGoal(
+    PROJECT_ID,
+    watchedItem.id,
+    store.defaultTenantId(),
+    builder,
+    { logicalId: 'work-retract-000000000000000000000000' },
+  )
 
   // Run the created routine through the worker-facing durable transition seam.
   // Snapshot manufacture stays deterministic and offline; the routine worker's

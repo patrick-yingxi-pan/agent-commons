@@ -102,7 +102,9 @@ export interface OpenSubGoal {
   postedAt: number
   /** `open` = awaiting a taker; `done` = a Contributor fired the effect;
    *  `retracted` = closed unresolved by its poster or the Project owner (D23 —
-   *  open items only: a `done` item is immutable history, credit already accrued). */
+   *  open items only: a `done` item is immutable history, credit already accrued).
+   *  Native retraction is a keyed desired-state act; the durable operation anchor
+   *  stays server-private while this lifecycle is its authoritative wire result. */
   status: 'open' | 'done' | 'retracted'
   /** The flat discussion thread (D23). Optional: items minted before the feature
    *  (older persisted snapshots) carry none — read as `?? []`. */

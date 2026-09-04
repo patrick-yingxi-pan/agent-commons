@@ -138,6 +138,7 @@ import {
 import { isAgentCreationId } from '../agentCreationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { isWorkItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
+import { isWorkItemRetractionId } from '../workItemRetractionIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -359,8 +360,18 @@ function canRetractItem(item: StoredOpenSubGoal, viewerTenant: string): boolean 
  *  act principals; the wire face carries display names + principal KINDs only —
  *  plus the viewer-relative standing those stripped ids are needed to compute. */
 function publicOpenSubGoal(item: StoredOpenSubGoal, viewerTenant?: string): OpenSubGoal {
-  const { postedByTenant, postedByPrincipal, retractedByPrincipal, comments, ...pub } = item
+  const {
+    postedByTenant,
+    postedByPrincipal,
+    retractionId,
+    retractedByTenant,
+    retractedByPrincipal,
+    comments,
+    ...pub
+  } = item
   void postedByTenant
+  void retractionId
+  void retractedByTenant
   return {
     ...pub,
     ...(viewerTenant !== undefined && canRetractItem(item, viewerTenant) ? { canRetract: true } : {}),
@@ -6660,13 +6671,43 @@ export const store = {
       return publicOpenSubGoal(item, tenantId)
     })
   },
+  /** Current item for one durable native retraction acknowledgement. */
+  getWorkItemRetraction(
+    id: string,
+    projectId: string,
+    itemId: string,
+    tenantId: string,
+  ): OpenSubGoal | 'invalid' | undefined {
+    if (!isWorkItemRetractionId(id)) return 'invalid'
+    const represented = openSubGoals.find((candidate) => candidate.retractionId === id)
+    if (!represented) return undefined
+    if (
+      represented.id !== itemId ||
+      represented.projectId !== projectId ||
+      represented.retractedByTenant !== tenantId
+    ) return 'invalid'
+    return publicOpenSubGoal(represented, tenantId)
+  },
   /** Retract a work item (D23) — the honest close: permitted only to the item's
-   *  POSTER (raw-tenant compared) or the Project's OWNER
-   *  tenant, and only while the item is still `open` — a `done` item is immutable
-   *  history (the D13 credit cannot be un-happened). Returns the updated item;
-   *  `'forbidden'` / `'closed'` for the two refusals; undefined for an unknown
-   *  item (→ 404). Also the store method behind A2A `tasks/cancel` (D20). */
-  retractOpenSubGoal(projectId: string, itemId: string, tenantId: string, principal: PrincipalRef | undefined): OpenSubGoal | 'forbidden' | 'closed' | undefined {
+   *  POSTER (raw-tenant compared) or the Project's OWNER tenant, and only while
+   *  the item is still `open` — a `done` item is immutable history (the D13
+   *  credit cannot be un-happened). Returns the updated item; `'forbidden'` /
+   *  `'closed'` for the two refusals; undefined for an unknown item (→ 404).
+   *  Also the store method behind A2A `tasks/cancel` (D20). */
+  retractOpenSubGoal(
+    projectId: string,
+    itemId: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): OpenSubGoal | 'forbidden' | 'closed' | undefined {
+    if (options.logicalId) {
+      const represented = this.getWorkItemRetraction(options.logicalId, projectId, itemId, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That work-item retraction identity is not valid for this account and item.')
+      }
+    }
     const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
     if (!item) return undefined
     // The SAME predicate the wire face reports (`canRetract`) — raw-id compared,
@@ -6674,21 +6715,25 @@ export const store = {
     // happen to agree.
     if (!canRetractItem(item, tenantId)) return 'forbidden'
     if (item.status !== 'open') return 'closed'
-    item.status = 'retracted'
-    item.retractedAt = Date.now()
-    item.retractedBy = tenantName(tenantId)
-    if (principal) item.retractedByPrincipal = principal
-    notifyTenants(workItemAudience(item), tenantId, {
-      kind: 'work.retracted',
-      actor: item.retractedBy,
-      projectId,
-      projectName: findProject(projectId)?.name ?? '',
-      subGoal: item.subGoal,
-      workItemId: item.id,
+    return commitMutationBatch(() => {
+      item.status = 'retracted'
+      item.retractedAt = Date.now()
+      item.retractedBy = tenantName(tenantId)
+      item.retractedByTenant = tenantId
+      if (options.logicalId) item.retractionId = options.logicalId
+      if (principal) item.retractedByPrincipal = principal
+      notifyTenants(workItemAudience(item), tenantId, {
+        kind: 'work.retracted',
+        actor: item.retractedBy,
+        projectId,
+        projectName: findProject(projectId)?.name ?? '',
+        subGoal: item.subGoal,
+        workItemId: item.id,
+      })
+      emit({ type: 'openwork.changed', projectId })
+      persist()
+      return publicOpenSubGoal(item, tenantId)
     })
-    emit({ type: 'openwork.changed', projectId })
-    persist()
-    return publicOpenSubGoal(item, tenantId)
   },
 
   // ── Social-layer grants (S1) ────────────────────────────────────────────────

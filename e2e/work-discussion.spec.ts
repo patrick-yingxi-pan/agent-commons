@@ -77,6 +77,7 @@ test('a work item hosts a cross-tenant discussion; the poster retracts it honest
   await owner.page.getByRole('button', { name: '1 comment', exact: true }).click()
   await expect(owner.page.getByText(COMMENT)).toBeVisible()
   await owner.page.getByRole('button', { name: 'Retract' }).click()
+  await owner.page.getByRole('dialog').getByRole('button', { name: 'Retract work item', exact: true }).click()
   await expect(owner.page.getByText(/retracted by/)).toBeVisible()
 
   // The visitor's view converges (live event or reload) to the closed face.

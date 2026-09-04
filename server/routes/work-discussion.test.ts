@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { accounts } from '../accounts.ts'
 import { workItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
+import { workItemRetractionId } from '../workItemRetractionIdentity.ts'
 import { call, callFresh } from '../testkit/http.ts'
 
 const A = 'tenant-disc-A' // project owner
@@ -137,6 +138,42 @@ test('retract: the poster may; the project owner may; a bystander may not; done 
   assert.equal(taken.json.status, 'done', 'the standing Contributor took it at post time')
   const revisionism = await call('POST', `/projects/${three.projectId}/open-subgoals/${taken.json.id}/retract`, undefined, { 'x-tenant-id': B })
   assert.equal(revisionism.status, 409)
+})
+
+test('a keyed native retraction replays current history without closing or ringing twice', async () => {
+  const { projectId, itemId } = await arena()
+  const key = `work-retract-${Date.now().toString(36)}`
+  const expectedId = workItemRetractionId(B, projectId, itemId, key)
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+
+  const first = await call('POST', `/projects/${projectId}/open-subgoals/${itemId}/retract`, undefined, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.status, 'retracted')
+  const retractedAt = first.json.retractedAt
+
+  store.commentOnOpenSubGoal(projectId, itemId, 'history added after close', A, undefined)
+  const replay = await callFresh('POST', `/projects/${projectId}/open-subgoals/${itemId}/retract`, undefined, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.retractedAt, retractedAt)
+  assert.equal(replay.json.comments.at(-1).body, 'history added after close', 'replay returns current item history')
+  assert.equal('retractionId' in replay.json, false, 'the operation identity stays server-private')
+  assert.equal('retractedByTenant' in replay.json, false, 'the raw authority anchor stays server-private')
+  assert.equal(typeof store.getWorkItemRetraction(expectedId, projectId, itemId, B), 'object')
+  assert.equal(
+    store.listNotifications(A).filter((notice) =>
+      notice.kind === 'work.retracted' && notice.projectId === projectId && notice.workItemId === itemId,
+    ).length,
+    1,
+    'Retry cannot ring the Project owner twice',
+  )
+
+  const distinctAct = await call(
+    'POST',
+    `/projects/${projectId}/open-subgoals/${itemId}/retract`,
+    undefined,
+    { 'x-tenant-id': A, 'idempotency-key': `${key}-owner` },
+  )
+  assert.equal(distinctAct.status, 409, 'a different legitimate act sees terminal state, not an identity error')
 })
 
 test('retract authorization survives a display-name collision (the spoof attack, refused)', async () => {

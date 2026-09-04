@@ -1040,18 +1040,6 @@ export async function runEnvelopeEffect(projectId: string, cid: string, lineId: 
   return c
 }
 
-/** Retract a work item (D23) — poster or project owner, open items only (the
- *  server enforces; a 403/409 surfaces as the thrown error). Open-work counts
- *  ride directory rows and profiles, so refresh those families too. */
-export async function retractWorkItem(projectId: string, itemId: string): Promise<OpenSubGoal> {
-  const item = await apiPost<OpenSubGoal>(paths.openSubGoalRetract(projectId, itemId), {})
-  invalidate(keys.openSubGoals(projectId))
-  invalidatePrefix(keys.directoryProjects())
-  invalidatePrefix(keys.ownerProfile())
-  invalidatePrefix(keys.search())
-  return item
-}
-
 /** Open a change proposal against a published definition (D25). */
 export async function proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest): Promise<AgentChangeProposal> {
   const proposal = await apiPost<AgentChangeProposal>(paths.agentProposals(agentId), req)

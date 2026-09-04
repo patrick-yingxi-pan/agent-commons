@@ -337,6 +337,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'acknowledgement-owned work-item comments keep their durable identity',
   )
   assert.ok(
+    s.openSubGoals?.some((o) => o.retractionId === 'work-retract-000000000000000000000000'),
+    'acknowledgement-owned work-item retraction keeps its private durable identity',
+  )
+  assert.ok(
     s.grants?.some((g) => g.subject.id === 'p-playground' && g.note !== undefined),
     'createGrant → grants (social S1, the published share persists)',
   )
@@ -587,6 +591,13 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     store.defaultTenantId(),
   )
   assert.equal(typeof keyedComment, 'object', 'a keyed comment acknowledgement survives a real boot')
+  const keyedRetraction = keyedCommentItem && store.getWorkItemRetraction(
+    'work-retract-000000000000000000000000',
+    'p-playground',
+    keyedCommentItem.id,
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof keyedRetraction, 'object', 'a keyed retraction acknowledgement survives a real boot')
 
   // The Agent Commons registries survive the boot too (D6/D9/D10/D7).
   const provider = store.listProviders().find((p) => p.label === 'Playground provider')

@@ -245,7 +245,6 @@ import {
   addSavedContext,
   desktopCredentialsAvailable,
   a2aAgentCardUrl,
-  retractWorkItem,
   setProjectWatch,
   setSocialWatch,
   setCommonsLike,
@@ -450,6 +449,12 @@ import {
   heldWorkItemCommentIntent,
   useWorkItemCommentCreationStatus,
 } from '../controller/workItemCommentCreationMutations.ts'
+import {
+  WORK_ITEM_RETRACTION_SCOPE,
+  enqueueWorkItemRetraction,
+  isWorkItemRetractionHeld,
+  useWorkItemRetractionStatus,
+} from '../controller/workItemRetractionMutations.ts'
 import {
   enqueueSocialProposalCreation,
   isSocialProposalCreationHeld,
@@ -3232,11 +3237,13 @@ function WorkItemRow({
   // UI threw away.
   const [threadOpen, setThreadOpen] = useDisclosure('work-item-thread', o.id)
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [confirmingRetract, setConfirmingRetract] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useWorkItemCommentCreationStatus()
+  useWorkItemRetractionStatus()
   const heldComment = heldWorkItemCommentIntent(projectId, o.id)
   const commentHeld = heldComment !== null
+  const retractionHeld = isWorkItemRetractionHeld(projectId, o.id)
   const effectiveThreadOpen = threadOpen || commentHeld
   useEffect(() => {
     if (!heldComment) return
@@ -3287,7 +3294,7 @@ function WorkItemRow({
     },
   })
   const send = async () => {
-    if (commentHeld || busy || !tenantId || !draft.trim()) return
+    if (commentHeld || retractionHeld || !tenantId || !draft.trim()) return
     setError(null)
     try {
       const result = await enqueueWorkItemCommentCreation({ tenantId, projectId, itemId: o.id, body: draft })
@@ -3301,17 +3308,13 @@ function WorkItemRow({
       setError(e instanceof Error ? e.message : 'Could not post this comment.')
     }
   }
-  const retract = async () => {
-    if (busy) return
-    setBusy(true)
+  const confirmRetract = () => {
+    if (commentHeld || retractionHeld || !tenantId) return
+    setConfirmingRetract(false)
     setError(null)
-    try {
-      await retractWorkItem(projectId, o.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not retract this item.')
-    } finally {
-      setBusy(false)
-    }
+    void enqueueWorkItemRetraction({ tenantId, projectId, itemId: o.id }).then((outcome) => {
+      if (outcome === 'discarded') setError('The item wasn’t retracted. Review its current state before trying again.')
+    })
   }
 
   return (
@@ -3386,8 +3389,13 @@ function WorkItemRow({
               : `${comments.length} comment${comments.length === 1 ? '' : 's'}`}
           </button>
           {mayRetract && (
-            <button onClick={retract} disabled={busy} className={INLINE_ACTION_CLASS} title="Close this item unresolved (poster or project owner)">
-              Retract
+            <button
+              onClick={() => setConfirmingRetract(true)}
+              disabled={commentHeld || retractionHeld}
+              className={INLINE_ACTION_CLASS}
+              title="Permanently close this item unresolved (poster or project owner)"
+            >
+              {retractionHeld ? 'Retracting…' : 'Retract'}
             </button>
           )}
         </div>
@@ -3418,12 +3426,12 @@ function WorkItemRow({
                 placeholder={mentionHint(shared)}
                 aria-label={`Comment on ${o.subGoal}`}
                 maxLength={WORK_ITEM_COMMENT_MAX}
-                disabled={commentHeld || busy}
+                disabled={commentHeld || retractionHeld}
                 className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
               />
               <button
                 onClick={() => void send()}
-                disabled={commentHeld || busy || !tenantId || !draft.trim()}
+                disabled={commentHeld || retractionHeld || !tenantId || !draft.trim()}
                 className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
               >
                 {commentHeld ? 'Posting…' : 'Post'}
@@ -3433,6 +3441,15 @@ function WorkItemRow({
           </div>
         )}
         {error && <p className="mt-1 text-[11px] text-removed">{error}</p>}
+        {confirmingRetract && (
+          <ConfirmDialog
+            title={`Retract ${o.subGoal}?`}
+            body={WORK_ITEM_RETRACTION_SCOPE}
+            confirmLabel="Retract work item"
+            onConfirm={confirmRetract}
+            onCancel={() => setConfirmingRetract(false)}
+          />
+        )}
       </div>
     </div>
   )
@@ -3465,11 +3482,13 @@ function WorkItemPage({
   const myName = me?.tenant.name
   const rel = useRelations()
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [confirmingRetract, setConfirmingRetract] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useWorkItemCommentCreationStatus()
+  useWorkItemRetractionStatus()
   const heldComment = heldWorkItemCommentIntent(project.id, workItemId)
   const commentHeld = heldComment !== null
+  const retractionHeld = isWorkItemRetractionHeld(project.id, workItemId)
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -3492,7 +3511,7 @@ function WorkItemPage({
   // picker's roster is this item's own participants, and both it and `send`
   // have to exist before the early exit that only some renders take.
   const send = async () => {
-    if (!o || commentHeld || busy || !me || !draft.trim()) return
+    if (!o || commentHeld || retractionHeld || !me || !draft.trim()) return
     setError(null)
     try {
       const result = await enqueueWorkItemCommentCreation({
@@ -3538,17 +3557,13 @@ function WorkItemPage({
   const comments = o.comments ?? []
   const mayRetract = o.status === 'open' && o.canRetract === true
 
-  const retract = async () => {
-    if (busy) return
-    setBusy(true)
+  const confirmRetract = () => {
+    if (commentHeld || retractionHeld || !me) return
+    setConfirmingRetract(false)
     setError(null)
-    try {
-      await retractWorkItem(project.id, o.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not retract this item.')
-    } finally {
-      setBusy(false)
-    }
+    void enqueueWorkItemRetraction({ tenantId: me.tenant.id, projectId: project.id, itemId: o.id }).then((outcome) => {
+      if (outcome === 'discarded') setError('The item wasn’t retracted. Review its current state before trying again.')
+    })
   }
 
   // The timeline: every event the item accumulated, in time order — the opening
@@ -3614,12 +3629,12 @@ function WorkItemPage({
         </div>
         {mayRetract && (
           <button
-            onClick={retract}
-            disabled={busy}
-            title="Close this item unresolved (poster or project owner)"
+            onClick={() => setConfirmingRetract(true)}
+            disabled={commentHeld || retractionHeld}
+            title="Permanently close this item unresolved (poster or project owner)"
             className="shrink-0 rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
           >
-            Retract
+            {retractionHeld ? 'Retracting…' : 'Retract'}
           </button>
         )}
       </header>
@@ -3703,12 +3718,12 @@ function WorkItemPage({
           placeholder={mentionHint(project.shared === true)}
           aria-label={`Comment on ${o.subGoal}`}
           maxLength={WORK_ITEM_COMMENT_MAX}
-          disabled={commentHeld || busy}
+          disabled={commentHeld || retractionHeld}
           className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
         <button
           onClick={() => void send()}
-          disabled={commentHeld || busy || !me || !draft.trim()}
+          disabled={commentHeld || retractionHeld || !me || !draft.trim()}
           className={`shrink-0 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
         >
           {commentHeld ? 'Posting…' : 'Post'}
@@ -3716,6 +3731,15 @@ function WorkItemPage({
         {mention.list}
       </div>
       {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}
+      {confirmingRetract && (
+        <ConfirmDialog
+          title={`Retract ${o.subGoal}?`}
+          body={WORK_ITEM_RETRACTION_SCOPE}
+          confirmLabel="Retract work item"
+          onConfirm={confirmRetract}
+          onCancel={() => setConfirmingRetract(false)}
+        />
+      )}
     </AtomicResourcePage>
   )
 }

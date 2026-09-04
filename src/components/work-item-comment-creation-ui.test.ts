@@ -22,7 +22,8 @@ test('both work-item comment projections share one held, exactly reconciled acti
   assert.ok((view.match(/data-work-item-comment-form/g) ?? []).length >= 2)
   assert.ok((view.match(/maxLength=\{WORK_ITEM_COMMENT_MAX\}/g) ?? []).length >= 2)
   assert.ok((view.match(/aria-busy=\{commentHeld \|\| undefined\}/g) ?? []).length >= 2)
-  assert.ok((view.match(/disabled=\{commentHeld \|\| busy\}/g) ?? []).length >= 2)
+  assert.ok((view.match(/disabled=\{commentHeld \|\| retractionHeld\}/g) ?? []).length >= 2,
+    'comment inputs cannot race a held retraction')
   assert.ok((view.match(/result\.outcome === 'applied'/g) ?? []).length >= 3,
     'posting and both comment surfaces clear only after represented truth')
   assert.match(view, /const effectiveThreadOpen = threadOpen \|\| commentHeld/,

@@ -1011,6 +1011,13 @@ mention notification fan-out; first application commits comment, bells, event, a
 snapshot together. The compact row and canonical timeline reconstruct one held draft
 through navigation and shell recovery. A2A remains the unkeyed compatibility dialect.
 
+Native retraction is confirmation- and acknowledgement-owned. Both projections first
+state that the close is permanent, cannot be reopened, and preserves the thread. A
+confirmed tenant/Project/item-scoped key derives a private stored operation identity;
+replay returns current history before close refusal, and the first application commits
+lifecycle, bell, event, and snapshot together. The held act survives projection changes;
+A2A cancellation remains the unkeyed protocol dialect.
+
 **Why.** Contributors today coordinate only through Guardian reservations — machine
 serialization with no human/agent *discussion* channel, so "why does this item need
 the charge target?" or "I'll take this tomorrow unless someone objects" had nowhere
@@ -1808,11 +1815,14 @@ session↔context binding, mediation handle, and single-resource escrow).
   immutable history). A retracted item leaves every open-work count but stays
   readable. Native comments now carry tenant/Project/item-scoped durable identities:
   replay precedes body/cap/fan-out, one commit contains prose plus bells, and both UI
-  projections retain the same draft through Retry/Dismiss. **A2A `tasks/cancel`** now maps to the same store method (`retracted` →
+  projections retain the same draft through Retry/Dismiss. Native Retract now confirms
+  its permanent retained-history consequence, then holds one private-keyed desired-state
+  act through Retry/Dismiss; replay precedes close refusal and one commit owns lifecycle
+  plus its bell. **A2A `tasks/cancel`** now maps to the same store method (`retracted` →
   `canceled`), exactly as the a2a design log predicted. Surfaced in `OpenWorkList`
   (thread fold + composer + Retract). Locked by `server/routes/work-discussion.test.ts` +
   `e2e/work-discussion.spec.ts` + `e2e/work-item-comment-creation.spec.ts`; spec rows
-  COMMONS-16 + SYNC-49; parity ledger rows 1–2
+  COMMONS-16 + SYNC-49 + SYNC-50; parity ledger rows 1–2
   ([`github-parity.md`](github-parity.md)).
 - **Slice 23 — watching + the notification inbox (D24). ✅ Built.** The bell that
   makes the commons ambient: a visibility-walled **watch** flag per (tenant,

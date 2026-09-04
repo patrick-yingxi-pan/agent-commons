@@ -503,6 +503,12 @@ fan-out. Compact and canonical projections reconstruct one held draft, and exact
 embedded identity plus body—not similar words or an optimistic response—earns
 clearing it.
 
+Irreversible lifecycle controls add consent before acknowledgement ownership. A
+work-item retraction uses the shared focus-safe confirmation to name permanence,
+non-reopenability, and retained history. Once confirmed, one private keyed
+operation survives projection changes; the item’s authoritative terminal state
+settles ambiguity, and comments cannot race the close.
+
 The initiating surface stays coherent while it waits: transient create dialogs
 and editors remain open and disabled, consent cards show their own delivery
 state, and one shell-level `RelationMutationNotice` owns Retry/Dismiss for edits

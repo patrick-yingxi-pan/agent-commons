@@ -112,6 +112,10 @@ export type StoredWorkItemComment = WorkItemComment & { principal?: PrincipalRef
 export interface StoredOpenSubGoal extends Omit<OpenSubGoal, 'comments'> {
   postedByTenant?: string
   postedByPrincipal?: PrincipalRef
+  /** Private acknowledgement anchor for a keyed native retraction. */
+  retractionId?: string
+  /** Raw authority anchor paired with `retractionId`; legacy/A2A rows may omit it. */
+  retractedByTenant?: string
   retractedByPrincipal?: PrincipalRef
   comments?: StoredWorkItemComment[]
 }

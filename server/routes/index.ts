@@ -107,6 +107,7 @@ import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { openWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { workItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
+import { workItemRetractionId } from '../workItemRetractionIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2227,7 +2228,24 @@ export function buildRouter(): Router {
   r.post('/projects/:id/open-subgoals/:itemId/retract', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.retractOpenSubGoal(params.id, params.itemId, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalRetractionId = idempotencyKey
+      ? workItemRetractionId(who.tenant.id, params.id, params.itemId, idempotencyKey)
+      : undefined
+    const represented = logicalRetractionId
+      ? store.getWorkItemRetraction(logicalRetractionId, params.id, params.itemId, who.tenant.id)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This retraction identity is not valid for this account and work item')
+    }
+    const out = store.retractOpenSubGoal(
+      params.id,
+      params.itemId,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalRetractionId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No work item '${params.itemId}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the poster or the project owner may retract an item')
     if (out === 'closed') return sendError(res, 'conflict', 'Only an open item can be retracted')
