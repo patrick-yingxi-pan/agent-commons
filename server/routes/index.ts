@@ -96,7 +96,11 @@ import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
-import { agentCreationId, agentForkCreationId } from '../agentCreationIdentity.ts'
+import {
+  agentCreationId,
+  agentForkCreationId,
+  agentImportCreationId,
+} from '../agentCreationIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
@@ -2894,28 +2898,52 @@ export function buildRouter(): Router {
     return Buffer.concat(chunks).toString('utf8')
   }
   r.post('/agents/import-card', async ({ req, res, body }) => {
-    const { url: cardUrl } = await body<ImportAgentCardRequest>()
-    if (typeof cardUrl !== 'string' || !/^https?:\/\//i.test(cardUrl)) {
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalAgentId = idempotencyKey
+      ? agentImportCreationId(tenantId, idempotencyKey)
+      : undefined
+    // The imported Agent is the durable acknowledgement. A lost-response Retry
+    // returns it before parsing a changed URL or touching the remote host again.
+    const represented = logicalAgentId
+      ? store.getAgentCreation(logicalAgentId, tenantId)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') return sendError(res, 'bad_request', 'This Agent import identity is not valid for this account')
+    if (represented === 'retired') return sendError(res, 'not_found', 'This imported Agent was already removed')
+
+    const input = await body<ImportAgentCardRequest>()
+    const cardUrl = typeof input?.url === 'string' ? input.url.trim() : ''
+    let parsedUrl: URL
+    try {
+      parsedUrl = new URL(cardUrl)
+    } catch {
       return sendError(res, 'bad_request', 'url must be an http(s) Agent Card URL')
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      return sendError(res, 'bad_request', 'url must be an http(s) Agent Card URL')
+    }
+    if (parsedUrl.username || parsedUrl.password) {
+      return sendError(res, 'bad_request', 'Agent Card URLs must not contain embedded credentials')
     }
     let card: unknown
     try {
       // `redirect: 'error'`: a redirect could hop the vetted URL to another
       // host/port — refuse it rather than widen the recorded SSRF-shaped surface.
       const resp = await fetch(cardUrl, { signal: AbortSignal.timeout(5_000), redirect: 'error' })
-      if (!resp.ok) return sendError(res, 'bad_request', `Card fetch failed: HTTP ${resp.status} from ${cardUrl}`)
+      if (!resp.ok) return sendError(res, 'upstream_unavailable', `The Agent Card host returned HTTP ${resp.status}`)
       const text = await readCapped(resp.body, MAX_CARD_BYTES)
-      if (text === undefined) return sendError(res, 'bad_request', 'Agent Card too large')
+      if (text === undefined) return sendError(res, 'upstream_unavailable', 'The Agent Card response was too large')
       card = JSON.parse(text)
     } catch {
-      return sendError(res, 'bad_request', `Could not fetch an Agent Card from ${cardUrl}`)
+      return sendError(res, 'upstream_unavailable', 'Could not fetch a valid Agent Card from that host')
     }
     const name = (card as { name?: unknown } | null)?.name
     if (typeof name !== 'string' || !name.trim()) {
-      return sendError(res, 'bad_request', 'Not an Agent Card: a string `name` is required')
+      return sendError(res, 'upstream_unavailable', 'The remote response is not an Agent Card: a string `name` is required')
     }
     const shaped = card as { name: string; description?: string; skills?: { id?: string; name?: string }[] }
-    sendJson(res, store.importAgentFromCard(shaped, cardUrl, store.identity(req.headers).tenant.id))
+    sendJson(res, store.importAgentFromCard(shaped, cardUrl, tenantId, { logicalId: logicalAgentId }))
   })
 
   // A Contributor fires an externally-effectful action on a shared Project (D11/D12, OQ3+OQ4):

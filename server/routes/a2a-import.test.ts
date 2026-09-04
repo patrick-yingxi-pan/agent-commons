@@ -10,7 +10,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer, type Server } from 'node:http'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
+import { agentImportCreationId } from '../agentCreationIdentity.ts'
 
 const A = 'tenant-import-A'
 const B = 'tenant-import-B'
@@ -69,21 +70,69 @@ test('importing a card mints a private, UNBOUND definition stub with lineage', a
   }
 })
 
+test('a keyed import fetches once, returns current durable truth, and cannot resurrect after removal', async () => {
+  const remote = await serve(CARD)
+  try {
+    const tenantId = 'tenant-import-durable'
+    const cardUrl = `${remote.url}/a2a/agents/agent-9/card`
+    const key = `agent-import-${Date.now().toString(36)}`
+    const headers = { 'x-tenant-id': tenantId, 'idempotency-key': key }
+    const expectedId = agentImportCreationId(tenantId, key)
+
+    const first = await call('POST', '/agents/import-card', { url: cardUrl }, headers)
+    assert.equal(first.status, 200)
+    assert.equal(first.json.id, expectedId)
+    assert.deepEqual(first.json.importedFrom, { url: cardUrl, name: 'Remote Researcher' })
+    assert.equal(remote.hits(), 1)
+
+    store.updateAgentFromRequest(expectedId, { label: 'Locally refined import' }, first.json.revision)
+    const replay = await callFresh(
+      'POST',
+      '/agents/import-card',
+      { url: 'http://127.0.0.1:9/a-different-card' },
+      headers,
+    )
+    assert.equal(replay.status, 200)
+    assert.equal(replay.json.id, expectedId)
+    assert.equal(replay.json.label, 'Locally refined import', 'replay returns current local truth')
+    assert.deepEqual(replay.json.importedFrom, first.json.importedFrom, 'the frozen origin is unchanged')
+    assert.equal(remote.hits(), 1, 'durable replay never re-fetches mutable remote content')
+
+    const removed = await call('DELETE', `/agents/${expectedId}`, { expectedRevision: replay.json.revision }, {
+      'x-tenant-id': tenantId,
+      'idempotency-key': `remove-${expectedId}`,
+    })
+    assert.equal(removed.status, 200)
+    const retired = await callFresh('POST', '/agents/import-card', { url: cardUrl }, headers)
+    assert.equal(retired.status, 404)
+    assert.equal(remote.hits(), 1, 'retirement is decided before remote I/O')
+    assert.equal(store.listAgents(tenantId).some((agent) => agent.id === expectedId), false)
+  } finally {
+    await remote.close()
+  }
+})
+
 test('refusals: non-http url, unreachable host, and a payload that is not a card — nothing minted', async () => {
   const before = store.listAgents(A).length
 
   const scheme = await call('POST', '/agents/import-card', { url: 'ftp://cards.example/card.json' }, { 'x-tenant-id': A })
   assert.equal(scheme.status, 400, 'http(s) only')
 
+  const credentials = await call('POST', '/agents/import-card', { url: 'https://user:secret@cards.example/card.json' }, { 'x-tenant-id': A })
+  assert.equal(credentials.status, 400, 'embedded credentials are never fetched or retained')
+  assert.doesNotMatch(JSON.stringify(credentials.json), /user|secret/,
+    'the refusal never reflects embedded credentials into the response')
+
   // A closed port on loopback: connection refused, surfaced as the server's message.
   const dead = await call('POST', '/agents/import-card', { url: 'http://127.0.0.1:9/card.json' }, { 'x-tenant-id': A })
-  assert.equal(dead.status, 400)
+  assert.equal(dead.status, 502)
+  assert.equal(dead.json.error.code, 'upstream_unavailable')
   assert.match(dead.json.error.message, /Could not fetch/i)
 
   const notCard = await serve(JSON.stringify({ hello: 'world' }))
   try {
     const res = await call('POST', '/agents/import-card', { url: `${notCard.url}/x.json` }, { 'x-tenant-id': A })
-    assert.equal(res.status, 400)
+    assert.equal(res.status, 502)
     assert.match(res.json.error.message, /name/, 'a card without a name is not a card')
   } finally {
     await notCard.close()
@@ -92,7 +141,7 @@ test('refusals: non-http url, unreachable host, and a payload that is not a card
   const notJson = await serve('<html>hi</html>')
   try {
     const res = await call('POST', '/agents/import-card', { url: `${notJson.url}/x.json` }, { 'x-tenant-id': A })
-    assert.equal(res.status, 400)
+    assert.equal(res.status, 502)
   } finally {
     await notJson.close()
   }
@@ -100,7 +149,7 @@ test('refusals: non-http url, unreachable host, and a payload that is not a card
   const upstream404 = await serve('nope', 404)
   try {
     const res = await call('POST', '/agents/import-card', { url: `${upstream404.url}/x.json` }, { 'x-tenant-id': A })
-    assert.equal(res.status, 400)
+    assert.equal(res.status, 502)
     assert.match(res.json.error.message, /HTTP 404/)
   } finally {
     await upstream404.close()
@@ -110,7 +159,7 @@ test('refusals: non-http url, unreachable host, and a payload that is not a card
   const huge = await serve('x'.repeat(300 * 1024))
   try {
     const res = await call('POST', '/agents/import-card', { url: `${huge.url}/x.json` }, { 'x-tenant-id': A })
-    assert.equal(res.status, 400)
+    assert.equal(res.status, 502)
     assert.match(res.json.error.message, /too large/i)
   } finally {
     await huge.close()
@@ -120,7 +169,7 @@ test('refusals: non-http url, unreachable host, and a payload that is not a card
   const bounce = await serve('', 302, { Location: 'http://127.0.0.1:9/elsewhere.json' })
   try {
     const res = await call('POST', '/agents/import-card', { url: `${bounce.url}/x.json` }, { 'x-tenant-id': A })
-    assert.equal(res.status, 400)
+    assert.equal(res.status, 502)
     assert.match(res.json.error.message, /Could not fetch/i)
   } finally {
     await bounce.close()

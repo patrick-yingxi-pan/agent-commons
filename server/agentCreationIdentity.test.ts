@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import {
   agentCreationId,
   agentForkCreationId,
+  agentImportCreationId,
   isAgentCreationId,
   isDirectAgentCreationId,
   isForkAgentCreationId,
+  isImportAgentCreationId,
 } from './agentCreationIdentity.ts'
 
 test('Agent creation identity is deterministic, tenant-scoped, and opaque', () => {
@@ -29,4 +31,18 @@ test('Agent fork identity is deterministic, tenant-scoped, opaque, and direct-cr
   assert.equal(isAgentCreationId(fork), true)
   assert.equal(isAgentCreationId(agentCreationId('tenant-a', key)), true)
   assert.equal(isAgentCreationId('agent-123'), false)
+})
+
+test('Agent Card import identity is tenant-scoped and disjoint from both local creation forms', () => {
+  const key = 'shared-logical-key'
+  const imported = agentImportCreationId('tenant-a', key)
+  assert.equal(imported, agentImportCreationId('tenant-a', key))
+  assert.notEqual(imported, agentImportCreationId('tenant-b', key))
+  assert.notEqual(imported, agentCreationId('tenant-a', key))
+  assert.notEqual(imported, agentForkCreationId('tenant-a', key))
+  assert.match(imported, /^agent-import-[a-f0-9]{24}$/)
+  assert.equal(isImportAgentCreationId(imported), true)
+  assert.equal(isDirectAgentCreationId(imported), false)
+  assert.equal(isForkAgentCreationId(imported), false)
+  assert.equal(isAgentCreationId(imported), true)
 })

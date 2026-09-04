@@ -760,15 +760,6 @@ export async function patchAgent(
   return agent
 }
 
-/** Import a remote A2A Agent Card as a private, unbound definition-stub Agent
- *  (docs/a2a-integration.md, D20) — the cross-instance sibling of definition forking.
- *  The server does the fetch; failures surface as the server's message. */
-export async function importAgentCard(url: string): Promise<Agent> {
-  const agent = await apiPost<Agent>(paths.agentImportCard, { url })
-  invalidate(keys.workerAgents)
-  return agent
-}
-
 /** Absolute URL of a published Agent's A2A card (D20) — a public GET, linkable
  *  from the UI so an owner can hand their agent's front door to a foreign peer.
  *  The card is handed OUT of this browser (pasted into a foreign framework), so a

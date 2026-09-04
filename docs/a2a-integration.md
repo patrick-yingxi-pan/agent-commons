@@ -59,11 +59,14 @@ three mappings and one refusal:
 
 3. **Outbound: importing a remote Agent Card = fork-across-instances, definition
    only.** `POST /api/v1/agents/import-card {url}` fetches a card from a remote
-   instance (http/https only, bounded timeout) and mints a **private, unbound**
-   Agent from it: label/description/skills become the definition stub, lineage is
-   stamped (`importedFrom: {url, name}`), and — exactly as D18 fork — authority,
-   budget, and provider binding are *not* created. The imported card is a recipe
-   plus a pointer, never a capability.
+   instance (http/https only, embedded credentials refused, bounded timeout) and
+   mints a **private, unbound** Agent from it: label/description/skills become the
+   definition stub, lineage is stamped (`importedFrom: {url, name}`), and — exactly
+   as D18 fork — authority, budget, and provider binding are *not* created. Tenant
+   plus one stable key derive an import-only identity; a Retry resolves current
+   durable truth before parsing changed input or fetching mutable remote content
+   again. Deletion retires that identity. The imported card is a recipe plus a
+   pointer, never a capability.
 
 And the refusal: **`message/send` to a published Agent returns a Task in the
 `rejected` state.** A2A's default reading of a card is "message this URL and the
@@ -141,8 +144,11 @@ lineage, ready to be bound), and it exercises the real outbound HTTP path.
   Bounded for the prototype (http/https only, 5s timeout, **redirects refused** so
   the fetched URL is exactly the vetted one, a **streamed 256KB read cap** so a
   chunked body can't balloon memory, and the landed fields trimmed + capped before
-  they reach the registry); a production deployment adds an egress allowlist.
-  Recorded here so it isn't rediscovered as a surprise.
+  they reach the registry); upstream transport/card failures are `502
+  upstream_unavailable`, while unsafe input is `400 invalid`; neither response
+  reflects embedded credentials. Desktop may intentionally reach a local/LAN card;
+  the later hosted deployment adds an egress allowlist. Recorded here so it isn't
+  rediscovered as a surprise.
 
 ## Protocol posture (the one-line version)
 
@@ -164,7 +170,7 @@ POST /api/v1/a2a/projects/:id              → JSON-RPC; message/send ⇒ post o
                                              message/send + taskId ⇒ comment (thread → history)
                                              tasks/get ⇒ Task (lifecycle re-read)
                                              tasks/cancel ⇒ retract (D23; poster/owner only)
-POST /api/v1/agents/import-card            → outbound card fetch ⇒ unbound imported Agent
+POST /api/v1/agents/import-card + key      → acknowledged outbound fetch ⇒ exact unbound Agent
 ```
 
 JSON-RPC error mapping: parse failure `-32700`; non-object / missing method

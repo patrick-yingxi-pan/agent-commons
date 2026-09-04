@@ -371,6 +371,9 @@ export type ApiErrorCode =
   | 'gone'
   | 'capability_unavailable'
   | 'limit_exceeded'
+  /** 502 — syntactically valid local intent could not be fulfilled because a
+   * remote service failed, refused, or returned an invalid representation. */
+  | 'upstream_unavailable'
   /** 503 — a turn on a Session provider refused BEFORE the user turn persists:
    *  no drain loop is bound (`relay_offline`) or another turn is already
    *  in-flight on the relay (`relay_busy`). Retry is free; nothing half-wrote. */

@@ -1359,8 +1359,8 @@ const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
 // degenerate N=1 case. Every Conversation resolves to it until users create more.
 const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
 /** Keyed Agent identities remain retired after explicit deletion. Otherwise a
- * delayed New-Agent or Fork-agent Retry could recreate a definition the person
- * deliberately removed on another device. */
+ * delayed New-Agent, Fork-agent, or Agent-import Retry could recreate a
+ * definition the person deliberately removed on another device. */
 let retiredAgentCreationIds = new Set<string>()
 const resolveAgent = (id?: string): Agent => WORKER_AGENTS.get(id ?? '') ?? DEFAULT_AGENT
 let workerAgentSeq = 0
@@ -4018,10 +4018,12 @@ export const store = {
       tenantId: ownerTenant,
       revision: 0,
     }
-    WORKER_AGENTS.set(agent.id, agent)
-    emitAgentChanged(agent)
-    persist()
-    return agent
+    return commitMutationBatch(() => {
+      WORKER_AGENTS.set(agent.id, agent)
+      emitAgentChanged(agent)
+      persist()
+      return agent
+    })
   },
   /** Create an Agent from a management request: resolve the `systemPrompt` body from the
    *  chosen library entry (D10), treat an omitted tool grant as empty, and run the same
@@ -4052,8 +4054,8 @@ export const store = {
       budget: input.budget,
     }, tenantId, options)
   },
-  /** Exact creator-only state for a keyed direct Agent creation or definition
-   * fork. The route uses this before changed Retry input or source checks. */
+  /** Exact creator-only state for a keyed direct creation, definition fork, or
+   * remote-card import. Routes use this before changed Retry input/source I/O. */
   getAgentCreation(id: string, tenantId: string): Agent | 'invalid' | 'retired' | undefined {
     if (!isAgentCreationId(id)) return 'invalid'
     if (retiredAgentCreationIds.has(id)) return 'retired'
@@ -6362,7 +6364,12 @@ export const store = {
    *  remote skill name maps to no catalog entry), `importedFrom` stamps the lineage,
    *  and authority / budget / provider are NOT created — the importing owner binds
    *  their own through the D8 funnel. The route owns the fetch + shape validation. */
-  importAgentFromCard(card: { name: string; description?: string; skills?: { id?: string; name?: string }[] }, url: string, tenantId: string): Agent {
+  importAgentFromCard(
+    card: { name: string; description?: string; skills?: { id?: string; name?: string }[] },
+    url: string,
+    tenantId: string,
+    options: { logicalId?: string } = {},
+  ): Agent {
     // Untrusted remote input: trim + cap what lands in the registry. The route's
     // body cap bounds the total; these bound what the UI renders and the store
     // persists (a ~250KB "name" inside a within-cap card is still hostile).
@@ -6384,6 +6391,7 @@ export const store = {
         importedFrom: { url, name },
       },
       tenantId,
+      options,
     )
   },
   /** A Project's open-work backlog (D19) — open items first (newest within each band).

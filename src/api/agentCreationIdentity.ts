@@ -1,5 +1,5 @@
 async function opaqueAgentId(
-  prefix: 'new' | 'fork',
+  prefix: 'new' | 'fork' | 'import',
   tenantId: string,
   idempotencyKey: string,
 ): Promise<string> {
@@ -17,4 +17,9 @@ export function agentCreationId(tenantId: string, idempotencyKey: string): Promi
 /** Browser twin of the server's durable Agent-fork identity. */
 export function agentForkCreationId(tenantId: string, idempotencyKey: string): Promise<string> {
   return opaqueAgentId('fork', tenantId, idempotencyKey)
+}
+
+/** Browser twin of the server's durable Agent Card-import identity. */
+export function agentImportCreationId(tenantId: string, idempotencyKey: string): Promise<string> {
+  return opaqueAgentId('import', tenantId, idempotencyKey)
 }

@@ -225,6 +225,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
   )
   if (!retiredAgentFork) throw new Error('Could not create the retirement fixture Agent fork')
   store.deleteAgent(retiredAgentFork.id)
+  const retiredAgentImport = store.importAgentFromCard(
+    { name: 'Retired imported Agent' },
+    'https://agents.example/retired/card.json',
+    store.defaultTenantId(),
+    { logicalId: 'agent-import-000000000000000000000000' },
+  )
+  store.deleteAgent(retiredAgentImport.id)
   // Flag the created pair as the pickers' defaults — exercises the registryDefaults
   // persisted slice (the per-tenant default-flag pointers, a UI shortcut).
   store.setDefaultProvider(provider.id)

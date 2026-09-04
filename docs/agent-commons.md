@@ -1765,10 +1765,13 @@ session↔context binding, mediation handle, and single-resource escrow).
   through the same `postOpenSubGoal` + visibility wall (Task id = item id;
   `open`→`submitted`, `done`→`completed`; `tasks/get` re-reads; items stamped
   `via:'a2a'`), and `message/send` to an *Agent* endpoint returns Task `rejected` (the
-  D18 wall spoken in protocol); **import** — `POST /agents/import-card` fetches a remote
-  card (http/https, 5s timeout) into a private unbound stub with `importedFrom` lineage,
-  surfaced in the Discover tab. Locked by `server/routes/a2a.test.ts` +
-  `server/routes/a2a-import.test.ts`; spec rows COMMONS-10/11/12.
+  D18 wall spoken in protocol); **import** — `POST /agents/import-card` uses one
+  tenant-scoped stable key to fetch a remote card (bounded HTTP(S), 5s timeout) into an
+  exact private unbound stub with `importedFrom` lineage. Durable replay precedes changed
+  input or another remote fetch, and deletion retires the identity; Discover holds the URL
+  through Retry/Dismiss and opens proven truth directly. Locked by
+  `server/routes/a2a.test.ts` + `server/routes/a2a-import.test.ts` +
+  `e2e/agent-import-mutations.spec.ts`; spec rows COMMONS-10/11/12 + SYNC-47.
 - **Slice 21 — the findability layer (D21 + D22). ✅ Built.** The identities and the
   catalog: **the workspace profile** — `GET /directory/owners/:name` aggregates a display
   name's already-public rows (shared Projects, published Agents, public stats, an

@@ -244,7 +244,6 @@ import {
 import {
   addSavedContext,
   desktopCredentialsAvailable,
-  importAgentCard,
   a2aAgentCardUrl,
   postOpenSubGoal,
   commentOnWorkItem,
@@ -381,6 +380,11 @@ import {
   useAgentMutationStatus,
 } from '../controller/agentMutations'
 import { enqueueAgentCreation } from '../controller/agentCreationMutations'
+import {
+  enqueueAgentImport,
+  heldAgentImportUrl,
+  useAgentImportStatus,
+} from '../controller/agentImportMutations.ts'
 import {
   enqueueAgentFork,
   isAgentForkHeld,
@@ -11215,7 +11219,7 @@ function DiscoverTab({ onOpenAgentPage }: { onOpenAgentPage: (agentId: string) =
         )}
       </div>
 
-      <ImportAgentCardForm />
+      <ImportAgentCardForm onOpenAgent={onOpenAgentPage} />
     </div>
   )
 }
@@ -11613,24 +11617,38 @@ function OwnerProfilePage({
  *  Agent Card URL and the server fetches it into a private, UNBOUND definition-stub
  *  agent with `importedFrom` lineage — fork-across-instances, and like a fork the
  *  capability never travels: you bind your own model, authority, and budget. */
-function ImportAgentCardForm() {
-  const [url, setUrl] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [imported, setImported] = useState<string | null>(null)
+function ImportAgentCardForm({ onOpenAgent }: { onOpenAgent: (agentId: string) => void }) {
+  const me = useMe().data
+  useAgentImportStatus()
+  const heldUrl = heldAgentImportUrl()
+  const [url, setUrl] = useState(() => heldUrl ?? '')
   const [error, setError] = useState<string | null>(null)
+  const mountedRef = useRef(false)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+  useEffect(() => {
+    if (heldUrl) setUrl(heldUrl)
+  }, [heldUrl])
   const importCard = async () => {
-    if (busy || !url.trim()) return
-    setBusy(true)
+    const frozenUrl = url.trim()
+    if (!me || heldUrl || !frozenUrl) return
     setError(null)
-    setImported(null)
     try {
-      const agent = await importAgentCard(url.trim())
-      setImported(agent.label)
-      setUrl('')
+      const result = await enqueueAgentImport({
+        tenantId: me.tenant.id,
+        request: { url: frozenUrl },
+      })
+      if (result.outcome === 'applied' && mountedRef.current) {
+        onOpenAgent(result.agentId)
+      } else if (result.outcome === 'discarded' && mountedRef.current) {
+        setError('The Agent Card wasn’t imported. Review the URL and try again.')
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not import this Agent Card.')
-    } finally {
-      setBusy(false)
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e.message : 'Could not import this Agent Card.')
+      }
     }
   }
   return (
@@ -11642,28 +11660,25 @@ function ImportAgentCardForm() {
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && importCard()}
+          onKeyDown={(e) => e.key === 'Enter' && void importCard()}
           placeholder="A2A Agent Card URL (…/a2a/agents/{id}/card)…"
           aria-label="Agent Card URL"
+          disabled={!!heldUrl}
           className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
         <button
-          onClick={importCard}
-          disabled={busy || !url.trim()}
+          onClick={() => void importCard()}
+          disabled={!!heldUrl || !me || !url.trim()}
+          aria-busy={!!heldUrl || undefined}
           className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
         >
-          Import
+          {heldUrl ? 'Importing…' : 'Import'}
         </button>
       </div>
       <p className="mt-1.5 text-[11px] text-ink-faint">
         The card&rsquo;s definition becomes a private agent with lineage — capability never travels:
         you bind your own model, authority, and budget.
       </p>
-      {imported && (
-        <p className="mt-1 text-[12px] text-ok-text">
-          Imported &ldquo;{imported}&rdquo; — find it in the Agents tab.
-        </p>
-      )}
       {error && <p className="mt-1 text-[12px] text-removed">{error}</p>}
     </div>
   )
