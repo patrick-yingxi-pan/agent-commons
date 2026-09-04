@@ -286,7 +286,6 @@ import {
   setDiscussionState,
   markDiscussionRead,
   noteContribution,
-  landContribution,
   proposeEnvelope,
   approveEnvelope,
   runEnvelopeEffect,
@@ -438,6 +437,11 @@ import {
   isContributionCreationHeld,
   useContributionCreationStatus,
 } from '../controller/contributionCreationMutations.ts'
+import {
+  enqueueContributionLanding,
+  isContributionLandingHeld,
+  useContributionLandingStatus,
+} from '../controller/contributionLandingMutations.ts'
 import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
@@ -6220,6 +6224,8 @@ function ContributionPage({
   const c = list.find((x) => x.id === contributionId) ?? null
   // Hook order: read before any early return (the missing-contribution page).
   const delegationList = useDelegations(project.id).data ?? []
+  const me = useMe().data
+  useContributionLandingStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6228,6 +6234,7 @@ function ContributionPage({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const landingHeld = isContributionLandingHeld(project.id, contributionId)
 
   if (!c) {
     return (
@@ -6283,20 +6290,19 @@ function ContributionPage({
       setBusy(false)
     }
   }
-  const land = async () => {
-    if (busy) return
-    setBusy(true)
+  const land = () => {
+    if (busy || landingHeld || !me) return
     setError(null)
-    try {
-      await landContribution(project.id, c.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not land this contribution.')
-    } finally {
-      setBusy(false)
-    }
+    void enqueueContributionLanding({
+      tenantId: me.tenant.id,
+      projectId: project.id,
+      contributionId: c.id,
+    }).then((outcome) => {
+      if (outcome === 'discarded') setError('Landing was dismissed. Review the current gate before trying again.')
+    })
   }
   const runReview = async () => {
-    if (busy) return
+    if (busy || landingHeld) return
     setBusy(true)
     setError(null)
     try {
@@ -6308,7 +6314,7 @@ function ContributionPage({
     }
   }
   const tighten = async () => {
-    if (busy) return
+    if (busy || landingHeld) return
     setBusy(true)
     setError(null)
     try {
@@ -6320,7 +6326,7 @@ function ContributionPage({
     }
   }
   const askDelegate = async (did: string) => {
-    if (busy) return
+    if (busy || landingHeld) return
     setBusy(true)
     setError(null)
     try {
@@ -6394,7 +6400,7 @@ function ContributionPage({
             {mayRequire && (
               <button
                 onClick={() => void tighten()}
-                disabled={busy}
+                disabled={busy || landingHeld}
                 title="Tighten the gate: force adversarial review before this can land (there is no un-require)"
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6404,7 +6410,7 @@ function ContributionPage({
             {mayReview && (
               <button
                 onClick={() => void runReview()}
-                disabled={busy}
+                disabled={busy || landingHeld}
                 title={`Run the adversarial review over v${latestVersion} (mock reviewer — the model seam)`}
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6414,7 +6420,7 @@ function ContributionPage({
             {applicableDelegation && (
               <button
                 onClick={() => void askDelegate(applicableDelegation.id)}
-                disabled={busy}
+                disabled={busy || landingHeld}
                 title={`Ask ${applicableDelegation.agentLabel} to ${applicableDelegation.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${applicableDelegation.escalation.join(', ')}`}
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6424,7 +6430,7 @@ function ContributionPage({
             {mayLand && (
               <button
                 onClick={() => void land()}
-                disabled={busy}
+                disabled={busy || landingHeld}
                 title={`Land this contribution — it becomes L${
                   Math.max(
                     list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
@@ -6433,7 +6439,7 @@ function ContributionPage({
                 } in ${project.name}’s history`}
                 className={`${SOFT_BUTTON_CLASS} px-3 py-1 text-[12px] disabled:opacity-45`}
               >
-                Land
+                {landingHeld ? 'Landing…' : 'Land'}
               </button>
             )}
           </div>
@@ -6441,12 +6447,12 @@ function ContributionPage({
 
         {/* The changeset (CW3/CW4, Phase D) — the work's mergeable payload as
             before→after diffs, versioned append-only. */}
-        <ChangesetCard project={project} c={c} />
+        <ChangesetCard project={project} c={c} lifecycleHeld={landingHeld} />
 
         {/* The effect envelope (CW1, Phase C) — the plan's authorization,
             visually its own block: an external act must never hide inside the
             prose/diff idiom (CW3). */}
-        <EnvelopeCard project={project} c={c} />
+        <EnvelopeCard project={project} c={c} lifecycleHeld={landingHeld} />
 
         {/* The timeline — lifecycle transitions + the conversation, one record
             in time order (append-only, CW4; it keeps accruing after landing, CW7). */}
@@ -6839,7 +6845,7 @@ function DelegationPanel({ project }: { project: Project }) {
  *  append-only; earlier ones survive as timeline events carrying the review
  *  delta. The composer accumulates entries locally, then crystallizes one
  *  version — revision is a new version, never an edit (no force-push). */
-function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
+function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Contribution; lifecycleHeld: boolean }) {
   const mayAct = c.mine === true || project.own !== false
   const versions = c.changeset ?? []
   const latest = versions.at(-1)
@@ -6854,7 +6860,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
   if (!latest && (c.status !== 'open' || !mayAct)) return null
 
   const addEntry = () => {
-    if (!target.trim() || !after.trim()) return
+    if (lifecycleHeld || !target.trim() || !after.trim()) return
     setPending((p) => [...p, { kind, target: target.trim(), ...(before.trim() ? { before } : {}), after }])
     setTarget('')
     setBefore('')
@@ -6869,7 +6875,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
       : []
   const crystallize = async () => {
     const entries = [...pending, ...draftEntry()]
-    if (busy || entries.length === 0) return
+    if (busy || lifecycleHeld || entries.length === 0) return
     setBusy(true)
     setError(null)
     try {
@@ -6900,6 +6906,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
         {c.status === 'open' && mayAct && (
           <button
             onClick={() => setComposing((v) => !v)}
+            disabled={lifecycleHeld}
             className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
           >
             {latest ? 'Revise' : 'Crystallize'}
@@ -6937,6 +6944,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
             <select
               value={kind}
               onChange={(e) => setKind(e.target.value as ChangeEntryKind)}
+              disabled={lifecycleHeld}
               aria-label="Change kind"
               className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
             >
@@ -6949,6 +6957,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
             <input
               value={target}
               onChange={(e) => setTarget(e.target.value)}
+              disabled={lifecycleHeld}
               placeholder="Target (path / name / surface)…"
               aria-label="Change target"
               className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
@@ -6957,6 +6966,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
           <textarea
             value={before}
             onChange={(e) => setBefore(e.target.value)}
+            disabled={lifecycleHeld}
             rows={2}
             placeholder="Before (leave empty for a create)…"
             aria-label="Before text"
@@ -6965,6 +6975,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
           <textarea
             value={after}
             onChange={(e) => setAfter(e.target.value)}
+            disabled={lifecycleHeld}
             rows={2}
             placeholder="After…"
             aria-label="After text"
@@ -6973,14 +6984,14 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
           <div className="flex items-center justify-end gap-1.5">
             <button
               onClick={addEntry}
-              disabled={!target.trim() || !after.trim()}
+              disabled={lifecycleHeld || !target.trim() || !after.trim()}
               className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-45"
             >
               Add change
             </button>
             <button
               onClick={() => void crystallize()}
-              disabled={busy || (pending.length === 0 && !(target.trim() && after.trim()))}
+              disabled={busy || lifecycleHeld || (pending.length === 0 && !(target.trim() && after.trim()))}
               className={`${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
             >
               Crystallize v{versions.length + 1}
@@ -6997,7 +7008,7 @@ function ChangesetCard({ project, c }: { project: Project; c: Contribution }) {
  *  block: what external acts this work may fire, under which harness, how many
  *  used. Consent-card-shaped rows; the approve act is the owner's one human
  *  judgment (the floor rule), after which Run is a mechanical match. */
-function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
+function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Contribution; lifecycleHeld: boolean }) {
   const own = project.own !== false
   const mayAct = c.mine === true || own
   const env = c.envelope
@@ -7012,7 +7023,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
   if (!env && (c.status !== 'open' || !mayAct)) return null
 
   const act = async (fn: () => Promise<unknown>, fail: string) => {
-    if (busy) return
+    if (busy || lifecycleHeld) return
     setBusy(true)
     setError(null)
     try {
@@ -7055,7 +7066,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           {env && env.status === 'proposed' && own && c.status === 'open' && (
             <button
               onClick={() => void act(() => approveEnvelope(project.id, c.id), 'Could not approve.')}
-              disabled={busy}
+              disabled={busy || lifecycleHeld}
               title="Approve these acts as proposed — matching acts then run without re-asking"
               className={`${SOFT_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
             >
@@ -7065,6 +7076,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           {c.status === 'open' && mayAct && (
             <button
               onClick={() => setComposing((v) => !v)}
+              disabled={lifecycleHeld}
               className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
             >
               {env ? 'Amend' : 'Declare effects'}
@@ -7090,7 +7102,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
             {env.status === 'approved' && c.status === 'open' && mayAct && (
               <button
                 onClick={() => void act(() => runEnvelopeEffect(project.id, c.id, l.id), 'Could not run this act.')}
-                disabled={busy || l.used >= l.cardinality}
+                disabled={busy || lifecycleHeld || l.used >= l.cardinality}
                 title={
                   l.used >= l.cardinality
                     ? 'Cardinality exhausted — amend the envelope for more'
@@ -7114,6 +7126,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           <select
             value={type}
             onChange={(e) => setType(e.target.value as ProjectEffectType)}
+            disabled={lifecycleHeld}
             aria-label="Effect type"
             className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
           >
@@ -7127,6 +7140,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
             autoFocus
             value={target}
             onChange={(e) => setTarget(e.target.value)}
+            disabled={lifecycleHeld}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void propose()
               if (e.key === 'Escape') setComposing(false)
@@ -7141,6 +7155,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
             max={20}
             value={cardinality}
             onChange={(e) => setCardinality(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+            disabled={lifecycleHeld}
             aria-label="Max acts"
             title="How many acts this line authorizes (≤)"
             className="w-14 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
@@ -7148,6 +7163,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           <select
             value={harness}
             onChange={(e) => setHarness(e.target.value as EnvelopeHarness)}
+            disabled={lifecycleHeld}
             aria-label="Safety harness"
             title="The containment this line runs under (CW5's ladder)"
             className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
@@ -7160,7 +7176,7 @@ function EnvelopeCard({ project, c }: { project: Project; c: Contribution }) {
           </select>
           <button
             onClick={() => void propose()}
-            disabled={busy || !target.trim()}
+            disabled={busy || lifecycleHeld || !target.trim()}
             className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
           >
             Propose v{(env?.version ?? 0) + 1}

@@ -159,6 +159,54 @@ test('landing: bystander 403; contributor lands; numbers are per-project monoton
   assert.deepEqual(list.slice(1).map((c: any) => c.landingNumber), [2, 1], 'landed newest-first (L descending)')
 })
 
+test('a keyed landing replays current ledger truth after response-cache loss without repeating the transition', async () => {
+  const { projectId, cid } = await arena()
+  const key = `contribution-land-${n}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+
+  const landed = await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, headers)
+  assert.equal(landed.status, 200)
+  assert.equal(landed.json.status, 'landed')
+  assert.equal(landed.json.landingNumber, 1)
+  assert.equal(landed.json.landingId, undefined, 'the private operation identity never crosses the wire')
+  assert.equal(landed.json.landedByTenant, undefined, 'the raw landing authority never crosses the wire')
+
+  const noted = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'Aftermath added after the landing acknowledgement was serialized.' },
+    { 'x-tenant-id': B },
+  )
+  assert.equal(noted.status, 200)
+  const durableReplay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/land`,
+    undefined,
+    headers,
+  )
+  assert.equal(durableReplay.status, 200)
+  assert.equal(durableReplay.headers['idempotency-replayed'], undefined)
+  assert.equal(durableReplay.json.landingNumber, 1, 'the ledger position is assigned once')
+  assert.equal(durableReplay.json.events.filter((event: any) => event.kind === 'landed').length, 1)
+  assert.equal(durableReplay.json.events.at(-1).body, 'Aftermath added after the landing acknowledgement was serialized.',
+    'durable replay serves current history rather than a stale response envelope')
+
+  const changedKey = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/land`,
+    undefined,
+    { ...headers, 'idempotency-key': `${key}-changed` },
+  )
+  assert.equal(changedKey.status, 409, 'another logical act cannot claim the completed landing')
+  const otherTenant = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/land`,
+    undefined,
+    { 'x-tenant-id': B, 'idempotency-key': key },
+  )
+  assert.equal(otherTenant.status, 409, 'the same raw key in another tenant scope cannot claim the operation')
+})
+
 test('notes: any viewer, trimmed + capped, and the thread stays open AFTER landing (CW7)', async () => {
   const { projectId, cid } = await arena()
   const noted = await call('POST', `/projects/${projectId}/contributions/${cid}/comments`, { body: '  looks right  ' }, { 'x-tenant-id': C })

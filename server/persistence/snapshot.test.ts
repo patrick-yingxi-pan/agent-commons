@@ -341,6 +341,12 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'acknowledgement-owned work-item retraction keeps its private durable identity',
   )
   assert.ok(
+    s.contributions?.some((contribution) =>
+      contribution.landingId === 'contribution-land-000000000000000000000000' &&
+      typeof contribution.landedByTenant === 'string'),
+    'acknowledgement-owned Contribution landing keeps its private durable operation and actor anchors',
+  )
+  assert.ok(
     s.grants?.some((g) => g.subject.id === 'p-playground' && g.note !== undefined),
     'createGrant → grants (social S1, the published share persists)',
   )

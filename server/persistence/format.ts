@@ -138,6 +138,10 @@ export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments
 export interface StoredContribution extends Omit<Contribution, 'events'> {
   contributorTenant?: string
   contributorPrincipal?: PrincipalRef
+  /** Private acknowledgement anchor for a keyed native landing. */
+  landingId?: string
+  /** Raw authority anchor paired with `landingId`; legacy/delegated rows may omit it. */
+  landedByTenant?: string
   events: StoredContributionEvent[]
 }
 

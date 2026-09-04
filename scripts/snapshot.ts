@@ -347,7 +347,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
     // reviewedVersion + review-passed event round-trip.
     store.reviewContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
     store.noteContribution('p-insights', landedContribution.id, 'Looks right — landing it.', store.defaultTenantId(), builder)
-    store.landContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
+    store.landContribution(
+      'p-insights',
+      landedContribution.id,
+      store.defaultTenantId(),
+      builder,
+      { logicalId: 'contribution-land-000000000000000000000000' },
+    )
   }
   store.openContribution(
     'p-insights',

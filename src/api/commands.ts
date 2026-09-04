@@ -970,14 +970,6 @@ export async function noteContribution(projectId: string, cid: string, body: str
   return c
 }
 
-/** Land a contribution — assign its ledger number (contributor or owner; the
- *  server enforces on raw tenant ids; a 403/409 surfaces as the thrown error). */
-export async function landContribution(projectId: string, cid: string): Promise<Contribution> {
-  const c = await apiPost<Contribution>(paths.contributionLand(projectId, cid), {})
-  invalidate(keys.contributions(projectId))
-  return c
-}
-
 /** Crystallize a changeset version (CW3/CW4, Phase D) — append-only v(n+1);
  *  the event records the review delta vs the prior version. */
 export async function crystallizeContribution(projectId: string, cid: string, req: CrystallizeRequest): Promise<Contribution> {

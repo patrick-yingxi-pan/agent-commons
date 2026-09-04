@@ -108,6 +108,7 @@ import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { openWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { workItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
 import { workItemRetractionId } from '../workItemRetractionIdentity.ts'
+import { contributionLandingId } from '../contributionLandingIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2771,7 +2772,24 @@ export function buildRouter(): Router {
   r.post('/projects/:id/contributions/:cid/land', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.landContribution(params.id, params.cid, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalLandingId = idempotencyKey
+      ? contributionLandingId(who.tenant.id, params.id, params.cid, idempotencyKey)
+      : undefined
+    const represented = logicalLandingId
+      ? store.getContributionLanding(logicalLandingId, params.id, params.cid, who.tenant.id)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This landing identity is not valid for this account and Contribution')
+    }
+    const out = store.landContribution(
+      params.id,
+      params.cid,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalLandingId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the contributor or the project owner may land a contribution')
     if (out === 'closed') return sendError(res, 'conflict', 'This contribution already landed')

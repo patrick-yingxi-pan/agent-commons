@@ -139,6 +139,7 @@ import { isAgentCreationId } from '../agentCreationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { isWorkItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
 import { isWorkItemRetractionId } from '../workItemRetractionIdentity.ts'
+import { isContributionLandingId } from '../contributionLandingIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -1080,7 +1081,7 @@ function tierFor(c: StoredContribution): import('../../contract/index.ts').Contr
 }
 
 function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
-  const { contributorTenant, contributorPrincipal, events, ...pub } = c
+  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, ...pub } = c
   return {
     ...pub,
     ...(contributorPrincipal ? { contributorKind: contributorPrincipal.kind } : {}),
@@ -8028,12 +8029,42 @@ export const store = {
     persist()
     return publicContribution(c, tenantId)
   },
+  /** Current Contribution for one durable native landing acknowledgement. */
+  getContributionLanding(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    tenantId: string,
+  ): Contribution | 'invalid' | undefined {
+    if (!isContributionLandingId(id)) return 'invalid'
+    const represented = contributions.find((candidate) => candidate.landingId === id)
+    if (!represented) return undefined
+    if (
+      represented.id !== contributionId ||
+      represented.projectId !== projectId ||
+      represented.landedByTenant !== tenantId
+    ) return 'invalid'
+    return publicContribution(represented, tenantId)
+  },
   /** Land a contribution: assign the next landing number (monotonic PER PROJECT —
    *  the linear ledger, CW6) and close the lifecycle. Contributor or Project
    *  owner only — the Phase-A placeholder for the CW5 tier arithmetic (recorded
    *  in the design doc's build plan; the authorization comparison is raw tenant
    *  ids, the D23 lesson, via the same `tenantWritesAs` union as retract). */
-  landContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined, eventActor?: string): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | undefined {
+  landContribution(
+    projectId: string,
+    cid: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { eventActor?: string; logicalId?: string } = {},
+  ): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | undefined {
+    if (options.logicalId) {
+      const represented = this.getContributionLanding(options.logicalId, projectId, cid, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That Contribution landing identity is not valid for this account and ledger row.')
+      }
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
@@ -8053,20 +8084,24 @@ export const store = {
       // a reviewer could pass (reviewedVersion stays unset ⇒ refused).
       if (tier.level === 1 && c.reviewedVersion !== (c.changeset?.length ?? 0)) return 'needs-review'
     }
-    const now = Date.now()
-    // The ledger position: one past the project's highest landed number across
-    // BOTH landing paths (contributions + social proposals — the one-ledger
-    // consolidation) — derived from the ledgers themselves, so a restored
-    // snapshot can't double-assign.
-    c.status = 'landed'
-    c.landingNumber = nextLandingNumber({ kind: 'project', id: projectId })
-    c.landedAt = now
-    c.landedBy = tenantName(tenantId)
-    // `eventActor` — the CW8 dual stamp, same rationale as approveEnvelope's.
-    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: eventActor ?? c.landedBy, ...(principal ? { principal } : {}) })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
+    return commitMutationBatch(() => {
+      const now = Date.now()
+      // The ledger position: one past the project's highest landed number across
+      // BOTH landing paths (contributions + social proposals — the one-ledger
+      // consolidation) — derived from the ledgers themselves, so a restored
+      // snapshot can't double-assign.
+      c.status = 'landed'
+      c.landingNumber = nextLandingNumber({ kind: 'project', id: projectId })
+      c.landedAt = now
+      c.landedBy = tenantName(tenantId)
+      c.landedByTenant = tenantId
+      if (options.logicalId) c.landingId = options.logicalId
+      // `eventActor` — the CW8 dual stamp, same rationale as approveEnvelope's.
+      c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: options.eventActor ?? c.landedBy, ...(principal ? { principal } : {}) })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
+    })
   },
 
   // ── The attention ledger (CW9, Phase G) — interrupts justify themselves ─────
@@ -8281,7 +8316,7 @@ export const store = {
     const out =
       d.actKind === 'approve-envelope'
         ? this.approveEnvelope(projectId, cid, d.delegatorTenant, principal, stamp)
-        : this.landContribution(projectId, cid, d.delegatorTenant, principal, stamp)
+        : this.landContribution(projectId, cid, d.delegatorTenant, principal, { eventActor: stamp })
     if (typeof out !== 'object') return 'inapplicable'
     pushEvent('delegated-decision', verdict.replace('would ', ''))
     return publicContribution(c, tenantId)
