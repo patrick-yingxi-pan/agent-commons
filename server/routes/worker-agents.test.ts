@@ -95,6 +95,29 @@ test('a keyed Agent create survives response-cache loss as one immutable row', a
   assert.equal(changed.length, 1, 'durable replay emits only the first creation event')
 })
 
+test('deleting a keyed Agent retires its identity across router restart', async () => {
+  const tenantId = 'tenant-agent-create-retirement'
+  const key = `agent-create-retire-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': tenantId, 'idempotency-key': key }
+  const body = {
+    label: 'Retire this Agent',
+    providerId: DEFAULT_PROVIDER_ID,
+    systemPromptId: 'sp-concise-reviewer',
+  }
+  const created = await call('POST', '/agents', body, headers)
+  assert.equal(created.status, 200)
+  assert.equal(created.json.id, agentCreationId(tenantId, key))
+  const removed = await call('DELETE', `/agents/${created.json.id}`, { expectedRevision: 0 }, {
+    'x-tenant-id': tenantId,
+    'idempotency-key': `remove-${created.json.id}`,
+  })
+  assert.equal(removed.status, 200)
+
+  const retry = await callFresh('POST', '/agents', { ...body, label: 'Do not resurrect' }, headers)
+  assert.equal(retry.status, 404)
+  assert.equal(store.listAgents(tenantId).some((agent) => agent.id === created.json.id), false)
+})
+
 test('GET /agent-tools serves the live catalog the explicit grant names', async () => {
   const res = await call('GET', '/agent-tools')
   assert.equal(res.status, 200)

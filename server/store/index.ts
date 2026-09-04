@@ -135,6 +135,7 @@ import {
   isForkSessionCreationId,
   isSessionCreationId,
 } from '../sessionCreationIdentity.ts'
+import { isAgentCreationId } from '../agentCreationIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -1357,6 +1358,10 @@ const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
 // The seeded worker Agents (docs/agent-commons.md, D6) — one for now, the
 // degenerate N=1 case. Every Conversation resolves to it until users create more.
 const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
+/** Keyed Agent identities remain retired after explicit deletion. Otherwise a
+ * delayed New-Agent or Fork-agent Retry could recreate a definition the person
+ * deliberately removed on another device. */
+let retiredAgentCreationIds = new Set<string>()
 const resolveAgent = (id?: string): Agent => WORKER_AGENTS.get(id ?? '') ?? DEFAULT_AGENT
 let workerAgentSeq = 0
 
@@ -2320,6 +2325,7 @@ function snapshot(): PersistedState {
     systemPrompts: [...SYSTEM_PROMPT_LIB.entries()],
     registryDefaults: [...REGISTRY_DEFAULTS.entries()], // per-tenant default-flag pointers (UI shortcut)
     agents: [...WORKER_AGENTS.entries()],
+    retiredAgentCreationIds: [...retiredAgentCreationIds],
     commissions: [...COMMISSIONS.entries()],
     // D13 commission caps — only Projects that carry one (the seed Projects are otherwise
     // not persisted); rehydrate re-applies them onto the matching seed Project.
@@ -2417,6 +2423,7 @@ function cleanFirstBootState(): PersistedState {
   clean.systemPrompts = [[defaultPrompt.id, defaultPrompt]]
   clean.registryDefaults = []
   clean.agents = [[DEFAULT_AGENT.id, DEFAULT_AGENT]]
+  clean.retiredAgentCreationIds = []
   clean.commissions = []
   clean.commissionCaps = []
   clean.projectDefaultRoles = []
@@ -2823,6 +2830,9 @@ function rehydrate(s: PersistedState): void {
   replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
   replaceMap(REGISTRY_DEFAULTS, s.registryDefaults)
   replaceMap(WORKER_AGENTS, s.agents)
+  retiredAgentCreationIds = new Set(
+    (s.retiredAgentCreationIds ?? []).filter(isAgentCreationId),
+  )
   replaceMap(COMMISSIONS, s.commissions)
   // D13 commission caps overlay onto the (re-seeded) Projects: clear any seed cap, then
   // re-apply the snapshot's, so a cap that was removed at runtime stays removed.
@@ -3984,6 +3994,12 @@ export const store = {
       if (!ownerTenant) {
         throw new ValidationError('A keyed Agent creation must be account-scoped.')
       }
+      if (!isAgentCreationId(options.logicalId)) {
+        throw new ValidationError('That Agent creation identity is not valid.')
+      }
+      if (retiredAgentCreationIds.has(options.logicalId)) {
+        throw new ValidationError('That Agent creation identity was already removed.')
+      }
       const represented = WORKER_AGENTS.get(options.logicalId)
       if (represented) {
         if (represented.tenantId !== ownerTenant) {
@@ -4035,6 +4051,16 @@ export const store = {
       authority: input.authority,
       budget: input.budget,
     }, tenantId, options)
+  },
+  /** Exact creator-only state for a keyed direct Agent creation or definition
+   * fork. The route uses this before changed Retry input or source checks. */
+  getAgentCreation(id: string, tenantId: string): Agent | 'invalid' | 'retired' | undefined {
+    if (!isAgentCreationId(id)) return 'invalid'
+    if (retiredAgentCreationIds.has(id)) return 'retired'
+    const agent = WORKER_AGENTS.get(id)
+    if (!agent) return undefined
+    if (agent.tenantId !== tenantId) return 'invalid'
+    return agent
   },
   /** Patch an Agent. A present field is applied; an absent one is left unchanged.
    *  **Strict like create**: a present provider / prompt id must resolve — empty string
@@ -4149,6 +4175,7 @@ export const store = {
         if (delegations[i].agentId === id) delegations.splice(i, 1)
       }
       WORKER_AGENTS.delete(id)
+      if (isAgentCreationId(id)) retiredAgentCreationIds.add(id)
       // Sessions survive and resolve to the default Agent. Clear only model
       // picks invalid under that new inheritance chain.
       sweepSessionModelPicks()
@@ -6281,39 +6308,52 @@ export const store = {
    *  Lineage is stamped (`forkedFrom`) and the source's fork counter increments — the
    *  public credit. Undefined (→ 404, no existence leak) for an unknown id or a foreign
    *  Agent that isn't published; the caller's own Agents fork freely (duplicate). */
-  forkAgent(sourceId: string, tenantId: string): Agent | undefined {
+  forkAgent(
+    sourceId: string,
+    tenantId: string,
+    options: { logicalId?: string } = {},
+  ): Agent | undefined {
+    if (options.logicalId) {
+      const represented = this.getAgentCreation(options.logicalId, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') throw new ValidationError('That Agent fork identity is not valid for this account.')
+      if (represented === 'retired') throw new ValidationError('That Agent fork was already removed.')
+    }
     const source = WORKER_AGENTS.get(sourceId)
     if (!source || !(source.published === true || registryVisible(source, tenantId))) return undefined
     const provider = source.providerId ? MODEL_PROVIDERS.get(source.providerId) : undefined
     const prompt = source.systemPromptId ? SYSTEM_PROMPT_LIB.get(source.systemPromptId) : undefined
-    const fork = this.createAgent(
-      {
-        label: source.label,
-        systemPrompt: source.systemPrompt,
-        systemPromptId: prompt && registryVisible(prompt, tenantId) ? prompt.id : undefined,
-        tools: [...source.tools],
-        instructions: source.instructions,
-        providerId: provider && registryVisible(provider, tenantId) ? provider.id : undefined,
-        // D25: record WHICH version was taken — the baseline a later proposal
-        // (or "am I behind the source?") is measured against.
-        forkedFrom: { agentId: source.id, label: source.label, version: source.version ?? 1 },
-      },
-      tenantId,
-    )
-    const creditedSource = { ...source, forks: (source.forks ?? 0) + 1 }
-    WORKER_AGENTS.set(source.id, creditedSource)
-    // Fork credit is activity (not a configuration revision), but it changes
-    // the public directory face of a necessarily published source.
-    emitAgentChanged(creditedSource, true)
-    // D24: a fork is public credit — tell the definition's owner.
-    notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
-      kind: 'agent.forked',
-      actor: tenantName(tenantId),
-      agentId: source.id,
-      agentLabel: source.label,
+    return commitMutationBatch(() => {
+      const fork = this.createAgent(
+        {
+          label: source.label,
+          systemPrompt: source.systemPrompt,
+          systemPromptId: prompt && registryVisible(prompt, tenantId) ? prompt.id : undefined,
+          tools: [...source.tools],
+          instructions: source.instructions,
+          providerId: provider && registryVisible(provider, tenantId) ? provider.id : undefined,
+          // D25: record WHICH version was taken — the baseline a later proposal
+          // (or "am I behind the source?") is measured against.
+          forkedFrom: { agentId: source.id, label: source.label, version: source.version ?? 1 },
+        },
+        tenantId,
+        options,
+      )
+      const creditedSource = { ...source, forks: (source.forks ?? 0) + 1 }
+      WORKER_AGENTS.set(source.id, creditedSource)
+      // Fork credit is activity (not a configuration revision), but it changes
+      // the public directory face of a necessarily published source.
+      emitAgentChanged(creditedSource, true)
+      // D24: a fork is public credit — tell the definition's owner.
+      notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
+        kind: 'agent.forked',
+        actor: tenantName(tenantId),
+        agentId: source.id,
+        agentLabel: source.label,
+      })
+      persist()
+      return fork
     })
-    persist()
-    return fork
   },
   /** Mint a private Agent from a fetched remote A2A **Agent Card** (D20,
    *  docs/a2a-integration.md) — the cross-INSTANCE sibling of `forkAgent`, with the

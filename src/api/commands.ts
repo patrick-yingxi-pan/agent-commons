@@ -760,19 +760,8 @@ export async function patchAgent(
   return agent
 }
 
-/** Fork a published Agent's definition into the caller's account (docs/agent-commons.md,
- *  D18): a new private Agent with capability unbound (re-grant through your own funnel)
- *  and lineage stamped. Refreshes the agent list (the fork appears) and the directory
- *  (the source's fork counter moved). */
-export async function forkAgent(id: string): Promise<Agent> {
-  const fork = await apiPost<Agent>(paths.agentFork(id), {})
-  invalidate(keys.workerAgents)
-  invalidatePrefix(keys.directoryAgents())
-  return fork
-}
-
 /** Import a remote A2A Agent Card as a private, unbound definition-stub Agent
- *  (docs/a2a-integration.md, D20) — the cross-instance sibling of `forkAgent`.
+ *  (docs/a2a-integration.md, D20) — the cross-instance sibling of definition forking.
  *  The server does the fetch; failures surface as the server's message. */
 export async function importAgentCard(url: string): Promise<Agent> {
   const agent = await apiPost<Agent>(paths.agentImportCard, { url })

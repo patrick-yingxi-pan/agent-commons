@@ -214,6 +214,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'a removed keyed draft keeps its retirement identity')
   assert.ok(s.retiredSessionCreationIds?.includes('sess-fork-000000000000000000000000'),
     'a removed keyed conversation branch keeps its retirement identity')
+  assert.ok(s.retiredAgentCreationIds?.includes('agent-new-000000000000000000000000'),
+    'a removed keyed Agent keeps its retirement identity')
+  assert.ok(s.retiredAgentCreationIds?.includes('agent-fork-000000000000000000000000'),
+    'a removed keyed Agent fork keeps its retirement identity')
   assert.ok(s.bindings.some(([sid]) => sid.startsWith('sess-')), 'the created session has an attached context')
   assert.ok(s.workspaces.some(([sid]) => sid.startsWith('sess-')), 'the created session has a live workspace')
   assert.ok(
@@ -538,6 +542,16 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     store.getSessionCreation('sess-fork-000000000000000000000000', store.defaultTenantId()),
     'retired',
     'a removed keyed conversation branch remains retired after a real boot',
+  )
+  assert.equal(
+    store.getAgentCreation('agent-new-000000000000000000000000', store.defaultTenantId()),
+    'retired',
+    'a removed keyed Agent remains retired after a real boot',
+  )
+  assert.equal(
+    store.getAgentCreation('agent-fork-000000000000000000000000', store.defaultTenantId()),
+    'retired',
+    'a removed keyed Agent fork remains retired after a real boot',
   )
 
   // The Agent Commons registries survive the boot too (D6/D9/D10/D7).

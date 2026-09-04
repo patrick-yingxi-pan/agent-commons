@@ -212,6 +212,19 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { instructions: 'Prefer primary and official sources.' },
     playgroundAgent.revision,
   )
+  const retiredAgent = store.createAgent(
+    { label: 'Retired playground Agent', systemPrompt: 'x', tools: [], instructions: '' },
+    store.defaultTenantId(),
+    { logicalId: 'agent-new-000000000000000000000000' },
+  )
+  store.deleteAgent(retiredAgent.id)
+  const retiredAgentFork = store.forkAgent(
+    playgroundAgent.id,
+    store.defaultTenantId(),
+    { logicalId: 'agent-fork-000000000000000000000000' },
+  )
+  if (!retiredAgentFork) throw new Error('Could not create the retirement fixture Agent fork')
+  store.deleteAgent(retiredAgentFork.id)
   // Flag the created pair as the pickers' defaults — exercises the registryDefaults
   // persisted slice (the per-tenant default-flag pointers, a UI shortcut).
   store.setDefaultProvider(provider.id)

@@ -1,5 +1,6 @@
 import { AgentMutationNotice } from './AgentMutationNotice'
 import { AgentCreationMutationNotice } from './AgentCreationMutationNotice'
+import { AgentForkMutationNotice } from './AgentForkMutationNotice'
 import { ArtifactContentMutationNotice } from './ArtifactContentMutationNotice'
 import { CommissionMutationNotice } from './CommissionMutationNotice'
 import { CommissionCreationMutationNotice } from './CommissionCreationMutationNotice'
@@ -47,6 +48,7 @@ export function ShellMutationNotices() {
       <ProposalVerdictMutationNotice />
       <AgentMutationNotice />
       <AgentCreationMutationNotice />
+      <AgentForkMutationNotice />
       <ProviderDefinitionMutationNotice />
       <ProviderCreationMutationNotice />
       <SystemPromptDefinitionMutationNotice />

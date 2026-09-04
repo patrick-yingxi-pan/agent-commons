@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'contribution-create' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
+  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-fork' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'contribution-create' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -33,6 +33,7 @@ export function RevisionedMutationNotice({
       data-proposal-verdict-mutation={kind === 'proposal' ? phase : undefined}
       data-agent-mutation={kind === 'agent' ? phase : undefined}
       data-agent-creation={kind === 'agent-create' ? phase : undefined}
+      data-agent-fork={kind === 'agent-fork' ? phase : undefined}
       data-agent-deletion={kind === 'agent-delete' ? phase : undefined}
       data-provider-definition-mutation={kind === 'provider' ? phase : undefined}
       data-provider-creation={kind === 'provider-create' ? phase : undefined}

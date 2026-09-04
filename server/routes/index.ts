@@ -96,7 +96,7 @@ import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
-import { agentCreationId } from '../agentCreationIdentity.ts'
+import { agentCreationId, agentForkCreationId } from '../agentCreationIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
@@ -1626,11 +1626,13 @@ export function buildRouter(): Router {
       ? agentCreationId(tenantId, idempotencyKey)
       : undefined
     const represented = logicalAgentId
-      ? store.listAgents(tenantId).find((agent) => agent.id === logicalAgentId)
+      ? store.getAgentCreation(logicalAgentId, tenantId)
       : undefined
     // Durable row identity survives the process-local response cache. Return
     // that exact original row before parsing a changed Retry body.
-    if (represented) return sendJson(res, represented)
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') return sendError(res, 'bad_request', 'This Agent creation identity is not valid for this account')
+    if (represented === 'retired') return sendError(res, 'not_found', 'This Agent was already removed')
     const input = await body<CreateAgentRequest>()
     // Strict bindings: an Agent is minted against a NAMED provider + prompt — the API
     // never resolves an absent one to a default (defaults are a UI pre-selection
@@ -1719,9 +1721,28 @@ export function buildRouter(): Router {
   // counter increments. An unknown id or a foreign UNPUBLISHED Agent is a 404
   // (existence-hiding); the caller's own Agents fork freely (duplicate).
   r.post('/agents/:id/fork', ({ req, res, params }) => {
-    const fork = store.forkAgent(params.id, store.identity(req.headers).tenant.id)
-    if (!fork) return sendError(res, 'not_found', `No agent '${params.id}'`)
-    sendJson(res, fork)
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalAgentId = idempotencyKey
+      ? agentForkCreationId(tenantId, idempotencyKey)
+      : undefined
+    // A fork owns current durable representation rather than a cached response:
+    // after acknowledgement loss, retry returns the original private copy even
+    // if its source was subsequently edited, unpublished, or removed.
+    const represented = logicalAgentId
+      ? store.getAgentCreation(logicalAgentId, tenantId)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') return sendError(res, 'bad_request', 'This Agent fork identity is not valid for this account')
+    if (represented === 'retired') return sendError(res, 'not_found', 'This Agent fork was already removed')
+    try {
+      const fork = store.forkAgent(params.id, tenantId, { logicalId: logicalAgentId })
+      if (!fork) return sendError(res, 'not_found', `No agent '${params.id}'`)
+      sendJson(res, fork)
+    } catch (error) {
+      if (error instanceof ValidationError) return sendError(res, 'bad_request', error.message)
+      throw error
+    }
   })
 
   // ── Discovery directories (docs/agent-commons.md, D17) ─────────────────────

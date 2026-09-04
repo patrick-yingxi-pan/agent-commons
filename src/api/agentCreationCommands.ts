@@ -7,7 +7,9 @@ import { mergeAgentConfiguration } from './agentRevision.ts'
 import { agentCreationId } from './agentCreationIdentity.ts'
 import type { AgentCreationIntent } from './agentCreationRevision.ts'
 
-function remember(agent: Agent): void {
+/** Publish one proven newly owned Agent without replacing unrelated registry
+ * truth. Shared by direct creation and definition forking. */
+export function rememberCreatedAgent(agent: Agent): void {
   const cached = peek<Agent[]>(keys.workerAgents)
   if (cached) {
     mutate<Agent[]>(keys.workerAgents, (current) => {
@@ -28,7 +30,7 @@ export async function applyAgentCreation(
   idempotencyKey: string,
 ): Promise<void> {
   const agent = await apiPost<Agent>(paths.agents, intent.request, { idempotencyKey })
-  remember(agent)
+  rememberCreatedAgent(agent)
 }
 
 /** Prove only the row derived from this tenant and logical form submission. */
@@ -50,6 +52,6 @@ export async function reconcileAgentCreation(
     })
   }
   if (!represented) return false
-  remember(represented)
+  rememberCreatedAgent(represented)
   return true
 }

@@ -7,7 +7,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
+import { agentForkCreationId } from '../agentCreationIdentity.ts'
 
 const A = 'tenant-fork-A'
 const B = 'tenant-fork-B'
@@ -92,4 +93,69 @@ test('fork walls: unknown id and a foreign UNPUBLISHED agent are 404; forking yo
   const own = await call('POST', `/agents/${secret.id}/fork`, undefined, { 'x-tenant-id': A })
   assert.equal(own.status, 200, 'your own agent forks freely (duplicate)')
   assert.deepEqual(own.json.forkedFrom, { agentId: secret.id, label: 'A secret', version: 1 })
+})
+
+test('a keyed fork survives response-cache loss as one atomic, retireable copy', async () => {
+  const owner = 'tenant-fork-durable-owner'
+  const forker = 'tenant-fork-durable-forker'
+  const source = store.createAgent(
+    { label: 'Durable fork source', systemPrompt: 'Copy once.', tools: [], instructions: '' },
+    owner,
+  )
+  store.updateAgentFromRequest(source.id, { published: true })
+  const key = `agent-fork-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': forker, 'idempotency-key': key }
+  const expectedId = agentForkCreationId(forker, key)
+  const coherentEvents: boolean[] = []
+  const unsubscribe = store.subscribe((event) => {
+    if (
+      (event.type === 'agent.changed' && (event.agentId === source.id || event.agentId === expectedId)) ||
+      (event.type === 'notification.changed' && event.tenantId === owner)
+    ) {
+      coherentEvents.push(
+        store.listAgents(forker).some((agent) => agent.id === expectedId) &&
+        store.getAgent(source.id).forks === 1 &&
+        store.listNotifications(owner).filter((bell) =>
+          bell.kind === 'agent.forked' && bell.agentId === source.id && bell.actor === forker).length === 1,
+      )
+    }
+  })
+
+  const first = await call('POST', `/agents/${source.id}/fork`, undefined, headers)
+  unsubscribe()
+  assert.equal(first.status, 200)
+  assert.equal(first.json.id, expectedId)
+  assert.deepEqual(first.json.forkedFrom, {
+    agentId: source.id,
+    label: source.label,
+    version: 1,
+  })
+  assert.ok(coherentEvents.length >= 3)
+  assert.ok(coherentEvents.every(Boolean), 'fork, credit, and bell are coherent before any event publishes')
+
+  const retry = await call('POST', `/agents/${source.id}/fork`, undefined, headers)
+  assert.equal(retry.status, 200)
+  assert.deepEqual(retry.json, first.json)
+  assert.equal(store.getAgent(source.id).forks, 1)
+  assert.equal(
+    store.listNotifications(owner).filter((bell) =>
+      bell.kind === 'agent.forked' && bell.agentId === source.id && bell.actor === forker).length,
+    1,
+    'replay does not ring the owner twice',
+  )
+
+  store.updateAgentFromRequest(source.id, { published: false })
+  const afterRestart = await callFresh('POST', `/agents/${source.id}/fork`, undefined, headers)
+  assert.equal(afterRestart.status, 200, 'represented truth wins before rechecking the now-private source')
+  assert.deepEqual(afterRestart.json, first.json)
+  assert.equal(store.listAgents(forker).filter((agent) => agent.id === expectedId).length, 1)
+
+  const removed = await call('DELETE', `/agents/${expectedId}`, { expectedRevision: 0 }, {
+    'x-tenant-id': forker,
+    'idempotency-key': `remove-${expectedId}`,
+  })
+  assert.equal(removed.status, 200)
+  const retired = await callFresh('POST', `/agents/${source.id}/fork`, undefined, headers)
+  assert.equal(retired.status, 404, 'a delayed Retry cannot resurrect an explicitly removed fork')
+  assert.equal(store.listAgents(forker).some((agent) => agent.id === expectedId), false)
 })

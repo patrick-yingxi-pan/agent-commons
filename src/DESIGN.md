@@ -477,6 +477,14 @@ lost acknowledgement cannot prove the server did not commit. A full graph
 response carries a monotonic server revision so it cannot rewind a newer ambient
 read. Consent history records `confirmed` only after the effect lands.
 
+Whole-entity copy operations obey that same boundary. Conversation branches and
+published-Agent forks derive operation-specific tenant-scoped identities, prove
+the exact origin in persisted lineage, and commit every copied row, credit,
+notification, event, and snapshot as one transition. Their source controls stay
+held through Retry/Dismiss; success opens only the exact copy while the source
+view still owns the act. Direct-create and copy namespaces are disjoint, and
+deletion persists retirement so a delayed Retry cannot resurrect removed work.
+
 The initiating surface stays coherent while it waits: transient create dialogs
 and editors remain open and disabled, consent cards show their own delivery
 state, and one shell-level `RelationMutationNotice` owns Retry/Dismiss for edits

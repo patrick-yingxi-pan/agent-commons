@@ -244,7 +244,6 @@ import {
 import {
   addSavedContext,
   desktopCredentialsAvailable,
-  forkAgent,
   importAgentCard,
   a2aAgentCardUrl,
   postOpenSubGoal,
@@ -382,6 +381,11 @@ import {
   useAgentMutationStatus,
 } from '../controller/agentMutations'
 import { enqueueAgentCreation } from '../controller/agentCreationMutations'
+import {
+  enqueueAgentFork,
+  isAgentForkHeld,
+  useAgentForkStatus,
+} from '../controller/agentForkMutations.ts'
 import {
   AGENT_DELETE_SCOPE,
   enqueueAgentDeletion,
@@ -11901,6 +11905,8 @@ function AgentPublicPage({
   const builtIn = !!builtInAgent
   const own = !builtIn && (!!ownedAgent || directoryEntry?.own === true)
   const published = directoryEntry !== null || ownedAgent?.published === true
+  useAgentForkStatus()
+  const forkHeld = entry ? isAgentForkHeld(entry.id) : false
   const provider = providers.find((candidate) => candidate.id === registryAgent?.providerId)
   const prompt = prompts.find((candidate) => candidate.id === registryAgent?.systemPromptId)
   // S18 — the header counts are doors to their lineage SECTIONS on this page
@@ -11910,7 +11916,6 @@ function AgentPublicPage({
   const scrollTo = (ref: { current: HTMLDivElement | null }) =>
     ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   const [busy, setBusy] = useState(false)
-  const [forked, setForked] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [proposing, setProposing] = useState(false)
   const [cardModal, setCardModal] = useState<{ url: string; title: string } | null>(null)
@@ -11918,6 +11923,13 @@ function AgentPublicPage({
   // R5b — a proposal bell landed here: focus that proposal in "Your proposals".
   const [proposalFocus, setProposalFocus] = useState<string | null>(null)
   const { pending, consume } = usePendingFocus()
+  const agentLocationRef = useRef(agentId)
+  agentLocationRef.current = agentId
+  const agentMountedRef = useRef(false)
+  useEffect(() => {
+    agentMountedRef.current = true
+    return () => { agentMountedRef.current = false }
+  }, [])
   useEffect(() => {
     if (!entry || pending?.agentId !== entry.id || !pending?.proposalId) return
     setProposalFocus(pending.proposalId)
@@ -11938,16 +11950,31 @@ function AgentPublicPage({
   }
 
   const fork = async () => {
-    if (busy || forked) return
-    setBusy(true)
+    if (!me || forkHeld) return
+    const origin = agentId
     setError(null)
     try {
-      await forkAgent(entry.id)
-      setForked(true)
+      const result = await enqueueAgentFork({
+        tenantId: me.tenant.id,
+        sourceAgentId: entry.id,
+      })
+      if (
+        result.outcome === 'applied' &&
+        agentMountedRef.current &&
+        agentLocationRef.current === origin
+      ) {
+        onOpenAgent(result.agentId)
+      } else if (
+        result.outcome === 'discarded' &&
+        agentMountedRef.current &&
+        agentLocationRef.current === origin
+      ) {
+        setError('The Agent wasn’t forked. Review the definition and try again.')
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not fork this agent.')
-    } finally {
-      setBusy(false)
+      if (agentMountedRef.current && agentLocationRef.current === origin) {
+        setError(e instanceof Error ? e.message : 'Could not fork this Agent.')
+      }
     }
   }
   const togglePublish = async () => {
@@ -11988,10 +12015,11 @@ function AgentPublicPage({
             <PageActionButton
               icon={<GitFork size={14} />}
               onClick={() => void fork()}
-              disabled={busy || forked}
+              disabled={forkHeld || !me}
+              aria-busy={forkHeld || undefined}
               title="Forking copies the definition — you grant your own model and authority."
             >
-              {forked ? 'Forked' : 'Fork agent'}
+              {forkHeld ? 'Forking…' : 'Fork agent'}
             </PageActionButton>
           ) : null}
         </PageHeader>

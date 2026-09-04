@@ -276,6 +276,9 @@ export interface PersistedState {
    *  with no defaults flagged (pickers fall back to the first entry). */
   registryDefaults?: [string, { providerId?: string; promptId?: string }][]
   agents?: [string, Agent][]
+  /** Durable tombstones for keyed Agent creation and Agent forks. A delayed
+   * Retry cannot recreate a definition explicitly removed on another device. */
+  retiredAgentCreationIds?: string[]
   commissions?: [string, Commission][]
   /** Per-Project D13 commission caps, as `[projectId, cap]` overlays onto the seed
    *  Projects (which are otherwise re-seeded, not persisted). Optional so a snapshot
@@ -435,6 +438,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   systemPrompts: 'mapEntries',
   registryDefaults: 'mapEntries',
   agents: 'mapEntries',
+  retiredAgentCreationIds: 'array',
   commissions: 'mapEntries',
   commissionCaps: 'mapEntries',
   projectDefaultRoles: 'mapEntries',
