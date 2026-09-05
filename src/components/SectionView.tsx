@@ -249,7 +249,6 @@ import {
   setSocialWatch,
   setCommonsLike,
   recordView,
-  resolveAgentProposal,
   useAgentProposals,
   useMe,
   useWatchState,
@@ -393,6 +392,11 @@ import {
   heldAgentProposalCommentIntent,
   useAgentProposalCommentCreationStatus,
 } from '../controller/agentProposalCommentCreationMutations.ts'
+import {
+  enqueueAgentProposalVerdict,
+  heldAgentProposalVerdictIntent,
+  useAgentProposalVerdictStatus,
+} from '../controller/agentProposalVerdictMutations.ts'
 import {
   isCommissionMutationHeld,
   updateCommissionConfiguration,
@@ -9641,8 +9645,8 @@ function ProposalsReviewDialog({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   useFocusTrap(dialogRef, onClose)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const tenantId = useMe().data?.tenant.id
+  useAgentProposalVerdictStatus()
   const currentVersion = agent.version ?? 1
   // Scroll the door's target proposal into view once it's present (the list is a
   // live fetch, so it may arrive after the dialog opens).
@@ -9651,17 +9655,9 @@ function ProposalsReviewDialog({
   useEffect(() => {
     if (focusProposalId && focusPresent) focusRef.current?.scrollIntoView({ block: 'center' })
   }, [focusProposalId, focusPresent])
-  const verdict = async (pid: string, action: 'merge' | 'decline') => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await resolveAgentProposal(agent.id, pid, action)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not resolve this proposal.')
-    } finally {
-      setBusy(false)
-    }
+  const verdict = (pid: string, action: 'merge' | 'decline') => {
+    if (!tenantId) return
+    void enqueueAgentProposalVerdict({ tenantId, agentId: agent.id, proposalId: pid, action })
   }
   const current: Record<string, string> = {
     label: agent.label,
@@ -9695,6 +9691,7 @@ function ProposalsReviewDialog({
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {proposals.map((p) => {
             const isFocus = p.id === focusProposalId
+            const heldVerdict = heldAgentProposalVerdictIntent(agent.id, p.id)
             return (
             <div
               key={p.id}
@@ -9734,17 +9731,21 @@ function ProposalsReviewDialog({
                 </p>
               )}
               <ProposalThread agentId={agent.id} proposal={p} openForComments={p.status === 'open'} />
-              {p.status === 'open' ? (
-                <div className="mt-2.5 flex items-center gap-2">
+              {p.status === 'open' || heldVerdict ? (
+                <div
+                  className="mt-2.5 flex items-center gap-2"
+                  data-agent-proposal-verdict={heldVerdict ? 'held' : 'ready'}
+                  aria-busy={heldVerdict ? 'true' : undefined}
+                >
                   <button
                     onClick={() => void verdict(p.id, 'merge')}
-                    disabled={busy}
+                    disabled={!!heldVerdict}
                     className={`inline-flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
                   >
-                    <GitMerge size={13} /> Merge
+                    <GitMerge size={13} /> {heldVerdict?.action === 'merge' ? 'Merging…' : 'Merge'}
                   </button>
-                  <button onClick={() => void verdict(p.id, 'decline')} disabled={busy} className={INLINE_ACTION_CLASS}>
-                    Decline
+                  <button onClick={() => void verdict(p.id, 'decline')} disabled={!!heldVerdict} className={INLINE_ACTION_CLASS}>
+                    {heldVerdict?.action === 'decline' ? 'Declining…' : 'Decline'}
                   </button>
                 </div>
               ) : p.responseNote ? (
@@ -9754,7 +9755,6 @@ function ProposalsReviewDialog({
             )
           })}
         </div>
-        {error && <p className="border-t border-line px-4 py-2 text-[12px] text-removed">{error}</p>}
       </div>
     </div>
   )

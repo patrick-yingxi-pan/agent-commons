@@ -30,7 +30,6 @@ import {
   type SystemPromptEntry,
   type SystemPromptDefinitionMutationPatch,
   type UpdateSystemPromptRequest,
-  type AgentChangeProposal,
   type AppNotification,
   type OpenSubGoal,
   type Contribution,
@@ -967,26 +966,6 @@ export async function runDelegation(projectId: string, cid: string, did: string)
   const c = await apiPost<Contribution>(paths.contributionDelegated(projectId, cid, did), {})
   invalidate(keys.contributions(projectId))
   return c
-}
-
-/** The owner's verdict on a proposal (D25). A merge changes the PUBLISHED
- *  definition, so the registry and its public faces refresh too. */
-export async function resolveAgentProposal(agentId: string, pid: string, action: 'merge' | 'decline', note?: string): Promise<AgentChangeProposal> {
-  try {
-    const proposal = await apiPost<AgentChangeProposal>(
-      action === 'merge' ? paths.agentProposalMerge(agentId, pid) : paths.agentProposalDecline(agentId, pid),
-      action === 'decline' && note ? { note } : {},
-    )
-    invalidate(keys.agentProposals(agentId))
-    invalidate(keys.workerAgents)
-    invalidatePrefix(keys.directoryAgents())
-    return proposal
-  } catch (err) {
-    // A refused verdict (e.g. 409: already resolved in another window) means the
-    // local queue is stale — refetch so the buttons reflect reality (review finding).
-    invalidate(keys.agentProposals(agentId))
-    throw err
-  }
 }
 
 /** Watch / unwatch a Project (D24) — the bell subscription. */

@@ -229,6 +229,15 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { logicalId: 'agent-proposal-comment-new-000000000000000000000000' },
   )
   if (typeof playgroundProposalComment !== 'object') throw new Error('Could not create the durable Agent proposal comment fixture')
+  const playgroundProposalVerdict = store.resolveAgentProposal(
+    playgroundAgent.id,
+    playgroundProposal.id,
+    store.defaultTenantId(),
+    'decline',
+    'Durable proposal verdict fixture.',
+    { logicalId: 'agent-proposal-verdict-000000000000000000000000' },
+  )
+  if (typeof playgroundProposalVerdict !== 'object') throw new Error('Could not create the durable Agent proposal verdict fixture')
   const retiredAgent = store.createAgent(
     { label: 'Retired playground Agent', systemPrompt: 'x', tools: [], instructions: '' },
     store.defaultTenantId(),

@@ -223,10 +223,12 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.ok(s.agentProposals?.some(([, proposals]) => proposals.some((proposal) =>
     proposal.id === 'agent-proposal-new-000000000000000000000000' &&
     typeof proposal.proposedByTenant === 'string' &&
+    proposal.verdictId === 'agent-proposal-verdict-000000000000000000000000' &&
+    typeof proposal.verdictByTenant === 'string' &&
     proposal.comments?.some((comment) =>
       comment.id === 'agent-proposal-comment-new-000000000000000000000000' &&
       typeof comment.authorTenant === 'string'))),
-  'a keyed Agent proposal and comment keep their durable identities and private author anchors')
+  'a keyed Agent proposal, comment, and verdict keep their durable identities and private authority anchors')
   assert.ok(s.delegationRetirements?.some((retirement) =>
     retirement.delegationId === 'delegation-new-000000000000000000000000' &&
     retirement.revocationId === 'delegation-revoke-000000000000000000000000' &&
@@ -719,6 +721,15 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     store.defaultTenantId(),
   )
   assert.equal(typeof keyedAgentProposalComment, 'object', 'a keyed Agent-proposal comment acknowledgement survives a real boot')
+  const keyedAgentProposalVerdict = agent && store.getAgentProposalVerdict(
+    agent.id,
+    'agent-proposal-new-000000000000000000000000',
+    'agent-proposal-verdict-000000000000000000000000',
+    store.defaultTenantId(),
+    'decline',
+    'Durable proposal verdict fixture.',
+  )
+  assert.equal(typeof keyedAgentProposalVerdict, 'object', 'a keyed Agent-proposal verdict acknowledgement survives a real boot')
   const commission = store.listCommissions('p-insights').find((c) => c.agentId === agent?.id)
   assert.ok(commission, 'the created commission survives a boot')
   assert.equal(commission?.configurationRevision, 1, 'the contributor configuration revision survives a boot')

@@ -11,6 +11,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { agentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
+import { agentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
 import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 
@@ -124,6 +125,78 @@ test('merge: fields land, version bumps, the changelog credits the PROPOSER, the
 
   const bell = (await call('GET', '/notifications', undefined, { 'x-tenant-id': B })).json
   assert.ok(bell.some((x: any) => x.kind === 'proposal.merged' && x.agentId === agent.id), 'the proposer hears the merge')
+})
+
+test('keyed verdicts survive response-cache loss exactly once and reject changed decisions', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { instructions: 'Apply this once.' }, 'Durable verdict')
+  const key = `agent-proposal-verdict-${agent.id}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+  const expectedId = agentProposalVerdictId(A, agent.id, opened.json.id, key)
+  const beforeBells = (await call('GET', '/notifications', undefined, { 'x-tenant-id': B })).json
+    .filter((entry: any) => entry.kind === 'proposal.merged' && entry.agentId === agent.id).length
+
+  const first = await callFresh(
+    'POST',
+    `/agents/${agent.id}/proposals/${opened.json.id}/merge`,
+    {},
+    headers,
+  )
+  assert.equal(first.status, 200)
+  assert.equal(first.json.status, 'merged')
+  assert.equal(first.json.verdictId, expectedId)
+  assert.ok(!JSON.stringify(first.json).includes('verdictByTenant'), 'raw verdict authority never crosses the wire')
+  assert.equal(store.agentDirectory(C).find((entry) => entry.id === agent.id)?.version, 2)
+
+  await call('PATCH', `/agents/${agent.id}`, { label: `After verdict ${n}` }, { 'x-tenant-id': A })
+  const replay = await callFresh(
+    'POST',
+    `/agents/${agent.id}/proposals/${opened.json.id}/merge`,
+    {},
+    headers,
+  )
+  assert.equal(replay.status, 200, 'durable replay does not depend on middleware memory')
+  assert.equal(replay.json.verdictId, expectedId)
+  assert.equal(store.agentDirectory(C).find((entry) => entry.id === agent.id)?.version, 3, 'replay does not merge twice')
+
+  const changed = await callFresh(
+    'POST',
+    `/agents/${agent.id}/proposals/${opened.json.id}/decline`,
+    {},
+    headers,
+  )
+  assert.equal(changed.status, 400, 'one key cannot acknowledge an opposite verdict')
+  const afterBells = (await call('GET', '/notifications', undefined, { 'x-tenant-id': B })).json
+    .filter((entry: any) => entry.kind === 'proposal.merged' && entry.agentId === agent.id).length
+  assert.equal(afterBells, beforeBells + 1, 'the proposer is notified exactly once')
+
+  const declinedProposal = await propose(agent.id, B, { instructions: 'Decline this once.' })
+  const declineKey = `${key}-decline`
+  const declineHeaders = { 'x-tenant-id': A, 'idempotency-key': declineKey }
+  const declineId = agentProposalVerdictId(A, agent.id, declinedProposal.json.id, declineKey)
+  const declined = await callFresh(
+    'POST',
+    `/agents/${agent.id}/proposals/${declinedProposal.json.id}/decline`,
+    { note: '  Outside current scope.  ' },
+    declineHeaders,
+  )
+  assert.equal(declined.status, 200)
+  assert.equal(declined.json.verdictId, declineId)
+  assert.equal(declined.json.responseNote, 'Outside current scope.')
+  const declineReplay = await callFresh(
+    'POST',
+    `/agents/${agent.id}/proposals/${declinedProposal.json.id}/decline`,
+    { note: 'Outside current scope.' },
+    declineHeaders,
+  )
+  assert.equal(declineReplay.status, 200)
+  const changedNote = await callFresh(
+    'POST',
+    `/agents/${agent.id}/proposals/${declinedProposal.json.id}/decline`,
+    { note: 'Different reason.' },
+    declineHeaders,
+  )
+  assert.equal(changedNote.status, 400, 'the receipt also freezes the normalized decline note')
 })
 
 test('decline carries the owner’s note; verdicts are owner-only by tenant id; resolved is final', async () => {

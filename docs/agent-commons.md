@@ -1856,7 +1856,11 @@ session↔context binding, mediation handle, and single-resource escrow).
   provenance, not D13 reputation; decline carries the owner's note; stale flagged,
   never auto-rebased). D24 `proposal.*` bells both ways. UI: Propose-a-change on
   the public detail; the owner's side-by-side review queue on the agent card.
-  Locked by `server/routes/agent-proposals.test.ts` + `e2e/definition-evolution.spec.ts`;
+  First-party Merge/Decline is receipt-owned: one exact action survives dialog
+  closure, navigation, response loss, and restart; definition/lifecycle, receipt,
+  bell, events, and persistence commit atomically, while both controls stay visibly
+  held until exact reconciliation. Locked by `server/routes/agent-proposals.test.ts`,
+  `e2e/definition-evolution.spec.ts`, and `e2e/agent-proposal-verdict.spec.ts`;
   spec row COMMONS-18; parity rows 4/6.
 - **Slice 25 — the project description (D26). ✅ Built.** The last parity row: a shared
   Project's public "about" as a `projectDescriptions` graph overlay (`set-project-description`

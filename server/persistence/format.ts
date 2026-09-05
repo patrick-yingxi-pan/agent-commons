@@ -132,6 +132,8 @@ export interface StoredOpenSubGoal extends Omit<OpenSubGoal, 'comments'> {
 export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments'> {
   proposedByTenant: string
   proposedByPrincipal?: PrincipalRef
+  /** Raw authority anchor paired with a public keyed-verdict receipt. */
+  verdictByTenant?: string
   comments?: StoredWorkItemComment[]
 }
 

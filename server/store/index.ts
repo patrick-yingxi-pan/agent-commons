@@ -138,6 +138,7 @@ import {
 import { isAgentCreationId } from '../agentCreationIdentity.ts'
 import { isAgentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { isAgentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
+import { isAgentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
 import { isDelegationCreationId } from '../delegationCreationIdentity.ts'
 import { isDelegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
@@ -1317,8 +1318,9 @@ const MAX_OPEN_WORK_PER_PROJECT = 1000
 /** The one redaction seam stored → wire: drop the proposer's raw tenant id and the
  *  act principals (FWD-5 Phase 1); serve display names + principal KINDs only. */
 function publicProposal(p: StoredAgentProposal): AgentChangeProposal {
-  const { proposedByTenant, proposedByPrincipal, comments, ...pub } = p
+  const { proposedByTenant, proposedByPrincipal, verdictByTenant, comments, ...pub } = p
   void proposedByTenant
+  void verdictByTenant
   return {
     ...pub,
     ...(proposedByPrincipal ? { proposedByKind: proposedByPrincipal.kind } : {}),
@@ -6232,6 +6234,41 @@ export const store = {
       return serveProposal(proposal, agent)
     })
   },
+  /** Current containing proposal for one exact keyed owner verdict. The receipt,
+   * action, normalized decline note, and raw owner must all agree; replay is
+   * checked before the terminal gate and therefore survives response loss. */
+  getAgentProposalVerdict(
+    agentId: string,
+    proposalId: string,
+    verdictId: string,
+    tenantId: string,
+    action: 'merge' | 'decline',
+    note?: string,
+  ): AgentChangeProposal | 'forbidden' | 'invalid' | undefined {
+    if (!isAgentProposalVerdictId(verdictId)) return 'invalid'
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent) return undefined
+    const ownerTenant = agent.tenantId ?? defaultTenantId()
+    if (ownerTenant !== tenantId && agent.published !== true) return undefined
+    const proposal = (AGENT_PROPOSALS.get(agentId) ?? []).find((candidate) => candidate.id === proposalId)
+    if (!proposal) return undefined
+    if (ownerTenant !== tenantId) return 'forbidden'
+    if (proposal.verdictId !== verdictId) {
+      const collision = [...AGENT_PROPOSALS.values()].some((rows) =>
+        rows.some((candidate) => candidate.verdictId === verdictId))
+      return collision ? 'invalid' : undefined
+    }
+    const normalizedNote = action === 'decline'
+      ? (note ?? '').trim().slice(0, MAX_PROPOSAL_NOTE_CHARS)
+      : ''
+    const expectedStatus = action === 'merge' ? 'merged' : 'declined'
+    if (
+      proposal.verdictByTenant !== tenantId ||
+      proposal.status !== expectedStatus ||
+      (proposal.responseNote ?? '') !== normalizedNote
+    ) return 'invalid'
+    return serveProposal(proposal, agent)
+  },
   /** The owner's verdict — merge or decline, open proposals only, owner only (raw
    *  tenant-id comparison — the D23 lesson). Merging applies the proposed fields,
    *  bumps the version, and writes the changelog line crediting the PROPOSER
@@ -6243,7 +6280,20 @@ export const store = {
     tenantId: string,
     action: 'merge' | 'decline',
     note?: string,
-  ): AgentChangeProposal | 'forbidden' | 'closed' | undefined {
+    options: { logicalId?: string } = {},
+  ): AgentChangeProposal | 'forbidden' | 'closed' | 'invalid' | undefined {
+    if (options.logicalId) {
+      const represented = this.getAgentProposalVerdict(
+        agentId,
+        proposalId,
+        options.logicalId,
+        tenantId,
+        action,
+        note,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'forbidden' || represented === 'invalid') return represented
+    }
     const agent = WORKER_AGENTS.get(agentId)
     if (!agent) return undefined
     const owner = (agent.tenantId ?? defaultTenantId()) === tenantId
@@ -6255,42 +6305,48 @@ export const store = {
     if (!proposal) return undefined
     if (!owner) return 'forbidden'
     if (proposal.status !== 'open') return 'closed'
-    proposal.resolvedAt = Date.now()
-    if (action === 'merge') {
-      const version = (agent.version ?? 1) + 1
-      const next: Agent = {
-        ...agent,
-        ...(proposal.fields.label !== undefined ? { label: proposal.fields.label } : {}),
-        ...(proposal.fields.systemPrompt !== undefined
-          ? { systemPrompt: proposal.fields.systemPrompt, systemPromptId: undefined }
-          : {}),
-        ...(proposal.fields.instructions !== undefined ? { instructions: proposal.fields.instructions } : {}),
-        ...(proposal.fields.tools !== undefined ? { tools: [...proposal.fields.tools] } : {}),
-        version,
-        changelog: [
-          ...(agent.changelog ?? []),
-          { version, author: proposal.proposedBy, note: proposal.note || 'Merged proposal', at: proposal.resolvedAt },
-        ],
-        revision: (agent.revision ?? 0) + 1,
+    return commitMutationBatch(() => {
+      proposal.resolvedAt = Date.now()
+      if (options.logicalId) {
+        proposal.verdictId = options.logicalId
+        proposal.verdictByTenant = tenantId
       }
-      WORKER_AGENTS.set(agentId, next)
-      emitAgentChanged(next, true)
-      proposal.status = 'merged'
-    } else {
-      proposal.status = 'declined'
-      const trimmed = (note ?? '').trim().slice(0, MAX_PROPOSAL_NOTE_CHARS)
-      if (trimmed) proposal.responseNote = trimmed
-    }
-    notifyTenants([proposal.proposedByTenant], tenantId, {
-      kind: action === 'merge' ? 'proposal.merged' : 'proposal.declined',
-      actor: tenantName(tenantId),
-      agentId,
-      agentLabel: WORKER_AGENTS.get(agentId)?.label ?? agent.label,
-      proposalId: proposal.id,
+      if (action === 'merge') {
+        const version = (agent.version ?? 1) + 1
+        const next: Agent = {
+          ...agent,
+          ...(proposal.fields.label !== undefined ? { label: proposal.fields.label } : {}),
+          ...(proposal.fields.systemPrompt !== undefined
+            ? { systemPrompt: proposal.fields.systemPrompt, systemPromptId: undefined }
+            : {}),
+          ...(proposal.fields.instructions !== undefined ? { instructions: proposal.fields.instructions } : {}),
+          ...(proposal.fields.tools !== undefined ? { tools: [...proposal.fields.tools] } : {}),
+          version,
+          changelog: [
+            ...(agent.changelog ?? []),
+            { version, author: proposal.proposedBy, note: proposal.note || 'Merged proposal', at: proposal.resolvedAt },
+          ],
+          revision: (agent.revision ?? 0) + 1,
+        }
+        WORKER_AGENTS.set(agentId, next)
+        emitAgentChanged(next, true)
+        proposal.status = 'merged'
+      } else {
+        proposal.status = 'declined'
+        const trimmed = (note ?? '').trim().slice(0, MAX_PROPOSAL_NOTE_CHARS)
+        if (trimmed) proposal.responseNote = trimmed
+      }
+      notifyTenants([proposal.proposedByTenant], tenantId, {
+        kind: action === 'merge' ? 'proposal.merged' : 'proposal.declined',
+        actor: tenantName(tenantId),
+        agentId,
+        agentLabel: WORKER_AGENTS.get(agentId)?.label ?? agent.label,
+        proposalId: proposal.id,
+      })
+      emit({ type: 'proposal.changed', agentId, parties: [tenantId, proposal.proposedByTenant] })
+      persist()
+      return serveProposal(proposal, WORKER_AGENTS.get(agentId) ?? agent)
     })
-    emit({ type: 'proposal.changed', agentId, parties: [tenantId, proposal.proposedByTenant] })
-    persist()
-    return publicProposal(proposal)
   },
   /** The workspace profile — a display name's ONE public face (D21,
    *  `GET /directory/owners/:name`). A pure aggregation of rows that are ALREADY

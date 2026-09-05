@@ -138,6 +138,9 @@ export interface AgentChangeProposal {
   baseVersion: number
   at: number
   status: 'open' | 'merged' | 'declined'
+  /** Opaque acknowledgement receipt for a keyed owner verdict. Its presence lets
+   *  a client prove that this exact Merge or Decline reached durable history. */
+  verdictId?: string
   /** The owner's note on decline. */
   responseNote?: string
   resolvedAt?: number

@@ -106,6 +106,7 @@ import {
 } from '../agentCreationIdentity.ts'
 import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { agentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
+import { agentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
@@ -2256,18 +2257,47 @@ export function buildRouter(): Router {
     sendJson(res, out)
   })
   r.post('/agents/:id/proposals/:pid/merge', ({ req, res, params }) => {
-    const out = store.resolveAgentProposal(params.id, params.pid, store.identity(req.headers).tenant.id, 'merge')
+    const who = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalVerdictId = idempotencyKey
+      ? agentProposalVerdictId(who.tenant.id, params.id, params.pid, idempotencyKey)
+      : undefined
+    const out = store.resolveAgentProposal(
+      params.id,
+      params.pid,
+      who.tenant.id,
+      'merge',
+      undefined,
+      { logicalId: logicalVerdictId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the definition’s owner may merge a proposal')
     if (out === 'closed') return sendError(res, 'conflict', 'This proposal was already resolved')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This verdict identity is not valid for this account, proposal, and action')
     sendJson(res, out)
   })
   r.post('/agents/:id/proposals/:pid/decline', async ({ req, res, params, body }) => {
     const input = await body<DeclineProposalRequest>()
-    const out = store.resolveAgentProposal(params.id, params.pid, store.identity(req.headers).tenant.id, 'decline', input?.note)
+    if (input?.note !== undefined && typeof input.note !== 'string') {
+      return sendError(res, 'bad_request', 'note must be a string')
+    }
+    const who = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalVerdictId = idempotencyKey
+      ? agentProposalVerdictId(who.tenant.id, params.id, params.pid, idempotencyKey)
+      : undefined
+    const out = store.resolveAgentProposal(
+      params.id,
+      params.pid,
+      who.tenant.id,
+      'decline',
+      input?.note,
+      { logicalId: logicalVerdictId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the definition’s owner may decline a proposal')
     if (out === 'closed') return sendError(res, 'conflict', 'This proposal was already resolved')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This verdict identity is not valid for this account, proposal, action, and note')
     sendJson(res, out)
   })
 

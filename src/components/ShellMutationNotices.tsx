@@ -4,6 +4,7 @@ import { AgentForkMutationNotice } from './AgentForkMutationNotice'
 import { AgentImportMutationNotice } from './AgentImportMutationNotice'
 import { AgentProposalCreationMutationNotice } from './AgentProposalCreationMutationNotice'
 import { AgentProposalCommentCreationMutationNotice } from './AgentProposalCommentCreationMutationNotice'
+import { AgentProposalVerdictMutationNotice } from './AgentProposalVerdictMutationNotice'
 import { ArtifactContentMutationNotice } from './ArtifactContentMutationNotice'
 import { CommissionMutationNotice } from './CommissionMutationNotice'
 import { CommissionCreationMutationNotice } from './CommissionCreationMutationNotice'
@@ -81,6 +82,7 @@ export function ShellMutationNotices() {
       <AgentImportMutationNotice />
       <AgentProposalCreationMutationNotice />
       <AgentProposalCommentCreationMutationNotice />
+      <AgentProposalVerdictMutationNotice />
       <ProviderDefinitionMutationNotice />
       <ProviderCreationMutationNotice />
       <SystemPromptDefinitionMutationNotice />
