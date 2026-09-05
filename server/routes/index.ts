@@ -83,7 +83,17 @@ import { userPrincipal } from '../identity.ts'
 import { accounts } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store/index.ts'
-import { IdempotencyCache, captureResponse, replayResponse } from '../idempotency.ts'
+import {
+  IDEMPOTENCY_KEY_MAX_LENGTH,
+  IdempotencyCache,
+  IdempotencyCapacityError,
+  IdempotencyConflictError,
+  captureResponse,
+  idempotencyPrincipalKey,
+  idempotencyRequestFingerprint,
+  idempotencyRequestScope,
+  replayResponse,
+} from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
@@ -337,26 +347,48 @@ export function buildRouter(): Router {
   })
 
   // ── Idempotency (design F3 PD15) ────────────────────────────────────────────
-  // Opt-in per route: a handler wrapped here replays the first response for a given
-  // (tenant, `Idempotency-Key`) instead of running twice, so a retried create can't
-  // duplicate and a retried metadata update can't advance its revision twice.
-  // Transparent when the header is absent; never applied to the SSE reply route.
+  // Opt-in per route: one (actor, tenant, Idempotency-Key, method + target) owns the
+  // logical operation. Concurrent exact bodies wait for one handler; changed
+  // concurrent bodies or targets conflict. Completed truth replays BEFORE body
+  // parsing so a revisioned controller may rebase its precondition under the
+  // same key. The process-local coordinator is bounded by entry count, bytes,
+  // and in-flight work. Transparent without the header; never applied to SSE.
   const idem = new IdempotencyCache()
   const idempotent =
     (handler: (ctx: Ctx) => void | Promise<void>) =>
     async (ctx: Ctx): Promise<void> => {
       const key = headerValue(ctx.req.headers, 'idempotency-key')
       if (!key) return handler(ctx)
-      const cacheKey = `${store.identity(ctx.req.headers).tenant.id}:${key}`
-      const hit = idem.get(cacheKey)
-      if (hit) return replayResponse(ctx.res, hit)
-      const cap = captureResponse(ctx.res)
-      await handler({ ...ctx, res: cap.res })
-      // Cache only a SUCCESS (2xx). A non-2xx created no resource, so there's nothing
-      // to dedup — and caching it would trap a client who fixes a bad request and
-      // retries under the same key (they'd get the stale error). A failure simply re-runs.
-      const rec = cap.record()
-      if (rec && rec.status >= 200 && rec.status < 300) idem.put(cacheKey, rec)
+      if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+        return sendError(ctx.res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+      }
+      const identity = store.identity(ctx.req.headers)
+      const cacheKey = idempotencyPrincipalKey(identity.user.id, identity.tenant.id, key)
+      const method = ctx.req.method ?? ''
+      const target = `${ctx.url.pathname}${ctx.url.search}`
+      const scope = idempotencyRequestScope(method, target)
+      try {
+        const completed = idem.replay(cacheKey, scope)
+        if (completed) return replayResponse(ctx.res, completed)
+        const parsedBody = await ctx.body<unknown>()
+        const bufferedBody = async <T>(): Promise<T> => parsedBody as T
+        const fingerprint = idempotencyRequestFingerprint(method, target, parsedBody)
+        const result = await idem.execute(cacheKey, scope, fingerprint, async () => {
+          const cap = captureResponse(ctx.res)
+          await handler({ ...ctx, res: cap.res, body: bufferedBody })
+          return cap.record()
+        })
+        if (result.replayed && result.response) replayResponse(ctx.res, result.response)
+      } catch (error) {
+        if (error instanceof IdempotencyConflictError) {
+          return sendError(ctx.res, 'conflict', error.message)
+        }
+        if (error instanceof IdempotencyCapacityError) {
+          ctx.res.setHeader('Retry-After', '1')
+          return sendError(ctx.res, 'limit_exceeded', 'Too many idempotent requests are in flight. Retry shortly.')
+        }
+        throw error
+      }
     }
 
   // ── Per-tenant rate limiting (design F3) ────────────────────────────────────
