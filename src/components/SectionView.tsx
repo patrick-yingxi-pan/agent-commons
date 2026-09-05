@@ -276,7 +276,6 @@ import {
   useSocialCapability,
   useGrants,
   reactToDiscussionPost,
-  deleteDiscussionPost,
   reportDiscussionPost,
   setDiscussionState,
   markDiscussionRead,
@@ -557,6 +556,13 @@ import {
   isDiscussionSessionLaunchHeld,
   useDiscussionSessionLaunchStatus,
 } from '../controller/discussionSessionLaunchMutations.ts'
+import {
+  discussionPostDeletionResourceId,
+  enqueueDiscussionPostDeletion,
+  heldDiscussionPostDeletion,
+  isDiscussionPostDeletionHeld,
+  useDiscussionPostDeletionStatus,
+} from '../controller/discussionPostDeletionMutations.ts'
 import {
   isSavedContextConnectionHeld,
   updateSavedContextConnection,
@@ -4074,7 +4080,7 @@ function ThreadFoldControls({ fold }: { fold: ThreadFold }) {
 function DiscussionPostList({
   fold,
   onReact,
-  onDelete,
+  deletion,
   onReport,
   onOpenPerson,
   replyComposer,
@@ -4107,7 +4113,7 @@ function DiscussionPostList({
    *  `cascade` takes the branch underneath too (owner directive 2026-08-11);
    *  the list only ever passes it having asked the dialog, and the server
    *  re-checks the delete authority over every post that would go. */
-  onDelete?: (pid: string, cascade: boolean) => void
+  deletion?: { discussionId: string; anchor: SocialEntityRef }
   onReport?: (pid: string) => void
   /** Open a person's profile (S8) — the AUTHOR's name and every @-mention in the
    *  body alike, since both name the same kind of thing: a namespace with a page.
@@ -4118,7 +4124,7 @@ function DiscussionPostList({
   onOpenPerson: (name: string) => void
   /** Render the composer that ANSWERS one post (S9). Absent ⇒ no reply
    *  affordance at all, which is what a preview projection wants (the feed
-   *  card's tail) — the same cut `onDelete` makes: an act belongs where the
+   *  card's tail) — the same cut `deletion` makes: an act belongs where the
    *  whole conversation is. The list owns WHICH post is open (transient
    *  composing state); the host owns how to compose, since only it holds the
    *  subject and the thread.
@@ -4137,10 +4143,14 @@ function DiscussionPostList({
   // the dialog opens (below), never remembered: a widening this destructive
   // must be re-asked for, not inherited from the last time you said yes.
   const [cascade, setCascade] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const deletionStatus = useDiscussionPostDeletionStatus()
   // The thread and the reader's posture over it come from the HOST's handle —
   // see `useThreadFold`. Destructured so the body below reads exactly as it did
   // when this component owned them.
-  const { tree, posts, folded, replyingTo, setReplyingTo, toggle, held } = fold
+  const { tree, posts, folded, replyingTo, setReplyingTo, toggle, held: foldHeld } = fold
+  const deletionHeld = deletion ? isDiscussionPostDeletionHeld(deletion.discussionId) : false
+  const held = foldHeld || deletionHeld
   const { roots, childrenOf } = tree
   // Post by id — so the cascade option can ask whether the viewer may delete
   // every post in a branch, from the `canDelete` the server already stamped on
@@ -4167,6 +4177,15 @@ function DiscussionPostList({
     const kin = descendantsOf(childrenOf, p.id)
     const branch = kin.size
     const replies = branch === 1 ? '1 reply' : `${branch} replies`
+    const heldDeletion = deletion
+      ? heldDiscussionPostDeletion(deletion.discussionId, p.id)
+      : undefined
+    const deletionPhase = heldDeletion
+      ? deletionStatus.error &&
+        deletionStatus.activeResourceId === discussionPostDeletionResourceId(heldDeletion)
+        ? 'failed'
+        : 'pending'
+      : undefined
     /** ── Unfold all, here ───────────────────────────────────────────────────
      *  The one fold control that is NOT a toggle, and the reason it exists is
      *  the reason the toggle cannot serve it (owner directive 2026-08-11):
@@ -4249,7 +4268,11 @@ function DiscussionPostList({
       </span>
     )
     return (
-      <li key={p.id}>
+      <li
+        key={p.id}
+        data-discussion-post-id={p.id}
+        data-discussion-post-deletion={deletionPhase}
+      >
         <div className="group flex items-start gap-1.5">
           {/* ── The fold ──────────────────────────────────────────────────────
               ONE button across both states, at the same position in the tree, so
@@ -4414,6 +4437,7 @@ function DiscussionPostList({
                   <Tooltip label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}>
                     <button
                       onClick={() => onReact(p.id)}
+                      disabled={held}
                       aria-pressed={p.reacted === true}
                       aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
                       className={`${POST_ACT_CLASS} gap-1 text-[11px] ${
@@ -4487,13 +4511,14 @@ function DiscussionPostList({
                       half the answer — the other half is that it now ASKS
                       (ConfirmDialog) rather than acting; a gap alone still
                       loses the post to one confident wrong click. */}
-                  {onDelete && p.canDelete === true && (
+                  {deletion && p.canDelete === true && (
                     <Tooltip label={p.mine === true ? 'Retract this post' : 'Delete this post (you own the surface)'}>
                       <button
                         onClick={() => {
                           setCascade(false)
                           setConfirmDelete(p)
                         }}
+                        disabled={held}
                         aria-label={p.mine === true ? 'Retract this post' : 'Delete this post'}
                         className={`${POST_ACT_CLASS} ml-3 text-ink-faint hover:bg-removed-bg hover:text-removed ${HOVER_REVEAL}`}
                       >
@@ -4508,7 +4533,7 @@ function DiscussionPostList({
                           setReported(p.id)
                           onReport(p.id)
                         }}
-                        disabled={reported === p.id}
+                        disabled={held || reported === p.id}
                         aria-label="Report this post to the owner of this surface"
                         className={`${POST_ACT_CLASS} ml-3 text-[11px] text-ink-faint hover:bg-panel-2 hover:text-ink ${
                           reported === p.id ? '' : HOVER_REVEAL
@@ -4558,6 +4583,7 @@ function DiscussionPostList({
           where the thread's own verbs live is a question about the surface
           around it, and only the surface can answer it. */}
       <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>
+      {deleteError && <p role="alert" className="mt-2 text-[12px] text-danger">{deleteError}</p>}
       {/* The question the trash can now asks. Its BODY is the part that earns
           the interruption: a dialog that only says "Are you sure?" moves the
           click without adding anything that would change it, so this one says
@@ -4605,7 +4631,25 @@ function DiscussionPostList({
               confirmLabel={cascade ? `${verb} ${n + 1} posts` : verb}
               onCancel={() => setConfirmDelete(null)}
               onConfirm={() => {
-                onDelete?.(confirmDelete.id, cascade)
+                if (!deletion) return
+                const postIds = cascade
+                  ? [confirmDelete.id, ...under]
+                  : [confirmDelete.id]
+                setDeleteError(null)
+                void enqueueDiscussionPostDeletion({
+                  discussionId: deletion.discussionId,
+                  anchor: deletion.anchor,
+                  post: confirmDelete,
+                  postIds,
+                  cascade,
+                }).then(
+                  (outcome) => {
+                    if (outcome === 'discarded') {
+                      setDeleteError('Deletion dismissed. Review the thread before trying again.')
+                    }
+                  },
+                  () => setDeleteError('Deletion recovery could not load. Review the thread and try again.'),
+                )
                 setConfirmDelete(null)
               }}
             />
@@ -4650,10 +4694,13 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   // primary act was a standing form instead of a header verb.
   const [composing, setComposing] = useState(false)
   const [postingHeld, setPostingHeld] = useState(false)
+  useDiscussionPostDeletionStatus()
+  const deletionHeld = root ? isDiscussionPostDeletionHeld(root.id) : false
+  const threadHeld = postingHeld || deletionHeld
   // The thread's fold posture, held HERE so its two acts can render in the
   // section header's cluster with the section's other verbs (owner directive
   // 2026-08-13) rather than as a floating row above the roots.
-  const fold = useThreadFold(root?.posts ?? NO_POSTS, postingHeld)
+  const fold = useThreadFold(root?.posts ?? NO_POSTS, threadHeld)
   const react = (pid: string) => {
     if (root) void reactToDiscussionPost(root.id, pid, subject)
   }
@@ -4665,10 +4712,10 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
       key="compose"
       label={root ? 'Reply to this discussion' : 'Start the discussion'}
       icon={<MessageSquarePlus size={14} />}
-      onClick={() => { if (!postingHeld) setComposing((v) => !v) }}
+      onClick={() => { if (!threadHeld) setComposing((v) => !v) }}
       expanded={composing}
-      disabled={postingHeld}
-      disabledReason="Wait for this post to be confirmed"
+      disabled={threadHeld}
+      disabledReason="Wait for this discussion action to be confirmed"
     />
   ) : null
   const resolveVerb =
@@ -4678,15 +4725,15 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
         label={root.state === 'open' ? 'Resolve this discussion' : 'Reopen this discussion'}
         icon={root.state === 'open' ? <CheckCircle2 size={14} /> : <MessageSquare size={14} />}
         onClick={flip}
-        disabled={postingHeld}
-        disabledReason="Wait for this post to be confirmed"
+        disabled={threadHeld}
+        disabledReason="Wait for this discussion action to be confirmed"
       />
     ) : null
   const verbs = [...threadFoldVerbs(fold), composeVerb, resolveVerb].filter(Boolean)
   return (
     <FoldSection
       title="Discussion"
-      heldOpen={postingHeld}
+      heldOpen={threadHeld}
       summary={root === null ? 'No discussion yet' : countLabel(root.posts.length, 'post')}
       // Undefined, not an empty fragment: a view-tier reader on an unfoldable,
       // unresolvable thread has no verbs, and the header must render no cluster
@@ -4718,7 +4765,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
           <DiscussionPostList
             fold={fold}
             onReact={react}
-            onDelete={(pid, cascade) => void deleteDiscussionPost(root.id, pid, subject, cascade)}
+            deletion={{ discussionId: root.id, anchor: subject }}
             onReport={(pid) => void reportDiscussionPost(root.id, pid)}
             onOpenPerson={(n) => rel.openOwner(n)}
             replyComposer={
@@ -4834,7 +4881,12 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
   // TEXT pair above the roots — see `<ThreadFoldControls>`. The handle is held
   // here all the same, because the list no longer owns it either way.
   const [postingHeld, setPostingHeld] = useState(false)
-  const fold = useThreadFold(shown, postingHeld)
+  // The only card that can retract a post is the standalone projection, whose
+  // DiscussionPage host already owns the deletion-status subscription. Feed
+  // previews stay out of the global mutation fan-out entirely.
+  const deletionHeld = standalone && root ? isDiscussionPostDeletionHeld(root.id) : false
+  const threadHeld = postingHeld || deletionHeld
+  const fold = useThreadFold(shown, threadHeld)
   // The conversation is DISCLOSED, and Reply is what discloses it (owner
   // directive 2026-08-08). It used to be a door to `/discussions/:id` — but that
   // page is the same thread in another projection, so the trip bought the reader
@@ -4948,11 +5000,11 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
         {!standalone && (shown.length > 0 || canComment) && (
           <button
             onClick={() => {
-              if (postingHeld) return
+              if (threadHeld) return
               setOpen(!open)
               setJustOpened(!open)
             }}
-            disabled={postingHeld}
+            disabled={threadHeld}
             aria-expanded={open}
             className={cardActClass(open)}
             title={open ? 'Hide the conversation' : 'Open the conversation'}
@@ -5005,7 +5057,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
               // (Without this the page LOST the moderation it used to have when
               // it rendered its own list — the cost of unifying two projections
               // is that the survivor must keep what both of them could do.)
-              onDelete={standalone && root ? (pid, cascade) => void deleteDiscussionPost(root.id, pid, item.subject, cascade) : undefined}
+              deletion={standalone && root ? { discussionId: root.id, anchor: item.subject } : undefined}
               onReport={standalone && root ? (pid) => void reportDiscussionPost(root.id, pid) : undefined}
               onOpenPerson={(n) => rel.openOwner(n)}
             />
@@ -5462,7 +5514,10 @@ function DiscussionPage({
   // Declared here, above the not-found return, for the same reason the reads
   // above are: hook order must not depend on whether the thread resolved.
   const [postingHeld, setPostingHeld] = useState(false)
-  const fold = useThreadFold(d?.posts ?? NO_POSTS, postingHeld)
+  useDiscussionPostDeletionStatus()
+  const deletionHeld = d ? isDiscussionPostDeletionHeld(d.id) : false
+  const threadHeld = postingHeld || deletionHeld
+  const fold = useThreadFold(d?.posts ?? NO_POSTS, threadHeld)
   // Opening a message marks it read — that is what "opened" means for an inbox,
   // and leaving the dot lit on a thread the reader is looking at would be a
   // visible lie. Keyed on the newest post so a reply while the page is open
@@ -5579,7 +5634,7 @@ function DiscussionPage({
           {d.canResolve === true && (
             <button
               onClick={() => void setDiscussionState(d.id, d.state === 'open' ? 'resolved' : 'open', d.anchor.ref)}
-              disabled={postingHeld}
+              disabled={threadHeld}
               className={INLINE_ACTION_CLASS}
             >
               {d.state === 'open' ? 'Resolve' : 'Reopen'}
@@ -5605,7 +5660,7 @@ function DiscussionPage({
         <DiscussionPostList
           fold={fold}
           onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
-          onDelete={(pid, cascade) => void deleteDiscussionPost(d.id, pid, d.anchor.ref, cascade)}
+          deletion={{ discussionId: d.id, anchor: d.anchor.ref }}
           onReport={(pid) => void reportDiscussionPost(d.id, pid)}
           onOpenPerson={(n) => rel.openOwner(n)}
           replyComposer={

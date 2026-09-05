@@ -4,6 +4,8 @@
 import type {
   ApplyOpRequest,
   DeleteSavedContextRequest,
+  DeleteDiscussionPostRequest,
+  DeleteDiscussionPostResponse,
   Message,
   ReplyStreamEvent,
   CreateCommissionRequest,
@@ -61,7 +63,7 @@ import type {
   TokenMintRecovery,
   TokenMintRequest,
 } from '../../contract/index.ts'
-import { CONTEXT_TYPE_IDS, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
+import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -2711,12 +2713,43 @@ export function buildRouter(): Router {
   })
   // S5 guardrails: author-retract or anchor-owner moderation; report rings the
   // owner; mutes are the caller's own earmuffs (never a wall).
-  r.delete('/discussions/:did/posts/:pid', ({ req, res, params, url }) => {
+  r.delete('/discussions/:did/posts/:pid', idempotent(async ({ req, res, params, url, body }) => {
     // `?cascade=1` takes the whole branch. Absent is the narrow delete (INV-9:
     // an absent field means the fixed, minimal-risk answer), and the authority
     // check runs over every post that would go — see `deleteDiscussionPost`.
     const cascade = url.searchParams.get('cascade') === '1'
-    const out = store.deleteDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id, cascade)
+    const input = await body<DeleteDiscussionPostRequest | undefined>()
+    const expectedPostIds = input?.expectedPostIds
+    if (input !== undefined && (typeof input !== 'object' || input === null || Array.isArray(input))) {
+      return sendError(res, 'bad_request', 'deletion input must be an object')
+    }
+    if (input !== undefined && Object.keys(input).some((key) => key !== 'expectedPostIds')) {
+      return sendError(res, 'bad_request', 'deletion input contains an unknown field')
+    }
+    if (expectedPostIds !== undefined) {
+      if (
+        !Array.isArray(expectedPostIds) ||
+        expectedPostIds.length === 0 ||
+        expectedPostIds.length > MAX_DISCUSSION_POSTS ||
+        expectedPostIds.some((id) => typeof id !== 'string' || !id.trim()) ||
+        new Set(expectedPostIds).size !== expectedPostIds.length ||
+        !expectedPostIds.includes(params.pid) ||
+        (!cascade && (expectedPostIds.length !== 1 || expectedPostIds[0] !== params.pid))
+      ) {
+        return sendError(
+          res,
+          'bad_request',
+          'expectedPostIds must be a unique non-empty reviewed set containing the target (and only the target without cascade)',
+        )
+      }
+    }
+    const out = store.deleteDiscussionPost(
+      params.did,
+      params.pid,
+      store.identity(req.headers).tenant.id,
+      cascade,
+      expectedPostIds,
+    )
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
     if (out === 'forbidden')
       return sendError(
@@ -2726,8 +2759,11 @@ export function buildRouter(): Router {
           'Only the author or the subject’s owner may delete a post — and a cascade needs that standing over every reply underneath it'
         : 'Only the author or the subject’s owner may delete a post',
       )
-    sendJson(res, { ok: true, discussion: out })
-  })
+    if (out === 'conflict') {
+      return sendError(res, 'conflict', 'This reply branch changed. Review it again before deleting.')
+    }
+    sendJson(res, { ok: true, discussion: out } satisfies DeleteDiscussionPostResponse)
+  }))
   r.post('/discussions/:did/posts/:pid/report', ({ req, res, params }) => {
     const out = store.reportDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)

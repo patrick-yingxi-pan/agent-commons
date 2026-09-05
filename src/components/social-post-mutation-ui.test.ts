@@ -35,7 +35,7 @@ test('authored social prose stays frozen behind one acknowledgement recovery doo
     'the Commons composer clears only after acknowledgement')
   assert.match(section, /<fieldset disabled=\{held\}/,
     'the Commons retry payload is frozen too')
-  assert.match(section, /title="Discussion"[\s\S]*heldOpen=\{postingHeld\}/,
+  assert.match(section, /title="Discussion"[\s\S]*heldOpen=\{threadHeld\}/,
     'a held section composer cannot be folded away')
   assert.match(section, /onHeldChange=\{setPostingHeld\}/,
     'thread hosts observe and preserve the shared hold')

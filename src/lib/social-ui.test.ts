@@ -369,7 +369,7 @@ test('the feed card discloses its thread in place — Reply toggles, nothing nav
   // source, so a host cannot pair a tree of one array with an index of
   // another). So the thread the card renders is whatever `useThreadFold` was
   // built from, and that is where "the whole thread" now has to be asserted.
-  assert.ok(/useThreadFold\(shown, postingHeld\)/.test(card), 'the card’s thread is the whole of `shown`')
+  assert.ok(/useThreadFold\(shown, threadHeld\)/.test(card), 'the card’s thread is the whole of `shown`')
   assert.ok(/<DiscussionPostList\s+fold=\{fold\}/.test(card), '…and the list renders that same thread')
   assert.ok(!/shown\.slice/.test(card), 'a tail would leave the rest of the thread reachable from nowhere')
 
@@ -445,7 +445,7 @@ test('a post’s page renders the card itself, not a second arrangement of the s
   // card's deliberately does not — "a destructive act belongs where the whole
   // thread is". Standing alone IS that place, so the card must offer them there.
   const card = stripComments(sectionViewComponent('FeedCard')).replace(/\s+/g, ' ')
-  for (const act of ['onDelete', 'onReport']) {
+  for (const act of ['deletion', 'onReport']) {
     assert.match(
       card,
       new RegExp(`${act}=\\{standalone && root \\?`),
@@ -645,7 +645,11 @@ test('the per-post unfold-all is gated on the BRANCH alone — not on what is fo
   //  model being reachable from this component, not about where it is declared —
   //  so it follows the model rather than failing at it, which is what a lock is
   //  for. `folded` and `hidden` still have to be live here either way.
-  for (const decl of ['folded, replyingTo, setReplyingTo, toggle, held } = fold', 'const hidden = folded.has(p.id)']) {
+  for (const decl of [
+    'folded, replyingTo, setReplyingTo, toggle, held: foldHeld } = fold',
+    'const held = foldHeld || deletionHeld',
+    'const hidden = folded.has(p.id)',
+  ]) {
     assert.ok(body.includes(decl), `the component still has the fold model to have excluded — missing \`${decl}\``)
   }
 })

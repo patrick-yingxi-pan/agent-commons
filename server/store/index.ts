@@ -111,7 +111,7 @@ import { mintAuthority } from '../authority.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
-import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
+import { MAX_DISCUSSION_POSTS, MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, ENVELOPE_HARNESSES, EFFECT_ENVELOPE_LINE_MAX as MAX_ENVELOPE_LINES, EFFECT_ENVELOPE_CARDINALITY_MAX as MAX_ENVELOPE_CARDINALITY, CONTRIBUTION_FIELD_MAX as MAX_CONTRIBUTION_FIELD_CHARS, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
@@ -759,7 +759,6 @@ const MAX_DISCUSSIONS_PER_SUBJECT = 100
  *  a loop that opens and closes forever must not grow the store without bound.
  *  The router's rate limit bounds the RATE; this bounds the total. */
 const MAX_POSTS_PER_AUTHOR = 1000
-const MAX_DISCUSSION_POSTS = 200
 const MAX_DISCUSSION_CHARS = 2000
 
 /** Do two anchors point at the SAME position? Absent === absent is the root.
@@ -7723,7 +7722,10 @@ export const store = {
      *  that happened by default would be the single most destructive act in the
      *  product reached by the most ordinary click. */
     cascade = false,
-  ): Discussion | null | 'forbidden' | undefined {
+    /** Complete post-id set reviewed by the caller. Omission is the legacy
+     * unconditional meaning; a supplied set is an exact branch precondition. */
+    expectedPostIds?: readonly string[],
+  ): Discussion | null | 'conflict' | 'forbidden' | undefined {
     const d = discussions.find((x) => x.id === did)
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     const i = d.posts.findIndex((x) => x.id === pid)
@@ -7745,6 +7747,13 @@ export const store = {
     for (const p of d.posts) {
       if (doomed.has(p.id) && !canDeletePost(d, p.authorTenant, tenantId)) return 'forbidden'
     }
+    // Compare only after authority so a stale or malicious set cannot probe
+    // hidden branch membership. Newly arrived descendants are not covered by
+    // the earlier confirmation and must never be swept into it.
+    if (
+      expectedPostIds !== undefined &&
+      (expectedPostIds.length !== doomed.size || expectedPostIds.some((id) => !doomed.has(id)))
+    ) return 'conflict'
     for (let k = d.posts.length - 1; k >= 0; k -= 1) if (doomed.has(d.posts[k].id)) d.posts.splice(k, 1)
     // S9 — a retracted post must not strand the replies that answered it. They
     // are promoted to top level rather than deleted with it: they are somebody

@@ -2,7 +2,7 @@
  *  stands between a click and an act that cannot be undone.
  *
  *  It exists because one did not: the trash can on a discussion post called
- *  `onDelete` outright, and on 2026-08-11 a mis-aimed click took the opening
+ *  deletion outright, and on 2026-08-11 a mis-aimed click took the opening
  *  question out of a seeded thread (owner report — the restore had to be done by
  *  hand, against the store file). Distance alone was not the fix, so these lock
  *  the two halves that are:
@@ -11,7 +11,7 @@
  *    3. the post list's trash OPENS it — the direct-delete path stays gone.
  *
  *  (3) is the one that would rot silently. A future edit that re-wires the trash
- *  straight to `onDelete` leaves every other assertion here green, the dialog
+ *  straight to the mutation command leaves every other assertion here green, the dialog
  *  still present and still perfect, and simply never reached. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -70,14 +70,15 @@ test('focus lands on CANCEL, not on the destructive verb', () => {
 
 test('a discussion post is never deleted without asking first', () => {
   const s = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
-  // Every call of the post-delete callback, with a little context around it.
-  const calls = [...s.matchAll(/onDelete\??\.?\(([^)]*)\)/g)].map((m) => s.slice(Math.max(0, m.index - 200), m.index + 40))
+  // Every post-deletion command, with enough context to include its enclosing
+  // confirmation callback. Imports do not match because they carry no call.
+  const calls = [...s.matchAll(/enqueueDiscussionPostDeletion\(\{/g)].map((m) => s.slice(Math.max(0, m.index - 900), m.index + 80))
   assert.ok(calls.length > 0, 'the post list still has a delete path at all')
   for (const context of calls) {
     assert.match(
       context.replace(/\s+/g, ' '),
-      /onConfirm=/,
-      'the only caller of a post delete is the ConfirmDialog’s onConfirm — a trash can wired straight to onDelete is the bug this dialog was built for',
+      /onConfirm=\{\(\) => \{/,
+      'the only caller of a post delete is the ConfirmDialog’s onConfirm — a trash can wired straight to the command is the bug this dialog was built for',
     )
   }
   // The trash itself opens the dialog…
@@ -113,5 +114,9 @@ test('the CASCADE option is offered only over a branch the viewer may delete ent
   // Unchecked by default, and the request only carries it when checked: a
   // cascade that rode along by default would be the most destructive act in the
   // product reached by the most ordinary click (INV-9, mirrored on the client).
-  assert.match(s, /onDelete\?\.\(confirmDelete\.id, cascade\)/, 'the confirm passes the choice through verbatim')
+  assert.match(
+    s,
+    /enqueueDiscussionPostDeletion\(\{[\s\S]*?postIds,[\s\S]*?cascade,/,
+    'the confirm passes the exact effect and cascade choice through verbatim',
+  )
 })

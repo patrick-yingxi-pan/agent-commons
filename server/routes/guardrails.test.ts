@@ -126,3 +126,86 @@ test('post standing rides the wire: canDelete = author OR anchor owner, and it m
   assert.equal((await call('DELETE', `/discussions/${d.id}/posts/${pid}`, undefined, { 'x-tenant-id': BYSTANDER })).status, 404)
   assert.equal((await call('DELETE', `/discussions/${d.id}/posts/${pid}`, undefined, { 'x-tenant-id': OWNER })).status, 200)
 })
+
+test('reviewed cascade refuses a changed branch, then exact keyed deletion replays without widening', async () => {
+  const { d } = await arena()
+  const rootId = d.posts[0].id
+  const firstReply = (
+    await call(
+      'POST',
+      `/discussions/${d.id}/posts`,
+      { body: 'First reviewed reply', replyTo: rootId },
+      { 'x-tenant-id': OWNER },
+    )
+  ).json.posts.at(-1)
+  const reviewedPostIds = [rootId, firstReply.id]
+
+  const lateReply = (
+    await call(
+      'POST',
+      `/discussions/${d.id}/posts`,
+      { body: 'Arrived after confirmation', replyTo: firstReply.id },
+      { 'x-tenant-id': OWNER },
+    )
+  ).json.posts.at(-1)
+  const stale = await call(
+    'DELETE',
+    `/discussions/${d.id}/posts/${rootId}?cascade=1`,
+    { expectedPostIds: reviewedPostIds },
+    { 'x-tenant-id': OWNER, 'idempotency-key': `discussion-delete-stale-${d.id}` },
+  )
+  assert.equal(stale.status, 409)
+  assert.match(stale.json.error.message, /branch changed/i)
+  const unchanged = await call('GET', `/discussions/${d.id}`, undefined, { 'x-tenant-id': OWNER })
+  assert.deepEqual(
+    unchanged.json.posts.map((post: { id: string }) => post.id),
+    [rootId, firstReply.id, lateReply.id],
+    'conflict is all-or-nothing: even the originally reviewed rows remain',
+  )
+
+  const exactPostIds = [rootId, firstReply.id, lateReply.id]
+  const headers = {
+    'x-tenant-id': OWNER,
+    'idempotency-key': `discussion-delete-exact-${d.id}`,
+  }
+  const deleted = await call(
+    'DELETE',
+    `/discussions/${d.id}/posts/${rootId}?cascade=1`,
+    { expectedPostIds: exactPostIds },
+    headers,
+  )
+  assert.equal(deleted.status, 200)
+  assert.equal(deleted.json.discussion, null)
+  const replay = await call(
+    'DELETE',
+    `/discussions/${d.id}/posts/${rootId}?cascade=1`,
+    { expectedPostIds: exactPostIds },
+    headers,
+  )
+  assert.equal(replay.status, deleted.status)
+  assert.deepEqual(replay.json, deleted.json, 'same actor, target, body, and key replay the terminal acknowledgement')
+  assert.equal(replay.headers['idempotency-replayed'], 'true')
+})
+
+test('reviewed deletion input is strict while omitted input keeps legacy narrow semantics', async () => {
+  const { d } = await arena()
+  const pid = d.posts[0].id
+  const headers = { 'x-tenant-id': OWNER }
+  assert.equal((await call(
+    'DELETE',
+    `/discussions/${d.id}/posts/${pid}`,
+    { expectedPostIds: [pid], surprise: true },
+    headers,
+  )).status, 400)
+  assert.equal((await call(
+    'DELETE',
+    `/discussions/${d.id}/posts/${pid}`,
+    { expectedPostIds: [pid, pid] },
+    headers,
+  )).status, 400)
+  assert.equal(
+    (await call('DELETE', `/discussions/${d.id}/posts/${pid}`, undefined, headers)).status,
+    200,
+    'legacy callers retain the minimal-risk one-post delete',
+  )
+})

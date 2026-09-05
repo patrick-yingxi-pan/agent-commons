@@ -374,6 +374,25 @@ export interface PostToDiscussionRequest {
   replyTo?: string
 }
 
+/** One discussion cannot grow beyond this many persisted posts. The reviewed
+ * deletion set uses the same bound: it can name at most the complete thread. */
+export const MAX_DISCUSSION_POSTS = 200
+
+/** `DELETE /v1/discussions/:did/posts/:pid` — remove exactly the words the
+ * caller reviewed. INV-9: omission preserves the legacy unconditional delete;
+ * first-party UI always supplies the complete set (target plus descendants for
+ * a cascade), so a concurrently arrived reply conflicts instead of being swept
+ * into consent that never covered it. */
+export interface DeleteDiscussionPostRequest {
+  expectedPostIds?: string[]
+}
+
+export interface DeleteDiscussionPostResponse {
+  ok: true
+  /** Null means the last post was removed and the discussion dissolved. */
+  discussion: Discussion | null
+}
+
 /** ── Proposal (S3) — a typed change OFFERED to a resource ────────────────────
  *  The landing-ledger generalized to any noun: a proposal carries a delta, a
  *  review discussion (a normal Discussion anchored to the proposal — recursion,

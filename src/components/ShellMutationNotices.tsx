@@ -39,6 +39,7 @@ import { SavedContextDeletionNotice } from './SavedContextDeletionNotice'
 import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMutationNotice'
 import { SystemPromptCreationMutationNotice } from './SystemPromptCreationMutationNotice'
 import { DiscussionSessionLaunchMutationNotice } from './DiscussionSessionLaunchMutationNotice'
+import { DiscussionPostDeletionMutationNotice } from './DiscussionPostDeletionMutationNotice'
 import { SessionForkMutationNotice } from './SessionForkMutationNotice'
 import { ToolActivityDecisionMutationNotice } from './ToolActivityDecisionMutationNotice'
 import { RelationActionDecisionMutationNotice } from './RelationActionDecisionMutationNotice'
@@ -58,6 +59,7 @@ export function ShellMutationNotices() {
       <SessionMetadataMutationNotice />
       <SessionDeletionNotice />
       <DiscussionSessionLaunchMutationNotice />
+      <DiscussionPostDeletionMutationNotice />
       <SessionForkMutationNotice />
       <ToolActivityDecisionMutationNotice />
       <RelationActionDecisionMutationNotice />

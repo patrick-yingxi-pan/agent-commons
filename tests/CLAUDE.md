@@ -17,7 +17,7 @@ when the subject is the repository, a document graph, or a cross-layer seam.
 | ID | Category | Rule | Implementation | Locks | Relations |
 |---|---|---|---|---|---|
 | TEST-V1 | verification | A suite lives beside what it locks; this directory owns only repository-wide and cross-layer claims. | [`../scripts/verifyPlan.mjs`](../scripts/verifyPlan.mjs) | [`suite-paths.test.ts`](suite-paths.test.ts) · [`verify-plan.test.ts`](verify-plan.test.ts) | refines ROOT-V1 |
-| TEST-V2 | verification | Every shipped feature has a current spec row naming implementation, lock, and status. | [`../docs/spec/`](../docs/spec/) | [`spec-conformance.test.ts`](spec-conformance.test.ts) | refines ROOT-V1 |
+| TEST-V2 | verification | Every shipped feature has one uniquely named current spec row naming implementation, lock, and status. | [`../docs/spec/`](../docs/spec/) | [`spec-conformance.test.ts`](spec-conformance.test.ts) | refines ROOT-V1 |
 | TEST-V3 | verification | A lock reads the real source, asserts its preconditions, and is watched fail before it is evidence. | [`helpers/source.ts`](helpers/source.ts) | [`context-map.test.ts`](context-map.test.ts) · [`contract-boundaries.test.ts`](contract-boundaries.test.ts) · [`product-identity.test.ts`](product-identity.test.ts) | refines ROOT-V1 |
 | TEST-V4 | verification | Browser-only behavior belongs in E2E; pure behavior moves into a testable module. | [`../e2e/`](../e2e/) · [`../src/lib/`](../src/lib/) | [`verify-plan.test.ts`](verify-plan.test.ts) | refines ROOT-V1; requires E2E-V1 |
 <!-- context-rules:end -->

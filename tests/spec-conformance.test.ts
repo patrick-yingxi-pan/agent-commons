@@ -4,10 +4,11 @@
  *  against the tree, and the spec quietly under-covering what's built.
  *
  *  It checks: (1) every repo path the spec references in backticks exists;
- *  (2) every requirement row carries a status; (3) every ✅ row cites a test or is
- *  marked in-app (no silent ✅); (4) every server route is mentioned somewhere in
- *  the spec (inverse coverage — a built endpoint with no requirement fails);
- *  (5) every 📝 "not built" requirement is surfaced in the README Known-gaps list;
+ *  (2) every requirement id is unique; (3) every row carries a status; (4) every
+ *  ✅ row cites a test or is marked in-app (no silent ✅); (5) every server route
+ *  is mentioned somewhere in the spec (inverse coverage — a built endpoint with
+ *  no requirement fails); (6) every 📝 "not built" requirement is surfaced in
+ *  the README Known-gaps list;
  *  plus the two structural invariants the spec claims (INV-1, INV-3).
  *
  *  It does NOT prove a named test truly exercises its requirement — that's the
@@ -95,6 +96,21 @@ test('every repo path referenced in the spec exists on disk', () => {
     }
   }
   assert.deepEqual(missing, [], `spec references point at missing paths:\n${missing.join('\n')}`)
+})
+
+test('every requirement id names exactly one spec row', () => {
+  const owners = new Map()
+  for (const file of pillarFiles()) {
+    for (const row of requirementRows(read(file))) {
+      const locations = owners.get(row.id) ?? []
+      locations.push(rel(file))
+      owners.set(row.id, locations)
+    }
+  }
+  const duplicates = [...owners]
+    .filter(([, locations]) => locations.length > 1)
+    .map(([id, locations]) => `${id}: ${locations.join(', ')}`)
+  assert.deepEqual(duplicates, [], `requirement ids must be globally unique:\n${duplicates.join('\n')}`)
 })
 
 test('every requirement row carries a status from the legend', () => {
