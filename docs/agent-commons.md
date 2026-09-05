@@ -1871,7 +1871,10 @@ session↔context binding, mediation handle, and single-resource escrow).
   fabricated score on untagged text), and **public authorship** (a merged proposal
   on the proposer's D21 profile, from the changelogs the directory already serves).
   One comment primitive platform-wide; one `ProposalThread` component for both
-  ends. Locked by `server/routes/agent-proposals.test.ts`; spec row COMMONS-20.
+  ends. First-party comments now hold exact prose through navigation and ambiguous
+  acknowledgement, with one durable receipt atomically owning the other party's
+  bell. Locked by `server/routes/agent-proposals.test.ts` +
+  `e2e/agent-proposal-comment-creation.spec.ts`; spec row COMMONS-20.
 - **Slice 27 — peer credentials (D28). ✅ Built.** Verified identity at the A2A
   edge: owner-minted, hashed-at-rest bearer credentials bound to owner-registered
   peer names; verified calls stamp `postedBy`/`verifiedPeer`/comment authors/bell

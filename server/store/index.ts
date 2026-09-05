@@ -137,6 +137,7 @@ import {
 } from '../sessionCreationIdentity.ts'
 import { isAgentCreationId } from '../agentCreationIdentity.ts'
 import { isAgentProposalCreationId } from '../agentProposalCreationIdentity.ts'
+import { isAgentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
 import { isDelegationCreationId } from '../delegationCreationIdentity.ts'
 import { isDelegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
@@ -350,9 +351,10 @@ let auditSeq = 0
 // colliding-name tenant close a victim's items) — and the acting principals of its
 // post/retract acts (FWD-5 Phase 1). Server-private, stripped below.
 
-/** The comment redaction seam stored → wire: drop the principal, serve its KIND. */
+/** The comment redaction seam stored → wire: drop private authority, serve KIND. */
 function publicWorkItemComment(c: StoredWorkItemComment): WorkItemComment {
-  const { principal, ...pub } = c
+  const { principal, authorTenant, ...pub } = c
+  void authorTenant
   return { ...pub, ...(principal ? { authorKind: principal.kind } : {}) }
 }
 
@@ -1240,7 +1242,6 @@ function publicContribution(c: StoredContribution, viewerTenant?: string): Contr
 // D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
 // gets a cap, not a forum). Coarse by design; the design log records the trade-off.
 const MAX_WORK_ITEM_COMMENTS = 100
-const MAX_AGENT_PROPOSAL_COMMENT_CHARS = 2000
 // D29 — max notification RECIPIENTS one comment's `@mentions` may fan out to (review
 // F1: the cap is on resolved targets, not token matches — a display name borne by K
 // workspaces still can't ring K bells, so a comment can't become an amplifier).
@@ -6137,11 +6138,57 @@ export const store = {
     }
     return out.sort((a, b) => a.label.localeCompare(b.label))
   },
+  /** Current containing proposal for one exact keyed comment receipt. Replay is
+   * checked before lifecycle caps so an acknowledged comment remains provable
+   * after its proposal resolves. Current visibility and party walls still apply. */
+  getAgentProposalCommentCreation(
+    agentId: string,
+    proposalId: string,
+    commentId: string,
+    body: string,
+    tenantId: string,
+  ): AgentChangeProposal | 'invalid' | undefined {
+    if (!isAgentProposalCommentCreationId(commentId)) return 'invalid'
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent || !(agent.published === true || registryVisible(agent, tenantId))) return undefined
+    const ownerTenant = agent.tenantId ?? defaultTenantId()
+    const proposals = AGENT_PROPOSALS.get(agentId) ?? []
+    const proposal = proposals.find((candidate) => candidate.id === proposalId)
+    if (!proposal) return undefined
+    if (ownerTenant !== tenantId && proposal.proposedByTenant !== tenantId) return undefined
+    const comment = proposal.comments?.find((candidate) => candidate.id === commentId)
+    if (!comment) {
+      const collision = [...AGENT_PROPOSALS.values()].some((rows) =>
+        rows.some((candidate) => candidate.comments?.some((entry) => entry.id === commentId)))
+      return collision ? 'invalid' : undefined
+    }
+    const normalizedBody = body.trim().slice(0, WORK_ITEM_COMMENT_MAX)
+    if (!normalizedBody || comment.authorTenant !== tenantId || comment.body !== normalizedBody) return 'invalid'
+    return serveProposal(proposal, agent)
+  },
   /** Comment on a proposal's thread (D27) — writable by exactly its TWO parties
    *  (proposer ↔ owner, raw tenant ids), while open (the verdict ends the
    *  conversation; the decline note is the last word). To anyone else the proposal
    *  does not exist (→ 404, matching the list read). Rings the OTHER party's bell. */
-  commentOnAgentProposal(agentId: string, proposalId: string, body: string, tenantId: string, principal: PrincipalRef | undefined): AgentChangeProposal | 'closed' | 'capped' | undefined {
+  commentOnAgentProposal(
+    agentId: string,
+    proposalId: string,
+    body: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): AgentChangeProposal | 'closed' | 'capped' | 'invalid' | undefined {
+    if (options.logicalId) {
+      const represented = this.getAgentProposalCommentCreation(
+        agentId,
+        proposalId,
+        options.logicalId,
+        body,
+        tenantId,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') return 'invalid'
+    }
     const agent = WORKER_AGENTS.get(agentId)
     if (!agent) return undefined
     const ownerTenant = agent.tenantId ?? defaultTenantId()
@@ -6158,28 +6205,32 @@ export const store = {
     if (proposal.status !== 'open') return 'closed'
     const comments = (proposal.comments ??= [])
     if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
+    const storedBody = body.trim().slice(0, WORK_ITEM_COMMENT_MAX)
+    if (!storedBody) return 'invalid'
     const comment: StoredWorkItemComment = {
-      id: `${proposal.id}-c${comments.length + 1}`, // append-only ⇒ stable count ⇒ unique
+      id: options.logicalId ?? `${proposal.id}-c${comments.length + 1}`,
       author: tenantName(tenantId),
+      ...(options.logicalId ? { authorTenant: tenantId } : {}),
       ...(principal ? { principal } : {}),
-      body: body.trim().slice(0, MAX_AGENT_PROPOSAL_COMMENT_CHARS),
+      body: storedBody,
       at: Date.now(),
     }
-    comments.push(comment)
-    // NB: no `@mention` fan-out here (unlike commentOnOpenSubGoal, D29). A proposal
-    // thread is parties-only (proposer ↔ owner) over a definition that need not be
-    // public; naming a third party would leak the proposal's existence to a non-party.
-    notifyTenants([isOwner ? proposal.proposedByTenant : ownerTenant], tenantId, {
-      kind: 'proposal.commented',
-      actor: tenantName(tenantId),
-      agentId,
-      agentLabel: agent.label,
-      proposalId: proposal.id,
-      commentId: comment.id,
+    return commitMutationBatch(() => {
+      comments.push(comment)
+      // No @mention fan-out: this thread is parties-only, so naming a third party
+      // would leak a proposal the recipient cannot read.
+      notifyTenants([isOwner ? proposal.proposedByTenant : ownerTenant], tenantId, {
+        kind: 'proposal.commented',
+        actor: tenantName(tenantId),
+        agentId,
+        agentLabel: agent.label,
+        proposalId: proposal.id,
+        commentId: comment.id,
+      })
+      emit({ type: 'proposal.changed', agentId, parties: [ownerTenant, proposal.proposedByTenant] })
+      persist()
+      return serveProposal(proposal, agent)
     })
-    emit({ type: 'proposal.changed', agentId, parties: [ownerTenant, proposal.proposedByTenant] })
-    persist()
-    return serveProposal(proposal, agent)
   },
   /** The owner's verdict — merge or decline, open proposals only, owner only (raw
    *  tenant-id comparison — the D23 lesson). Merging applies the proposed fields,

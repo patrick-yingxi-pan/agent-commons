@@ -10,6 +10,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
+import { agentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
 import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 
@@ -220,6 +221,40 @@ test('D27 — the thread: two parties discuss, bells ring the OTHER end, outside
   await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/decline`, { note: 'thanks anyway' }, { 'x-tenant-id': A })
   const after = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'one more thing' }, { 'x-tenant-id': B })
   assert.equal(after.status, 409)
+})
+
+test('keyed proposal comments survive cache loss exactly once, including after the verdict', async () => {
+  const agent = await publishedAgent()
+  const opened = await propose(agent.id, B, { instructions: 'discuss durable comments' })
+  const key = `agent-proposal-comment-${agent.id}`
+  const body = 'Preserve this exact review thought.'
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+  const expectedId = agentProposalCommentCreationId(B, agent.id, opened.json.id, key)
+  const beforeBells = (await call('GET', '/notifications', undefined, { 'x-tenant-id': A })).json
+    .filter((entry: any) => entry.kind === 'proposal.commented' && entry.agentId === agent.id).length
+
+  const first = await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body }, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.comments.at(-1).id, expectedId)
+  assert.ok(!JSON.stringify(first.json).includes('authorTenant'), 'raw retry authority never crosses the wire')
+
+  const replay = await callFresh('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body }, headers)
+  assert.equal(replay.status, 200, 'durable replay does not depend on response-cache memory')
+  assert.equal(replay.json.comments.filter((comment: any) => comment.id === expectedId).length, 1)
+
+  const changed = await callFresh('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body: 'changed retry' }, headers)
+  assert.equal(changed.status, 400, 'the key cannot acknowledge different prose')
+  await call('POST', `/agents/${agent.id}/proposals/${opened.json.id}/decline`, {}, { 'x-tenant-id': A })
+  const afterVerdict = await callFresh('POST', `/agents/${agent.id}/proposals/${opened.json.id}/comments`, { body }, headers)
+  assert.equal(afterVerdict.status, 200, 'a represented comment is proved before the closed gate')
+  assert.equal(afterVerdict.json.status, 'declined', 'replay returns current proposal truth')
+
+  const rows = (await callFresh('GET', `/agents/${agent.id}/proposals`, undefined, { 'x-tenant-id': B })).json
+  const represented = rows.find((proposal: any) => proposal.id === opened.json.id)
+  assert.equal(represented.comments.filter((comment: any) => comment.id === expectedId).length, 1)
+  const afterBells = (await call('GET', '/notifications', undefined, { 'x-tenant-id': A })).json
+    .filter((entry: any) => entry.kind === 'proposal.commented' && entry.agentId === agent.id).length
+  assert.equal(afterBells, beforeBells + 1, 'the other party is notified exactly once')
 })
 
 test('D27 — the check rides prompt-changing proposals: knowable facts, never a fabricated score', async () => {

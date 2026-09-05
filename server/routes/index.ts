@@ -105,6 +105,7 @@ import {
   agentImportCreationId,
 } from '../agentCreationIdentity.ts'
 import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
+import { agentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
@@ -2223,10 +2224,35 @@ export function buildRouter(): Router {
       return sendError(res, 'bad_request', 'a non-empty comment body is required')
     }
     const who = store.identity(req.headers)
-    const out = store.commentOnAgentProposal(params.id, params.pid, input.body, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalCommentId = idempotencyKey
+      ? agentProposalCommentCreationId(who.tenant.id, params.id, params.pid, idempotencyKey)
+      : undefined
+    const represented = logicalCommentId
+      ? store.getAgentProposalCommentCreation(
+          params.id,
+          params.pid,
+          logicalCommentId,
+          input.body,
+          who.tenant.id,
+        )
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This comment identity is not valid for this account, proposal, and exact body')
+    }
+    const out = store.commentOnAgentProposal(
+      params.id,
+      params.pid,
+      input.body,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalCommentId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     if (out === 'closed') return sendError(res, 'conflict', 'This proposal was already resolved — the verdict ended the conversation')
     if (out === 'capped') return sendError(res, 'conflict', 'This proposal’s discussion is at its cap')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This comment body or durable identity is invalid')
     sendJson(res, out)
   })
   r.post('/agents/:id/proposals/:pid/merge', ({ req, res, params }) => {

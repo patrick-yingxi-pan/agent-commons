@@ -250,7 +250,6 @@ import {
   setCommonsLike,
   recordView,
   resolveAgentProposal,
-  commentOnAgentProposal,
   useAgentProposals,
   useMe,
   useWatchState,
@@ -389,6 +388,11 @@ import {
   isAgentProposalCreationHeld,
   useAgentProposalCreationStatus,
 } from '../controller/agentProposalCreationMutations.ts'
+import {
+  enqueueAgentProposalCommentCreation,
+  heldAgentProposalCommentIntent,
+  useAgentProposalCommentCreationStatus,
+} from '../controller/agentProposalCommentCreationMutations.ts'
 import {
   isCommissionMutationHeld,
   updateCommissionConfiguration,
@@ -9372,10 +9376,8 @@ function AgentRow({
   )
 }
 
-/** D27 — one proposal's discussion thread + composer, shared by the owner's review
- *  dialog and the proposer's view on the public detail (one thread, two ends —
- *  form follows function). The composer shows only while the proposal is open
- *  (the verdict ends the conversation). */
+/** D27 — one proposal's discussion thread + acknowledgement-owned composer,
+ * shared by the owner's review dialog and proposer's public detail. */
 function ProposalThread({
   agentId,
   proposal,
@@ -9385,22 +9387,36 @@ function ProposalThread({
   proposal: AgentChangeProposal
   openForComments: boolean
 }) {
+  const me = useMe().data
+  useAgentProposalCommentCreationStatus()
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const heldComment = heldAgentProposalCommentIntent(agentId, proposal.id)
+  const commentHeld = heldComment !== null
   const comments = proposal.comments ?? []
-  if (comments.length === 0 && !openForComments) return null
+  useEffect(() => {
+    if (!heldComment) return
+    setDraft(heldComment.body)
+  }, [heldComment])
+  if (comments.length === 0 && !openForComments && !commentHeld) return null
   const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
+    if (commentHeld || !draft.trim()) return
+    if (!me) {
+      setError('Sign in again before posting this comment.')
+      return
+    }
     setError(null)
     try {
-      await commentOnAgentProposal(agentId, proposal.id, draft.trim())
-      setDraft('')
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not post this comment.')
-    } finally {
-      setBusy(false)
+      const outcome = await enqueueAgentProposalCommentCreation({
+        tenantId: me.tenant.id,
+        agentId,
+        proposalId: proposal.id,
+        body: draft,
+      })
+      if (outcome === 'applied') setDraft('')
+      else setError('This comment was not posted. Your draft is still here.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not post this comment.')
     }
   }
   return (
@@ -9423,22 +9439,24 @@ function ProposalThread({
           </div>
         ))}
       </div>
-      {openForComments && (
-        <div className="flex items-center gap-1.5">
+      {(openForComments || commentHeld) && (
+        <div data-agent-proposal-comment-form aria-busy={commentHeld || undefined} className="flex items-center gap-1.5">
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && send()}
+            onKeyDown={(e) => e.key === 'Enter' && void send()}
+            maxLength={WORK_ITEM_COMMENT_MAX}
+            disabled={commentHeld}
             placeholder="Discuss this proposal…"
             aria-label={`Comment on proposal ${proposal.id}`}
             className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <button
-            onClick={send}
-            disabled={busy || !draft.trim()}
+            onClick={() => void send()}
+            disabled={commentHeld || !me || !draft.trim()}
             className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
           >
-            Post
+            {commentHeld ? 'Posting…' : 'Post'}
           </button>
         </div>
       )}

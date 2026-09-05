@@ -103,7 +103,11 @@ export interface StoredNotification extends AppNotification {
 
 /** A thread comment as STORED — the wire row plus the acting principal (FWD-5
  *  Phase 1). Server-private; the projection strips it and serves only `authorKind`. */
-export type StoredWorkItemComment = WorkItemComment & { principal?: PrincipalRef }
+export type StoredWorkItemComment = WorkItemComment & {
+  principal?: PrincipalRef
+  /** Exact private authority proof for keyed comment acknowledgement. */
+  authorTenant?: string
+}
 
 /** A work item as STORED (D19) — the wire row plus the poster's RAW tenant id (the
  *  strict retract-authorization anchor: display names are attacker-controlled, so
