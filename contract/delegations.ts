@@ -59,3 +59,13 @@ export interface CreateDelegationRequest {
   escalation?: EscalationTrigger[]
   mode?: 'draft' | 'decide'
 }
+
+/** Body of `DELETE /v1/projects/:id/delegations/:did`.
+ *
+ * Delegations are immutable authority rows, so their creation stamp is the
+ * complete compare boundary: a revocation may remove only the exact grant the
+ * person saw. Omission preserves the legacy unconditional-delete contract for
+ * older callers. */
+export interface DeleteDelegationRequest {
+  expectedCreatedAt?: number
+}

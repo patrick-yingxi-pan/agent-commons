@@ -47,6 +47,28 @@ async function roster(page: Page, projectId: string): Promise<Delegation[]> {
   return response.json() as Promise<Delegation[]>
 }
 
+async function createDelegation(page: Page, project: Project, agent: Agent): Promise<Delegation> {
+  const response = await page.request.post(`/api/v1/projects/${encodeURIComponent(project.id)}/delegations`, {
+    data: {
+      agentId: agent.id,
+      actKind: 'approve-envelope',
+      policy: 'Recommend approval only for reviewed monotonic work.',
+      mode: 'draft',
+    },
+  })
+  expect(response.ok()).toBe(true)
+  return response.json() as Promise<Delegation>
+}
+
+async function openDelegationRoster(page: Page, project: Project) {
+  await page.goto(`/projects/${encodeURIComponent(project.id)}`)
+  const main = page.locator('main')
+  await expect(main.getByRole('heading', { name: project.name, exact: true }))
+    .toBeVisible({ timeout: ms(20_000) })
+  await main.getByRole('button', { name: /^Delegation\b/ }).click()
+  return main
+}
+
 test('Delegation intent stays visible and Retry preserves one authority grant', async ({ page }) => {
   test.setTimeout(ms(45_000))
   const stamp = Date.now().toString(36)
@@ -162,4 +184,95 @@ test('a committed Delegation with a lost response keeps its form until exact rec
   expect(stored.filter((delegation) => delegation.id === expectedId)).toHaveLength(1)
   expect(stored.find((delegation) => delegation.id === expectedId)?.policy).toBe(policy)
   await expect(page.locator('[data-delegation-creation="failed"]')).toHaveCount(0)
+})
+
+test('one-tap Delegation revocation holds the exact row and retries with one key', async ({ page }) => {
+  test.setTimeout(ms(45_000))
+  const stamp = Date.now().toString(36)
+  const project = await createProject(page, `Held Revocation ${stamp}`)
+  const agent = await createAgent(page, `Revocation Agent ${stamp}`)
+  const delegation = await createDelegation(page, project, agent)
+  const keys: string[] = []
+  const bodies: Record<string, unknown>[] = []
+  let attempts = 0
+  await page.route(`**/api/v1/projects/${project.id}/delegations/${delegation.id}`, async (route) => {
+    if (route.request().method() !== 'DELETE') return route.continue()
+    attempts += 1
+    keys.push(route.request().headers()['idempotency-key'] ?? '')
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>)
+    if (attempts === 1) {
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'internal', message: 'Simulated pre-commit failure.' } }),
+      })
+      return
+    }
+    await route.continue()
+  })
+
+  const main = await openDelegationRoster(page, project)
+  const row = main.locator(`[data-delegation-id="${delegation.id}"]`)
+  await row.getByRole('button', { name: `Revoke ${agent.label}'s delegation`, exact: true }).click()
+
+  const failed = page.locator('[data-delegation-revocation="failed"]')
+  await expect(failed).toContainText('Couldn’t confirm revocation')
+  await expect(row).toHaveAttribute('aria-busy', 'true')
+  await expect(row.getByRole('button', { name: `Revoking ${agent.label}'s delegation`, exact: true })).toBeDisabled()
+  expect(attempts).toBe(1)
+  expect(bodies[0]).toEqual({ expectedCreatedAt: delegation.createdAt })
+
+  await failed.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(row).toHaveCount(0)
+  expect(attempts).toBe(2)
+  expect(keys[0]).not.toBe('')
+  expect(keys[1]).toBe(keys[0])
+  expect(bodies[1]).toEqual(bodies[0])
+  expect((await roster(page, project.id)).some((candidate) => candidate.id === delegation.id)).toBe(false)
+})
+
+test('a committed revocation remains visible until exact absence reconciles', async ({ page }) => {
+  test.setTimeout(ms(45_000))
+  const stamp = Date.now().toString(36)
+  const project = await createProject(page, `Recovered Revocation ${stamp}`)
+  const agent = await createAgent(page, `Revocation Recovery ${stamp}`)
+  const delegation = await createDelegation(page, project, agent)
+  let attempts = 0
+  let releaseReads!: () => void
+  let markReadStarted!: () => void
+  const readStarted = new Promise<void>((resolve) => { markReadStarted = resolve })
+  const readsReleased = new Promise<void>((resolve) => { releaseReads = resolve })
+  await page.route(`**/api/v1/projects/${project.id}/delegations/${delegation.id}`, async (route) => {
+    if (route.request().method() !== 'DELETE') return route.continue()
+    attempts += 1
+    const committed = await route.fetch()
+    expect(committed.ok()).toBe(true)
+    await route.fulfill({
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: { code: 'internal', message: 'Acknowledgement lost.' } }),
+    })
+  })
+  await page.route(`**/api/v1/projects/${project.id}/delegations`, async (route) => {
+    if (attempts > 0 && route.request().method() === 'GET') {
+      markReadStarted()
+      await readsReleased
+    }
+    await route.continue()
+  })
+
+  const main = await openDelegationRoster(page, project)
+  const row = main.locator(`[data-delegation-id="${delegation.id}"]`)
+  await row.getByRole('button', { name: `Revoke ${agent.label}'s delegation`, exact: true }).click()
+  await readStarted
+
+  await expect(row).toHaveAttribute('data-delegation-revocation', 'true')
+  await expect(row).toHaveAttribute('aria-busy', 'true')
+  await expect(page.locator('[data-delegation-revocation="pending"]')).toBeVisible()
+  expect((await roster(page, project.id)).some((candidate) => candidate.id === delegation.id)).toBe(false)
+
+  releaseReads()
+  await expect(row).toHaveCount(0)
+  await expect(page.locator('[data-delegation-revocation]')).toHaveCount(0)
+  expect(attempts).toBe(1)
 })

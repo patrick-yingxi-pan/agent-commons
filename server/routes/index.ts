@@ -41,6 +41,7 @@ import type {
   RunEnvelopeEffectRequest,
   CrystallizeRequest,
   CreateDelegationRequest,
+  DeleteDelegationRequest,
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
@@ -106,6 +107,7 @@ import {
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
+import { delegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { openWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { workItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
@@ -146,6 +148,7 @@ import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.
 import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
 import { commissionConfigurationUpdate, commissionCreate, commissionDelete } from './commissionConfiguration.ts'
 import { revisionedDelete } from './revisionedDeletion.ts'
+import { delegationRevocation } from './delegationRevocation.ts'
 import { savedContextFrom } from '../contextRegistry.ts'
 import type {
   A2aDataPart,
@@ -2730,16 +2733,49 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No project '${params.id}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may delegate their judgment')
     if (out === 'capped') return sendError(res, 'conflict', 'This project’s delegation roster is at its cap')
+    if (out === 'retired') return sendError(res, 'conflict', 'That Delegation creation was already revoked')
     if (out === 'invalid') return sendError(res, 'bad_request', 'a delegation needs YOUR OWN agent, a valid act kind, a non-empty policy, and known escalation triggers (effectful is always included — the floor is not delegable)')
     sendJson(res, out)
   }))
-  r.delete('/projects/:id/delegations/:did', ({ req, res, params }) => {
+  r.delete('/projects/:id/delegations/:did', idempotent(async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    const out = store.deleteDelegation(params.id, params.did, store.identity(req.headers).tenant.id)
-    if (out === undefined) return sendError(res, 'not_found', `No delegation '${params.did}'`)
-    if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the delegator may revoke their delegation')
-    sendJson(res, { ok: true })
-  })
+    const who = store.identity(req.headers)
+    let input: DeleteDelegationRequest
+    try {
+      input = delegationRevocation(await body<unknown>())
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, err.code, err.message)
+      throw err
+    }
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const revocationId = idempotencyKey
+      ? delegationRevocationId(who.tenant.id, params.id, params.did, idempotencyKey)
+      : undefined
+    if (revocationId) {
+      const represented = store.getDelegationRevocation(
+        revocationId,
+        params.id,
+        params.did,
+        input.expectedCreatedAt,
+        who.tenant.id,
+      )
+      if (represented === true) return sendJson(res, { ok: true })
+      if (represented === 'invalid') return sendError(res, 'conflict', 'That revocation key already represents a different request')
+    }
+    try {
+      const out = store.deleteDelegation(params.id, params.did, who.tenant.id, {
+        expectedCreatedAt: input.expectedCreatedAt,
+        revocationId,
+      })
+      if (out === undefined) return sendError(res, 'not_found', `No delegation '${params.did}'`)
+      if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the delegator may revoke their delegation')
+      if (out === 'invalid') return sendError(res, 'conflict', 'That revocation key already represents a different request')
+      sendJson(res, { ok: true })
+    } catch (err) {
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  }))
   r.post('/projects/:id/contributions/:cid/delegated/:did', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)

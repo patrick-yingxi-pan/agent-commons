@@ -286,7 +286,6 @@ import {
   setDiscussionState,
   markDiscussionRead,
   useDelegations,
-  deleteDelegation,
   runDelegation,
   useAttention,
   useMyWork,
@@ -425,6 +424,12 @@ import {
   isDelegationCreationHeld,
   useDelegationCreationStatus,
 } from '../controller/delegationCreationMutations.ts'
+import {
+  enqueueDelegationRevocation,
+  heldDelegationRevocations,
+  isDelegationRevocationHeld,
+  useDelegationRevocationStatus,
+} from '../controller/delegationRevocationMutations.ts'
 import {
   enqueueContributionCreation,
   isContributionCreationHeld,
@@ -6732,7 +6737,16 @@ function AttentionPanel({ project, standalone = false }: { project: Project; sta
  *  triggers beyond the mandatory `effectful`) and revoke at a tap. The funnel
  *  refusals live server-side; this only shapes the ask. */
 function DelegationPanel({ project }: { project: Project }) {
-  const list = useDelegations(project.id).data ?? []
+  const currentList = useDelegations(project.id).data ?? []
+  useDelegationRevocationStatus()
+  // A committed DELETE may reach the roster over SSE before its originating
+  // acknowledgement. Keep the exact reviewed authority row visible until the
+  // revocation controller proves success or the person dismisses uncertainty.
+  const list = [
+    ...currentList,
+    ...heldDelegationRevocations(project.id).filter((held) =>
+      !currentList.some((delegation) => delegation.id === held.id)),
+  ].sort((a, b) => a.createdAt - b.createdAt)
   const agents = useAgents().data ?? []
   const tenantId = useMe().data?.tenant.id
   useDelegationCreationStatus()
@@ -6788,34 +6802,46 @@ function DelegationPanel({ project }: { project: Project }) {
         </p>
       ) : (
         <div className="space-y-2.5">
-          {list.map((d) => (
-            <div key={d.id} className="group flex items-start gap-2.5">
-              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-ink">
-                  {d.agentLabel} · {d.actKind === 'land' ? 'lands' : 'approves envelopes'}
-                </div>
-                <div className="text-[11px] text-ink-faint">
-                  {d.mode === 'draft' ? 'drafts (L1)' : 'decides (L2)'} · escalates on {d.escalation.join(', ')}
-                </div>
-                {d.mine === true && d.policy && (
-                  <div className="truncate text-[11px] italic text-ink-faint" title={d.policy}>
-                    “{d.policy}”
+          {list.map((d) => {
+            const revoking = isDelegationRevocationHeld(d.id)
+            return (
+              <div
+                key={d.id}
+                className="group flex items-start gap-2.5"
+                aria-busy={revoking}
+                data-delegation-revocation={revoking || undefined}
+                data-delegation-id={d.id}
+              >
+                <span className="mt-1 flex h-2.5 w-2.5 shrink-0 items-center justify-center text-accent">
+                  {revoking ? <Spinner size={10} /> : <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium text-ink">
+                    {d.agentLabel} · {d.actKind === 'land' ? 'lands' : 'approves envelopes'}
                   </div>
+                  <div className="text-[11px] text-ink-faint">
+                    {d.mode === 'draft' ? 'drafts (L1)' : 'decides (L2)'} · escalates on {d.escalation.join(', ')}
+                  </div>
+                  {d.mine === true && d.policy && (
+                    <div className="truncate text-[11px] italic text-ink-faint" title={d.policy}>
+                      “{d.policy}”
+                    </div>
+                  )}
+                </div>
+                {d.mine === true && (
+                  <button
+                    onClick={() => { if (!revoking) void enqueueDelegationRevocation(d) }}
+                    disabled={revoking}
+                    aria-label={`${revoking ? 'Revoking' : 'Revoke'} ${d.agentLabel}'s delegation`}
+                    title="Revoke — descent is always one tap"
+                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 disabled:opacity-60 ${revoking ? 'opacity-100' : HOVER_REVEAL}`}
+                  >
+                    {revoking ? <Spinner size={12} /> : <X size={13} />}
+                  </button>
                 )}
               </div>
-              {d.mine === true && (
-                <button
-                  onClick={() => void deleteDelegation(project.id, d.id)}
-                  aria-label={`Revoke ${d.agentLabel}'s delegation`}
-                  title="Revoke — descent is always one tap"
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 ${HOVER_REVEAL}`}
-                >
-                  <X size={13} />
-                </button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
       {composing && (

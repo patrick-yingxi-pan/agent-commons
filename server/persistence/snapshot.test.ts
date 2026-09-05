@@ -220,6 +220,12 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'a removed keyed Agent fork keeps its retirement identity')
   assert.ok(s.retiredAgentCreationIds?.includes('agent-import-000000000000000000000000'),
     'a removed keyed Agent Card import keeps its retirement identity')
+  assert.ok(s.delegationRetirements?.some((retirement) =>
+    retirement.delegationId === 'delegation-new-000000000000000000000000' &&
+    retirement.revocationId === 'delegation-revoke-000000000000000000000000' &&
+    typeof retirement.revokedByTenant === 'string' &&
+    Number.isSafeInteger(retirement.expectedCreatedAt)),
+  'a removed keyed Delegation keeps its private creation tombstone and exact revocation receipt')
   assert.ok(s.bindings.some(([sid]) => sid.startsWith('sess-')), 'the created session has an attached context')
   assert.ok(s.workspaces.some(([sid]) => sid.startsWith('sess-')), 'the created session has a live workspace')
   assert.ok(
@@ -628,6 +634,31 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     store.getAgentCreation('agent-import-000000000000000000000000', store.defaultTenantId()),
     'retired',
     'a removed keyed Agent Card import remains retired after a real boot',
+  )
+  const delegationRetirement = stale.delegationRetirements.find(
+    (retirement: any) => retirement.revocationId === 'delegation-revoke-000000000000000000000000',
+  )
+  assert.ok(delegationRetirement, 'the snapshot carries the keyed Delegation retirement')
+  assert.equal(
+    store.getDelegationRevocation(
+      delegationRetirement.revocationId,
+      delegationRetirement.projectId,
+      delegationRetirement.delegationId,
+      delegationRetirement.expectedCreatedAt,
+      delegationRetirement.revokedByTenant,
+    ),
+    true,
+    'an exact keyed Delegation revocation remains replayable after a real boot',
+  )
+  assert.equal(
+    store.createDelegation(
+      delegationRetirement.projectId,
+      { agentId: 'agent-default', actKind: 'land', policy: 'A delayed creation Retry.' },
+      store.defaultTenantId(),
+      { logicalId: delegationRetirement.delegationId },
+    ),
+    'retired',
+    'a removed keyed Delegation cannot be resurrected after a real boot',
   )
   const keyedWork = store.getOpenWorkCreation(
     'work-new-000000000000000000000000',

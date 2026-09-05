@@ -47,7 +47,7 @@ export class PersistenceLoadError extends Error {
 
 // Re-export the persisted shape + format primitives so existing importers
 // (server/store/index.ts, scripts/snapshot.ts, tests/) keep their import paths.
-export { STORE_VERSION, dataFile, databaseFile, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from './format.ts'
+export { STORE_VERSION, dataFile, databaseFile, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredDelegationRetirement, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from './format.ts'
 
 /** The active backend, memoized by kind so we don't reopen a DB handle per write.
  *  Re-selected when `PERSIST_BACKEND` changes (only a test does that), closing the

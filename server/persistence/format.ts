@@ -174,6 +174,19 @@ export interface StoredDelegation extends Omit<Delegation, 'mine'> {
   delegatorTenant: string
 }
 
+/** Private tombstone for a removed Delegation. Every keyed grant is retained so
+ * a delayed create Retry cannot restore revoked authority. A keyed revocation
+ * also records its opaque operation receipt and exact immutable precondition,
+ * allowing response-cache loss and process restart to replay only that act. */
+export interface StoredDelegationRetirement {
+  delegationId: string
+  projectId: string
+  createdAt: number
+  revocationId?: string
+  revokedByTenant?: string
+  expectedCreatedAt?: number
+}
+
 /** A Grant as STORED (social layer S1) — the wire row plus the GRANTER's raw
  *  tenant id (authorization compares raw ids — the D23 lesson) and, for a
  *  principal audience, the audience's raw tenant id. The projection
@@ -333,6 +346,8 @@ export interface PersistedState {
   /** The Project delegation rosters (CW8, Phase F). Additive-optional like
    *  `contributions` (a pre-field snapshot loads cleanly with none). */
   delegations?: StoredDelegation[]
+  /** Private authority tombstones and exact keyed-revocation receipts. */
+  delegationRetirements?: StoredDelegationRetirement[]
   /** Social-layer grants (S1) — who can see/do what on which resource.
    *  Additive-optional like `delegations` (a pre-field snapshot loads with
    *  nothing shared). */
@@ -472,6 +487,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   openSubGoals: 'array',
   contributions: 'array',
   delegations: 'array',
+  delegationRetirements: 'array',
   grants: 'array',
   discussions: 'array',
   socialProposals: 'array',

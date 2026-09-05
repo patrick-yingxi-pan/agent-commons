@@ -471,6 +471,23 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { agentId: 'agent-default', actKind: 'approve-envelope', policy: 'Approve routine monotonic plans for the dashboard.', mode: 'draft' },
     store.defaultTenantId(),
   )
+  const retiredDelegation = store.createDelegation(
+    'p-insights',
+    { agentId: 'agent-default', actKind: 'land', policy: 'Land exact reviewed changes for snapshot coverage.', mode: 'draft' },
+    store.defaultTenantId(),
+    { logicalId: 'delegation-new-000000000000000000000000' },
+  )
+  if (retiredDelegation && typeof retiredDelegation === 'object') {
+    store.deleteDelegation(
+      'p-insights',
+      retiredDelegation.id,
+      store.defaultTenantId(),
+      {
+        expectedCreatedAt: retiredDelegation.createdAt,
+        revocationId: 'delegation-revoke-000000000000000000000000',
+      },
+    )
+  }
 
   // ── Watching + the inbox (D24) ── exercise both persisted slices: share the
   // CREATED project (watch fan-out re-checks visibility at mint time — a private

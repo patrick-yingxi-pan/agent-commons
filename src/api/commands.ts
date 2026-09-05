@@ -961,12 +961,6 @@ export async function declineSocialProposal(
   return p
 }
 
-/** Revoke a Delegation — the delegator's one-tap descent. */
-export async function deleteDelegation(projectId: string, did: string): Promise<void> {
-  await apiDelete(paths.delegation(projectId, did))
-  invalidate(keys.delegations(projectId))
-}
-
 /** Exercise a Delegation on a contribution (CW8): mechanical escalation
  *  triggers first, then the mock decision — draft records, decide executes
  *  AS the delegator, dual-stamped. */

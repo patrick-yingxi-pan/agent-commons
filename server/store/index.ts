@@ -126,7 +126,7 @@ import { ResourceGuardian, GuardianError } from '../guardian.ts'
 import { LOCAL_RUNNER_ID, LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from '../data/runners.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from '../workspace.ts'
-import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
+import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredDelegationRetirement, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
 import { resolveInitialWorld, type InitialWorld } from '../initialWorld.ts'
@@ -136,6 +136,8 @@ import {
   isSessionCreationId,
 } from '../sessionCreationIdentity.ts'
 import { isAgentCreationId } from '../agentCreationIdentity.ts'
+import { isDelegationCreationId } from '../delegationCreationIdentity.ts'
+import { isDelegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
 import { isWorkItemCommentCreationId } from '../workItemCommentCreationIdentity.ts'
 import { isWorkItemRetractionId } from '../workItemRetractionIdentity.ts'
@@ -542,6 +544,7 @@ function publicContributionEvent(ev: StoredContributionEvent): import('../../con
  *  Agent under a written policy, executing AS the delegator (the conservation
  *  law). `delegatorTenant` is the server-private anchor. */
 const delegations: StoredDelegation[] = []
+const delegationRetirements: StoredDelegationRetirement[] = []
 let delegationSeq = 0
 const MAX_DELEGATIONS_PER_PROJECT = 10
 const MAX_DELEGATION_POLICY_CHARS = 2000
@@ -553,6 +556,25 @@ function publicDelegation(d: StoredDelegation, viewerTenant?: string): Delegatio
   const { delegatorTenant, policy, ...pub } = d
   const mine = viewerTenant !== undefined && delegatorTenant === viewerTenant
   return { ...pub, ...(mine ? { policy, mine: true } : {}) }
+}
+
+function delegationRevocationReceipt(
+  revocationId: string,
+  projectId: string,
+  did: string,
+  expectedCreatedAt: number | undefined,
+  tenantId: string,
+): true | 'invalid' | undefined {
+  if (!isDelegationRevocationId(revocationId)) return 'invalid'
+  const represented = delegationRetirements.find((retirement) => retirement.revocationId === revocationId)
+  if (!represented) return undefined
+  if (
+    represented.projectId !== projectId ||
+    represented.delegationId !== did ||
+    represented.expectedCreatedAt !== expectedCreatedAt ||
+    represented.revokedByTenant !== tenantId
+  ) return 'invalid'
+  return true
 }
 
 /** ── Social-layer grants (S1 — docs/design/social-layer.md) ──────────────────
@@ -2489,6 +2511,7 @@ function snapshot(): PersistedState {
     openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
     contributions, // Phase A — the Project landing ledgers (the linear history survives a restart)
     delegations, // Phase F — the delegation rosters (a standing judgment grant survives a restart)
+    delegationRetirements, // Phase F — revoked keyed authority cannot be resurrected by Retry
     grants, // social S1 — who can see/do what (a share survives a restart)
     discussions, // social S2 — anchored threads (talk survives a restart)
     socialProposals, // social S3 — offered changes + the per-subject ledger
@@ -2579,6 +2602,7 @@ function cleanFirstBootState(): PersistedState {
   clean.openSubGoals = []
   clean.contributions = []
   clean.delegations = []
+  clean.delegationRetirements = []
   clean.grants = []
   clean.discussions = []
   clean.socialProposals = []
@@ -3082,6 +3106,7 @@ function rehydrate(s: PersistedState): void {
   contributionSeq = s.seq.contribution ?? contributions.reduce((m, c) => m + 1 + c.events.length, 0)
   // Phase F delegations — same restore shape (each row consumes exactly one id).
   delegations.splice(0, delegations.length, ...(s.delegations ?? []))
+  delegationRetirements.splice(0, delegationRetirements.length, ...(s.delegationRetirements ?? []))
   delegationSeq = s.seq.delegation ?? delegations.length
   // Social S1 grants — same restore shape (each row consumes exactly one id).
   // Seed rows are CODE-owned (the providers-reconcile rule): a snapshot missing
@@ -4320,7 +4345,17 @@ export const store = {
         emit({ type: 'delegation.changed', projectId })
       }
       for (let i = delegations.length - 1; i >= 0; i -= 1) {
-        if (delegations[i].agentId === id) delegations.splice(i, 1)
+        if (delegations[i].agentId === id) {
+          const delegation = delegations[i]
+          if (isDelegationCreationId(delegation.id)) {
+            delegationRetirements.push({
+              delegationId: delegation.id,
+              projectId: delegation.projectId,
+              createdAt: delegation.createdAt,
+            })
+          }
+          delegations.splice(i, 1)
+        }
       }
       WORKER_AGENTS.delete(id)
       if (isAgentCreationId(id)) retiredAgentCreationIds.add(id)
@@ -8373,12 +8408,16 @@ export const store = {
     req: CreateDelegationRequest,
     tenantId: string,
     options: { logicalId?: string } = {},
-  ): Delegation | 'forbidden' | 'invalid' | 'capped' | undefined {
+  ): Delegation | 'forbidden' | 'invalid' | 'capped' | 'retired' | undefined {
     const project = findProject(projectId)
     if (!project) return undefined
     const ownerTenant = project.tenantId ?? defaultTenantId()
     if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     if (options.logicalId) {
+      if (!isDelegationCreationId(options.logicalId)) return 'invalid'
+      if (delegationRetirements.some((retirement) => retirement.delegationId === options.logicalId)) {
+        return 'retired'
+      }
       const represented = delegations.find((delegation) => delegation.id === options.logicalId)
       if (represented) {
         if (represented.projectId !== projectId || represented.delegatorTenant !== tenantId) return 'invalid'
@@ -8419,16 +8458,67 @@ export const store = {
   /** Revoke — the delegator's one-tap descent (always free, CW8's ladder).
    *  The PROJECT OWNER's write-union may also revoke (review finding: a seat-
    *  holder who minted and then lost the seat must not leave an irrevocable
-   *  row squatting on the roster — the owner governs their project's gates). */
-  deleteDelegation(projectId: string, did: string, tenantId: string): true | 'forbidden' | undefined {
+   *  row squatting on the roster — the owner governs their project's gates).
+   *  The immutable creation stamp pins first-party consent. A keyed act also
+   *  leaves a private durable receipt; every keyed-created row leaves a
+   *  tombstone so a delayed creation Retry cannot resurrect revoked authority. */
+  deleteDelegation(
+    projectId: string,
+    did: string,
+    tenantId: string,
+    options: { expectedCreatedAt?: number; revocationId?: string } = {},
+  ): true | 'forbidden' | 'invalid' | undefined {
+    if (options.revocationId) {
+      const replay = delegationRevocationReceipt(
+        options.revocationId,
+        projectId,
+        did,
+        options.expectedCreatedAt,
+        tenantId,
+      )
+      if (replay !== undefined) return replay
+    }
     const i = delegations.findIndex((d) => d.id === did && d.projectId === projectId)
     if (i < 0) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
     if (delegations[i].delegatorTenant !== tenantId && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
-    delegations.splice(i, 1)
-    emit({ type: 'delegation.changed', projectId })
-    persist()
-    return true
+    const delegation = delegations[i]
+    if (options.expectedCreatedAt !== undefined && options.expectedCreatedAt !== delegation.createdAt) {
+      throw new ConflictError(
+        `This delegation no longer matches the reviewed authority (expected creation stamp ${options.expectedCreatedAt}, current stamp ${delegation.createdAt}).`,
+      )
+    }
+    return commitMutationBatch(() => {
+      delegations.splice(i, 1)
+      if (isDelegationCreationId(delegation.id) || options.revocationId) {
+        delegationRetirements.push({
+          delegationId: delegation.id,
+          projectId,
+          createdAt: delegation.createdAt,
+          ...(options.revocationId
+            ? {
+                revocationId: options.revocationId,
+                revokedByTenant: tenantId,
+                expectedCreatedAt: options.expectedCreatedAt,
+              }
+            : {}),
+        })
+      }
+      emit({ type: 'delegation.changed', projectId })
+      persist()
+      return true
+    })
+  },
+  /** Exact private receipt for a keyed revocation. Changed precondition reuse is
+   *  invalid; absence means the operation is not durably represented. */
+  getDelegationRevocation(
+    revocationId: string,
+    projectId: string,
+    did: string,
+    expectedCreatedAt: number | undefined,
+    tenantId: string,
+  ): true | 'invalid' | undefined {
+    return delegationRevocationReceipt(revocationId, projectId, did, expectedCreatedAt, tenantId)
   },
   /** Exercise a Delegation on one contribution. The order is load-bearing:
    *  1. SEPARATION OF DUTIES — the contributor may never trigger the decision

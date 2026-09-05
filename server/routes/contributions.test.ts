@@ -12,6 +12,7 @@ import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
+import { delegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
@@ -1219,6 +1220,65 @@ test('a keyed Delegation owns one immutable authority row beyond response-cache 
   const roster = store.listDelegations(projectId, A)
   assert.equal(roster.filter((delegation) => delegation.id === expectedId).length, 1,
     'durable identity, not only the response cache, prevents duplicate authority')
+
+  const revocationKey = `delegation-revoke-${n}`
+  const revocationHeaders = { 'x-tenant-id': A, 'idempotency-key': revocationKey }
+  const precondition = { expectedCreatedAt: created.json.createdAt }
+  const revoked = await call(
+    'DELETE',
+    `/projects/${projectId}/delegations/${expectedId}`,
+    precondition,
+    revocationHeaders,
+  )
+  assert.equal(revoked.status, 200)
+  assert.equal(
+    store.getDelegationRevocation(
+      delegationRevocationId(A, projectId, expectedId, revocationKey),
+      projectId,
+      expectedId,
+      created.json.createdAt,
+      A,
+    ),
+    true,
+    'the exact revocation receipt is durable store truth',
+  )
+
+  const durableRevocationReplay = await callFresh(
+    'DELETE',
+    `/projects/${projectId}/delegations/${expectedId}`,
+    precondition,
+    revocationHeaders,
+  )
+  assert.equal(durableRevocationReplay.status, 200,
+    'a fresh router replays the persisted revocation after the row is absent')
+  assert.equal(durableRevocationReplay.headers['idempotency-replayed'], undefined)
+
+  const changedRevocationReplay = await callFresh(
+    'DELETE',
+    `/projects/${projectId}/delegations/${expectedId}`,
+    { expectedCreatedAt: created.json.createdAt + 1 },
+    revocationHeaders,
+  )
+  assert.equal(changedRevocationReplay.status, 409,
+    'one revocation key cannot be redirected to a different reviewed grant')
+
+  const invalidRevocation = await callFresh(
+    'DELETE',
+    `/projects/${projectId}/delegations/${expectedId}`,
+    { expectedCreatedAt: created.json.createdAt, unexpected: true },
+    { 'x-tenant-id': A, 'idempotency-key': `invalid-revoke-${n}` },
+  )
+  assert.equal(invalidRevocation.status, 400, 'unknown revocation fields fail closed')
+
+  const resurrection = await callFresh(
+    'POST',
+    `/projects/${projectId}/delegations`,
+    request,
+    headers,
+  )
+  assert.equal(resurrection.status, 409,
+    'a delayed creation Retry cannot resurrect explicitly revoked authority')
+  assert.equal(store.listDelegations(projectId, A).some((delegation) => delegation.id === expectedId), false)
 })
 
 test('attention (CW9): the ledger counts, per-caller triage, and the self-proposed optimization', async () => {

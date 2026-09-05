@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-fork' | 'agent-import' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'contribution-create' | 'contribution-land' | 'contribution-effect' | 'contribution-crystallization' | 'contribution-envelope-approval' | 'contribution-envelope-proposal' | 'contribution-comment-create' | 'contribution-review' | 'contribution-require-review' | 'open-work-create' | 'work-item-comment-create' | 'work-item-retract' | 'subgoal-release' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
+  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-fork' | 'agent-import' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'delegation-revoke' | 'contribution-create' | 'contribution-land' | 'contribution-effect' | 'contribution-crystallization' | 'contribution-envelope-approval' | 'contribution-envelope-proposal' | 'contribution-comment-create' | 'contribution-review' | 'contribution-require-review' | 'open-work-create' | 'work-item-comment-create' | 'work-item-retract' | 'subgoal-release' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -46,6 +46,7 @@ export function RevisionedMutationNotice({
       data-commission-creation={kind === 'commission-create' ? phase : undefined}
       data-commission-deletion={kind === 'commission-delete' ? phase : undefined}
       data-delegation-creation={kind === 'delegation-create' ? phase : undefined}
+      data-delegation-revocation={kind === 'delegation-revoke' ? phase : undefined}
       data-contribution-creation={kind === 'contribution-create' ? phase : undefined}
       data-contribution-landing={kind === 'contribution-land' ? phase : undefined}
       data-contribution-effect={kind === 'contribution-effect' ? phase : undefined}
