@@ -144,6 +144,7 @@ export const paths = {
   orgs: '/orgs',
   meOrgs: '/me/orgs',
   meInvites: '/me/invites',
+  myInvite: (inviteId: string) => `/me/invites/${encodeURIComponent(inviteId)}`,
   meWork: '/me/work',
   orgMembers: (orgId: string) => `/orgs/${orgId}/members`,
   orgInvites: (orgId: string) => `/orgs/${orgId}/invites`,

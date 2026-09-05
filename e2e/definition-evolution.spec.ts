@@ -1,5 +1,6 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { agentBindings } from './agent-bindings.ts'
+import { agentSynopsisRow } from './agent-synopsis-row.ts'
 import { ms } from './budget.ts'
 
 /** D25 — the definition evolution loop, end to end through the rendered UI: the
@@ -58,11 +59,9 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   await owner.page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
   // Scope to THIS agent's card — reused e2e stores carry earlier runs' agents,
   // whose own review buttons would otherwise collide in strict mode.
-  await owner.page
-    .locator('div')
-    .filter({ hasText: AGENT })
+  const synopsis = agentSynopsisRow(owner.page, AGENT)
+  await synopsis
     .getByRole('button', { name: 'Review 1 proposal', exact: true })
-    .last()
     .click()
   const review = owner.page.getByRole('dialog', { name: `Proposals — ${AGENT}` })
   // The side-by-side: current (the default toolkit body) vs proposed.
@@ -74,17 +73,11 @@ test('propose → review side-by-side → merge: the definition evolves and cred
   await owner.page.keyboard.press('Escape')
 
   // The published card now says v2 (scoped: earlier runs' agents may also be v2).
-  await expect(
-    owner.page.locator('div').filter({ hasText: AGENT }).getByText('Published · v2').last(),
-  ).toBeVisible()
+  await expect(synopsis.getByText('Published · v2', { exact: true })).toBeVisible()
 
   // Surface-audit S4: the owner reaches version history on the canonical Agent
   // page. The index remains a synopsis rather than duplicating that timeline.
-  await owner.page
-    .locator('[data-resource-section="Ready agents"] [data-resource-synopsis-row]')
-    .filter({ hasText: AGENT })
-    .getByRole('button', { name: AGENT, exact: true })
-    .click()
+  await synopsis.getByRole('button', { name: AGENT, exact: true }).click()
   await expect(owner.page.getByRole('heading', { name: AGENT, exact: true })).toBeVisible()
   await expect(owner.page.getByText(NOTE).last()).toBeVisible() // the merged entry's note
   // Surface-audit S12: the changelog AUTHOR is a workspace door like every other byline

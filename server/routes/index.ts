@@ -870,15 +870,23 @@ export function buildRouter(): Router {
   r.get('/me/invites', ({ req, res }) => {
     sendJson(res, accounts.myInvites(store.identity(req.headers).user.email))
   })
-  // The invitee's verdict (O-D3). An invite that isn't pending-and-addressed-to-
-  // the-caller does not exist (404 — indistinguishable from a wrong guess).
-  const inviteVerdict = (action: 'accept' | 'decline') => ({ req, res, params }: Ctx) => {
+  // Exact private receipt for acknowledged verdict recovery. A foreign,
+  // missing, or revoked row remains indistinguishable.
+  r.get('/me/invites/:id', ({ req, res, params }) => {
+    const receipt = accounts.myInviteReceipt(params.id, store.identity(req.headers).user.id)
+    if (!receipt) return sendError(res, 'not_found', `No invite '${params.id}'`)
+    sendJson(res, receipt)
+  })
+  // The invitee's verdict (O-D3). One keyed action survives response-cache loss
+  // because the exact accepted/declined row replays after restart. A foreign,
+  // revoked, or opposite verdict remains the same existence-hiding 404.
+  const inviteVerdict = (action: 'accept' | 'decline') => idempotent(({ req, res, params }: Ctx) => {
     const me = store.identity(req.headers)
     const out = accounts.resolveInvite(params.id, me.user.id, action)
     if (out === undefined) return sendError(res, 'not_found', `No invite '${params.id}'`)
-    store.accountsMutated()
-    sendJson(res, out === 'declined' ? { declined: true } : out)
-  }
+    if (out.changed) store.accountsMutated()
+    sendJson(res, out.kind === 'declined' ? { declined: true } : out.membership)
+  })
   r.post('/me/invites/:id/accept', inviteVerdict('accept'))
   r.post('/me/invites/:id/decline', inviteVerdict('decline'))
   // The roster (O3): any SEAT may read it — the org page's member panel; an

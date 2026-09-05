@@ -4,7 +4,7 @@
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
 import { useSyncExternalStore } from 'react'
-import { useQuery, resetAll, revalidateAll, invalidate, type QueryState } from './cache.ts'
+import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
 import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
@@ -238,21 +238,6 @@ export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<
   } catch (err) {
     invalidate(keys.orgInvites(orgId)) // the row changed under us — re-read either way
     return { ok: false, message: err instanceof Error ? err.message : 'Failed to revoke' }
-  }
-}
-
-/** The invitee's verdict (O-D3): accept mints the seat (the world re-reads —
- *  org projects and bells become visible); decline just closes the invite.
- *  A failure (the invite revoked meanwhile) re-reads the list and reports. */
-export async function resolveMyInvite(inviteId: string, action: 'accept' | 'decline'): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await apiPost(action === 'accept' ? paths.myInviteAccept(inviteId) : paths.myInviteDecline(inviteId))
-    if (action === 'accept') revalidateAll() // a new seat widens every read; identity stays the same
-    else invalidate(keys.meInvites)
-    return { ok: true }
-  } catch (err) {
-    invalidate(keys.meInvites) // stale row — re-read so the ghost invite clears
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to resolve the invitation' }
   }
 }
 

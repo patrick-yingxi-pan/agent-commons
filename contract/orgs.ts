@@ -42,6 +42,14 @@ export interface MyInvite {
   at: number
 }
 
+/** The invitee's private recovery view for one addressed invitation. Revoked
+ * rows stay existence-hidden; accepted/declined receipts survive removal from
+ * the pending list so an ambiguous verdict response can be settled exactly. */
+export interface MyInviteReceipt extends MyInvite {
+  status: 'invited' | 'accepted' | 'declined'
+  resolvedAt?: number
+}
+
 /** One member row (`GET /v1/orgs/:id/members` — any seat may read; the display
  *  name is the public identity, the same face every byline shows). */
 export interface OrgMemberRow {

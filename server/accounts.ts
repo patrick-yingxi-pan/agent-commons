@@ -25,6 +25,7 @@ import type {
   Capabilities,
   Identity,
   MyInvite,
+  MyInviteReceipt,
   MyOrg,
   OrgInviteRow,
   OrgMemberRow,
@@ -468,25 +469,80 @@ export class AccountRegistry {
       }))
   }
 
+  /** One invitee-private invitation receipt. Resolved truth remains readable
+   * to its addressed account for lost-response recovery; revoked rows retain
+   * the historical existence-hiding behavior. */
+  myInviteReceipt(inviteId: string, userId: string): MyInviteReceipt | undefined {
+    const email = this.users.get(userId)?.email?.toLowerCase()
+    const invite = this.orgInvites.find((candidate) => candidate.id === inviteId)
+    if (
+      !invite ||
+      !email ||
+      invite.email !== email ||
+      invite.status === 'revoked'
+    ) return undefined
+    const tenant = this.tenants.get(invite.orgId)
+    if (!tenant) return undefined
+    return {
+      id: invite.id,
+      orgId: invite.orgId,
+      orgName: tenant.name,
+      role: invite.role,
+      invitedBy: invite.invitedBy,
+      at: invite.at,
+      status: invite.status,
+      ...(invite.resolvedAt === undefined ? {} : { resolvedAt: invite.resolvedAt }),
+    }
+  }
+
   /** The invitee's verdict (O-D3): accept mints the seat; decline just closes.
-   *  The invite must be pending AND addressed to the caller's email — anything
-   *  else is undefined (→ 404, indistinguishable from "no such invite"). */
-  resolveInvite(inviteId: string, userId: string, action: 'accept' | 'decline'): MyOrg | 'declined' | undefined {
+   * Same-action replay returns the exact durable result after response-cache
+   * loss; a foreign, revoked, or oppositely resolved row remains the same 404. */
+  resolveInvite(
+    inviteId: string,
+    userId: string,
+    action: 'accept' | 'decline',
+  ):
+    | { kind: 'accepted'; membership: MyOrg; changed: boolean }
+    | { kind: 'declined'; changed: boolean }
+    | undefined {
     const email = this.users.get(userId)?.email?.toLowerCase()
     const invite = this.orgInvites.find((i) => i.id === inviteId)
-    if (!invite || invite.status !== 'invited' || !email || invite.email !== email) return undefined
+    if (!invite || !email || invite.email !== email) return undefined
     // An invite whose org tenant no longer resolves (an inconsistent snapshot —
     // invites restore wholesale, tenants conditionally) is the same 404 as any
     // bad invite, refused BEFORE any state flips — never a mid-mutation throw.
     const t = this.tenants.get(invite.orgId)
     if (!t) return undefined
+    const terminal = action === 'accept' ? 'accepted' : 'declined'
+    if (invite.status !== 'invited') {
+      if (invite.status !== terminal) return undefined
+      if (action === 'decline') return { kind: 'declined', changed: false }
+      const membership = this.membership(userId, invite.orgId)
+      if (!membership || membership.home) return undefined
+      return {
+        kind: 'accepted',
+        membership: {
+          tenant: { id: t.id, name: t.name, kind: t.kind },
+          role: membership.role,
+        },
+        changed: false,
+      }
+    }
     invite.status = action === 'accept' ? 'accepted' : 'declined'
     invite.resolvedAt = Date.now()
-    if (action === 'decline') return 'declined'
+    if (action === 'decline') return { kind: 'declined', changed: true }
     if (!this.membership(userId, invite.orgId)) {
       this.memberships.push({ userId, tenantId: invite.orgId, role: invite.role })
     }
-    return { tenant: { id: t.id, name: t.name, kind: t.kind }, role: this.membership(userId, invite.orgId)!.role }
+    return {
+      kind: 'accepted',
+      membership: {
+        tenant: { id: t.id, name: t.name, kind: t.kind },
+        role: this.membership(userId, invite.orgId)!.role,
+      },
+      changed: true,
+    }
   }
 
   /** The owner's honest close of a pending invite. */

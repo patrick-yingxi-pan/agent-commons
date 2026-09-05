@@ -45,6 +45,7 @@ import { RelationActionDecisionMutationNotice } from './RelationActionDecisionMu
 import { ApiTokenRevocationMutationNotice } from './ApiTokenRevocationMutationNotice'
 import { ApiTokenMintMutationNotice } from './ApiTokenMintMutationNotice'
 import { OrgCreationMutationNotice } from './OrgCreationMutationNotice'
+import { OrgInviteVerdictMutationNotice } from './OrgInviteVerdictMutationNotice'
 
 /** Durable mutation recovery is requested as one deferred shell cluster at
  * workspace boot. This keeps low-frequency command controllers out of the
@@ -62,6 +63,7 @@ export function ShellMutationNotices() {
       <ApiTokenMintMutationNotice />
       <ApiTokenRevocationMutationNotice />
       <OrgCreationMutationNotice />
+      <OrgInviteVerdictMutationNotice />
       <SavedContextMutationNotice />
       <SavedContextDeletionNotice />
       <ScheduleMutationNotice />

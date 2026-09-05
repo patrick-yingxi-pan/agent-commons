@@ -25,17 +25,15 @@
  *  IS its one namespace, so the only thing to switch is the ACCOUNT
  *  (docs/design/principals-and-namespaces.md). All dismissal via useDismissable
  *  (the shared hook — design invariant). */
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { lazy, Suspense, useState, type FormEvent, type ReactNode } from 'react'
 import { LogOut } from 'lucide-react'
 import {
   forgetAccount,
-  resolveMyInvite,
   signOut,
   switchToAccount,
   useAuthAccounts,
   useCapabilities,
   useMe,
-  useMyInvites,
   useMyOrgs,
 } from '../api'
 import { openAuthScreen } from '../controller/useAuthScreen'
@@ -50,6 +48,10 @@ import { AUTH_ERROR_CLASS, AUTH_INPUT_CLASS, AUTH_PRIMARY_CLASS } from '../lib/a
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { useDismissable } from '../lib/useDismissable'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
+
+const OrgInvitationMenuSection = lazy(() =>
+  import('./OrgInvitationMenuSection').then((module) => ({ default: module.OrgInvitationMenuSection })),
+)
 
 export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => void }) {
   const me = useMe().data
@@ -122,49 +124,12 @@ function MenuBody({
 }) {
   const stacked = useAuthAccounts().data ?? []
   const orgs = useMyOrgs().data ?? []
-  const invites = useMyInvites().data ?? []
-  // A failed invite verdict (raced with a revoke) reports here; the hook already
-  // re-read the list, so the stale row clears alongside the message.
-  const [inviteError, setInviteError] = useState('')
-  const verdict = async (id: string, action: 'accept' | 'decline') => {
-    const r = await resolveMyInvite(id, action)
-    setInviteError(r.ok ? '' : r.message)
-  }
   const signedIn = me?.via === 'session'
   return (
     <>
-      {(invites.length > 0 || inviteError) && (
-        <>
-          <SectionLabel>Invitations</SectionLabel>
-          {invites.map((inv) => (
-            <div key={inv.id} data-testid="org-invite-row" className="flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] text-ink-soft">
-              <span className="min-w-0 flex-1 truncate">
-                {inv.orgName}
-                <span className="ml-1 text-[10px] text-ink-faint">from {inv.invitedBy}</span>
-              </span>
-              <button
-                data-testid="org-invite-accept"
-                onClick={() => void verdict(inv.id, 'accept')}
-                className="font-medium text-accent-strong transition hover:underline"
-              >
-                Accept
-              </button>
-              <button
-                data-testid="org-invite-decline"
-                onClick={() => void verdict(inv.id, 'decline')}
-                className="text-ink-faint transition hover:text-ink"
-              >
-                Decline
-              </button>
-            </div>
-          ))}
-          {inviteError && (
-            <p data-testid="org-invite-error" className="px-2 py-1 text-[11px] text-removed">
-              {inviteError}
-            </p>
-          )}
-        </>
-      )}
+      <Suspense fallback={null}>
+        <OrgInvitationMenuSection />
+      </Suspense>
       {/* Always offered — founding needs only an identity (the desktop's
           credential-less default included); JOINING still needs a signed-in
           email for the invite to land. */}

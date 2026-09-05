@@ -5,8 +5,9 @@
  *   - joining is a CONSENT act: an email-keyed invitation the invitee accepts —
  *     accept mints the `member` seat, decline doesn't, revoke closes it;
  *   - existence-hiding: inviting a known and an unknown email are
- *     indistinguishable; a foreign/resolved/wrongly-addressed invite verdict is
- *     the same 404; a non-member's org read is 404, a member-non-owner's is 403;
+ *     indistinguishable; foreign/revoked/opposite verdicts are the same 404
+ *     while exact same-verdict replay recovers; non-member org reads are 404
+ *     and member-non-owner reads are 403;
  *   - org machinery is walled OUT of person namespaces (its owner included);
  *   - persistence: seats + invites round-trip; one HOME per user survives; a
  *     pre-collapse echo (Grace's old Acme seat) still never resurrects. */
@@ -89,21 +90,43 @@ test('the consent flow: invite (existence-hidden) → the invitee accepts → me
   const thief = await account('Org Thea')
   assert.equal((await call('POST', `/me/invites/${inviteId}/accept`, undefined, { cookie: thief.cookie })).status, 404)
 
-  // Accept mints the member seat; the invite resolves; a second verdict 404s.
-  const accepted = await call('POST', `/me/invites/${inviteId}/accept`, undefined, { cookie: invitee.cookie })
+  // Accept mints the member seat. Its private receipt and same-action replay
+  // survive a fresh router whose process-local idempotency cache is empty.
+  const acceptKey = `org-invite-accept-${(n += 1)}`
+  const acceptHeaders = { cookie: invitee.cookie, 'idempotency-key': acceptKey }
+  const accepted = await call('POST', `/me/invites/${inviteId}/accept`, undefined, acceptHeaders)
   assert.equal(accepted.status, 200)
   assert.equal(accepted.json.role, 'member')
   const orgsNow = await call('GET', '/me/orgs', undefined, { cookie: invitee.cookie })
   assert.ok(orgsNow.json.some((o: { tenant: { id: string } }) => o.tenant.id === org.id))
-  assert.equal((await call('POST', `/me/invites/${inviteId}/accept`, undefined, { cookie: invitee.cookie })).status, 404)
+  const acceptReceipt = await call('GET', `/me/invites/${inviteId}`, undefined, { cookie: invitee.cookie })
+  assert.equal(acceptReceipt.status, 200)
+  assert.equal(acceptReceipt.json.status, 'accepted')
+  assert.equal(
+    (await call('GET', `/me/invites/${inviteId}`, undefined, { cookie: thief.cookie })).status,
+    404,
+    'terminal receipt truth remains private to the addressed account',
+  )
+  const acceptReplay = await callFresh('POST', `/me/invites/${inviteId}/accept`, undefined, acceptHeaders)
+  assert.equal(acceptReplay.status, 200)
+  assert.deepEqual(acceptReplay.json, accepted.json)
+  assert.equal(
+    (await call('POST', `/me/invites/${inviteId}/decline`, undefined, { cookie: invitee.cookie })).status,
+    404,
+    'the opposite verdict cannot rewrite accepted consent',
+  )
 
   // Decline path: a fresh invite to a fresh account, declined — no seat.
   const decliner = await account('Org Dee')
   await call('POST', `/orgs/${org.id}/invites`, { email: decliner.email }, { cookie: owner.cookie })
   const theirs = await call('GET', '/me/invites', undefined, { cookie: decliner.cookie })
-  const declined = await call('POST', `/me/invites/${theirs.json[0].id}/decline`, undefined, { cookie: decliner.cookie })
+  const declineId = theirs.json[0].id as string
+  const declineHeaders = { cookie: decliner.cookie, 'idempotency-key': `org-invite-decline-${(n += 1)}` }
+  const declined = await call('POST', `/me/invites/${declineId}/decline`, undefined, declineHeaders)
   assert.equal(declined.status, 200)
   assert.deepEqual((await call('GET', '/me/orgs', undefined, { cookie: decliner.cookie })).json, [])
+  assert.equal((await call('GET', `/me/invites/${declineId}`, undefined, { cookie: decliner.cookie })).json.status, 'declined')
+  assert.equal((await callFresh('POST', `/me/invites/${declineId}/decline`, undefined, declineHeaders)).status, 200)
 })
 
 test('the walls: non-member 404, member-non-owner 403, revoke closes, person namespaces are not orgs', async () => {
@@ -127,6 +150,7 @@ test('the walls: non-member 404, member-non-owner 403, revoke closes, person nam
   const revoked = await call('DELETE', `/orgs/${org.id}/invites/${pending.id}`, undefined, { cookie: owner.cookie })
   assert.equal(revoked.status, 200)
   assert.equal(revoked.json.status, 'revoked')
+  assert.equal((await call('GET', `/me/invites/${pending.id}`, undefined, { cookie: target.cookie })).status, 404)
   assert.equal((await call('POST', `/me/invites/${pending.id}/accept`, undefined, { cookie: target.cookie })).status, 404)
   assert.equal((await call('DELETE', `/orgs/${org.id}/invites/${pending.id}`, undefined, { cookie: owner.cookie })).status, 409)
 
@@ -168,6 +192,7 @@ test('persistence: seats + invites round-trip; one HOME per user; the pre-collap
     'the accepted seat round-trips',
   )
   assert.ok(reborn.invitesOfOrg(org.id).some((i) => i.status === 'accepted'), 'the invite ledger round-trips')
+  assert.equal(reborn.myInviteReceipt(inv.id, joiner.userId)?.status, 'accepted', 'private receipt truth round-trips')
   // Exactly one HOME per user, ever.
   const homes = new Map<string, number>()
   for (const m of reborn.memberships) if (m.home) homes.set(m.userId, (homes.get(m.userId) ?? 0) + 1)

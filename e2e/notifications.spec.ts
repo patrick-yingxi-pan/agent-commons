@@ -1,6 +1,7 @@
 import { test, expect, type Browser, type Page } from '@playwright/test'
 import { openSection } from './social-helpers.ts'
 import { agentBindings } from './agent-bindings.ts'
+import { agentSynopsisRow } from './agent-synopsis-row.ts'
 import { ms } from './budget.ts'
 
 /** D24 — the bell, end to end through the rendered UI: a visitor watches a shared
@@ -237,11 +238,8 @@ test('a proposal.merged bell opens the owner’s profile ON Your-proposals, focu
   // Owner: open the app, review, merge → the proposer's bell rings proposal.merged.
   await openApp(owner.page)
   await gotoSection(owner.page, 'Agents')
-  await owner.page
-    .locator('div')
-    .filter({ hasText: AGENT })
+  await agentSynopsisRow(owner.page, AGENT)
     .getByRole('button', { name: 'Review 1 proposal', exact: true })
-    .last()
     .click()
   const review = owner.page.getByRole('dialog', { name: `Proposals — ${AGENT}` })
   await review.getByRole('button', { name: 'Merge' }).click()
@@ -311,9 +309,7 @@ test('an agent.forked bell lands on the source agent’s own synopsis row in the
     .getByRole('button', { name: new RegExp(`forked your agent .*${AGENT}`) })
     .click()
 
-  const sourceSynopsis = owner.page
-    .locator('[data-resource-section="Ready agents"] [data-resource-synopsis-row]')
-    .filter({ hasText: AGENT })
+  const sourceSynopsis = agentSynopsisRow(owner.page, AGENT)
   await expect(sourceSynopsis.getByRole('button', { name: AGENT, exact: true })).toBeVisible()
   await expect(sourceSynopsis.getByText('Published · v1', { exact: true })).toBeVisible()
 

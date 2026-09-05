@@ -3,6 +3,7 @@ import { test, expect, type Browser, type Page } from '@playwright/test'
 import type { Agent, AgentChangeProposal, Identity } from '../contract/index.ts'
 import { agentProposalVerdictId } from '../server/agentProposalVerdictIdentity.ts'
 import { agentBindings } from './agent-bindings.ts'
+import { agentSynopsisRow } from './agent-synopsis-row.ts'
 import { ms } from './budget.ts'
 
 const PROPOSER_HEADERS = { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' }
@@ -41,12 +42,9 @@ async function openReview(page: Page, agent: Agent) {
   } else if (new URL(page.url()).pathname !== '/agents') {
     await page.getByRole('navigation').getByRole('button', { name: 'Agents', exact: true }).click()
   }
-  const row = page.getByRole('button', { name: agent.label, exact: true }).first()
+  const row = agentSynopsisRow(page, agent.label)
   await expect(row).toBeVisible({ timeout: ms(20_000) })
-  const review = page.locator('div')
-    .filter({ hasText: agent.label })
-    .getByRole('button', { name: 'Review 1 proposal', exact: true })
-    .last()
+  const review = row.getByRole('button', { name: 'Review 1 proposal', exact: true })
   await expect(review).toBeVisible({ timeout: ms(20_000) })
   await review.click()
   const dialog = page.getByRole('dialog', { name: `Proposals — ${agent.label}` })

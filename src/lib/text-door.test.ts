@@ -76,11 +76,6 @@ const NON_DOORS: Record<string, string[]> = {
   ],
   // The sign-in flow's own cue set; lib/authFlow owns the auth screens entire.
   'src/lib/authFlow.ts': ['AUTH_LINK_CLASS'],
-  // An org invite's Accept — a verdict ACTION paired with Decline, not a door. Its
-  // class happens to match AUTH_LINK_CLASS character for character; that is a string
-  // collision, not a shared role, and funnelling it there would couple the account
-  // menu to the auth screens.
-  'src/components/AccountMenu.tsx': ['org-invite-accept'],
 }
 
 test('every remaining hand-rolled hover-underline is a declared non-door — and still exists', () => {

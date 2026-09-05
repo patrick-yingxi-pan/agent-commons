@@ -19,10 +19,13 @@ test('cache-wide revalidation keeps data while refetching every live key', () =>
 })
 
 test('accepting an org seat widens the live world without resetting identity', () => {
-  const hooks = stripComments(read(join(ROOT, 'src', 'api', 'hooks.ts')))
-  const start = hooks.indexOf('export async function resolveMyInvite')
+  const commands = stripComments(read(join(ROOT, 'src', 'api', 'orgInviteVerdictCommands.ts')))
+  const start = commands.indexOf('export async function applyOrgInviteVerdict')
   assert.ok(start >= 0)
-  const block = hooks.slice(start, hooks.indexOf('async function authFlow', start))
-  assert.match(block, /if \(action === 'accept'\) revalidateAll\(\)/)
+  const block = commands.slice(start)
+  assert.match(block, /intent\.verdict === 'accept'/)
+  assert.match(block, /revalidateAll\(\)/)
+  assert.match(block, /else setData\(keys\.meOrgs, incoming\)/, 'an unopened cache adopts the complete authoritative roster')
+  assert.doesNotMatch(block, /setData\(keys\.meOrgs, \[membership\]\)/, 'one accepted seat cannot erase older memberships')
   assert.doesNotMatch(block, /resetAll\(/, 'a seat changes reach, not the signed-in principal')
 })
