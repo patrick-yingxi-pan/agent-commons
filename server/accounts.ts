@@ -15,7 +15,7 @@
  *  fields); `/v1/identities` lists SEEDED rows only — real accounts are never
  *  enumerable. In a real deployment an IdP replaces the credential entirely; the
  *  registry (users/tenants/memberships) is what carries over. */
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import type {
   AdminInviteRow,
   AdminTenantRow,
@@ -80,6 +80,18 @@ export interface StoredOrgInvite extends OrgInviteRow {
   orgId: string
 }
 
+/** Durable acknowledgement record for one keyed access-token mint. The raw
+ * idempotency key and bearer value never enter storage: a fixed-size digest
+ * locates the ceremony, while the token can be reconstructed from the row's
+ * stable id/creation time and the server signing secret. */
+export interface StoredApiTokenMintReceipt {
+  keyDigest: string
+  tokenId: string
+  label?: string
+  createdAt: number
+  state: 'active' | 'cancelled'
+}
+
 /** Bounds: an org's PENDING invites are capped (a queue, not a spam cannon);
  *  resolved rows are kept for the member panel's history but bounded too. */
 const MAX_PENDING_ORG_INVITES = 20
@@ -88,6 +100,16 @@ const MAX_ORG_INVITE_ROWS = 100
 /** Bearer-token registry rows per user (machine sign-ins repeat; bounded like
  *  every standing store). At the cap the oldest row is evicted = revoked. */
 const API_TOKEN_CAP = 32
+/** Cancelled mint receipts prevent a late/retried request from recreating a
+ * credential the user explicitly made safe. Active receipts are retained for
+ * as long as their registry row; only cancelled history competes for this cap. */
+const CANCELLED_API_TOKEN_MINT_RECEIPT_CAP = 128
+
+function apiTokenMintKeyDigest(userId: string, idempotencyKey: string): string {
+  return createHash('sha256')
+    .update(`api-token-mint:v1\0${userId}\0${idempotencyKey}`)
+    .digest('hex')
+}
 
 const SCRYPT_LEN = 64
 /** Burned on unknown-email logins so failure timing is uniform (see verifyPassword). */
@@ -108,6 +130,10 @@ export class AccountRegistry {
    *  on every request), so deleting a row kills the credential immediately —
    *  no blocklist, no TTL wait. Metadata only; the token value is never stored. */
   apiTokens = new Map<string, ApiToken[]>()
+  /** Keyed mint receipts, private to the credential plane. Active receipts make
+   * response-loss recovery restart-safe; cancelled tombstones make Dismiss a
+   * real safety action rather than permission to orphan a live credential. */
+  apiTokenMintReceipts = new Map<string, StoredApiTokenMintReceipt[]>()
   private userSeq = 0
   private tenantSeq = 0
   private inviteSeq = 0
@@ -147,6 +173,7 @@ export class AccountRegistry {
     this.memberships = []
     this.orgInvites = []
     this.apiTokens.clear()
+    this.apiTokenMintReceipts.clear()
     this.userSeq = 0
     this.tenantSeq = 0
     this.inviteSeq = 0
@@ -449,11 +476,104 @@ export class AccountRegistry {
    *  should have (stalest credential dies first). */
   mintApiToken(userId: string, label?: string): ApiToken {
     const rows = this.apiTokens.get(userId) ?? []
-    while (rows.length >= API_TOKEN_CAP) rows.shift()
+    while (rows.length >= API_TOKEN_CAP) {
+      const evicted = rows.shift()
+      if (evicted) this.retireApiTokenMintReceipt(userId, evicted.id)
+    }
     const row: ApiToken = { id: randomUUID(), ...(label ? { label } : {}), createdAt: Date.now() }
     rows.push(row)
     this.apiTokens.set(userId, rows)
     return row
+  }
+
+  /** Mint or replay one logical browser credential ceremony. A changed label
+   * under the same key is a conflict; a cancelled key can never mint again. */
+  mintApiTokenWithReceipt(
+    userId: string,
+    label: string | undefined,
+    idempotencyKey: string,
+  ):
+    | { kind: 'active'; row: ApiToken; created: boolean }
+    | { kind: 'cancelled'; changed?: boolean }
+    | { kind: 'conflict' } {
+    const keyDigest = apiTokenMintKeyDigest(userId, idempotencyKey)
+    const receipts = this.apiTokenMintReceipts.get(userId) ?? []
+    const receipt = receipts.find((candidate) => candidate.keyDigest === keyDigest)
+    if (receipt) {
+      if (receipt.state === 'cancelled') return { kind: 'cancelled' }
+      if ((receipt.label ?? '') !== (label ?? '')) return { kind: 'conflict' }
+      const row = (this.apiTokens.get(userId) ?? []).find((candidate) => candidate.id === receipt.tokenId)
+      if (!row) {
+        receipt.state = 'cancelled'
+        this.pruneApiTokenMintReceipts(userId, receipts)
+        return { kind: 'cancelled', changed: true }
+      }
+      return { kind: 'active', row, created: false }
+    }
+
+    const row = this.mintApiToken(userId, label)
+    receipts.push({
+      keyDigest,
+      tokenId: row.id,
+      ...(label ? { label } : {}),
+      createdAt: row.createdAt,
+      state: 'active',
+    })
+    this.apiTokenMintReceipts.set(userId, receipts)
+    this.pruneApiTokenMintReceipts(userId, receipts)
+    return { kind: 'active', row, created: true }
+  }
+
+  /** Recover the exact registry row represented by a keyed mint. Absence is
+   * distinct from cancellation so the client knows whether Retry may create. */
+  recoverApiTokenMint(
+    userId: string,
+    idempotencyKey: string,
+  ): { kind: 'active'; row: ApiToken } | { kind: 'absent' | 'cancelled'; changed?: boolean } {
+    const receipts = this.apiTokenMintReceipts.get(userId) ?? []
+    const receipt = receipts.find(
+      (candidate) => candidate.keyDigest === apiTokenMintKeyDigest(userId, idempotencyKey),
+    )
+    if (!receipt) return { kind: 'absent' }
+    if (receipt.state === 'cancelled') return { kind: 'cancelled' }
+    const row = (this.apiTokens.get(userId) ?? []).find((candidate) => candidate.id === receipt.tokenId)
+    if (row) return { kind: 'active', row }
+    receipt.state = 'cancelled'
+    this.pruneApiTokenMintReceipts(userId, receipts)
+    return { kind: 'cancelled', changed: true }
+  }
+
+  /** Cancel even an as-yet-unobserved keyed mint. The tombstone is committed
+   * before acknowledgement, so a late POST with this key cannot create access. */
+  cancelApiTokenMint(userId: string, idempotencyKey: string): boolean {
+    const keyDigest = apiTokenMintKeyDigest(userId, idempotencyKey)
+    const receipts = this.apiTokenMintReceipts.get(userId) ?? []
+    const receipt = receipts.find((candidate) => candidate.keyDigest === keyDigest)
+    if (receipt?.state === 'cancelled') {
+      const rows = this.apiTokens.get(userId)
+      const at = rows?.findIndex((candidate) => candidate.id === receipt.tokenId) ?? -1
+      if (rows && at >= 0) {
+        rows.splice(at, 1)
+        return true
+      }
+      return false
+    }
+    if (receipt) {
+      const rows = this.apiTokens.get(userId)
+      const at = rows?.findIndex((candidate) => candidate.id === receipt.tokenId) ?? -1
+      if (rows && at >= 0) rows.splice(at, 1)
+      receipt.state = 'cancelled'
+    } else {
+      receipts.push({
+        keyDigest,
+        tokenId: randomUUID(),
+        createdAt: Date.now(),
+        state: 'cancelled',
+      })
+      this.apiTokenMintReceipts.set(userId, receipts)
+    }
+    this.pruneApiTokenMintReceipts(userId, receipts)
+    return true
   }
 
   listApiTokens(userId: string): ApiToken[] {
@@ -467,7 +587,33 @@ export class AccountRegistry {
     const at = rows.findIndex((r) => r.id === tokenId)
     if (at < 0) return false
     rows.splice(at, 1)
+    this.retireApiTokenMintReceipt(userId, tokenId)
     return true
+  }
+
+  private retireApiTokenMintReceipt(userId: string, tokenId: string): void {
+    const receipts = this.apiTokenMintReceipts.get(userId)
+    const receipt = receipts?.find(
+      (candidate) => candidate.tokenId === tokenId && candidate.state === 'active',
+    )
+    if (!receipts || !receipt) return
+    receipt.state = 'cancelled'
+    this.pruneApiTokenMintReceipts(userId, receipts)
+  }
+
+  private pruneApiTokenMintReceipts(
+    userId: string,
+    receipts: StoredApiTokenMintReceipt[],
+  ): void {
+    let cancelled = receipts.filter((receipt) => receipt.state === 'cancelled').length
+    while (cancelled > CANCELLED_API_TOKEN_MINT_RECEIPT_CAP) {
+      const at = receipts.findIndex((receipt) => receipt.state === 'cancelled')
+      if (at < 0) break
+      receipts.splice(at, 1)
+      cancelled -= 1
+    }
+    if (receipts.length === 0) this.apiTokenMintReceipts.delete(userId)
+    else this.apiTokenMintReceipts.set(userId, receipts)
   }
 
   /** Is this jti-carrying credential still live? (Registry row = authority.) */
@@ -528,6 +674,7 @@ export class AccountRegistry {
     delete u.passwordSalt
     u.deactivated = true
     this.apiTokens.delete(userId)
+    this.apiTokenMintReceipts.delete(userId)
     return 'ok'
   }
 
@@ -539,6 +686,7 @@ export class AccountRegistry {
     memberships: Membership[]
     orgInvites: StoredOrgInvite[]
     apiTokens: [string, ApiToken[]][]
+    apiTokenMintReceipts: [string, StoredApiTokenMintReceipt[]][]
     seq: { user: number; tenant: number; orgInvite: number }
   } {
     return {
@@ -547,6 +695,7 @@ export class AccountRegistry {
       memberships: this.memberships,
       orgInvites: this.orgInvites,
       apiTokens: [...this.apiTokens.entries()],
+      apiTokenMintReceipts: [...this.apiTokenMintReceipts.entries()],
       seq: { user: this.userSeq, tenant: this.tenantSeq, orgInvite: this.inviteSeq },
     }
   }
@@ -557,6 +706,7 @@ export class AccountRegistry {
     memberships?: Membership[]
     orgInvites?: StoredOrgInvite[]
     apiTokens?: [string, ApiToken[]][]
+    apiTokenMintReceipts?: [string, StoredApiTokenMintReceipt[]][]
     seq?: { user?: number; tenant?: number; orgInvite?: number }
   }, options: { demoSeeds?: boolean; localSeed?: boolean } = {}): void {
     // Replace wholesale when the snapshot carries the slices, then re-ensure the
@@ -611,6 +761,11 @@ export class AccountRegistry {
     // absent from the snapshot stays revoked; a pre-field snapshot loads clean).
     this.apiTokens.clear()
     for (const [userId, rows] of s.apiTokens ?? []) this.apiTokens.set(userId, rows)
+    this.apiTokenMintReceipts.clear()
+    for (const [userId, receipts] of s.apiTokenMintReceipts ?? []) {
+      this.apiTokenMintReceipts.set(userId, receipts)
+      this.pruneApiTokenMintReceipts(userId, receipts)
+    }
     this.userSeq = Math.max(this.userSeq, s.seq?.user ?? 0)
     this.tenantSeq = Math.max(this.tenantSeq, s.seq?.tenant ?? 0)
     this.inviteSeq = Math.max(this.inviteSeq, s.seq?.orgInvite ?? 0)

@@ -2544,6 +2544,7 @@ function snapshot(): PersistedState {
     memberships: persistedAccounts.memberships,
     orgInvites: persistedAccounts.orgInvites, // FWD-6 — the consent-gated org door
     apiTokens: persistedAccounts.apiTokens, // bearer-token registry (revocation survives restart)
+    apiTokenMintReceipts: persistedAccounts.apiTokenMintReceipts, // keyed mint recovery/tombstones; never bearer values
 
     seq: {
       session: sessionSeq,
@@ -2631,6 +2632,7 @@ function cleanFirstBootState(): PersistedState {
       )
     : []
   clean.apiTokens = []
+  clean.apiTokenMintReceipts = []
   clean.orgInvites = []
   clean.seq = {
     session: 0,
@@ -3071,6 +3073,7 @@ function rehydrate(s: PersistedState): void {
       memberships: s.memberships,
       orgInvites: s.orgInvites,
       apiTokens: s.apiTokens,
+      apiTokenMintReceipts: s.apiTokenMintReceipts,
       seq: { user: s.seq.user, tenant: s.seq.tenant, orgInvite: s.seq.orgInvite },
     },
     { demoSeeds: demoWorld, localSeed: demoWorld || NATIVE },

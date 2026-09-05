@@ -456,6 +456,13 @@ export interface TokenMintRequest {
   label?: string
 }
 
+/** Result of the authenticated recovery read for a keyed token mint. The
+ * bearer value is returned only while that exact receipt still represents a
+ * live registry row; absence and explicit cancellation remain distinct. */
+export type TokenMintRecovery =
+  | { state: 'active'; session: BearerSession }
+  | { state: 'absent' | 'cancelled' }
+
 /** One minted bearer credential's REGISTRY row (`GET /v1/auth/tokens`) —
  *  metadata only, never the token value (that is shown exactly once, at mint).
  *  The registry is the revocation authority: deleting the row kills the token

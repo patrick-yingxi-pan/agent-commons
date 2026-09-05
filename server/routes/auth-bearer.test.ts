@@ -6,7 +6,7 @@
  *  one policy, two transports — this suite locks both halves. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
 
 const login = (body: Record<string, unknown>) => call('POST', '/auth/login', body)
 
@@ -79,6 +79,57 @@ test('POST /auth/token mints a bearer for the CURRENT verified session only (the
   assert.equal(minted.json.identity.user.id, 'user-ada')
   const me = await call('GET', '/me', undefined, { authorization: `Bearer ${minted.json.token}` })
   assert.equal(me.json.via, 'session', 'the minted token IS the session credential')
+})
+
+test('a keyed token mint replays the exact credential after route-cache loss and rejects drift', async () => {
+  const session = await login({ email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' })
+  const key = `mint-recovery-${Date.now()}`
+  const auth = { authorization: `Bearer ${session.json.token}`, 'idempotency-key': key }
+  const first = await call('POST', '/auth/token', { label: 'recoverable MCP' }, auth)
+  assert.equal(first.status, 200)
+  const replay = await callFresh('POST', '/auth/token', { label: 'recoverable MCP' }, auth)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.tokenId, first.json.tokenId)
+  assert.equal(replay.json.token, first.json.token, 'stable persisted iat reconstructs the exact bearer value')
+
+  const recovered = await callFresh('GET', '/auth/token', undefined, auth)
+  assert.equal(recovered.status, 200)
+  assert.equal(recovered.json.state, 'active')
+  assert.equal(recovered.json.session.token, first.json.token)
+  const drift = await callFresh('POST', '/auth/token', { label: 'different MCP' }, auth)
+  assert.equal(drift.status, 409)
+
+  const list = await call('GET', '/auth/tokens', undefined, { authorization: `Bearer ${session.json.token}` })
+  assert.equal(list.json.filter((row: { id: string }) => row.id === first.json.tokenId).length, 1)
+})
+
+test('token mint cancellation makes ambiguous creation safe and cannot be replayed into access', async () => {
+  const session = await login({ email: 'grace@acme.example', password: 'grace-demo-password', transport: 'bearer' })
+  const sessionAuth = { authorization: `Bearer ${session.json.token}` }
+
+  const beforeKey = `mint-cancel-before-${Date.now()}`
+  const beforeAuth = { ...sessionAuth, 'idempotency-key': beforeKey }
+  assert.equal((await call('DELETE', '/auth/token', undefined, beforeAuth)).status, 200)
+  assert.equal((await callFresh('POST', '/auth/token', { label: 'too late' }, beforeAuth)).status, 409)
+  assert.equal((await callFresh('GET', '/auth/token', undefined, beforeAuth)).json.state, 'cancelled')
+
+  const afterKey = `mint-cancel-after-${Date.now()}`
+  const afterAuth = { ...sessionAuth, 'idempotency-key': afterKey }
+  const minted = await call('POST', '/auth/token', { label: 'uncertain' }, afterAuth)
+  assert.equal(minted.status, 200)
+  const victim = { authorization: `Bearer ${minted.json.token}` }
+  assert.equal((await call('GET', '/me', undefined, victim)).json.via, 'session')
+  assert.equal((await callFresh('DELETE', '/auth/token', undefined, afterAuth)).status, 200)
+  assert.notEqual((await call('GET', '/me', undefined, victim)).json.via, 'session')
+  assert.equal((await callFresh('POST', '/auth/token', { label: 'uncertain' }, afterAuth)).status, 409)
+})
+
+test('token mint recovery and cancellation require a bounded logical key', async () => {
+  const session = await login({ email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' })
+  const auth = { authorization: `Bearer ${session.json.token}` }
+  assert.equal((await call('GET', '/auth/token', undefined, auth)).status, 400)
+  assert.equal((await call('DELETE', '/auth/token', undefined, auth)).status, 400)
+  assert.equal((await call('POST', '/auth/token', {}, { ...auth, 'idempotency-key': 'x'.repeat(201) })).status, 400)
 })
 
 test('every bearer mint is registry-backed: tokenId in the response, metadata (never the value) in GET /auth/tokens', async () => {

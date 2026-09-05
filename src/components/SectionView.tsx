@@ -254,7 +254,6 @@ import {
   useWatchState,
   reserveSubGoal,
   probePrompt,
-  mintApiToken,
   useApiTokens,
   API_BASE,
   useAgents,
@@ -442,6 +441,14 @@ import {
   isDelegationRevocationHeld,
   useDelegationRevocationStatus,
 } from '../controller/delegationRevocationMutations.ts'
+import {
+  apiTokenMintReveal,
+  clearApiTokenMintReveal,
+  enqueueApiTokenMint,
+  heldApiTokenMint,
+  resumeApiTokenMint,
+  useApiTokenMintStatus,
+} from '../controller/apiTokenMintMutations.ts'
 import {
   enqueueApiTokenRevocation,
   heldApiTokenRevocations,
@@ -8211,25 +8218,21 @@ function McpAccessCard() {
   const identityKey = me.data
     ? `${me.data.user.id}:${me.data.tenant.id}:${me.data.via ?? 'unsigned'}`
     : null
-  const identityKeyRef = useRef(identityKey)
-  identityKeyRef.current = identityKey
   const tokens = useApiTokens(signedIn)
+  const tokenMint = useApiTokenMintStatus()
   const tokenRevocation = useApiTokenRevocationStatus()
-  const [minted, setMinted] = useState<{ token: string; tokenId?: string; identityKey: string } | null>(null)
   const [label, setLabel] = useState('')
   const [core, setCore] = useState(true)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // A token is a one-time credential reveal, not account-agnostic component
-  // state. Hide it synchronously when identity changes, clear the remaining
-  // draft state after commit, and fence a slow mint response from the old
-  // principal before it can paint in the new account.
-  const visibleMinted = minted?.identityKey === identityKey ? minted : null
+  const [mintRecoveryIdentity, setMintRecoveryIdentity] = useState<string | null>(null)
+  const mintRecoveryChecked = mintRecoveryIdentity === identityKey
+  const mintHeld = heldApiTokenMint(identityKey)
+  const visibleMinted = apiTokenMintReveal(identityKey)?.session ?? null
+  // The controller owns the sensitive reveal and frozen request across page
+  // navigation. Component-local state is only an unsubmitted label draft.
   useEffect(() => {
-    setMinted(null)
     setLabel('')
-    setBusy(false)
-    setError(null)
+    if (identityKey) resumeApiTokenMint(identityKey)
+    setMintRecoveryIdentity(identityKey)
   }, [identityKey])
   // The externally dialable endpoint, derived from API_BASE like the relay
   // panel's URLs — right in EVERY deploy shape (dev's Vite proxy forwards
@@ -8240,23 +8243,12 @@ function McpAccessCard() {
   // choice for the connecting client (a model's tool context stays small);
   // every operation stays callable by name on either URL (INV-11).
   const mcpUrl = core ? `${baseUrl}?toolset=core` : baseUrl
-  const mint = async () => {
-    const requestedFor = identityKey
-    if (!requestedFor) return
-    setBusy(true)
-    setError(null)
-    try {
-      const session = await mintApiToken(label.trim() || undefined)
-      if (identityKeyRef.current !== requestedFor) return
-      setMinted({ token: session.token, tokenId: session.tokenId, identityKey: requestedFor })
-      setLabel('')
-    } catch (e) {
-      if (identityKeyRef.current === requestedFor) {
-        setError(e instanceof Error ? e.message : 'Could not mint a token.')
-      }
-    } finally {
-      if (identityKeyRef.current === requestedFor) setBusy(false)
-    }
+  const mint = () => {
+    if (!identityKey || mintHeld) return
+    const frozenLabel = label.trim() || undefined
+    void enqueueApiTokenMint({ identityKey, label: frozenLabel }).then((outcome) => {
+      if (outcome === 'applied') setLabel('')
+    })
   }
   // Ready-to-paste client wiring (the generic `mcpServers` shape MCP clients
   // share — deliberately no harness-specific install recipe: that design
@@ -8333,23 +8325,23 @@ function McpAccessCard() {
           <div className="flex flex-wrap items-center gap-2.5">
             <input
               type="text"
-              value={label}
+              value={mintHeld?.label ?? label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder="Token label (optional — e.g. laptop MCP)"
               maxLength={80}
-              disabled={!signedIn}
+              disabled={!signedIn || !!mintHeld || !mintRecoveryChecked}
               className="min-w-0 flex-1 rounded-md border border-line bg-panel-2/30 px-2.5 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-co disabled:opacity-50"
             />
             <button
               onClick={mint}
-              disabled={busy || !signedIn}
+              disabled={!!mintHeld || !signedIn || !mintRecoveryChecked}
               className={`flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px] disabled:opacity-50`}
             >
               <KeyRound size={13} />
-              Mint access token
+              {mintHeld ? 'Securing token…' : 'Mint access token'}
             </button>
             {!signedIn && <span className="text-[11px] text-ink-faint">Sign in to mint — a token is minted from a verified session.</span>}
-            {error && <span className="text-[11px] text-danger-strong">{error}</span>}
+            {mintHeld && tokenMint.error && <span className="text-[11px] text-danger-strong">{tokenMint.error}</span>}
           </div>
         )}
         {signedIn && tokenRows.length > 0 && (
@@ -8382,7 +8374,7 @@ function McpAccessCard() {
                         if (outcome !== 'applied') return
                         // A reveal remains copyable until exact server truth
                         // proves its registry row gone, then retires with it.
-                        setMinted((m) => (m?.identityKey === identityKey && m.tokenId === t.id ? null : m))
+                        clearApiTokenMintReveal(t.id)
                       })
                     }}
                     disabled={revoking}

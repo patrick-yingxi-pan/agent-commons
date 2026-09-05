@@ -8,17 +8,23 @@ export function RevisionedMutationNotice({
   kind,
   mutation,
   pendingLabel,
+  discardLabel = 'Dismiss',
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'tool-activity-decision' | 'relation-action-decision' | 'api-token-revoke' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-fork' | 'agent-import' | 'agent-delete' | 'agent-proposal-create' | 'agent-proposal-comment-create' | 'agent-proposal-verdict' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'delegation-revoke' | 'contribution-create' | 'contribution-land' | 'contribution-effect' | 'contribution-crystallization' | 'contribution-envelope-approval' | 'contribution-envelope-proposal' | 'contribution-comment-create' | 'contribution-review' | 'contribution-require-review' | 'open-work-create' | 'work-item-comment-create' | 'work-item-retract' | 'subgoal-release' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
+  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'tool-activity-decision' | 'relation-action-decision' | 'api-token-mint' | 'api-token-revoke' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-fork' | 'agent-import' | 'agent-delete' | 'agent-proposal-create' | 'agent-proposal-comment-create' | 'agent-proposal-verdict' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'delegation-revoke' | 'contribution-create' | 'contribution-land' | 'contribution-effect' | 'contribution-crystallization' | 'contribution-envelope-approval' | 'contribution-envelope-proposal' | 'contribution-comment-create' | 'contribution-review' | 'contribution-require-review' | 'open-work-create' | 'work-item-comment-create' | 'work-item-retract' | 'subgoal-release' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
   mutation: RevisionedMutationStatus
   pendingLabel: string
+  discardLabel?: string
   onRetry: () => void
   onDiscard: () => void
 }) {
   if (!mutation.busy && !mutation.error) return null
   const phase = mutation.error ? 'failed' : 'pending'
+  const dismissAction = { label: 'Dismiss', icon: <X size={12} />, onClick: onDiscard }
+  const discardAction = discardLabel === 'Dismiss'
+    ? dismissAction
+    : { ...dismissAction, label: discardLabel }
   return (
     <div
       data-revisioned-mutation={kind}
@@ -29,6 +35,7 @@ export function RevisionedMutationNotice({
       data-session-fork={kind === 'session-fork' ? phase : undefined}
       data-tool-activity-decision={kind === 'tool-activity-decision' ? phase : undefined}
       data-relation-action-decision={kind === 'relation-action-decision' ? phase : undefined}
+      data-api-token-mint={kind === 'api-token-mint' ? phase : undefined}
       data-api-token-revocation={kind === 'api-token-revoke' ? phase : undefined}
       data-schedule-mutation={kind === 'routine' ? phase : undefined}
       data-schedule-creation={kind === 'routine-create' ? phase : undefined}
@@ -89,11 +96,11 @@ export function RevisionedMutationNotice({
           action={
             mutation.retryable
               ? { label: 'Retry', icon: <RotateCcw size={12} />, onClick: onRetry }
-              : { label: 'Dismiss', icon: <X size={12} />, onClick: onDiscard }
+              : discardAction
           }
           secondaryAction={
             mutation.retryable
-              ? { label: 'Dismiss', icon: <X size={12} />, onClick: onDiscard }
+              ? discardAction
               : undefined
           }
         />

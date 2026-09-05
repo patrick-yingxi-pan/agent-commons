@@ -132,7 +132,10 @@ server"** panel always shows the endpoint and a copy-ready `mcpServers` JSON
 block. On desktop the block needs no credential. On hosted deployments the
 panel mints an optionally labeled access token for the signed-in user
 (`POST /auth/token`, strictly session-verified; shown once) and wires it into
-the block. This is the generic shape MCP clients accept; the UI deliberately
+the block. First-party mints keep one logical key and label across navigation:
+`GET /auth/token` recovers the exact same signed value after response loss,
+while `DELETE /auth/token` cancels the request by retiring any represented row
+and persisting a non-resurrecting tombstone. This is the generic shape MCP clients accept; the UI deliberately
 prescribes no harness-specific install command (the design lesson is locked by
 `server/routes/connector-serve.test.ts`).
 
@@ -142,7 +145,13 @@ an `ApiToken` row, `server/accounts.ts`): `GET /auth/tokens` lists your rows
 — the registry, not the signature, keeps a token alive, so revocation is
 immediate. The panel lists your active tokens with one-click revoke. Rows are
 capped per user (oldest evicted = revoked); rows persist, so revocation
-survives a restart.
+survives a restart. Keyed first-party mint receipts persist only a bounded
+per-account key digest and stable row metadata—never the raw logical key or
+bearer value—so exact recovery also survives restart. The browser separately
+retains a bounded account/label/opaque-key coordinate until the ceremony
+settles, allowing reload or a temporary account switch to resume with a read
+before any write; it never stores the bearer. Cancellation, ordinary
+revocation, cap eviction, and account deactivation retire that recovery path.
 
 **The core toolset:** connecting with **`?toolset=core`** on the endpoint URL
 narrows `tools/list` to a curated ~25-tool everyday subset (sessions +

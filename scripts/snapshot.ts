@@ -603,7 +603,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
   // ── The bearer-token registry (INV-11 / PORT-9) ── one minted row, so the
   // `apiTokens` slice round-trips (revocation state must survive a restart).
   const { accounts } = await import('../server/accounts.ts')
-  accounts.mintApiToken('user-ada', 'playground token')
+  accounts.mintApiTokenWithReceipt('user-ada', 'playground token', 'playground-token-mint')
   store.accountsMutated()
   const watchedItem = store.postOpenSubGoal(PROJECT_ID, { subGoal: 'playground-watched-item', type: 'charge', target: 'budget:playground' }, store.defaultTenantId(), builder)
   store.commentOnOpenSubGoal(

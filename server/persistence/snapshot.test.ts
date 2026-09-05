@@ -494,6 +494,17 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'mintApiToken → apiTokens (the bearer-token registry, PORT-9)',
   )
   assert.ok(
+    s.apiTokenMintReceipts?.some(([userId, rows]) =>
+      userId === 'user-ada'
+      && rows.some((receipt) => receipt.state === 'active' && receipt.keyDigest.length === 64)),
+    'mintApiTokenWithReceipt → apiTokenMintReceipts (restart-safe secret recovery, PERSIST-20)',
+  )
+  assert.equal(
+    JSON.stringify(s.apiTokenMintReceipts).includes('playground-token-mint'),
+    false,
+    'raw token-mint idempotency keys never enter the portable snapshot',
+  )
+  assert.ok(
     // The BODY's content too, not just the key: an overlay entry holding the
     // unedited seed text would satisfy a key-only assertion while proving the
     // mutator never ran (the `watches` key-shape lesson, applied here).

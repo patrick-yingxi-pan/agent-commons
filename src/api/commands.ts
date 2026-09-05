@@ -1111,17 +1111,6 @@ export async function deleteSession(
   invalidate(keys.session(id))
 }
 
-/** Mint a bearer credential for the current verified session — the MCP connect
- *  panel's one click (access-parity INV-11: the same signed token the cookie
- *  carries, delivered for a machine caller to present as `Authorization:
- *  Bearer`). Shown once by the caller; the REGISTRY row (metadata) is what the
- *  token list shows, so that key refreshes. */
-export async function mintApiToken(label?: string): Promise<import('../types').BearerSession> {
-  const minted = await apiPost<import('../types').BearerSession>(paths.authToken, label ? { label } : {})
-  invalidate(keys.apiTokens)
-  return minted
-}
-
 /** Compact a session's context (MODEL-32) — server-owned; the selected provider
  *  prepares a continuation brief and the backend archives older originals only after
  *  compare-before-commit. Returns the bounded active session; invalidates that session,

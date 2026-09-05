@@ -42,7 +42,13 @@ import type {
   WorkItemComment,
 } from '../../contract/index.ts'
 import type { ProviderConfig } from '../data/providers.ts'
-import type { AccountUser, AccountTenant, Membership, StoredOrgInvite } from '../accounts.ts'
+import type {
+  AccountUser,
+  AccountTenant,
+  Membership,
+  StoredApiTokenMintReceipt,
+  StoredOrgInvite,
+} from '../accounts.ts'
 import type { InitialWorld } from '../initialWorld.ts'
 import { join } from 'node:path'
 
@@ -415,6 +421,10 @@ export interface PersistedState {
    *  `ApiToken`), keyed by userId. Additive-optional like every account slice;
    *  revocation must survive a restart, so the rows persist with the accounts. */
   apiTokens?: [string, ApiToken[]][]
+  /** Restart-safe keyed mint acknowledgement without persisted bearer values.
+   * Active receipts reconstruct one exact token; cancelled receipts prevent a
+   * late Retry from recreating access the user explicitly dismissed. */
+  apiTokenMintReceipts?: [string, StoredApiTokenMintReceipt[]][]
   /** Org invitations (FWD-6 O-D3) — email-keyed, existence-hidden; the pending
    *  ones are what an invitee's `GET /me/invites` resolves lazily. Additive-
    *  optional like every account slice. */
@@ -511,6 +521,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   accountTenants: 'mapEntries',
   memberships: 'array',
   apiTokens: 'mapEntries',
+  apiTokenMintReceipts: 'mapEntries',
   orgInvites: 'array',
   seq: 'singleton',
 }

@@ -85,7 +85,7 @@ async function request<T>(method: string, path: string, body?: unknown, options:
   return json as T
 }
 
-export const apiGet = <T>(path: string) => request<T>('GET', path)
+export const apiGet = <T>(path: string, options?: ApiMutationOptions) => request<T>('GET', path, undefined, options)
 export const apiPost = <T>(path: string, body?: unknown, options?: ApiMutationOptions) => request<T>('POST', path, body, options)
 export const apiPatch = <T>(path: string, body?: unknown, options?: ApiMutationOptions) => request<T>('PATCH', path, body, options)
 export const apiDelete = <T>(path: string, body?: unknown, options?: ApiMutationOptions) => request<T>('DELETE', path, body, options)

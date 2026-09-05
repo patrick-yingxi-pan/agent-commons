@@ -58,6 +58,8 @@ import type {
   UpdateSessionPreferencesRequest,
   UpdateSessionContextStateRequest,
   OpsSummary,
+  TokenMintRecovery,
+  TokenMintRequest,
 } from '../../contract/index.ts'
 import { CONTEXT_TYPE_IDS, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
@@ -687,20 +689,90 @@ export function buildRouter(): Router {
   // user; the same signed token a bearer login returns). STRICTLY
   // session-verified: the dev header seam and the default principal never
   // proved a credential, so they must not mint one.
-  r.uiRemoteMcpFormPost('/auth/token', 'one-time bearer credential minting is authentication ceremony, not a workspace capability', async ({ req, res, body }) => {
+  const verifiedTokenMintIdentity = (req: IncomingMessage, res: ServerResponse) => {
     const me = store.identity(req.headers)
     if (me.via !== 'session') {
-      return sendError(res, 'unauthorized', 'Sign in first — a token is minted from a verified session.')
+      sendError(res, 'unauthorized', 'Sign in first — a token is minted from a verified session.')
+      return null
     }
-    const { label } = (await body<import('../../contract/index.ts').TokenMintRequest>()) ?? {}
+    return me
+  }
+  const tokenMintKey = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    required: boolean,
+  ): string | null | undefined => {
+    const key = headerValue(req.headers, 'idempotency-key')
+    if (!key) {
+      if (required) sendError(res, 'bad_request', 'Idempotency-Key is required for token mint recovery or cancellation.')
+      return required ? null : undefined
+    }
+    if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      sendError(res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+      return null
+    }
+    return key
+  }
+  const tokenMintSession = (
+    me: ReturnType<typeof store.identity>,
+    row: import('../../contract/index.ts').ApiToken,
+  ): BearerSession => ({
+    token: signSession({ userId: me.user.id, tenantId: me.tenant.id, iat: row.createdAt, jti: row.id }),
+    identity: me,
+    tokenId: row.id,
+  })
+
+  r.uiRemoteMcpFormPost('/auth/token', 'one-time bearer credential minting is authentication ceremony, not a workspace capability', async ({ req, res, body }) => {
+    const me = verifiedTokenMintIdentity(req, res)
+    if (!me) return
+    const key = tokenMintKey(req, res, false)
+    if (key === null) return
+    const { label } = (await body<TokenMintRequest>()) ?? {}
     if (label !== undefined && (typeof label !== 'string' || label.length > 80)) {
       return sendError(res, 'bad_request', 'label must be a string of at most 80 characters')
     }
-    const row = accounts.mintApiToken(me.user.id, label?.trim() || undefined)
-    store.accountsMutated()
-    const token = signSession({ userId: me.user.id, tenantId: me.tenant.id, iat: Date.now(), jti: row.id })
-    const session: BearerSession = { token, identity: me, tokenId: row.id }
-    sendJson(res, session)
+    const normalizedLabel = label?.trim() || undefined
+    if (!key) {
+      const row = accounts.mintApiToken(me.user.id, normalizedLabel)
+      store.accountsMutated()
+      return sendJson(res, tokenMintSession(me, row))
+    }
+    const result = accounts.mintApiTokenWithReceipt(me.user.id, normalizedLabel, key)
+    if (result.kind === 'conflict') {
+      return sendError(res, 'conflict', 'This token request key is already bound to a different label.')
+    }
+    if (result.kind === 'cancelled') {
+      if (result.changed) store.accountsMutated()
+      return sendError(res, 'conflict', 'This token request was cancelled and cannot create access.')
+    }
+    if (result.created) store.accountsMutated()
+    sendJson(res, tokenMintSession(me, result.row))
+  })
+  // A lost mint response is recoverable without another creation POST: the
+  // receipt yields the same deterministic signature from persisted metadata.
+  // DELETE is the honest Dismiss — it writes a tombstone first and revokes any
+  // represented row, so even a late POST cannot orphan live access.
+  r.uiFormGet('/auth/token', 'one-time bearer credential recovery is authentication ceremony', ({ req, res }) => {
+    const me = verifiedTokenMintIdentity(req, res)
+    if (!me) return
+    const key = tokenMintKey(req, res, true)
+    if (!key) return
+    const result = accounts.recoverApiTokenMint(me.user.id, key)
+    if (result.kind === 'active') {
+      const recovery: TokenMintRecovery = { state: 'active', session: tokenMintSession(me, result.row) }
+      return sendJson(res, recovery)
+    }
+    if (result.changed) store.accountsMutated()
+    const recovery: TokenMintRecovery = { state: result.kind }
+    sendJson(res, recovery)
+  })
+  r.uiFormDelete('/auth/token', 'one-time bearer credential cancellation is authentication ceremony', ({ req, res }) => {
+    const me = verifiedTokenMintIdentity(req, res)
+    if (!me) return
+    const key = tokenMintKey(req, res, true)
+    if (!key) return
+    if (accounts.cancelApiTokenMint(me.user.id, key)) store.accountsMutated()
+    sendJson(res, { ok: true })
   })
   // The minted-token REGISTRY (metadata only — the token value is shown once,
   // at mint): list your rows, revoke one by id. The registry is the revocation
