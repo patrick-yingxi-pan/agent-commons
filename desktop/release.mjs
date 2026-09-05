@@ -101,9 +101,9 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
   await verifyBundleIdentity(plan.appPath, plan.executablePath, plan.bundleIdentity)
   await verifyApp(plan.appPath)
 
-  // The public version is immutable. Build and test in an isolated staging
-  // directory, then publish with exclusive copies so a failed or concurrent
-  // run cannot overwrite the last known artifact.
+  // A native candidate is immutable. Build and test in an isolated staging
+  // directory, then store it with exclusive copies. The pair finalizer is the
+  // only operation that promotes candidates into the public release directory.
   const staging = await mkdtemp(join(tmpdir(), 'agent-commons-direct-release-'))
   const stagedArchive = join(staging, plan.archiveName)
   const stagedChecksum = join(staging, `${plan.archiveName}.sha256`)
@@ -151,9 +151,9 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
   } finally {
     await rm(staging, { recursive: true, force: true }).catch(() => {})
   }
-  console.log(`[desktop-release] ${plan.archivePath}`)
-  console.log(`[desktop-release] ${plan.checksumPath}`)
-  console.log(`[desktop-release] ${plan.receiptPath}`)
+  console.log(`[desktop-release-candidate] ${plan.archivePath}`)
+  console.log(`[desktop-release-candidate] ${plan.checksumPath}`)
+  console.log(`[desktop-release-candidate] ${plan.receiptPath}`)
   return plan
 }
 

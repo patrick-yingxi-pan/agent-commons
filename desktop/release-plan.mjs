@@ -1,4 +1,5 @@
 import { basename, dirname, join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import { DESKTOP_BUNDLE_ID, DESKTOP_PRODUCT_NAME } from './packager.config.mjs'
 
 export const DIRECT_DOWNLOAD_ENV = Object.freeze({
@@ -7,8 +8,35 @@ export const DIRECT_DOWNLOAD_ENV = Object.freeze({
   keychain: 'APPLE_KEYCHAIN',
 })
 
-const SUPPORTED_ARCHES = new Set(['arm64', 'x64'])
+export const DIRECT_DOWNLOAD_ARCHITECTURES = Object.freeze(['arm64', 'x64'])
+export const DIRECT_DOWNLOAD_ARCHITECTURE_LABELS = Object.freeze({
+  arm64: 'Apple Silicon',
+  x64: 'Intel',
+})
+
+const SUPPORTED_ARCHES = new Set(DIRECT_DOWNLOAD_ARCHITECTURES)
 const SAFE_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/
+
+function assertSafeVersion(version, subject = 'Direct macOS release') {
+  if (!SAFE_VERSION.test(version ?? '')) throw new Error(`${subject} requires a safe semantic package version.`)
+}
+
+function assertSupportedArchitecture(architecture, subject = 'Direct macOS release') {
+  if (!SUPPORTED_ARCHES.has(architecture)) {
+    throw new Error(`${subject} architecture must be arm64 or x64, received ${architecture}.`)
+  }
+}
+
+function releaseArtifactNames(version, architecture) {
+  assertSafeVersion(version)
+  assertSupportedArchitecture(architecture)
+  const stem = `Agent-Commons-${version}-macos-${architecture}`
+  return {
+    archiveName: `${stem}.zip`,
+    checksumName: `${stem}.zip.sha256`,
+    receiptName: `${stem}.release.json`,
+  }
+}
 
 function required(env, key, label) {
   const value = env[key]?.trim()
@@ -39,12 +67,8 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
   if (platform !== 'darwin') {
     throw new Error('Direct signed/notarized releases must run on macOS.')
   }
-  if (!SUPPORTED_ARCHES.has(arch)) {
-    throw new Error(`Direct macOS release architecture must be arm64 or x64, received ${arch}.`)
-  }
-  if (!SAFE_VERSION.test(manifest?.version ?? '')) {
-    throw new Error('Direct macOS release requires a safe semantic package version.')
-  }
+  assertSupportedArchitecture(arch)
+  assertSafeVersion(manifest?.version)
 
   const identity = required(env, DIRECT_DOWNLOAD_ENV.signingIdentity, 'Developer ID Application certificate name')
   if (!identity.startsWith('Developer ID Application:')) {
@@ -61,10 +85,10 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
 
   const packageDirectory = join(root, 'out', `${productName}-darwin-${arch}`)
   const appPath = join(packageDirectory, `${productName}.app`)
-  const releaseDirectory = join(root, 'release')
-  const archiveName = `Agent-Commons-${manifest.version}-macos-${arch}.zip`
+  const releaseRoot = join(root, 'release')
+  const releaseDirectory = join(releaseRoot, 'candidates', manifest.version, arch)
+  const { archiveName, receiptName } = releaseArtifactNames(manifest.version, arch)
   const archivePath = join(releaseDirectory, archiveName)
-  const receiptName = `Agent-Commons-${manifest.version}-macos-${arch}.release.json`
 
   return {
     targetPlatform: 'darwin',
@@ -72,6 +96,7 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
     packageDirectory,
     appPath,
     executablePath: join(appPath, 'Contents', 'MacOS', productName),
+    releaseRoot,
     releaseDirectory,
     archiveName,
     archivePath,
@@ -97,6 +122,37 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
         ...(keychain ? { keychain } : {}),
       },
     },
+  }
+}
+
+export function directDownloadReleaseSetPlan({ root, manifest }) {
+  assertSafeVersion(manifest?.version, 'Direct macOS release set')
+  if (manifest?.productName !== DESKTOP_PRODUCT_NAME) {
+    throw new Error('Direct release set product identity must remain Agent Commons.')
+  }
+  const releaseDirectory = join(root, 'release')
+  const candidateRoot = join(releaseDirectory, 'candidates', manifest.version)
+  const manifestName = `Agent-Commons-${manifest.version}-macos.release.json`
+  return {
+    releaseDirectory,
+    candidateRoot,
+    manifestName,
+    manifestPath: join(releaseDirectory, manifestName),
+    artifacts: DIRECT_DOWNLOAD_ARCHITECTURES.map((architecture) => {
+      const names = releaseArtifactNames(manifest.version, architecture)
+      const candidateDirectory = join(candidateRoot, architecture)
+      return {
+        architecture,
+        label: DIRECT_DOWNLOAD_ARCHITECTURE_LABELS[architecture],
+        ...names,
+        candidateArchivePath: join(candidateDirectory, names.archiveName),
+        candidateChecksumPath: join(candidateDirectory, names.checksumName),
+        candidateReceiptPath: join(candidateDirectory, names.receiptName),
+        archivePath: join(releaseDirectory, names.archiveName),
+        checksumPath: join(releaseDirectory, names.checksumName),
+        receiptPath: join(releaseDirectory, names.receiptName),
+      }
+    }),
   }
 }
 
@@ -233,5 +289,80 @@ export function releaseReceiptJson({ productName, version, platform, architectur
       gatekeeper: 'accepted',
       executableSmoke: 'passed',
     },
+  }, null, 2)}\n`
+}
+
+export function validateReleaseReceipt(receipt, { version, architecture, archiveName, bytes, sha256 }) {
+  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
+    throw new Error('Direct release candidate receipt must be a JSON object.')
+  }
+  let expected
+  try {
+    expected = JSON.parse(releaseReceiptJson({
+      productName: DESKTOP_PRODUCT_NAME,
+      version,
+      platform: 'macos',
+      architecture,
+      archiveName,
+      bytes,
+      sha256,
+      bundleIdentity: receipt.bundle,
+    }))
+  } catch (error) {
+    throw new Error('Direct release candidate receipt does not match its artifact.', { cause: error })
+  }
+  if (!isDeepStrictEqual(receipt, expected)) {
+    throw new Error('Direct release candidate receipt does not match its artifact.')
+  }
+  return receipt
+}
+
+export function releaseSetJson({ productName, version, artifacts }) {
+  if (productName !== DESKTOP_PRODUCT_NAME) throw new Error('Direct release set product identity must remain Agent Commons.')
+  assertSafeVersion(version, 'Direct macOS release set')
+  if (!Array.isArray(artifacts) || artifacts.length !== DIRECT_DOWNLOAD_ARCHITECTURES.length) {
+    throw new Error('Direct macOS release set requires exactly Apple Silicon and Intel candidates.')
+  }
+  const byArchitecture = new Map()
+  for (const artifact of artifacts) {
+    assertSupportedArchitecture(artifact?.architecture, 'Direct macOS release set')
+    if (byArchitecture.has(artifact.architecture)) {
+      throw new Error('Direct macOS release set candidates must have unique architectures.')
+    }
+    const names = releaseArtifactNames(version, artifact.architecture)
+    if (
+      artifact.archiveName !== names.archiveName ||
+      artifact.checksumName !== names.checksumName ||
+      artifact.receiptName !== names.receiptName
+    ) {
+      throw new Error('Direct macOS release set candidate names must match version and architecture.')
+    }
+    if (!Number.isSafeInteger(artifact.bytes) || artifact.bytes <= 0) {
+      throw new Error('Direct macOS release set candidate requires a positive archive byte size.')
+    }
+    if (!/^[a-f0-9]{64}$/.test(artifact.sha256 ?? '')) {
+      throw new Error('Direct macOS release set candidate requires a lowercase SHA-256 digest.')
+    }
+    byArchitecture.set(artifact.architecture, artifact)
+  }
+  const ordered = DIRECT_DOWNLOAD_ARCHITECTURES.map((architecture) => byArchitecture.get(architecture))
+  if (ordered.some((artifact) => !artifact)) {
+    throw new Error('Direct macOS release set requires one Apple Silicon and one Intel candidate.')
+  }
+  return `${JSON.stringify({
+    schemaVersion: 1,
+    product: productName,
+    version,
+    platform: 'macos',
+    distribution: 'direct-download',
+    artifacts: ordered.map((artifact) => ({
+      architecture: artifact.architecture,
+      label: DIRECT_DOWNLOAD_ARCHITECTURE_LABELS[artifact.architecture],
+      file: artifact.archiveName,
+      bytes: artifact.bytes,
+      sha256: artifact.sha256,
+      checksumFile: artifact.checksumName,
+      receiptFile: artifact.receiptName,
+    })),
   }, null, 2)}\n`
 }

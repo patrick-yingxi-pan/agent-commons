@@ -56,6 +56,7 @@ export function ignoreFromPackage(path) {
       'desktop/packager.config.mjs',
       'desktop/release-plan.mjs',
       'desktop/release-publish.mjs',
+      'desktop/release-set.mjs',
       'desktop/release.mjs',
       'desktop/smoke.mjs',
     ].includes(normalized)

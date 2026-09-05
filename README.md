@@ -136,7 +136,8 @@ npm run start:web    # hosted profile (required env below)
 npm run desktop:package # build an unpacked platform application in out/
 npm run desktop:smoke   # launch that package with isolated temporary user data
 npm run desktop:verify  # package + real native startup/render/storage smoke
-npm run desktop:release:mac # signed/notarized direct-download ZIP (credential-gated)
+npm run desktop:release:mac # signed/notarized host-architecture candidate (credential-gated)
+npm run desktop:release:mac:finalize # verify and publish Apple Silicon + Intel pair
 npm run typecheck
 npm run build
 npm test             # Node behavior and repository locks
@@ -180,8 +181,9 @@ boots use explicit profiles:
   backend readiness, the built UI, and local SQLite placement; `desktop:verify`
   runs both stages. The result is a verified unpacked artifact, intentionally
   unsigned for local development.
-- `npm run desktop:release:mac` is the separate fail-closed direct-download
-  release path. It accepts only a Developer ID Application identity and a
+- `npm run desktop:release:mac` is the fail-closed candidate lane for the chosen
+  two-download macOS release. Run it once on Apple Silicon and once on Intel. It
+  accepts only a Developer ID Application identity and a
   `notarytool` Keychain profile; plaintext Apple passwords are not a supported
   input. Electron Packager signs every nested code object with hardened runtime,
   uses a repository-owned least-privilege entitlement for generic app code,
@@ -206,12 +208,26 @@ boots use explicit profiles:
   ```
 
   Set `APPLE_KEYCHAIN` only when both the certificate and notary profile live in
-  a non-default Keychain. Outputs land in ignored `release/` as
-  `Agent-Commons-<version>-macos-<arch>.zip`, its `.sha256`, and
-  `Agent-Commons-<version>-macos-<arch>.release.json`. The command builds the host
-  architecture (`arm64` or `x64`) and treats each artifact set as immutable: if
-  any output already exists, publishing refuses rather than overwrites it. Updater
-  policy remains a separate product decision.
+  a non-default Keychain. Each run writes an immutable candidate under
+  `release/candidates/<version>/<arch>/`: an
+  `Agent-Commons-<version>-macos-<arch>.zip`, its `.sha256`, and its schema-v2
+  `.release.json` receipt. Transfer the candidate directory from the other native
+  Mac into the same version tree without renaming files, then run:
+
+  ```bash
+  npm run desktop:release:mac:finalize
+  ```
+
+  Finalization requires exactly `arm64` (shown to people as **Apple Silicon**) and
+  `x64` (shown as **Intel**) for the current package version. It recomputes each
+  archive's size and SHA-256, validates the adjacent checksum and exact receipt,
+  then exclusively publishes both ZIPs, both checksums, both receipts, and
+  `Agent-Commons-<version>-macos.release.json` into `release/`. That manifest is
+  written last and is the only complete-release marker; a missing/invalid candidate
+  publishes nothing, a copy failure rolls back the new public set, and an existing
+  same-version output is never overwritten. Receipts and the pair manifest are
+  audit metadata, not substitutes for Apple signatures or an authenticated download
+  channel. Updater policy remains a separate product decision.
 - `npm run start:desktop:server` keeps the release-shaped backend available
   without Electron for diagnostics, recovery tooling, and contract-level work.
 - `npm run start:web` preserves the later hosted boundary: remote capabilities,

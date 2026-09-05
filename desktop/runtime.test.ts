@@ -190,6 +190,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/entitlements.mac.plist'), true)
   assert.equal(ignoreFromPackage('/desktop/release-plan.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release-publish.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/release-set.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
@@ -233,6 +234,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(pkg.scripts['desktop:smoke'], 'node desktop/smoke.mjs')
   assert.equal(pkg.scripts['desktop:verify'], 'npm run desktop:package && npm run desktop:smoke')
   assert.equal(pkg.scripts['desktop:release:mac'], 'node desktop/release.mjs')
+  assert.equal(pkg.scripts['desktop:release:mac:finalize'], 'node desktop/release-set.mjs')
   assert.match(pkg.scripts.test, /desktop\/\*\*\/\*\.test\.ts/)
 
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8')

@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
-import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -9,12 +10,16 @@ import {
   archiveExtractCommand,
   checksumLine,
   directDownloadReleasePlan,
+  directDownloadReleaseSetPlan,
   releaseBundleIdentityProbes,
   releaseReceiptJson,
+  releaseSetJson,
   releaseVerificationCommands,
+  validateReleaseReceipt,
   validateReleaseBundleIdentity,
 } from './release-plan.mjs'
-import { publishImmutableRelease } from './release-publish.mjs'
+import { publishImmutableRelease, publishImmutableReleaseSet } from './release-publish.mjs'
+import { finalizeMacDirectDownloadSet } from './release-set.mjs'
 
 const root = '/repo'
 const manifest = { version: '0.1.0', productName: 'Agent Commons' }
@@ -69,10 +74,12 @@ test('direct download release pins signing, Keychain notarization, and architect
   assert.equal(plan.packageDirectory, '/repo/out/Agent Commons-darwin-arm64')
   assert.equal(plan.appPath, '/repo/out/Agent Commons-darwin-arm64/Agent Commons.app')
   assert.equal(plan.archiveName, 'Agent-Commons-0.1.0-macos-arm64.zip')
-  assert.equal(plan.archivePath, '/repo/release/Agent-Commons-0.1.0-macos-arm64.zip')
+  assert.equal(plan.releaseRoot, '/repo/release')
+  assert.equal(plan.releaseDirectory, '/repo/release/candidates/0.1.0/arm64')
+  assert.equal(plan.archivePath, '/repo/release/candidates/0.1.0/arm64/Agent-Commons-0.1.0-macos-arm64.zip')
   assert.equal(plan.checksumPath, `${plan.archivePath}.sha256`)
   assert.equal(plan.receiptName, 'Agent-Commons-0.1.0-macos-arm64.release.json')
-  assert.equal(plan.receiptPath, '/repo/release/Agent-Commons-0.1.0-macos-arm64.release.json')
+  assert.equal(plan.receiptPath, '/repo/release/candidates/0.1.0/arm64/Agent-Commons-0.1.0-macos-arm64.release.json')
   assert.deepEqual(plan.bundleIdentity, {
     bundleIdentifier: 'com.agentcommons.desktop',
     displayName: 'Agent Commons',
@@ -140,6 +147,38 @@ test('release identity is read from the app and its executable, not inferred for
 
   const x64 = directDownloadReleasePlan({ root, manifest, env: validEnv, platform: 'darwin', arch: 'x64' })
   assert.deepEqual(x64.bundleIdentity.binaryArchitectures, ['x86_64'], 'Packager x64 maps to the Mach-O architecture name')
+})
+
+test('direct download release set requires separate Apple Silicon and Intel artifacts', () => {
+  const plan = directDownloadReleaseSetPlan({ root, manifest })
+  assert.equal(plan.candidateRoot, '/repo/release/candidates/0.1.0')
+  assert.equal(plan.manifestPath, '/repo/release/Agent-Commons-0.1.0-macos.release.json')
+  assert.deepEqual(plan.artifacts.map(({ architecture, label, archiveName, candidateArchivePath, archivePath }) => ({
+    architecture,
+    label,
+    archiveName,
+    candidateArchivePath,
+    archivePath,
+  })), [
+    {
+      architecture: 'arm64',
+      label: 'Apple Silicon',
+      archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+      candidateArchivePath: '/repo/release/candidates/0.1.0/arm64/Agent-Commons-0.1.0-macos-arm64.zip',
+      archivePath: '/repo/release/Agent-Commons-0.1.0-macos-arm64.zip',
+    },
+    {
+      architecture: 'x64',
+      label: 'Intel',
+      archiveName: 'Agent-Commons-0.1.0-macos-x64.zip',
+      candidateArchivePath: '/repo/release/candidates/0.1.0/x64/Agent-Commons-0.1.0-macos-x64.zip',
+      archivePath: '/repo/release/Agent-Commons-0.1.0-macos-x64.zip',
+    },
+  ])
+  assert.throws(
+    () => directDownloadReleaseSetPlan({ root, manifest: { ...manifest, version: '../next' } }),
+    /safe semantic package version/,
+  )
 })
 
 test('download archive is verified as signed, stapled, and Gatekeeper-accepted before smoke', () => {
@@ -255,6 +294,61 @@ test('release receipt binds artifact identity, size, digest, and completed verif
     }),
     /shortVersion/,
   )
+
+  const receipt = JSON.parse(json)
+  assert.equal(validateReleaseReceipt(receipt, {
+    version: '0.1.0',
+    architecture: 'arm64',
+    archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+    bytes: 12_345,
+    sha256: digest,
+  }), receipt)
+  assert.throws(
+    () => validateReleaseReceipt({ ...receipt, verification: { ...receipt.verification, executableSmoke: 'skipped' } }, {
+      version: '0.1.0',
+      architecture: 'arm64',
+      archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+      bytes: 12_345,
+      sha256: digest,
+    }),
+    /does not match its artifact/,
+  )
+})
+
+test('release-set manifest is deterministic, ordered, and incomplete pairs fail closed', () => {
+  const artifacts = [
+    {
+      architecture: 'x64',
+      archiveName: 'Agent-Commons-0.1.0-macos-x64.zip',
+      checksumName: 'Agent-Commons-0.1.0-macos-x64.zip.sha256',
+      receiptName: 'Agent-Commons-0.1.0-macos-x64.release.json',
+      bytes: 22,
+      sha256: '2'.repeat(64),
+    },
+    {
+      architecture: 'arm64',
+      archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+      checksumName: 'Agent-Commons-0.1.0-macos-arm64.zip.sha256',
+      receiptName: 'Agent-Commons-0.1.0-macos-arm64.release.json',
+      bytes: 11,
+      sha256: '1'.repeat(64),
+    },
+  ]
+  const releaseSet = JSON.parse(releaseSetJson({ productName: 'Agent Commons', version: '0.1.0', artifacts }))
+  assert.equal(releaseSet.schemaVersion, 1)
+  assert.equal(releaseSet.distribution, 'direct-download')
+  assert.deepEqual(releaseSet.artifacts.map(({ architecture, label }) => ({ architecture, label })), [
+    { architecture: 'arm64', label: 'Apple Silicon' },
+    { architecture: 'x64', label: 'Intel' },
+  ])
+  assert.throws(
+    () => releaseSetJson({ productName: 'Agent Commons', version: '0.1.0', artifacts: artifacts.slice(0, 1) }),
+    /exactly Apple Silicon and Intel/,
+  )
+  assert.throws(
+    () => releaseSetJson({ productName: 'Agent Commons', version: '0.1.0', artifacts: [artifacts[0], artifacts[0]] }),
+    /unique architectures/,
+  )
 })
 
 test('release publication is immutable and rolls back every newly created verifier', async () => {
@@ -329,6 +423,117 @@ test('release publication is immutable and rolls back every newly created verifi
   }
 })
 
+test('release-set publication writes its completion marker last and rolls back partial pairs', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'agent-commons-release-set-publish-test-'))
+  try {
+    const stagedArm = join(directory, 'staged-arm.zip')
+    const stagedIntel = join(directory, 'staged-intel.zip')
+    const stagedManifest = join(directory, 'staged-release.json')
+    await writeFile(stagedArm, 'arm')
+    await writeFile(stagedIntel, 'intel')
+    await writeFile(stagedManifest, 'complete')
+    const arm = join(directory, 'arm.zip')
+    const intel = join(directory, 'intel.zip')
+    const releaseManifest = join(directory, 'release.json')
+    const order = []
+    await publishImmutableReleaseSet({
+      artifacts: [
+        { stagedPath: stagedArm, destinationPath: arm },
+        { stagedPath: stagedIntel, destinationPath: intel },
+      ],
+      completionArtifact: { stagedPath: stagedManifest, destinationPath: releaseManifest },
+      async copy(source, destination, flags) {
+        order.push(destination)
+        await copyFile(source, destination, flags)
+      },
+    })
+    assert.deepEqual(order, [arm, intel, releaseManifest])
+
+    const failedArm = join(directory, 'failed-arm.zip')
+    const failedIntel = join(directory, 'failed-intel.zip')
+    const failedManifest = join(directory, 'failed-release.json')
+    let copies = 0
+    await assert.rejects(
+      publishImmutableReleaseSet({
+        artifacts: [
+          { stagedPath: stagedArm, destinationPath: failedArm },
+          { stagedPath: stagedIntel, destinationPath: failedIntel },
+        ],
+        completionArtifact: { stagedPath: stagedManifest, destinationPath: failedManifest },
+        async copy(source, destination) {
+          copies += 1
+          if (copies === 2) throw new Error('simulated second-architecture failure')
+          await copyFile(source, destination)
+        },
+      }),
+      /simulated second-architecture failure/,
+    )
+    assert.equal(existsSync(failedArm), false)
+    assert.equal(existsSync(failedIntel), false)
+    assert.equal(existsSync(failedManifest), false)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('release-set finalizer verifies both candidates before exposing either public ZIP', async () => {
+  const testRoot = await mkdtemp(join(tmpdir(), 'agent-commons-release-set-finalize-test-'))
+  try {
+    await writeFile(join(testRoot, 'package.json'), `${JSON.stringify(manifest)}\n`)
+    const plan = directDownloadReleaseSetPlan({ root: testRoot, manifest })
+    for (const candidate of plan.artifacts) {
+      await mkdir(join(plan.candidateRoot, candidate.architecture), { recursive: true })
+      const contents = `signed-${candidate.architecture}-archive`
+      const digest = createHash('sha256').update(contents).digest('hex')
+      await writeFile(candidate.candidateArchivePath, contents)
+      await writeFile(candidate.candidateChecksumPath, checksumLine(digest, candidate.archiveName))
+      const bundleIdentity = directDownloadReleasePlan({
+        root: testRoot,
+        manifest,
+        env: validEnv,
+        platform: 'darwin',
+        arch: candidate.architecture,
+      }).bundleIdentity
+      await writeFile(candidate.candidateReceiptPath, releaseReceiptJson({
+        productName: manifest.productName,
+        version: manifest.version,
+        platform: 'macos',
+        architecture: candidate.architecture,
+        archiveName: candidate.archiveName,
+        bytes: Buffer.byteLength(contents),
+        sha256: digest,
+        bundleIdentity,
+      }))
+    }
+    const intel = plan.artifacts.find((candidate) => candidate.architecture === 'x64')
+    assert.ok(intel)
+    await writeFile(intel.candidateChecksumPath, `${'0'.repeat(64)}  ${intel.archiveName}\n`)
+    await assert.rejects(
+      finalizeMacDirectDownloadSet({ root: testRoot }),
+      /Intel checksum does not match its archive/,
+    )
+    assert.equal(existsSync(plan.manifestPath), false)
+    assert.equal(plan.artifacts.every((candidate) => (
+      !existsSync(candidate.archivePath) && !existsSync(candidate.checksumPath) && !existsSync(candidate.receiptPath)
+    )), true)
+    const intelDigest = createHash('sha256').update(await readFile(intel.candidateArchivePath)).digest('hex')
+    await writeFile(intel.candidateChecksumPath, checksumLine(intelDigest, intel.archiveName))
+    await finalizeMacDirectDownloadSet({ root: testRoot })
+    assert.equal(existsSync(plan.manifestPath), true)
+    assert.equal(plan.artifacts.every((candidate) => (
+      existsSync(candidate.archivePath) && existsSync(candidate.checksumPath) && existsSync(candidate.receiptPath)
+    )), true)
+    const releaseSet = JSON.parse(await readFile(plan.manifestPath, 'utf8'))
+    assert.deepEqual(releaseSet.artifacts.map((artifact) => artifact.label), ['Apple Silicon', 'Intel'])
+    await assert.rejects(
+      finalizeMacDirectDownloadSet({ root: testRoot }),
+      /already has a public or partial direct-download release set/,
+    )
+  } finally {
+    await rm(testRoot, { recursive: true, force: true })
+  }
+})
+
 test('release orchestration verifies the extracted download and runs the executable smoke', () => {
   const source = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8')
   assert.match(source, /directDownloadReleasePlan/)
@@ -349,6 +554,13 @@ test('release orchestration verifies the extracted download and runs the executa
   assert.match(source, /'\/usr\/bin\/lipo'/)
   assert.match(source, /'\/usr\/bin\/plutil'/)
   assert.doesNotMatch(source, /rm\(plan\.checksumPath/)
+
+  const setSource = readFileSync(new URL('./release-set.mjs', import.meta.url), 'utf8')
+  assert.match(setSource, /for \(const candidate of plan\.artifacts\)/)
+  assert.match(setSource, /validateReleaseReceipt/)
+  assert.match(setSource, /adjacentChecksum !== checksumLine/)
+  assert.match(setSource, /publishImmutableReleaseSet/)
+  assert.match(setSource, /completionArtifact:/)
 
   const entitlements = readFileSync(new URL('./entitlements.mac.plist', import.meta.url), 'utf8')
   assert.match(entitlements, /com\.apple\.security\.cs\.allow-jit/)
