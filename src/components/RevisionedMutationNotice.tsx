@@ -11,7 +11,7 @@ export function RevisionedMutationNotice({
   onRetry,
   onDiscard,
 }: {
-  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-fork' | 'agent-import' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'contribution-create' | 'contribution-land' | 'contribution-effect' | 'contribution-crystallization' | 'contribution-envelope-approval' | 'contribution-envelope-proposal' | 'open-work-create' | 'work-item-comment-create' | 'work-item-retract' | 'subgoal-release' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
+  kind: 'conversation' | 'conversation-delete' | 'discussion-session-launch' | 'session-fork' | 'routine' | 'routine-create' | 'routine-run' | 'routine-delete' | 'dispatch-create' | 'artifact' | 'proposal' | 'agent' | 'agent-create' | 'agent-fork' | 'agent-import' | 'agent-delete' | 'provider' | 'provider-create' | 'provider-delete' | 'system-prompt' | 'system-prompt-create' | 'system-prompt-delete' | 'commission' | 'commission-create' | 'commission-delete' | 'delegation-create' | 'contribution-create' | 'contribution-land' | 'contribution-effect' | 'contribution-crystallization' | 'contribution-envelope-approval' | 'contribution-envelope-proposal' | 'contribution-comment-create' | 'open-work-create' | 'work-item-comment-create' | 'work-item-retract' | 'subgoal-release' | 'social-proposal-create' | 'saved-context' | 'saved-context-delete' | 'grant' | 'social-post'
   mutation: RevisionedMutationStatus
   pendingLabel: string
   onRetry: () => void
@@ -52,6 +52,7 @@ export function RevisionedMutationNotice({
       data-contribution-crystallization={kind === 'contribution-crystallization' ? phase : undefined}
       data-contribution-envelope-approval={kind === 'contribution-envelope-approval' ? phase : undefined}
       data-contribution-envelope-proposal={kind === 'contribution-envelope-proposal' ? phase : undefined}
+      data-contribution-comment-creation={kind === 'contribution-comment-create' ? phase : undefined}
       data-open-work-creation={kind === 'open-work-create' ? phase : undefined}
       data-work-item-comment-creation={kind === 'work-item-comment-create' ? phase : undefined}
       data-work-item-retraction={kind === 'work-item-retract' ? phase : undefined}

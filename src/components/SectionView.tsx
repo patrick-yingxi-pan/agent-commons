@@ -285,7 +285,6 @@ import {
   reportDiscussionPost,
   setDiscussionState,
   markDiscussionRead,
-  noteContribution,
   reviewContribution,
   requireContributionReview,
   useDelegations,
@@ -462,6 +461,11 @@ import {
   isContributionEnvelopeProposalHeld,
   useContributionEnvelopeProposalStatus,
 } from '../controller/contributionEnvelopeProposalMutations.ts'
+import {
+  enqueueContributionCommentCreation,
+  heldContributionCommentIntent,
+  useContributionCommentCreationStatus,
+} from '../controller/contributionCommentCreationMutations.ts'
 import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
@@ -6254,6 +6258,7 @@ function ContributionPage({
   useContributionCrystallizationStatus()
   useContributionEnvelopeApprovalStatus()
   useContributionEnvelopeProposalStatus()
+  useContributionCommentCreationStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6262,12 +6267,18 @@ function ContributionPage({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const heldComment = heldContributionCommentIntent(project.id, contributionId)
+  const commentHeld = heldComment !== null
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
   const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
   const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
   const envelopeProposalHeld = isContributionEnvelopeProposalHeld(project.id, contributionId)
   const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld
+  useEffect(() => {
+    if (!heldComment) return
+    setDraft(heldComment.body)
+  }, [heldComment])
 
   if (!c) {
     return (
@@ -6311,16 +6322,19 @@ function ContributionPage({
     c.status === 'open' && project.own !== false && (c.tier?.level === 0 || c.tier?.level === 1) && c.reviewRequired !== true
 
   const send = async () => {
-    if (busy || !draft.trim()) return
-    setBusy(true)
+    if (commentHeld || !me || !draft.trim()) return
     setError(null)
     try {
-      await noteContribution(project.id, c.id, draft.trim())
-      setDraft('')
+      const outcome = await enqueueContributionCommentCreation({
+        tenantId: me.tenant.id,
+        projectId: project.id,
+        contributionId: c.id,
+        body: draft,
+      })
+      if (outcome === 'applied') setDraft('')
+      else setError('The comment wasn’t posted. Review it and try again when ready.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not post this comment.')
-    } finally {
-      setBusy(false)
     }
   }
   const land = () => {
@@ -6600,21 +6614,27 @@ function ContributionPage({
 
         {/* The conversation continues below — after landing too (CW7: the page
             keeps accruing; a landed contribution's story includes its aftermath). */}
-        <div className="mt-4 flex items-center gap-1.5">
+        <div
+          data-contribution-comment-form
+          aria-busy={commentHeld || undefined}
+          className="mt-4 flex items-center gap-1.5"
+        >
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && void send()}
+            maxLength={CONTRIBUTION_FIELD_MAX}
+            disabled={commentHeld}
             placeholder="Add a comment…"
             aria-label={`Comment on ${c.title}`}
             className="min-w-0 flex-1 rounded-md border border-line bg-surface px-3 py-1.5 text-[13px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
           />
           <button
             onClick={() => void send()}
-            disabled={busy || !draft.trim()}
+            disabled={commentHeld || !me || !draft.trim()}
             className={`shrink-0 ${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:opacity-45`}
           >
-            Post
+            {commentHeld ? 'Posting…' : 'Post'}
           </button>
         </div>
         {error && <p className="mt-1.5 text-[12px] text-removed">{error}</p>}

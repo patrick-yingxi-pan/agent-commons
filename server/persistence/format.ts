@@ -151,6 +151,7 @@ export interface StoredContribution extends Omit<Contribution, 'events'> {
  * raw retry authority and any exact private proof; projection strips it. */
 export type StoredContributionEvent = ContributionEvent & {
   principal?: PrincipalRef
+  notedByTenant?: string
   effectByTenant?: string
   effectResult?: 'executed' | 'unapproved' | 'refused'
   crystallizedByTenant?: string

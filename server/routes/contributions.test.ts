@@ -17,6 +17,7 @@ import { contributionEffectExecutionId } from '../contributionEffectExecutionIde
 import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
+import { contributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
@@ -230,6 +231,56 @@ test('notes: any viewer, trimmed + capped, and the thread stays open AFTER landi
   assert.equal(empty.status, 400)
   const long = await call('POST', `/projects/${projectId}/contributions/${cid}/comments`, { body: 'x'.repeat(5000) }, { 'x-tenant-id': B })
   assert.equal(long.json.events.at(-1).body.length, 2000, 'per-note cap')
+})
+
+test('a keyed Contribution comment owns exact prose and replays current history beyond response-cache loss', async () => {
+  const { projectId, cid } = await arena()
+  const key = `contribution-comment-${n}`
+  const headers = { 'x-tenant-id': C, 'idempotency-key': key }
+  const expectedId = contributionCommentCreationId(C, projectId, cid, key)
+  const body = '  keep this exact review note  '
+
+  const first = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body },
+    headers,
+  )
+  assert.equal(first.status, 200)
+  const receipt = first.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'note')
+  assert.equal(receipt.body, 'keep this exact review note')
+  assert.equal(receipt.notedByTenant, undefined, 'the raw replay authority stays private')
+
+  await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, { 'x-tenant-id': A })
+  for (let i = 0; i < 99; i += 1) {
+    assert.equal(typeof store.noteContribution(projectId, cid, `later ${i}`, A, undefined), 'object')
+  }
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body },
+    headers,
+  )
+  assert.equal(replay.status, 200, 'exact durable truth precedes the now-full discussion cap')
+  assert.equal(replay.json.status, 'landed', 'replay returns the containing Contribution’s current lifecycle')
+  assert.equal(replay.json.events.at(-1).body, 'later 98', 'later timeline history is retained')
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+
+  const redirected = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'different retry prose' },
+    headers,
+  )
+  assert.equal(redirected.status, 400, 'one logical key cannot be redirected to different public prose')
+  const fresh = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'one too many' },
+    { 'x-tenant-id': C, 'idempotency-key': `${key}-fresh` },
+  )
+  assert.equal(fresh.status, 409, 'a distinct new comment still observes the cap')
 })
 
 test('the per-contribution note cap answers 409; the per-project open cap answers 409', async () => {

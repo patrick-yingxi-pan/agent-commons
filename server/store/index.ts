@@ -144,6 +144,7 @@ import { isContributionEffectExecutionId } from '../contributionEffectExecutionI
 import { isContributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { isContributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { isContributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
+import { isContributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -521,6 +522,7 @@ function envelopeProposalLinesMatch(
 function publicContributionEvent(ev: StoredContributionEvent): import('../../contract/index.ts').ContributionEvent {
   const {
     principal,
+    notedByTenant,
     effectByTenant,
     effectResult,
     crystallizedByTenant,
@@ -8123,24 +8125,74 @@ export const store = {
       return publicContribution(c, tenantId)
     })
   },
+  /** Current containing Contribution for one keyed native comment receipt. */
+  getContributionCommentCreation(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    body: string,
+    tenantId: string,
+  ): Contribution | 'invalid' | undefined {
+    if (!isContributionCommentCreationId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    const normalizedBody = body.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS)
+    if (
+      !normalizedBody ||
+      event.kind !== 'note' ||
+      event.notedByTenant !== tenantId ||
+      event.body !== normalizedBody
+    ) return 'invalid'
+    return publicContribution(contribution, tenantId)
+  },
   /** Append a note to a contribution's timeline — the flat discussion thread.
-   *  Deliberately allowed AFTER landing too: the page keeps accruing (CW7 — a
-   *  landed contribution's story includes its aftermath). */
-  noteContribution(projectId: string, cid: string, body: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'capped' | undefined {
+   * Deliberately allowed AFTER landing too: the page keeps accruing (CW7 — a
+   * landed contribution's story includes its aftermath). */
+  noteContribution(
+    projectId: string,
+    cid: string,
+    body: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): Contribution | 'capped' | 'invalid' | undefined {
+    if (options.logicalId) {
+      const represented = this.getContributionCommentCreation(
+        options.logicalId,
+        projectId,
+        cid,
+        body,
+        tenantId,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') return 'invalid'
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     if (c.events.filter((e) => e.kind === 'note').length >= MAX_CONTRIBUTION_NOTES) return 'capped'
-    c.events.push({
-      id: `cev-${(contributionSeq += 1)}`,
-      kind: 'note',
-      at: Date.now(),
-      actor: tenantName(tenantId),
-      body: body.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-      ...(principal ? { principal } : {}),
+    const storedBody = body.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS)
+    if (!storedBody) return 'invalid'
+    return commitMutationBatch(() => {
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind: 'note',
+        at: Date.now(),
+        actor: tenantName(tenantId),
+        body: storedBody,
+        ...(options.logicalId ? { notedByTenant: tenantId } : {}),
+        ...(principal ? { principal } : {}),
+      })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
     })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
   },
   /** Current Contribution for one durable native landing acknowledgement. */
   getContributionLanding(

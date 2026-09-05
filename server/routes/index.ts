@@ -114,6 +114,7 @@ import { contributionEffectExecutionId } from '../contributionEffectExecutionIde
 import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
+import { contributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2656,9 +2657,34 @@ export function buildRouter(): Router {
     }
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.noteContribution(params.id, params.cid, input.body.trim(), who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalCommentId = idempotencyKey
+      ? contributionCommentCreationId(who.tenant.id, params.id, params.cid, idempotencyKey)
+      : undefined
+    const represented = logicalCommentId
+      ? store.getContributionCommentCreation(
+          logicalCommentId,
+          params.id,
+          params.cid,
+          input.body,
+          who.tenant.id,
+        )
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This comment identity is not valid for this account, Contribution, and exact body')
+    }
+    const out = store.noteContribution(
+      params.id,
+      params.cid,
+      input.body,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalCommentId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s discussion is at its cap')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This comment body or durable identity is invalid')
     sendJson(res, out)
   })
   // The attention ledger (CW9, Phase G): behind the project wall; counts are

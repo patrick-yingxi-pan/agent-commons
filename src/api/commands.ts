@@ -961,13 +961,6 @@ export async function declineSocialProposal(
   return p
 }
 
-/** Append a note to a contribution's timeline (allowed after landing too — CW7). */
-export async function noteContribution(projectId: string, cid: string, body: string): Promise<Contribution> {
-  const c = await apiPost<Contribution>(paths.contributionComments(projectId, cid), { body })
-  invalidate(keys.contributions(projectId))
-  return c
-}
-
 /** Revoke a Delegation — the delegator's one-tap descent. */
 export async function deleteDelegation(projectId: string, did: string): Promise<void> {
   await apiDelete(paths.delegation(projectId, did))

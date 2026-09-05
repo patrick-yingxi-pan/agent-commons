@@ -348,6 +348,13 @@ test('build produces a snapshot covering every persisted slice', async () => {
   )
   assert.ok(
     s.contributions?.some((contribution) => contribution.events.some((event) =>
+      event.id === 'contribution-comment-new-000000000000000000000000' &&
+      event.body === 'Looks right — landing it.' &&
+      typeof event.notedByTenant === 'string')),
+    'acknowledgement-owned Contribution comments keep their durable receipt, exact prose, and private actor anchor',
+  )
+  assert.ok(
+    s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'contribution-effect-000000000000000000000000' &&
       typeof event.effectByTenant === 'string' &&
       event.effectResult === 'executed' &&
@@ -659,6 +666,14 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const envelopeContribution = store.listContributions('p-insights', store.defaultTenantId())
     .find((contribution) => contribution.title === 'Playground contribution — tune the digest template')
   assert.ok(envelopeContribution, 'the Contribution carrying keyed envelope work survives a boot')
+  const keyedContributionComment = envelopeContribution && store.getContributionCommentCreation(
+    'contribution-comment-new-000000000000000000000000',
+    'p-insights',
+    envelopeContribution.id,
+    'Looks right — landing it.',
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof keyedContributionComment, 'object', 'an exact keyed Contribution comment survives a real boot')
   const keyedEnvelopeProposal = envelopeContribution && store.getContributionEnvelopeProposal(
     'contribution-envelope-proposal-000000000000000000000000',
     'p-insights',
