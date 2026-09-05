@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from './index.ts'
 import { ConflictError } from '../conflict.ts'
+import { sessionCompactionId } from '../sessionCompactionIdentity.ts'
 
 const BIG = 'This is a reasonably long conversational message carrying real token weight. '.repeat(120)
 
@@ -57,6 +58,35 @@ test('re-compaction summarizes the prior brief with new older turns but never ar
   assert.equal(compacted.messages.filter((message) => message.compactedFrom != null).length, 1)
   assert.ok(!compacted.compactedMessages?.some((message) => message.compactedFrom != null))
   assert.equal(compacted.messages[0].compactedFrom, 14, 'the archived real-message count is cumulative')
+})
+
+test('keyed compaction keeps an exact append-only receipt through later summaries', () => {
+  const tenantId = `tenant-compaction-receipt-${Date.now()}`
+  const session = store.createSession('compaction receipt', tenantId)
+  append(session.id, 8, 'first')
+  const firstId = sessionCompactionId(tenantId, session.id, 'first-key')
+  const first = store.applySessionCompaction(
+    ready(session.id),
+    'First receipt-backed brief',
+    {},
+    { logicalId: firstId, tenantId },
+  )
+  assert.notEqual(first, 'invalid')
+  assert.deepEqual(first?.compactionReceiptIds, [firstId])
+
+  append(session.id, 6, 'second')
+  const secondId = sessionCompactionId(tenantId, session.id, 'second-key')
+  const second = store.applySessionCompaction(
+    ready(session.id),
+    'Second receipt-backed brief',
+    {},
+    { logicalId: secondId, tenantId },
+  )
+  assert.notEqual(second, 'invalid')
+  assert.deepEqual(second?.compactionReceiptIds, [firstId, secondId])
+  assert.equal(store.getSessionCompaction(session.id, firstId, tenantId)?.messages?.[0]?.content, 'Second receipt-backed brief')
+  assert.equal(store.getSessionCompaction(session.id, secondId, `${tenantId}-foreign`), undefined)
+  assert.equal(store.getSessionCompaction(session.id, 'not-a-receipt', tenantId), 'invalid')
 })
 
 test('a transcript change during summary generation refuses the commit without moving history', () => {

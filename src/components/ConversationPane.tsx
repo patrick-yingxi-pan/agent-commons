@@ -14,7 +14,7 @@ import { EmptyState } from './EmptyState'
 import { AtomicResourcePage } from './ResourcePage'
 import type { MainPaneNav, PaneBackOut } from './MainSplit'
 import { navLocationOfLoc } from '../lib/paneHistory'
-import { useSessions, useSchedules, useProviders, compactSession, keys, peek } from '../api'
+import { useSessions, useSchedules, useProviders, keys, peek } from '../api'
 import { runSessionId } from '../../contract/ids.ts'
 import { pickedModel, pickedProvider, type ModelPick } from '../lib/models'
 import { loadModelPrefs } from '../lib/modelPrefs'
@@ -144,15 +144,6 @@ export function ConversationPane({
     void conversations.retryTurn(sessionId)
   }, [isDraft, nav, sessionId])
 
-  const compact = useCallback(async () => {
-    const updated = await compactSession(sessionId)
-    conversations.update(sessionId, (state) => ({
-      ...state,
-      live: { ...state.live, messages: updated.messages ?? [] },
-      history: { olderTokens: 0, loading: false, error: null },
-    }))
-  }, [sessionId])
-
   // The session's two-level model pick: the draft's local hold, or the live
   // row's persisted fields (the same PATCH every picker writes — one wire).
   const modelPick: ModelPick = isDraft ? draftPick : { providerId: row?.providerId, modelId: row?.modelId }
@@ -203,7 +194,7 @@ export function ConversationPane({
         onStop={() => conversations.stop(sessionId)}
         onRetry={retry}
         onRetryContext={() => retryContextMutation(sessionId)}
-        onCompact={row ? compact : undefined}
+        canCompact={!!row && row.own !== false}
         modelPick={modelPick}
         onSelectModel={isDraft || row ? selectModel : undefined}
         usageModel={draftModelRef}

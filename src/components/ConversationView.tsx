@@ -31,6 +31,10 @@ import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
 import type { AddedContext, PanelFocus, UsageModelRef } from '../types'
 import type { ContextMutationStatus } from '../controller/conversationCore'
+import {
+  isSessionCompactionHeld,
+  useSessionCompactionStatus,
+} from '../controller/sessionCompactionMutations'
 import { composerExecutionState } from '../lib/modelExecution'
 
 const RELAY_WAIT = 'Waiting on your session…'
@@ -55,7 +59,7 @@ export function ConversationView({
   onStop,
   onRetry,
   onRetryContext,
-  onCompact,
+  canCompact = false,
   modelPick,
   onSelectModel,
   usageModel,
@@ -96,8 +100,8 @@ export function ConversationView({
   onStop: () => void
   onRetry: () => void
   onRetryContext: () => void
-  /** Absent = not compactable (a draft, or a host that can't persist). */
-  onCompact?: () => Promise<void>
+  /** Owner-backed persisted conversation; shared readers and drafts cannot compact. */
+  canCompact?: boolean
   modelPick?: ModelPick
   onSelectModel?: (pick: ModelPick) => void
   /** The DRAFT's client-resolved cognition for the usage gauge (no server row). */
@@ -224,7 +228,8 @@ export function ConversationView({
   const onRelay = providers.find((p) => p.id === providerId)?.kind === 'session'
   const provider = providers.find((p) => p.id === providerId)
   const execution = composerExecutionState(provider?.execution, onRelay ? provider?.online === true : undefined)
-  const [compacting, setCompacting] = useState(false)
+  useSessionCompactionStatus()
+  const compactionHeld = isSessionCompactionHeld(sessionId)
 
   // Live token count of the thread, so the usage gauge fills as it grows.
   const messageTokens = useMemo(
@@ -323,9 +328,9 @@ export function ConversationView({
       {/* Compaction (P5): offered once the thread is long enough to be worth
           compacting, and only BETWEEN turns (compacting mid-stream would swap
           out live.messages and drop the still-streaming reply). */}
-      {onCompact && atLatest && !draft && !busy && !typing && live.messages.length > 6 && (
+      {(compactionHeld || (canCompact && atLatest && !draft && !busy && !typing && live.messages.length > 6)) && (
         <Suspense fallback={null}>
-          <CompactionAffordance onCompact={onCompact} onRunningChange={setCompacting} />
+          <CompactionAffordance sessionId={sessionId} tenantId={tenantId} />
         </Suspense>
       )}
 
@@ -346,7 +351,7 @@ export function ConversationView({
         connectors={live.connectors}
         attachments={live.attachments}
         focus={focus}
-        disabled={busy || compacting || execution.blocked}
+        disabled={busy || compactionHeld || execution.blocked}
         disabledLabel={execution.blocked ? execution.placeholder : onRelay ? RELAY_WAIT : undefined}
         modelExecution={provider?.execution}
         sessionProviderOnline={onRelay ? provider?.online === true : undefined}

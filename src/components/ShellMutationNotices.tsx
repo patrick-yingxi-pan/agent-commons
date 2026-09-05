@@ -36,6 +36,7 @@ import { ScheduleMutationNotice } from './ScheduleMutationNotice'
 import { SessionMetadataMutationNotice } from './SessionMetadataMutationNotice'
 import { SocialPostMutationNotice } from './SocialPostMutationNotice'
 import { SessionDeletionNotice } from './SessionDeletionNotice'
+import { SessionCompactionMutationNotice } from './SessionCompactionMutationNotice'
 import { SavedContextMutationNotice } from './SavedContextMutationNotice'
 import { SavedContextDeletionNotice } from './SavedContextDeletionNotice'
 import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMutationNotice'
@@ -61,6 +62,7 @@ export function ShellMutationNotices() {
       <RelationMutationNotice />
       <SessionMetadataMutationNotice />
       <SessionDeletionNotice />
+      <SessionCompactionMutationNotice />
       <DiscussionSessionLaunchMutationNotice />
       <DiscussionPostDeletionMutationNotice />
       <DiscussionStateMutationNotice />

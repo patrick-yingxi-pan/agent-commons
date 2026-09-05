@@ -6,8 +6,9 @@ import assert from 'node:assert/strict'
 import { createServer, type Server } from 'node:http'
 import type { Message, Page } from '../../contract/index.ts'
 import { startModelServer } from '../model/index.ts'
+import { sessionCompactionId } from '../sessionCompactionIdentity.ts'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
 import { turns } from '../turns.ts'
 
 let model: Server
@@ -45,14 +46,23 @@ test('POST compact generates a substantive brief, meters it, and exposes the unt
   const tenantId = `tenant-compaction-route-${Date.now()}`
   const session = longSession(tenantId, 'route-backed summary')
   const headers = { 'x-tenant-id': tenantId }
+  const idempotencyKey = `compact-${session.id}`
   const before = store.usage(undefined, tenantId).limits[0].pct
 
-  const response = await call('POST', `/sessions/${session.id}/compact`, {}, headers)
+  const response = await call('POST', `/sessions/${session.id}/compact`, {}, {
+    ...headers,
+    'idempotency-key': idempotencyKey,
+  })
   assert.equal(response.status, 200)
   assert.equal(response.json.compactedMessages, undefined, 'the mutation response never echoes the archive')
   assert.equal(response.json.messages.length, 5)
   assert.match(response.json.messages[0].content, /Firefly/, 'the brief derives from earlier source')
   assert.equal(response.json.messages[0].compactedFrom, 5)
+  assert.deepEqual(
+    response.json.compactionReceiptIds,
+    [sessionCompactionId(tenantId, session.id, idempotencyKey)],
+    'the acknowledged model act carries its exact durable receipt',
+  )
   assert.ok(store.usage(undefined, tenantId).limits[0].pct > before, 'summary tokens count against the tenant plan')
 
   const first = await call('GET', `/sessions/${session.id}/compacted-messages?limit=2`, undefined, headers)
@@ -101,15 +111,39 @@ test('short-session compaction is a free no-op and archive pagination validates 
   const tenantId = `tenant-compaction-noop-${Date.now()}`
   const session = store.createSession('short no-op', tenantId)
   store.appendMessage(session.id, { id: store.mintMessageId('user'), role: 'user', content: 'hi' })
-  const response = await call('POST', `/sessions/${session.id}/compact`, {}, { 'x-tenant-id': tenantId })
+  const idempotencyKey = `compact-short-${session.id}`
+  const response = await call('POST', `/sessions/${session.id}/compact`, {}, {
+    'x-tenant-id': tenantId,
+    'idempotency-key': idempotencyKey,
+  })
   assert.equal(response.status, 200)
   assert.equal(response.json.messages.length, 1)
   assert.equal(response.json.messages[0].compactedFrom, undefined)
+  assert.deepEqual(response.json.compactionReceiptIds, [sessionCompactionId(tenantId, session.id, idempotencyKey)])
 
   const invalid = await call('GET', `/sessions/${session.id}/compacted-messages?limit=0`, undefined, {
     'x-tenant-id': tenantId,
   })
   assert.equal(invalid.status, 400)
+})
+
+test('a shared reader cannot spend the owner budget or rewrite the owner transcript', async () => {
+  const session = longSession(store.defaultTenantId(), 'owner-only compaction')
+  const grant = store.createGrant({
+    subject: { kind: 'session', id: session.id },
+    audience: { kind: 'org', orgId: 'tenant-beta' },
+    tier: 'co-own',
+  }, store.defaultTenantId())
+  assert.equal(typeof grant, 'object', 'precondition: the other tenant can read this conversation')
+  const before = structuredClone(store.getSession(session.id))
+  const refused = await call('POST', `/sessions/${session.id}/compact`, {}, {
+    'x-user-id': 'user-grace',
+    'x-tenant-id': 'tenant-beta',
+    'idempotency-key': `shared-reader-${session.id}`,
+  })
+  assert.equal(refused.status, 403)
+  assert.deepEqual(store.getSession(session.id)?.messages, before?.messages)
+  assert.equal(store.getSession(session.id)?.compactionReceiptIds, undefined)
 })
 
 test('a live reply excludes compaction before provider work or history mutation', async () => {
@@ -135,9 +169,11 @@ test('an in-flight summary excludes deletion, and the retained key succeeds afte
   const session = longSession(tenantId, 'summary before deletion')
   let signalStarted!: () => void
   let releaseSummary!: () => void
+  let modelRequests = 0
   const started = new Promise<void>((resolve) => { signalStarted = resolve })
   const released = new Promise<void>((resolve) => { releaseSummary = resolve })
   const gatedModel = createServer(async (req, res) => {
+    modelRequests += 1
     for await (const _chunk of req) { /* consume the complete request */ }
     signalStarted()
     await released
@@ -157,21 +193,37 @@ test('an in-flight summary excludes deletion, and the retained key succeeds afte
   const address = gatedModel.address()
   const port = typeof address === 'object' && address ? address.port : 0
   process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${port}`
-  const headers = {
+  const deleteHeaders = {
     'x-tenant-id': tenantId,
     'idempotency-key': `session-delete-summary-${session.id}`,
   }
+  const compactionKey = `session-compaction-summary-${session.id}`
+  const compactionHeaders = { 'x-tenant-id': tenantId, 'idempotency-key': compactionKey }
   try {
-    const compacting = call('POST', `/sessions/${session.id}/compact`, {}, { 'x-tenant-id': tenantId })
+    const compacting = call('POST', `/sessions/${session.id}/compact`, {}, compactionHeaders)
     await started
-    const refused = await call('DELETE', `/sessions/${session.id}`, { expectedRevision: 0 }, headers)
+    const joined = call('POST', `/sessions/${session.id}/compact`, {}, compactionHeaders)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.equal(modelRequests, 1, 'same-key concurrent requests share one model operation')
+    const refused = await call('DELETE', `/sessions/${session.id}`, { expectedRevision: 0 }, deleteHeaders)
     assert.equal(refused.status, 409)
     assert.match(refused.json.error.message, /summary to finish/i)
     assert.ok(store.getSession(session.id), 'the summarizing conversation remains authoritative')
     releaseSummary()
     assert.equal((await compacting).status, 200)
+    assert.equal((await joined).status, 200)
+    const requestsAfterCompaction = modelRequests
+    assert.ok(requestsAfterCompaction > 0, 'the bounded reduction exercised the model')
 
-    const removed = await call('DELETE', `/sessions/${session.id}`, { expectedRevision: 0 }, headers)
+    const replayed = await callFresh('POST', `/sessions/${session.id}/compact`, {}, compactionHeaders)
+    assert.equal(replayed.status, 200, 'durable replay survives a fresh route cache')
+    assert.equal(modelRequests, requestsAfterCompaction, 'restart-style replay performs no second model request')
+    assert.deepEqual(
+      replayed.json.compactionReceiptIds,
+      [sessionCompactionId(tenantId, session.id, compactionKey)],
+    )
+
+    const removed = await call('DELETE', `/sessions/${session.id}`, { expectedRevision: 0 }, deleteHeaders)
     assert.equal(removed.status, 200, 'the busy refusal is not cached under the retained retry key')
     assert.equal(store.getSession(session.id), undefined)
   } finally {

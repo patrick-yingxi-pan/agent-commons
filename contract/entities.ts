@@ -439,6 +439,11 @@ export interface Session {
    *  leave active model context but remain durable and recoverable through a
    *  tenant-walled bounded page; browser session projections omit this array. */
   compactedMessages?: Message[]
+  /** Opaque durable acknowledgements for keyed compaction requests. The ledger
+   *  is append-only because an older lost response must remain provable after a
+   *  later compaction replaces its generated summary. Raw retry keys never cross
+   *  the wire or persistence boundary. */
+  compactionReceiptIds?: string[]
   /** The live, server-owned workspace (runtime attaches persist here). Populated
    *  by the backend on read; the flat seed fields below seed it. */
   workspace?: SessionWorkspace

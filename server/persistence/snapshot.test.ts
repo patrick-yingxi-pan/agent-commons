@@ -207,7 +207,7 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.ok(Object.keys(g.standingApprovals).length >= 3, 'the three standing approvals recorded')
 
   // ── every store-owned slice exercised ──
-  const created = s.sessions.find((x) => x.id.startsWith('sess-'))
+  const created = s.sessions.find((x) => x.title.startsWith('Draft the launch one-pager'))
   assert.ok(created, 'a created session exists')
   assert.ok((created?.messages?.length ?? 0) >= 2, 'the created session carries its exchange')
   assert.ok(created?.messages?.some((message) => message.toolActivities?.some((activity) =>
@@ -219,6 +219,13 @@ test('build produces a snapshot covering every persisted slice', async () => {
     Object.values(message.relationsResolved ?? {}).includes('skipped') &&
     Object.values(message.relationDecisionIds ?? {}).includes('relation-action-decision-000000000000000000000000')),
   'a keyed relation-consent receipt persists beside the immutable proposal and verdict')
+  const compactedSession = s.sessions.find((x) => x.title === 'Playground compaction receipt')
+  assert.deepEqual(
+    compactedSession?.compactionReceiptIds,
+    ['session-compaction-000000000000000000000000'],
+    'a keyed compaction receipt persists beside its active summary and archive',
+  )
+  assert.equal(compactedSession?.compactedMessages?.length, 3)
   assert.ok(s.retiredSessionCreationIds?.includes('sess-new-000000000000000000000000'),
     'a removed keyed draft keeps its retirement identity')
   assert.ok(s.retiredSessionCreationIds?.includes('sess-fork-000000000000000000000000'),
@@ -244,14 +251,14 @@ test('build produces a snapshot covering every persisted slice', async () => {
     typeof retirement.revokedByTenant === 'string' &&
     Number.isSafeInteger(retirement.expectedCreatedAt)),
   'a removed keyed Delegation keeps its private creation tombstone and exact revocation receipt')
-  assert.ok(s.bindings.some(([sid]) => sid.startsWith('sess-')), 'the created session has an attached context')
-  assert.ok(s.workspaces.some(([sid]) => sid.startsWith('sess-')), 'the created session has a live workspace')
+  assert.ok(s.bindings.some(([sid]) => sid === created?.id), 'the created session has an attached context')
+  assert.ok(s.workspaces.some(([sid]) => sid === created?.id), 'the created session has a live workspace')
   assert.ok(
     s.sessionPreferences?.some(([userId, rows]) =>
-      userId === 'user-local' && rows.some(([sid, prefs]) => sid.startsWith('sess-') && prefs.panelFocus?.id === 'repo-playground')),
+      userId === 'user-local' && rows.some(([sid, prefs]) => sid === created?.id && prefs.panelFocus?.id === 'repo-playground')),
     'setSessionPreferences → viewer-scoped panel intent',
   )
-  const ws = s.workspaces.find(([sid]) => sid.startsWith('sess-'))?.[1]
+  const ws = s.workspaces.find(([sid]) => sid === created?.id)?.[1]
   assert.ok(ws && ws.repos.length > 0 && ws.workspaces.length > 0 && ws.connectors.length > 0 && ws.attachments.length > 0, 'the workspace populates all four panel kinds')
   assert.ok(s.schedules.some((t) => t.id.startsWith('s-new-')), 'a created schedule exists')
   const scheduled = s.schedules.find((t) => t.id.startsWith('s-new-'))
@@ -655,11 +662,21 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     'a tenant-less legacy runtime artifact is restored into the default namespace',
   )
 
-  const created = store.listSessions().find((x) => x.id.startsWith('sess-'))
+  const created = store.listSessions().find((x) => x.title.startsWith('Draft the launch one-pager'))
   assert.ok(created, 'the created session is listed after a boot')
   const full = created && store.getSession(created.id)
   assert.ok(full && (full.messages?.length ?? 0) >= 2, 'getSession returns the rehydrated thread')
   assert.ok(full && (full.workspace?.repos.length ?? 0) > 0, 'getSession surfaces the rehydrated workspace')
+  const compactedSession = store.listSessions().find((x) => x.title === 'Playground compaction receipt')
+  assert.equal(
+    compactedSession && typeof store.getSessionCompaction(
+      compactedSession.id,
+      'session-compaction-000000000000000000000000',
+      store.defaultTenantId(),
+    ),
+    'object',
+    'a real boot restores exact keyed compaction replay truth',
+  )
   const relationMessage = full?.messages?.find((message) => message.id === 'relation-proposal-playground')
   const relationKey = relationMessage?.relationActions?.[0]
     ? (await import('../../contract/index.ts')).opKey(relationMessage.relationActions[0])

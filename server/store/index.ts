@@ -143,6 +143,7 @@ import { isAgentProposalCommentCreationId } from '../agentProposalCommentCreatio
 import { isAgentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
 import { isToolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
 import { isRelationActionDecisionId } from '../relationActionDecisionIdentity.ts'
+import { isSessionCompactionId } from '../sessionCompactionIdentity.ts'
 import { isDelegationCreationId } from '../delegationCreationIdentity.ts'
 import { isDelegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
@@ -5798,6 +5799,36 @@ export const store = {
       archiveMessages: structuredClone(olderReal),
     }
   },
+  /** Exact durable acknowledgement for one keyed compaction. Session ownership
+   * is the private authority anchor; the opaque public id proves only the act. */
+  getSessionCompaction(
+    sessionId: string,
+    compactionId: string,
+    tenantId: string,
+  ): Session | 'invalid' | undefined {
+    if (!isSessionCompactionId(compactionId)) return 'invalid'
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
+    if (!session.compactionReceiptIds?.includes(compactionId)) return undefined
+    return this.getSession(sessionId)
+  },
+  /** A keyed request against an already-short thread is still acknowledged
+   * durably. That keeps an exact Retry from inventing model work later after new
+   * turns arrive, while the legacy unkeyed no-op remains a free read. */
+  acknowledgeSessionCompaction(
+    sessionId: string,
+    compactionId: string,
+    tenantId: string,
+  ): Session | 'invalid' | undefined {
+    if (!isSessionCompactionId(compactionId)) return 'invalid'
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
+    if (session.compactionReceiptIds?.includes(compactionId)) return this.getSession(sessionId)
+    session.compactionReceiptIds = [...(session.compactionReceiptIds ?? []), compactionId]
+    emit({ type: 'session.updated', session })
+    persist()
+    return this.getSession(sessionId)
+  },
   /** Commit one generated continuation brief if and only if the transcript still
    *  matches its preparation. Originals remain in the durable archive, one marker
    *  replaces the active prefix, and the event is published only after persistence. */
@@ -5805,9 +5836,16 @@ export const store = {
     plan: SessionCompactionPlan,
     content: string,
     provenance: { agentId?: string; providerId?: string; modelId?: string } = {},
-  ): Session | undefined {
+    receipt?: { logicalId: string; tenantId: string },
+  ): Session | 'invalid' | undefined {
     const session = SESSIONS.find((s) => s.id === plan.sessionId)
     if (!session) return undefined
+    if (receipt) {
+      if (!isSessionCompactionId(receipt.logicalId) || !this.sessionOwnedBy(session, receipt.tenantId)) {
+        return 'invalid'
+      }
+      if (session.compactionReceiptIds?.includes(receipt.logicalId)) return this.getSession(plan.sessionId)
+    }
     if (compactionState(session) !== plan.expectedState) {
       throw new ConflictError('This conversation changed while its summary was being prepared. Nothing was archived; retry from the latest turns.')
     }
@@ -5826,6 +5864,9 @@ export const store = {
     }
     session.compactedMessages = archive
     session.messages = [summary, ...recent]
+    if (receipt) {
+      session.compactionReceiptIds = [...(session.compactionReceiptIds ?? []), receipt.logicalId]
+    }
     session.updatedAt = Date.now()
     emit({ type: 'session.updated', session })
     persist()

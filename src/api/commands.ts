@@ -1115,18 +1115,6 @@ export async function deleteSession(
   invalidate(keys.session(id))
 }
 
-/** Compact a session's context (MODEL-32) — server-owned; the selected provider
- *  prepares a continuation brief and the backend archives older originals only after
- *  compare-before-commit. Returns the bounded active session; invalidates that session,
- *  usage, and every archive page so the thread and composer's token overlay refresh. */
-export async function compactSession(sessionId: string): Promise<Session> {
-  const session = await apiPost<Session>(paths.sessionCompact(sessionId), {})
-  invalidate(keys.session(sessionId))
-  invalidate(keys.usage(sessionId))
-  invalidatePrefix(keys.sessionCompactedMessages(sessionId))
-  return session
-}
-
 // ── Saved contexts (the Contexts page) ──────────────────────────────────────
 
 /** Publish one status acknowledgement through its orthogonal monotonic fence.

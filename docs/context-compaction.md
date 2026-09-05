@@ -1,8 +1,9 @@
 # Context compaction
 
 > **Status: built.** The selected provider now creates the continuation brief,
-> originals remain in a bounded inspectable archive, and both generation and
-> commit fail closed. The locked contract lives in MODEL-32 and the relevant
+> originals remain in a bounded inspectable archive, and keyed owner-only work
+> survives navigation, lost acknowledgement, and restart without duplicate spend.
+> Generation and commit fail closed. The locked contract lives in MODEL-32 and the relevant
 > directory-scoped `CLAUDE.md` files ([`../AGENTS.md`](../AGENTS.md) maps them).
 
 ## The reference artifact
@@ -45,19 +46,28 @@ inner water-level disc fills as the open thread grows (`usage.context.pct`, hue
 `waterColor()` going blue → gold → red past 80%). Compaction is what happens
 through one explicit between-turn action today. The shipped transaction is:
 
-1. The server freezes the active transcript and existing archive. The same gate
-   excludes a live reply or another compaction on that conversation.
-2. The selected endpoint or Session provider receives every compactable source
+1. The owner action freezes one tenant/Session/key. Concurrent use of that key
+   coalesces; an already-durable opaque receipt replays current Session truth
+   before activity, provider, or budget gates. Shared readers cannot spend the
+   owner's budget or rewrite the owner's transcript.
+2. For new work, the server freezes the active transcript and existing archive.
+   The same gate excludes a live reply or another compaction on that conversation.
+3. The selected endpoint or Session provider receives every compactable source
    byte through bounded hierarchical model calls. Its system framing preserves
    decisions, constraints, identifiers, uncertainty, and open work; it declares
    no tools. Summary token use is metered to the same tenant plan.
-3. Only a non-empty model result whose frozen transcript still matches may commit.
+4. Only a non-empty model result whose frozen transcript still matches may commit.
    Provider failure, empty output, an overlarge reduction, or a concurrent
    transcript change archives nothing and leaves an explicit Retry.
-4. The model-authored brief plus the latest four turns becomes active context.
+5. The model-authored brief, archive, and receipt commit atomically; the latest
+   four turns remain active context. Earlier receipts remain append-only through
+   later summaries and persistence, so a delayed exact retry cannot spend twice.
    Endpoint and Session-provider turns both receive that active history on later
    generation. The originals remain durable in `Session.compactedMessages`.
-5. The thread renders one **Conversation summary** disclosure. It shows the brief
+6. The account-scoped controller holds composition across navigation and exposes
+   one shell Retry/Dismiss notice until the exact receipt reconciles. A transcript
+   fingerprint prevents a late acknowledgement from erasing newer turns.
+7. The thread renders one **Conversation summary** disclosure. It shows the brief
    and pages the archive 40 messages at a time through the tenant-walled
    `/sessions/:id/compacted-messages` door. The gauge drops with active context.
 

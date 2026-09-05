@@ -1,51 +1,45 @@
-import { useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { Spinner } from './Spinner'
 import { InlineOperationStatus } from './InlineOperationStatus'
+import {
+  enqueueSessionCompaction,
+  heldSessionCompactionIntent,
+  useSessionCompactionStatus,
+} from '../controller/sessionCompactionMutations'
 
 /** Inline MODEL-32 affordance shown when the open thread is long enough to compact.
  *  The server asks the selected provider for a continuation brief, then compare-commits
- *  it with a recoverable archive; failure remains explicit and retryable. While it runs,
- *  the warm first-person caption from docs/context-compaction.md avoids blame or limits
- *  language. Once active context shrinks, the affordance hides itself. */
+ *  it with a recoverable archive. Its account/session controller retains the exact
+ *  request through navigation and response loss; the shell owns Retry/Dismiss while
+ *  this source surface stays visibly held. Once active context shrinks, it hides. */
 export function CompactionAffordance({
-  onCompact,
-  onRunningChange,
+  sessionId,
+  tenantId,
 }: {
-  onCompact: () => Promise<void>
-  onRunningChange?: (running: boolean) => void
+  sessionId: string
+  tenantId?: string
 }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const run = async () => {
-    if (busy) return
-    setError(null)
-    setBusy(true)
-    onRunningChange?.(true)
-    try {
-      await onCompact()
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The conversation could not be compacted. Nothing was archived.')
-    } finally {
-      setBusy(false)
-      onRunningChange?.(false)
-    }
+  const mutation = useSessionCompactionStatus()
+  const held = heldSessionCompactionIntent(sessionId)
+  const active = held !== null && mutation.activeResourceId === sessionId
+  const run = () => {
+    if (!tenantId || held) return
+    void enqueueSessionCompaction({ tenantId, sessionId })
   }
-  if (busy) {
+  if (held && (!active || mutation.busy)) {
     return (
       <InlineOperationStatus
         tone="status"
         leading={<Spinner size={13} />}
-        message="Compacting our conversation so we can keep chatting…"
+        message={active ? 'Compacting our conversation so we can keep chatting…' : 'Compaction queued…'}
       />
     )
   }
-  if (error) {
+  if (held && mutation.error) {
     return (
       <InlineOperationStatus
         tone="alert"
-        message={error}
-        action={{ label: 'Retry compaction', icon: <Sparkles size={12} />, onClick: () => void run() }}
+        message={mutation.error}
       />
     )
   }
@@ -53,11 +47,11 @@ export function CompactionAffordance({
     <div className="mx-auto mb-1.5 flex w-full max-w-3xl justify-center">
       <button
         onClick={run}
-        disabled={busy}
+        disabled={!tenantId}
         aria-label="Compact conversation to free up context"
         className="inline-flex items-center gap-1.5 rounded-full border border-line bg-panel-2/40 px-3 py-1 text-[12px] text-ink-soft transition hover:bg-panel-2 disabled:opacity-70"
       >
-        <Sparkles size={13} className={`text-accent ${busy ? 'motion-safe:animate-pulse' : ''}`} />
+        <Sparkles size={13} className="text-accent" />
         Compact conversation to free up context
       </button>
     </div>

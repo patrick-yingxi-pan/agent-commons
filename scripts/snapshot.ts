@@ -138,6 +138,28 @@ export async function buildComprehensive(): Promise<PersistedState> {
     store.defaultTenantId(),
   )
   if (typeof relationDecision !== 'object') throw new Error('Could not create the durable relation-consent fixture')
+  const compactedSession = store.createSession('Playground compaction receipt')
+  for (let index = 0; index < 7; index += 1) {
+    store.appendMessage(compactedSession.id, {
+      id: store.mintMessageId(index % 2 === 0 ? 'user' : 'assistant'),
+      role: index % 2 === 0 ? 'user' : 'assistant',
+      content: `Compaction receipt source ${index}`,
+    })
+  }
+  const compactionPlan = store.prepareSessionCompaction(compactedSession.id)
+  if (!compactionPlan || compactionPlan.kind !== 'ready') {
+    throw new Error('Could not prepare the durable compaction receipt fixture')
+  }
+  const compactionReceipt = store.applySessionCompaction(
+    compactionPlan,
+    'The playground compaction receipt survives restart.',
+    {},
+    {
+      logicalId: 'session-compaction-000000000000000000000000',
+      tenantId: store.defaultTenantId(),
+    },
+  )
+  if (typeof compactionReceipt !== 'object') throw new Error('Could not create the durable compaction receipt fixture')
   store.attachContext(session.id, {
     id: 'repo-playground',
     type: 'repo',

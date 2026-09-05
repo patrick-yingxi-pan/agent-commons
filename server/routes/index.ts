@@ -149,6 +149,7 @@ import { contributionReviewRequirementId } from '../contributionReviewRequiremen
 import { delegatedJudgmentId } from '../delegatedJudgmentIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
+import { sessionCompactionId } from '../sessionCompactionIdentity.ts'
 import { registerMcp } from '../mcp.ts'
 import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
@@ -4776,8 +4777,26 @@ export function buildRouter(): Router {
   })
   // Compact a session's active context through its selected provider. Generation
   // happens against an immutable preparation; only a matching transcript commits.
-  r.post('/sessions/:id/compact', async ({ req, res, params }) => {
+  r.post('/sessions/:id/compact', idempotent(async ({ req, res, params }) => {
     if (denyForeignSession(req, res, params.id)) return
+    const who = store.identity(req.headers)
+    const session = store.getSession(params.id)
+    if (session && !store.sessionOwnedBy(session, who.tenant.id)) {
+      return sendError(res, 'forbidden', 'Only the conversation owner may compact this thread')
+    }
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalCompactionId = idempotencyKey
+      ? sessionCompactionId(who.tenant.id, params.id, idempotencyKey)
+      : undefined
+    const represented = logicalCompactionId
+      ? store.getSessionCompaction(params.id, logicalCompactionId, who.tenant.id)
+      : undefined
+    if (typeof represented === 'object') {
+      return sendJson(res, { ...represented, compactedMessages: undefined })
+    }
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This compaction identity is not valid for this account and conversation')
+    }
     if (activeCompactions.has(params.id)) {
       return sendError(res, 'conflict', 'A summary is already being prepared for this conversation.')
     }
@@ -4787,16 +4806,23 @@ export function buildRouter(): Router {
     const prepared = store.prepareSessionCompaction(params.id)
     if (!prepared) return sendError(res, 'not_found', `No session '${params.id}'`)
     if (prepared.kind === 'noop') {
-      return sendJson(res, { ...prepared.session, compactedMessages: undefined })
+      const acknowledged = logicalCompactionId
+        ? store.acknowledgeSessionCompaction(params.id, logicalCompactionId, who.tenant.id)
+        : prepared.session
+      if (acknowledged === 'invalid') {
+        return sendError(res, 'bad_request', 'This compaction identity is not valid for this account and conversation')
+      }
+      if (!acknowledged) return sendError(res, 'not_found', `No session '${params.id}'`)
+      return sendJson(res, { ...acknowledged, compactedMessages: undefined })
     }
 
-    const tenantId = store.identity(req.headers).tenant.id
-    const session = store.getSession(params.id)!
-    const agent = store.getAgent(session.agentId)
-    const providerId = session.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
+    const tenantId = who.tenant.id
+    const readySession = session!
+    const agent = store.getAgent(readySession.agentId)
+    const providerId = readySession.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
     const provider = store.providerConfig(providerId)
     const providerFace = store.listProviders(tenantId).find((candidate) => candidate.id === providerId)
-    const providerConfig = session.modelId ? { ...provider, model: session.modelId } : provider
+    const providerConfig = readySession.modelId ? { ...provider, model: readySession.modelId } : provider
     const modelId = provider.kind === 'session' ? undefined : resolvedModelId(providerConfig)
 
     if (provider.kind !== 'session' && providerFace?.execution === 'unconfigured') {
@@ -4830,7 +4856,7 @@ export function buildRouter(): Router {
           tools: [],
         }
         const result = await relayReply(
-          { id: session.id, title: session.title },
+          { id: readySession.id, title: readySession.title },
           summaryAgent,
           prompt,
           { onStart: () => {}, onDelta: () => {} },
@@ -4851,7 +4877,10 @@ export function buildRouter(): Router {
         agentId: agent.id,
         providerId,
         ...(modelId ? { modelId } : {}),
-      })
+      }, logicalCompactionId ? { logicalId: logicalCompactionId, tenantId } : undefined)
+      if (compacted === 'invalid') {
+        return sendError(res, 'bad_request', 'This compaction identity is not valid for this account and conversation')
+      }
       if (!compacted) return sendError(res, 'not_found', `No session '${params.id}'`)
       sendJson(res, { ...compacted, compactedMessages: undefined })
     } catch (error) {
@@ -4863,7 +4892,7 @@ export function buildRouter(): Router {
     } finally {
       activeCompactions.delete(params.id)
     }
-  })
+  }))
 
   // ── Dispatch ──────────────────────────────────────────────────────────────
   r.get('/dispatch', ({ req, res, url }) => {
