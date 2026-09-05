@@ -65,7 +65,8 @@ export interface CreateOrgRequest {
 }
 
 /** Body of `POST /v1/orgs/:id/invites` (owner-only). The response is uniform
- *  whether or not an account bears the email (O-D3). */
+ * whether or not an account bears the email (O-D3). A supplied transport key
+ * durably identifies one issue; omission retains compatibility behavior. */
 export interface InviteToOrgRequest {
   email: string
 }

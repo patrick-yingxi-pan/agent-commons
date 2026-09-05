@@ -1,9 +1,15 @@
 /** Transport and exact private-receipt reconciliation for invitation verdicts. */
-import type { MyInvite, MyInviteReceipt, MyOrg } from '../../contract/index.ts'
+import type { MyInvite, MyInviteReceipt, MyOrg, TenantRole } from '../../contract/index.ts'
 import { apiGet, apiPost } from './client.ts'
 import { invalidate, mutate, peek, revalidateAll, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import type { OrgInviteVerdictIntent } from './orgInviteVerdictRevision.ts'
+
+const TENANT_ROLE_RANK: Record<TenantRole, number> = {
+  member: 0,
+  admin: 1,
+  owner: 2,
+}
 
 function sameInvitation(left: MyInvite, right: MyInvite): boolean {
   return left.id === right.id &&
@@ -41,7 +47,7 @@ function exactMembership(intent: OrgInviteVerdictIntent, membership: MyOrg): boo
   return membership.tenant.id === intent.invitation.orgId &&
     membership.tenant.name === intent.invitation.orgName &&
     membership.tenant.kind === 'org' &&
-    membership.role === intent.invitation.role
+    TENANT_ROLE_RANK[membership.role] >= TENANT_ROLE_RANK[intent.invitation.role]
 }
 
 export async function applyOrgInviteVerdict(

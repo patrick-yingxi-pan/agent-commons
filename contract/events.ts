@@ -286,6 +286,19 @@ export interface NotificationChangedEvent {
   tenantId: string
 }
 
+/** One organization invitation moved. The payload carries no raw address or row
+ * id. Its opaque address audience exists for known and unknown emails alike, so
+ * targeted SSE delivery cannot reveal whether an account already exists. */
+export interface OrgInvitationChangedEvent {
+  type: 'org.invitation.changed'
+  orgId: string
+  change: 'issued' | 'accepted' | 'declined' | 'revoked'
+  /** Current organization-owner home namespaces. */
+  parties: string[]
+  /** Opaque normalized-address audience; never an account or tenant id. */
+  addressAudience: string
+}
+
 /** A routine was created, edited, paused/resumed, or removed (here or on another
  *  client/device) — the schedules list (and the recent-runs feed a delete prunes)
  *  is stale. Carries only the id: the row itself may already be gone on a delete. */
@@ -444,6 +457,7 @@ export type ServerEvent =
   | RelationAppliedEvent
   | RecentsChangedEvent
   | NotificationChangedEvent
+  | OrgInvitationChangedEvent
   | ConnectorStatusEvent
   | SavedContextChangedEvent
   | SessionUpdatedEvent

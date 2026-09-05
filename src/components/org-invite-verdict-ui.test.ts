@@ -27,7 +27,7 @@ test('invitation verdicts hold one exact row and action until private receipt tr
   assert.match(controller, /accountGeneration/, 'account switching fences private invitation state')
   assert.match(commands, /paths\.myInvite\(intent\.invitation\.id\)/, 'reconciliation reads the exact private receipt')
   assert.match(commands, /receipt\.status !== \(intent\.verdict === 'accept' \? 'accepted' : 'declined'\)/)
-  assert.match(commands, /membership\.role === intent\.invitation\.role/, 'Accept proves the invited seat role too')
+  assert.match(commands, /TENANT_ROLE_RANK\[membership\.role\] >= TENANT_ROLE_RANK\[intent\.invitation\.role\]/, 'Accept proves a non-demoting represented seat')
   assert.match(commands, /apiPost<MyOrg>[\s\S]*idempotencyKey/, 'Accept Retry retains the logical key')
   assert.match(commands, /apiPost<\{ declined: true \}>[\s\S]*idempotencyKey/, 'Decline Retry retains the logical key')
   assert.match(runtime, /mintIdempotencyKey: \(intent\) => intent\.intentId/)

@@ -82,7 +82,7 @@ import {
   verifyStack,
 } from '../auth.ts'
 import { userPrincipal } from '../identity.ts'
-import { accounts } from '../accounts.ts'
+import { accounts, type StoredOrgInvite } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store/index.ts'
 import {
@@ -114,6 +114,7 @@ import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
 import { orgCreationId } from '../orgCreationIdentity.ts'
+import { orgInviteAddressAudience, orgInviteCreationId } from '../orgInviteCreationIdentity.ts'
 import {
   agentCreationId,
   agentForkCreationId,
@@ -831,6 +832,28 @@ export function buildRouter(): Router {
     const me = store.identity(headers)
     return { role: accounts.membership(me.user.id, orgId)?.role }
   }
+  const orgInviteOwnerParties = (invite: StoredOrgInvite): string[] => {
+    const parties = new Set<string>()
+    for (const seat of accounts.memberships) {
+      if (seat.home || seat.tenantId !== invite.orgId || seat.role !== 'owner') continue
+      const ownerHome = accounts.homeOf(seat.userId)?.tenant.id
+      if (ownerHome) parties.add(ownerHome)
+    }
+    return [...parties]
+  }
+  const emitOrgInviteChange = (
+    invite: StoredOrgInvite,
+    change: 'issued' | 'accepted' | 'declined' | 'revoked',
+  ): void => {
+    store.emit({
+      type: 'org.invitation.changed',
+      orgId: invite.orgId,
+      change,
+      parties: orgInviteOwnerParties(invite),
+      // Always present and address-derived, regardless of account existence.
+      addressAudience: orgInviteAddressAudience(invite.email),
+    })
+  }
   r.post('/orgs', idempotent(async ({ req, res, body }) => {
     const me = store.identity(req.headers)
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
@@ -884,7 +907,11 @@ export function buildRouter(): Router {
     const me = store.identity(req.headers)
     const out = accounts.resolveInvite(params.id, me.user.id, action)
     if (out === undefined) return sendError(res, 'not_found', `No invite '${params.id}'`)
-    if (out.changed) store.accountsMutated()
+    if (out.changed) {
+      store.accountsMutated()
+      const invite = accounts.orgInvites.find((candidate) => candidate.id === params.id)
+      if (invite) emitOrgInviteChange(invite, action === 'accept' ? 'accepted' : 'declined')
+    }
     sendJson(res, out.kind === 'declined' ? { declined: true } : out.membership)
   })
   r.post('/me/invites/:id/accept', inviteVerdict('accept'))
@@ -904,37 +931,72 @@ export function buildRouter(): Router {
     if (wall.role !== 'owner') return sendError(res, 'forbidden', 'Only an organization owner may manage invitations.')
     sendJson(res, accounts.invitesOfOrg(params.id))
   })
-  r.post('/orgs/:id/invites', async ({ req, res, params, body }) => {
+  r.post('/orgs/:id/invites', idempotent(async ({ req, res, params, body }) => {
     const wall = orgWall(req.headers, params.id)
     // A non-member never learns the org exists (404); a member who isn't an
     // owner gets the honest 403 — they're already inside the wall.
     if (wall.deny || wall.role === undefined) return sendError(res, 'not_found', `No organization '${params.id}'`)
     if (wall.role !== 'owner') return sendError(res, 'forbidden', 'Only an organization owner may manage invitations.')
+    const me = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalId = idempotencyKey
+      ? orgInviteCreationId(params.id, me.user.id, idempotencyKey)
+      : undefined
+    const represented = logicalId
+      ? accounts.orgInviteCreation(params.id, logicalId)
+      : undefined
+    // The terminal row is the durable issue receipt. Return it before parsing a
+    // changed Retry body, matching the generic idempotency contract after restart.
+    if (typeof represented === 'object') {
+      const { orgId: _org, ...row } = represented
+      return sendJson(res, row)
+    }
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This invitation identity is not valid for this organization.')
+    }
     const { email } = await body<InviteToOrgRequest>()
     if (!email || !EMAIL_SHAPE.test(email.trim()) || email.trim().length > 254) {
       return sendError(res, 'bad_request', 'A valid email is required.')
     }
-    const me = store.identity(req.headers)
     // Uniform whether or not an account bears the email (existence-hiding) —
-    // a duplicate pending invite returns the SAME row, signalling nothing.
-    const invite = accounts.createInvite(params.id, email, me.user.name)
-    if (!invite) return sendError(res, 'conflict', 'This organization’s pending invitations are at their cap.')
-    store.accountsMutated()
-    const { orgId: _org, ...row } = invite
+    // unkeyed compatibility returns the same pending row. A keyed first-party
+    // request refuses to adopt another logical issue; reconciliation can prove
+    // the concurrent equivalent row without risking a later duplicate.
+    const result = accounts.issueInvite(params.id, email, me.user.name, { logicalId })
+    if (result.kind === 'duplicate') {
+      return sendError(res, 'conflict', 'An invitation to this address is already pending.')
+    }
+    if (result.kind === 'capped') {
+      return sendError(res, 'conflict', 'This organization’s pending invitations are at their cap.')
+    }
+    if (result.kind === 'invalid') {
+      return sendError(res, 'bad_request', 'This invitation identity is not valid for this organization.')
+    }
+    if (result.changed) {
+      store.accountsMutated()
+      emitOrgInviteChange(result.invite, 'issued')
+    }
+    const { orgId: _org, ...row } = result.invite
     sendJson(res, row, 201)
-  })
-  r.delete('/orgs/:id/invites/:iid', ({ req, res, params }) => {
+  }))
+  r.delete('/orgs/:id/invites/:iid', idempotent(({ req, res, params }) => {
     const wall = orgWall(req.headers, params.id)
     // A non-member never learns the org exists (404); a member who isn't an
     // owner gets the honest 403 — they're already inside the wall.
     if (wall.deny || wall.role === undefined) return sendError(res, 'not_found', `No organization '${params.id}'`)
     if (wall.role !== 'owner') return sendError(res, 'forbidden', 'Only an organization owner may manage invitations.')
-    const out = accounts.revokeInvite(params.id, params.iid)
+    const out = accounts.revokeInviteCommand(params.id, params.iid, {
+      replayRevoked: !!headerValue(req.headers, 'idempotency-key'),
+    })
     if (out === undefined) return sendError(res, 'not_found', `No invite '${params.iid}'`)
-    if (out === 'closed') return sendError(res, 'conflict', 'This invitation was already resolved.')
-    store.accountsMutated()
-    sendJson(res, out)
-  })
+    if (out.kind === 'closed') return sendError(res, 'conflict', 'This invitation was already resolved.')
+    if (out.changed) {
+      store.accountsMutated()
+      const stored = accounts.orgInvites.find((candidate) => candidate.id === params.iid)
+      if (stored) emitOrgInviteChange(stored, 'revoked')
+    }
+    sendJson(res, out.invite)
+  }))
 
   // ── Ops: liveness + readiness (design F6 — the autoscaled web tier) ──────────
   // `/healthz` — the process is up (load-balancer liveness). `/readyz` — the process
@@ -1071,10 +1133,12 @@ export function buildRouter(): Router {
   r.delete('/admin/invites/:id', ({ req, res, params }) => {
     if (maintainerDenied(req, res)) return
     const stored = accounts.orgInvites.find((i) => i.id === params.id)
-    const out = stored && accounts.revokeInvite(stored.orgId, params.id)
+    const out = stored && accounts.revokeInviteCommand(stored.orgId, params.id)
     if (!out) return sendError(res, 'not_found', `No invitation '${params.id}'`)
-    if (out === 'closed') return sendError(res, 'conflict', 'This invitation was already resolved.')
+    if (out.kind === 'closed') return sendError(res, 'conflict', 'This invitation was already resolved.')
     store.accountsMutated()
+    const changed = accounts.orgInvites.find((candidate) => candidate.id === params.id)
+    if (changed) emitOrgInviteChange(changed, 'revoked')
     sendJson(res, { ok: true })
   })
 

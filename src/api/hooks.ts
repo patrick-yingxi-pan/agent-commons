@@ -216,31 +216,6 @@ export function useOrgInvites(orgId: string | undefined, enabled: boolean): Quer
   return useQuery(keys.orgInvites(orgId ?? ''), () => apiGet<OrgInviteRow[]>(paths.orgInvites(orgId!)), !!orgId && enabled)
 }
 
-/** Invite an email into an org (owner-only; existence-hidden server-side). */
-export async function inviteToOrg(orgId: string, email: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await apiPost(paths.orgInvites(orgId), { email })
-    invalidate(keys.orgInvites(orgId))
-    return { ok: true }
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to invite' }
-  }
-}
-
-/** The owner's honest close of a pending invitation. Result-object like every
- *  org mutation (a race — the invite accepted in another tab — is a message,
- *  not an unhandled rejection); either way the ledger re-reads. */
-export async function revokeOrgInvite(orgId: string, inviteId: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await apiDelete(paths.orgInvite(orgId, inviteId))
-    invalidate(keys.orgInvites(orgId))
-    return { ok: true }
-  } catch (err) {
-    invalidate(keys.orgInvites(orgId)) // the row changed under us — re-read either way
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to revoke' }
-  }
-}
-
 /** Onboarding (P7): both endpoints mint the session cookie server-side; on
  *  success the caller ADOPTS it — same choreography tail as a switch (the mint
  *  already happened, so only the client half runs: generation bump → stream

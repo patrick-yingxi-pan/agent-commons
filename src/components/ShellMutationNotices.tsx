@@ -45,6 +45,7 @@ import { RelationActionDecisionMutationNotice } from './RelationActionDecisionMu
 import { ApiTokenRevocationMutationNotice } from './ApiTokenRevocationMutationNotice'
 import { ApiTokenMintMutationNotice } from './ApiTokenMintMutationNotice'
 import { OrgCreationMutationNotice } from './OrgCreationMutationNotice'
+import { OrgInviteOwnerMutationNotice } from './OrgInviteOwnerMutationNotice'
 import { OrgInviteVerdictMutationNotice } from './OrgInviteVerdictMutationNotice'
 
 /** Durable mutation recovery is requested as one deferred shell cluster at
@@ -63,6 +64,7 @@ export function ShellMutationNotices() {
       <ApiTokenMintMutationNotice />
       <ApiTokenRevocationMutationNotice />
       <OrgCreationMutationNotice />
+      <OrgInviteOwnerMutationNotice />
       <OrgInviteVerdictMutationNotice />
       <SavedContextMutationNotice />
       <SavedContextDeletionNotice />

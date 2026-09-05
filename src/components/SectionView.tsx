@@ -288,8 +288,6 @@ import {
   useMyOrgs,
   useOrgMembers,
   useOrgInvites,
-  inviteToOrg,
-  revokeOrgInvite,
   useProjectDirectory,
   useProjectSubGoals,
   useDispatchRuns,
@@ -455,6 +453,16 @@ import {
   isApiTokenRevocationHeld,
   useApiTokenRevocationStatus,
 } from '../controller/apiTokenRevocationMutations.ts'
+import {
+  enqueueOrgInviteIssue,
+  enqueueOrgInviteRevoke,
+  heldOrgInviteIssue,
+  heldOrgInviteRevoke,
+  heldOrgInviteRevokes,
+  isOrgInviteOwnerActionHeld,
+  useOrgInviteOwnerStatus,
+} from '../controller/orgInviteOwnerMutations.ts'
+import { orgInviteOwnerResourceId } from '../api/orgInviteOwnerRevision.ts'
 import {
   enqueueContributionCreation,
   isContributionCreationHeld,
@@ -11778,37 +11786,63 @@ function SharedProjectRow({
 function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
   const members = useOrgMembers(org.id).data ?? []
   const isOwner = org.role === 'owner'
-  const invites = useOrgInvites(org.id, isOwner).data ?? []
+  const inviteState = useOrgInvites(org.id, isOwner)
+  const invites = inviteState.data ?? []
+  const me = useMe().data
+  const mutation = useOrgInviteOwnerStatus()
+  const heldIssue = heldOrgInviteIssue(org.id)
+  const heldRevokes = heldOrgInviteRevokes(org.id)
+  const ownerActionHeld = isOrgInviteOwnerActionHeld(org.id)
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  const visibleEmail = heldIssue?.request.email ?? email
+  const pending = [
+    ...invites.filter((invitation) => invitation.status === 'invited'),
+    ...heldRevokes
+      .map((held) => held.invitation)
+      .filter((held) => !invites.some((invitation) => invitation.id === held.id && invitation.status === 'invited')),
+  ]
+  const normalizedEmail = visibleEmail.trim().toLowerCase()
+  const duplicatePending = !!normalizedEmail && pending.some(
+    (invitation) => invitation.email.trim().toLowerCase() === normalizedEmail,
+  )
+  const ledgerReady = inviteState.status === 'success'
+  const issueFailed = !!heldIssue &&
+    mutation.activeResourceId === orgInviteOwnerResourceId(heldIssue) &&
+    !!mutation.error
   const invite = async () => {
-    if (busy || !email.trim()) return // the guard also blocks a double-fire (Enter + click)
-    setBusy(true)
+    if (ownerActionHeld || !me || !ledgerReady || !visibleEmail.trim() || duplicatePending) return
     setError('')
     try {
-      const r = await inviteToOrg(org.id, email.trim())
-      if (r.ok) setEmail('')
-      else setError(r.message)
-    } finally {
-      setBusy(false)
+      const outcome = await enqueueOrgInviteIssue({
+        orgId: org.id,
+        ownerUserId: me.user.id,
+        email: visibleEmail,
+        baselineInvites: invites,
+      })
+      if (outcome === 'applied') setEmail('')
+      else setError('Invitation action dismissed. Check the ledger before trying again.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare invitation recovery.')
     }
   }
-  // A revoke can race the invitee's accept — the result-object reports it in the
-  // same message slot the invite path uses (the hook re-read the ledger already).
-  const revoke = async (inviteId: string) => {
-    if (busy) return
-    setBusy(true)
+  const revoke = async (invitation: (typeof pending)[number]) => {
+    if (ownerActionHeld) return
+    setError('')
     try {
-      const r = await revokeOrgInvite(org.id, inviteId)
-      setError(r.ok ? '' : r.message)
-    } finally {
-      setBusy(false)
+      const outcome = await enqueueOrgInviteRevoke(org.id, invitation)
+      if (outcome === 'discarded') setError('Revocation dismissed. Check the invitation status before trying again.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare revocation recovery.')
     }
   }
-  const pending = invites.filter((i) => i.status === 'invited')
   return (
-    <div data-testid="org-member-panel" className="rounded-lg border border-line bg-panel p-3">
+    <div
+      data-testid="org-member-panel"
+      data-org-invite-owner-panel={ownerActionHeld ? (mutation.error ? 'failed' : 'pending') : undefined}
+      aria-busy={ownerActionHeld ? 'true' : undefined}
+      className="rounded-lg border border-line bg-panel p-3"
+    >
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
         Members <span className="ml-1 normal-case font-normal">— you hold the {org.role} seat</span>
       </div>
@@ -11825,33 +11859,64 @@ function OrgMemberPanel({ org }: { org: NonNullable<OwnerProfile['org']> }) {
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Invitations</div>
           {pending.length > 0 && (
             <ul className="mb-2 space-y-1 text-[12px] text-ink-soft">
-              {pending.map((i) => (
-                <li key={i.id} className="flex items-center gap-2">
-                  <span className="min-w-0 flex-1 truncate">{i.email}</span>
-                  <button
-                    onClick={() => void revoke(i.id)}
-                    className={INLINE_ACTION_CLASS}
-                    title="Withdraw this pending invitation"
+              {pending.map((invitation) => {
+                const held = heldOrgInviteRevoke(invitation.id)
+                const failed = !!held &&
+                  mutation.activeResourceId === orgInviteOwnerResourceId(held) &&
+                  !!mutation.error
+                return (
+                  <li
+                    key={invitation.id}
+                    data-testid="org-invite-owner-row"
+                    data-org-invite-owner-row={held ? (failed ? 'failed' : 'pending') : undefined}
+                    className="flex items-center gap-2"
                   >
-                    Revoke
-                  </button>
-                </li>
-              ))}
+                    <span className="min-w-0 flex-1 truncate">{invitation.email}</span>
+                    <button
+                      onClick={() => void revoke(invitation)}
+                      disabled={ownerActionHeld}
+                      className={`${INLINE_ACTION_CLASS} disabled:opacity-50`}
+                      title="Withdraw this pending invitation"
+                    >
+                      {held ? (failed ? 'Revoke held' : 'Revoking…') : 'Revoke'}
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
           )}
           <div className="flex items-center gap-1.5">
             <input
-              value={email}
+              value={visibleEmail}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && void invite()}
+              disabled={ownerActionHeld}
               placeholder="Invite by email…"
               aria-label="Invite by email"
               className={`${FORM_INPUT_CLASS} flex-1`}
             />
-            <button onClick={() => void invite()} disabled={busy || !email.trim()} className={INLINE_ACTION_CLASS}>
-              Invite
+            <button
+              onClick={() => void invite()}
+              disabled={ownerActionHeld || !visibleEmail.trim() || !ledgerReady || duplicatePending}
+              className={INLINE_ACTION_CLASS}
+            >
+              {heldIssue ? (issueFailed ? 'Invite held' : 'Inviting…') : duplicatePending ? 'Already invited' : 'Invite'}
             </button>
           </div>
+          {inviteState.status === 'loading' && inviteState.data === undefined && (
+            <p className="mt-1 text-[11px] text-ink-faint">Loading invitations…</p>
+          )}
+          {inviteState.status === 'error' && (
+            <p className="mt-1 text-[11px] text-removed">
+              Couldn’t refresh invitations.{' '}
+              <button
+                onClick={() => retryResourceQueries([keys.orgInvites(org.id)])}
+                className={INLINE_ACTION_CLASS}
+              >
+                Retry
+              </button>
+            </p>
+          )}
           {error && <p className="mt-1 text-[11px] text-removed">{error}</p>}
         </div>
       )}

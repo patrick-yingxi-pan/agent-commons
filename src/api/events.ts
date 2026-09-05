@@ -10,9 +10,8 @@
 import { useEffect } from 'react'
 import type { ServerEvent } from '../../contract/index.ts'
 import { API_BASE } from './client.ts'
-import { resetAll } from './cache.ts'
 import { keys } from './keys.ts'
-import { invalidate, invalidatePrefix } from './cache.ts'
+import { invalidate, invalidatePrefix, resetAll, revalidateAll } from './cache.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
 import { helloRequiresReset } from './streamPolicy.ts'
 import { activeAccount, onAccountSwitch } from './account.ts'
@@ -188,6 +187,16 @@ function route(e: ServerEvent): void {
       // (mention fan-out needs only `project.shared`) — refetch the graph so the
       // door resolves instead of dead-clicking. Tenant-targeted and rare, so cheap.
       invalidate(keys.relations)
+      break
+    case 'org.invitation.changed':
+      // Issuance/verdict/revocation reaches only the owner and addressed account.
+      // Accept widens the invitee's readable world; the same rare full refresh on
+      // the owner is harmless and avoids putting a private actor id in the event.
+      if (e.change === 'accepted') revalidateAll()
+      else {
+        invalidate(keys.meInvites)
+        invalidate(keys.orgInvites(e.orgId))
+      }
       break
     // A proposal's lifecycle moved (opened / commented / merged / declined — the
     // event reaches only the two parties). The review queue is prefetched as soon

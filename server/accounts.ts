@@ -81,6 +81,17 @@ export interface StoredOrgInvite extends OrgInviteRow {
   orgId: string
 }
 
+export type OrgInviteIssueResult =
+  | { kind: 'represented'; invite: StoredOrgInvite; changed: boolean }
+  | { kind: 'duplicate' }
+  | { kind: 'capped' }
+  | { kind: 'invalid' }
+
+export type OrgInviteRevokeResult =
+  | { kind: 'revoked'; invite: OrgInviteRow; changed: boolean }
+  | { kind: 'closed' }
+  | undefined
+
 /** Durable acknowledgement record for one keyed access-token mint. The raw
  * idempotency key and bearer value never enter storage: a fixed-size digest
  * locates the ceremony, while the token can be reconstructed from the row's
@@ -331,6 +342,13 @@ export class AccountRegistry {
     return t ? { tenant: { id: t.id, name: t.name, kind: t.kind }, role: m.role } : undefined
   }
 
+  /** Resolve only a person's canonical namespace back to its account address.
+   * Used by the invitation event gate; organization seats never qualify. */
+  emailOfHomeTenant(tenantId: string): string | undefined {
+    const home = this.memberships.find((membership) => membership.home && membership.tenantId === tenantId)
+    return home ? this.users.get(home.userId)?.email : undefined
+  }
+
   /** Whether a tenant is somebody's NAMESPACE (home) — the wall that keeps org
    *  machinery (invites, seats) out of person namespaces (FWD-6 O-D1/O-D5). */
   isNamespace(tenantId: string): boolean {
@@ -403,20 +421,39 @@ export class AccountRegistry {
       .filter((x): x is MyOrg => !!x)
   }
 
+  /** Durable lookup for a keyed invitation issue. The id already binds actor,
+   * org, and logical key; the stored row is its restart-safe receipt even after
+   * the invitation reaches a terminal state. */
+  orgInviteCreation(orgId: string, logicalId: string): StoredOrgInvite | 'invalid' | undefined {
+    const invite = this.orgInvites.find((candidate) => candidate.id === logicalId)
+    if (!invite) return undefined
+    return invite.orgId === orgId ? invite : 'invalid'
+  }
+
   /** Invite an email into an org (O-D3) — EXISTENCE-HIDDEN: the registry never
-   *  checks whether an account bears the email; matching happens lazily at the
-   *  invitee's reads. A duplicate pending invite returns the existing row
-   *  (uniform — no signal either way). Null = the org is full of pending
-   *  invites ('capped' at the route). */
-  createInvite(orgId: string, email: string, invitedByName: string): StoredOrgInvite | null {
+   * checks whether an account bears the email. A keyed issue owns a durable id;
+   * a different logical issue cannot silently adopt an existing pending row. */
+  issueInvite(
+    orgId: string,
+    email: string,
+    invitedByName: string,
+    options: { logicalId?: string } = {},
+  ): OrgInviteIssueResult {
     const normalized = email.trim().toLowerCase()
     const existing = this.orgInvites.find((i) => i.orgId === orgId && i.email === normalized && i.status === 'invited')
-    if (existing) return existing
+    if (existing) {
+      return options.logicalId
+        ? { kind: 'duplicate' }
+        : { kind: 'represented', invite: existing, changed: false }
+    }
     const pending = this.orgInvites.filter((i) => i.orgId === orgId && i.status === 'invited').length
-    if (pending >= MAX_PENDING_ORG_INVITES) return null
-    this.inviteSeq += 1
+    if (pending >= MAX_PENDING_ORG_INVITES) return { kind: 'capped' }
+    if (options.logicalId && this.orgInvites.some((invite) => invite.id === options.logicalId)) {
+      return { kind: 'invalid' }
+    }
+    if (!options.logicalId) this.inviteSeq += 1
     const invite: StoredOrgInvite = {
-      id: `invite-${this.inviteSeq}`,
+      id: options.logicalId ?? `invite-${this.inviteSeq}`,
       orgId,
       email: normalized,
       role: 'member',
@@ -432,7 +469,13 @@ export class AccountRegistry {
       const drop = rows.filter((i) => i.status !== 'invited').slice(0, rows.length - MAX_ORG_INVITE_ROWS)
       this.orgInvites = this.orgInvites.filter((i) => !drop.includes(i))
     }
-    return invite
+    return { kind: 'represented', invite, changed: true }
+  }
+
+  /** Compatibility projection for deterministic fixtures and unkeyed callers. */
+  createInvite(orgId: string, email: string, invitedByName: string): StoredOrgInvite | null {
+    const result = this.issueInvite(orgId, email, invitedByName)
+    return result.kind === 'represented' ? result.invite : null
   }
 
   /** The org side of the invite ledger (owner-only at the route). */
@@ -545,15 +588,33 @@ export class AccountRegistry {
     }
   }
 
-  /** The owner's honest close of a pending invite. */
-  revokeInvite(orgId: string, inviteId: string): OrgInviteRow | 'closed' | undefined {
+  /** The owner's acknowledged close. Keyed retries may replay an already-
+   * revoked row; unkeyed compatibility retains the honest `closed` result. */
+  revokeInviteCommand(
+    orgId: string,
+    inviteId: string,
+    options: { replayRevoked?: boolean } = {},
+  ): OrgInviteRevokeResult {
     const invite = this.orgInvites.find((i) => i.id === inviteId && i.orgId === orgId)
     if (!invite) return undefined
-    if (invite.status !== 'invited') return 'closed'
+    if (invite.status !== 'invited') {
+      if (options.replayRevoked && invite.status === 'revoked') {
+        const { orgId: _org, ...row } = invite
+        return { kind: 'revoked', invite: row, changed: false }
+      }
+      return { kind: 'closed' }
+    }
     invite.status = 'revoked'
     invite.resolvedAt = Date.now()
     const { orgId: _org, ...row } = invite
-    return row
+    return { kind: 'revoked', invite: row, changed: true }
+  }
+
+  /** Compatibility projection used by the instance-admin and fixture seams. */
+  revokeInvite(orgId: string, inviteId: string): OrgInviteRow | 'closed' | undefined {
+    const result = this.revokeInviteCommand(orgId, inviteId)
+    if (!result) return undefined
+    return result.kind === 'closed' ? 'closed' : result.invite
   }
 
   // ── The bearer-token registry (revocation authority — contract `ApiToken`) ──

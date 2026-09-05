@@ -130,6 +130,7 @@ import { EMPTY_WORKSPACE, workspaceFromSeed } from '../workspace.ts'
 import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredDelegationRetirement, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
 import { eventlog } from '../eventlog.ts'
 import { accounts } from '../accounts.ts'
+import { orgInviteAddressAudience } from '../orgInviteCreationIdentity.ts'
 import { resolveInitialWorld, type InitialWorld } from '../initialWorld.ts'
 import {
   isDraftSessionCreationId,
@@ -3753,6 +3754,11 @@ export const store = {
       // O-D5, the streams of that org's members (the inbox is member-readable).
       case 'notification.changed':
         return tenantReadsAs(tenantId, e.tenantId)
+      case 'org.invitation.changed':
+        // Owners are explicit; the addressed account matches an opaque audience
+        // minted for known and unknown emails alike, preserving the no-oracle wall.
+        if (e.parties.includes(tenantId)) return true
+        return orgInviteAddressAudience(accounts.emailOfHomeTenant(tenantId) ?? '') === e.addressAudience
       case 'relation.applied': {
         // Gate on the tenant that APPLIED the edit — not the op payload. Keying off
         // op.projectId leaked the unfile/unlink ops (projectId:null but carrying the

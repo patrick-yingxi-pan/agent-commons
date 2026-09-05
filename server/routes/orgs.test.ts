@@ -13,8 +13,10 @@
  *     pre-collapse echo (Grace's old Acme seat) still never resurrects. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import type { ServerEvent } from '../../contract/index.ts'
 import { accounts, AccountRegistry } from '../accounts.ts'
 import { orgCreationId } from '../orgCreationIdentity.ts'
+import { orgInviteCreationId } from '../orgInviteCreationIdentity.ts'
 import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 
@@ -66,6 +68,114 @@ test('keyed organization founding recovers one exact namespace after response-ca
   const mine = (await call('GET', '/me/orgs', undefined, { cookie: founder.cookie })).json
   assert.equal(mine.filter((row: { tenant: { id: string } }) => row.tenant.id === expectedId).length, 1)
   assert.equal(mine.find((row: { tenant: { id: string } }) => row.tenant.id === expectedId)?.tenant.name, 'Keyed Collective')
+})
+
+test('keyed invitation issue and revoke recover exact terminal truth after response-cache loss', async () => {
+  const owner = await account('Org Durable Owner')
+  const invitee = await account('Org Durable Invitee')
+  const org = (await call('POST', '/orgs', { name: 'Durable Invitation Guild' }, { cookie: owner.cookie })).json
+  const issueKey = `org-invite-issue-${(n += 1)}`
+  const issueHeaders = { cookie: owner.cookie, 'idempotency-key': issueKey }
+  const issued = await call('POST', `/orgs/${org.id}/invites`, { email: invitee.email }, issueHeaders)
+  assert.equal(issued.status, 201)
+  assert.equal(issued.json.id, orgInviteCreationId(org.id, owner.userId, issueKey))
+
+  await call('POST', `/me/invites/${issued.json.id}/accept`, undefined, { cookie: invitee.cookie })
+  const replay = await callFresh(
+    'POST',
+    `/orgs/${org.id}/invites`,
+    { email: `changed-${n}@orgs.example` },
+    issueHeaders,
+  )
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.id, issued.json.id)
+  assert.equal(replay.json.email, invitee.email)
+  assert.equal(replay.json.status, 'accepted')
+  const ledger = (await call('GET', `/orgs/${org.id}/invites`, undefined, { cookie: owner.cookie })).json
+  assert.equal(ledger.filter((row: { id: string }) => row.id === issued.json.id).length, 1)
+  assert.ok(!ledger.some((row: { email: string }) => row.email === `changed-${n}@orgs.example`))
+
+  const revokee = await account('Org Durable Revokee')
+  const pending = await call('POST', `/orgs/${org.id}/invites`, { email: revokee.email }, { cookie: owner.cookie })
+  const revokeKey = `org-invite-revoke-${(n += 1)}`
+  const revokeHeaders = { cookie: owner.cookie, 'idempotency-key': revokeKey }
+  const revoked = await call('DELETE', `/orgs/${org.id}/invites/${pending.json.id}`, undefined, revokeHeaders)
+  assert.equal(revoked.status, 200)
+  assert.equal(revoked.json.status, 'revoked')
+  const revokeReplay = await callFresh(
+    'DELETE',
+    `/orgs/${org.id}/invites/${pending.json.id}`,
+    undefined,
+    revokeHeaders,
+  )
+  assert.equal(revokeReplay.status, 200)
+  assert.deepEqual(revokeReplay.json, revoked.json)
+  assert.equal(
+    (await call('DELETE', `/orgs/${org.id}/invites/${pending.json.id}`, undefined, { cookie: owner.cookie })).status,
+    409,
+    'unkeyed compatibility still reports an already-closed invitation honestly',
+  )
+})
+
+test('invitation lifecycle events reach only owner and addressed account without row or email payload', async () => {
+  const owner = await account('Org Event Owner')
+  const invitee = await account('Org Event Invitee')
+  const outsider = await account('Org Event Outsider')
+  const revokee = await account('Org Event Revokee')
+  const org = (await call('POST', '/orgs', { name: 'Event Invitation Guild' }, { cookie: owner.cookie })).json
+  const events: ServerEvent[] = []
+  const unsubscribe = store.subscribe((event) => events.push(event))
+  const issued = await call('POST', `/orgs/${org.id}/invites`, { email: invitee.email }, { cookie: owner.cookie })
+  await call('POST', `/me/invites/${issued.json.id}/accept`, undefined, { cookie: invitee.cookie })
+  const pending = await call('POST', `/orgs/${org.id}/invites`, { email: revokee.email }, { cookie: owner.cookie })
+  await call('DELETE', `/orgs/${org.id}/invites/${pending.json.id}`, undefined, { cookie: owner.cookie })
+  const unknownEmail = `org-event-unknown-${n}@orgs.example`
+  await call('POST', `/orgs/${org.id}/invites`, { email: unknownEmail }, { cookie: owner.cookie })
+  unsubscribe()
+
+  const invitationEvents = events.filter(
+    (event): event is Extract<ServerEvent, { type: 'org.invitation.changed' }> =>
+      event.type === 'org.invitation.changed' && event.orgId === org.id,
+  )
+  assert.deepEqual(invitationEvents.map((event) => event.change), ['issued', 'accepted', 'issued', 'revoked', 'issued'])
+  for (const event of invitationEvents) {
+    assert.equal(store.eventVisibleToTenant(event, owner.home), true)
+    assert.equal(store.eventVisibleToTenant(event, outsider.home), false)
+    assert.doesNotMatch(JSON.stringify(event), /@|invite-/, 'ambient invalidation carries no address or row id')
+  }
+  assert.equal(store.eventVisibleToTenant(invitationEvents[0]!, invitee.home), true)
+  assert.equal(store.eventVisibleToTenant(invitationEvents[2]!, revokee.home), true)
+  assert.deepEqual(
+    invitationEvents[0]!.parties,
+    invitationEvents[4]!.parties,
+    'known and unknown addresses expose the same owner routing metadata',
+  )
+  assert.doesNotMatch(JSON.stringify(invitationEvents[0]), new RegExp(invitee.home))
+  assert.match(invitationEvents[0]!.addressAudience, /^address-audience-[a-f0-9]{24}$/)
+  assert.match(invitationEvents[4]!.addressAudience, /^address-audience-[a-f0-9]{24}$/)
+  assert.notEqual(invitationEvents[0]!.addressAudience, invitationEvents[4]!.addressAudience)
+})
+
+test('accepting a member invitation preserves an existing higher organization seat', async () => {
+  const owner = await account('Org Higher Seat')
+  const org = (await call('POST', '/orgs', { name: `Higher Seat ${(n += 1)}` }, { cookie: owner.cookie })).json
+  const issued = await call(
+    'POST',
+    `/orgs/${org.id}/invites`,
+    { email: owner.email },
+    { cookie: owner.cookie },
+  )
+  assert.equal(issued.status, 201)
+
+  const accepted = await call(
+    'POST',
+    `/me/invites/${issued.json.id}/accept`,
+    undefined,
+    { cookie: owner.cookie },
+  )
+  assert.equal(accepted.status, 200)
+  assert.equal(accepted.json.role, 'owner', 'accepting a member invite never demotes an owner')
+  assert.equal(accounts.membership(owner.userId, org.id)?.role, 'owner')
 })
 
 test('the consent flow: invite (existence-hidden) → the invitee accepts → member seat; decline mints nothing', async () => {
