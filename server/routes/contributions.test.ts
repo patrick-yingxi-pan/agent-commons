@@ -16,6 +16,7 @@ import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
+import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
@@ -369,13 +370,94 @@ test('envelope: propose is open deliberation; APPROVE is owner-only (the floor r
   // Funnel validation: empty lines / bad type / zero cardinality refuse.
   for (const bad of [
     { lines: [] },
+    { lines: [null] },
     { lines: [{ type: 'not-a-type', target: 'x' }] },
     { lines: [{ type: 'charge', target: 'x', cardinality: 0 }] },
     { lines: [{ type: 'charge', target: 'x', harness: 'yolo' }] },
+    { lines: [{ type: 'charge', target: 'x', note: 42 }] },
+    { lines: [{ type: 'charge', target: 'x' }, { type: 'charge', target: ' x ' }] },
+    { lines: [{ type: 'charge', target: 'x' }], expectedVersion: -1 },
   ]) {
     const r = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`, bad, { 'x-tenant-id': B })
     assert.equal(r.status, 400, JSON.stringify(bad))
   }
+})
+
+test('a keyed envelope proposal owns one exact payload and base across cache loss and later amendment', async () => {
+  const { projectId, cid } = await arena()
+  const key = `contribution-envelope-proposal-${n}`
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+  const expectedId = contributionEnvelopeProposalId(B, projectId, cid, key)
+  const request = {
+    expectedVersion: 0,
+    lines: [
+      { type: 'connector.write', target: ' gmail:version-one ', cardinality: 2, harness: 'draft-escrow', note: ' review drafts ' },
+      { type: 'charge', target: 'budget:launch', cardinality: 1, harness: 'dry-run', note: '' },
+    ],
+  }
+  const first = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    request,
+    headers,
+  )
+  assert.equal(first.status, 200)
+  assert.equal(first.json.envelope.version, 1)
+  assert.equal(first.json.envelope.lines[0].target, 'gmail:version-one')
+  assert.equal(first.json.envelope.lines[0].note, 'review drafts')
+  const receipt = first.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'envelope-proposed')
+  assert.equal(receipt.envelopeVersion, 1)
+  assert.equal(receipt.proposedByTenant, undefined)
+  assert.equal(receipt.envelopeProposalLines, undefined)
+  assert.equal(receipt.envelopeProposalExpectedVersion, undefined)
+
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    { expectedVersion: 1, lines: [{ type: 'connector.read', target: 'calendar:launch', harness: 'canary' }] },
+    { 'x-tenant-id': C },
+  )
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'History after the proposal response was serialized.' },
+    { 'x-tenant-id': A },
+  )
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    request,
+    headers,
+  )
+  assert.equal(replay.status, 200, 'durable replay precedes current envelope gates')
+  assert.equal(replay.headers['idempotency-replayed'], undefined)
+  assert.equal(replay.json.envelope.version, 2)
+  assert.equal(replay.json.envelope.lines[0].target, 'calendar:launch', 'replay serves current truth')
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+  assert.equal(replay.json.events.at(-1).body, 'History after the proposal response was serialized.')
+
+  const changedPayload = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    { ...request, lines: [{ type: 'charge', target: 'budget:changed' }] },
+    headers,
+  )
+  assert.equal(changedPayload.status, 400, 'one logical key cannot be redirected to another envelope')
+  const changedBase = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    { ...request, expectedVersion: 2 },
+    headers,
+  )
+  assert.equal(changedBase.status, 400, 'one logical key cannot be redirected to another base')
+  const stale = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    request,
+    { 'x-tenant-id': B, 'idempotency-key': `${key}-stale` },
+  )
+  assert.equal(stale.status, 409, 'a fresh proposal cannot overwrite a newer envelope version')
 })
 
 test('a keyed envelope approval owns one exact reviewed version across cache loss and later amendment', async () => {

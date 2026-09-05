@@ -286,7 +286,6 @@ import {
   setDiscussionState,
   markDiscussionRead,
   noteContribution,
-  proposeEnvelope,
   reviewContribution,
   requireContributionReview,
   useDelegations,
@@ -458,6 +457,12 @@ import {
   useContributionEnvelopeApprovalStatus,
 } from '../controller/contributionEnvelopeApprovalMutations.ts'
 import {
+  enqueueContributionEnvelopeProposal,
+  heldContributionEnvelopeProposalIntent,
+  isContributionEnvelopeProposalHeld,
+  useContributionEnvelopeProposalStatus,
+} from '../controller/contributionEnvelopeProposalMutations.ts'
+import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
   useOpenWorkCreationStatus,
@@ -530,6 +535,9 @@ import {
   type SocialAnchor,
   type SocialEntityRef,
   ENVELOPE_HARNESSES,
+  EFFECT_ENVELOPE_LINE_MAX,
+  EFFECT_ENVELOPE_CARDINALITY_MAX,
+  CONTRIBUTION_FIELD_MAX,
   CHANGE_ENTRY_KINDS,
   MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
   AUDIT_CHANNEL_LABEL,
@@ -558,6 +566,7 @@ import {
   type CreatedProvider,
   type ModelProvider,
   type ProjectEffectType,
+  type ProposeEnvelopeRequest,
   type ProjectRole,
   type PromptProbeResult,
   type SystemPromptEntry,
@@ -6244,6 +6253,7 @@ function ContributionPage({
   useContributionEffectExecutionStatus()
   useContributionCrystallizationStatus()
   useContributionEnvelopeApprovalStatus()
+  useContributionEnvelopeProposalStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6256,7 +6266,8 @@ function ContributionPage({
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
   const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
   const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
-  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld
+  const envelopeProposalHeld = isContributionEnvelopeProposalHeld(project.id, contributionId)
+  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld
 
   if (!c) {
     return (
@@ -7058,48 +7069,89 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
  *  block: what external acts this work may fire, under which harness, how many
  *  used. Consent-card-shaped rows; the approve act is the owner's one human
  *  judgment (the floor rule), after which Run is a mechanical match. */
+type EnvelopeDraftLine = Required<ProposeEnvelopeRequest['lines'][number]>
+
+const emptyEnvelopeDraftLine = (): EnvelopeDraftLine => ({
+  type: 'connector.write',
+  target: '',
+  cardinality: 1,
+  harness: 'draft-escrow',
+  note: '',
+})
+
 function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Contribution; lifecycleHeld: boolean }) {
   const own = project.own !== false
   const mayAct = c.mine === true || own
   const me = useMe().data
   const env = c.envelope
+  const mayPropose = c.status === 'open' && (env?.status !== 'approved' || mayAct)
   const [composing, setComposing] = useState(false)
-  const [type, setType] = useState<ProjectEffectType>('connector.write')
-  const [target, setTarget] = useState('')
-  const [cardinality, setCardinality] = useState(1)
-  const [harness, setHarness] = useState<EnvelopeHarness>('draft-escrow')
-  const [busy, setBusy] = useState(false)
+  const [draftBaseVersion, setDraftBaseVersion] = useState(0)
+  const [draftLines, setDraftLines] = useState<EnvelopeDraftLine[]>([])
   const [error, setError] = useState<string | null>(null)
   const heldExecution = heldContributionEffectExecutionIntent(project.id, c.id)
   const heldApproval = heldContributionEnvelopeApprovalIntent(project.id, c.id)
+  const heldProposal = heldContributionEnvelopeProposalIntent(project.id, c.id)
   // No envelope and nothing left to declare (landed) — nothing to show.
-  if (!env && (c.status !== 'open' || !mayAct)) return null
+  if (!env && !mayPropose) return null
 
-  const act = async (fn: () => Promise<unknown>, fail: string) => {
-    if (busy || lifecycleHeld) return
-    setBusy(true)
+  const toggleComposer = () => {
+    if (lifecycleHeld) return
+    if (composing) {
+      setComposing(false)
+      return
+    }
+    setDraftBaseVersion(env?.version ?? 0)
+    setDraftLines(
+      env?.lines.map((line) => ({
+        type: line.type,
+        target: line.target,
+        cardinality: line.cardinality,
+        harness: line.harness,
+        note: line.note,
+      })) ?? [emptyEnvelopeDraftLine()],
+    )
+    setError(null)
+    setComposing(true)
+  }
+  const updateDraftLine = (index: number, patch: Partial<EnvelopeDraftLine>) => {
+    if (lifecycleHeld) return
+    setDraftLines((current) => current.map((line, candidate) => candidate === index ? { ...line, ...patch } : line))
+  }
+  const propose = async () => {
+    if (lifecycleHeld || !me || draftLines.length === 0) return
+    const lines = draftLines.map((line) => ({
+      ...line,
+      target: line.target.trim().slice(0, CONTRIBUTION_FIELD_MAX),
+      note: line.note.trim().slice(0, CONTRIBUTION_FIELD_MAX),
+    }))
+    if (lines.some((line) => !line.target)) return
+    const coordinates = lines.map((line) => JSON.stringify([line.type, line.target, line.harness, line.note]))
+    if (new Set(coordinates).size !== coordinates.length) {
+      setError('Combine duplicate acts by increasing Max acts on one line.')
+      return
+    }
     setError(null)
     try {
-      await fn()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : fail)
-    } finally {
-      setBusy(false)
+      const outcome = await enqueueContributionEnvelopeProposal({
+        tenantId: me.tenant.id,
+        projectId: project.id,
+        contributionId: c.id,
+        expectedVersion: draftBaseVersion,
+        lines,
+      })
+      if (outcome === 'applied') {
+        setDraftLines([])
+        setComposing(false)
+      } else {
+        setError('Envelope proposal was dismissed. Your draft is still here for review.')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare this envelope proposal for recovery.')
     }
   }
-  const propose = () =>
-    act(async () => {
-      if (!target.trim()) return
-      const lines = [
-        ...(env?.lines ?? []).map((l) => ({ type: l.type, target: l.target, cardinality: l.cardinality, harness: l.harness, note: l.note })),
-        { type, target: target.trim(), cardinality, harness },
-      ]
-      await proposeEnvelope(project.id, c.id, { lines })
-      setTarget('')
-      setComposing(false)
-    }, 'Could not propose the envelope.')
   const run = (lineId: string) => {
-    if (busy || lifecycleHeld || !me) return
+    if (lifecycleHeld || !me) return
     setError(null)
     void enqueueContributionEffectExecution({
       tenantId: me.tenant.id,
@@ -7113,7 +7165,7 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
     })
   }
   const approve = () => {
-    if (busy || lifecycleHeld || !me || !env) return
+    if (lifecycleHeld || !me || !env) return
     setError(null)
     void enqueueContributionEnvelopeApproval({
       tenantId: me.tenant.id,
@@ -7128,7 +7180,10 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
   }
 
   return (
-    <div className="mt-5 rounded-xl border border-line bg-surface">
+    <div
+      data-contribution-envelope-version={env?.version ?? 0}
+      className="mt-5 rounded-xl border border-line bg-surface"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
           Effect envelope{env ? ` · v${env.version}` : ''}
@@ -7147,20 +7202,20 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
           {env && env.status === 'proposed' && own && c.status === 'open' && (
             <button
               onClick={approve}
-              disabled={busy || lifecycleHeld}
+              disabled={lifecycleHeld}
               title="Approve these acts as proposed — matching acts then run without re-asking"
               className={`${SOFT_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
             >
               {heldApproval?.envelopeVersion === env.version ? 'Approving…' : 'Approve'}
             </button>
           )}
-          {c.status === 'open' && mayAct && (
+          {mayPropose && (
             <button
-              onClick={() => setComposing((v) => !v)}
+              onClick={toggleComposer}
               disabled={lifecycleHeld}
               className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
             >
-              {env ? 'Amend' : 'Declare effects'}
+              {heldProposal ? 'Proposing…' : env ? 'Amend' : 'Declare effects'}
             </button>
           )}
         </div>
@@ -7183,7 +7238,7 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
             {env.status === 'approved' && c.status === 'open' && mayAct && (
               <button
                 onClick={() => run(l.id)}
-                disabled={busy || lifecycleHeld || l.used >= l.cardinality}
+                disabled={lifecycleHeld || l.used >= l.cardinality}
                 title={
                   l.used >= l.cardinality
                     ? 'Cardinality exhausted — amend the envelope for more'
@@ -7202,66 +7257,130 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
           declare the envelope <em>before</em> acting — approval happens here, not after the fact.
         </p>
       )}
-      {composing && (
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-line px-3 py-2">
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value as ProjectEffectType)}
-            disabled={lifecycleHeld}
-            aria-label="Effect type"
-            className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-          >
-            {PROJECT_EFFECT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <input
-            autoFocus
-            value={target}
-            onChange={(e) => setTarget(e.target.value)}
-            disabled={lifecycleHeld}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void propose()
-              if (e.key === 'Escape') setComposing(false)
-            }}
-            placeholder="Target (connector / descriptor)…"
-            aria-label="Effect target"
-            className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-          />
-          <input
-            type="number"
-            min={1}
-            max={20}
-            value={cardinality}
-            onChange={(e) => setCardinality(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
-            disabled={lifecycleHeld}
-            aria-label="Max acts"
-            title="How many acts this line authorizes (≤)"
-            className="w-14 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-          />
-          <select
-            value={harness}
-            onChange={(e) => setHarness(e.target.value as EnvelopeHarness)}
-            disabled={lifecycleHeld}
-            aria-label="Safety harness"
-            title="The containment this line runs under (CW5's ladder)"
-            className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-          >
-            {ENVELOPE_HARNESSES.map((h) => (
-              <option key={h} value={h}>
-                {h}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => void propose()}
-            disabled={busy || lifecycleHeld || !target.trim()}
-            className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-          >
-            Propose v{(env?.version ?? 0) + 1}
-          </button>
+      {heldProposal ? (
+        <div
+          data-contribution-envelope-proposal-draft
+          aria-busy="true"
+          className="space-y-2 border-t border-line px-3 py-2"
+        >
+          <p className="text-[11px] text-ink-faint">
+            Proposing v{heldProposal.expectedVersion + 1} as one exact envelope — all acts stay frozen until acknowledgement.
+          </p>
+          {heldProposal.lines.map((line, index) => (
+            <div key={`${line.type}:${line.target}:${index}`} className="rounded-lg border border-line bg-panel-2 px-2.5 py-2">
+              <div className="text-[12px] text-ink">
+                {line.type} → <span className="font-medium">{line.target}</span>
+              </div>
+              <div className="text-[11px] text-ink-faint">
+                ≤{line.cardinality ?? 1} · {line.harness ?? 'draft-escrow'}
+                {line.note ? ` · ${line.note}` : ''}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : composing && (
+        <div data-contribution-envelope-editor className="space-y-2 border-t border-line px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-ink-faint">
+              Draft v{draftBaseVersion + 1}. A new version resets usage and needs fresh approval; repeated acts belong in Max acts.
+            </p>
+            <button
+              onClick={() => setDraftLines((current) => [...current, emptyEnvelopeDraftLine()])}
+              disabled={lifecycleHeld || draftLines.length >= EFFECT_ENVELOPE_LINE_MAX}
+              className="rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-ink-soft transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-45"
+            >
+              Add act
+            </button>
+          </div>
+          {draftLines.map((line, index) => (
+            <div key={index} className="space-y-1.5 rounded-lg border border-line bg-panel-2 px-2.5 py-2">
+              <div className="grid gap-1.5 sm:grid-cols-[minmax(8rem,0.8fr)_minmax(12rem,2fr)_5rem_minmax(9rem,1fr)_auto]">
+                <select
+                  value={line.type}
+                  onChange={(e) => updateDraftLine(index, { type: e.target.value as ProjectEffectType })}
+                  disabled={lifecycleHeld}
+                  aria-label={`Effect type ${index + 1}`}
+                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+                >
+                  {PROJECT_EFFECT_TYPES.map((candidate) => (
+                    <option key={candidate} value={candidate}>{candidate}</option>
+                  ))}
+                </select>
+                <input
+                  autoFocus={index === 0 && draftBaseVersion === 0}
+                  value={line.target}
+                  onChange={(e) => updateDraftLine(index, { target: e.target.value })}
+                  maxLength={CONTRIBUTION_FIELD_MAX}
+                  disabled={lifecycleHeld}
+                  placeholder="Target (connector / descriptor)…"
+                  aria-label={`Effect target ${index + 1}`}
+                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+                />
+                <input
+                  type="number"
+                  min={1}
+                  max={EFFECT_ENVELOPE_CARDINALITY_MAX}
+                  value={line.cardinality}
+                  onChange={(e) => updateDraftLine(index, { cardinality: Math.max(1, Math.min(EFFECT_ENVELOPE_CARDINALITY_MAX, Number(e.target.value) || 1)) })}
+                  disabled={lifecycleHeld}
+                  aria-label={`Max acts ${index + 1}`}
+                  title="How many acts this line authorizes (≤)"
+                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+                />
+                <select
+                  value={line.harness}
+                  onChange={(e) => updateDraftLine(index, { harness: e.target.value as EnvelopeHarness })}
+                  disabled={lifecycleHeld}
+                  aria-label={`Safety harness ${index + 1}`}
+                  title="The containment this line runs under"
+                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
+                >
+                  {ENVELOPE_HARNESSES.map((candidate) => (
+                    <option key={candidate} value={candidate}>{candidate}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => setDraftLines((current) => current.filter((_, candidate) => candidate !== index))}
+                  disabled={lifecycleHeld}
+                  aria-label={`Remove effect ${index + 1}`}
+                  title="Remove this act from the next envelope version"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition enabled:hover:bg-removed-bg enabled:hover:text-removed disabled:opacity-45"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+              <input
+                value={line.note}
+                onChange={(e) => updateDraftLine(index, { note: e.target.value })}
+                maxLength={CONTRIBUTION_FIELD_MAX}
+                disabled={lifecycleHeld}
+                placeholder="Scope note (optional)…"
+                aria-label={`Scope note ${index + 1}`}
+                className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
+              />
+            </div>
+          ))}
+          {draftLines.length === 0 && (
+            <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[11px] text-ink-faint">
+              An envelope needs at least one act. Add one, or Cancel to keep the current version.
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-1.5">
+            <button
+              onClick={() => setComposing(false)}
+              disabled={lifecycleHeld}
+              className={`${SECONDARY_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => void propose()}
+              disabled={lifecycleHeld || !me || draftLines.length === 0 || draftLines.some((line) => !line.target.trim())}
+              className={`${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
+            >
+              Propose v{draftBaseVersion + 1}
+            </button>
+          </div>
         </div>
       )}
       {error && <p className="px-3 pb-2 text-[11px] text-removed">{error}</p>}

@@ -113,6 +113,7 @@ import { contributionLandingId } from '../contributionLandingIdentity.ts'
 import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
+import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2765,14 +2766,45 @@ export function buildRouter(): Router {
   r.post('/projects/:id/contributions/:cid/envelope', async ({ req, res, params, body }) => {
     const input = await body<ProposeEnvelopeRequest>()
     if (!Array.isArray(input?.lines)) return sendError(res, 'bad_request', 'lines (array) is required')
+    if (
+      input.expectedVersion !== undefined &&
+      (!Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedVersion must be a non-negative safe integer')
+    }
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.proposeEnvelope(params.id, params.cid, input!, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalProposalId = idempotencyKey
+      ? contributionEnvelopeProposalId(who.tenant.id, params.id, params.cid, idempotencyKey)
+      : undefined
+    const represented = logicalProposalId
+      ? store.getContributionEnvelopeProposal(
+          logicalProposalId,
+          params.id,
+          params.cid,
+          input!,
+          who.tenant.id,
+        )
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This envelope proposal identity is not valid for this account, Contribution, base version, and exact payload')
+    }
+    const out = store.proposeEnvelope(
+      params.id,
+      params.cid,
+      input!,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalProposalId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'closed') return sendError(res, 'conflict', 'A landed contribution’s plan is immutable history')
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the contributor or the project owner may amend an APPROVED envelope')
+    if (out === 'conflict') return sendError(res, 'conflict', 'The effect envelope changed after this draft was opened')
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s timeline is at its cap')
-    if (out === 'invalid') return sendError(res, 'bad_request', 'each line needs a valid type, a target, cardinality 1–20, and a known harness')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'each distinct line needs a valid type, target, cardinality 1–20, known harness, and text note')
     sendJson(res, out)
   })
   r.post('/projects/:id/contributions/:cid/envelope/approve', async ({ req, res, params, body }) => {

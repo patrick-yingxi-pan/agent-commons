@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -24,4 +24,18 @@ test('the E2E reset removes only its exact live store and atomic recovery compan
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+test('E2E browser contexts never pin one shard’s app port', () => {
+  const e2e = join(ROOT, 'e2e')
+  const offenders = readdirSync(e2e, { recursive: true })
+    .map(String)
+    .filter((file) => file.endsWith('.ts'))
+    .filter((file) => /baseURL:\s*['"]http:\/\/(?:127\.0\.0\.1|localhost):\d+/.test(readFileSync(join(e2e, file), 'utf8')))
+
+  assert.deepEqual(
+    offenders,
+    [],
+    'a fixed app baseURL crosses into the wrong backend under a sharded sweep; inherit Playwright’s active shard instead',
+  )
 })

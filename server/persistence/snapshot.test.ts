@@ -363,6 +363,15 @@ test('build produces a snapshot covering every persisted slice', async () => {
   )
   assert.ok(
     s.contributions?.some((contribution) => contribution.events.some((event) =>
+      event.id === 'contribution-envelope-proposal-000000000000000000000000' &&
+      typeof event.proposedByTenant === 'string' &&
+      event.envelopeProposalExpectedVersion === 0 &&
+      event.envelopeVersion === 1 &&
+      event.envelopeProposalLines?.[0]?.target === 'linear:digest')),
+    'acknowledgement-owned envelope proposal keeps its private exact payload and base-version anchors',
+  )
+  assert.ok(
+    s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'contribution-envelope-approval-000000000000000000000000' &&
       typeof event.approvedByTenant === 'string' &&
       event.envelopeVersion === 1)),
@@ -647,6 +656,20 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const backlog = store.listOpenSubGoals('p-insights')
   assert.ok(backlog.some((o) => o.status === 'done' && o.resolvedByLabel), 'a resolved D19 work item survives a boot')
   assert.ok(backlog.some((o) => o.status === 'open'), 'an open D19 work item survives a boot')
+  const envelopeContribution = store.listContributions('p-insights', store.defaultTenantId())
+    .find((contribution) => contribution.title === 'Playground contribution — tune the digest template')
+  assert.ok(envelopeContribution, 'the Contribution carrying keyed envelope work survives a boot')
+  const keyedEnvelopeProposal = envelopeContribution && store.getContributionEnvelopeProposal(
+    'contribution-envelope-proposal-000000000000000000000000',
+    'p-insights',
+    envelopeContribution.id,
+    {
+      expectedVersion: 0,
+      lines: [{ type: 'connector.write', target: 'linear:digest', cardinality: 2, harness: 'draft-escrow', note: 'post the digest' }],
+    },
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof keyedEnvelopeProposal, 'object', 'an exact keyed envelope proposal survives a real boot')
 
   // The social S5/S6 slices survive the boot too: the link redemption still
   // opens the subject (grantedTier reads the rehydrated redeemedBy roster),

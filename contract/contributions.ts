@@ -32,6 +32,9 @@ export type ContributionStatus = 'open' | 'landed'
  *  with their stages in later phases. */
 export type EnvelopeHarness = 'dry-run' | 'draft-escrow' | 'canary' | 'cooling-window' | 'hold-until-landing'
 export const ENVELOPE_HARNESSES: EnvelopeHarness[] = ['dry-run', 'draft-escrow', 'canary', 'cooling-window', 'hold-until-landing']
+export const EFFECT_ENVELOPE_LINE_MAX = 10
+export const EFFECT_ENVELOPE_CARDINALITY_MAX = 20
+export const CONTRIBUTION_FIELD_MAX = 2000
 
 /** One authorized act class: "≤ cardinality acts of `type` on `target`, under
  *  `harness`". `used` counts executed acts (the match ledger's public face). */
@@ -121,6 +124,10 @@ export interface CrystallizeRequest {
 /** Body of `POST .../contributions/:cid/envelope` — propose or amend. */
 export interface ProposeEnvelopeRequest {
   lines: { type: ProjectEffectType; target: string; cardinality?: number; harness?: EnvelopeHarness; note?: string }[]
+  /** Compare-and-swap boundary for first-party authoring: 0 means no envelope
+   * exists yet and N means the visible current version is N. Absence preserves
+   * legacy/delegated best-effort proposal semantics. */
+  expectedVersion?: number
 }
 
 /** Body of `POST .../contributions/:cid/envelope/approve`. Absence preserves
@@ -176,9 +183,9 @@ export interface ContributionEvent {
    *  event. Its event id is the durable receipt for a keyed first-party
    *  crystallization, so response-loss recovery never guesses from position. */
   changesetVersion?: number
-  /** The exact envelope version covered by an `envelope-approved` event. Its
-   * event id is the durable receipt for a keyed first-party approval, so a
-   * retry cannot silently authorize a later amendment. */
+  /** The exact envelope version created by `envelope-proposed` or covered by
+   * `envelope-approved`. The event id is the durable receipt for the keyed
+   * first-party act, so retry never guesses from the mutable current envelope. */
   envelopeVersion?: number
   /** `note`: the comment body. The envelope/effect kinds: a one-line record
    *  ("v2 · 2 acts", "connector.write → gmail · draft-escrow", the refusal

@@ -19,6 +19,7 @@ import type {
   Commission,
   Contribution,
   ContributionEvent,
+  EffectEnvelopeLine,
   Delegation,
   Discussion,
   DiscussionPost,
@@ -146,15 +147,20 @@ export interface StoredContribution extends Omit<Contribution, 'events'> {
 }
 
 /** A contribution timeline event as STORED — the wire row plus the acting
- *  principal (FWD-5). Effect and crystallization receipts additionally retain
- *  the raw tenant that owns the retry identity; projection strips the private
- *  anchors. */
+ * principal (FWD-5). Effect, crystallization, and envelope receipts retain the
+ * raw retry authority and any exact private proof; projection strips it. */
 export type StoredContributionEvent = ContributionEvent & {
   principal?: PrincipalRef
   effectByTenant?: string
   effectResult?: 'executed' | 'unapproved' | 'refused'
   crystallizedByTenant?: string
   approvedByTenant?: string
+  proposedByTenant?: string
+  /** Canonical authored payload and compare boundary for durable proposal
+   * replay. Private because the current/superseded public story belongs to the
+   * envelope and timeline, not to transport metadata. */
+  envelopeProposalLines?: Omit<EffectEnvelopeLine, 'id' | 'used'>[]
+  envelopeProposalExpectedVersion?: number
 }
 
 /** A Delegation as STORED (CW8, Phase F) — the wire row plus the DELEGATOR's

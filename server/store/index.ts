@@ -111,7 +111,7 @@ import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, ENVELOPE_HARNESSES, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, ENVELOPE_HARNESSES, EFFECT_ENVELOPE_LINE_MAX as MAX_ENVELOPE_LINES, EFFECT_ENVELOPE_CARDINALITY_MAX as MAX_ENVELOPE_CARDINALITY, CONTRIBUTION_FIELD_MAX as MAX_CONTRIBUTION_FIELD_CHARS, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
@@ -143,6 +143,7 @@ import { isContributionLandingId } from '../contributionLandingIdentity.ts'
 import { isContributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { isContributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { isContributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
+import { isContributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -402,12 +403,9 @@ let contributionSeq = 0
 const MAX_OPEN_CONTRIBUTIONS_PER_PROJECT = 50
 const MAX_CONTRIBUTIONS_PER_PROJECT = 200
 const MAX_CONTRIBUTION_NOTES = 100
-const MAX_CONTRIBUTION_FIELD_CHARS = 2000
 // Envelope bounds (Phase C): a legible plan, not a blanket grant — few lines,
 // small cardinalities. An "unbounded" envelope would be consent theater (the
 // design doc's envelope-specificity residue), so the funnel refuses it.
-const MAX_ENVELOPE_LINES = 10
-const MAX_ENVELOPE_CARDINALITY = 20
 // Changeset bounds (Phase D): entries per version + versions per contribution
 // (append-only means versions accumulate — a bound, not a blob store).
 const MAX_CHANGESET_ENTRIES = 20
@@ -466,8 +464,72 @@ function crystallizationMatchesVersion(
   })
 }
 
+type NormalizedEnvelopeProposalLine = Omit<import('../../contract/index.ts').EffectEnvelopeLine, 'id' | 'used'>
+
+/** One strict canonical envelope payload feeds both first application and
+ * durable replay. Duplicate acts collapse consent semantics, so authors use
+ * cardinality instead of repeating an indistinguishable line. */
+function normalizedEnvelopeProposalLines(
+  req: import('../../contract/index.ts').ProposeEnvelopeRequest,
+): NormalizedEnvelopeProposalLine[] | undefined {
+  const lines = req.lines
+  if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_ENVELOPE_LINES) return undefined
+  const normalized: NormalizedEnvelopeProposalLine[] = []
+  const seen = new Set<string>()
+  for (const line of lines) {
+    if (!line || typeof line !== 'object') return undefined
+    const cardinality = line.cardinality ?? 1
+    const harness = line.harness ?? 'draft-escrow'
+    if (
+      !PROJECT_EFFECT_TYPES.includes(line.type) ||
+      typeof line.target !== 'string' || !line.target.trim() ||
+      !Number.isInteger(cardinality) || cardinality < 1 || cardinality > MAX_ENVELOPE_CARDINALITY ||
+      !ENVELOPE_HARNESSES.includes(harness) ||
+      (line.note !== undefined && typeof line.note !== 'string')
+    ) return undefined
+    const next: NormalizedEnvelopeProposalLine = {
+      type: line.type,
+      target: line.target.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+      cardinality,
+      harness,
+      note: (line.note ?? '').trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+    }
+    const key = JSON.stringify([next.type, next.target, next.harness, next.note])
+    if (seen.has(key)) return undefined
+    seen.add(key)
+    normalized.push(next)
+  }
+  return normalized
+}
+
+function envelopeProposalLinesMatch(
+  left: NormalizedEnvelopeProposalLine[],
+  right: NormalizedEnvelopeProposalLine[],
+): boolean {
+  if (left.length !== right.length) return false
+  return left.every((line, index) => {
+    const candidate = right[index]
+    return candidate !== undefined &&
+      line.type === candidate.type &&
+      line.target === candidate.target &&
+      line.cardinality === candidate.cardinality &&
+      line.harness === candidate.harness &&
+      line.note === candidate.note
+  })
+}
+
 function publicContributionEvent(ev: StoredContributionEvent): import('../../contract/index.ts').ContributionEvent {
-  const { principal, effectByTenant, effectResult, crystallizedByTenant, approvedByTenant, ...pub } = ev
+  const {
+    principal,
+    effectByTenant,
+    effectResult,
+    crystallizedByTenant,
+    approvedByTenant,
+    proposedByTenant,
+    envelopeProposalLines,
+    envelopeProposalExpectedVersion,
+    ...pub
+  } = ev
   return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
 }
 /** The Project delegation rosters (CW8, Phase F) — judgment handed to a worker
@@ -8536,10 +8598,66 @@ export const store = {
    *  propose (deliberation is open — the route walls visibility); APPROVAL is
    *  the gate, not proposal. Open contributions only: a landed one's plan is
    *  immutable history. */
-  proposeEnvelope(projectId: string, cid: string, req: import('../../contract/index.ts').ProposeEnvelopeRequest, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'closed' | 'invalid' | 'forbidden' | 'capped' | undefined {
+  getContributionEnvelopeProposal(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    req: import('../../contract/index.ts').ProposeEnvelopeRequest,
+    tenantId: string,
+  ): Contribution | 'invalid' | undefined {
+    if (!isContributionEnvelopeProposalId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    const lines = normalizedEnvelopeProposalLines(req)
+    if (
+      event.kind !== 'envelope-proposed' ||
+      !Number.isSafeInteger(event.envelopeVersion) ||
+      (event.envelopeVersion ?? 0) < 1 ||
+      event.proposedByTenant !== tenantId ||
+      event.envelopeProposalExpectedVersion !== req.expectedVersion ||
+      !lines ||
+      !event.envelopeProposalLines ||
+      !envelopeProposalLinesMatch(lines, event.envelopeProposalLines)
+    ) return 'invalid'
+    return publicContribution(contribution, tenantId)
+  },
+  proposeEnvelope(
+    projectId: string,
+    cid: string,
+    req: import('../../contract/index.ts').ProposeEnvelopeRequest,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): Contribution | 'closed' | 'invalid' | 'forbidden' | 'conflict' | 'capped' | undefined {
+    if (
+      req.expectedVersion !== undefined &&
+      (!Number.isSafeInteger(req.expectedVersion) || req.expectedVersion < 0)
+    ) return 'invalid'
+    if (options.logicalId) {
+      const represented = this.getContributionEnvelopeProposal(
+        options.logicalId,
+        projectId,
+        cid,
+        req,
+        tenantId,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That Contribution envelope proposal identity is not valid for this account, ledger row, base version, and payload.')
+      }
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     if (c.status !== 'open') return 'closed'
+    const currentVersion = c.envelope?.version ?? 0
+    if (req.expectedVersion !== undefined && currentVersion !== req.expectedVersion) return 'conflict'
     // Deliberation is open while the envelope is UNAPPROVED — but amending an
     // APPROVED envelope resets the grant, an ungated revocation power a hostile
     // viewer must not hold over the contributor's standing approval (review
@@ -8550,20 +8668,11 @@ export const store = {
       if (!isContributor && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     }
     if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'capped'
-    const lines = req.lines
-    if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_ENVELOPE_LINES) return 'invalid'
-    for (const l of lines) {
-      const card = l.cardinality ?? 1
-      if (
-        !PROJECT_EFFECT_TYPES.includes(l.type) ||
-        typeof l.target !== 'string' || !l.target.trim() ||
-        !Number.isInteger(card) || card < 1 || card > MAX_ENVELOPE_CARDINALITY ||
-        (l.harness !== undefined && !ENVELOPE_HARNESSES.includes(l.harness))
-      ) return 'invalid'
-    }
+    const lines = normalizedEnvelopeProposalLines(req)
+    if (!lines) return 'invalid'
     const now = Date.now()
     const actor = tenantName(tenantId)
-    const version = (c.envelope?.version ?? 0) + 1
+    const version = currentVersion + 1
     // The event carries what the amendment SUPERSEDED (lines + spend) — the
     // envelope object holds only the current version, so the timeline is where
     // a replaced version's record survives (review finding: don't destroy the
@@ -8571,32 +8680,38 @@ export const store = {
     const superseded = c.envelope
       ? ` (supersedes v${c.envelope.version}: ${c.envelope.lines.map((l) => `${l.type}→${l.target} ${l.used}/${l.cardinality}`).join(', ')})`
       : ''
-    c.envelope = {
-      version,
-      status: 'proposed',
-      proposedBy: actor,
-      proposedAt: now,
-      lines: lines.map((l) => ({
-        id: `cev-${(contributionSeq += 1)}`,
-        type: l.type,
-        target: l.target.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-        cardinality: l.cardinality ?? 1,
-        harness: l.harness ?? 'draft-escrow',
-        note: (l.note ?? '').trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-        used: 0,
-      })),
-    }
-    c.events.push({
-      id: `cev-${(contributionSeq += 1)}`,
-      kind: 'envelope-proposed',
-      at: now,
-      actor,
-      body: `v${version} · ${lines.length} act${lines.length === 1 ? '' : 's'}${superseded}`,
-      ...(principal ? { principal } : {}),
+    return commitMutationBatch(() => {
+      c.envelope = {
+        version,
+        status: 'proposed',
+        proposedBy: actor,
+        proposedAt: now,
+        lines: lines.map((line) => ({
+          id: `cev-${(contributionSeq += 1)}`,
+          ...line,
+          used: 0,
+        })),
+      }
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind: 'envelope-proposed',
+        at: now,
+        actor,
+        envelopeVersion: version,
+        body: `v${version} · ${lines.length} act${lines.length === 1 ? '' : 's'}${superseded}`,
+        ...(options.logicalId ? {
+          proposedByTenant: tenantId,
+          envelopeProposalLines: lines.map((line) => ({ ...line })),
+          ...(req.expectedVersion !== undefined
+            ? { envelopeProposalExpectedVersion: req.expectedVersion }
+            : {}),
+        } : {}),
+        ...(principal ? { principal } : {}),
+      })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
     })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
   },
   /** Current containing ledger row for one durable envelope-approval receipt.
    * A supplied reviewed version must match the event exactly, so Retry can

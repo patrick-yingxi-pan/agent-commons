@@ -329,8 +329,12 @@ export async function buildComprehensive(): Promise<PersistedState> {
     // stamps) round-trips through the real mutators.
     const withEnvelope = store.proposeEnvelope(
       'p-insights', landedContribution.id,
-      { lines: [{ type: 'connector.write', target: 'linear:digest', cardinality: 2, harness: 'draft-escrow', note: 'post the digest' }] },
+      {
+        lines: [{ type: 'connector.write', target: 'linear:digest', cardinality: 2, harness: 'draft-escrow', note: 'post the digest' }],
+        expectedVersion: 0,
+      },
       store.defaultTenantId(), builder,
+      { logicalId: 'contribution-envelope-proposal-000000000000000000000000' },
     )
     store.approveEnvelope(
       'p-insights',
