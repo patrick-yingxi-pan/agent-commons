@@ -114,11 +114,20 @@ test('DELETE /auth/tokens/:id revokes: the token dies immediately even though it
   await gated(async () => {
     assert.equal((await call('GET', '/sessions', undefined, victim)).status, 401)
   })
-  // Unknown id / a foreign user's row: an honest 404 (no cross-account revocation).
-  assert.equal((await call('DELETE', '/auth/tokens/no-such-token', undefined, auth)).status, 404)
+  // Desired-state replay survives response loss/restart: exact absence is a
+  // successful revocation, without an in-memory receipt.
+  assert.equal((await call('DELETE', `/auth/tokens/${minted.json.tokenId}`, undefined, auth)).status, 200)
+  // Unknown and foreign ids return the same non-leaking convergence response;
+  // the foreign credential itself remains live.
+  assert.equal((await call('DELETE', '/auth/tokens/no-such-token', undefined, auth)).status, 200)
   const grace = await login({ email: 'grace@acme.example', password: 'grace-demo-password', transport: 'bearer' })
   const graceMint = await call('POST', '/auth/token', {}, { authorization: `Bearer ${grace.json.token}` })
-  assert.equal((await call('DELETE', `/auth/tokens/${graceMint.json.tokenId}`, undefined, auth)).status, 404, "another account's row is not yours to revoke")
+  assert.equal((await call('DELETE', `/auth/tokens/${graceMint.json.tokenId}`, undefined, auth)).status, 200)
+  assert.equal(
+    (await call('GET', '/me', undefined, { authorization: `Bearer ${graceMint.json.token}` })).json.via,
+    'session',
+    "another account's row is not yours to revoke",
+  )
 })
 
 test('revoking one token leaves the others standing (row-level, not account-level)', async () => {

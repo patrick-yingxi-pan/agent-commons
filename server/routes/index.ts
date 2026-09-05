@@ -688,10 +688,11 @@ export function buildRouter(): Router {
     if (me.via !== 'session') {
       return sendError(res, 'unauthorized', 'Sign in first — the token registry belongs to a verified session.')
     }
-    if (!accounts.revokeApiToken(me.user.id, params.id)) {
-      return sendError(res, 'not_found', `No token '${params.id}' on this account`)
-    }
-    store.accountsMutated()
+    // Revocation is a desired-state DELETE: the exact random row id can never
+    // be reused, so already-absent means already safe. This makes a lost
+    // acknowledgement retry converge after restart and gives unknown/foreign
+    // ids the same non-leaking response.
+    if (accounts.revokeApiToken(me.user.id, params.id)) store.accountsMutated()
     sendJson(res, { ok: true })
   })
   r.uiRemoteMcpFormPost('/auth/login', 'credential entry occurs before a properly authenticated product session', async ({ req, res, body }) => {

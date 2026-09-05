@@ -57,7 +57,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { AddedContext, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId, Session } from '../types'
+import type { AddedContext, ApiToken, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId, Session } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
@@ -255,7 +255,6 @@ import {
   reserveSubGoal,
   probePrompt,
   mintApiToken,
-  revokeApiToken,
   useApiTokens,
   API_BASE,
   useAgents,
@@ -443,6 +442,12 @@ import {
   isDelegationRevocationHeld,
   useDelegationRevocationStatus,
 } from '../controller/delegationRevocationMutations.ts'
+import {
+  enqueueApiTokenRevocation,
+  heldApiTokenRevocations,
+  isApiTokenRevocationHeld,
+  useApiTokenRevocationStatus,
+} from '../controller/apiTokenRevocationMutations.ts'
 import {
   enqueueContributionCreation,
   isContributionCreationHeld,
@@ -8209,6 +8214,7 @@ function McpAccessCard() {
   const identityKeyRef = useRef(identityKey)
   identityKeyRef.current = identityKey
   const tokens = useApiTokens(signedIn)
+  const tokenRevocation = useApiTokenRevocationStatus()
   const [minted, setMinted] = useState<{ token: string; tokenId?: string; identityKey: string } | null>(null)
   const [label, setLabel] = useState('')
   const [core, setCore] = useState(true)
@@ -8260,6 +8266,14 @@ function McpAccessCard() {
     ? JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl, headers: { Authorization: `Bearer ${visibleMinted.token}` } } } }, null, 2)
     : null
   const localJsonConfig = JSON.stringify({ mcpServers: { workspace: { type: 'http', url: mcpUrl } } }, null, 2)
+  // A refetch may observe committed absence while the originating response is
+  // still uncertain. Merge the eager snapshots back for presentation only;
+  // the API cache remains a projection of server truth.
+  const tokenRows: ApiToken[] = [
+    ...(tokens.data ?? []),
+    ...heldApiTokenRevocations().filter((held) =>
+      !(tokens.data ?? []).some((token) => token.id === held.id)),
+  ]
   return (
     <div className="space-y-3 py-3.5 text-[13px] leading-relaxed text-ink-soft">
         {localDesktop ? (
@@ -8338,31 +8352,55 @@ function McpAccessCard() {
             {error && <span className="text-[11px] text-danger-strong">{error}</span>}
           </div>
         )}
-        {signedIn && (tokens.data?.length ?? 0) > 0 && (
+        {signedIn && tokenRows.length > 0 && (
           <div className="space-y-1 border-t border-line pt-2.5">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Active tokens</div>
-            {tokens.data!.map((t) => (
-              <div key={t.id} className="flex items-center gap-2 text-[12px]">
-                <KeyRound size={12} className="shrink-0 text-ink-faint" />
-                <span className="min-w-0 flex-1 truncate text-ink">
-                  {t.label ?? 'Unlabeled token'}
-                  <span className="text-ink-faint"> · minted {new Date(t.createdAt).toLocaleDateString()}</span>
-                  {visibleMinted?.tokenId === t.id && <span className="text-ok-strong"> · just minted</span>}
-                </span>
-                <button
-                  onClick={() =>
-                    revokeApiToken(t.id)
-                      // Revoking the just-minted token retires its reveal too —
-                      // a dead credential must not linger on screen as copyable.
-                      .then(() => setMinted((m) => (m?.identityKey === identityKey && m.tokenId === t.id ? null : m)))
-                      .catch(() => {})
-                  }
-                  className="rounded-lg px-2 py-0.5 text-[11px] font-medium text-ink-faint transition hover:bg-danger-tint hover:text-danger-strong"
+            {tokenRows.map((t) => {
+              const tokenName = t.label ?? 'Unlabeled token'
+              const revoking = isApiTokenRevocationHeld(t.id)
+              const active = tokenRevocation.activeResourceId === t.id
+              const failed = active && tokenRevocation.error !== null
+              return (
+                <div
+                  key={t.id}
+                  data-api-token-id={t.id}
+                  data-api-token-revocation={failed ? 'failed' : revoking ? 'pending' : undefined}
+                  aria-busy={revoking || undefined}
+                  className="flex items-center gap-2 text-[12px]"
                 >
-                  Revoke
-                </button>
-              </div>
-            ))}
+                  <KeyRound size={12} className="shrink-0 text-ink-faint" />
+                  <span className="min-w-0 flex-1 truncate text-ink">
+                    {tokenName}
+                    <span className="text-ink-faint"> · minted {new Date(t.createdAt).toLocaleDateString()}</span>
+                    {visibleMinted?.tokenId === t.id && <span className="text-ok-strong"> · just minted</span>}
+                    {failed && <span className="text-danger-strong"> · revocation needs attention</span>}
+                  </span>
+                  <button
+                    onClick={() => {
+                      if (revoking) return
+                      void enqueueApiTokenRevocation(t).then((outcome) => {
+                        if (outcome !== 'applied') return
+                        // A reveal remains copyable until exact server truth
+                        // proves its registry row gone, then retires with it.
+                        setMinted((m) => (m?.identityKey === identityKey && m.tokenId === t.id ? null : m))
+                      })
+                    }}
+                    disabled={revoking}
+                    aria-label={
+                      failed
+                        ? `Revocation needs attention for ${tokenName}`
+                        : revoking
+                          ? `${active ? 'Revoking' : 'Queued to revoke'} ${tokenName}`
+                          : `Revoke ${tokenName}`
+                    }
+                    className="flex items-center gap-1 rounded-lg px-2 py-0.5 text-[11px] font-medium text-ink-faint transition hover:bg-danger-tint hover:text-danger-strong disabled:opacity-60"
+                  >
+                    {failed ? <AlertCircle size={11} /> : revoking ? <Spinner size={11} /> : null}
+                    {failed ? 'Needs attention' : revoking ? (active ? 'Revoking…' : 'Queued…') : 'Revoke'}
+                  </button>
+                </div>
+              )
+            })}
             <p className="text-[11px] text-ink-faint">
               Revoking kills the credential immediately — the registry, not the signature, is what keeps a token alive.
             </p>

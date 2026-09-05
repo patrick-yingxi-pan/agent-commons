@@ -1122,19 +1122,6 @@ export async function mintApiToken(label?: string): Promise<import('../types').B
   return minted
 }
 
-/** Revoke ONE minted token by registry id (`DELETE /auth/tokens/:id`) — the row
- *  is the credential's life: the token dies immediately, signature and all.
- *  Invalidates even on failure: a 404 means the row is ALREADY gone (revoked
- *  elsewhere, or cap-evicted), so the refetch clears the stale row from the
- *  list instead of leaving a dead entry with a no-op Revoke button. */
-export async function revokeApiToken(id: string): Promise<void> {
-  try {
-    await apiDelete<{ ok: boolean }>(paths.authTokenRevoke(id))
-  } finally {
-    invalidate(keys.apiTokens)
-  }
-}
-
 /** Compact a session's context (MODEL-32) — server-owned; the selected provider
  *  prepares a continuation brief and the backend archives older originals only after
  *  compare-before-commit. Returns the bounded active session; invalidates that session,
