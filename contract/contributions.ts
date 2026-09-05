@@ -137,6 +137,12 @@ export interface ApproveEnvelopeRequest {
   expectedVersion?: number
 }
 
+/** Body of `POST .../contributions/:cid/review`. Absence preserves the legacy
+ * best-effort model seam; first-party UI pins the exact changeset it presents. */
+export interface ReviewContributionRequest {
+  expectedVersion?: number
+}
+
 /** Body of `POST .../contributions/:cid/effects` — fire one act against a line. */
 export interface RunEnvelopeEffectRequest {
   lineId: string
@@ -187,6 +193,10 @@ export interface ContributionEvent {
    * `envelope-approved`. The event id is the durable receipt for the keyed
    * first-party act, so retry never guesses from the mutable current envelope. */
   envelopeVersion?: number
+  /** The exact changeset version covered by a `review-passed` event. The event
+   * id is the durable receipt for a keyed first-party review, so response-loss
+   * recovery never infers success from mutable row-level review state. */
+  reviewedVersion?: number
   /** `note`: the comment body. The envelope/effect kinds: a one-line record
    *  ("v2 · 2 acts", "connector.write → gmail · draft-escrow", the refusal
    *  reason). `opened` / `landed` carry no body — the contribution's own

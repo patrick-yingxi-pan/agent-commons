@@ -145,6 +145,7 @@ import { isContributionCrystallizationId } from '../contributionCrystallizationI
 import { isContributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { isContributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { isContributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
+import { isContributionReviewId } from '../contributionReviewIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -523,6 +524,7 @@ function publicContributionEvent(ev: StoredContributionEvent): import('../../con
   const {
     principal,
     notedByTenant,
+    reviewedByTenant,
     effectByTenant,
     effectResult,
     crystallizedByTenant,
@@ -8488,6 +8490,33 @@ export const store = {
   },
 
   // ── The review tier (CW5, Phase E) — the gate as arithmetic ─────────────────
+  /** Current containing ledger row for one durable exact-version review receipt. */
+  getContributionReview(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    tenantId: string,
+    expectedVersion?: number,
+  ): Contribution | 'invalid' | undefined {
+    if (!isContributionReviewId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    if (
+      event.kind !== 'review-passed' ||
+      !Number.isSafeInteger(event.reviewedVersion) ||
+      (event.reviewedVersion ?? 0) < 1 ||
+      event.reviewedByTenant !== tenantId ||
+      (expectedVersion !== undefined && event.reviewedVersion !== expectedVersion)
+    ) return 'invalid'
+    return publicContribution(contribution, tenantId)
+  },
   /** The owner's explicit tightening: force ≥ Tier 1 on a contribution the
    *  arithmetic would auto-land. TIGHTEN-ONLY is structural — no op unsets the
    *  flag (loosening a computed gate is unrepresentable, D8's discipline
@@ -8511,24 +8540,50 @@ export const store = {
    *  reviewer confirms no findings; a real deployment points this at a refuter-
    *  prompted agent). Any viewer may trigger it (it is a machine act, not a
    *  judgment — the route walls visibility); it requires something to review. */
-  reviewContribution(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'nothing' | 'conflict' | undefined {
+  reviewContribution(
+    projectId: string,
+    cid: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string; expectedVersion?: number } = {},
+  ): Contribution | 'nothing' | 'stale' | 'conflict' | 'invalid' | undefined {
+    if (options.logicalId) {
+      const represented = this.getContributionReview(
+        options.logicalId,
+        projectId,
+        cid,
+        tenantId,
+        options.expectedVersion,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') return 'invalid'
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     const latest = c.changeset?.length ?? 0
     if (c.status !== 'open' || latest === 0) return 'nothing'
+    if (
+      options.expectedVersion !== undefined &&
+      (!Number.isSafeInteger(options.expectedVersion) || options.expectedVersion < 1)
+    ) return 'invalid'
+    if (options.expectedVersion !== undefined && options.expectedVersion !== latest) return 'stale'
     if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'conflict'
-    c.reviewedVersion = latest
-    c.events.push({
-      id: `cev-${(contributionSeq += 1)}`,
-      kind: 'review-passed',
-      at: Date.now(),
-      actor: 'Adversarial reviewer (mock)',
-      body: `no confirmed findings · v${latest}`,
-      ...(principal ? { principal } : {}),
+    return commitMutationBatch(() => {
+      c.reviewedVersion = latest
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind: 'review-passed',
+        at: Date.now(),
+        actor: 'Adversarial reviewer (mock)',
+        body: `no confirmed findings · v${latest}`,
+        reviewedVersion: latest,
+        ...(options.logicalId ? { reviewedByTenant: tenantId } : {}),
+        ...(principal ? { principal } : {}),
+      })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
     })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
   },
 
   // ── The changeset (CW3/CW4, Phase D) — crystallization without amnesia ──────

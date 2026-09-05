@@ -147,11 +147,12 @@ export interface StoredContribution extends Omit<Contribution, 'events'> {
 }
 
 /** A contribution timeline event as STORED — the wire row plus the acting
- * principal (FWD-5). Effect, crystallization, and envelope receipts retain the
+ * principal (FWD-5). Effect, crystallization, review, and envelope receipts retain the
  * raw retry authority and any exact private proof; projection strips it. */
 export type StoredContributionEvent = ContributionEvent & {
   principal?: PrincipalRef
   notedByTenant?: string
+  reviewedByTenant?: string
   effectByTenant?: string
   effectResult?: 'executed' | 'unapproved' | 'refused'
   crystallizedByTenant?: string

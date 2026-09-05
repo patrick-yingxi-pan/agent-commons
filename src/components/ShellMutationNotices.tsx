@@ -14,6 +14,7 @@ import { ContributionCrystallizationMutationNotice } from './ContributionCrystal
 import { ContributionEnvelopeApprovalMutationNotice } from './ContributionEnvelopeApprovalMutationNotice'
 import { ContributionEnvelopeProposalMutationNotice } from './ContributionEnvelopeProposalMutationNotice'
 import { ContributionCommentCreationMutationNotice } from './ContributionCommentCreationMutationNotice'
+import { ContributionReviewMutationNotice } from './ContributionReviewMutationNotice'
 import { OpenWorkCreationMutationNotice } from './OpenWorkCreationMutationNotice'
 import { WorkItemCommentCreationMutationNotice } from './WorkItemCommentCreationMutationNotice'
 import { WorkItemRetractionMutationNotice } from './WorkItemRetractionMutationNotice'
@@ -58,6 +59,7 @@ export function ShellMutationNotices() {
       <ContributionEnvelopeApprovalMutationNotice />
       <ContributionEnvelopeProposalMutationNotice />
       <ContributionCommentCreationMutationNotice />
+      <ContributionReviewMutationNotice />
       <OpenWorkCreationMutationNotice />
       <WorkItemCommentCreationMutationNotice />
       <WorkItemRetractionMutationNotice />

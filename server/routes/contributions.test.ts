@@ -18,6 +18,7 @@ import { contributionCrystallizationId } from '../contributionCrystallizationIde
 import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { contributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
+import { contributionReviewId } from '../contributionReviewIdentity.ts'
 import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
@@ -281,6 +282,68 @@ test('a keyed Contribution comment owns exact prose and replays current history 
     { 'x-tenant-id': C, 'idempotency-key': `${key}-fresh` },
   )
   assert.equal(fresh.status, 409, 'a distinct new comment still observes the cap')
+})
+
+test('a keyed Contribution review owns one exact changeset version across cache loss and later history', async () => {
+  const { projectId, cid } = await arena()
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'review target', after: 'v1' }] },
+    { 'x-tenant-id': B },
+  )
+  const key = `contribution-review-${n}`
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+  const expectedId = contributionReviewId(B, projectId, cid, key)
+  const first = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/review`,
+    { expectedVersion: 1 },
+    headers,
+  )
+  assert.equal(first.status, 200)
+  const receipt = first.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'review-passed')
+  assert.equal(receipt.reviewedVersion, 1)
+  assert.equal(receipt.reviewedByTenant, undefined, 'the raw review authority stays private')
+
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'review target', after: 'v2' }] },
+    { 'x-tenant-id': B },
+  )
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'history after the reviewed version' },
+    { 'x-tenant-id': C },
+  )
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/review`,
+    { expectedVersion: 1 },
+    headers,
+  )
+  assert.equal(replay.status, 200, 'exact durable review truth precedes the now-stale version gate')
+  assert.equal(replay.json.changeset.length, 2, 'replay returns the current containing Contribution')
+  assert.equal(replay.json.events.at(-1).body, 'history after the reviewed version')
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+
+  const redirected = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/review`,
+    { expectedVersion: 2 },
+    headers,
+  )
+  assert.equal(redirected.status, 400, 'one logical key cannot be redirected to another changeset version')
+  const stale = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/review`,
+    { expectedVersion: 1 },
+    { 'x-tenant-id': B, 'idempotency-key': `${key}-fresh` },
+  )
+  assert.equal(stale.status, 409, 'a fresh review must name the current changeset version')
 })
 
 test('the per-contribution note cap answers 409; the per-project open cap answers 409', async () => {

@@ -37,6 +37,7 @@ import type {
   PostContributionNoteRequest,
   ProposeEnvelopeRequest,
   ApproveEnvelopeRequest,
+  ReviewContributionRequest,
   RunEnvelopeEffectRequest,
   CrystallizeRequest,
   CreateDelegationRequest,
@@ -115,6 +116,7 @@ import { contributionCrystallizationId } from '../contributionCrystallizationIde
 import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { contributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
+import { contributionReviewId } from '../contributionReviewIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2957,13 +2959,40 @@ export function buildRouter(): Router {
     if (out === 'conflict') return sendError(res, 'conflict', 'Already required, or the contribution landed')
     sendJson(res, out)
   })
-  r.post('/projects/:id/contributions/:cid/review', ({ req, res, params }) => {
+  r.post('/projects/:id/contributions/:cid/review', async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.reviewContribution(params.id, params.cid, who.tenant.id, userPrincipal(who))
+    const input = await body<ReviewContributionRequest>()
+    const expectedVersion = input?.expectedVersion
+    if (
+      expectedVersion !== undefined &&
+      (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1)
+    ) {
+      return sendError(res, 'bad_request', 'expectedVersion must be a positive safe integer')
+    }
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalReviewId = idempotencyKey
+      ? contributionReviewId(who.tenant.id, params.id, params.cid, idempotencyKey)
+      : undefined
+    const represented = logicalReviewId
+      ? store.getContributionReview(logicalReviewId, params.id, params.cid, who.tenant.id, expectedVersion)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This review identity is not valid for this account, Contribution, and changeset version')
+    }
+    const out = store.reviewContribution(
+      params.id,
+      params.cid,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalReviewId, expectedVersion },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'nothing') return sendError(res, 'conflict', 'Nothing to review — crystallize a changeset first (or the contribution landed)')
+    if (out === 'stale') return sendError(res, 'conflict', 'The changeset changed after this review was started')
     if (out === 'conflict') return sendError(res, 'conflict', 'This contribution’s timeline is at its cap')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This review identity or expected version is invalid')
     sendJson(res, out)
   })
 

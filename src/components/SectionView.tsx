@@ -285,7 +285,6 @@ import {
   reportDiscussionPost,
   setDiscussionState,
   markDiscussionRead,
-  reviewContribution,
   requireContributionReview,
   useDelegations,
   deleteDelegation,
@@ -466,6 +465,12 @@ import {
   heldContributionCommentIntent,
   useContributionCommentCreationStatus,
 } from '../controller/contributionCommentCreationMutations.ts'
+import {
+  enqueueContributionReview,
+  heldContributionReviewIntent,
+  isContributionReviewHeld,
+  useContributionReviewStatus,
+} from '../controller/contributionReviewMutations.ts'
 import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
@@ -6259,6 +6264,7 @@ function ContributionPage({
   useContributionEnvelopeApprovalStatus()
   useContributionEnvelopeProposalStatus()
   useContributionCommentCreationStatus()
+  useContributionReviewStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6269,12 +6275,14 @@ function ContributionPage({
   const [error, setError] = useState<string | null>(null)
   const heldComment = heldContributionCommentIntent(project.id, contributionId)
   const commentHeld = heldComment !== null
+  const heldReview = heldContributionReviewIntent(project.id, contributionId)
+  const reviewHeld = isContributionReviewHeld(project.id, contributionId)
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
   const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
   const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
   const envelopeProposalHeld = isContributionEnvelopeProposalHeld(project.id, contributionId)
-  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld
+  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -6348,17 +6356,17 @@ function ContributionPage({
       if (outcome === 'discarded') setError('Landing was dismissed. Review the current gate before trying again.')
     })
   }
-  const runReview = async () => {
-    if (busy || lifecycleHeld) return
-    setBusy(true)
+  const runReview = () => {
+    if (busy || lifecycleHeld || !me) return
     setError(null)
-    try {
-      await reviewContribution(project.id, c.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not run the review.')
-    } finally {
-      setBusy(false)
-    }
+    void enqueueContributionReview({
+      tenantId: me.tenant.id,
+      projectId: project.id,
+      contributionId: c.id,
+      reviewedVersion: latestVersion,
+    }).then((outcome) => {
+      if (outcome === 'discarded') setError('The review was dismissed. Inspect the current changeset before trying again.')
+    })
   }
   const tighten = async () => {
     if (busy || lifecycleHeld) return
@@ -6461,7 +6469,9 @@ function ContributionPage({
                 title={`Run the adversarial review over v${latestVersion} (mock reviewer — the model seam)`}
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
-                Run review
+                {reviewHeld
+                  ? `Reviewing v${heldReview?.reviewedVersion ?? latestVersion}…`
+                  : 'Run review'}
               </button>
             )}
             {applicableDelegation && (

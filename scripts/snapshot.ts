@@ -367,7 +367,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
     )
     // Phase E: run the mock adversarial review too, so the persisted
     // reviewedVersion + review-passed event round-trip.
-    store.reviewContribution('p-insights', landedContribution.id, store.defaultTenantId(), builder)
+    store.reviewContribution(
+      'p-insights',
+      landedContribution.id,
+      store.defaultTenantId(),
+      builder,
+      { logicalId: 'contribution-review-000000000000000000000000', expectedVersion: 1 },
+    )
     store.noteContribution(
       'p-insights',
       landedContribution.id,
