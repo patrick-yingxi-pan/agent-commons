@@ -220,6 +220,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'a removed keyed Agent fork keeps its retirement identity')
   assert.ok(s.retiredAgentCreationIds?.includes('agent-import-000000000000000000000000'),
     'a removed keyed Agent Card import keeps its retirement identity')
+  assert.ok(s.agentProposals?.some(([, proposals]) => proposals.some((proposal) =>
+    proposal.id === 'agent-proposal-new-000000000000000000000000' &&
+    typeof proposal.proposedByTenant === 'string')),
+  'a keyed Agent proposal keeps its durable identity and private author anchor')
   assert.ok(s.delegationRetirements?.some((retirement) =>
     retirement.delegationId === 'delegation-new-000000000000000000000000' &&
     retirement.revocationId === 'delegation-revoke-000000000000000000000000' &&
@@ -698,6 +702,12 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const agent = store.listAgents().find((a) => a.label === 'Playground research agent')
   assert.ok(agent && agent.providerId === provider?.id, 'the created agent (bound to the provider) survives a boot')
   assert.equal(agent?.revision, 1, 'the Agent configuration revision survives a boot')
+  const keyedAgentProposal = agent && store.getAgentProposalCreation(
+    agent.id,
+    'agent-proposal-new-000000000000000000000000',
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof keyedAgentProposal, 'object', 'a keyed Agent-proposal acknowledgement survives a real boot')
   const commission = store.listCommissions('p-insights').find((c) => c.agentId === agent?.id)
   assert.ok(commission, 'the created commission survives a boot')
   assert.equal(commission?.configurationRevision, 1, 'the contributor configuration revision survives a boot')

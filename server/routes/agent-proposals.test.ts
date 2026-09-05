@@ -9,8 +9,9 @@
  *  the proposer's raw tenant id never crosses the wire. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
 
 const A = 'tenant-prop-A' // definition owner
 const B = 'tenant-prop-B' // proposer
@@ -63,6 +64,39 @@ test('open → review: owner sees all, the proposer sees their own, a bystander 
 
   const bell = (await call('GET', '/notifications', undefined, { 'x-tenant-id': A })).json
   assert.ok(bell.some((x: any) => x.kind === 'proposal.opened' && x.agentId === agent.id), 'the owner hears the proposal')
+})
+
+test('keyed proposal creation survives acknowledgement-cache loss without duplicating the proposal or owner bell', async () => {
+  const agent = await publishedAgent()
+  const key = `agent-proposal-${agent.id}`
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+  const expectedId = agentProposalCreationId(B, agent.id, key)
+  const beforeBells = (await call('GET', '/notifications', undefined, { 'x-tenant-id': A })).json
+    .filter((entry: any) => entry.kind === 'proposal.opened' && entry.agentId === agent.id).length
+  const first = await call('POST', `/agents/${agent.id}/proposals`, {
+    fields: { systemPrompt: 'One durable proposal.' },
+    note: 'Freeze this authored intent.',
+  }, headers)
+  assert.equal(first.status, 200)
+  assert.equal(first.json.id, expectedId)
+
+  const cached = await call('POST', `/agents/${agent.id}/proposals`, {
+    fields: { systemPrompt: 'Changed retry input must not replace the first intent.' },
+  }, headers)
+  assert.equal(cached.status, 200)
+  assert.equal(cached.headers['idempotency-replayed'], 'true')
+  assert.deepEqual(cached.json, first.json)
+
+  const durable = await callFresh('POST', `/agents/${agent.id}/proposals`, {}, headers)
+  assert.equal(durable.status, 200, 'the represented proposal answers before changed retry input is parsed')
+  assert.deepEqual(durable.json, first.json)
+  assert.equal(durable.headers['idempotency-replayed'], undefined, 'durability does not depend on middleware memory')
+
+  const rows = (await callFresh('GET', `/agents/${agent.id}/proposals`, undefined, { 'x-tenant-id': B })).json
+  assert.equal(rows.filter((proposal: any) => proposal.id === expectedId).length, 1)
+  const afterBells = (await call('GET', '/notifications', undefined, { 'x-tenant-id': A })).json
+    .filter((entry: any) => entry.kind === 'proposal.opened' && entry.agentId === agent.id).length
+  assert.equal(afterBells, beforeBells + 1, 'the owner is notified exactly once')
 })
 
 test('merge: fields land, version bumps, the changelog credits the PROPOSER, the bell rings', async () => {

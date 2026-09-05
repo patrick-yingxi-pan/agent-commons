@@ -136,6 +136,7 @@ import {
   isSessionCreationId,
 } from '../sessionCreationIdentity.ts'
 import { isAgentCreationId } from '../agentCreationIdentity.ts'
+import { isAgentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { isDelegationCreationId } from '../delegationCreationIdentity.ts'
 import { isDelegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
@@ -6002,9 +6003,26 @@ export const store = {
    *  REQUIRED but undefinable, so every caller decides attribution explicitly
    *  (`undefined` = a foreign A2A actor, attributed by `verifiedPeer`/`via` instead,
    *  or a deliberately unattributed context like the snapshot generator's seeding). */
-  proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest, tenantId: string, principal: PrincipalRef | undefined): AgentChangeProposal | 'capped' | undefined {
+  proposeAgentChange(
+    agentId: string,
+    req: ProposeAgentChangeRequest,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): AgentChangeProposal | 'capped' | 'invalid' | undefined {
     const agent = WORKER_AGENTS.get(agentId)
-    if (!agent || agent.published !== true) return undefined
+    if (!agent) return undefined
+    if (options.logicalId) {
+      if (!isAgentProposalCreationId(options.logicalId)) return 'invalid'
+      const represented = (AGENT_PROPOSALS.get(agentId) ?? [])
+        .find((proposal) => proposal.id === options.logicalId)
+      if (represented) {
+        if (represented.proposedByTenant !== tenantId) return 'invalid'
+        if (agent.published !== true && !registryVisible(agent, tenantId)) return undefined
+        return serveProposal(represented, agent)
+      }
+    }
+    if (agent.published !== true) return undefined
     const f = req.fields ?? {}
     const fields: AgentChangeProposal['fields'] = {
       ...(typeof f.label === 'string' && f.label.trim() ? { label: f.label.trim().slice(0, 120) } : {}),
@@ -6020,7 +6038,7 @@ export const store = {
     const list = AGENT_PROPOSALS.get(agentId) ?? []
     if (list.filter((p) => p.status === 'open').length >= MAX_OPEN_PROPOSALS) return 'capped'
     const proposal: StoredAgentProposal = {
-      id: `${agentId}-p${list.length + 1}`, // append-only list ⇒ stable count ⇒ unique
+      id: options.logicalId ?? `${agentId}-p${list.length + 1}`, // keyed UI intent or legacy append-only identity
       proposedBy: tenantName(tenantId),
       proposedByTenant: tenantId,
       ...(principal ? { proposedByPrincipal: principal } : {}),
@@ -6030,20 +6048,38 @@ export const store = {
       at: Date.now(),
       status: 'open',
     }
-    list.push(proposal)
-    AGENT_PROPOSALS.set(agentId, list)
-    notifyTenants([agent.tenantId ?? defaultTenantId()], tenantId, {
-      kind: 'proposal.opened',
-      actor: proposal.proposedBy,
-      agentId,
-      agentLabel: agent.label,
-      proposalId: proposal.id,
+    return commitMutationBatch(() => {
+      list.push(proposal)
+      AGENT_PROPOSALS.set(agentId, list)
+      notifyTenants([agent.tenantId ?? defaultTenantId()], tenantId, {
+        kind: 'proposal.opened',
+        actor: proposal.proposedBy,
+        agentId,
+        agentLabel: agent.label,
+        proposalId: proposal.id,
+      })
+      // The bell refreshes the inbox; THIS refreshes the review queue itself (the
+      // owner's card prefetches it), so the door never opens on a stale list.
+      emit({ type: 'proposal.changed', agentId, parties: [agent.tenantId ?? defaultTenantId(), tenantId] })
+      persist()
+      return serveProposal(proposal, agent)
     })
-    // The bell refreshes the inbox; THIS refreshes the review queue itself (the
-    // owner's card prefetches it), so the door never opens on a stale list.
-    emit({ type: 'proposal.changed', agentId, parties: [agent.tenantId ?? defaultTenantId(), tenantId] })
-    persist()
-    return serveProposal(proposal, agent)
+  },
+  /** Exact creator-only durable acknowledgement for a keyed Agent proposal.
+   * The proposal follows the same current read wall as its review list. */
+  getAgentProposalCreation(
+    agentId: string,
+    proposalId: string,
+    tenantId: string,
+  ): AgentChangeProposal | 'invalid' | undefined {
+    if (!isAgentProposalCreationId(proposalId)) return 'invalid'
+    const agent = WORKER_AGENTS.get(agentId)
+    if (!agent || (agent.published !== true && !registryVisible(agent, tenantId))) return undefined
+    const represented = (AGENT_PROPOSALS.get(agentId) ?? [])
+      .find((proposal) => proposal.id === proposalId)
+    if (!represented) return undefined
+    if (represented.proposedByTenant !== tenantId) return 'invalid'
+    return serveProposal(represented, agent)
   },
   /** The review queue. The OWNER sees every proposal; anyone else who can see the
    *  agent sees only their OWN (a proposal is a conversation between proposer and

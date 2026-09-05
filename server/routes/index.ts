@@ -104,6 +104,7 @@ import {
   agentForkCreationId,
   agentImportCreationId,
 } from '../agentCreationIdentity.ts'
+import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
@@ -2163,7 +2164,17 @@ export function buildRouter(): Router {
   // ── D25 — change proposals against published definitions (the PR analog) ────
   // Propose: the directory's wall (published-only ⇒ the identical 404). Review:
   // the owner sees all, a proposer sees their own. Verdicts are owner-only.
-  r.post('/agents/:id/proposals', async ({ req, res, params, body }) => {
+  r.post('/agents/:id/proposals', idempotent(async ({ req, res, params, body }) => {
+    const who = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalProposalId = idempotencyKey
+      ? agentProposalCreationId(who.tenant.id, params.id, idempotencyKey)
+      : undefined
+    if (logicalProposalId) {
+      const represented = store.getAgentProposalCreation(params.id, logicalProposalId, who.tenant.id)
+      if (represented && represented !== 'invalid') return sendJson(res, represented)
+      if (represented === 'invalid') return sendError(res, 'conflict', 'That proposal key already represents another author')
+    }
     const input = await body<ProposeAgentChangeRequest>()
     const f = input?.fields
     const hasField =
@@ -2173,12 +2184,18 @@ export function buildRouter(): Router {
         typeof f.instructions === 'string' ||
         Array.isArray(f.tools))
     if (!hasField) return sendError(res, 'bad_request', 'at least one definition field is required')
-    const who = store.identity(req.headers)
-    const out = store.proposeAgentChange(params.id, input!, who.tenant.id, userPrincipal(who))
+    const out = store.proposeAgentChange(
+      params.id,
+      input!,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalProposalId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This definition’s review queue is full')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'That Agent proposal identity is invalid')
     sendJson(res, out)
-  })
+  }))
   r.get('/agents/:id/proposals', ({ req, res, params }) => {
     const out = store.listAgentProposals(params.id, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No agent '${params.id}'`)

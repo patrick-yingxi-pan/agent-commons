@@ -39,7 +39,6 @@ import {
   type MarkDiscussionReadRequest,
   type SocialProposal,
   type SocialEntityRef,
-  type ProposeAgentChangeRequest,
   type WatchState,
   type PromptProbeRequest,
   type PromptProbeResult,
@@ -968,13 +967,6 @@ export async function runDelegation(projectId: string, cid: string, did: string)
   const c = await apiPost<Contribution>(paths.contributionDelegated(projectId, cid, did), {})
   invalidate(keys.contributions(projectId))
   return c
-}
-
-/** Open a change proposal against a published definition (D25). */
-export async function proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest): Promise<AgentChangeProposal> {
-  const proposal = await apiPost<AgentChangeProposal>(paths.agentProposals(agentId), req)
-  invalidate(keys.agentProposals(agentId))
-  return proposal
 }
 
 /** The owner's verdict on a proposal (D25). A merge changes the PUBLISHED

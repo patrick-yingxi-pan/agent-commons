@@ -249,7 +249,6 @@ import {
   setSocialWatch,
   setCommonsLike,
   recordView,
-  proposeAgentChange,
   resolveAgentProposal,
   commentOnAgentProposal,
   useAgentProposals,
@@ -384,6 +383,12 @@ import {
   isAgentDeletionHeld,
   useAgentDeletionStatus,
 } from '../controller/agentDeletionMutations.ts'
+import {
+  enqueueAgentProposalCreation,
+  heldAgentProposalCreation,
+  isAgentProposalCreationHeld,
+  useAgentProposalCreationStatus,
+} from '../controller/agentProposalCreationMutations.ts'
 import {
   isCommissionMutationHeld,
   updateCommissionConfiguration,
@@ -567,6 +572,7 @@ import {
   type Agent,
   type AgentToolEntry,
   type AgentChangeProposal,
+  type ProposeAgentChangeRequest,
   type AgentChangelogEntry,
   type AgentDirectoryEntry,
   type AuditEntry,
@@ -9044,6 +9050,7 @@ function FormField({ label, optional, children }: { label: string; optional?: bo
 function FormDialog({
   title,
   icon,
+  kind,
   submitLabel,
   submitIcon,
   canSubmit,
@@ -9055,6 +9062,7 @@ function FormDialog({
 }: {
   title: string
   icon: ReactNode
+  kind?: string
   submitLabel: string
   submitIcon?: ReactNode
   canSubmit: boolean
@@ -9076,6 +9084,7 @@ function FormDialog({
   }, [])
   return createPortal(
     <div
+      data-form-dialog={kind}
       className="fixed inset-0 z-50 flex justify-center overflow-y-auto px-4 py-4 sm:pt-[8dvh]"
       onMouseDown={close}
       role="dialog"
@@ -12371,7 +12380,10 @@ function AgentPublicPage({
   const own = !builtIn && (!!ownedAgent || directoryEntry?.own === true)
   const published = directoryEntry !== null || ownedAgent?.published === true
   useAgentForkStatus()
+  useAgentProposalCreationStatus()
   const forkHeld = entry ? isAgentForkHeld(entry.id) : false
+  const heldProposalCreation = entry ? heldAgentProposalCreation(entry.id) : undefined
+  const proposalCreationHeld = heldProposalCreation !== undefined
   const provider = providers.find((candidate) => candidate.id === registryAgent?.providerId)
   const prompt = prompts.find((candidate) => candidate.id === registryAgent?.systemPromptId)
   // S18 — the header counts are doors to their lineage SECTIONS on this page
@@ -12501,7 +12513,16 @@ function AgentPublicPage({
                   onClick={() => setCardModal({ url: a2aAgentCardUrl(entry.id), title: `A2A card — ${entry.label}` })}
                 />
               )}
-              {!own && !builtIn && <SectionAction label="Propose a change" icon={<GitPullRequest size={14} />} onClick={() => setProposing(true)} expanded={proposing} />}
+              {!own && !builtIn && (
+                <SectionAction
+                  label={proposalCreationHeld ? 'Opening proposal…' : 'Propose a change'}
+                  icon={proposalCreationHeld ? <Spinner size={14} /> : <GitPullRequest size={14} />}
+                  onClick={() => { if (!proposalCreationHeld) setProposing(true) }}
+                  expanded={proposing || proposalCreationHeld}
+                  disabled={proposalCreationHeld}
+                  disabledReason="Waiting for this proposal to settle"
+                />
+              )}
             </>
           }
         >
@@ -12620,7 +12641,14 @@ function AgentPublicPage({
           onClose={() => setCardModal(null)}
         />
       )}
-      {proposing && !own && !builtIn && <ProposeChangeDialog entry={entry} onBack={() => setProposing(false)} onClose={() => setProposing(false)} />}
+      {(proposing || proposalCreationHeld) && !own && !builtIn && (
+        <ProposeChangeDialog
+          entry={entry}
+          heldRequest={heldProposalCreation?.request}
+          onBack={() => setProposing(false)}
+          onClose={() => setProposing(false)}
+        />
+      )}
     </AtomicResourcePage>
   )
 }
@@ -12691,19 +12719,27 @@ function YourProposals({ entry, focusProposalId = null }: { entry: AgentDirector
  *  fields exist here — capability is unrepresentable (the D18 wall). */
 function ProposeChangeDialog({
   entry,
+  heldRequest,
   onBack,
   onClose,
 }: {
   entry: AgentDirectoryEntry
+  heldRequest?: ProposeAgentChangeRequest
   onBack: () => void
   onClose: () => void
 }) {
   const rel = useRelations()
-  const [prompt, setPrompt] = useState(entry.systemPrompt)
-  const [instructions, setInstructions] = useState(entry.instructions)
-  const [note, setNote] = useState('')
+  const me = useMe().data
+  const [prompt, setPrompt] = useState(
+    () => heldRequest?.fields.systemPrompt ?? entry.systemPrompt,
+  )
+  const [instructions, setInstructions] = useState(
+    () => heldRequest?.fields.instructions ?? entry.instructions,
+  )
+  const [note, setNote] = useState(() => heldRequest?.note ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const held = heldRequest !== undefined || isAgentProposalCreationHeld(entry.id)
   // A CLEARED prompt is "keep the current one", not a change (review finding: the
   // server drops an empty prompt, so counting it as a change either opened a
   // proposal that didn't say what was meant, or 400'd a form that said it had
@@ -12712,76 +12748,95 @@ function ProposeChangeDialog({
   const instructionsChanged = instructions.trim() !== entry.instructions
   const changed = promptChanged || instructionsChanged
   const submit = async () => {
-    if (busy || !changed) return
+    if (busy || held || !changed) return
+    if (!me) {
+      setError('Sign in again before opening this proposal.')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      await proposeAgentChange(entry.id, {
-        fields: {
-          ...(promptChanged ? { systemPrompt: prompt } : {}),
-          ...(instructionsChanged ? { instructions } : {}),
+      const outcome = await enqueueAgentProposalCreation({
+        tenantId: me.tenant.id,
+        agentId: entry.id,
+        request: {
+          fields: {
+            ...(promptChanged ? { systemPrompt: prompt } : {}),
+            ...(instructionsChanged ? { instructions } : {}),
+          },
+          note,
         },
-        note,
       })
-      onClose()
+      if (outcome === 'applied') onClose()
+      else setError('The proposal was not opened. Review your changes and try again when ready.')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not open this proposal.')
+    } finally {
       setBusy(false)
     }
   }
   return (
-    <FormDialog
-      title={`Propose a change — ${entry.label}`}
-      icon={<Bot size={18} />}
-      submitLabel="Open proposal"
-      canSubmit={!busy && changed}
-      onSubmit={submit}
-      onClose={onClose}
-      error={error}
-    >
-      <p className="text-[12px] text-ink-faint">
-        Against v{entry.version}{' '}
-        <OwnerLink
-          ownerName={entry.owner}
-          own={entry.own}
-          onClick={() => {
-            onClose()
-            rel.openOwner(entry.owner)
-          }}
-        />{' '}
-        — the owner reviews and merges or declines.{' '}
-        <button onClick={onBack} className={INLINE_ACTION_CLASS}>
-          Back to the definition
-        </button>
-      </p>
-      <FormField label="System prompt">
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          rows={6}
-          aria-label="Proposed system prompt"
-          className={`${FORM_INPUT_CLASS} resize-none font-mono text-[12px] leading-relaxed`}
-        />
-      </FormField>
-      <FormField label="Instructions" optional>
-        <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          rows={3}
-          aria-label="Proposed instructions"
-          className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
-        />
-      </FormField>
-      <FormField label="Why this change" optional>
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="e.g. tightens the intro, drops the filler"
-          aria-label="Proposal note"
-          className={FORM_INPUT_CLASS}
-        />
-      </FormField>
-    </FormDialog>
+      <FormDialog
+        title={`Propose a change — ${entry.label}`}
+        icon={<Bot size={18} />}
+        kind="agent-proposal-creation"
+        submitLabel={held || busy ? 'Opening proposal…' : 'Open proposal'}
+        canSubmit={!busy && !held && !!me && changed}
+        onSubmit={submit}
+        onClose={() => { if (!held) onClose() }}
+        error={error}
+        busy={held || busy}
+      >
+        <p className="text-[12px] text-ink-faint">
+          Against v{entry.version}{' '}
+          <OwnerLink
+            ownerName={entry.owner}
+            own={entry.own}
+            onClick={() => {
+              onClose()
+              rel.openOwner(entry.owner)
+            }}
+          />{' '}
+          — the owner reviews and merges or declines.{' '}
+          <button
+            onClick={() => { if (!held) onBack() }}
+            disabled={held}
+            className={`${INLINE_ACTION_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            Back to the definition
+          </button>
+        </p>
+        <FormField label="System prompt">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            rows={6}
+            disabled={held || busy}
+            aria-label="Proposed system prompt"
+            className={`${FORM_INPUT_CLASS} resize-none font-mono text-[12px] leading-relaxed disabled:cursor-wait disabled:opacity-70`}
+          />
+        </FormField>
+        <FormField label="Instructions" optional>
+          <textarea
+            value={instructions}
+            onChange={(e) => setInstructions(e.target.value)}
+            rows={3}
+            disabled={held || busy}
+            aria-label="Proposed instructions"
+            className={`${FORM_INPUT_CLASS} resize-none leading-relaxed disabled:cursor-wait disabled:opacity-70`}
+          />
+        </FormField>
+        <FormField label="Why this change" optional>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            disabled={held || busy}
+            placeholder="e.g. tightens the intro, drops the filler"
+            aria-label="Proposal note"
+            className={`${FORM_INPUT_CLASS} disabled:cursor-wait disabled:opacity-70`}
+          />
+        </FormField>
+      </FormDialog>
   )
 }
 

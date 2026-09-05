@@ -209,9 +209,17 @@ export async function buildComprehensive(): Promise<PersistedState> {
   })
   store.updateAgentFromRequest(
     playgroundAgent.id,
-    { instructions: 'Prefer primary and official sources.' },
+    { instructions: 'Prefer primary and official sources.', published: true },
     playgroundAgent.revision,
   )
+  const playgroundProposal = store.proposeAgentChange(
+    playgroundAgent.id,
+    { fields: { instructions: 'Prefer primary sources and show the evidence trail.' }, note: 'Durable proposal fixture.' },
+    store.defaultTenantId(),
+    { kind: 'user', id: store.identity({}).user.id },
+    { logicalId: 'agent-proposal-new-000000000000000000000000' },
+  )
+  if (typeof playgroundProposal !== 'object') throw new Error('Could not create the durable Agent proposal fixture')
   const retiredAgent = store.createAgent(
     { label: 'Retired playground Agent', systemPrompt: 'x', tools: [], instructions: '' },
     store.defaultTenantId(),
