@@ -474,7 +474,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
       { logicalId: 'contribution-land-000000000000000000000000' },
     )
   }
-  store.openContribution(
+  const inFlightContribution = store.openContribution(
     'p-insights',
     { title: 'Playground contribution — still in flight', summary: 'Half-drafted; stays open in the snapshot.' },
     store.defaultTenantId(),
@@ -551,11 +551,21 @@ export async function buildComprehensive(): Promise<PersistedState> {
   store.setMute('Playground muted actor', true, store.defaultTenantId())
   // ── Delegations (CW8, Phase F) ── exercise the persisted roster through the
   // real mint funnel (the default agent is the default tenant's own worker).
-  store.createDelegation(
+  const snapshotDelegation = store.createDelegation(
     'p-insights',
-    { agentId: 'agent-default', actKind: 'approve-envelope', policy: 'Approve routine monotonic plans for the dashboard.', mode: 'draft' },
+    { agentId: 'agent-default', actKind: 'land', policy: 'Draft routine landing judgments for the dashboard.', mode: 'draft' },
     store.defaultTenantId(),
   )
+  if (typeof snapshotDelegation === 'object' && typeof inFlightContribution === 'object') {
+    store.runDelegation(
+      'p-insights',
+      inFlightContribution.id,
+      snapshotDelegation.id,
+      store.defaultTenantId(),
+      builder,
+      { logicalId: 'delegated-judgment-000000000000000000000000' },
+    )
+  }
   const retiredDelegation = store.createDelegation(
     'p-insights',
     { agentId: 'agent-default', actKind: 'land', policy: 'Land exact reviewed changes for snapshot coverage.', mode: 'draft' },

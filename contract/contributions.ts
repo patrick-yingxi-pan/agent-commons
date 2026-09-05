@@ -198,6 +198,10 @@ export interface ContributionEvent {
    * id is the durable receipt for a keyed first-party review, so response-loss
    * recovery never infers success from mutable row-level review state. */
   reviewedVersion?: number
+  /** The immutable Delegation exercised by a delegated judgment event. Its
+   * event id is the durable receipt for one keyed Ask action, so recovery never
+   * infers success from a later envelope/status change. */
+  delegationId?: string
   /** `note`: the comment body. The envelope/effect kinds: a one-line record
    *  ("v2 · 2 acts", "connector.write → gmail · draft-escrow", the refusal
    *  reason). `opened` / `landed` carry no body — the contribution's own

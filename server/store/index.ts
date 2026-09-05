@@ -156,6 +156,7 @@ import { isContributionEnvelopeProposalId } from '../contributionEnvelopeProposa
 import { isContributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { isContributionReviewId } from '../contributionReviewIdentity.ts'
 import { isContributionReviewRequirementId } from '../contributionReviewRequirementIdentity.ts'
+import { isDelegatedJudgmentId } from '../delegatedJudgmentIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -537,6 +538,7 @@ function publicContributionEvent(ev: StoredContributionEvent): import('../../con
     notedByTenant,
     reviewedByTenant,
     reviewRequiredByTenant,
+    delegatedByTenant,
     effectByTenant,
     effectResult,
     crystallizedByTenant,
@@ -8858,6 +8860,33 @@ export const store = {
   ): true | 'invalid' | undefined {
     return delegationRevocationReceipt(revocationId, projectId, did, expectedCreatedAt, tenantId)
   },
+  /** Current containing ledger row for one exact delegated-judgment receipt.
+   * Replay does not depend on the Delegation still standing or on the acted-on
+   * envelope/status remaining current: the immutable event owns that answer. */
+  getDelegatedJudgment(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    delegationId: string,
+    tenantId: string,
+  ): Contribution | 'invalid' | undefined {
+    if (!isDelegatedJudgmentId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    if (
+      !['delegated-decision', 'delegated-draft', 'delegated-escalation'].includes(event.kind) ||
+      event.delegationId !== delegationId ||
+      event.delegatedByTenant !== tenantId
+    ) return 'invalid'
+    return publicContribution(contribution, tenantId)
+  },
   /** Exercise a Delegation on one contribution. The order is load-bearing:
    *  1. SEPARATION OF DUTIES — the contributor may never trigger the decision
    *     on their own work (self-approval unrepresentable), unless they ARE the
@@ -8869,7 +8898,19 @@ export const store = {
    *     satisfied) — `draft` mode records the guess; `decide` mode EXECUTES
    *     the act AS THE DELEGATOR, the event dual-stamped
    *     ("‹Agent› for ‹Owner› · delegation-N") — the conservation law. */
-  runDelegation(projectId: string, cid: string, did: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'self' | 'inapplicable' | undefined {
+  runDelegation(
+    projectId: string,
+    cid: string,
+    did: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): Contribution | 'forbidden' | 'self' | 'inapplicable' | 'invalid' | undefined {
+    if (options.logicalId) {
+      const represented = this.getDelegatedJudgment(options.logicalId, projectId, cid, did, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') return 'invalid'
+    }
     const d = delegations.find((x) => x.id === did && x.projectId === projectId)
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!d || !c) return undefined
@@ -8882,7 +8923,16 @@ export const store = {
     const now = Date.now()
     const stamp = `${d.agentLabel} for ${tenantName(d.delegatorTenant)} · ${d.id}`
     const pushEvent = (kind: 'delegated-decision' | 'delegated-draft' | 'delegated-escalation', body: string) => {
-      c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind, at: now, actor: stamp, body, ...(principal ? { principal } : {}) })
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind,
+        at: now,
+        actor: stamp,
+        body,
+        delegationId: d.id,
+        ...(options.logicalId ? { delegatedByTenant: tenantId } : {}),
+        ...(principal ? { principal } : {}),
+      })
       emit({ type: 'contribution.changed', projectId })
       persist()
     }
@@ -8892,31 +8942,33 @@ export const store = {
     // Mechanical triggers — structural facts, checked for real, through the
     // SAME definitions the tier arithmetic uses (one source: drift between the
     // two is what would un-delegate the floor — review finding).
-    const holds: Record<import('../../contract/index.ts').EscalationTrigger, boolean> = {
-      effectful: isEffectfulContribution(c),
-      unreviewed: (c.changeset?.length ?? 0) === 0 || c.reviewedVersion !== c.changeset!.length,
-      stranger: landedCountFor(projectId, c.contributorTenant) === 0,
-    }
-    const fired = d.escalation.filter((t) => holds[t])
-    if (fired.length > 0) {
-      pushEvent('delegated-escalation', `escalated to ${tenantName(d.delegatorTenant)} — ${fired.join(', ')}`)
+    return commitMutationBatch(() => {
+      const holds: Record<import('../../contract/index.ts').EscalationTrigger, boolean> = {
+        effectful: isEffectfulContribution(c),
+        unreviewed: (c.changeset?.length ?? 0) === 0 || c.reviewedVersion !== c.changeset!.length,
+        stranger: landedCountFor(projectId, c.contributorTenant) === 0,
+      }
+      const fired = d.escalation.filter((t) => holds[t])
+      if (fired.length > 0) {
+        pushEvent('delegated-escalation', `escalated to ${tenantName(d.delegatorTenant)} — ${fired.join(', ')}`)
+        return publicContribution(c, tenantId)
+      }
+      const verdict = `policy satisfied (mock) — would ${d.actKind === 'land' ? 'land' : 'approve the envelope'}`
+      if (d.mode === 'draft') {
+        pushEvent('delegated-draft', verdict)
+        return publicContribution(c, tenantId)
+      }
+      // Decide: execute AS the delegator (the conservation law), the act's own
+      // event dual-stamped FROM THE START via `eventActor`. The outer batch
+      // commits that act and this receipt in one durable snapshot.
+      const out =
+        d.actKind === 'approve-envelope'
+          ? this.approveEnvelope(projectId, cid, d.delegatorTenant, principal, stamp)
+          : this.landContribution(projectId, cid, d.delegatorTenant, principal, { eventActor: stamp })
+      if (typeof out !== 'object') return 'inapplicable'
+      pushEvent('delegated-decision', verdict.replace('would ', ''))
       return publicContribution(c, tenantId)
-    }
-    const verdict = `policy satisfied (mock) — would ${d.actKind === 'land' ? 'land' : 'approve the envelope'}`
-    if (d.mode === 'draft') {
-      pushEvent('delegated-draft', verdict)
-      return publicContribution(c, tenantId)
-    }
-    // Decide: execute AS the delegator (the conservation law), the act's own
-    // event dual-stamped FROM THE START via `eventActor` — no post-hoc patch,
-    // so no crash window can persist an un-stamped record.
-    const out =
-      d.actKind === 'approve-envelope'
-        ? this.approveEnvelope(projectId, cid, d.delegatorTenant, principal, stamp)
-        : this.landContribution(projectId, cid, d.delegatorTenant, principal, { eventActor: stamp })
-    if (typeof out !== 'object') return 'inapplicable'
-    pushEvent('delegated-decision', verdict.replace('would ', ''))
-    return publicContribution(c, tenantId)
+    })
   },
 
   // ── The review tier (CW5, Phase E) — the gate as arithmetic ─────────────────

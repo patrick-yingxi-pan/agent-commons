@@ -984,15 +984,6 @@ export async function declineSocialProposal(
   return p
 }
 
-/** Exercise a Delegation on a contribution (CW8): mechanical escalation
- *  triggers first, then the mock decision — draft records, decide executes
- *  AS the delegator, dual-stamped. */
-export async function runDelegation(projectId: string, cid: string, did: string): Promise<Contribution> {
-  const c = await apiPost<Contribution>(paths.contributionDelegated(projectId, cid, did), {})
-  invalidate(keys.contributions(projectId))
-  return c
-}
-
 /** Watch / unwatch a Project (D24) — the bell subscription. */
 export async function setProjectWatch(projectId: string, watching: boolean): Promise<WatchState> {
   const state = await apiPost<WatchState>(paths.projectWatch(projectId), { watching })

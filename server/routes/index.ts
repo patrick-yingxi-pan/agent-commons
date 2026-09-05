@@ -146,6 +146,7 @@ import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalI
 import { contributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { contributionReviewId } from '../contributionReviewIdentity.ts'
 import { contributionReviewRequirementId } from '../contributionReviewRequirementIdentity.ts'
+import { delegatedJudgmentId } from '../delegatedJudgmentIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -3126,16 +3127,35 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  r.post('/projects/:id/contributions/:cid/delegated/:did', ({ req, res, params }) => {
+  r.post('/projects/:id/contributions/:cid/delegated/:did', idempotent(({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.runDelegation(params.id, params.cid, params.did, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalJudgmentId = idempotencyKey
+      ? delegatedJudgmentId(who.tenant.id, params.id, params.cid, params.did, idempotencyKey)
+      : undefined
+    const represented = logicalJudgmentId
+      ? store.getDelegatedJudgment(logicalJudgmentId, params.id, params.cid, params.did, who.tenant.id)
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This delegated judgment identity is not valid for this account, Contribution, and Delegation')
+    }
+    const out = store.runDelegation(
+      params.id,
+      params.cid,
+      params.did,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalJudgmentId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No contribution or delegation`)
     if (out === 'self') return sendError(res, 'forbidden', 'Separation of duties — the contributor may not trigger the decision on their own work')
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Not permitted')
     if (out === 'inapplicable') return sendError(res, 'conflict', 'Nothing for this delegation to decide here (no pending act, or the contribution landed)')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This delegated judgment identity is invalid')
     sendJson(res, out)
-  })
+  }))
   // The changeset (CW3/CW4, Phase D): crystallize a version — contributor or
   // owner (the work's own act), append-only, behind the same project wall.
   r.post('/projects/:id/contributions/:cid/changeset', idempotent(async ({ req, res, params, body }) => {

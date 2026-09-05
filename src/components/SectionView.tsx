@@ -57,7 +57,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { AddedContext, ApiToken, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId, Session } from '../types'
+import type { AddedContext, ApiToken, AppNotification, ArtifactKind, Connector, Delegation, SavedContext, SavedContextKind, SectionId, Session } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
@@ -278,7 +278,6 @@ import {
   reportDiscussionPost,
   markDiscussionRead,
   useDelegations,
-  runDelegation,
   useAttention,
   useMyWork,
   useOwnerProfile,
@@ -436,6 +435,12 @@ import {
   isDelegationRevocationHeld,
   useDelegationRevocationStatus,
 } from '../controller/delegationRevocationMutations.ts'
+import {
+  enqueueDelegatedJudgment,
+  heldDelegatedJudgmentIntent,
+  isDelegatedJudgmentHeld,
+  useDelegatedJudgmentStatus,
+} from '../controller/delegatedJudgmentMutations.ts'
 import {
   apiTokenMintReveal,
   clearApiTokenMintReveal,
@@ -6454,25 +6459,27 @@ function ContributionPage({
   useContributionCommentCreationStatus()
   useContributionReviewStatus()
   useContributionReviewRequirementStatus()
+  useDelegatedJudgmentStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
   const proposalLandings = useSocialProposals('project', project.id).data ?? []
   const rel = useRelations()
   const [draft, setDraft] = useState('')
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const heldComment = heldContributionCommentIntent(project.id, contributionId)
   const commentHeld = heldComment !== null
   const heldReview = heldContributionReviewIntent(project.id, contributionId)
   const reviewHeld = isContributionReviewHeld(project.id, contributionId)
   const reviewRequirementHeld = isContributionReviewRequirementHeld(project.id, contributionId)
+  const heldDelegatedJudgment = heldDelegatedJudgmentIntent(project.id, contributionId)
+  const delegatedJudgmentHeld = isDelegatedJudgmentHeld(project.id, contributionId)
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
   const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
   const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
   const envelopeProposalHeld = isContributionEnvelopeProposalHeld(project.id, contributionId)
-  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld || reviewRequirementHeld
+  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld || reviewRequirementHeld || delegatedJudgmentHeld
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -6512,6 +6519,15 @@ function ContributionPage({
             (d.actKind === 'approve-envelope' && c.envelope?.status === 'proposed') ||
             (d.actKind === 'land' && c.envelope?.status !== 'proposed'),
         )
+  const delegationAction: Pick<Delegation, 'id' | 'agentLabel' | 'actKind' | 'escalation'> | undefined =
+    heldDelegatedJudgment
+      ? {
+          id: heldDelegatedJudgment.delegationId,
+          agentLabel: heldDelegatedJudgment.agentLabel,
+          actKind: heldDelegatedJudgment.actKind,
+          escalation: [],
+        }
+      : applicableDelegation
   // Offered at Tier 0 AND Tier 1: trust is live arithmetic, so an open Tier-1
   // contribution can drift to Tier 0 as the contributor's other landings
   // accrue — the owner must be able to PIN the review before that happens
@@ -6536,7 +6552,7 @@ function ContributionPage({
     }
   }
   const land = () => {
-    if (busy || lifecycleHeld || !me) return
+    if (lifecycleHeld || !me) return
     setError(null)
     void enqueueContributionLanding({
       tenantId: me.tenant.id,
@@ -6547,7 +6563,7 @@ function ContributionPage({
     })
   }
   const runReview = () => {
-    if (busy || lifecycleHeld || !me) return
+    if (lifecycleHeld || !me) return
     setError(null)
     void enqueueContributionReview({
       tenantId: me.tenant.id,
@@ -6559,7 +6575,7 @@ function ContributionPage({
     })
   }
   const tighten = () => {
-    if (busy || lifecycleHeld || !me) return
+    if (lifecycleHeld || !me) return
     setError(null)
     void enqueueContributionReviewRequirement({
       tenantId: me.tenant.id,
@@ -6569,17 +6585,24 @@ function ContributionPage({
       if (outcome === 'discarded') setError('The review requirement was dismissed. Inspect the current gate before trying again.')
     })
   }
-  const askDelegate = async (did: string) => {
-    if (busy || lifecycleHeld) return
-    setBusy(true)
+  const askDelegate = (delegation: Pick<Delegation, 'id' | 'agentLabel' | 'actKind'>) => {
+    if (lifecycleHeld || !me) return
     setError(null)
-    try {
-      await runDelegation(project.id, c.id, did)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'The delegate could not act.')
-    } finally {
-      setBusy(false)
-    }
+    void enqueueDelegatedJudgment({
+      tenantId: me.tenant.id,
+      projectId: project.id,
+      contributionId: c.id,
+      delegationId: delegation.id,
+      agentLabel: delegation.agentLabel,
+      actKind: delegation.actKind,
+      ...(delegation.actKind === 'approve-envelope' && c.envelope
+        ? { envelopeVersion: c.envelope.version }
+        : {}),
+    }).then((outcome) => {
+      if (outcome === 'discarded') {
+        setError('The delegated request was dismissed. Inspect the current Contribution before asking again.')
+      }
+    })
   }
 
   const badge =
@@ -6644,7 +6667,7 @@ function ContributionPage({
             {mayRequire && (
               <button
                 onClick={() => tighten()}
-                disabled={busy || lifecycleHeld}
+                disabled={lifecycleHeld}
                 title="Tighten the gate: force adversarial review before this can land (there is no un-require)"
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6654,7 +6677,7 @@ function ContributionPage({
             {mayReview && (
               <button
                 onClick={() => void runReview()}
-                disabled={busy || lifecycleHeld}
+                disabled={lifecycleHeld}
                 title={`Run the adversarial review over v${latestVersion} (mock reviewer — the model seam)`}
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6663,20 +6686,22 @@ function ContributionPage({
                   : 'Run review'}
               </button>
             )}
-            {applicableDelegation && (
+            {delegationAction && (
               <button
-                onClick={() => void askDelegate(applicableDelegation.id)}
-                disabled={busy || lifecycleHeld}
-                title={`Ask ${applicableDelegation.agentLabel} to ${applicableDelegation.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${applicableDelegation.escalation.join(', ')}`}
+                onClick={() => askDelegate(delegationAction)}
+                disabled={lifecycleHeld}
+                title={heldDelegatedJudgment
+                  ? `Waiting to confirm ${heldDelegatedJudgment.agentLabel}’s judgment`
+                  : `Ask ${delegationAction.agentLabel} to ${delegationAction.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${delegationAction.escalation.join(', ')}`}
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
-                Ask {applicableDelegation.agentLabel}
+                {heldDelegatedJudgment ? `Asking ${heldDelegatedJudgment.agentLabel}…` : `Ask ${delegationAction.agentLabel}`}
               </button>
             )}
             {mayLand && (
               <button
                 onClick={() => void land()}
-                disabled={busy || lifecycleHeld}
+                disabled={lifecycleHeld}
                 title={`Land this contribution — it becomes L${
                   Math.max(
                     list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),

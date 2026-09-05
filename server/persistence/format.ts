@@ -166,6 +166,8 @@ export type StoredContributionEvent = ContributionEvent & {
   notedByTenant?: string
   reviewedByTenant?: string
   reviewRequiredByTenant?: string
+  /** Private authority proof for a keyed delegated-judgment acknowledgement. */
+  delegatedByTenant?: string
   effectByTenant?: string
   effectResult?: 'executed' | 'unapproved' | 'refused'
   crystallizedByTenant?: string

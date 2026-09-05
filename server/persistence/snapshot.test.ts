@@ -386,6 +386,14 @@ test('build produces a snapshot covering every persisted slice', async () => {
   )
   assert.ok(
     s.contributions?.some((contribution) => contribution.events.some((event) =>
+      event.id === 'delegated-judgment-000000000000000000000000' &&
+      event.kind === 'delegated-draft' &&
+      typeof event.delegationId === 'string' &&
+      typeof event.delegatedByTenant === 'string')),
+    'acknowledgement-owned delegated judgment keeps its exact public receipt and private actor anchor',
+  )
+  assert.ok(
+    s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'contribution-require-review-000000000000000000000000' &&
       typeof event.reviewRequiredByTenant === 'string')),
     'acknowledgement-owned review requirement keeps its durable receipt and private actor anchor',
@@ -814,6 +822,21 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     store.defaultTenantId(),
   )
   assert.equal(typeof keyedContributionReviewRequirement, 'object', 'a keyed review requirement survives a real boot')
+  const delegatedContribution = store.listContributions('p-insights', store.defaultTenantId())
+    .find((contribution) => contribution.events.some((event) => event.id === 'delegated-judgment-000000000000000000000000'))
+  const delegatedReceipt = delegatedContribution?.events.find(
+    (event) => event.id === 'delegated-judgment-000000000000000000000000',
+  )
+  const keyedDelegatedJudgment = delegatedContribution && delegatedReceipt?.delegationId
+    ? store.getDelegatedJudgment(
+        delegatedReceipt.id,
+        'p-insights',
+        delegatedContribution.id,
+        delegatedReceipt.delegationId,
+        store.defaultTenantId(),
+      )
+    : undefined
+  assert.equal(typeof keyedDelegatedJudgment, 'object', 'an exact delegated judgment survives a real boot')
   const keyedEnvelopeProposal = envelopeContribution && store.getContributionEnvelopeProposal(
     'contribution-envelope-proposal-000000000000000000000000',
     'p-insights',

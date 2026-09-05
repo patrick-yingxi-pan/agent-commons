@@ -13,6 +13,7 @@ import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { delegationRevocationId } from '../delegationRevocationIdentity.ts'
+import { delegatedJudgmentId } from '../delegatedJudgmentIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
@@ -1174,6 +1175,79 @@ test('delegations (CW8): the mint funnel, the conservation law, SoD, mechanical 
   store.deleteAgent(agentId)
   const swept = await call('GET', `/projects/${projectId}/delegations`, undefined, { 'x-tenant-id': A })
   assert.equal(swept.json.length, 0, 'the dead delegate’s rows are gone')
+})
+
+test('a keyed delegated judgment owns one exact durable outcome beyond mutable applicability', async () => {
+  const projectId = `p-deleg-judgment-${(n += 1)}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Durable Judgment', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Durable Judgment', shared: true }, A)
+  const agent = store.createAgent({ label: 'Durable judge', providerId: 'provider-claude', tools: [] } as any, A)
+  const decisionDelegation = await call('POST', `/projects/${projectId}/delegations`, {
+    agentId: agent.id,
+    actKind: 'approve-envelope',
+    policy: 'Approve monotonic work.',
+    mode: 'decide',
+  }, { 'x-tenant-id': A })
+  const contribution = await call('POST', `/projects/${projectId}/contributions`, {
+    title: 'Durable delegated approval',
+  }, { 'x-tenant-id': B })
+  await call('POST', `/projects/${projectId}/contributions/${contribution.json.id}/envelope`, {
+    lines: [{ type: 'connector.read', target: 'linear:durable' }],
+  }, { 'x-tenant-id': B })
+
+  const key = `delegated-judgment-${n}`
+  const headers = { 'x-tenant-id': C, 'idempotency-key': key }
+  const expectedId = delegatedJudgmentId(C, projectId, contribution.json.id, decisionDelegation.json.id, key)
+  const decided = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${contribution.json.id}/delegated/${decisionDelegation.json.id}`,
+    undefined,
+    headers,
+  )
+  assert.equal(decided.status, 200)
+  assert.equal(decided.json.envelope.status, 'approved')
+  const receipt = decided.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'delegated-decision')
+  assert.equal(receipt.delegationId, decisionDelegation.json.id)
+  assert.equal(receipt.delegatedByTenant, undefined, 'raw retry authority never crosses the wire')
+
+  await call('DELETE', `/projects/${projectId}/delegations/${decisionDelegation.json.id}`, undefined, {
+    'x-tenant-id': A,
+  })
+  await call('POST', `/projects/${projectId}/contributions/${contribution.json.id}/comments`, {
+    body: 'Later history remains visible on replay.',
+  }, { 'x-tenant-id': A })
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${contribution.json.id}/delegated/${decisionDelegation.json.id}`,
+    undefined,
+    headers,
+  )
+  assert.equal(replay.status, 200, 'the receipt answers after revocation and approval made the act inapplicable')
+  assert.equal(replay.headers['idempotency-replayed'], undefined)
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+  assert.equal(replay.json.events.filter((event: any) => event.kind === 'envelope-approved').length, 1)
+  assert.ok(replay.json.events.some((event: any) => event.body === 'Later history remains visible on replay.'))
+
+  const draftDelegation = await call('POST', `/projects/${projectId}/delegations`, {
+    agentId: agent.id,
+    actKind: 'land',
+    policy: 'Draft a landing judgment.',
+    mode: 'draft',
+  }, { 'x-tenant-id': A })
+  const draftedContribution = await call('POST', `/projects/${projectId}/contributions`, {
+    title: 'Durable delegated draft',
+  }, { 'x-tenant-id': B })
+  const draftKey = `delegated-draft-${n}`
+  const draftHeaders = { 'x-tenant-id': C, 'idempotency-key': draftKey }
+  const draftPath = `/projects/${projectId}/contributions/${draftedContribution.json.id}/delegated/${draftDelegation.json.id}`
+  const drafted = await call('POST', draftPath, undefined, draftHeaders)
+  assert.equal(drafted.status, 200)
+  const draftedReplay = await callFresh('POST', draftPath, undefined, draftHeaders)
+  assert.equal(draftedReplay.status, 200)
+  const draftReceiptId = delegatedJudgmentId(C, projectId, draftedContribution.json.id, draftDelegation.json.id, draftKey)
+  assert.equal(draftedReplay.json.events.filter((event: any) => event.id === draftReceiptId).length, 1,
+    'a response-cache loss cannot append the same draft twice')
 })
 
 test('a keyed Delegation owns one immutable authority row beyond response-cache lifetime', async () => {
