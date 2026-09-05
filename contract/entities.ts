@@ -155,6 +155,11 @@ export interface Message {
    *  user confirms or skips; absent = still pending (or resolved before this
    *  field existed, where the graph derivation still covers the common case). */
   relationsResolved?: Record<string, 'confirmed' | 'skipped'>
+  /** Opaque durable acknowledgements for keyed first-party relation decisions,
+   *  keyed by the same `opKey` as `relationsResolved`. The pair proves which
+   *  exact consent click produced the historical verdict without exposing the
+   *  private tenant authority used to derive it. */
+  relationDecisionIds?: Record<string, string>
   /** Connector / MCP tools the model called this turn, with the (mock) result fed
    *  back to it (P6 — an attached connector/MCP contributes callable tools). Unlike
    *  `escalation` / `relationActions`, a *read* result only surfaced data, so it needs

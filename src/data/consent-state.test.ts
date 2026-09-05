@@ -252,15 +252,18 @@ test('the controller resurfaces the held proposal at BOTH reconcile sites — th
 // project escalation STAYS in the thread: the confirmed card carries an "Open
 // project" jump link instead of yanking the user to the project page.
 
-test('the consent card reads + writes the persisted verdict (C29)', () => {
+test('the consent card reads persisted history and submits one acknowledged decision (C29)', () => {
   const card = stripComments(read(join(ROOT, 'src', 'components', 'RelationActionCard.tsx')))
   assert.match(card, /resolved\?\.\[key\] === 'confirmed'/, 'the persisted confirm wins over graph state')
   assert.match(card, /resolved\?\.\[key\] === 'skipped'/, 'the persisted skip renders too')
-  assert.match(card, /recordRelationVerdict\(sessionId, messageId, key, verdict\)\.then\(committed/, 'each verdict is acknowledged before the card resolves')
-  const confirm = card.slice(card.indexOf('const confirm ='), card.indexOf('const skip ='))
-  assert.match(confirm, /result\.then\(\(outcome\)/, 'confirm waits for the effect outcome')
-  assert.match(confirm, /outcome === 'applied'\) persistVerdict/, 'only an acknowledged effect records confirmed')
-  assert.doesNotMatch(confirm, /setDone\(/, 'confirm never paints completion directly')
+  assert.match(card, /enqueueRelationActionDecision\(\{ tenantId, sessionId, messageId, operation, verdict \}\)/,
+    'effect and verdict travel through one acknowledgement-owned decision')
+  assert.match(card, /const isDone =\s*!held &&/,
+    'ambient history cannot clear an uncertain local decision before acknowledgement')
+  assert.match(card, /disabled=\{held !== null \|\| !tenantId\}/,
+    'Confirm and Not now cannot race while either decision is held')
+  assert.doesNotMatch(card, /recordRelationVerdict|applyRelationOp/,
+    'the card cannot split effect execution from persisted consent history')
   const msg = stripComments(read(join(ROOT, 'src', 'components', 'Message.tsx')))
   assert.match(msg, /resolved=\{message\.relationsResolved\}/, 'the message passes its persisted verdicts to the card')
 })

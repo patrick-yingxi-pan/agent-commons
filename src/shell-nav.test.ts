@@ -66,8 +66,13 @@ test("the rail's active highlight derives from the FOCUSED pane, not a singleton
 
 test("a relation card's attach-context op attaches to ITS OWN session (no root bridge)", () => {
   const card = stripComments(read(join(ROOT, 'src', 'components', 'RelationActionCard.tsx')))
-  assert.match(card, /useSessionContextCommands\(sessionId \?\? DRAFT_ID\)/, 'the card binds the session-parametric funnel')
-  assert.match(card, /op\.kind === 'attach-context' && sessionId/, 'attach-context confirms through it')
+  assert.match(card, /enqueueRelationActionDecision\(\{ tenantId, sessionId, messageId, operation, verdict \}\)/,
+    'the card binds every proposal to its carrying conversation and message')
+  const runtime = stripComments(read(join(ROOT, 'src', 'controller', 'relationActionDecisionMutationRuntime.ts')))
+  assert.match(runtime, /intent\.operation\.kind === 'attach-context'/, 'the acknowledged decision recognizes the attached context')
+  assert.match(runtime, /conversations\.setLive\(intent\.sessionId/,
+    'attachment reconciliation addresses the proposal’s own conversation')
+  assert.match(runtime, /addContextToLive\(withDecision, added\)/, 'the exact live panel opens only after acknowledgement')
   const rel = stripComments(read(join(ROOT, 'src', 'controller', 'useRelations.tsx')))
   assert.ok(!rel.includes('attachConnector'), 'the session-blind root bridge is gone from the relations store')
   assert.match(rel, /if \(op\.kind === 'attach-context'\) return/, 'a stray attach-context is never POSTed as a graph op')

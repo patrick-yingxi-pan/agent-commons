@@ -214,6 +214,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
     activity.decisionId === 'tool-activity-decision-000000000000000000000000' &&
     activity.status === 'declined')),
   'a keyed tool-consent receipt persists inside its authoritative conversation')
+  assert.ok(created?.messages?.some((message) =>
+    message.id === 'relation-proposal-playground' &&
+    Object.values(message.relationsResolved ?? {}).includes('skipped') &&
+    Object.values(message.relationDecisionIds ?? {}).includes('relation-action-decision-000000000000000000000000')),
+  'a keyed relation-consent receipt persists beside the immutable proposal and verdict')
   assert.ok(s.retiredSessionCreationIds?.includes('sess-new-000000000000000000000000'),
     'a removed keyed draft keeps its retirement identity')
   assert.ok(s.retiredSessionCreationIds?.includes('sess-fork-000000000000000000000000'),
@@ -623,6 +628,22 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const full = created && store.getSession(created.id)
   assert.ok(full && (full.messages?.length ?? 0) >= 2, 'getSession returns the rehydrated thread')
   assert.ok(full && (full.workspace?.repos.length ?? 0) > 0, 'getSession surfaces the rehydrated workspace')
+  const relationMessage = full?.messages?.find((message) => message.id === 'relation-proposal-playground')
+  const relationKey = relationMessage?.relationActions?.[0]
+    ? (await import('../../contract/index.ts')).opKey(relationMessage.relationActions[0])
+    : ''
+  assert.deepEqual(
+    full && store.getMessageRelationDecision(
+      full.id,
+      'relation-proposal-playground',
+      relationKey,
+      'relation-action-decision-000000000000000000000000',
+      store.defaultTenantId(),
+      'skipped',
+    ),
+    { key: relationKey, verdict: 'skipped', decisionId: 'relation-action-decision-000000000000000000000000' },
+    'a real boot restores exact keyed relation-decision replay truth',
+  )
   assert.equal(
     store.getSessionCreation('sess-new-000000000000000000000000', store.defaultTenantId()),
     'retired',

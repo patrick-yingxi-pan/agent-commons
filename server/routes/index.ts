@@ -45,6 +45,7 @@ import type {
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
+  ResolveMessageRelationRequest,
   ResolveToolActivityRequest,
   ForkSessionRequest,
   SetRunnerCapabilitiesRequest,
@@ -109,6 +110,7 @@ import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { agentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
 import { agentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
 import { toolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
+import { relationActionDecisionId } from '../relationActionDecisionIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
@@ -4252,22 +4254,84 @@ export function buildRouter(): Router {
     sendJson(res, { ok: true })
   })
 
-  // Record the user's verdict on ONE proposed relation edit (the consent card's
-  // resolution) on the message that carried it — server-owned, so a reload or a
-  // later superseding op can't flip a resolved card back to pending. The key is
-  // the contract's `opKey`; the verdict is exactly confirmed | skipped (a
-  // proposal has no third outcome — an unresolved one simply stays pending).
-  r.post('/sessions/:id/messages/:messageId/relations', async ({ req, res, params, body }) => {
+  // Decide ONE proposed relation edit (the consent card's resolution) on the
+  // message that carried it. A keyed first-party decision executes the immutable
+  // stored operation and records its receipt in one durable batch; that receipt,
+  // rather than the process-local response cache, owns exact retries across both
+  // a lost response and a restart. Legacy unkeyed clients remain record-only.
+  r.intrinsicPost('/sessions/:id/messages/:messageId/relations', 'relation proposal consent is intrinsic host control; the model cannot approve its own proposed effect', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
-    const { key, verdict } = await body<{ key?: string; verdict?: string }>()
-    if (!key || (verdict !== 'confirmed' && verdict !== 'skipped')) {
+    const who = store.identity(req.headers)
+    const session = store.getSession(params.id)
+    if (session && !store.sessionOwnedBy(session, who.tenant.id)) {
+      return sendError(res, 'forbidden', 'Only the conversation owner may decide its proposed changes')
+    }
+    const input = await body<unknown>()
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).some((field) => field !== 'key' && field !== 'verdict')
+    ) {
+      return sendError(res, 'bad_request', "body must contain only key and verdict: 'confirmed' or 'skipped'")
+    }
+    const { key, verdict } = input as Partial<ResolveMessageRelationRequest>
+    if (typeof key !== 'string' || !key || (verdict !== 'confirmed' && verdict !== 'skipped')) {
       return sendError(res, 'bad_request', `A verdict needs an op key and 'confirmed' | 'skipped'`)
     }
-    const session = store.resolveMessageRelation(params.id, params.messageId, key, verdict)
-    if (!session) {
-      return sendError(res, 'not_found', `No proposal '${key}' on message '${params.messageId}' of session '${params.id}'`)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    if (!idempotencyKey) {
+      const resolved = store.resolveMessageRelation(params.id, params.messageId, key, verdict)
+      if (resolved === 'invalid') {
+        return sendError(res, 'bad_request', 'This proposed change already has a different recorded verdict')
+      }
+      if (!resolved) {
+        return sendError(res, 'not_found', `No proposal '${key}' on message '${params.messageId}' of session '${params.id}'`)
+      }
+      return sendJson(res, { key, verdict })
     }
-    sendJson(res, { ok: true })
+    const decisionId = relationActionDecisionId(
+      who.tenant.id,
+      params.id,
+      params.messageId,
+      key,
+      idempotencyKey,
+    )
+    const represented = store.getMessageRelationDecision(
+      params.id,
+      params.messageId,
+      key,
+      decisionId,
+      who.tenant.id,
+      verdict,
+    )
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This relation decision identity is not valid for this conversation, proposal, and verdict')
+    }
+    try {
+      const resolved = store.decideMessageRelation(
+        params.id,
+        params.messageId,
+        key,
+        verdict,
+        decisionId,
+        who.tenant.id,
+      )
+      if (resolved === 'forbidden') {
+        return sendError(res, 'forbidden', 'This proposed change is no longer permitted for this conversation owner')
+      }
+      if (resolved === 'invalid') {
+        return sendError(res, 'bad_request', 'This relation decision identity is not valid for this conversation, proposal, and verdict')
+      }
+      if (resolved) return sendJson(res, resolved)
+      return sendError(res, 'not_found', `No proposal '${key}' on message '${params.messageId}' of session '${params.id}'`)
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      if (error instanceof LimitError) return sendError(res, error.code, error.message)
+      if (error instanceof ValidationError) return sendError(res, error.code, error.message)
+      throw error
+    }
   })
 
   // Reattach to a live turn (design §5.2, invariants I1/I3/I4): replay the buffered

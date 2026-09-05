@@ -226,6 +226,20 @@ export interface ApplyOpRequest {
   op: RelationOp
 }
 
+/** Resolve one model-proposed relation edit on the message that carried it.
+ * Keyed first-party confirmation executes the immutable proposal and records
+ * its verdict as one atomic act; unkeyed compatibility callers retain the
+ * historical record-only behavior. */
+export interface ResolveMessageRelationRequest {
+  key: string
+  verdict: 'confirmed' | 'skipped'
+}
+
+/** Exact public acknowledgement for one relation-proposal decision. */
+export interface ResolveMessageRelationResponse extends ResolveMessageRelationRequest {
+  decisionId?: string
+}
+
 /** Body of `POST /v1/recents/:type` — promote an id to the front (non-evicting). */
 export interface PushRecentRequest {
   id: string

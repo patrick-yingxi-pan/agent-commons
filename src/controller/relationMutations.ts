@@ -7,7 +7,6 @@ import {
   onAccountSwitch,
   rebaseRelationOp,
   reconcileRelationOp,
-  resolveMessageRelation,
 } from '../api'
 import type { RelationOp } from '../../contract/index.ts'
 import type { RelationMutationDeps, RelationMutationFailure } from './relationMutationsCore'
@@ -110,7 +109,3 @@ export const relationMutationDeps = {
  * API account boundary instead of teaching the pure core about identities. */
 export const clearRelationMutationsOnAccountSwitch = (clear: () => void): (() => void) =>
   onAccountSwitch(clear)
-
-/** Persist the historical verdict only after its effect is acknowledged. Kept
- * in the controller layer so the card never becomes a second API door. */
-export const recordRelationVerdict = resolveMessageRelation

@@ -23,8 +23,9 @@ import type { Server } from 'node:http'
 import { startModelServer } from './index.ts'
 import { store } from '../store/index.ts'
 import { executeTool, TOOL_NAMES, type ToolContext } from './tools.ts'
-import { opKey } from '../../contract/index.ts'
-import { call, callRaw } from '../testkit/http.ts'
+import { opKey, type Message, type RelationOp } from '../../contract/index.ts'
+import { call, callFresh, callRaw } from '../testkit/http.ts'
+import { relationActionDecisionId } from '../relationActionDecisionIdentity.ts'
 
 // ── The live-registry context every resolution test uses: runtime-created
 //    entities the seed catalogs do NOT contain. ────────────────────────────────
@@ -188,21 +189,48 @@ test('E2E: an all-refused turn answers honestly — no consent-card narration ov
 })
 
 // ── I3 — the consent card's verdict persists on the message record ────────────
-test('the verdict route stamps relationsResolved on the message; it survives a re-read (I3)', async () => {
+function appendRelationProposal(sessionId: string, operation: RelationOp): { carrier: Message; key: string } {
+  const carrier: Message = {
+    id: store.mintMessageId('assistant'),
+    role: 'assistant',
+    content: 'I prepared one proposed change for your review.',
+    relationActions: [operation],
+  }
+  assert.ok(store.appendMessage(sessionId, carrier))
+  return { carrier, key: opKey(operation) }
+}
+
+test('the legacy unkeyed verdict route records only relationsResolved; it survives a re-read (I3)', async () => {
   const s = store.createSession('verdict persistence')
   await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'Save the recap of this as verdict-recap.md' })
   const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
   const carrier = thread.find((m: { relationActions?: unknown[] }) => (m.relationActions ?? []).length > 0)
   assert.ok(carrier, 'the save proposal persisted on its message')
   const key = opKey(carrier.relationActions[0])
+  const beforeArtifacts = store.relationGraph().extraArtifacts.filter((artifact) => artifact.name === 'verdict-recap.md').length
 
   const ok = await call('POST', `/sessions/${s.id}/messages/${carrier.id}/relations`, { key, verdict: 'confirmed' })
   assert.equal(ok.status, 200)
   const reread = (await call('GET', `/sessions/${s.id}`)).json.messages.find((m: { id: string }) => m.id === carrier.id)
   assert.equal(reread.relationsResolved[key], 'confirmed', 'the verdict is on the record, not in component state')
+  assert.equal(reread.relationDecisionIds, undefined, 'legacy callers cannot mint a first-party receipt')
+  assert.equal(store.relationGraph().extraArtifacts.filter((artifact) => artifact.name === 'verdict-recap.md').length, beforeArtifacts, 'legacy record-only compatibility does not execute the effect')
 
-  // A skip is a verdict too (the "Not now" that once evaporated on reload).
-  const skip = await call('POST', `/sessions/${s.id}/messages/${carrier.id}/relations`, { key, verdict: 'skipped' })
+  const replay = await call('POST', `/sessions/${s.id}/messages/${carrier.id}/relations`, { key, verdict: 'confirmed' })
+  assert.equal(replay.status, 200, 'a same-verdict legacy retry is harmless')
+  const opposite = await call('POST', `/sessions/${s.id}/messages/${carrier.id}/relations`, { key, verdict: 'skipped' })
+  assert.equal(opposite.status, 400, 'consent history is terminal even for an older unkeyed client')
+  assert.equal(store.getSession(s.id)?.messages?.find((message) => message.id === carrier.id)?.relationsResolved?.[key], 'confirmed')
+
+  // A skip is a terminal verdict too (the "Not now" that once evaporated on reload).
+  const skipped = appendRelationProposal(s.id, {
+    kind: 'file-session',
+    sessionId: s.id,
+    sessionTitle: s.title,
+    projectId: null,
+    projectName: 'Unfiled',
+  })
+  const skip = await call('POST', `/sessions/${s.id}/messages/${skipped.carrier.id}/relations`, { key: skipped.key, verdict: 'skipped' })
   assert.equal(skip.status, 200)
 })
 
@@ -220,4 +248,202 @@ test('the verdict route refuses garbage: bad verdict 400, unknown key/message 40
   // The prose message (no proposals) refuses too — a verdict names a real proposal.
   const prose = thread.find((m: { relationActions?: unknown[]; role: string }) => m.role === 'user')
   assert.equal((await call('POST', `/sessions/${s.id}/messages/${prose.id}/relations`, { key, verdict: 'confirmed' })).status, 404)
+})
+
+test('a keyed confirm atomically executes the immutable proposal, records its exact receipt, and replays once', async () => {
+  const s = store.createSession('atomic relation decision')
+  const operation: RelationOp = {
+    kind: 'save-artifact',
+    artifact: { name: `atomic-${s.id}.md`, kind: 'doc', meta: 'Document', body: 'One durable body.' },
+    sessionId: s.id,
+    sessionTitle: s.title,
+  }
+  const { carrier, key } = appendRelationProposal(s.id, operation)
+  const logicalKey = `confirm-${s.id}`
+  const expectedId = relationActionDecisionId(store.defaultTenantId(), s.id, carrier.id, key, logicalKey)
+  const before = store.relationGraph()
+  const beforeCount = before.extraArtifacts.filter((artifact) => artifact.name === operation.artifact.name).length
+
+  const first = await call(
+    'POST',
+    `/sessions/${s.id}/messages/${carrier.id}/relations`,
+    { key, verdict: 'confirmed' },
+    { 'idempotency-key': logicalKey },
+  )
+  assert.equal(first.status, 200)
+  assert.deepEqual(first.json, { key, verdict: 'confirmed', decisionId: expectedId })
+  const afterFirst = store.relationGraph()
+  assert.equal(afterFirst.extraArtifacts.filter((artifact) => artifact.name === operation.artifact.name).length, beforeCount + 1)
+  assert.equal(afterFirst.revision, (before.revision ?? 0) + 1)
+  const recorded = store.getSession(s.id)?.messages?.find((message) => message.id === carrier.id)
+  assert.equal(recorded?.relationsResolved?.[key], 'confirmed')
+  assert.equal(recorded?.relationDecisionIds?.[key], expectedId)
+
+  const replay = await call(
+    'POST',
+    `/sessions/${s.id}/messages/${carrier.id}/relations`,
+    { key, verdict: 'confirmed' },
+    { 'idempotency-key': logicalKey },
+  )
+  assert.equal(replay.status, first.status)
+  assert.deepEqual(replay.json, first.json, 'the same logical click replays its exact public acknowledgement')
+  assert.equal(replay.headers['idempotency-replayed'], undefined, 'durable replay does not depend on the process-local response cache')
+  assert.equal(store.relationGraph().revision, afterFirst.revision, 'replay cannot execute the effect twice')
+  assert.equal(store.relationGraph().extraArtifacts.filter((artifact) => artifact.name === operation.artifact.name).length, beforeCount + 1)
+
+  const afterRestart = await callFresh(
+    'POST',
+    `/sessions/${s.id}/messages/${carrier.id}/relations`,
+    { key, verdict: 'confirmed' },
+    { 'idempotency-key': logicalKey },
+  )
+  assert.equal(afterRestart.status, first.status)
+  assert.deepEqual(afterRestart.json, first.json, 'the stored receipt replays after the route cache is rebuilt')
+  assert.equal(store.relationGraph().revision, afterFirst.revision, 'post-restart replay cannot execute the effect twice')
+
+  const redirected = await call(
+    'POST',
+    `/sessions/${s.id}/messages/${carrier.id}/relations`,
+    { key, verdict: 'skipped' },
+    { 'idempotency-key': logicalKey },
+  )
+  assert.equal(redirected.status, 400, 'one decision identity cannot be redirected to the opposite verdict')
+  const legacyRedirect = await call(
+    'POST',
+    `/sessions/${s.id}/messages/${carrier.id}/relations`,
+    { key, verdict: 'skipped' },
+  )
+  assert.equal(legacyRedirect.status, 400, 'an older unkeyed client cannot corrupt a durable receipt')
+  assert.equal(store.getSession(s.id)?.messages?.find((message) => message.id === carrier.id)?.relationsResolved?.[key], 'confirmed')
+  const secondClick = await call(
+    'POST',
+    `/sessions/${s.id}/messages/${carrier.id}/relations`,
+    { key, verdict: 'confirmed' },
+    { 'idempotency-key': `${logicalKey}-different` },
+  )
+  assert.equal(secondClick.status, 400, 'a terminal proposal cannot acquire a second receipt')
+})
+
+test('keyed relation decisions require an exact body and conversation-owner authority', async () => {
+  const strict = store.createSession('strict relation decision')
+  const strictOp: RelationOp = {
+    kind: 'file-session',
+    sessionId: strict.id,
+    sessionTitle: strict.title,
+    projectId: null,
+    projectName: 'Unfiled',
+  }
+  const strictProposal = appendRelationProposal(strict.id, strictOp)
+  const malformed = await call(
+    'POST',
+    `/sessions/${strict.id}/messages/${strictProposal.carrier.id}/relations`,
+    { key: strictProposal.key, verdict: 'confirmed', operation: strictOp },
+    { 'idempotency-key': `strict-${strict.id}` },
+  )
+  assert.equal(malformed.status, 400)
+  assert.equal(store.getSession(strict.id)?.messages?.find((message) => message.id === strictProposal.carrier.id)?.relationsResolved, undefined)
+
+  const shared = store.createSession('shared relation decision')
+  const sharedOp: RelationOp = {
+    kind: 'save-artifact',
+    artifact: { name: `reader-${shared.id}.md`, kind: 'doc', meta: 'Document' },
+    sessionId: shared.id,
+    sessionTitle: shared.title,
+  }
+  const sharedProposal = appendRelationProposal(shared.id, sharedOp)
+  const grant = store.createGrant(
+    {
+      subject: { kind: 'session', id: shared.id },
+      audience: { kind: 'org', orgId: 'tenant-beta' },
+      tier: 'co-own',
+    },
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof grant, 'object')
+  const beforeCount = store.relationGraph().extraArtifacts.filter((artifact) => artifact.name === sharedOp.artifact.name).length
+  const reader = await call(
+    'POST',
+    `/sessions/${shared.id}/messages/${sharedProposal.carrier.id}/relations`,
+    { key: sharedProposal.key, verdict: 'confirmed' },
+    { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta', 'idempotency-key': `reader-${shared.id}` },
+  )
+  assert.equal(reader.status, 403, 'visibility never widens consent over the owner’s graph or context')
+  assert.equal(store.relationGraph().extraArtifacts.filter((artifact) => artifact.name === sharedOp.artifact.name).length, beforeCount)
+  assert.equal(store.getSession(shared.id)?.messages?.find((message) => message.id === sharedProposal.carrier.id)?.relationsResolved, undefined)
+})
+
+test('a keyed context confirmation commits the attachment, workspace panel, verdict, and receipt together', async () => {
+  const s = store.createSession('atomic context attachment')
+  const operation: RelationOp = {
+    kind: 'attach-context',
+    sessionTitle: s.title,
+    connectorId: 'slack',
+    connectorLabel: 'Slack',
+    connectorKind: 'connector',
+  }
+  const { carrier, key } = appendRelationProposal(s.id, operation)
+  const logicalKey = `attach-${s.id}`
+  const expectedId = relationActionDecisionId(store.defaultTenantId(), s.id, carrier.id, key, logicalKey)
+  const response = await call(
+    'POST',
+    `/sessions/${s.id}/messages/${carrier.id}/relations`,
+    { key, verdict: 'confirmed' },
+    { 'idempotency-key': logicalKey },
+  )
+  assert.deepEqual(response.json, { key, verdict: 'confirmed', decisionId: expectedId })
+  assert.equal(store.sessionContexts(s.id).filter((context) => context.id === 'slack').length, 1)
+  assert.equal(store.sessionWorkspace(s.id).connectors.filter((connector) => connector.id === 'slack').length, 1)
+  const recorded = store.getSession(s.id)?.messages?.find((message) => message.id === carrier.id)
+  assert.equal(recorded?.relationsResolved?.[key], 'confirmed')
+  assert.equal(recorded?.relationDecisionIds?.[key], expectedId)
+})
+
+test('keyed Not now executes no effect, while an effect conflict leaves the proposal open', async () => {
+  const skipped = store.createSession('atomic relation skip')
+  const skippedOp: RelationOp = {
+    kind: 'save-artifact',
+    artifact: { name: `skipped-${skipped.id}.md`, kind: 'doc', meta: 'Document' },
+    sessionId: skipped.id,
+    sessionTitle: skipped.title,
+  }
+  const skippedProposal = appendRelationProposal(skipped.id, skippedOp)
+  const beforeSkip = store.relationGraph()
+  const skip = await call(
+    'POST',
+    `/sessions/${skipped.id}/messages/${skippedProposal.carrier.id}/relations`,
+    { key: skippedProposal.key, verdict: 'skipped' },
+    { 'idempotency-key': `skip-${skipped.id}` },
+  )
+  assert.equal(skip.status, 200)
+  assert.equal(store.relationGraph().revision, beforeSkip.revision, 'Not now records consent history without touching the graph')
+  assert.equal(store.relationGraph().extraArtifacts.some((artifact) => artifact.name === skippedOp.artifact.name), false)
+
+  const projectId = `p-relation-conflict-${skipped.id}`
+  store.applyRelationOp({
+    kind: 'create-project',
+    projectId,
+    projectName: 'Relation conflict target',
+    projectDescription: 'Reviewed text',
+  })
+  const conflicted = store.createSession('atomic relation conflict')
+  const conflictedOp: RelationOp = {
+    kind: 'set-project-description',
+    projectId,
+    projectName: 'Relation conflict target',
+    description: 'Proposed text',
+    expectedDescription: 'Reviewed text',
+  }
+  const conflictedProposal = appendRelationProposal(conflicted.id, conflictedOp)
+  store.applyRelationOp({ ...conflictedOp, description: 'Newer text', expectedDescription: 'Reviewed text' })
+  const conflict = await call(
+    'POST',
+    `/sessions/${conflicted.id}/messages/${conflictedProposal.carrier.id}/relations`,
+    { key: conflictedProposal.key, verdict: 'confirmed' },
+    { 'idempotency-key': `conflict-${conflicted.id}` },
+  )
+  assert.equal(conflict.status, 409)
+  assert.equal(store.relationGraph().projectDescriptions[projectId], 'Newer text')
+  const carrier = store.getSession(conflicted.id)?.messages?.find((message) => message.id === conflictedProposal.carrier.id)
+  assert.equal(carrier?.relationsResolved, undefined, 'a refused effect cannot manufacture a terminal verdict')
+  assert.equal(carrier?.relationDecisionIds, undefined, 'nor can it mint a replay receipt')
 })

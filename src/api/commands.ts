@@ -1147,19 +1147,6 @@ export async function compactSession(sessionId: string): Promise<Session> {
   return session
 }
 
-/** Record the user's verdict on one proposed relation edit (the consent card's
- *  confirm / "not now") on the message that carried it — server-owned, so the
- *  card's resolution survives reloads and later superseding ops. The controller
- *  waits for this acknowledgement before showing the card as resolved. */
-export async function resolveMessageRelation(
-  sessionId: string,
-  messageId: string,
-  key: string,
-  verdict: 'confirmed' | 'skipped',
-): Promise<void> {
-  await apiPost(paths.messageRelations(sessionId, messageId), { key, verdict })
-}
-
 // ── Saved contexts (the Contexts page) ──────────────────────────────────────
 
 /** Publish one status acknowledgement through its orthogonal monotonic fence.

@@ -48,6 +48,7 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     'POST /projects',
     'POST /relations/ops',
     'POST /sessions/:id/messages',
+    'POST /sessions/:id/messages/:messageId/relations',
     'POST /sessions/:id/tool-activities/:activityId',
     'POST /sessions/:id/turns/:turnId/cancel',
   ])

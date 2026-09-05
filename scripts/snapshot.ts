@@ -51,6 +51,7 @@ export {
  *  first rather than re-seed. */
 export async function buildComprehensive(): Promise<PersistedState> {
   const { store } = await import('../server/store/index.ts')
+  const { opKey } = await import('../contract/index.ts')
   const { loadState } = await import('../server/persistence/persist.ts')
 
   // Re-seed from the source-controlled fixtures (no configured store → seed,
@@ -114,6 +115,29 @@ export async function buildComprehensive(): Promise<PersistedState> {
     },
   )
   if (typeof toolDecision !== 'object') throw new Error('Could not create the durable tool-consent fixture')
+  const relationProposal = {
+    kind: 'save-artifact' as const,
+    artifact: { name: 'Held relation decision.md', kind: 'doc' as const, meta: 'Document' },
+    sessionId: session.id,
+    sessionTitle: session.title,
+  }
+  const relationProposalKey = opKey(relationProposal)
+  const relationProposalMessageId = 'relation-proposal-playground'
+  store.appendMessage(session.id, {
+    id: relationProposalMessageId,
+    role: 'assistant',
+    content: 'The reviewed proposed change remains declined.',
+    relationActions: [relationProposal],
+  })
+  const relationDecision = store.decideMessageRelation(
+    session.id,
+    relationProposalMessageId,
+    relationProposalKey,
+    'skipped',
+    'relation-action-decision-000000000000000000000000',
+    store.defaultTenantId(),
+  )
+  if (typeof relationDecision !== 'object') throw new Error('Could not create the durable relation-consent fixture')
   store.attachContext(session.id, {
     id: 'repo-playground',
     type: 'repo',

@@ -43,6 +43,7 @@ import type {
   RecentsSnapshot,
   RelationGraph,
   RelationOp,
+  ResolveMessageRelationResponse,
   RunSessionEntry,
   SavedContext,
   SavedContextsSnapshot,
@@ -140,6 +141,7 @@ import { isAgentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { isAgentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
 import { isAgentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
 import { isToolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
+import { isRelationActionDecisionId } from '../relationActionDecisionIdentity.ts'
 import { isDelegationCreationId } from '../delegationCreationIdentity.ts'
 import { isDelegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
@@ -5238,24 +5240,124 @@ export const store = {
   /** Record the user's verdict on ONE proposed relation edit (keyed by `opKey`)
    *  on the message that carried it — the consent card's resolution, persisted so
    *  a reload (or a later op that moves the relation on) can't flip a resolved
-   *  card back to pending. Returns undefined when the session/message doesn't
-   *  exist or the message carries no proposal under that key (a verdict must
-   *  name a real proposal — never minted onto arbitrary messages). */
+   *  card back to pending. A recorded verdict is terminal: an exact retry is a
+   *  no-op and an opposite legacy retry is invalid, so an older client cannot
+   *  corrupt a newer receipt-backed decision. Returns undefined when the
+   *  session/message doesn't exist or the message carries no proposal under
+   *  that key (a verdict must name a real proposal — never minted onto
+   *  arbitrary messages). */
   resolveMessageRelation(
     sessionId: string,
     messageId: string,
     key: string,
     verdict: 'confirmed' | 'skipped',
-  ): Session | undefined {
+  ): Session | 'invalid' | undefined {
     const session = SESSIONS.find((s) => s.id === sessionId)
     const message = session?.messages?.find((m) => m.id === messageId)
     if (!session || !message) return undefined
     if (!(message.relationActions ?? []).some((op) => opKey(op) === key)) return undefined
+    const representedVerdict = message.relationsResolved?.[key]
+    if (representedVerdict !== undefined) {
+      return representedVerdict === verdict ? session : 'invalid'
+    }
     message.relationsResolved = { ...message.relationsResolved, [key]: verdict }
     session.updatedAt = Date.now()
     emit({ type: 'session.updated', session })
     persist()
     return session
+  },
+  /** Exact durable acknowledgement for a keyed relation-proposal decision. The
+   * containing Session supplies persistence and private tenant authority; the
+   * public receipt can therefore omit raw account identity. */
+  getMessageRelationDecision(
+    sessionId: string,
+    messageId: string,
+    key: string,
+    decisionId: string,
+    tenantId: string,
+    verdict: 'confirmed' | 'skipped',
+  ): ResolveMessageRelationResponse | 'invalid' | undefined {
+    if (!isRelationActionDecisionId(decisionId)) return 'invalid'
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
+    const message = session.messages?.find((candidate) => candidate.id === messageId)
+    if (!message || !(message.relationActions ?? []).some((operation) => opKey(operation) === key)) {
+      return undefined
+    }
+    const representedVerdict = message.relationsResolved?.[key]
+    const representedId = message.relationDecisionIds?.[key]
+    if (representedId === undefined) {
+      return representedVerdict === undefined ? undefined : 'invalid'
+    }
+    if (representedId !== decisionId || representedVerdict !== verdict) return 'invalid'
+    return { key, verdict, decisionId }
+  },
+  /** Apply and record one keyed first-party relation decision as a single
+   * durable mutation. Legacy unkeyed callers stay on `resolveMessageRelation`,
+   * whose historical contract records only a separately-applied effect. */
+  decideMessageRelation(
+    sessionId: string,
+    messageId: string,
+    key: string,
+    verdict: 'confirmed' | 'skipped',
+    decisionId: string,
+    tenantId: string,
+  ): ResolveMessageRelationResponse | 'forbidden' | 'invalid' | undefined {
+    const represented = this.getMessageRelationDecision(
+      sessionId,
+      messageId,
+      key,
+      decisionId,
+      tenantId,
+      verdict,
+    )
+    if (represented) return represented
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (!session) return undefined
+    if (!this.sessionOwnedBy(session, tenantId)) return 'forbidden'
+    const message = session.messages?.find((candidate) => candidate.id === messageId)
+    const operation = message?.relationActions?.find((candidate) => opKey(candidate) === key)
+    if (!message || !operation) return undefined
+    if (message.relationsResolved?.[key] !== undefined) return 'invalid'
+    if (this.opDeniedForTenant(operation, tenantId)) return 'forbidden'
+
+    return commitMutationBatch(() => {
+      if (verdict === 'confirmed') {
+        if (operation.kind === 'attach-context') {
+          const connector = {
+            id: operation.connectorId,
+            label: operation.connectorLabel,
+            kind: operation.connectorKind,
+          }
+          const current = this.sessionWorkspace(sessionId)
+          const workspace: SessionWorkspace = {
+            ...current,
+            connectors: [...current.connectors.filter((candidate) => candidate.id !== connector.id), connector],
+          }
+          this.updateSessionContextState(
+            sessionId,
+            [{
+              action: 'attach',
+              context: {
+                id: connector.id,
+                label: connector.label,
+                type: connector.kind === 'mcp' ? 'mcp' : 'connector',
+                scope: '*',
+              },
+            }],
+            workspace,
+          )
+        } else {
+          this.applyRelationOp(operation, tenantId)
+        }
+      }
+      message.relationsResolved = { ...message.relationsResolved, [key]: verdict }
+      message.relationDecisionIds = { ...message.relationDecisionIds, [key]: decisionId }
+      session.updatedAt = Date.now()
+      emit({ type: 'session.updated', session })
+      persist()
+      return { key, verdict, decisionId }
+    })
   },
   /** Hand a Conversation off to a different worker Agent mid-thread (D16) — re-bind the
    *  session's driver. Subsequent turns are driven by, and stamped with (Message.agentId),
