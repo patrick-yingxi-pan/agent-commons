@@ -47,12 +47,17 @@ export function dispatch(
   url: URL,
   headers: IncomingMessage['headers'],
   body: unknown,
+  options: { idempotencyKey?: string } = {},
 ): Promise<InnerResponse> {
   return new Promise((resolvePromise) => {
     const fwd: Record<string, string | string[] | undefined> = {}
     for (const [k, v] of Object.entries(headers)) {
       if (!HOP_HEADERS.has(k.toLowerCase())) fwd[k.toLowerCase()] = v
     }
+    // A caller may deliberately give the INNER product operation its own
+    // identity. Never forward the outer raw key: the cache is tenant+key, so
+    // nested operations need a disjoint key to avoid response aliasing.
+    if (options.idempotencyKey) fwd['idempotency-key'] = options.idempotencyKey
     if (body !== undefined) fwd['content-type'] = 'application/json'
     const listeners: Record<string, (arg?: unknown) => void> = {}
     let emitted = false

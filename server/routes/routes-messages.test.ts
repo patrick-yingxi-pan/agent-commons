@@ -8,6 +8,7 @@ import type { Server } from 'node:http'
 import { startModelServer } from '../model/index.ts'
 import { store } from '../store/index.ts'
 import { call, callRaw } from '../testkit/http.ts'
+import { toolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
 
 let server: Server
 before(async () => {
@@ -123,17 +124,35 @@ test('confirming a proposed connector action executes it (mock) + records an aud
   assert.ok(proposed, 'the write landed as a proposed action awaiting consent')
 
   const auditBefore = store.listAuditLog().filter((e) => e.capability === 'connector.write').length
-  const res = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'confirm' })
+  const key = `connector-confirm-${s.id}`
+  const headers = { 'idempotency-key': key }
+  const res = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'confirm' }, headers)
   assert.equal(res.status, 200)
   assert.equal(res.json.status, 'done', 'confirm flips the action to done')
+  assert.equal(
+    res.json.decisionId,
+    toolActivityDecisionId(store.defaultTenantId(), s.id, proposed.id, key),
+    'the terminal activity carries the exact durable decision receipt',
+  )
   assert.match(res.json.summary, /\(mock\)/, 'the done summary is the mock result')
   const auditAfter = store.listAuditLog().filter((e) => e.capability === 'connector.write').length
   assert.equal(auditAfter, auditBefore + 1, 'confirm records exactly one connector.write audit entry')
 
   // Idempotent: confirming again returns the already-done activity, no second audit.
-  const again = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'confirm' })
+  const again = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'confirm' }, headers)
   assert.equal(again.json.status, 'done')
+  assert.equal(again.json.decisionId, res.json.decisionId, 'same-key Retry returns the durable receipt')
   assert.equal(store.listAuditLog().filter((e) => e.capability === 'connector.write').length, auditAfter, 'no duplicate audit on re-confirm')
+
+  const opposite = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'decline' }, headers)
+  assert.equal(opposite.status, 400, 'one logical key cannot acknowledge the opposite decision')
+  const redirected = await call(
+    'POST',
+    `/sessions/${s.id}/tool-activities/${proposed.id}`,
+    { decision: 'confirm' },
+    { 'idempotency-key': `${key}-changed` },
+  )
+  assert.equal(redirected.status, 400, 'a terminal activity cannot be claimed by a different receipt')
 })
 
 test('release posture refuses connector confirmation without claiming an external effect', async () => {

@@ -1,8 +1,14 @@
-import { useState } from 'react'
 import { AlertCircle, Check, FilePlus2, Pencil, Play, Plug, Send, Trash2, Wrench, X } from 'lucide-react'
 import { API_BASE_PATH } from '../../contract/index.ts'
 import type { ToolActivity, ToolCardFamily } from '../types'
-import { resolveToolActivity } from '../api/commands'
+import { useMe } from '../api'
+import {
+  enqueueToolActivityDecision,
+  heldToolActivityDecisionIntent,
+  toolActivityDecisionResourceId,
+  useToolActivityDecisionStatus,
+} from '../controller/toolActivityDecisionMutations.ts'
+import type { RevisionedMutationStatus } from '../controller/revisionedMutationCore.ts'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../lib/button'
 
 /** An account of the tools the model touched this turn: connector/MCP tools (P6)
@@ -15,6 +21,8 @@ import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../lib/button'
  *  Shares the same card shell as the relation/escalation cards (form follows
  *  function). */
 export function ToolActivityCard({ activities, sessionId }: { activities: ToolActivity[]; sessionId: string }) {
+  const tenantId = useMe().data?.tenant.id
+  const mutation = useToolActivityDecisionStatus()
   return (
     <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-panel-2/30">
       <div className="flex items-center gap-1.5 border-b border-line px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
@@ -26,7 +34,13 @@ export function ToolActivityCard({ activities, sessionId }: { activities: ToolAc
           // Prefer the stable activity id (so a row's confirm state survives re-render);
           // fall back to the index for a legacy activity persisted before the id field
           // existed (read-only slice 1) — keeps the key unique either way.
-          <ActivityRow key={a.id ?? `legacy-${i}`} activity={a} sessionId={sessionId} />
+          <ActivityRow
+            key={a.id ?? `legacy-${i}`}
+            activity={a}
+            sessionId={sessionId}
+            tenantId={tenantId}
+            mutation={mutation}
+          />
         ))}
       </div>
     </div>
@@ -36,57 +50,62 @@ export function ToolActivityCard({ activities, sessionId }: { activities: ToolAc
 /** The per-family cues: icon + the verb on the confirm button. One map, so a
  *  family can't drift between rows (form follows function). `danger` is the
  *  only destructive styling — red confirm, red icon. */
-const FAMILY_CUES: Record<ToolCardFamily, { icon: typeof Pencil; confirm: string }> = {
-  create: { icon: FilePlus2, confirm: 'Create' },
-  edit: { icon: Pencil, confirm: 'Apply edit' },
-  danger: { icon: Trash2, confirm: 'Confirm delete' },
-  action: { icon: Play, confirm: 'Run it' },
-  post: { icon: Send, confirm: 'Post it' },
+const FAMILY_CUES: Record<ToolCardFamily, { icon: typeof Pencil; confirm: string; pending: string }> = {
+  create: { icon: FilePlus2, confirm: 'Create', pending: 'Creating…' },
+  edit: { icon: Pencil, confirm: 'Apply edit', pending: 'Applying…' },
+  danger: { icon: Trash2, confirm: 'Confirm delete', pending: 'Deleting…' },
+  action: { icon: Play, confirm: 'Run it', pending: 'Running…' },
+  post: { icon: Send, confirm: 'Post it', pending: 'Posting…' },
 }
 
-function ActivityRow({ activity, sessionId }: { activity: ToolActivity; sessionId: string }) {
-  // Optimistic local state: the open thread renders from controller state, not the query
-  // cache, so we reflect the resolved activity here on confirm/decline (the server also
-  // persists it — a later reopen refetches the done/declined status).
-  const [resolved, setResolved] = useState<ToolActivity | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [refusal, setRefusal] = useState<string | null>(null)
-  const a = resolved ?? activity
-  const pending = a.kind === 'action' && a.status === 'proposed'
-  const failed = a.status === 'failed'
+function ActivityRow({
+  activity: a,
+  sessionId,
+  tenantId,
+  mutation,
+}: {
+  activity: ToolActivity
+  sessionId: string
+  tenantId?: string
+  mutation: RevisionedMutationStatus
+}) {
+  const held = heldToolActivityDecisionIntent(sessionId, a.id)
+  // Ambient terminal state cannot dismiss an uncertain local decision: keep the
+  // exact controls visible until this client's receipt reconciles or is Dismissed.
+  const pending = a.kind === 'action' && (a.status === 'proposed' || held !== null)
+  const displayStatus = held ? 'proposed' : a.status
+  const failed = displayStatus === 'failed'
   const cues = a.family ? FAMILY_CUES[a.family] : undefined
   const danger = a.family === 'danger'
   const Icon = cues?.icon ?? Wrench
+  const resourceId = toolActivityDecisionResourceId(sessionId, a.id)
+  const refusal = held && mutation.activeResourceId === resourceId ? mutation.error : null
 
-  const resolve = async (decision: 'confirm' | 'decline') => {
-    setBusy(true)
-    setRefusal(null)
-    try {
-      setResolved(await resolveToolActivity(sessionId, a.id, decision))
-    } catch (err) {
-      // A refused confirm (the inner operation said no — 409) leaves the
-      // proposal OPEN server-side; surface the reason and let both verbs stand.
-      setRefusal(err instanceof Error ? err.message : 'The operation was refused — try again or decline.')
-      setBusy(false)
-    }
+  const resolve = (decision: 'confirm' | 'decline') => {
+    if (!tenantId) return
+    void enqueueToolActivityDecision({ tenantId, sessionId, activityId: a.id, decision })
   }
 
   return (
-    <div className="flex items-start gap-2.5 px-3 py-2.5">
+    <div
+      className="flex items-start gap-2.5 px-3 py-2.5"
+      data-tool-activity-decision={held ? 'held' : 'ready'}
+      aria-busy={held ? 'true' : undefined}
+    >
       <span
         className={`mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg ${
           failed
             ? 'bg-danger-tint text-danger-strong'
-            : a.status === 'done' && a.kind === 'action'
+            : displayStatus === 'done' && a.kind === 'action'
             ? 'bg-ok-tint text-ok-strong'
-            : a.status === 'declined'
+            : displayStatus === 'declined'
               ? 'bg-surface text-ink-faint'
               : danger && pending
                 ? 'bg-danger-tint text-danger-strong'
                 : 'bg-surface text-ink-soft'
         }`}
       >
-        {failed ? <AlertCircle size={14} /> : a.status === 'done' && a.kind === 'action' ? <Check size={14} /> : a.status === 'declined' ? <X size={14} /> : <Icon size={14} />}
+        {failed ? <AlertCircle size={14} /> : displayStatus === 'done' && a.kind === 'action' ? <Check size={14} /> : displayStatus === 'declined' ? <X size={14} /> : <Icon size={14} />}
       </span>
       <div className="min-w-0 flex-1">
         <div className="text-[13px] leading-snug text-ink">
@@ -116,23 +135,23 @@ function ActivityRow({ activity, sessionId }: { activity: ToolActivity; sessionI
           <div className="mt-1.5 flex items-center gap-2">
             <button
               onClick={() => resolve('confirm')}
-              disabled={busy}
+              disabled={held !== null || !tenantId}
               className={`px-2.5 py-1 text-[12px] disabled:opacity-50 ${
                 danger ? DANGER_BUTTON_CLASS : SOFT_BUTTON_CLASS
               }`}
             >
-              {cues?.confirm ?? 'Confirm'}
+              {held?.decision === 'confirm' ? (cues?.pending ?? 'Confirming…') : (cues?.confirm ?? 'Confirm')}
             </button>
             <button
               onClick={() => resolve('decline')}
-              disabled={busy}
+              disabled={held !== null || !tenantId}
               className="rounded-lg px-2 py-1 text-[12px] font-medium text-ink-faint transition hover:text-ink-soft disabled:opacity-50"
             >
-              Decline
+              {held?.decision === 'decline' ? 'Declining…' : 'Decline'}
             </button>
           </div>
         )}
-        {a.status === 'declined' && <div className="mt-0.5 text-[11px] text-ink-faint">Declined — nothing was done.</div>}
+        {displayStatus === 'declined' && <div className="mt-0.5 text-[11px] text-ink-faint">Declined — nothing was done.</div>}
         {failed && (
           <div className="mt-0.5 text-[11px] text-danger-strong">
             {a.failure?.retryable ? 'Try this connector again in a new turn.' : 'Connector setup needs attention before this can run.'}

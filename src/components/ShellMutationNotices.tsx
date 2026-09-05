@@ -40,6 +40,7 @@ import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMu
 import { SystemPromptCreationMutationNotice } from './SystemPromptCreationMutationNotice'
 import { DiscussionSessionLaunchMutationNotice } from './DiscussionSessionLaunchMutationNotice'
 import { SessionForkMutationNotice } from './SessionForkMutationNotice'
+import { ToolActivityDecisionMutationNotice } from './ToolActivityDecisionMutationNotice'
 
 /** Durable mutation recovery is requested as one deferred shell cluster at
  * workspace boot. This keeps low-frequency command controllers out of the
@@ -52,6 +53,7 @@ export function ShellMutationNotices() {
       <SessionDeletionNotice />
       <DiscussionSessionLaunchMutationNotice />
       <SessionForkMutationNotice />
+      <ToolActivityDecisionMutationNotice />
       <SavedContextMutationNotice />
       <SavedContextDeletionNotice />
       <ScheduleMutationNotice />

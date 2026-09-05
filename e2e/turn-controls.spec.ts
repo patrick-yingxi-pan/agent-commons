@@ -14,6 +14,15 @@ const RETRY_MESSAGE = `recover one logical turn ${STAMP}`
 const DRAFT_RETRY_MESSAGE = `recover draft materialization ${STAMP}`
 const LOST_DRAFT_RESPONSE_MESSAGE = `recover one committed draft ${STAMP}`
 
+// These four tests deliberately spend several complete turns. Keep their plan
+// window independent of whatever model-heavy specs share this balanced shard.
+test.beforeEach(async ({ page }) => {
+  await page.context().setExtraHTTPHeaders({
+    'x-user-id': 'user-grace',
+    'x-tenant-id': 'tenant-beta',
+  })
+})
+
 test('Stop mid-stream: the partial persists, the streaming state stands down', async ({ page }) => {
   test.setTimeout(ms(60_000))
   await page.goto('/')

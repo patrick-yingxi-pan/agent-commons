@@ -45,6 +45,7 @@ import type {
   PushRecentRequest,
   RegisterRunnerRequest,
   SendMessageRequest,
+  ResolveToolActivityRequest,
   ForkSessionRequest,
   SetRunnerCapabilitiesRequest,
   SetConnectorStatusRequest,
@@ -107,6 +108,7 @@ import {
 import { agentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { agentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
 import { agentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
+import { toolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
 import { systemPromptCreationId } from '../systemPromptCreationIdentity.ts'
 import { commissionCreationId } from '../commissionCreationIdentity.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
@@ -4303,52 +4305,117 @@ export function buildRouter(): Router {
   // session routes (a foreign tenant can't confirm another's pending write).
   r.intrinsicPost('/sessions/:id/tool-activities/:activityId', 'consent resolution is intrinsic host control; a model must never confirm its own proposal', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
-    const { decision } = await body<{ decision: 'confirm' | 'decline' }>()
+    const who = store.identity(req.headers)
+    const session = store.getSession(params.id)
+    if (session && !store.sessionOwnedBy(session, who.tenant.id)) {
+      return sendError(res, 'forbidden', 'Only the conversation owner may decide its proposed tool actions')
+    }
+    const input = await body<unknown>()
+    if (
+      !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      Object.keys(input).some((field) => field !== 'decision')
+    ) {
+      return sendError(res, 'bad_request', "body must contain only decision: 'confirm' or 'decline'")
+    }
+    const decision = (input as Partial<ResolveToolActivityRequest>).decision
     if (decision !== 'confirm' && decision !== 'decline') {
       return sendError(res, 'bad_request', "decision must be 'confirm' or 'decline'")
+    }
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalDecisionId = idempotencyKey
+      ? toolActivityDecisionId(who.tenant.id, params.id, params.activityId, idempotencyKey)
+      : undefined
+    const represented = logicalDecisionId
+      ? store.getToolActivityDecision(
+          params.id,
+          params.activityId,
+          logicalDecisionId,
+          who.tenant.id,
+          decision,
+        )
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This tool decision identity is not valid for this conversation, activity, and action')
     }
     // Every pending verdict wins one synchronous claim before any await. API
     // operations re-enter this router as the confirmer; connector/MCP actions
     // cross the shared runtime with the exact persisted model input. A refused
     // effect stays proposed so Retry and Decline both remain available.
     let doneSummary: string | undefined
+    let claimed = false
     const pending = store.getToolActivity(params.id, params.activityId)
-    if (pending?.kind === 'action' && pending.status === 'proposed') {
-      if (!store.claimToolActivity(params.id, params.activityId)) {
-        return sendError(res, 'conflict', `Tool activity '${params.activityId}' is already being processed`)
-      }
-      if (decision === 'confirm') {
-        if (pending.op) {
-          const out = await apiDispatch(pending.op.method, pending.op.path, req.headers, pending.op.body)
-          if (out.status >= 400) {
-            store.releaseToolActivity(params.id, params.activityId)
-            let detail = `HTTP ${out.status}`
-            try {
-              detail = JSON.parse(out.body.toString('utf8')).error.message ?? detail
-            } catch {}
-            return sendError(res, 'conflict', `The proposed operation was refused (${out.status}): ${detail}`)
+    try {
+      if (pending?.kind === 'action' && pending.status === 'proposed') {
+        // A consent record cannot authorize erasing itself. Direct conversation
+        // deletion remains available through its dedicated reviewed workflow.
+        if (
+          decision === 'confirm' &&
+          pending.op?.method === 'DELETE' &&
+          pending.op.path === `/sessions/${encodeURIComponent(params.id)}`
+        ) {
+          return sendError(res, 'conflict', 'A conversation cannot delete the consent record it is carrying. Use Delete conversation instead.')
+        }
+        if (!store.claimToolActivity(params.id, params.activityId)) {
+          return sendError(res, 'conflict', `Tool activity '${params.activityId}' is already being processed`)
+        }
+        claimed = true
+        if (decision === 'confirm') {
+          if (pending.op) {
+            // The derived receipt is the INNER operation's disjoint retry key.
+            // Each target route then supplies its declared guarantee: durable
+            // identity across restart, or the legacy process-local response cache.
+            const out = await apiDispatch(
+              pending.op.method,
+              pending.op.path,
+              req.headers,
+              pending.op.body,
+              { idempotencyKey: logicalDecisionId },
+            )
+            if (out.status >= 400) {
+              let detail = `HTTP ${out.status}`
+              try {
+                detail = JSON.parse(out.body.toString('utf8')).error.message ?? detail
+              } catch {}
+              return sendError(res, 'conflict', `The proposed operation was refused (${out.status}): ${detail}`)
+            }
+            doneSummary = `${pending.op.method} ${API_BASE_PATH}${pending.op.path} → ${out.status}`
+          } else {
+            const executed = await executeConnectorActivity(pending)
+            if (!executed.ok) {
+              store.recordAudit({
+                tenantId: who.tenant.id,
+                channel: 'proxy',
+                capability: 'connector.write',
+                target: pending.connector,
+                outcome: 'denied',
+              })
+              return sendError(res, 'conflict', executed.message)
+            }
+            doneSummary = executed.summary
           }
-          doneSummary = `${pending.op.method} ${API_BASE_PATH}${pending.op.path} → ${out.status}`
-        } else {
-          const executed = await executeConnectorActivity(pending)
-          if (!executed.ok) {
-            store.releaseToolActivity(params.id, params.activityId)
-            store.recordAudit({
-              tenantId: store.identity(req.headers).tenant.id,
-              channel: 'proxy',
-              capability: 'connector.write',
-              target: pending.connector,
-              outcome: 'denied',
-            })
-            return sendError(res, 'conflict', executed.message)
-          }
-          doneSummary = executed.summary
         }
       }
+      const activity = store.resolveToolActivity(
+        params.id,
+        params.activityId,
+        decision,
+        doneSummary,
+        { logicalId: logicalDecisionId, tenantId: who.tenant.id },
+      )
+      claimed = false // resolve drops the claim before its durable commit
+      if (activity === 'invalid') {
+        return sendError(res, 'bad_request', 'This tool decision identity is not valid for this conversation, activity, and action')
+      }
+      if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)
+      sendJson(res, activity)
+    } finally {
+      // Unexpected dispatch/runtime errors must not wedge Retry until process
+      // restart. Ordinary refusals also arrive here with the proposal still open.
+      if (claimed) store.releaseToolActivity(params.id, params.activityId)
     }
-    const activity = store.resolveToolActivity(params.id, params.activityId, decision, doneSummary)
-    if (!activity) return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)
-    sendJson(res, activity)
   })
   // Compact a session's active context through its selected provider. Generation
   // happens against an immutable preparation; only a matching transcript commits.

@@ -18,7 +18,7 @@ export const API_VERSION = 'v1'
  *  durable row identity may instead return that row's current representation, so a
  *  retry cannot duplicate, overwrite, or resurrect it. Honoured on non-streaming
  *  create routes (`POST /sessions`, `/sessions/:id/fork`, `/projects`, `/dispatch`, `/schedules`,
- *  `/relations/ops`) and revision-checked `PATCH /sessions/:id`,
+ *  `/relations/ops`, `/sessions/:id/tool-activities/:activityId`) and revision-checked `PATCH /sessions/:id`,
  *  `PATCH /schedules/:id`, `PATCH /artifacts/:id/content`, and
  *  `DELETE /sessions/:id`. */
 export const IDEMPOTENCY_HEADER = 'Idempotency-Key'
@@ -98,6 +98,12 @@ export interface SendMessageRequest {
    *  ordinary send (the original attempt may have failed before persistence).
    *  Omitted = always append a new user turn. */
   retryLastUser?: true
+}
+
+/** The exact human verdict on one consent-gated connector or generated API
+ * action. A keyed first-party caller binds this body to one durable receipt. */
+export interface ResolveToolActivityRequest {
+  decision: 'confirm' | 'decline'
 }
 
 /** Body of `POST /v1/sessions` — materialize a new persisted session (the desktop

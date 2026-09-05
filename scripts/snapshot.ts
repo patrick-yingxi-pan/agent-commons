@@ -87,6 +87,33 @@ export async function buildComprehensive(): Promise<PersistedState> {
     role: 'assistant',
     content: 'Here is a first pass — lead with weekly-active-teams, then the mechanism. Draft is in the workspace on the right.',
   })
+  const toolActivityId = 'tool-activity-playground'
+  store.appendMessage(session.id, {
+    id: store.mintMessageId('assistant'),
+    role: 'assistant',
+    content: 'The reviewed connector write remains declined.',
+    toolActivities: [{
+      id: toolActivityId,
+      tool: 'connector__playground__publish',
+      connector: 'Playground connector',
+      connectorId: 'connector-playground',
+      kind: 'action',
+      status: 'proposed',
+      summary: 'Publish the playground draft.',
+      input: { document: 'launch-one-pager.md' },
+    }],
+  })
+  const toolDecision = store.resolveToolActivity(
+    session.id,
+    toolActivityId,
+    'decline',
+    undefined,
+    {
+      logicalId: 'tool-activity-decision-000000000000000000000000',
+      tenantId: store.defaultTenantId(),
+    },
+  )
+  if (typeof toolDecision !== 'object') throw new Error('Could not create the durable tool-consent fixture')
   store.attachContext(session.id, {
     id: 'repo-playground',
     type: 'repo',

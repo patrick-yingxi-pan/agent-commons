@@ -210,6 +210,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
   const created = s.sessions.find((x) => x.id.startsWith('sess-'))
   assert.ok(created, 'a created session exists')
   assert.ok((created?.messages?.length ?? 0) >= 2, 'the created session carries its exchange')
+  assert.ok(created?.messages?.some((message) => message.toolActivities?.some((activity) =>
+    activity.decisionId === 'tool-activity-decision-000000000000000000000000' &&
+    activity.status === 'declined')),
+  'a keyed tool-consent receipt persists inside its authoritative conversation')
   assert.ok(s.retiredSessionCreationIds?.includes('sess-new-000000000000000000000000'),
     'a removed keyed draft keeps its retirement identity')
   assert.ok(s.retiredSessionCreationIds?.includes('sess-fork-000000000000000000000000'),

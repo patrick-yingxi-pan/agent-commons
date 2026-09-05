@@ -188,6 +188,10 @@ export interface ToolActivity {
    *  `declined` = the user said no; `failed` = the runtime accepted no result.
    *  Absent is treated as `done` (back-compat with the read-only slice). */
   status?: 'done' | 'proposed' | 'declined' | 'failed'
+  /** Opaque durable acknowledgement for a first-party consent decision. Present
+   *  only after a keyed Confirm / Decline lands; the containing Session remains
+   *  the private tenant authority, so no raw account identity crosses the wire. */
+  decisionId?: string
   /** The one-line result (a done read/action) or proposed effect (a pending action),
    *  shown on the card and — when done — fed back to the model. */
   summary: string

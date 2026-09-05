@@ -163,8 +163,15 @@ export function apiDispatch(
   path: string,
   headers: IncomingMessage['headers'],
   body?: unknown,
-  origin = 'http://internal',
+  options: { origin?: string; idempotencyKey?: string } = {},
 ): Promise<InnerResponse> {
   if (!bound) throw new Error('apiSurface is not bound — buildRouter() must run first')
-  return dispatch(bound, method, new URL(path, origin), headers, body)
+  return dispatch(
+    bound,
+    method,
+    new URL(path, options.origin ?? 'http://internal'),
+    headers,
+    body,
+    { idempotencyKey: options.idempotencyKey },
+  )
 }

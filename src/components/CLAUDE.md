@@ -82,35 +82,29 @@ Read [`../DESIGN.md`](../DESIGN.md) for the governing category, [`../lib/CLAUDE.
 | COMPONENT-E71 | experience | The public Agent change form stays unfolded, complete, and disabled through uncertain creation; it reconstructs after navigation from an eager held intent and closes only for exact acknowledgement, while one shell notice owns Retry/Dismiss. | [`SectionView.tsx`](SectionView.tsx) · [`AgentProposalCreationMutationNotice.tsx`](AgentProposalCreationMutationNotice.tsx) · [`RevisionedMutationNotice.tsx`](RevisionedMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`agent-proposal-creation-ui.test.ts`](agent-proposal-creation-ui.test.ts) · [`../../e2e/agent-proposal-creation.spec.ts`](../../e2e/agent-proposal-creation.spec.ts) | refines UI-E72; requires CONTROLLER-E53 |
 | COMPONENT-E72 | experience | The shared two-party Agent-proposal thread owns one exact frozen comment draft across owner and proposer projections; it remains visible even if the proposal closes concurrently, reconstructs after navigation, and settles only through shell Retry/Dismiss or exact receipt proof. | [`SectionView.tsx`](SectionView.tsx) · [`AgentProposalCommentCreationMutationNotice.tsx`](AgentProposalCommentCreationMutationNotice.tsx) · [`RevisionedMutationNotice.tsx`](RevisionedMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`agent-proposal-comment-creation-ui.test.ts`](agent-proposal-comment-creation-ui.test.ts) · [`../../e2e/agent-proposal-comment-creation.spec.ts`](../../e2e/agent-proposal-comment-creation.spec.ts) | refines UI-E73; requires CONTROLLER-E54 |
 | COMPONENT-E73 | experience | The owner review queue treats Merge and Decline as one receipt-owned decision: activation disables both with the exact progress label, survives dialog closure and navigation through one shell notice, and remains rendered until exact receipt reconciliation even if ambient lifecycle already turns terminal. | [`SectionView.tsx`](SectionView.tsx) · [`AgentProposalVerdictMutationNotice.tsx`](AgentProposalVerdictMutationNotice.tsx) · [`RevisionedMutationNotice.tsx`](RevisionedMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`agent-proposal-verdict-ui.test.ts`](agent-proposal-verdict-ui.test.ts) · [`../../e2e/agent-proposal-verdict.spec.ts`](../../e2e/agent-proposal-verdict.spec.ts) | refines UI-E74; requires CONTROLLER-E55 |
+| COMPONENT-E74 | experience | Each consent card treats Confirm and Decline as one receipt-owned decision: activation disables both with the exact family progress label, survives navigation through one shell notice, explains failure at the source, and remains rendered until exact receipt reconciliation even if ambient status turns terminal. | [`ToolActivityCard.tsx`](ToolActivityCard.tsx) · [`ToolActivityDecisionMutationNotice.tsx`](ToolActivityDecisionMutationNotice.tsx) · [`RevisionedMutationNotice.tsx`](RevisionedMutationNotice.tsx) · [`ShellMutationNotices.tsx`](ShellMutationNotices.tsx) | [`tool-activity-card.test.ts`](tool-activity-card.test.ts) · [`../../e2e/tool-activity-decision.spec.ts`](../../e2e/tool-activity-decision.spec.ts) | refines UI-E75; requires CONTROLLER-E56 |
 | COMPONENT-V1 | verification | Source scans prove shared structure, pure logic moves to `lib`, and browser-computed facts live in E2E. | [`ResourcePage.tsx`](ResourcePage.tsx) · [`MainSplit.tsx`](MainSplit.tsx) | [`pane-safe-layout.test.ts`](pane-safe-layout.test.ts) · [`../../e2e/project-page.spec.ts`](../../e2e/project-page.spec.ts) | refines UI-V1 |
 <!-- context-rules:end -->
+
 ## What lives here
+
 Every React surface—the shell (`Sidebar`, `PanelShell`, `OverlayPanelDock`), thread, section views, entity pages, dialogs and controls—composes [`../lib/`](../lib/CLAUDE.md) primitives and reads through [`../api/`](../api/CLAUDE.md), never a URL or SSE event directly.
+
 ## What the suites here can and cannot do
+
 `node --test` has **no DOM**, so a suite beside a `.tsx` file cannot render it. These suites instead **scan the source** for structural facts a render would otherwise prove — that a control sources the shared primitive or a panel stays out of flow. That is a real lock when it fails on a copy, and partial because it cannot see browser geometry.
 
 So the division is deliberate:
-- **Pure logic → [`../lib/`](../lib/CLAUDE.md)**, where it is locked exactly.
-  If a rule here is hard to assert, that is usually a sign the logic wants to move rather than that the assertion wants to be cleverer.
+- **Pure logic → [`../lib/`](../lib/CLAUDE.md)**, where it is locked exactly. If a rule here is hard to assert, that is usually a sign the logic wants to move rather than that the assertion wants to be cleverer.
 - **What only a browser can prove → [`e2e/`](../../e2e/CLAUDE.md)**: layout, focus, scroll, overlay stacking, keyboard.
-- **What neither can → the running app**, verified by hand and *said so*, per
-  the honesty rule in [`tests/CLAUDE.md`](../../tests/CLAUDE.md).
+- **What neither can → the running app**, verified by hand and *said so*, per the honesty rule in [`tests/CLAUDE.md`](../../tests/CLAUDE.md).
 
-A source-scan lock must read the implementation, never a second copy of the
-fact — the whole point is that it fails when the implementation moves away from
-what the document or the sibling component claims.
+A source-scan lock must read the implementation, never a second copy of the fact — the whole point is that it fails when the implementation moves away from what the document or the sibling component claims.
 
 ## Rules
 
-- **Form follows function; surface follows the entity.** What an entity IS
-  decides its surface (lifecycle → timeline, change → diff, relation →
-  ref-link). Method: [`docs/design/surface-from-nature.md`](../../docs/design/surface-from-nature.md).
-- **Every main page declares its resource nature.** Collection/hub/composite
-  pages derive from `CompositeResourcePage`; leaf pages derive from
-  `AtomicResourcePage`. Both compose `ResourcePageFrame`; only the composite
-  template registers structural sections. Sessions select the atomic
-  `workspace` layout for their transcript/fixed-composer behavior. Contract and equivalence test:
-  [`docs/design/resource-page-templates.md`](../../docs/design/resource-page-templates.md).
+- **Form follows function; surface follows the entity.** What an entity IS decides its surface (lifecycle → timeline, change → diff, relation → ref-link). Method: [`docs/design/surface-from-nature.md`](../../docs/design/surface-from-nature.md).
+- **Every main page declares its resource nature.** Collection/hub/composite pages derive from `CompositeResourcePage`; leaf pages derive from `AtomicResourcePage`. Both compose `ResourcePageFrame`; only the composite template registers structural sections. Sessions select the atomic `workspace` layout for their transcript/fixed-composer behavior. Contract and equivalence test: [`docs/design/resource-page-templates.md`](../../docs/design/resource-page-templates.md).
 - **Every collection body is an instantiation, not local markup.** A collection
   root declares one typed `CollectionProjection` (ordered runtime groups and
   rows, flat/static/foldable presentation, partition/section role, empty copy)

@@ -67,7 +67,6 @@ import {
   type SessionMetadataPatch,
   type SessionContextState,
   type SessionPreferences,
-  type ToolActivity,
   type UpdateScheduleRequest,
   type UpdateArtifactContentRequest,
   type UpdateSessionPreferencesRequest,
@@ -1110,21 +1109,6 @@ export async function deleteSession(
   )
   mutate<Session[]>(keys.sessions, (list) => (list ?? []).filter((session) => session.id !== id))
   invalidate(keys.session(id))
-}
-
-/** Confirm or decline a proposed tool action (P6 §2.1, PD43). Connector/MCP
- *  confirmation executes the exact persisted input through the configured runtime;
- *  generated API actions re-enter their owning route. Returns the settled activity;
- *  a refused effect leaves the proposal open and rejects this call. Invalidates the session so
- *  a later reopen reflects the persisted status. */
-export async function resolveToolActivity(
-  sessionId: string,
-  activityId: string,
-  decision: 'confirm' | 'decline',
-): Promise<ToolActivity> {
-  const activity = await apiPost<ToolActivity>(paths.toolActivity(sessionId, activityId), { decision })
-  invalidate(keys.session(sessionId))
-  return activity
 }
 
 /** Mint a bearer credential for the current verified session — the MCP connect

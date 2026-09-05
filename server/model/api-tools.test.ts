@@ -18,10 +18,11 @@ import { call, callRaw } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
 import { startModelServer } from './index.ts'
 import { buildRouter } from '../routes/index.ts'
-import { catalogOf } from '../apiSurface.ts'
+import { apiDispatch, catalogOf } from '../apiSurface.ts'
 import { dispatch } from '../http/dispatch.ts'
 import { deriveApiTools, familyFor, runApiTool, API_TOOL_PREFIX } from './apiTools.ts'
 import { TOOL_NAMES } from './tools.ts'
+import { toolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
 
 // ── 1. Derivation ────────────────────────────────────────────────────────────
 
@@ -165,11 +166,39 @@ test('E2E: "archive session X" proposes an edit; CONFIRM executes it as the conf
   assert.deepEqual(act?.op, { method: 'PATCH', path: `/sessions/${s.id}`, body: { status: 'archived' } })
   assert.equal(store.getSession(s.id)?.status ?? 'active', 'active', 'NOTHING executed at generation time')
 
-  const confirmed = await call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'confirm' })
+  const key = `archive-confirm-${driver.id}`
+  const confirmed = await call(
+    'POST',
+    `/sessions/${driver.id}/tool-activities/${act!.id}`,
+    { decision: 'confirm' },
+    { 'idempotency-key': key },
+  )
   assert.equal(confirmed.status, 200)
   assert.equal(confirmed.json.status, 'done')
+  assert.equal(
+    confirmed.json.decisionId,
+    toolActivityDecisionId(store.defaultTenantId(), driver.id, act!.id, key),
+  )
   assert.match(confirmed.json.summary, /PATCH \/api\/v1\/sessions\/.* → 200/)
   assert.equal(store.getSession(s.id)?.status, 'archived', 'the confirm executed the operation')
+  const revision = store.getSession(s.id)?.metadataRevision
+  const innerReplay = await apiDispatch(
+    'PATCH',
+    `/sessions/${s.id}`,
+    {},
+    { status: 'archived' },
+    { idempotencyKey: confirmed.json.decisionId },
+  )
+  assert.equal(innerReplay.headers['idempotency-replayed'], 'true', 'the generated write received its derived decision key')
+  assert.equal(store.getSession(s.id)?.metadataRevision, revision, 'inner replay does not revise twice')
+  const replay = await call(
+    'POST',
+    `/sessions/${driver.id}/tool-activities/${act!.id}`,
+    { decision: 'confirm' },
+    { 'idempotency-key': key },
+  )
+  assert.equal(replay.json.decisionId, confirmed.json.decisionId)
+  assert.equal(store.getSession(s.id)?.metadataRevision, revision, 'lost-response Retry neither re-dispatches nor revises twice')
 })
 
 test('E2E: DECLINE executes nothing; a declined proposal cannot be re-confirmed into effect', async () => {
@@ -183,6 +212,20 @@ test('E2E: DECLINE executes nothing; a declined proposal cannot be re-confirmed 
   const again = await call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'confirm' })
   assert.equal(again.json.status, 'declined', 'the verdict is final — no post-decline execution')
   assert.equal(store.getSession(s.id)?.status ?? 'active', 'active')
+})
+
+test('tool consent accepts only its exact decision body', async () => {
+  const target = store.createSession('strict-consent target')
+  const driver = store.createSession('strict-consent driver')
+  await callRaw('POST', `/sessions/${driver.id}/messages`, { text: `Please archive session ${target.id}.` })
+  const act = lastActivity(driver.id)
+  const malformed = await call(
+    'POST',
+    `/sessions/${driver.id}/tool-activities/${act!.id}`,
+    { decision: 'decline', activityId: 'redirected' },
+  )
+  assert.equal(malformed.status, 400)
+  assert.equal(store.getToolActivity(driver.id, act!.id)?.status, 'proposed')
 })
 
 test('E2E: an inner refusal on confirm keeps the proposal OPEN and surfaces the real reason (409)', async () => {
@@ -204,6 +247,62 @@ test('E2E: the confirm meets the tenancy wall — a foreign tenant cannot confir
   const foreign = await call('POST', `/sessions/${driver.id}/tool-activities/${act!.id}`, { decision: 'confirm' }, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
   assert.equal(foreign.status, 404, 'existence-hiding, same as every by-id session route')
   assert.equal(store.getToolActivity(driver.id, act!.id)?.status, 'proposed')
+})
+
+test('a granted conversation reader cannot decide its owner\'s proposed tool action', async () => {
+  const target = store.createSession('shared-reader target')
+  const driver = store.createSession('shared-reader consent')
+  await callRaw('POST', `/sessions/${driver.id}/messages`, { text: `Please archive session ${target.id}.` })
+  const act = lastActivity(driver.id)
+  const grant = store.createGrant(
+    {
+      subject: { kind: 'session', id: driver.id },
+      audience: { kind: 'org', orgId: 'tenant-beta' },
+      tier: 'co-own',
+    },
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof grant, 'object')
+  const reader = await call(
+    'POST',
+    `/sessions/${driver.id}/tool-activities/${act!.id}`,
+    { decision: 'confirm' },
+    { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta', 'idempotency-key': 'reader-cannot-confirm' },
+  )
+  assert.equal(reader.status, 403, 'visibility never widens effect consent')
+  assert.equal(store.getToolActivity(driver.id, act!.id)?.status, 'proposed')
+  assert.equal(store.getSession(target.id)?.status ?? 'active', 'active')
+})
+
+test('a generated tool proposal cannot erase the conversation carrying its consent record', async () => {
+  const driver = store.createSession('self-erasing consent')
+  const activityId = `tc-self-delete-${driver.id}`
+  store.appendMessage(driver.id, {
+    id: store.mintMessageId('assistant'),
+    role: 'assistant',
+    content: 'I can remove this conversation after review.',
+    toolActivities: [{
+      id: activityId,
+      tool: 'api__delete_sessions_by_id',
+      connector: 'Agent Commons API',
+      connectorId: 'api',
+      kind: 'action',
+      status: 'proposed',
+      summary: 'Delete this conversation.',
+      op: { method: 'DELETE', path: `/sessions/${driver.id}` },
+      family: 'danger',
+    }],
+  })
+  const refused = await call(
+    'POST',
+    `/sessions/${driver.id}/tool-activities/${activityId}`,
+    { decision: 'confirm' },
+    { 'idempotency-key': `self-delete-${driver.id}` },
+  )
+  assert.equal(refused.status, 409)
+  assert.match(refused.json.error.message, /cannot delete the consent record/i)
+  assert.equal(store.getToolActivity(driver.id, activityId)?.status, 'proposed')
+  assert.ok(store.getSession(driver.id), 'the dedicated conversation deletion workflow remains the only erase path')
 })
 
 test('the read runs as the SENDER: a runtime bound to a foreign tenant reads THAT tenant\'s world through the tool', async () => {

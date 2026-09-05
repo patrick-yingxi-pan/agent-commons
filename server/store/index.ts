@@ -139,6 +139,7 @@ import { isAgentCreationId } from '../agentCreationIdentity.ts'
 import { isAgentProposalCreationId } from '../agentProposalCreationIdentity.ts'
 import { isAgentProposalCommentCreationId } from '../agentProposalCommentCreationIdentity.ts'
 import { isAgentProposalVerdictId } from '../agentProposalVerdictIdentity.ts'
+import { isToolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
 import { isDelegationCreationId } from '../delegationCreationIdentity.ts'
 import { isDelegationRevocationId } from '../delegationRevocationIdentity.ts'
 import { isOpenWorkCreationId } from '../openWorkCreationIdentity.ts'
@@ -3914,6 +3915,28 @@ export const store = {
     }
     return undefined
   },
+  /** Exact durable acknowledgement for a keyed tool-consent verdict. The
+   * containing Session is both the persistence container and private tenant
+   * authority; the wire receipt therefore needs no raw account anchor. */
+  getToolActivityDecision(
+    sessionId: string,
+    activityId: string,
+    decisionId: string,
+    tenantId: string,
+    decision: 'confirm' | 'decline',
+  ): ToolActivity | 'invalid' | undefined {
+    if (!isToolActivityDecisionId(decisionId)) return 'invalid'
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
+    const activity = this.getToolActivity(sessionId, activityId)
+    if (!activity) return undefined
+    if (activity.decisionId === undefined) {
+      return activity.kind === 'action' && activity.status === 'proposed' ? undefined : 'invalid'
+    }
+    if (activity.decisionId !== decisionId) return 'invalid'
+    const expectedStatus = decision === 'confirm' ? 'done' : 'declined'
+    return activity.kind === 'action' && activity.status === expectedStatus ? activity : 'invalid'
+  },
   /** Claim a proposed action for execution — the synchronous gate that makes a
    *  confirm's execute-then-resolve sequence single-shot. The route's dispatch
    *  awaits (yields), so two concurrent confirms could both read `proposed` and
@@ -3940,41 +3963,64 @@ export const store = {
    *  confirmer — INV-11) and passes the result as `doneSummary`; a connector
    *  activity also carries the connector runtime's accepted result. Audited
    *  under the matching capability.
-   *  Idempotent per resolved state (a non-proposed activity returns unchanged) —
-   *  but the execute step itself is NOT idempotent, so a confirm that dispatches
-   *  an op must first win `claimToolActivity` (released here when the verdict
-   *  lands, or by `releaseToolActivity` on an inner refusal). */
-  resolveToolActivity(sessionId: string, activityId: string, decision: 'confirm' | 'decline', doneSummary?: string): ToolActivity | undefined {
+   *  A keyed verdict replays only its exact durable receipt; legacy unkeyed
+   *  callers retain terminal-state replay. Generated writes receive the derived
+   *  receipt key and connector adapters receive the stable activity id, but a confirm
+   *  must still win `claimToolActivity` before dispatch (released here when the
+   *  verdict lands, or by `releaseToolActivity` on an inner refusal). */
+  resolveToolActivity(
+    sessionId: string,
+    activityId: string,
+    decision: 'confirm' | 'decline',
+    doneSummary?: string,
+    options: { logicalId?: string; tenantId?: string } = {},
+  ): ToolActivity | 'invalid' | undefined {
     // The verdict lands (or the record is gone — e.g. a confirmed op deleted its
     // own hosting session): drop any execution claim unconditionally, so no
     // outcome can leave a `sessionId/activityId` key wedged in the in-flight set.
     TOOL_ACTIVITY_INFLIGHT.delete(`${sessionId}/${activityId}`)
+    if (options.logicalId) {
+      if (!options.tenantId) return 'invalid'
+      const represented = this.getToolActivityDecision(
+        sessionId,
+        activityId,
+        options.logicalId,
+        options.tenantId,
+        decision,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') return represented
+    }
     const session = SESSIONS.find((s) => s.id === sessionId)
     if (!session?.messages) return undefined
+    if (options.tenantId && !this.sessionOwnedBy(session, options.tenantId)) return undefined
     for (const m of session.messages) {
       const act = m.toolActivities?.find((a) => a.id === activityId)
       if (!act) continue
-      if (act.kind !== 'action' || act.status !== 'proposed') return act // already resolved / not gated
-      if (decision === 'decline') {
-        act.status = 'declined'
-      } else {
-        // A connector action without a settled runtime result must stay open.
-        // This prevents an internal caller from manufacturing `done` from the
-        // development fixture or a generic string after the consent click.
-        if (!act.op && !doneSummary) return act
-        act.status = 'done'
-        act.summary = doneSummary ?? `${act.op?.method} ${act.op?.path} completed.`
-        this.recordAudit({
-          tenantId: session.tenantId ?? defaultTenantId(),
-          channel: 'proxy',
-          capability: act.op ? 'api.write' : 'connector.write',
-          target: act.op ? `${act.op.method} ${act.op.path}` : act.connector,
-          outcome: 'fulfilled',
-        })
+      if (act.kind !== 'action' || act.status !== 'proposed') {
+        return options.logicalId ? 'invalid' : act // legacy callers retain idempotent finality
       }
-      persist()
-      emit({ type: 'session.updated', session })
-      return act
+      // A connector action without a settled runtime result must stay open.
+      // This prevents an internal caller from manufacturing `done` from the
+      // development fixture or a generic string after the consent click.
+      if (decision === 'confirm' && !act.op && !doneSummary) return act
+      return commitMutationBatch(() => {
+        act.status = decision === 'decline' ? 'declined' : 'done'
+        if (options.logicalId) act.decisionId = options.logicalId
+        if (decision === 'confirm') {
+          act.summary = doneSummary ?? `${act.op?.method} ${act.op?.path} completed.`
+          this.recordAudit({
+            tenantId: session.tenantId ?? defaultTenantId(),
+            channel: 'proxy',
+            capability: act.op ? 'api.write' : 'connector.write',
+            target: act.op ? `${act.op.method} ${act.op.path}` : act.connector,
+            outcome: 'fulfilled',
+          })
+        }
+        persist()
+        emit({ type: 'session.updated', session })
+        return act
+      })
     }
     return undefined
   },
