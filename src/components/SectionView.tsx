@@ -287,7 +287,6 @@ import {
   markDiscussionRead,
   noteContribution,
   proposeEnvelope,
-  approveEnvelope,
   reviewContribution,
   requireContributionReview,
   useDelegations,
@@ -452,6 +451,12 @@ import {
   isContributionCrystallizationHeld,
   useContributionCrystallizationStatus,
 } from '../controller/contributionCrystallizationMutations.ts'
+import {
+  enqueueContributionEnvelopeApproval,
+  heldContributionEnvelopeApprovalIntent,
+  isContributionEnvelopeApprovalHeld,
+  useContributionEnvelopeApprovalStatus,
+} from '../controller/contributionEnvelopeApprovalMutations.ts'
 import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
@@ -6238,6 +6243,7 @@ function ContributionPage({
   useContributionLandingStatus()
   useContributionEffectExecutionStatus()
   useContributionCrystallizationStatus()
+  useContributionEnvelopeApprovalStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6249,7 +6255,8 @@ function ContributionPage({
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
   const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
-  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld
+  const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
+  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld
 
   if (!c) {
     return (
@@ -7064,6 +7071,7 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const heldExecution = heldContributionEffectExecutionIntent(project.id, c.id)
+  const heldApproval = heldContributionEnvelopeApprovalIntent(project.id, c.id)
   // No envelope and nothing left to declare (landed) — nothing to show.
   if (!env && (c.status !== 'open' || !mayAct)) return null
 
@@ -7104,6 +7112,20 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
       }
     })
   }
+  const approve = () => {
+    if (busy || lifecycleHeld || !me || !env) return
+    setError(null)
+    void enqueueContributionEnvelopeApproval({
+      tenantId: me.tenant.id,
+      projectId: project.id,
+      contributionId: c.id,
+      envelopeVersion: env.version,
+    }).then((outcome) => {
+      if (outcome === 'discarded') {
+        setError('Envelope approval was dismissed. Review the current version before trying again.')
+      }
+    })
+  }
 
   return (
     <div className="mt-5 rounded-xl border border-line bg-surface">
@@ -7124,12 +7146,12 @@ function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Cont
             ))}
           {env && env.status === 'proposed' && own && c.status === 'open' && (
             <button
-              onClick={() => void act(() => approveEnvelope(project.id, c.id), 'Could not approve.')}
+              onClick={approve}
               disabled={busy || lifecycleHeld}
               title="Approve these acts as proposed — matching acts then run without re-asking"
               className={`${SOFT_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
             >
-              Approve
+              {heldApproval?.envelopeVersion === env.version ? 'Approving…' : 'Approve'}
             </button>
           )}
           {c.status === 'open' && mayAct && (

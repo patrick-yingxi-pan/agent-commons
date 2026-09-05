@@ -1007,14 +1007,6 @@ export async function proposeEnvelope(projectId: string, cid: string, req: Propo
   return c
 }
 
-/** Approve the envelope as proposed — owner-only; the one human judgment the
- *  floor rule requires, after which acts match mechanically. */
-export async function approveEnvelope(projectId: string, cid: string): Promise<Contribution> {
-  const c = await apiPost<Contribution>(paths.contributionEnvelopeApprove(projectId, cid), {})
-  invalidate(keys.contributions(projectId))
-  return c
-}
-
 /** Open a change proposal against a published definition (D25). */
 export async function proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest): Promise<AgentChangeProposal> {
   const proposal = await apiPost<AgentChangeProposal>(paths.agentProposals(agentId), req)

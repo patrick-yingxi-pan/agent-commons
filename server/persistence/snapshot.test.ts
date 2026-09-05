@@ -362,6 +362,13 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'acknowledgement-owned crystallization keeps a durable exact-version receipt and private actor anchor',
   )
   assert.ok(
+    s.contributions?.some((contribution) => contribution.events.some((event) =>
+      event.id === 'contribution-envelope-approval-000000000000000000000000' &&
+      typeof event.approvedByTenant === 'string' &&
+      event.envelopeVersion === 1)),
+    'acknowledgement-owned envelope approval keeps a durable exact-version receipt and private actor anchor',
+  )
+  assert.ok(
     s.grants?.some((g) => g.subject.id === 'p-playground' && g.note !== undefined),
     'createGrant → grants (social S1, the published share persists)',
   )

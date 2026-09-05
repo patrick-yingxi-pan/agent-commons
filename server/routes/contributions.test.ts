@@ -15,6 +15,7 @@ import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
+import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
@@ -375,6 +376,72 @@ test('envelope: propose is open deliberation; APPROVE is owner-only (the floor r
     const r = await call('POST', `/projects/${projectId}/contributions/${cid}/envelope`, bad, { 'x-tenant-id': B })
     assert.equal(r.status, 400, JSON.stringify(bad))
   }
+})
+
+test('a keyed envelope approval owns one exact reviewed version across cache loss and later amendment', async () => {
+  const { projectId, cid } = await arena()
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'connector.write', target: 'gmail:version-one', cardinality: 1 }] },
+    { 'x-tenant-id': B },
+  )
+  const key = `contribution-envelope-approval-${n}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+  const expectedId = contributionEnvelopeApprovalId(A, projectId, cid, key)
+  const first = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope/approve`,
+    { expectedVersion: 1 },
+    headers,
+  )
+  assert.equal(first.status, 200)
+  assert.equal(first.json.envelope.approvedVersion, 1)
+  const receipt = first.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'envelope-approved')
+  assert.equal(receipt.envelopeVersion, 1)
+  assert.equal(receipt.approvedByTenant, undefined, 'raw retry authority never crosses the wire')
+
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope`,
+    { lines: [{ type: 'charge', target: 'budget:version-two', cardinality: 2 }] },
+    { 'x-tenant-id': B },
+  )
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'History after the approval response was serialized.' },
+    { 'x-tenant-id': A },
+  )
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope/approve`,
+    { expectedVersion: 1 },
+    headers,
+  )
+  assert.equal(replay.status, 200, 'durable replay precedes current envelope gates')
+  assert.equal(replay.headers['idempotency-replayed'], undefined)
+  assert.equal(replay.json.envelope.version, 2)
+  assert.equal(replay.json.envelope.status, 'proposed', 'replay cannot authorize a later amendment')
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+  assert.equal(replay.json.events.at(-1).body, 'History after the approval response was serialized.')
+
+  const redirected = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope/approve`,
+    { expectedVersion: 2 },
+    headers,
+  )
+  assert.equal(redirected.status, 400, 'one logical key cannot be redirected to a later version')
+
+  const stale = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/envelope/approve`,
+    { expectedVersion: 1 },
+    { 'x-tenant-id': A, 'idempotency-key': `${key}-stale` },
+  )
+  assert.equal(stale.status, 409, 'fresh consent must match the envelope version currently awaiting approval')
 })
 
 test('envelope: acts match MECHANICALLY — consume cardinality, refuse outside/exhausted/unapproved, refusals recorded', async () => {

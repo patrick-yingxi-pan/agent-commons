@@ -154,6 +154,7 @@ export type StoredContributionEvent = ContributionEvent & {
   effectByTenant?: string
   effectResult?: 'executed' | 'unapproved' | 'refused'
   crystallizedByTenant?: string
+  approvedByTenant?: string
 }
 
 /** A Delegation as STORED (CW8, Phase F) — the wire row plus the DELEGATOR's

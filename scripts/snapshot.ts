@@ -332,7 +332,17 @@ export async function buildComprehensive(): Promise<PersistedState> {
       { lines: [{ type: 'connector.write', target: 'linear:digest', cardinality: 2, harness: 'draft-escrow', note: 'post the digest' }] },
       store.defaultTenantId(), builder,
     )
-    store.approveEnvelope('p-insights', landedContribution.id, store.defaultTenantId(), builder)
+    store.approveEnvelope(
+      'p-insights',
+      landedContribution.id,
+      store.defaultTenantId(),
+      builder,
+      undefined,
+      {
+        logicalId: 'contribution-envelope-approval-000000000000000000000000',
+        expectedVersion: 1,
+      },
+    )
     if (typeof withEnvelope === 'object' && withEnvelope?.envelope) {
       store.runEnvelopeEffect(
         'p-insights',

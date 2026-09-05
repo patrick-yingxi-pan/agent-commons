@@ -142,6 +142,7 @@ import { isWorkItemRetractionId } from '../workItemRetractionIdentity.ts'
 import { isContributionLandingId } from '../contributionLandingIdentity.ts'
 import { isContributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { isContributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
+import { isContributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -466,7 +467,7 @@ function crystallizationMatchesVersion(
 }
 
 function publicContributionEvent(ev: StoredContributionEvent): import('../../contract/index.ts').ContributionEvent {
-  const { principal, effectByTenant, effectResult, crystallizedByTenant, ...pub } = ev
+  const { principal, effectByTenant, effectResult, crystallizedByTenant, approvedByTenant, ...pub } = ev
   return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
 }
 /** The Project delegation rosters (CW8, Phase F) — judgment handed to a worker
@@ -8597,32 +8598,95 @@ export const store = {
     persist()
     return publicContribution(c, tenantId)
   },
+  /** Current containing ledger row for one durable envelope-approval receipt.
+   * A supplied reviewed version must match the event exactly, so Retry can
+   * never redirect consent to a later amendment. */
+  getContributionEnvelopeApproval(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    tenantId: string,
+    expectedVersion?: number,
+  ): Contribution | 'invalid' | undefined {
+    if (!isContributionEnvelopeApprovalId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    if (
+      event.kind !== 'envelope-approved' ||
+      !Number.isSafeInteger(event.envelopeVersion) ||
+      (event.envelopeVersion ?? 0) < 1 ||
+      event.approvedByTenant !== tenantId ||
+      (expectedVersion !== undefined && event.envelopeVersion !== expectedVersion)
+    ) return 'invalid'
+    return publicContribution(contribution, tenantId)
+  },
   /** Approve the envelope AS PROPOSED — the human judgment moment (the floor
    *  rule: external acts need at least one human approval per envelope; what
    *  follows at act time is mechanical). Project-owner only (`tenantWritesAs`,
    *  raw ids — D14's role gate for commission actors arrives with their
-   *  execution path); stamps the version covered. */
-  approveEnvelope(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined, eventActor?: string): Contribution | 'forbidden' | 'conflict' | undefined {
+   *  execution path); exact first-party consent stamps the reviewed version. */
+  approveEnvelope(
+    projectId: string,
+    cid: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    eventActor?: string,
+    options: { logicalId?: string; expectedVersion?: number } = {},
+  ): Contribution | 'forbidden' | 'conflict' | undefined {
+    if (options.logicalId) {
+      const represented = this.getContributionEnvelopeApproval(
+        options.logicalId,
+        projectId,
+        cid,
+        tenantId,
+        options.expectedVersion,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That Contribution envelope approval identity is not valid for this account, ledger row, and reviewed version.')
+      }
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c?.envelope) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
     if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     if (c.status !== 'open' || c.envelope.status !== 'proposed') return 'conflict'
+    if (options.expectedVersion !== undefined && c.envelope.version !== options.expectedVersion) return 'conflict'
+    if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'conflict'
     const now = Date.now()
     const actor = tenantName(tenantId)
-    c.envelope.status = 'approved'
-    c.envelope.approvedBy = actor
-    c.envelope.approvedAt = now
-    c.envelope.approvedVersion = c.envelope.version
+    const approvedVersion = c.envelope.version
     // `eventActor` (CW8): a delegated approval stamps the EVENT with the dual
     // identity from the start — no post-hoc patch, no crash window persisting
     // an un-stamped record (review finding, Phase F). `approvedBy` stays the
     // DELEGATOR's name deliberately: the row-level attribution is the
     // liability holder (the conservation law); the event carries the how.
-    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'envelope-approved', at: now, actor: eventActor ?? actor, body: `v${c.envelope.version}`, ...(principal ? { principal } : {}) })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
+    return commitMutationBatch(() => {
+      c.envelope!.status = 'approved'
+      c.envelope!.approvedBy = actor
+      c.envelope!.approvedAt = now
+      c.envelope!.approvedVersion = approvedVersion
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind: 'envelope-approved',
+        at: now,
+        actor: eventActor ?? actor,
+        envelopeVersion: approvedVersion,
+        body: `v${approvedVersion}`,
+        ...(options.logicalId ? { approvedByTenant: tenantId } : {}),
+        ...(principal ? { principal } : {}),
+      })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
+    })
   },
   /** Current containing ledger row and outcome for one durable effect receipt. */
   getContributionEffectExecution(
