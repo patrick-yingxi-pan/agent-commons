@@ -976,13 +976,6 @@ export async function runDelegation(projectId: string, cid: string, did: string)
   return c
 }
 
-/** The owner's tighten-only act (CW5): force ≥ Tier 1. No loosen op exists. */
-export async function requireContributionReview(projectId: string, cid: string): Promise<Contribution> {
-  const c = await apiPost<Contribution>(paths.contributionRequireReview(projectId, cid), {})
-  invalidate(keys.contributions(projectId))
-  return c
-}
-
 /** Open a change proposal against a published definition (D25). */
 export async function proposeAgentChange(agentId: string, req: ProposeAgentChangeRequest): Promise<AgentChangeProposal> {
   const proposal = await apiPost<AgentChangeProposal>(paths.agentProposals(agentId), req)

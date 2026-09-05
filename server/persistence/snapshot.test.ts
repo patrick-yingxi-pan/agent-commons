@@ -362,6 +362,12 @@ test('build produces a snapshot covering every persisted slice', async () => {
   )
   assert.ok(
     s.contributions?.some((contribution) => contribution.events.some((event) =>
+      event.id === 'contribution-require-review-000000000000000000000000' &&
+      typeof event.reviewRequiredByTenant === 'string')),
+    'acknowledgement-owned review requirement keeps its durable receipt and private actor anchor',
+  )
+  assert.ok(
+    s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'contribution-effect-000000000000000000000000' &&
       typeof event.effectByTenant === 'string' &&
       event.effectResult === 'executed' &&
@@ -689,6 +695,13 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     1,
   )
   assert.equal(typeof keyedContributionReview, 'object', 'an exact keyed Contribution review survives a real boot')
+  const keyedContributionReviewRequirement = envelopeContribution && store.getContributionReviewRequirement(
+    'contribution-require-review-000000000000000000000000',
+    'p-insights',
+    envelopeContribution.id,
+    store.defaultTenantId(),
+  )
+  assert.equal(typeof keyedContributionReviewRequirement, 'object', 'a keyed review requirement survives a real boot')
   const keyedEnvelopeProposal = envelopeContribution && store.getContributionEnvelopeProposal(
     'contribution-envelope-proposal-000000000000000000000000',
     'p-insights',

@@ -117,6 +117,7 @@ import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalI
 import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { contributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { contributionReviewId } from '../contributionReviewIdentity.ts'
+import { contributionReviewRequirementId } from '../contributionReviewRequirementIdentity.ts'
 import { socialProposalCreationId } from '../socialProposalCreationIdentity.ts'
 import { sessionCreationId, sessionForkCreationId } from '../sessionCreationIdentity.ts'
 import { registerMcp } from '../mcp.ts'
@@ -2953,10 +2954,33 @@ export function buildRouter(): Router {
   r.post('/projects/:id/contributions/:cid/require-review', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
-    const out = store.requireContributionReview(params.id, params.cid, who.tenant.id, userPrincipal(who))
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalRequirementId = idempotencyKey
+      ? contributionReviewRequirementId(who.tenant.id, params.id, params.cid, idempotencyKey)
+      : undefined
+    const represented = logicalRequirementId
+      ? store.getContributionReviewRequirement(
+          logicalRequirementId,
+          params.id,
+          params.cid,
+          who.tenant.id,
+        )
+      : undefined
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This review-requirement identity is not valid for this account and Contribution')
+    }
+    const out = store.requireContributionReview(
+      params.id,
+      params.cid,
+      who.tenant.id,
+      userPrincipal(who),
+      { logicalId: logicalRequirementId },
+    )
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may tighten a contribution’s gate')
     if (out === 'conflict') return sendError(res, 'conflict', 'Already required, or the contribution landed')
+    if (out === 'invalid') return sendError(res, 'bad_request', 'This review-requirement identity is not valid for this account and Contribution')
     sendJson(res, out)
   })
   r.post('/projects/:id/contributions/:cid/review', async ({ req, res, params, body }) => {

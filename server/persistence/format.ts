@@ -153,6 +153,7 @@ export type StoredContributionEvent = ContributionEvent & {
   principal?: PrincipalRef
   notedByTenant?: string
   reviewedByTenant?: string
+  reviewRequiredByTenant?: string
   effectByTenant?: string
   effectResult?: 'executed' | 'unapproved' | 'refused'
   crystallizedByTenant?: string

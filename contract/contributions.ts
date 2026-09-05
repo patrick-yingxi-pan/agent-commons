@@ -167,7 +167,8 @@ export interface ContributionEvent {
     /* Phase D — a changeset version crystallized (CW3/CW4): */
     | 'crystallized'
     /* Phase E — the tier machinery (CW5): the mock adversarial review's verdict,
-     *  and the owner's explicit tightening act. */
+     *  and the owner's explicit tightening act. A keyed review-required event id
+     *  is the public durable receipt for that monotonic owner decision. */
     | 'review-passed'
     | 'review-required'
     /* Phase F — delegated judgment (CW8): the delegate's dual-stamped decision,
@@ -248,7 +249,8 @@ export interface Contribution {
   tier?: ContributionTier
   /** The owner's explicit tightening (CW5): forces ≥ Tier 1 on a contribution
    *  the arithmetic would auto-land. Set by the one `require-review` act;
-   *  there is deliberately NO op that unsets it. */
+   *  there is deliberately NO op that unsets it. A keyed request receives an
+   *  exact `review-required` timeline receipt. */
   reviewRequired?: true
   /** The changeset version the mock adversarial review last covered — Tier 1
    *  landing requires it to equal the LATEST version (a re-crystallize

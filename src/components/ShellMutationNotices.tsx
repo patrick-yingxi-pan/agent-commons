@@ -15,6 +15,7 @@ import { ContributionEnvelopeApprovalMutationNotice } from './ContributionEnvelo
 import { ContributionEnvelopeProposalMutationNotice } from './ContributionEnvelopeProposalMutationNotice'
 import { ContributionCommentCreationMutationNotice } from './ContributionCommentCreationMutationNotice'
 import { ContributionReviewMutationNotice } from './ContributionReviewMutationNotice'
+import { ContributionReviewRequirementMutationNotice } from './ContributionReviewRequirementMutationNotice'
 import { OpenWorkCreationMutationNotice } from './OpenWorkCreationMutationNotice'
 import { WorkItemCommentCreationMutationNotice } from './WorkItemCommentCreationMutationNotice'
 import { WorkItemRetractionMutationNotice } from './WorkItemRetractionMutationNotice'
@@ -60,6 +61,7 @@ export function ShellMutationNotices() {
       <ContributionEnvelopeProposalMutationNotice />
       <ContributionCommentCreationMutationNotice />
       <ContributionReviewMutationNotice />
+      <ContributionReviewRequirementMutationNotice />
       <OpenWorkCreationMutationNotice />
       <WorkItemCommentCreationMutationNotice />
       <WorkItemRetractionMutationNotice />

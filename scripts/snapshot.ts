@@ -365,8 +365,15 @@ export async function buildComprehensive(): Promise<PersistedState> {
       store.defaultTenantId(), builder,
       { logicalId: 'contribution-crystallization-000000000000000000000000' },
     )
-    // Phase E: run the mock adversarial review too, so the persisted
-    // reviewedVersion + review-passed event round-trip.
+    // Phase E: persist the owner's monotonic review requirement and run the
+    // mock adversarial review, so both durable receipts round-trip.
+    store.requireContributionReview(
+      'p-insights',
+      landedContribution.id,
+      store.defaultTenantId(),
+      builder,
+      { logicalId: 'contribution-require-review-000000000000000000000000' },
+    )
     store.reviewContribution(
       'p-insights',
       landedContribution.id,

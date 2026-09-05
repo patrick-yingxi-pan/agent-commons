@@ -19,6 +19,7 @@ import { contributionEnvelopeApprovalId } from '../contributionEnvelopeApprovalI
 import { contributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { contributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { contributionReviewId } from '../contributionReviewIdentity.ts'
+import { contributionReviewRequirementId } from '../contributionReviewRequirementIdentity.ts'
 import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
@@ -107,6 +108,7 @@ test('the ledger wall IS the project wall: a foreign private project 404s everyw
     ['POST', `/projects/${privId}/contributions`, { title: 'x' }],
     ['POST', `/projects/${privId}/contributions/${mine.json.id}/comments`, { body: 'hi' }],
     ['POST', `/projects/${privId}/contributions/${mine.json.id}/land`, undefined],
+    ['POST', `/projects/${privId}/contributions/${mine.json.id}/require-review`, undefined],
   ] as const) {
     const res = await call(method, path, body, { 'x-tenant-id': B })
     assert.equal(res.status, 404, `${method} ${path}: a project you cannot see answers like one that does not exist`)
@@ -344,6 +346,63 @@ test('a keyed Contribution review owns one exact changeset version across cache 
     { 'x-tenant-id': B, 'idempotency-key': `${key}-fresh` },
   )
   assert.equal(stale.status, 409, 'a fresh review must name the current changeset version')
+})
+
+test('a keyed review requirement replays current Contribution truth after response-cache loss', async () => {
+  const { projectId, cid } = await arena()
+  const key = `contribution-require-review-${n}`
+  const headers = { 'x-tenant-id': A, 'idempotency-key': key }
+  const expectedId = contributionReviewRequirementId(A, projectId, cid, key)
+
+  const first = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/require-review`,
+    undefined,
+    headers,
+  )
+  assert.equal(first.status, 200)
+  assert.equal(first.json.reviewRequired, true)
+  const receipt = first.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'review-required')
+  assert.equal(receipt.reviewRequiredByTenant, undefined, 'the raw tightening authority stays private')
+
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/land`,
+    undefined,
+    { 'x-tenant-id': A },
+  )
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'history after the review requirement' },
+    { 'x-tenant-id': C },
+  )
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/require-review`,
+    undefined,
+    headers,
+  )
+  assert.equal(replay.status, 200, 'durable truth precedes the landed/already-required gates')
+  assert.equal(replay.json.status, 'landed', 'replay returns the current containing Contribution')
+  assert.equal(replay.json.events.at(-1).body, 'history after the review requirement')
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+
+  const fresh = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/require-review`,
+    undefined,
+    { 'x-tenant-id': A, 'idempotency-key': `${key}-fresh` },
+  )
+  assert.equal(fresh.status, 409, 'another logical tightening still observes terminal state')
+  const bystander = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/require-review`,
+    undefined,
+    { 'x-tenant-id': C, 'idempotency-key': key },
+  )
+  assert.equal(bystander.status, 403, 'the same raw key in another tenant scope cannot claim owner authority')
 })
 
 test('the per-contribution note cap answers 409; the per-project open cap answers 409', async () => {

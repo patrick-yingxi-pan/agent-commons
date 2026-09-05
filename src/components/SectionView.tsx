@@ -285,7 +285,6 @@ import {
   reportDiscussionPost,
   setDiscussionState,
   markDiscussionRead,
-  requireContributionReview,
   useDelegations,
   deleteDelegation,
   runDelegation,
@@ -471,6 +470,11 @@ import {
   isContributionReviewHeld,
   useContributionReviewStatus,
 } from '../controller/contributionReviewMutations.ts'
+import {
+  enqueueContributionReviewRequirement,
+  isContributionReviewRequirementHeld,
+  useContributionReviewRequirementStatus,
+} from '../controller/contributionReviewRequirementMutations.ts'
 import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
@@ -6265,6 +6269,7 @@ function ContributionPage({
   useContributionEnvelopeProposalStatus()
   useContributionCommentCreationStatus()
   useContributionReviewStatus()
+  useContributionReviewRequirementStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6277,12 +6282,13 @@ function ContributionPage({
   const commentHeld = heldComment !== null
   const heldReview = heldContributionReviewIntent(project.id, contributionId)
   const reviewHeld = isContributionReviewHeld(project.id, contributionId)
+  const reviewRequirementHeld = isContributionReviewRequirementHeld(project.id, contributionId)
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
   const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
   const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
   const envelopeProposalHeld = isContributionEnvelopeProposalHeld(project.id, contributionId)
-  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld
+  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld || reviewRequirementHeld
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -6368,17 +6374,16 @@ function ContributionPage({
       if (outcome === 'discarded') setError('The review was dismissed. Inspect the current changeset before trying again.')
     })
   }
-  const tighten = async () => {
-    if (busy || lifecycleHeld) return
-    setBusy(true)
+  const tighten = () => {
+    if (busy || lifecycleHeld || !me) return
     setError(null)
-    try {
-      await requireContributionReview(project.id, c.id)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not require review.')
-    } finally {
-      setBusy(false)
-    }
+    void enqueueContributionReviewRequirement({
+      tenantId: me.tenant.id,
+      projectId: project.id,
+      contributionId: c.id,
+    }).then((outcome) => {
+      if (outcome === 'discarded') setError('The review requirement was dismissed. Inspect the current gate before trying again.')
+    })
   }
   const askDelegate = async (did: string) => {
     if (busy || lifecycleHeld) return
@@ -6454,12 +6459,12 @@ function ContributionPage({
           <div className="flex shrink-0 items-center gap-1.5">
             {mayRequire && (
               <button
-                onClick={() => void tighten()}
+                onClick={() => tighten()}
                 disabled={busy || lifecycleHeld}
                 title="Tighten the gate: force adversarial review before this can land (there is no un-require)"
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
-                Require review
+                {reviewRequirementHeld ? 'Requiring review…' : 'Require review'}
               </button>
             )}
             {mayReview && (

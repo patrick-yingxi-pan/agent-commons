@@ -146,6 +146,7 @@ import { isContributionEnvelopeApprovalId } from '../contributionEnvelopeApprova
 import { isContributionEnvelopeProposalId } from '../contributionEnvelopeProposalIdentity.ts'
 import { isContributionCommentCreationId } from '../contributionCommentCreationIdentity.ts'
 import { isContributionReviewId } from '../contributionReviewIdentity.ts'
+import { isContributionReviewRequirementId } from '../contributionReviewRequirementIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -525,6 +526,7 @@ function publicContributionEvent(ev: StoredContributionEvent): import('../../con
     principal,
     notedByTenant,
     reviewedByTenant,
+    reviewRequiredByTenant,
     effectByTenant,
     effectResult,
     crystallizedByTenant,
@@ -8517,22 +8519,71 @@ export const store = {
     ) return 'invalid'
     return publicContribution(contribution, tenantId)
   },
+  /** Current containing ledger row for one durable review-requirement receipt. */
+  getContributionReviewRequirement(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    tenantId: string,
+  ): Contribution | 'invalid' | undefined {
+    if (!isContributionReviewRequirementId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    if (
+      event.kind !== 'review-required' ||
+      event.reviewRequiredByTenant !== tenantId ||
+      contribution.reviewRequired !== true
+    ) return 'invalid'
+    return publicContribution(contribution, tenantId)
+  },
   /** The owner's explicit tightening: force ≥ Tier 1 on a contribution the
    *  arithmetic would auto-land. TIGHTEN-ONLY is structural — no op unsets the
    *  flag (loosening a computed gate is unrepresentable, D8's discipline
    *  applied to review). Owner only; open contributions only. */
-  requireContributionReview(projectId: string, cid: string, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'conflict' | undefined {
+  requireContributionReview(
+    projectId: string,
+    cid: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): Contribution | 'forbidden' | 'conflict' | 'invalid' | undefined {
+    if (options.logicalId) {
+      const represented = this.getContributionReviewRequirement(
+        options.logicalId,
+        projectId,
+        cid,
+        tenantId,
+      )
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') return 'invalid'
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
     if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     if (c.status !== 'open' || c.reviewRequired === true) return 'conflict'
     if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'conflict'
-    c.reviewRequired = true
-    c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'review-required', at: Date.now(), actor: tenantName(tenantId), ...(principal ? { principal } : {}) })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
+    return commitMutationBatch(() => {
+      c.reviewRequired = true
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind: 'review-required',
+        at: Date.now(),
+        actor: tenantName(tenantId),
+        ...(options.logicalId ? { reviewRequiredByTenant: tenantId } : {}),
+        ...(principal ? { principal } : {}),
+      })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
+    })
   },
   /** Run the Tier-1 adversarial review — the declared MODEL-SEAM: the interface
    *  is real (a verdict over the latest crystallized version, recorded on the
