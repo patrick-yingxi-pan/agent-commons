@@ -252,7 +252,6 @@ import {
   useAgentProposals,
   useMe,
   useWatchState,
-  reserveSubGoal,
   probePrompt,
   useApiTokens,
   API_BASE,
@@ -527,6 +526,12 @@ import {
   isWorkItemRetractionHeld,
   useWorkItemRetractionStatus,
 } from '../controller/workItemRetractionMutations.ts'
+import {
+  enqueueProjectSubGoalClaim,
+  heldProjectSubGoalClaimIntent,
+  isProjectSubGoalClaimScopeHeld,
+  useProjectSubGoalClaimStatus,
+} from '../controller/projectSubGoalClaimMutations.ts'
 import {
   enqueueProjectSubGoalRelease,
   isProjectSubGoalReleaseHeld,
@@ -2864,9 +2869,9 @@ function CoordinationPanel({ project }: { project: Project }) {
   const subGoals = useProjectSubGoals(project.id).data ?? []
   const guarded = !!project.guardianId
   const [draft, setDraft] = useState('')
-  const [conflict, setConflict] = useState<string | null>(null)
+  const [claimError, setClaimError] = useState<string | null>(null)
   const [releaseError, setReleaseError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  useProjectSubGoalClaimStatus()
   useProjectSubGoalReleaseStatus()
   // Claim AS a principal you control: yourself, or one of YOUR agents commissioned on
   // this Project (P8 cross-tenant cooperation: an agent's sub-goal claim is how it
@@ -2881,39 +2886,62 @@ function CoordinationPanel({ project }: { project: Project }) {
   // The claim form is ON DEMAND — the section header's verb discloses it (the
   // always-open form read as noise on a page you're only reading).
   const [claiming, setClaiming] = useState(false)
+  const heldIntent = heldProjectSubGoalClaimIntent(project.id)
+  const claimHeld = heldIntent !== null
+  const observedHeld = useRef(false)
+  useEffect(() => {
+    if (heldIntent) {
+      observedHeld.current = true
+      setDraft(heldIntent.subGoal)
+      setHolder(heldIntent.holder)
+      setClaiming(true)
+      return
+    }
+    if (!observedHeld.current) return
+    observedHeld.current = false
+    if (subGoals.some((claim) =>
+      claim.subGoal === draft.trim() && claim.holder === holder && claim.canRelease === true,
+    )) {
+      setDraft('')
+      setClaiming(false)
+      setClaimError(null)
+    }
+  }, [draft, heldIntent, holder, subGoals])
 
   const claim = async () => {
     const subGoal = draft.trim()
-    if (!subGoal || busy || isProjectSubGoalReleaseScopeHeld(project.id, subGoal)) return
-    setBusy(true)
-    setConflict(null)
+    if (!tenantId || !subGoal || claimHeld || isProjectSubGoalReleaseScopeHeld(project.id, subGoal)) return
+    setClaimError(null)
     setReleaseError(null)
-    try {
-      // An unknown (deleted) commission still selected falls back to claiming as yourself.
-      const as = holder === SELF_PROJECT_HOLDER || ownCommissions.some((c) => c.id === holder)
-        ? holder
-        : SELF_PROJECT_HOLDER
-      await reserveSubGoal(project.id, as, subGoal)
+    // An unknown (deleted) commission still selected falls back to claiming as yourself.
+    const commission = ownCommissions.find((candidate) => candidate.id === holder)
+    const as = holder === SELF_PROJECT_HOLDER || commission ? holder : SELF_PROJECT_HOLDER
+    const holderLabel = as === SELF_PROJECT_HOLDER
+      ? 'You'
+      : ownAgentById.get(commission!.agentId)?.label ?? as
+    const outcome = await enqueueProjectSubGoalClaim({
+      tenantId,
+      projectId: project.id,
+      holder: as,
+      holderLabel,
+      subGoal,
+    })
+    if (outcome === 'applied') {
       setDraft('')
       setClaiming(false)
-    } catch (e) {
-      // Only a CONFLICT (409) means another Contributor holds this sub-goal — a
-      // question, not an abort: prompt to pick a different one (D11). Any other
-      // failure (network, 401, 500) must surface its real message, not a false
-      // "held by another Contributor".
-      const msg = e instanceof Error ? e.message : ''
-      setConflict(
-        /conflict|at capacity|held by/i.test(msg)
-          ? `"${subGoal}" is held by another Contributor — pick a different sub-goal.`
-          : msg || 'Could not claim that sub-goal — please try again.',
-      )
-    } finally {
-      setBusy(false)
+    } else {
+      // A represented 409 releases immediately into this re-reason prompt;
+      // uncertain failures remain frozen behind the shell's Retry/Dismiss.
+      setClaimError(`"${subGoal}" is held by another Contributor — pick a different sub-goal.`)
     }
   }
 
   const releaseClaim = (reservationId: string, subGoal: string) => {
-    if (!tenantId || isProjectSubGoalReleaseHeld(reservationId)) return
+    if (
+      !tenantId ||
+      isProjectSubGoalReleaseHeld(reservationId) ||
+      isProjectSubGoalClaimScopeHeld(project.id, subGoal)
+    ) return
     setReleaseError(null)
     void enqueueProjectSubGoalRelease({ tenantId, projectId: project.id, reservationId, subGoal }).then((outcome) => {
       if (outcome === 'discarded') {
@@ -2932,10 +2960,12 @@ function CoordinationPanel({ project }: { project: Project }) {
         actions={
           guarded ? (
             <SectionAction
-              label="Claim a sub-goal"
+              label={claimHeld ? 'Claiming sub-goal…' : 'Claim a sub-goal'}
               icon={<Plus size={14} />}
-              onClick={() => setClaiming((v) => !v)}
+              onClick={() => { if (!claimHeld) setClaiming((v) => !v) }}
               expanded={claiming}
+              disabled={claimHeld}
+              disabledReason="Waiting for this claim to settle"
             />
           ) : undefined
         }
@@ -2950,6 +2980,8 @@ function CoordinationPanel({ project }: { project: Project }) {
               <CardList>
                 {subGoals.map((s) => {
                   const releaseHeld = isProjectSubGoalReleaseHeld(s.reservationId)
+                  const acquisitionHeld = isProjectSubGoalClaimScopeHeld(project.id, s.subGoal)
+                  const rowHeld = releaseHeld || acquisitionHeld
                   return (
                     <div key={s.reservationId} className="group flex items-start gap-2.5 py-3">
                       <span
@@ -2971,11 +3003,11 @@ function CoordinationPanel({ project }: { project: Project }) {
                       {s.canRelease === true && (
                         <button
                           onClick={() => releaseClaim(s.reservationId, s.subGoal)}
-                          disabled={busy || releaseHeld}
-                          aria-label={`${releaseHeld ? 'Releasing' : 'Release'} ${s.subGoal}`}
-                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 disabled:opacity-60 ${releaseHeld ? 'opacity-100' : HOVER_REVEAL}`}
+                          disabled={rowHeld}
+                          aria-label={`${releaseHeld ? 'Releasing' : acquisitionHeld ? 'Claiming' : 'Release'} ${s.subGoal}`}
+                          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 disabled:opacity-60 ${rowHeld ? 'opacity-100' : HOVER_REVEAL}`}
                         >
-                          {releaseHeld ? <Spinner size={12} /> : <X size={13} />}
+                          {rowHeld ? <Spinner size={12} /> : <X size={13} />}
                         </button>
                       )}
                     </div>
@@ -2992,17 +3024,23 @@ function CoordinationPanel({ project }: { project: Project }) {
             )}
 
             {claiming && (
-              <div className="mt-2.5">
-                {ownCommissions.length > 0 && (
+              <div data-subgoal-claim-form aria-busy={claimHeld || undefined} className="mt-2.5">
+                {(ownCommissions.length > 0 ||
+                  (heldIntent !== null && heldIntent.holder !== SELF_PROJECT_HOLDER)) && (
                   <select
                     value={holder}
                     onChange={(e) => setHolder(e.target.value)}
                     aria-label="Claim as"
                     data-testid="claim-as"
-                    disabled={busy}
+                    disabled={claimHeld}
                     className="mb-1.5 w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong disabled:opacity-60"
                   >
                     <option value={SELF_PROJECT_HOLDER}>Claim as: You</option>
+                    {heldIntent &&
+                      heldIntent.holder !== SELF_PROJECT_HOLDER &&
+                      !ownCommissions.some((candidate) => candidate.id === heldIntent.holder) && (
+                        <option value={heldIntent.holder}>Claim as: {heldIntent.holderLabel}</option>
+                      )}
                     {ownCommissions.map((c) => (
                       <option key={c.id} value={c.id}>
                         Claim as: {ownAgentById.get(c.agentId)?.label ?? c.agentId}
@@ -3016,28 +3054,29 @@ function CoordinationPanel({ project }: { project: Project }) {
                     value={draft}
                     onChange={(e) => {
                       setDraft(e.target.value)
-                      setConflict(null)
+                      setClaimError(null)
                     }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') claim()
-                      if (e.key === 'Escape') setClaiming(false)
+                      if (e.key === 'Enter') void claim()
+                      if (e.key === 'Escape' && !claimHeld) setClaiming(false)
                     }}
                     placeholder="Claim a sub-goal…"
-                    disabled={busy || isProjectSubGoalReleaseScopeHeld(project.id, draft.trim())}
+                    disabled={claimHeld || isProjectSubGoalReleaseScopeHeld(project.id, draft.trim())}
                     className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong disabled:opacity-60"
                   />
                   <button
-                    onClick={claim}
-                    disabled={busy || !draft.trim() || isProjectSubGoalReleaseScopeHeld(project.id, draft.trim())}
+                    onClick={() => void claim()}
+                    disabled={claimHeld || !draft.trim() || isProjectSubGoalReleaseScopeHeld(project.id, draft.trim())}
+                    aria-busy={claimHeld || undefined}
                     className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
                   >
-                    Claim
+                    {claimHeld ? 'Claiming…' : 'Claim'}
                   </button>
                 </div>
-                {conflict && (
+                {claimError && (
                   <p className="mt-1.5 flex items-start gap-1 text-[11px] leading-snug text-warn-text">
                     <AlertCircle size={12} className="mt-0.5 shrink-0" />
-                    {conflict}
+                    {claimError}
                   </p>
                 )}
               </div>

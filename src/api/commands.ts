@@ -43,7 +43,6 @@ import {
   type WatchState,
   type PromptProbeRequest,
   type PromptProbeResult,
-  type ReserveSubGoalRequest,
   type ContextStatus,
   type DeleteSavedContextRequest,
   type DeleteScheduleRequest,
@@ -1060,19 +1059,6 @@ export async function deleteAgent(
     { idempotencyKey },
   )
   acceptAgentAbsence(id)
-}
-
-/** Claim a sub-goal on a Project for a Contributor (docs/agent-commons.md, D11). The
- *  guardian refuses a *different* holder on the *same* sub-goal (409 conflict) — the
- *  caller surfaces that as a re-reason prompt. Refreshes the Project's coordination
- *  panel on success. Rejects (so the caller can catch the 409). */
-export async function reserveSubGoal(projectId: string, holder: string, subGoal: string): Promise<Reservation> {
-  const reservation = await apiPost<Reservation>(paths.projectSubGoals(projectId), {
-    holder,
-    subGoal,
-  } satisfies ReserveSubGoalRequest)
-  invalidate(keys.projectSubGoals(projectId))
-  return reservation
 }
 
 // ── Sessions (the sidebar row menu's edits) ─────────────────────────────────

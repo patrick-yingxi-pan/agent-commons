@@ -17,6 +17,10 @@ export interface AcknowledgedActionMutationDeps<Input, Baseline> {
   mutate: (input: Input, idempotencyKey: string) => Promise<void>
   /** Return true when authoritative state proves the held action already landed. */
   reconcile: (input: Input, baseline: Baseline, idempotencyKey: string) => Promise<boolean>
+  /** A represented business refusal may release its form immediately after the
+   * reconciliation read proves the desired state absent. Transport uncertainty
+   * must return undefined so Retry/Dismiss retains the logical action. */
+  settleRejected?: (error: unknown) => RevisionedMutationOutcome | undefined
   describeFailure: (error: unknown) => RevisionedMutationFailure
   setStatus: (status: RevisionedMutationStatus) => void
   /** Derive or mint the one retry identity for this exact logical input. */
@@ -87,6 +91,8 @@ export function createAcknowledgedActionMutationController<Input, Baseline>(
         }
         if (generation !== issuedGeneration || queue[0] !== entry) return
         if (realized) return complete(entry, 'applied')
+        const rejected = deps.settleRejected?.(error)
+        if (rejected) return complete(entry, rejected)
         running = false
         failure = deps.describeFailure(error)
         publish()

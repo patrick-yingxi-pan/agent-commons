@@ -137,3 +137,28 @@ test('an action input may carry payload while exposing a stable recovery resourc
   assert.deepEqual(calls, [intent])
   assert.equal(statuses.find((status) => status.busy)?.activeResourceId, intent.intentId)
 })
+
+test('a represented business refusal may release its form after reconciliation', async () => {
+  const calls: Pending[] = []
+  const statuses: RevisionedMutationStatus[] = []
+  const controller = createAcknowledgedActionMutationController<string, undefined>({
+    resourceId: (resourceId) => resourceId,
+    snapshot: () => undefined,
+    mutate: (resourceId, idempotencyKey) => new Promise<void>((resolve, reject) => {
+      calls.push({ resourceId, idempotencyKey, resolve, reject })
+    }),
+    reconcile: async () => false,
+    settleRejected: (error) => error === 'represented-conflict' ? 'discarded' : undefined,
+    describeFailure: () => ({ message: 'uncertain', retryable: true }),
+    setStatus: (status) => statuses.push(status),
+    mintIdempotencyKey: () => 'one-key',
+  })
+
+  const result = controller.enqueue('claim')
+  calls[0]!.reject('represented-conflict')
+  await tick()
+
+  assert.equal(await result, 'discarded')
+  assert.equal(statuses.at(-1)?.error, null)
+  assert.equal(statuses.at(-1)?.pendingCount, 0)
+})

@@ -23,6 +23,7 @@ import { ContributionReviewRequirementMutationNotice } from './ContributionRevie
 import { OpenWorkCreationMutationNotice } from './OpenWorkCreationMutationNotice'
 import { WorkItemCommentCreationMutationNotice } from './WorkItemCommentCreationMutationNotice'
 import { WorkItemRetractionMutationNotice } from './WorkItemRetractionMutationNotice'
+import { ProjectSubGoalClaimMutationNotice } from './ProjectSubGoalClaimMutationNotice'
 import { ProjectSubGoalReleaseMutationNotice } from './ProjectSubGoalReleaseMutationNotice'
 import { SocialProposalCreationMutationNotice } from './SocialProposalCreationMutationNotice'
 import { GrantMutationNotice } from './GrantMutationNotice'
@@ -88,6 +89,7 @@ export function ShellMutationNotices() {
       <OpenWorkCreationMutationNotice />
       <WorkItemCommentCreationMutationNotice />
       <WorkItemRetractionMutationNotice />
+      <ProjectSubGoalClaimMutationNotice />
       <ProjectSubGoalReleaseMutationNotice />
       <SocialProposalCreationMutationNotice />
       <GrantMutationNotice />
