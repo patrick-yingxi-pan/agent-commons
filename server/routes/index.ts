@@ -113,6 +113,7 @@ import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
+import { orgCreationId } from '../orgCreationIdentity.ts'
 import {
   agentCreationId,
   agentForkCreationId,
@@ -830,17 +831,33 @@ export function buildRouter(): Router {
     const me = store.identity(headers)
     return { role: accounts.membership(me.user.id, orgId)?.role }
   }
-  r.post('/orgs', async ({ req, res, body }) => {
+  r.post('/orgs', idempotent(async ({ req, res, body }) => {
+    const me = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const logicalOrgId = idempotencyKey
+      ? orgCreationId(me.tenant.id, idempotencyKey)
+      : undefined
+    const represented = logicalOrgId
+      ? accounts.getOrgCreation(me.user.id, logicalOrgId)
+      : undefined
+    // Persisted tenant + founder seat are the recovery receipt. They survive
+    // the process-local response cache and return the exact original namespace
+    // before changed Retry input can found another one.
+    if (typeof represented === 'object') {
+      return sendJson(res, { id: represented.id, name: represented.name, kind: represented.kind })
+    }
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This organization creation identity is not valid for this account.')
+    }
     const { name } = await body<CreateOrgRequest>()
     if (!name?.trim() || name.trim().length > 120) {
       return sendError(res, 'bad_request', 'An organization name (1–120 chars) is required.')
     }
-    const me = store.identity(req.headers)
-    const tenant = accounts.createOrg(me.user.id, name)
+    const tenant = accounts.createOrg(me.user.id, name, { logicalId: logicalOrgId })
     if (!tenant) return sendError(res, 'bad_request', 'No such user.')
     store.accountsMutated()
     sendJson(res, { id: tenant.id, name: tenant.name, kind: tenant.kind }, 201)
-  })
+  }))
   r.get('/me/orgs', ({ req, res }) => {
     sendJson(res, accounts.orgsOf(store.identity(req.headers).user.id))
   })

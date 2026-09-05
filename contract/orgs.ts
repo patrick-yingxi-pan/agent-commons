@@ -49,7 +49,9 @@ export interface OrgMemberRow {
   role: TenantRole
 }
 
-/** Body of `POST /v1/orgs` — found an org; the caller becomes its `owner`. */
+/** Body of `POST /v1/orgs` — found an org; the caller becomes its `owner`.
+ * A supplied transport idempotency key durably identifies that one founding;
+ * omission retains compatibility best-effort creation. */
 export interface CreateOrgRequest {
   name: string
 }

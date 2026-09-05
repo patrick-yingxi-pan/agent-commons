@@ -13,8 +13,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { accounts, AccountRegistry } from '../accounts.ts'
+import { orgCreationId } from '../orgCreationIdentity.ts'
 import { store } from '../store/index.ts'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
 
 const cookieOf = (r: { headers: Record<string, string> }) => r.headers['set-cookie']?.split(';')[0] ?? ''
 let n = 0
@@ -43,6 +44,27 @@ test('founding an org: a new namespace + the founder’s owner seat; HOME stays 
   // Sign-in still lands in the namespace, not the org (no switching, ever).
   const back = await call('POST', '/auth/login', { email: founder.email, password: 'Org Fay-password-1' })
   assert.equal(back.json.tenant.id, founder.home)
+})
+
+test('keyed organization founding recovers one exact namespace after response-cache loss', async () => {
+  const founder = await account('Org Key')
+  const key = `org-found-${(n += 1)}`
+  const headers = { cookie: founder.cookie, 'idempotency-key': key }
+  const expectedId = orgCreationId(founder.home, key)
+
+  const created = await call('POST', '/orgs', { name: 'Keyed Collective' }, headers)
+  assert.equal(created.status, 201)
+  assert.equal(created.json.id, expectedId)
+
+  // A fresh router has no process-local idempotency response. Durable tenant
+  // and founder-seat truth still recovers the original representation before a
+  // changed Retry body can mint another namespace.
+  const replay = await callFresh('POST', '/orgs', { name: 'Changed retry input' }, headers)
+  assert.equal(replay.status, 200)
+  assert.deepEqual(replay.json, created.json)
+  const mine = (await call('GET', '/me/orgs', undefined, { cookie: founder.cookie })).json
+  assert.equal(mine.filter((row: { tenant: { id: string } }) => row.tenant.id === expectedId).length, 1)
+  assert.equal(mine.find((row: { tenant: { id: string } }) => row.tenant.id === expectedId)?.tenant.name, 'Keyed Collective')
 })
 
 test('the consent flow: invite (existence-hidden) → the invitee accepts → member seat; decline mints nothing', async () => {

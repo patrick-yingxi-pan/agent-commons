@@ -28,7 +28,6 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { LogOut } from 'lucide-react'
 import {
-  createOrg,
   forgetAccount,
   resolveMyInvite,
   signOut,
@@ -40,6 +39,12 @@ import {
   useMyOrgs,
 } from '../api'
 import { openAuthScreen } from '../controller/useAuthScreen'
+import {
+  enqueueOrgCreation,
+  heldOrgCreationIntent,
+  isOrgCreationHeld,
+  useOrgCreationStatus,
+} from '../controller/orgCreationMutations'
 import { accountSubtitle } from '../lib/accountFace'
 import { AUTH_ERROR_CLASS, AUTH_INPUT_CLASS, AUTH_PRIMARY_CLASS } from '../lib/authFlow'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
@@ -51,10 +56,12 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
   const switchable = useCapabilities().data?.features.identitySwitch === true
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'menu' | 'neworg'>('menu')
-  const menuRef = useDismissable<HTMLDivElement>(open, () => {
+  const close = () => {
+    if (isOrgCreationHeld()) return
     setOpen(false)
     setMode('menu')
-  })
+  }
+  const menuRef = useDismissable<HTMLDivElement>(open, close)
   const name = me?.user.name ?? 'You'
   // The second line is the account FUNNEL's answer (src/lib/accountFace.ts) —
   // empty when the namespace is simply this person, so the chip never says one
@@ -75,10 +82,6 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
   if (!switchable) {
     return <div className="border-t border-line px-3 py-2.5">{identityRow}</div>
   }
-  const close = () => {
-    setOpen(false)
-    setMode('menu')
-  }
   return (
     <div className="relative border-t border-line px-3 py-2.5" ref={menuRef}>
       {open && (
@@ -89,7 +92,14 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
       )}
       <button
         data-testid="account-chip"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          if (isOrgCreationHeld()) {
+            setOpen(true)
+            setMode('neworg')
+            return
+          }
+          setOpen((current) => !current)
+        }}
         className={`-mx-1 w-[calc(100%+0.5rem)] rounded-lg px-1 py-0.5 text-left transition ${SIDEBAR_HOVER}`}
         aria-label="Switch account"
       >
@@ -309,34 +319,45 @@ function NewOrgForm({
   onDone: () => void
   onOpenOwner?: (name: string) => void
 }) {
+  const tenantId = useMe().data?.tenant.id
+  const held = heldOrgCreationIntent()
+  const mutation = useOrgCreationStatus()
   const [name, setName] = useState('')
   const [error, setError] = useState('')
-  const [busy, setBusy] = useState(false)
+  const frozen = held !== null
+  const visibleName = held?.request.name ?? name
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    setBusy(true)
+    if (!tenantId || frozen) return
     setError('')
-    const r = await createOrg(name)
-    setBusy(false)
-    if (r.ok) {
-      onDone()
-      onOpenOwner?.(r.tenant.name)
-    } else setError(r.message)
+    try {
+      const result = await enqueueOrgCreation({ tenantId, request: { name } })
+      if (result.outcome === 'applied') {
+        onDone()
+        onOpenOwner?.(result.tenant.name)
+      } else {
+        setError('Your organization name is still here. Review it, then create again when ready.')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare organization recovery.')
+    }
   }
   return (
-    <form onSubmit={submit} className="space-y-1.5 p-1.5">
+    <form onSubmit={submit} aria-busy={frozen ? 'true' : undefined} className="space-y-1.5 p-1.5">
       <div className="flex items-center justify-between">
         <span className="text-[12px] font-medium text-ink">New organization</span>
-        <button type="button" onClick={onBack} className="text-[11px] text-ink-faint hover:text-ink">
+        <button type="button" onClick={onBack} disabled={frozen} className="text-[11px] text-ink-faint hover:text-ink disabled:opacity-45">
           Back
         </button>
       </div>
       <input
         data-testid="org-name"
         type="text"
+        maxLength={120}
         placeholder="Organization name"
-        value={name}
+        value={visibleName}
         onChange={(e) => setName(e.target.value)}
+        disabled={frozen}
         className={AUTH_INPUT_CLASS}
       />
       {error && (
@@ -344,8 +365,8 @@ function NewOrgForm({
           {error}
         </p>
       )}
-      <button type="submit" data-testid="org-submit" disabled={busy || !name.trim()} className={AUTH_PRIMARY_CLASS}>
-        {busy ? 'Working…' : 'Create organization'}
+      <button type="submit" data-testid="org-submit" disabled={frozen || !name.trim()} className={AUTH_PRIMARY_CLASS}>
+        {frozen ? (mutation.error ? 'Awaiting recovery' : 'Creating…') : 'Create organization'}
       </button>
     </form>
   )

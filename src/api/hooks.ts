@@ -10,7 +10,7 @@ import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
 import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
-import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow, Tenant as TenantT } from '../../contract/index.ts'
+import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
 import type {
   Runner,
@@ -214,17 +214,6 @@ export function useOrgMembers(orgId: string | undefined): QueryState<OrgMemberRo
 /** An org's invite ledger — OWNER-only (the route 403s a member; gate `enabled`). */
 export function useOrgInvites(orgId: string | undefined, enabled: boolean): QueryState<OrgInviteRow[]> {
   return useQuery(keys.orgInvites(orgId ?? ''), () => apiGet<OrgInviteRow[]>(paths.orgInvites(orgId!)), !!orgId && enabled)
-}
-
-/** Found an org (the caller becomes its owner) and refresh the seats list. */
-export async function createOrg(name: string): Promise<{ ok: true; tenant: TenantT } | { ok: false; message: string }> {
-  try {
-    const tenant = await apiPost<TenantT>(paths.orgs, { name })
-    invalidate(keys.meOrgs)
-    return { ok: true, tenant }
-  } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to create the organization' }
-  }
 }
 
 /** Invite an email into an org (owner-only; existence-hidden server-side). */

@@ -350,12 +350,44 @@ export class AccountRegistry {
 
   /** Found an org: a new org tenant + the founder's `owner` seat (O-D2). The
    *  org is a NAMESPACE — it never logs in and is never switched into. */
-  createOrg(founderUserId: string, name: string): AccountTenant | null {
+  createOrg(
+    founderUserId: string,
+    name: string,
+    options: { logicalId?: string } = {},
+  ): AccountTenant | null {
     if (!this.users.has(founderUserId)) return null
-    this.tenantSeq += 1
-    const tenant: AccountTenant = { id: `tenant-org-${this.tenantSeq}`, name: name.trim(), kind: 'org' }
+    let id = options.logicalId
+    if (id) {
+      // Existing keyed truth is handled by the route before this first-write
+      // path. Never overwrite an unrelated tenant on even a theoretical digest
+      // collision or an inconsistent restored snapshot.
+      if (this.tenants.has(id)) return null
+    } else {
+      this.tenantSeq += 1
+      id = `tenant-org-${this.tenantSeq}`
+    }
+    const tenant: AccountTenant = { id, name: name.trim(), kind: 'org' }
     this.tenants.set(tenant.id, tenant)
     this.memberships.push({ userId: founderUserId, tenantId: tenant.id, role: 'owner' })
+    return tenant
+  }
+
+  /** Recover a keyed founding only when its durable tenant and founder-owner
+   * seat agree. `invalid` distinguishes a collision/inconsistent snapshot from
+   * authoritative absence without exposing any other tenant. */
+  getOrgCreation(
+    founderUserId: string,
+    tenantId: string,
+  ): AccountTenant | 'invalid' | undefined {
+    const tenant = this.tenants.get(tenantId)
+    if (!tenant) return undefined
+    const seat = this.membership(founderUserId, tenantId)
+    if (
+      tenant.kind !== 'org' ||
+      this.isNamespace(tenantId) ||
+      seat?.home ||
+      seat?.role !== 'owner'
+    ) return 'invalid'
     return tenant
   }
 
