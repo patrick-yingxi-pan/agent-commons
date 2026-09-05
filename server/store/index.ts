@@ -973,6 +973,7 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
   const { openerTenant, targetTenant, posts, ...pub } = d
   return {
     ...pub,
+    stateRevision: d.stateRevision ?? 0,
     ...dmFace(d, viewerTenant),
     ...(isWallThread(d) ? { wall: true } : {}),
     ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, openerTenant) ? { mine: true } : {}),
@@ -980,7 +981,7 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
     // The thread's own write standing, from the predicate the write path uses.
     ...(viewerTenant !== undefined && store.discussionWritableBy(d, viewerTenant) ? { canPost: true } : {}),
     posts: posts.map((p) => {
-      const { authorTenant, reactedBy, ...post } = p
+      const { authorTenant, reactedBy, reportedBy, ...post } = p
       // S8 — resolved at SERVE time, never stored: a display name can change,
       // and a stored copy would linkify a name its bearer no longer wears. Same
       // resolver that decided who was rung, so the highlighted set and the
@@ -998,6 +999,7 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
         ...(mentions.length > 0 ? { mentions } : {}),
         reactions: reactedBy.length,
         ...(viewerTenant !== undefined && reactedBy.some((t) => tenantReadsAs(viewerTenant, t)) ? { reacted: true } : {}),
+        ...(viewerTenant !== undefined && reportedBy?.includes(viewerTenant) ? { reported: true } : {}),
         ...(viewerTenant !== undefined && tenantWritesAs(viewerTenant, authorTenant) ? { mine: true } : {}),
         ...(viewerTenant !== undefined && canDeletePost(d, authorTenant, viewerTenant) ? { canDelete: true } : {}),
       }
@@ -7481,6 +7483,7 @@ export const store = {
       id: `disc-${(discussionSeq += 1)}`,
       anchor: { ref: { kind: req.anchor.ref.kind, id: req.anchor.ref.id }, ...(req.anchor.locus ? { locus: req.anchor.locus } : {}) },
       state: 'open',
+      stateRevision: 0,
       openedBy: tenantName(tenantId),
       openedAt: now,
       openerTenant: tenantId,
@@ -7537,6 +7540,7 @@ export const store = {
       id: `disc-${(discussionSeq += 1)}`,
       anchor: { ref: { kind: 'principal', id: tenantName(tenantId) } },
       state: 'open',
+      stateRevision: 0,
       openedBy: tenantName(tenantId),
       openedAt: now,
       openerTenant: tenantId,
@@ -7694,16 +7698,24 @@ export const store = {
     const parties = new Set([...(owner ? [owner] : []), ...d.posts.map((p) => p.authorTenant)])
     return [...parties].filter((t) => this.discussionReadableBy(d, t))
   },
-  /** Toggle the one thin reaction on a post — any READER may endorse (the
-   *  lightest signal deliberately needs no comment tier). */
-  toggleDiscussionReaction(id: string, postId: string, tenantId: string): Discussion | undefined {
+  /** Set the caller's one thin reaction on a post — any READER may endorse.
+   *  Omission retains the legacy toggle; explicit first-party state makes a
+   *  retry idempotent instead of reversing the requested result. */
+  setDiscussionReaction(
+    id: string,
+    postId: string,
+    tenantId: string,
+    reacted?: boolean,
+  ): Discussion | undefined {
     const d = discussions.find((x) => x.id === id)
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     const p = d.posts.find((x) => x.id === postId)
     if (!p) return undefined
     const i = p.reactedBy.indexOf(tenantId)
-    if (i >= 0) p.reactedBy.splice(i, 1)
-    else p.reactedBy.push(tenantId)
+    const desired = reacted ?? i < 0
+    if ((i >= 0) === desired) return publicDiscussion(d, tenantId)
+    if (desired) p.reactedBy.push(tenantId)
+    else p.reactedBy.splice(i, 1)
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)
@@ -7792,21 +7804,27 @@ export const store = {
   },
   /** Report a post (S5): rings the ANCHOR OWNER — the moderator who holds the
    *  delete. Owner moderation first; instance-level escalation is S6. */
-  reportDiscussionPost(did: string, pid: string, tenantId: string): 'ok' | undefined {
+  reportDiscussionPost(did: string, pid: string, tenantId: string): Discussion | undefined {
     const d = discussions.find((x) => x.id === did)
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
-    if (!d.posts.some((x) => x.id === pid)) return undefined
+    const post = d.posts.find((x) => x.id === pid)
+    if (!post) return undefined
     const row = this.grantSubjectRow(d.anchor.ref)
     if (row === undefined || row === 'unsupported') return undefined
+    post.reportedBy ??= []
+    if (post.reportedBy.includes(tenantId)) return publicDiscussion(d, tenantId)
+    post.reportedBy.push(tenantId)
     notifyTenants([row.tenantId ?? defaultTenantId()], tenantId, {
       kind: 'social.reported',
       actor: tenantName(tenantId),
       subjectKind: d.anchor.ref.kind,
       subjectId: d.anchor.ref.id,
       subjectName: this.commonsSubjectFace(d.anchor.ref).name,
+      discussionId: d.id,
+      postId: post.id,
     })
     persist()
-    return 'ok'
+    return publicDiscussion(d, tenantId)
   },
   /** The caller's mute list (S5): actor DISPLAY NAMES filtered from their own
    *  feed and bells — a per-viewer earmuff, never a wall (the muted party's
@@ -7873,13 +7891,24 @@ export const store = {
 
   /** Resolve / reopen — the opener's or the anchor owner's act (the two
    *  parties with standing; a visitor's thread isn't closable by a bystander). */
-  setDiscussionState(id: string, state: 'open' | 'resolved', tenantId: string): Discussion | 'forbidden' | undefined {
+  setDiscussionState(
+    id: string,
+    state: 'open' | 'resolved',
+    tenantId: string,
+    expectedStateRevision?: number,
+  ): Discussion | 'conflict' | 'forbidden' | undefined {
     const d = discussions.find((x) => x.id === id)
     if (!d || !this.discussionReadableBy(d, tenantId)) return undefined
     // The SAME predicate the wire face reports (`canResolve`), so the control
     // the UI shows and the act the server allows are one decision.
     if (!canResolveDiscussion(d, tenantId)) return 'forbidden'
+    // Explicit desired state is its own durable replay proof. A stale command
+    // may converge when somebody already reached that state, but it may not
+    // overwrite an intervening opposite transition (including an ABA cycle).
+    if (d.state === state) return publicDiscussion(d, tenantId)
+    if (expectedStateRevision !== undefined && (d.stateRevision ?? 0) !== expectedStateRevision) return 'conflict'
     d.state = state
+    d.stateRevision = (d.stateRevision ?? 0) + 1
     emit({ type: 'discussion.changed', discussionId: d.id, anchor: d.anchor })
     persist()
     return publicDiscussion(d, tenantId)

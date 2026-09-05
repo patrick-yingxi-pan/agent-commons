@@ -6,6 +6,9 @@ import type {
   DeleteSavedContextRequest,
   DeleteDiscussionPostRequest,
   DeleteDiscussionPostResponse,
+  ReportDiscussionPostResponse,
+  SetDiscussionReactionRequest,
+  SetDiscussionStateRequest,
   Message,
   ReplyStreamEvent,
   CreateCommissionRequest,
@@ -2706,11 +2709,26 @@ export function buildRouter(): Router {
     if (out === 'no-parent') return sendError(res, 'bad_request', 'replyTo must name a post in this discussion')
     sendJson(res, out)
   }))
-  r.post('/discussions/:did/posts/:pid/react', ({ req, res, params }) => {
-    const out = store.toggleDiscussionReaction(params.did, params.pid, store.identity(req.headers).tenant.id)
+  r.post('/discussions/:did/posts/:pid/react', idempotent(async ({ req, res, params, body }) => {
+    const input = await body<SetDiscussionReactionRequest | undefined>()
+    if (input !== undefined && (typeof input !== 'object' || input === null || Array.isArray(input))) {
+      return sendError(res, 'bad_request', 'reaction input must be an object')
+    }
+    if (input !== undefined && Object.keys(input).some((key) => key !== 'reacted')) {
+      return sendError(res, 'bad_request', 'reaction input contains an unknown field')
+    }
+    if (input?.reacted !== undefined && typeof input.reacted !== 'boolean') {
+      return sendError(res, 'bad_request', 'reacted must be a boolean')
+    }
+    const out = store.setDiscussionReaction(
+      params.did,
+      params.pid,
+      store.identity(req.headers).tenant.id,
+      input?.reacted,
+    )
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
     sendJson(res, out)
-  })
+  }))
   // S5 guardrails: author-retract or anchor-owner moderation; report rings the
   // owner; mutes are the caller's own earmuffs (never a wall).
   r.delete('/discussions/:did/posts/:pid', idempotent(async ({ req, res, params, url, body }) => {
@@ -2764,11 +2782,18 @@ export function buildRouter(): Router {
     }
     sendJson(res, { ok: true, discussion: out } satisfies DeleteDiscussionPostResponse)
   }))
-  r.post('/discussions/:did/posts/:pid/report', ({ req, res, params }) => {
+  r.post('/discussions/:did/posts/:pid/report', idempotent(async ({ req, res, params, body }) => {
+    const input = await body<unknown>()
+    if (
+      input !== undefined &&
+      (typeof input !== 'object' || input === null || Array.isArray(input) || Object.keys(input).length > 0)
+    ) {
+      return sendError(res, 'bad_request', 'report input must be an empty object')
+    }
     const out = store.reportDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
-    sendJson(res, { ok: true })
-  })
+    sendJson(res, { ok: true, discussion: out } satisfies ReportDiscussionPostResponse)
+  }))
   // S7 — follow: mute's positive twin, and shaped identically (a name-keyed
   // per-viewer list). Explicit state rather than a toggle, like the Commons
   // like: two clients pressing at once must converge on what was asked for.
@@ -2809,15 +2834,33 @@ export function buildRouter(): Router {
     sendJson(res, store.setMute(input.name.trim(), input.muted, store.identity(req.headers).tenant.id))
   })
 
-  r.post('/discussions/:did/resolve', async ({ req, res, params, body }) => {
-    const input = await body<{ state?: 'open' | 'resolved' }>()
+  r.post('/discussions/:did/resolve', idempotent(async ({ req, res, params, body }) => {
+    const input = await body<SetDiscussionStateRequest | undefined>()
+    if (input !== undefined && (typeof input !== 'object' || input === null || Array.isArray(input))) {
+      return sendError(res, 'bad_request', 'discussion state input must be an object')
+    }
+    if (input !== undefined && Object.keys(input).some((key) => key !== 'state' && key !== 'expectedStateRevision')) {
+      return sendError(res, 'bad_request', 'discussion state input contains an unknown field')
+    }
     const state = input?.state ?? 'resolved'
     if (state !== 'open' && state !== 'resolved') return sendError(res, 'bad_request', 'state must be open or resolved')
-    const out = store.setDiscussionState(params.did, state, store.identity(req.headers).tenant.id)
+    if (
+      input?.expectedStateRevision !== undefined &&
+      (!Number.isInteger(input.expectedStateRevision) || input.expectedStateRevision < 0)
+    ) {
+      return sendError(res, 'bad_request', 'expectedStateRevision must be a non-negative integer')
+    }
+    const out = store.setDiscussionState(
+      params.did,
+      state,
+      store.identity(req.headers).tenant.id,
+      input?.expectedStateRevision,
+    )
     if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the opener or the subject’s owner may resolve a discussion')
+    if (out === 'conflict') return sendError(res, 'conflict', 'This discussion changed. Review it again before changing its state.')
     sendJson(res, out)
-  })
+  }))
 
   // ── The Commons feed (S4) — a projection over the social primitives ─────────
   r.get('/commons', ({ req, res }) => {

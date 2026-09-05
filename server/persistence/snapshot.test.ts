@@ -429,6 +429,19 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.discussions?.some((d) => d.anchor.ref.id === 'p-playground' && d.posts.length >= 1),
     'openDiscussion → discussions (social S2, the root thread persists)',
   )
+  const lifecycleDiscussion = s.discussions?.find((d) => d.anchor.ref.id === 'p-playground')
+  assert.equal(lifecycleDiscussion?.state, 'resolved', 'discussion lifecycle state survives the snapshot')
+  assert.equal(lifecycleDiscussion?.stateRevision, 1, 'its monotonic lifecycle revision survives too')
+  assert.deepEqual(
+    lifecycleDiscussion?.posts[0]?.reactedBy,
+    ['tenant-beta'],
+    'an explicit endorsement persists as private viewer state',
+  )
+  assert.deepEqual(
+    lifecycleDiscussion?.posts[0]?.reportedBy,
+    ['tenant-beta'],
+    'the durable report receipt survives restart so retry cannot ring twice',
+  )
   assert.ok(
     s.socialProposals?.some((p) => p.subject.id === 'p-playground' && p.discussionId),
     'openSocialProposal → socialProposals (S3, with its review thread minted)',

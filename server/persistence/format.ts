@@ -218,9 +218,11 @@ export interface StoredGrant extends Grant {
  *  fields, plus the OPENER's raw tenant id and each post's raw author tenant +
  *  the reacting tenants (a Set serialized as an array). The projection
  *  (`publicDiscussion`) strips all of it: display names + counts only. */
-export interface StoredDiscussionPost extends Omit<DiscussionPost, 'reactions' | 'reacted'> {
+export interface StoredDiscussionPost extends Omit<DiscussionPost, 'reactions' | 'reacted' | 'reported'> {
   authorTenant: string
   reactedBy: string[]
+  /** Private durable report receipt set; absent on legacy rows means none. */
+  reportedBy?: string[]
   /** S7 — a monotonic ordinal within the thread, assigned once at creation and
    *  never reused. It is what a per-viewer READ MARK points at.
    *
@@ -234,8 +236,10 @@ export interface StoredDiscussionPost extends Omit<DiscussionPost, 'reactions' |
    *  a pre-S7 snapshot shows its threads unread rather than silently read. */
   seq?: number
 }
-export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine'> {
+export interface StoredDiscussion extends Omit<Discussion, 'posts' | 'mine' | 'stateRevision'> {
   openerTenant: string
+  /** Optional only on disk: public projection maps legacy absence to 0. */
+  stateRevision?: number
   /** S7 — a PRINCIPAL-anchored thread (a DM) also stores the raw tenant id of
    *  the person it was addressed TO, captured when the thread was opened.
    *

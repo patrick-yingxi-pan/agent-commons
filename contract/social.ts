@@ -226,6 +226,9 @@ export interface DiscussionPost {
    *  whether the CALLER did (viewer-relative, computed at serve time). */
   reactions: number
   reacted?: boolean
+  /** Viewer-relative durable report receipt. Once present, retrying or
+   *  revisiting cannot create another moderation bell for the same post. */
+  reported?: boolean
   /** Viewer-relative: the caller wrote it (their own words, retractable). */
   mine?: boolean
   /** Viewer-relative: may the caller delete it? The AUTHOR retracts their own
@@ -306,6 +309,9 @@ export interface Discussion {
   id: string
   anchor: SocialAnchor
   state: 'open' | 'resolved'
+  /** Monotonic revision of the lifecycle state alone. Legacy rows begin at 0;
+   *  posts and reactions do not create false resolve/reopen conflicts. */
+  stateRevision: number
   /** Display name of the opening namespace (REDACTED face). */
   openedBy: string
   openedAt: number
@@ -372,6 +378,25 @@ export interface PostToDiscussionRequest {
    *  answers is worse than one that fails, because the author cannot see that it
    *  happened (the `throughPostId` precedent). */
   replyTo?: string
+}
+
+/** Explicit desired reaction state. Omission retains the legacy toggle for
+ * non-first-party callers; the UI always sends the boolean so replay cannot
+ * invert intent. */
+export interface SetDiscussionReactionRequest {
+  reacted?: boolean
+}
+
+export interface ReportDiscussionPostResponse {
+  ok: true
+  discussion: Discussion
+}
+
+/** Resolve/reopen one reviewed lifecycle revision. `state` omission retains
+ * the original resolve default; the first-party UI supplies both fields. */
+export interface SetDiscussionStateRequest {
+  state?: 'open' | 'resolved'
+  expectedStateRevision?: number
 }
 
 /** One discussion cannot grow beyond this many persisted posts. The reviewed

@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
@@ -277,7 +277,6 @@ import {
   useGrants,
   reactToDiscussionPost,
   reportDiscussionPost,
-  setDiscussionState,
   markDiscussionRead,
   useDelegations,
   runDelegation,
@@ -563,6 +562,11 @@ import {
   isDiscussionPostDeletionHeld,
   useDiscussionPostDeletionStatus,
 } from '../controller/discussionPostDeletionMutations.ts'
+import {
+  enqueueDiscussionState,
+  isDiscussionStateHeld,
+  useDiscussionStateStatus,
+} from '../controller/discussionStateMutations.ts'
 import {
   isSavedContextConnectionHeld,
   updateSavedContextConnection,
@@ -4106,7 +4110,7 @@ function DiscussionPostList({
    *  symptom would be the cascade-delete checkbox quietly never appearing for
    *  an owner who holds the authority. One source, no pairing to get wrong. */
   fold: ThreadFold
-  onReact: (pid: string) => void
+  onReact: (pid: string, reacted: boolean) => Promise<void>
   /** Absent on a projection that only PREVIEWS a thread (the feed card's tail):
    *  a destructive act belongs where the whole thread is.
    *
@@ -4114,7 +4118,7 @@ function DiscussionPostList({
    *  the list only ever passes it having asked the dialog, and the server
    *  re-checks the delete authority over every post that would go. */
   deletion?: { discussionId: string; anchor: SocialEntityRef }
-  onReport?: (pid: string) => void
+  onReport?: (pid: string) => Promise<void>
   /** Open a person's profile (S8) — the AUTHOR's name and every @-mention in the
    *  body alike, since both name the same kind of thing: a namespace with a page.
    *  REQUIRED, unlike the optional prop it grew from. Optional meant a post list
@@ -4134,7 +4138,10 @@ function DiscussionPostList({
    *  made two call sites re-find it in the thread they'd have to be given. */
   replyComposer?: (parent: DiscussionPost, done: () => void) => ReactNode
 }) {
-  const [reported, setReported] = useState<string | null>(null)
+  const [reported, setReported] = useState<ReadonlySet<string>>(() => new Set())
+  const [reporting, setReporting] = useState<ReadonlySet<string>>(() => new Set())
+  const [reacting, setReacting] = useState<ReadonlySet<string>>(() => new Set())
+  const [actionError, setActionError] = useState<string | null>(null)
   // The post whose retraction is waiting on an answer. The POST, not its id:
   // the dialog names the author and quotes the words, and holding the id would
   // make it re-find in the thread what the click was already holding.
@@ -4169,6 +4176,44 @@ function DiscussionPostList({
   // not one.
   useEffect(() => () => setReplyingTo(null), [setReplyingTo])
 
+  const setPending = (
+    setter: Dispatch<SetStateAction<ReadonlySet<string>>>,
+    postId: string,
+    pending: boolean,
+  ): void => setter((current) => {
+    const next = new Set(current)
+    if (pending) next.add(postId)
+    else next.delete(postId)
+    return next
+  })
+
+  const react = async (post: DiscussionPost): Promise<void> => {
+    if (held || reacting.has(post.id)) return
+    setActionError(null)
+    setPending(setReacting, post.id, true)
+    try {
+      await onReact(post.id, post.reacted !== true)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not update that endorsement. Try again.')
+    } finally {
+      setPending(setReacting, post.id, false)
+    }
+  }
+
+  const report = async (postId: string): Promise<void> => {
+    if (!onReport || held || reporting.has(postId)) return
+    setActionError(null)
+    setPending(setReporting, postId, true)
+    try {
+      await onReport(postId)
+      setReported((current) => new Set(current).add(postId))
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Could not report that post. Try again.')
+    } finally {
+      setPending(setReporting, postId, false)
+    }
+  }
+
   const row = (p: DiscussionPost, depth: number) => {
     const answers = childrenOf.get(p.id) ?? []
     const hidden = folded.has(p.id)
@@ -4186,6 +4231,8 @@ function DiscussionPostList({
         ? 'failed'
         : 'pending'
       : undefined
+    const isReported = p.reported === true || reported.has(p.id)
+    const isReporting = reporting.has(p.id)
     /** ── Unfold all, here ───────────────────────────────────────────────────
      *  The one fold control that is NOT a toggle, and the reason it exists is
      *  the reason the toggle cannot serve it (owner directive 2026-08-11):
@@ -4436,8 +4483,9 @@ function DiscussionPostList({
                       hover-revealed ones too. */}
                   <Tooltip label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}>
                     <button
-                      onClick={() => onReact(p.id)}
-                      disabled={held}
+                      onClick={() => void react(p)}
+                      disabled={held || reacting.has(p.id)}
+                      aria-busy={reacting.has(p.id) || undefined}
                       aria-pressed={p.reacted === true}
                       aria-label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}
                       className={`${POST_ACT_CLASS} gap-1 text-[11px] ${
@@ -4446,7 +4494,7 @@ function DiscussionPostList({
                           : `text-ink-faint hover:bg-panel-2 hover:text-ink ${p.reactions === 0 ? HOVER_REVEAL : ''}`
                       }`}
                     >
-                      <ThumbsUp size={12} />
+                      {reacting.has(p.id) ? <Spinner size={12} /> : <ThumbsUp size={12} />}
                       {p.reactions > 0 && <span className="tabular-nums">{p.reactions}</span>}
                     </button>
                   </Tooltip>
@@ -4527,19 +4575,17 @@ function DiscussionPostList({
                     </Tooltip>
                   )}
                   {onReport && p.canDelete !== true && (
-                    <Tooltip label={reported === p.id ? 'Reported' : 'Report this post to the owner of this surface'}>
+                    <Tooltip label={isReported ? 'Reported' : 'Report this post to the owner of this surface'}>
                       <button
-                        onClick={() => {
-                          setReported(p.id)
-                          onReport(p.id)
-                        }}
-                        disabled={held || reported === p.id}
-                        aria-label="Report this post to the owner of this surface"
+                        onClick={() => void report(p.id)}
+                        disabled={held || isReported || isReporting}
+                        aria-busy={isReporting || undefined}
+                        aria-label={isReported ? 'Reported' : 'Report this post to the owner of this surface'}
                         className={`${POST_ACT_CLASS} ml-3 text-[11px] text-ink-faint hover:bg-panel-2 hover:text-ink ${
-                          reported === p.id ? '' : HOVER_REVEAL
+                          isReported || isReporting ? '' : HOVER_REVEAL
                         }`}
                       >
-                        <Flag size={12} />
+                        {isReporting ? <Spinner size={12} /> : <Flag size={12} />}
                       </button>
                     </Tooltip>
                   )}
@@ -4583,6 +4629,7 @@ function DiscussionPostList({
           where the thread's own verbs live is a question about the surface
           around it, and only the surface can answer it. */}
       <ul className="space-y-3">{roots.map((p) => row(p, 0))}</ul>
+      {actionError && <p role="alert" className="mt-2 text-[12px] text-danger">{actionError}</p>}
       {deleteError && <p role="alert" className="mt-2 text-[12px] text-danger">{deleteError}</p>}
       {/* The question the trash can now asks. Its BODY is the part that earns
           the interruption: a dialog that only says "Are you sure?" moves the
@@ -4695,17 +4742,18 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
   const [composing, setComposing] = useState(false)
   const [postingHeld, setPostingHeld] = useState(false)
   useDiscussionPostDeletionStatus()
+  useDiscussionStateStatus()
   const deletionHeld = root ? isDiscussionPostDeletionHeld(root.id) : false
-  const threadHeld = postingHeld || deletionHeld
+  const stateHeld = root ? isDiscussionStateHeld(root.id) : false
+  const threadHeld = postingHeld || deletionHeld || stateHeld
   // The thread's fold posture, held HERE so its two acts can render in the
   // section header's cluster with the section's other verbs (owner directive
   // 2026-08-13) rather than as a floating row above the roots.
   const fold = useThreadFold(root?.posts ?? NO_POSTS, threadHeld)
-  const react = (pid: string) => {
-    if (root) void reactToDiscussionPost(root.id, pid, subject)
-  }
+  const react = (pid: string, reacted: boolean): Promise<void> =>
+    root ? reactToDiscussionPost(root.id, pid, subject, reacted) : Promise.resolve()
   const flip = () => {
-    if (root) void setDiscussionState(root.id, root.state === 'open' ? 'resolved' : 'open', subject)
+    if (root) void enqueueDiscussionState(root, root.state === 'open' ? 'resolved' : 'open')
   }
   const composeVerb = canComment ? (
     <SectionAction
@@ -4766,7 +4814,7 @@ function DiscussionsPanel({ subject, own }: { subject: SocialEntityRef; own: boo
             fold={fold}
             onReact={react}
             deletion={{ discussionId: root.id, anchor: subject }}
-            onReport={(pid) => void reportDiscussionPost(root.id, pid)}
+            onReport={(pid) => reportDiscussionPost(root.id, pid)}
             onOpenPerson={(n) => rel.openOwner(n)}
             replyComposer={
               canComment ?
@@ -4885,7 +4933,8 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
   // DiscussionPage host already owns the deletion-status subscription. Feed
   // previews stay out of the global mutation fan-out entirely.
   const deletionHeld = standalone && root ? isDiscussionPostDeletionHeld(root.id) : false
-  const threadHeld = postingHeld || deletionHeld
+  const stateHeld = standalone && root ? isDiscussionStateHeld(root.id) : false
+  const threadHeld = postingHeld || deletionHeld || stateHeld
   const fold = useThreadFold(shown, threadHeld)
   // The conversation is DISCLOSED, and Reply is what discloses it (owner
   // directive 2026-08-08). It used to be a door to `/discussions/:id` — but that
@@ -4909,9 +4958,8 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
   // Same live source the composer gates itself on, so the toggle can't offer a
   // conversation that is empty AND unanswerable — a control that does nothing.
   const canComment = useCanComment(item.subject, root)
-  const react = (pid: string) => {
-    if (root) void reactToDiscussionPost(root.id, pid, item.subject)
-  }
+  const react = (pid: string, reacted: boolean): Promise<void> =>
+    root ? reactToDiscussionPost(root.id, pid, item.subject, reacted) : Promise.resolve()
   const target: SectionId | null = sectionForSocialKind(kind)
   return (
     // An <article>, because that is what it is: a self-contained composition in
@@ -5058,7 +5106,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
               // it rendered its own list — the cost of unifying two projections
               // is that the survivor must keep what both of them could do.)
               deletion={standalone && root ? { discussionId: root.id, anchor: item.subject } : undefined}
-              onReport={standalone && root ? (pid) => void reportDiscussionPost(root.id, pid) : undefined}
+              onReport={standalone && root ? (pid) => reportDiscussionPost(root.id, pid) : undefined}
               onOpenPerson={(n) => rel.openOwner(n)}
             />
             </>
@@ -5515,8 +5563,10 @@ function DiscussionPage({
   // above are: hook order must not depend on whether the thread resolved.
   const [postingHeld, setPostingHeld] = useState(false)
   useDiscussionPostDeletionStatus()
+  useDiscussionStateStatus()
   const deletionHeld = d ? isDiscussionPostDeletionHeld(d.id) : false
-  const threadHeld = postingHeld || deletionHeld
+  const stateHeld = d ? isDiscussionStateHeld(d.id) : false
+  const threadHeld = postingHeld || deletionHeld || stateHeld
   const fold = useThreadFold(d?.posts ?? NO_POSTS, threadHeld)
   // Opening a message marks it read — that is what "opened" means for an inbox,
   // and leaving the dot lit on a thread the reader is looking at would be a
@@ -5633,8 +5683,9 @@ function DiscussionPage({
               owner, so gating on `mine` denied the owner a control they hold. */}
           {d.canResolve === true && (
             <button
-              onClick={() => void setDiscussionState(d.id, d.state === 'open' ? 'resolved' : 'open', d.anchor.ref)}
+              onClick={() => void enqueueDiscussionState(d, d.state === 'open' ? 'resolved' : 'open')}
               disabled={threadHeld}
+              aria-busy={stateHeld || undefined}
               className={INLINE_ACTION_CLASS}
             >
               {d.state === 'open' ? 'Resolve' : 'Reopen'}
@@ -5659,9 +5710,9 @@ function DiscussionPage({
         <ThreadFoldControls fold={fold} />
         <DiscussionPostList
           fold={fold}
-          onReact={(pid) => void reactToDiscussionPost(d.id, pid, d.anchor.ref)}
+          onReact={(pid, reacted) => reactToDiscussionPost(d.id, pid, d.anchor.ref, reacted)}
           deletion={{ discussionId: d.id, anchor: d.anchor.ref }}
-          onReport={(pid) => void reportDiscussionPost(d.id, pid)}
+          onReport={(pid) => reportDiscussionPost(d.id, pid)}
           onOpenPerson={(n) => rel.openOwner(n)}
           replyComposer={
             canComment ?

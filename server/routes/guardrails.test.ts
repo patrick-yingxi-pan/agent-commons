@@ -49,14 +49,107 @@ test('moderation: author-retract and owner-delete work; a bystander 404s; the la
   assert.equal(gone.status, 404)
 })
 
-test('report rings the anchor owner — the moderator who holds the delete', async () => {
+test('report is durable and retry-safe, rings one exact moderation door, and retracts with the post', async () => {
   const { projectId, d } = await arena()
-  const res = await call('POST', `/discussions/${d.id}/posts/${d.posts[0].id}/report`, undefined, { 'x-tenant-id': AUDIENCE })
-  assert.equal(res.status, 200)
-  assert.ok(
-    store.listNotifications(OWNER).some((x) => x.kind === 'social.reported' && x.subjectId === projectId),
-    'the owner’s bell carries the report',
+  const pid = d.posts[0].id
+  const report = () => call(
+    'POST',
+    `/discussions/${d.id}/posts/${pid}/report`,
+    undefined,
+    { 'x-tenant-id': AUDIENCE },
   )
+  assert.equal((await call(
+    'POST',
+    `/discussions/${d.id}/posts/${pid}/report`,
+    { surprise: true },
+    { 'x-tenant-id': AUDIENCE },
+  )).status, 400)
+  const first = await report()
+  assert.equal(first.status, 200)
+  assert.equal(first.json.ok, true)
+  assert.equal(first.json.discussion.posts[0].reported, true, 'the reporter receives durable acknowledgement')
+  const second = await report()
+  assert.equal(second.status, 200)
+  assert.equal(second.json.discussion.posts[0].reported, true, 'retry converges on the same receipt')
+
+  const reports = store.listNotifications(OWNER).filter(
+    (x) => x.kind === 'social.reported' && x.subjectId === projectId && x.discussionId === d.id,
+  )
+  assert.equal(reports.length, 1, 'one caller cannot duplicate the owner’s moderation bell')
+
+  const anotherViewer = await call('GET', `/discussions/${d.id}`, undefined, { 'x-tenant-id': OWNER })
+  assert.notEqual(anotherViewer.json.posts[0].reported, true, 'the report receipt remains viewer-relative')
+
+  await call('DELETE', `/discussions/${d.id}/posts/${pid}`, undefined, { 'x-tenant-id': OWNER })
+  assert.equal(
+    store.listNotifications(OWNER).filter((x) => x.kind === 'social.reported' && x.discussionId === d.id).length,
+    0,
+    'removing the reported post retracts its now-stale moderation door',
+  )
+})
+
+test('explicit endorsement state converges under retry while bodyless legacy calls still toggle', async () => {
+  const { d } = await arena()
+  const pid = d.posts[0].id
+  const url = `/discussions/${d.id}/posts/${pid}/react`
+  const headers = { 'x-tenant-id': OWNER }
+
+  for (const suffix of ['first', 'retry']) {
+    const response = await call('POST', url, { reacted: true }, {
+      ...headers,
+      'idempotency-key': `discussion-react-on-${d.id}-${suffix}`,
+    })
+    assert.equal(response.status, 200)
+    assert.equal(response.json.posts[0].reacted, true)
+    assert.equal(response.json.posts[0].reactions, 1)
+  }
+  for (const suffix of ['first', 'retry']) {
+    const response = await call('POST', url, { reacted: false }, {
+      ...headers,
+      'idempotency-key': `discussion-react-off-${d.id}-${suffix}`,
+    })
+    assert.equal(response.status, 200)
+    assert.notEqual(response.json.posts[0].reacted, true)
+    assert.equal(response.json.posts[0].reactions, 0)
+  }
+
+  assert.equal((await call('POST', url, undefined, headers)).json.posts[0].reactions, 1)
+  assert.equal((await call('POST', url, undefined, headers)).json.posts[0].reactions, 0)
+  assert.equal((await call('POST', url, { reacted: 'yes' }, headers)).status, 400)
+  assert.equal((await call('POST', url, { reacted: true, surprise: true }, headers)).status, 400)
+})
+
+test('resolve and reopen pin lifecycle revision, converge on desired state, and reject stale ABA writes', async () => {
+  const { d } = await arena()
+  const url = `/discussions/${d.id}/resolve`
+  const headers = { 'x-tenant-id': OWNER }
+  assert.equal(d.state, 'open')
+  assert.equal(d.stateRevision, 0)
+
+  const resolved = await call('POST', url, { state: 'resolved', expectedStateRevision: 0 }, headers)
+  assert.equal(resolved.status, 200)
+  assert.equal(resolved.json.state, 'resolved')
+  assert.equal(resolved.json.stateRevision, 1)
+  const converged = await call('POST', url, { state: 'resolved', expectedStateRevision: 0 }, headers)
+  assert.equal(converged.status, 200, 'a stale replay that already reached its desired state is safe')
+  assert.equal(converged.json.stateRevision, 1)
+
+  const stale = await call('POST', url, { state: 'open', expectedStateRevision: 0 }, headers)
+  assert.equal(stale.status, 409)
+  const unchanged = await call('GET', `/discussions/${d.id}`, undefined, headers)
+  assert.equal(unchanged.json.state, 'resolved')
+  assert.equal(unchanged.json.stateRevision, 1)
+
+  const reopened = await call('POST', url, { state: 'open', expectedStateRevision: 1 }, headers)
+  assert.equal(reopened.status, 200)
+  assert.equal(reopened.json.stateRevision, 2)
+  assert.equal((await call('POST', url, { state: 'resolved', expectedStateRevision: -1 }, headers)).status, 400)
+  assert.equal((await call('POST', url, { state: 'resolved', surprise: true }, headers)).status, 400)
+
+  const legacy = await arena()
+  const legacyResolved = await call('POST', `/discussions/${legacy.d.id}/resolve`, undefined, headers)
+  assert.equal(legacyResolved.status, 200)
+  assert.equal(legacyResolved.json.state, 'resolved', 'bodyless callers retain the original resolve default')
 })
 
 test('mute is an earmuff: the viewer’s feed and bell drop the actor; the muted party’s access is untouched', async () => {

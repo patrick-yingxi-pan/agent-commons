@@ -142,6 +142,17 @@ test('social.discussed lands on the THREAD, not its subject — the post is on t
   assert.equal(degraded.section, 'discussions')
 })
 
+test('social.reported lands on the exact moderated thread and preserves the legacy subject fallback', () => {
+  assert.deepEqual(doorFor(sample('social.reported')), {
+    kind: 'discussion',
+    discussionId: 'disc-1',
+  })
+  assert.deepEqual(
+    doorFor({ ...sample('social.reported'), discussionId: undefined }),
+    { kind: 'project', projectId: 'p1' },
+  )
+})
+
 /** ── A bell is an interruption, so Back is the way home ──────────────────────
  *  Owner directive, 2026-08-08: *"the back button should honestly link to
  *  previous page in history. In the case the page is opened from notifications,

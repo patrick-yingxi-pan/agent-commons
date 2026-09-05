@@ -53,7 +53,7 @@ export type NavIntent =
   // threads collapse — carried no value on this path.
   | { kind: 'proposal'; agentId: string; proposalId: string }
   | { kind: 'agent'; agentId: string }
-  /** A discussion's own page (`social.discussed`) — the thread IS the target,
+  /** A discussion's own page (`social.discussed` / `social.reported`) — the thread IS the target,
    *  so this door needs no in-page focus: the post is on the page it opens. */
   | { kind: 'discussion'; discussionId: string }
   /** A workspace's public profile (`social.followed`, S7) — a follow is an act
@@ -117,6 +117,18 @@ export function doorFor(n: AppNotification): NavIntent {
     case 'social.replied':
       if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
       return { kind: 'section', section: 'commons' }
+    // A report reaches the moderator at the exact thread containing the post;
+    // legacy rows without that public id retain the old subject door.
+    case 'social.reported':
+      if (n.discussionId) return { kind: 'discussion', discussionId: n.discussionId }
+      if (n.subjectKind === 'project' && n.subjectId) return { kind: 'project', projectId: n.subjectId }
+      return {
+        kind: 'section',
+        section: n.subjectKind === 'schedule' ? 'scheduled'
+          : n.subjectKind === 'context' ? 'contexts'
+          : n.subjectKind === 'discussion' ? 'discussions'
+          : 'commons',
+      }
     // A new follower → their profile, the only page the act is ABOUT. (`actor`
     // is the public display name, which is exactly the profile handle.)
     case 'social.followed':
@@ -128,8 +140,7 @@ export function doorFor(n: AppNotification): NavIntent {
     case 'social.shared':
     case 'social.offered':
     case 'social.landed':
-    case 'social.declined':
-    case 'social.reported': {
+    case 'social.declined': {
       if (n.subjectKind === 'project' && n.subjectId) return { kind: 'project', projectId: n.subjectId }
       const section: SectionId =
         n.subjectKind === 'schedule' ? 'scheduled'

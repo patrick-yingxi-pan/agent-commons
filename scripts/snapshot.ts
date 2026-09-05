@@ -494,10 +494,18 @@ export async function buildComprehensive(): Promise<PersistedState> {
   )
   // ── Social S2 discussions ── exercise the persisted slice through the real
   // mutator: the default tenant opens the playground project's root thread.
-  store.openDiscussion(
+  const snapshotDiscussion = store.openDiscussion(
     { anchor: { ref: { kind: 'project', id: 'p-playground' } }, firstPost: 'Playground root thread — exercised for the snapshot.' },
     store.defaultTenantId(),
   )
+  if (snapshotDiscussion && snapshotDiscussion !== 'forbidden' && snapshotDiscussion !== 'capped') {
+    const postId = snapshotDiscussion.posts[0]?.id
+    if (postId) {
+      store.setDiscussionReaction(snapshotDiscussion.id, postId, 'tenant-beta', true)
+      store.reportDiscussionPost(snapshotDiscussion.id, postId, 'tenant-beta')
+    }
+    store.setDiscussionState(snapshotDiscussion.id, 'resolved', store.defaultTenantId(), 0)
+  }
   // ── Social S3 proposals ── exercise the persisted slice through the real
   // mutator: a suggestion offered on the playground project (its review thread
   // exercises the discussions slice's proposal anchor too).

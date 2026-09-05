@@ -34,6 +34,8 @@ import {
   type OpenSubGoal,
   type Contribution,
   type Discussion,
+  type ReportDiscussionPostResponse,
+  type SetDiscussionReactionRequest,
   type SetFollowRequest,
   type MarkDiscussionReadRequest,
   type SocialProposal,
@@ -799,26 +801,72 @@ export async function markDiscussionRead(did: string): Promise<void> {
   invalidate(keys.discussion(did))
 }
 
-/** Toggle the one thin reaction on a post — any reader may endorse. */
-export async function reactToDiscussionPost(did: string, pid: string, anchorRef: { kind: string; id: string }): Promise<Discussion> {
-  const d = await apiPost<Discussion>(paths.discussionReact(did, pid), {})
+/** Set the caller's one thin reaction explicitly. A retry sends the same desired
+ * state instead of toggling it back off. */
+export async function reactToDiscussionPost(
+  did: string,
+  pid: string,
+  anchorRef: { kind: string; id: string },
+  reacted: boolean,
+): Promise<void> {
+  const d = await apiPost<Discussion>(
+    paths.discussionReact(did, pid),
+    { reacted } satisfies SetDiscussionReactionRequest,
+    { idempotencyKey: crypto.randomUUID() },
+  )
+  const acknowledged = d.posts.find((post) => post.id === pid)
+  if (
+    d.id !== did ||
+    d.anchor.ref.kind !== anchorRef.kind ||
+    d.anchor.ref.id !== anchorRef.id ||
+    !acknowledged ||
+    (acknowledged.reacted === true) !== reacted
+  ) {
+    throw new Error('The endorsement acknowledgement did not match this post.')
+  }
+  mutate<Discussion>(keys.discussion(did), (current) => {
+    if (!current) return d
+    return {
+      ...current,
+      posts: current.posts.map((post) => {
+        if (post.id !== pid) return post
+        const { reacted: _reacted, ...rest } = post
+        return {
+          ...rest,
+          reactions: acknowledged.reactions,
+          ...(acknowledged.reacted ? { reacted: true } : {}),
+        }
+      }),
+    }
+  })
   invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
   invalidate(keys.discussion(did))
-  return d
 }
 
 /** Report a post to whoever holds the delete — the anchor's owner (S5: owner
  *  moderation first; instance-level escalation is S6). Rings their bell. */
 export async function reportDiscussionPost(did: string, pid: string): Promise<void> {
-  await apiPost(paths.discussionPostReport(did, pid), {})
-}
-
-/** Resolve / reopen a discussion — the opener's or the anchor owner's act. */
-export async function setDiscussionState(did: string, state: 'open' | 'resolved', anchorRef: { kind: string; id: string }): Promise<Discussion> {
-  const d = await apiPost<Discussion>(paths.discussionResolve(did), { state })
-  invalidate(keys.discussions(anchorRef.kind, anchorRef.id))
+  const response = await apiPost<ReportDiscussionPostResponse>(
+    paths.discussionPostReport(did, pid),
+    {},
+    { idempotencyKey: crypto.randomUUID() },
+  )
+  const acknowledged = response.discussion.posts.find((post) => post.id === pid)
+  if (response.ok !== true || response.discussion.id !== did || acknowledged?.reported !== true) {
+    throw new Error('The report acknowledgement did not match this discussion.')
+  }
+  mutate<Discussion>(keys.discussion(did), (current) => {
+    if (!current) return response.discussion
+    return {
+      ...current,
+      posts: current.posts.map((post) => post.id === pid ? { ...post, reported: true } : post),
+    }
+  })
+  invalidate(keys.discussions(response.discussion.anchor.ref.kind, response.discussion.anchor.ref.id))
+  invalidate(keys.myDiscussions)
+  invalidate(keys.directMessages)
+  invalidate(keys.commons)
   invalidate(keys.discussion(did))
-  return d
 }
 
 /** Publish one acknowledged proposal verdict into the addressed list without
