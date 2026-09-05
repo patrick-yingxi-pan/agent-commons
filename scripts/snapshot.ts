@@ -349,6 +349,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
       'p-insights', landedContribution.id,
       { entries: [{ kind: 'note', target: 'digest template', before: 'Weekly numbers below.', after: 'Lead with the metric, then the mechanism.' }] },
       store.defaultTenantId(), builder,
+      { logicalId: 'contribution-crystallization-000000000000000000000000' },
     )
     // Phase E: run the mock adversarial review too, so the persisted
     // reviewedVersion + review-passed event round-trip.

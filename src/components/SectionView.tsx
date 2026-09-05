@@ -288,7 +288,6 @@ import {
   noteContribution,
   proposeEnvelope,
   approveEnvelope,
-  crystallizeContribution,
   reviewContribution,
   requireContributionReview,
   useDelegations,
@@ -447,6 +446,12 @@ import {
   isContributionEffectExecutionHeld,
   useContributionEffectExecutionStatus,
 } from '../controller/contributionEffectExecutionMutations.ts'
+import {
+  enqueueContributionCrystallization,
+  heldContributionCrystallizationIntent,
+  isContributionCrystallizationHeld,
+  useContributionCrystallizationStatus,
+} from '../controller/contributionCrystallizationMutations.ts'
 import {
   enqueueOpenWorkCreation,
   heldOpenWorkIntent,
@@ -6232,6 +6237,7 @@ function ContributionPage({
   const me = useMe().data
   useContributionLandingStatus()
   useContributionEffectExecutionStatus()
+  useContributionCrystallizationStatus()
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6242,7 +6248,8 @@ function ContributionPage({
   const [error, setError] = useState<string | null>(null)
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
-  const lifecycleHeld = landingHeld || effectExecutionHeld
+  const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
+  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld
 
   if (!c) {
     return (
@@ -6855,6 +6862,7 @@ function DelegationPanel({ project }: { project: Project }) {
  *  version — revision is a new version, never an edit (no force-push). */
 function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Contribution; lifecycleHeld: boolean }) {
   const mayAct = c.mine === true || project.own !== false
+  const me = useMe().data
   const versions = c.changeset ?? []
   const latest = versions.at(-1)
   const [composing, setComposing] = useState(false)
@@ -6863,8 +6871,8 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
   const [before, setBefore] = useState('')
   const [after, setAfter] = useState('')
   const [pending, setPending] = useState<{ kind: ChangeEntryKind; target: string; before?: string; after: string }[]>([])
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const heldCrystallization = heldContributionCrystallizationIntent(project.id, c.id)
   if (!latest && (c.status !== 'open' || !mayAct)) return null
 
   const addEntry = () => {
@@ -6883,25 +6891,34 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
       : []
   const crystallize = async () => {
     const entries = [...pending, ...draftEntry()]
-    if (busy || lifecycleHeld || entries.length === 0) return
-    setBusy(true)
+    if (lifecycleHeld || entries.length === 0 || !me) return
     setError(null)
     try {
-      await crystallizeContribution(project.id, c.id, { entries })
-      setPending([])
-      setTarget('')
-      setBefore('')
-      setAfter('')
-      setComposing(false)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not crystallize this version.')
-    } finally {
-      setBusy(false)
+      const outcome = await enqueueContributionCrystallization({
+        tenantId: me.tenant.id,
+        projectId: project.id,
+        contributionId: c.id,
+        entries,
+      })
+      if (outcome === 'applied') {
+        setPending([])
+        setTarget('')
+        setBefore('')
+        setAfter('')
+        setComposing(false)
+      } else {
+        setError('Crystallization was dismissed. Your draft is still here for review.')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not prepare this crystallization for recovery.')
     }
   }
 
   return (
-    <div className="mt-5 rounded-xl border border-line bg-surface">
+    <div
+      data-contribution-changeset-version={latest?.version ?? 0}
+      className="mt-5 rounded-xl border border-line bg-surface"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
           Changeset{latest ? ` · v${latest.version}` : ''}
@@ -6917,7 +6934,7 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
             disabled={lifecycleHeld}
             className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
           >
-            {latest ? 'Revise' : 'Crystallize'}
+            {heldCrystallization ? 'Crystallizing…' : latest ? 'Revise' : 'Crystallize'}
           </button>
         )}
       </div>
@@ -6941,7 +6958,25 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
           {versions.length} versions, append-only — each revision's delta is on the timeline.
         </p>
       )}
-      {composing && (
+      {heldCrystallization ? (
+        <div
+          data-contribution-crystallization-draft
+          aria-busy="true"
+          className="space-y-2 border-t border-line px-3 py-2"
+        >
+          <p className="text-[11px] text-ink-faint">
+            Crystallizing {heldCrystallization.entries.length} exact change{heldCrystallization.entries.length === 1 ? '' : 's'} — order is assigned only after acknowledgement.
+          </p>
+          {heldCrystallization.entries.map((entry, index) => (
+            <div key={`${entry.kind}:${entry.target}:${index}`} className="rounded-lg border border-line bg-panel-2 px-2.5 py-2">
+              <div className="text-[11px] text-ink-faint">
+                <span className="font-medium text-ink-soft">{entry.kind}</span> · {entry.target}
+              </div>
+              <TextDiff current={entry.before} proposed={entry.after} />
+            </div>
+          ))}
+        </div>
+      ) : composing && (
         <div className="space-y-1.5 border-t border-line px-3 py-2">
           {pending.length > 0 && (
             <div className="text-[11px] text-ink-faint">
@@ -6999,7 +7034,7 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
             </button>
             <button
               onClick={() => void crystallize()}
-              disabled={busy || lifecycleHeld || (pending.length === 0 && !(target.trim() && after.trim()))}
+              disabled={lifecycleHeld || !me || (pending.length === 0 && !(target.trim() && after.trim()))}
               className={`${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
             >
               Crystallize v{versions.length + 1}

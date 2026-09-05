@@ -14,6 +14,7 @@ import { call, callFresh } from '../testkit/http.ts'
 import { delegationCreationId } from '../delegationCreationIdentity.ts'
 import { contributionCreationId } from '../contributionCreationIdentity.ts'
 import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
+import { contributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { SELF_PROJECT_HOLDER } from '../../contract/index.ts'
 
 const A = 'tenant-contrib-A' // project owner
@@ -564,6 +565,7 @@ test('changeset: append-only versions with review deltas; author-only; landed = 
   assert.equal(v1.json.changeset[0].entries[0].before, 'old intro')
   assert.equal(v1.json.changeset[0].entries[1].before, undefined, 'a create has no before (INV-9)')
   assert.equal(v1.json.events.at(-1).kind, 'crystallized')
+  assert.equal(v1.json.events.at(-1).changesetVersion, 1, 'the timeline event structurally names its version')
   assert.match(v1.json.events.at(-1).body, /^v1 · 2 changes$/, 'v1 has no delta — nothing prior')
 
   // v2 APPENDS beside v1 (no force-push) and its event carries the review
@@ -585,6 +587,10 @@ test('changeset: append-only versions with review deltas; author-only; landed = 
     { entries: [{ kind: 'nope', target: 'x', after: 'y' }] },
     { entries: [] },
     { entries: [{ kind: 'note', target: 'dup', after: 'a' }, { kind: 'note', target: 'dup', after: 'b' }] },
+    { entries: [
+      { kind: 'note', target: `${'x'.repeat(2000)}a`, after: 'a' },
+      { kind: 'note', target: `${'x'.repeat(2000)}b`, after: 'b' },
+    ] },
     { entries: Array.from({ length: 21 }, (_, i) => ({ kind: 'note', target: `t${i}`, after: 'x' })) },
   ]) {
     const r = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`, bad, { 'x-tenant-id': B })
@@ -609,6 +615,59 @@ test('changeset: append-only versions with review deltas; author-only; landed = 
   const late = await call('POST', `/projects/${projectId}/contributions/${cid}/changeset`,
     { entries: [{ kind: 'note', target: 'late', after: 'z' }] }, { 'x-tenant-id': B })
   assert.equal(late.status, 409, 'a landed contribution’s changeset is immutable history')
+})
+
+test('a keyed crystallization owns one exact durable version across response-cache loss and later history', async () => {
+  const { projectId, cid } = await arena()
+  const key = `contribution-crystallization-${n}`
+  const headers = { 'x-tenant-id': B, 'idempotency-key': key }
+  const request = { entries: [
+    { kind: 'description' as const, target: 'About', before: 'Old', after: 'New' },
+    { kind: 'file' as const, target: 'src/reliable.ts', after: 'export const reliable = true' },
+  ] }
+  const expectedId = contributionCrystallizationId(B, projectId, cid, key)
+
+  const first = await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/changeset`,
+    request,
+    headers,
+  )
+  assert.equal(first.status, 200)
+  assert.equal(first.json.changeset.length, 1)
+  const receipt = first.json.events.find((event: any) => event.id === expectedId)
+  assert.equal(receipt.kind, 'crystallized')
+  assert.equal(receipt.changesetVersion, 1)
+  assert.equal(receipt.crystallizedByTenant, undefined, 'raw retry authority never crosses the wire')
+
+  await call('POST', `/projects/${projectId}/contributions/${cid}/land`, undefined, { 'x-tenant-id': A })
+  await call(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/comments`,
+    { body: 'Aftermath added after the crystallization acknowledgement was serialized.' },
+    { 'x-tenant-id': A },
+  )
+  const replay = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/changeset`,
+    request,
+    headers,
+  )
+  assert.equal(replay.status, 200, 'durable replay precedes the later landed-state refusal')
+  assert.equal(replay.headers['idempotency-replayed'], undefined)
+  assert.equal(replay.json.status, 'landed')
+  assert.equal(replay.json.changeset.length, 1, 'the append-only version is not duplicated')
+  assert.equal(replay.json.events.filter((event: any) => event.id === expectedId).length, 1)
+  assert.equal(replay.json.events.at(-1).body, 'Aftermath added after the crystallization acknowledgement was serialized.',
+    'durable replay returns current containing history')
+
+  const changed = await callFresh(
+    'POST',
+    `/projects/${projectId}/contributions/${cid}/changeset`,
+    { entries: [{ kind: 'note', target: 'different', after: 'Different retry body' }] },
+    headers,
+  )
+  assert.equal(changed.status, 400, 'one logical key cannot be redirected to another changeset payload')
 })
 
 test('tiers (CW5): the arithmetic is legible; the floor is un-buyable; tighten-only; stale review never covers', async () => {

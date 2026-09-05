@@ -141,6 +141,7 @@ import { isWorkItemCommentCreationId } from '../workItemCommentCreationIdentity.
 import { isWorkItemRetractionId } from '../workItemRetractionIdentity.ts'
 import { isContributionLandingId } from '../contributionLandingIdentity.ts'
 import { isContributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
+import { isContributionCrystallizationId } from '../contributionCrystallizationIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
@@ -416,8 +417,56 @@ const MAX_CHANGESET_VERSIONS = 20
 // contribution cap closes (review finding, Phase C pass).
 const MAX_CONTRIBUTION_EVENTS = 300
 
+type NormalizedCrystallizationEntry = Omit<import('../../contract/index.ts').ChangeEntry, 'id'>
+
+/** One normalization funnel feeds first application and durable replay
+ * comparison. Duplicate detection happens after truncation so two overlong
+ * targets cannot collapse into the same stored (kind,target) coordinate. */
+function normalizedCrystallizationEntries(
+  req: import('../../contract/index.ts').CrystallizeRequest,
+): NormalizedCrystallizationEntry[] | undefined {
+  const entries = req.entries
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > MAX_CHANGESET_ENTRIES) return undefined
+  const normalized: NormalizedCrystallizationEntry[] = []
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    if (
+      !CHANGE_ENTRY_KINDS.includes(entry.kind) ||
+      typeof entry.target !== 'string' || !entry.target.trim() ||
+      typeof entry.after !== 'string' ||
+      (entry.before !== undefined && typeof entry.before !== 'string')
+    ) return undefined
+    const next: NormalizedCrystallizationEntry = {
+      kind: entry.kind,
+      target: entry.target.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+      ...(entry.before !== undefined ? { before: entry.before.slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
+      after: entry.after.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+    }
+    const key = `${next.kind}:${next.target}`
+    if (seen.has(key)) return undefined
+    seen.add(key)
+    normalized.push(next)
+  }
+  return normalized
+}
+
+function crystallizationMatchesVersion(
+  entries: NormalizedCrystallizationEntry[],
+  version: import('../../contract/index.ts').ChangesetVersion,
+): boolean {
+  if (entries.length !== version.entries.length) return false
+  return entries.every((entry, index) => {
+    const stored = version.entries[index]
+    return stored !== undefined &&
+      entry.kind === stored.kind &&
+      entry.target === stored.target &&
+      entry.before === stored.before &&
+      entry.after === stored.after
+  })
+}
+
 function publicContributionEvent(ev: StoredContributionEvent): import('../../contract/index.ts').ContributionEvent {
-  const { principal, effectByTenant, effectResult, ...pub } = ev
+  const { principal, effectByTenant, effectResult, crystallizedByTenant, ...pub } = ev
   return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
 }
 /** The Project delegation rosters (CW8, Phase F) — judgment handed to a worker
@@ -8368,37 +8417,67 @@ export const store = {
   },
 
   // ── The changeset (CW3/CW4, Phase D) — crystallization without amnesia ──────
+  /** Current containing ledger row for one durable crystallization receipt.
+   * The exact normalized payload must still match, so reusing a key cannot
+   * redirect an already-acknowledged append to different changes. */
+  getContributionCrystallization(
+    id: string,
+    projectId: string,
+    contributionId: string,
+    req: import('../../contract/index.ts').CrystallizeRequest,
+    tenantId: string,
+  ): Contribution | 'invalid' | undefined {
+    if (!isContributionCrystallizationId(id)) return 'invalid'
+    const contribution = contributions.find(
+      (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
+    )
+    if (!contribution) return undefined
+    const event = contribution.events.find((candidate) => candidate.id === id)
+    if (!event) {
+      const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
+      return collision ? 'invalid' : undefined
+    }
+    const entries = normalizedCrystallizationEntries(req)
+    if (
+      event.kind !== 'crystallized' ||
+      !Number.isSafeInteger(event.changesetVersion) ||
+      (event.changesetVersion ?? 0) < 1 ||
+      event.crystallizedByTenant !== tenantId ||
+      !entries
+    ) return 'invalid'
+    const version = contribution.changeset?.find((candidate) => candidate.version === event.changesetVersion)
+    if (!version || !crystallizationMatchesVersion(entries, version)) return 'invalid'
+    return publicContribution(contribution, tenantId)
+  },
   /** Crystallize a changeset version: the work's mergeable payload as typed
    *  before→after entries, APPENDED as v(n+1) — never rewriting a prior
    *  version (no force-push; the revision history is the record, and the
    *  event body carries the REVIEW DELTA vs the prior version). Contributor
    *  or owner only (authoring the changeset is the work's own act, unlike the
    *  open deliberation of notes/envelope proposals); open contributions only. */
-  crystallizeContribution(projectId: string, cid: string, req: import('../../contract/index.ts').CrystallizeRequest, tenantId: string, principal: PrincipalRef | undefined): Contribution | 'forbidden' | 'closed' | 'invalid' | 'capped' | undefined {
+  crystallizeContribution(
+    projectId: string,
+    cid: string,
+    req: import('../../contract/index.ts').CrystallizeRequest,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string } = {},
+  ): Contribution | 'forbidden' | 'closed' | 'invalid' | 'capped' | undefined {
+    if (options.logicalId) {
+      const represented = this.getContributionCrystallization(options.logicalId, projectId, cid, req, tenantId)
+      if (typeof represented === 'object') return represented
+      if (represented === 'invalid') {
+        throw new ValidationError('That Contribution crystallization identity is not valid for this account, ledger row, and payload.')
+      }
+    }
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
     const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
     if (!isContributor && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     if (c.status !== 'open') return 'closed'
-    const entries = req.entries
-    if (!Array.isArray(entries) || entries.length === 0 || entries.length > MAX_CHANGESET_ENTRIES) return 'invalid'
-    const seen = new Set<string>()
-    for (const e of entries) {
-      if (
-        !CHANGE_ENTRY_KINDS.includes(e.kind) ||
-        typeof e.target !== 'string' || !e.target.trim() ||
-        typeof e.after !== 'string' ||
-        (e.before !== undefined && typeof e.before !== 'string')
-      ) return 'invalid'
-      // One entry per (kind, target) per version — the mergeable surface has
-      // one state per target, and the review delta is keyed on exactly this
-      // pair (duplicates would collapse in the Map and miscount — review
-      // finding, Phase D pass).
-      const k = `${e.kind}:${e.target.trim()}`
-      if (seen.has(k)) return 'invalid'
-      seen.add(k)
-    }
+    const entries = normalizedCrystallizationEntries(req)
+    if (!entries) return 'invalid'
     const versions = c.changeset ?? []
     if (versions.length >= MAX_CHANGESET_VERSIONS) return 'capped'
     if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'capped'
@@ -8408,12 +8487,9 @@ export const store = {
       version: versions.length + 1,
       at: now,
       by: actor,
-      entries: entries.map((e) => ({
+      entries: entries.map((entry) => ({
         id: `cev-${(contributionSeq += 1)}`,
-        kind: e.kind,
-        target: e.target.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-        ...(e.before !== undefined ? { before: e.before.slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
-        after: e.after.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        ...entry,
       })),
     }
     // The review delta vs the prior version, keyed by (kind, target): what a
@@ -8433,18 +8509,22 @@ export const store = {
       for (const k of prev.keys()) if (!next.has(k)) removed += 1
       delta = ` (vs v${prior.version}: +${added} −${removed} ~${changed})`
     }
-    c.changeset = [...versions, version]
-    c.events.push({
-      id: `cev-${(contributionSeq += 1)}`,
-      kind: 'crystallized',
-      at: now,
-      actor,
-      body: `v${version.version} · ${version.entries.length} change${version.entries.length === 1 ? '' : 's'}${delta}`,
-      ...(principal ? { principal } : {}),
+    return commitMutationBatch(() => {
+      c.changeset = [...versions, version]
+      c.events.push({
+        id: options.logicalId ?? `cev-${(contributionSeq += 1)}`,
+        kind: 'crystallized',
+        at: now,
+        actor,
+        changesetVersion: version.version,
+        body: `v${version.version} · ${version.entries.length} change${version.entries.length === 1 ? '' : 's'}${delta}`,
+        ...(options.logicalId ? { crystallizedByTenant: tenantId } : {}),
+        ...(principal ? { principal } : {}),
+      })
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId)
     })
-    emit({ type: 'contribution.changed', projectId })
-    persist()
-    return publicContribution(c, tenantId)
   },
 
   // ── The effect envelope (CW1, Phase C) — approval before action ─────────────

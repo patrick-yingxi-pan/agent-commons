@@ -165,6 +165,10 @@ export interface ContributionEvent {
    *  for a keyed native attempt, so clients can reconcile repeated acts without
    *  mistaking another line's cardinality movement for their own. */
   lineId?: string
+  /** The exact append-only changeset version created by a `crystallized`
+   *  event. Its event id is the durable receipt for a keyed first-party
+   *  crystallization, so response-loss recovery never guesses from position. */
+  changesetVersion?: number
   /** `note`: the comment body. The envelope/effect kinds: a one-line record
    *  ("v2 · 2 acts", "connector.write → gmail · draft-escrow", the refusal
    *  reason). `opened` / `landed` carry no body — the contribution's own
