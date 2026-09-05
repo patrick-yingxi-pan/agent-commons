@@ -154,6 +154,7 @@ import {
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
 import { CopyButton } from './CopyButton'
+import { RelayBadge, RelaySecretPanel } from './RelaySecretPanel.tsx'
 import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
 import { BackButton, PageBackContext } from './BackButton'
@@ -319,8 +320,11 @@ import {
   isProviderConnectionHeld,
   refreshProviderCatalog,
   replaceProviderConnection,
-  rotateProviderSecret,
 } from '../controller/providerConnection'
+import {
+  enqueueProviderSecretRotation,
+  useProviderSecretRotationStatus,
+} from '../controller/providerSecretRotationMutations.ts'
 import {
   isScheduleMutationHeld,
   toggleScheduleEnabled,
@@ -10500,22 +10504,6 @@ function ProviderRow({ provider, onOpen }: { provider: ModelProvider; onOpen: ()
   )
 }
 
-/** The shared relay badge — a Session provider's transport is *declared, not
- *  discovered* (docs/delegated-cognition-provider.md §4.6), so the same cue rides the
- *  provider page, the create panel, and the secret dialog. Since the v2 framed
- *  mailbox, relayed turns carry the full tool surface: the far session relays tool
- *  calls back unexecuted, and each lands here as the same consent card. */
-function RelayBadge() {
-  return (
-    <span
-      title="Your own AI session answers this provider’s turns over a rendezvous relay. Tool calls are relayed through it unexecuted — each proposal still lands here as a consent card."
-      className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft"
-    >
-      Relay
-    </span>
-  )
-}
-
 function ProviderDetailSections({
   provider,
   onEdit,
@@ -10532,17 +10520,16 @@ function ProviderDetailSections({
   deleting: boolean
 }) {
   const [error, setError] = useState<string | null>(null)
+  const me = useMe().data
   useProviderDefinitionMutationStatus()
   useProviderDeletionStatus()
-  // Rotate mints a fresh rendezvous secret (kill switch) — shown once via the panel.
-  const [rotated, setRotated] = useState<CreatedProvider | null>(null)
+  const rotation = useProviderSecretRotationStatus()
   const [refreshing, setRefreshing] = useState(false)
-  const [rotating, setRotating] = useState(false)
   const [confirmingRemoval, setConfirmingRemoval] = useState(false)
   const isSession = provider.kind === 'session'
   const manageable = provider.tenantId !== undefined
   const mutationHeld = deleting || isProviderDefinitionHeld(provider.id) || isProviderConnectionHeld(provider.id)
-  const controlsHeld = mutationHeld || refreshing || rotating
+  const controlsHeld = mutationHeld || refreshing
   const requestRemoval = () => {
     if (!controlsHeld) setConfirmingRemoval(true)
   }
@@ -10553,17 +10540,20 @@ function ProviderDetailSections({
     setConfirmingRemoval(false)
     void outcome.then(() => onDeleted())
   }
-  const rotate = async () => {
+  const rotate = () => {
     if (controlsHeld) return
     setError(null)
-    setRotating(true)
-    try {
-      setRotated(await rotateProviderSecret(provider.id))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not rotate the secret.')
-    } finally {
-      setRotating(false)
+    if (!me) {
+      setError('Wait for your account to finish loading, then try again.')
+      return
     }
+    const result = enqueueProviderSecretRotation({
+      identityKey: `${me.user.id}:${me.tenant.id}:${me.via ?? 'unsigned'}`,
+      tenantId: me.tenant.id,
+      providerId: provider.id,
+      expectedRevision: provider.connectionRevision ?? 0,
+    })
+    if (!result) setError('Wait for the current provider change to settle before rotating its secret.')
   }
   const refresh = async () => {
     if (controlsHeld) return
@@ -10664,7 +10654,6 @@ function ProviderDetailSections({
         <KeyRound size={12} className="shrink-0 text-ink-faint" />
         <span className="font-mono">rv_live_••••{provider.secretHint ?? '????'}</span>
       </div>
-      {rotated?.secret && <RelaySecretPanel provider={rotated} secret={rotated.secret} onClose={() => setRotated(null)} />}
     </>
   ) : null
 
@@ -10736,9 +10725,9 @@ function ProviderDetailSections({
           actions={
             manageable ? (
               <SectionAction
-                label={rotating ? 'Rotating relay secret' : 'Rotate relay secret'}
+                label={rotation.busy && rotation.activeResourceId === provider.id ? 'Rotating relay secret' : 'Rotate relay secret'}
                 icon={<RefreshCw size={14} />}
-                onClick={() => void rotate()}
+                onClick={rotate}
                 disabled={controlsHeld}
                 disabledReason="Waiting for this Provider change to settle"
               />
@@ -10758,151 +10747,6 @@ function ProviderDetailSections({
         />
       )}
     </>
-  )
-}
-
-/** A copyable one-liner — code scrolls inside its box with the bar itself hidden
- *  (the row stays draggable/scrollable; Copy carries the full text), so stacked
- *  rows don't each grow a grey scrollbar pill. One uniform treatment: the secret
- *  and the two command rows read as one family. */
-function CodeRow({
-  text,
-  ariaLabel,
-  className = '',
-  onCopied,
-}: {
-  text: string
-  ariaLabel: string
-  className?: string
-  /** Told when the user takes this row's text (see CopyButton.onCopied). */
-  onCopied?: () => void
-}) {
-  return (
-    <div className={`flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 ${className}`}>
-      <code className="no-scrollbar min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-[12px] text-ink">
-        {text}
-      </code>
-      <CopyButton text={text} ariaLabel={ariaLabel} onCopied={onCopied} />
-    </div>
-  )
-}
-
-/** The one-time rendezvous-secret reveal (mint and rotate). The secret is a password —
- *  it exists nowhere but this panel (the server keeps only a hash). Not the shared
- *  FormDialog: this is a reveal, not a form (no Cancel — there is nothing to cancel
- *  back to).
- *
- *  ── Rethought around the JOB, not the artifact ──────────────────────────────
- *  The user isn't here to collect a secret; they're here to bring this provider
- *  ONLINE. Three facts shape the panel:
- *
- *  1. **One artifact: the bootstrap prompt** (`bootstrapPrompt`, spec MODEL-22).
- *     The panel used to walk the user through a harness-specific install (a
- *     Claude-CLI recipe per shell dialect) plus a connect sentence — which
- *     silently excluded every non-Claude harness (Codex, Cursor, opencode, ones
- *     we've never heard of). Now the far AGENT onboards itself: the user pastes
- *     ONE prompt into the session that will do the thinking; it fetches the
- *     agent-facing setup guide (`GET /connector/setup`) and installs the
- *     connector its own way — or drives the relay protocol directly over HTTP.
- *     The prompt carries the secret, and it is the single place the credential
- *     is ever displayed (one credential, one artifact to save).
- *  2. **The panel can prove it worked.** It watches the provider's live `online`
- *     flag while open and flips to a Connected state the moment the far session
- *     latches — the natural end of the job.
- *  3. **The close-gate is observed, never attested.** No "I've saved it"
- *     checkbox — the gate opens on either of two OBSERVED facts: the user copied
- *     the bootstrap prompt (they have the credential), or the relay connected
- *     (the credential demonstrably arrived). Copy IS the save. */
-function RelaySecretPanel({ provider, secret, onClose }: { provider: ModelProvider; secret: string; onClose: () => void }) {
-  // Taking the line IS saving it — the copy is the act, observed. The old panel asked
-  // for the copy AND a checkbox attesting to the copy: a ceremonial second click that
-  // proved nothing the first didn't. So the Copy on the connect line satisfies the gate.
-  const [tookLine, setTookLine] = useState(false)
-  const dialogRef = useRef<HTMLDivElement>(null)
-  // Liveness is stamped server-side per read (`relay.online`) with no push channel,
-  // so while this panel is open and still waiting, poll the registry. The poll stops
-  // the moment it connects (and on unmount) — it never runs in the background.
-  const live = useProviders().data?.find((p) => p.id === provider.id)
-  const connected = live?.online === true
-  useEffect(() => {
-    if (connected) return
-    const timer = setInterval(() => invalidate(keys.providers), 2000)
-    return () => clearInterval(timer)
-  }, [connected])
-  // Two proofs, no promises: the relay connecting shows the secret reached its
-  // destination; short of that, copying the connect line shows the user has it.
-  const canClose = connected || tookLine
-  const guardedClose = () => canClose && onClose()
-  useFocusTrap(dialogRef, guardedClose)
-  // The externally dialable relay base: the same-origin `/api/v1` resolved to an
-  // absolute URL (an absolute VITE_API_BASE passes through unchanged), so every
-  // command below is right in every deploy shape, not just default-port dev.
-  const relayUrl = new URL(API_BASE, window.location.origin).href.replace(/\/$/, '')
-  // The human-clickable escape hatches for an agent that can't reach the network
-  // itself: the agent-facing setup guide (the same document the prompt tells the
-  // agent to fetch) and the raw connector download (spec MODEL-14).
-  const setupUrl = `${relayUrl}/connector/setup`
-  const connectorUrl = `${relayUrl}/connector`
-  const prompt = bootstrapPrompt(relayUrl, secret)
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Connect your session">
-      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
-      <div
-        ref={dialogRef}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={`relative flex h-fit w-[520px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
-      >
-        <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
-          <KeyRound size={18} className="text-ink-soft" />
-          <span className="text-[15px] font-semibold text-ink">Connect your session</span>
-          <RelayBadge />
-        </div>
-        <div className="p-5">
-          <p className="text-[15px] font-semibold leading-snug text-ink">Paste into the session that will do the thinking</p>
-          <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">
-            Works in any agent — it fetches the setup guide and installs itself (MCP), or drives the relay protocol
-            directly.
-          </p>
-          {/* Copying this row IS the save — it satisfies the close-gate (see above). */}
-          <CodeRow className="mt-2" text={prompt} ariaLabel="Copy bootstrap prompt" onCopied={() => setTookLine(true)} />
-          <p className="mt-1.5 text-[12px] leading-relaxed text-ink-faint">
-            <span className="font-semibold text-ink">Shown once</span> — this prompt carries your secret. Use a{' '}
-            <span className="font-medium text-ink-soft">dedicated session without dangerous tools</span>: relayed
-            prompts are untrusted text. Installing by hand instead? Open the{' '}
-            <a href={setupUrl} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
-              setup guide
-            </a>{' '}
-            or{' '}
-            <a href={connectorUrl} download="session-relay.mjs" className="font-medium text-accent hover:underline">
-              download the connector
-            </a>
-            .
-          </p>
-          {connected ? (
-            <p className="mt-4 flex items-center gap-2 rounded-lg border border-line bg-added-bg px-3 py-2 text-[12px] font-medium text-added">
-              <CheckCircle2 size={14} className="shrink-0" />
-              Connected — “{provider.label}” is answering.
-            </p>
-          ) : (
-            <p className="mt-4 flex items-center gap-1.5 text-[11px] text-ink-faint">
-              <Spinner size={11} /> Waiting for your session…
-            </p>
-          )}
-        </div>
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-line bg-panel px-5 py-3">
-          {/* The gate names itself only while it's shut — no nagging once it's open. */}
-          <span className="text-[12px] text-ink-faint">{canClose ? '' : 'Copy the prompt to continue.'}</span>
-          <button
-            onClick={onClose}
-            disabled={!canClose}
-            className={`${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
   )
 }
 

@@ -89,6 +89,11 @@ export interface ModelProvider {
   /** Session kind only: the tail of the rendezvous secret for the masked
    *  `rv_live_••••3f9a` fingerprint. Never the secret (one-time-shown at mint/rotate). */
   secretHint?: string
+  /** Session kind only: the durable receipt for the most recent keyed secret
+   * rotation request. `applied` authorizes exact same-key recovery while that
+   * credential is still current; `cancelled` fences a late request without
+   * retaining an unbounded history of opaque operation ids. */
+  secretRotationReceipt?: { id: string; state: 'applied' | 'cancelled' }
   /** Session kind only, computed at read time (never stored): whether a drain loop is
    *  currently bound — a parked poll or an in-flight turn (§7.3). The UI's status dot;
    *  live flips arrive as `relay.connected|disconnected` events. */
@@ -235,9 +240,16 @@ export type CreateProviderRequest = Pick<
 }
 
 /** `POST /providers` (and `/providers/:id/rotate`) response: the registered provider,
- *  plus — for `kind:'session'` only — the **one-time rendezvous secret**. Shown once,
- *  never readable again (only its hash persists server-side); treat it as a password. */
+ *  plus — for `kind:'session'` only — the rendezvous secret. It is returned only by
+ *  the mint ceremony or an exact keyed recovery while the durable current receipt
+ *  still represents it; ordinary reads expose only its hash-derived hint. */
 export type CreatedProvider = ModelProvider & { secret?: string }
+
+/** A keyed Session-secret ceremony freezes the connection revision it reviewed.
+ * Omission retains the legacy unconditional rotation behavior for non-UI callers. */
+export interface RotateProviderSecretRequest {
+  expectedRevision?: number
+}
 
 /** Patch a provider's definition. All optional — only the named fields change.
  *  `isDefault: true` moves the viewer's default flag here (clearing any other entry's);

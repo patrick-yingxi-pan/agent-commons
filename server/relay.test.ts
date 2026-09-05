@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 import { call, callRaw } from './testkit/http.ts'
 import { store } from './store/index.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
-import { deriveRelayCreationSecret, hashRelaySecret, relayReply, RelayRuntime } from './relay.ts'
+import { deriveRelayCreationSecret, deriveRelayRotationSecret, hashRelaySecret, relayReply, RelayRuntime } from './relay.ts'
 
 const PROVIDER_BODY = { label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' }
 const auth = (secret: string) => ({ authorization: `Bearer ${secret}` })
@@ -90,6 +90,14 @@ test('a keyed relay mint derives stable, tenant-separated bearer material', () =
   assert.notEqual(first, deriveRelayCreationSecret('tenant-relay-b', 'logical-create'))
   assert.match(first, /^rv_live_[A-Za-z0-9_-]{43}$/)
   assert.doesNotMatch(first, /tenant-relay|logical-create/)
+})
+
+test('a keyed relay rotation derives stable bearer material separated by tenant and provider', () => {
+  const first = deriveRelayRotationSecret('tenant-relay-a', 'provider-a', 'logical-rotation')
+  assert.equal(first, deriveRelayRotationSecret('tenant-relay-a', 'provider-a', 'logical-rotation'))
+  assert.notEqual(first, deriveRelayRotationSecret('tenant-relay-b', 'provider-a', 'logical-rotation'))
+  assert.notEqual(first, deriveRelayRotationSecret('tenant-relay-a', 'provider-b', 'logical-rotation'))
+  assert.notEqual(first, deriveRelayCreationSecret('tenant-relay-a', 'logical-rotation'))
 })
 
 test('a Session provider registration refuses an endpoint config (nothing to dial)', async () => {

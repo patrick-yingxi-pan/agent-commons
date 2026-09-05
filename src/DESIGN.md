@@ -470,6 +470,13 @@ visible behind it, so neither the draft nor the other device's edit disappears.
 The contract keeps an absent precondition as the explicit v1 legacy
 unconditional-write form; new first-party paths never use that escape hatch.
 
+Credential reveals are the stricter form of the same rule. A Session-secret
+rotation cannot live in provider-page state: its account/provider/revision/key
+coordinates survive navigation and renderer reload, while the bearer stays
+memory-only. The global reveal and provider connection lease remain together
+until Copy/connection plus Done; Cancel request is a server-acknowledged ordering
+write that makes a late rotation powerless, not a local dismissal.
+
 A relation edit enters one account-scoped FIFO with one
 idempotency key for its logical lifetime: a failed head stays visible, later
 intent waits, Retry retransmits the same act, and Dismiss reconciles because a

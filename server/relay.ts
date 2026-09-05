@@ -50,8 +50,8 @@ import { executeToolBatch, toolExecutionLimits, toolLoopLimits } from './toolExe
 /** ── The rendezvous secret ───────────────────────────────────────────────────
  *  High-entropy bearer token, exposed only by its mint/rotate ceremony. Only its
  *  SHA-256 persists (on the server-only `ProviderConfig`) — at once the credential,
- *  durable re-bind identity, and restart-recovery key (§6.1). Unkeyed/rotation
- *  tokens carry 192 random bits; keyed creation uses 256 HMAC bits, so a fast hash
+ *  durable re-bind identity, and restart-recovery key (§6.1). Unkeyed tokens carry
+ *  192 random bits; keyed creation and rotation use 256 HMAC bits, so a fast hash
  *  (not a password KDF) is appropriate for both. */
 const SECRET_PREFIX = 'rv_live_'
 
@@ -65,6 +65,20 @@ export function mintRelaySecret(): string {
  * without ever persisting plaintext. */
 export function deriveRelayCreationSecret(tenantId: string, idempotencyKey: string): string {
   const bytes = deriveServerSecret('provider-relay-creation-v1', `${tenantId}\0${idempotencyKey}`)
+  return `${SECRET_PREFIX}${bytes.toString('base64url')}`
+}
+
+/** Reconstruct the credential for one exact keyed rotation after an acknowledgement
+ * is lost. The provider id separates two relays even when a client repeats a key. */
+export function deriveRelayRotationSecret(
+  tenantId: string,
+  providerId: string,
+  idempotencyKey: string,
+): string {
+  const bytes = deriveServerSecret(
+    'provider-relay-rotation-v1',
+    `${tenantId}\0${providerId}\0${idempotencyKey}`,
+  )
   return `${SECRET_PREFIX}${bytes.toString('base64url')}`
 }
 

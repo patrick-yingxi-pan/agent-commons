@@ -22,7 +22,6 @@ import {
   type ProviderDeletionPrecondition as ProviderDeletePrecondition,
   type UpdateAgentRequest,
   type UpdateCommissionRequest,
-  type CreatedProvider,
   type ModelProvider,
   type ProviderDefinitionMutationPatch,
   type UpdateProviderConnectionRequest,
@@ -497,15 +496,6 @@ export async function deleteCommission(
 }
 
 // ── Model providers (the Agents hub — docs/agent-commons.md, D9) ─────────────
-
-/** Rotate a Session provider's rendezvous secret — the kill switch (the old secret dies
- *  instantly; an in-flight relayed turn falls back). Returns the row + the NEW one-time
- *  secret, shown once like the mint's. */
-export async function rotateProvider(id: string): Promise<CreatedProvider> {
-  const rotated = await apiPost<CreatedProvider>(paths.providerRotate(id), {})
-  invalidate(keys.providers)
-  return rotated
-}
 
 /** Re-fetch a provider's model catalog from its endpoint's own list API (spec
  *  MODEL-16 — the 'listed' source stamp is earned only by this funnel). Rejects

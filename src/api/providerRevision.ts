@@ -20,8 +20,9 @@ export function mergeProviderDefinition(current: ModelProvider, incoming: ModelP
   return next
 }
 
-/** Merge only the endpoint connection/catalog projection. Definition, default
- * selection, identity, and live Session-relay state stay on the cache's row. */
+/** Merge only the ordered connection/catalog projection. Definition, default
+ * selection, identity, and live Session-relay state stay on the cache's row;
+ * Session secret hints and exact rotation receipts advance with this domain. */
 export function mergeProviderConnection(current: ModelProvider, incoming: ModelProvider): ModelProvider {
   if (!shouldAcceptEntityRevision(current.connectionRevision, incoming.connectionRevision)) return current
   const next: ModelProvider = {
@@ -36,5 +37,9 @@ export function mergeProviderConnection(current: ModelProvider, incoming: ModelP
   else next.defaultModelId = incoming.defaultModelId
   if (incoming.execution === undefined) delete next.execution
   else next.execution = incoming.execution
+  if (incoming.secretHint === undefined) delete next.secretHint
+  else next.secretHint = incoming.secretHint
+  if (incoming.secretRotationReceipt === undefined) delete next.secretRotationReceipt
+  else next.secretRotationReceipt = incoming.secretRotationReceipt
   return next
 }

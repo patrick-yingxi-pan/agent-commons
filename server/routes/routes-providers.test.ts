@@ -12,6 +12,7 @@ import { startModelServer } from '../model/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 import { ConflictError } from '../conflict.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
+import { providerSecretRotationId } from '../providerSecretRotationIdentity.ts'
 
 test('POST creates a provider; GET lists it; PATCH edits its fields', async () => {
   const created = await call('POST', '/providers', {
@@ -62,7 +63,7 @@ test('a keyed Session-provider create survives response-cache loss with one row 
   assert.match(created.json.secret, /^rv_live_/)
 
   const cachedReplay = await call('POST', '/providers', body, headers)
-  assert.equal(cachedReplay.headers['idempotency-replayed'], 'true')
+  assert.equal(cachedReplay.headers['idempotency-replayed'], undefined, 'revocable credentials bypass the generic response cache')
   assert.equal(cachedReplay.json.secret, created.json.secret)
 
   // A fresh router has no idempotency response cache, like a restarted process,
@@ -102,7 +103,7 @@ test('a keyed Session-provider create survives response-cache loss with one row 
   // restore its superseded bearer.
   const beforeRotationRevision = store.listProviders(tenantId)
     .find((provider) => provider.id === expectedId)?.connectionRevision ?? 0
-  store.rotateProviderSecret(expectedId, tenantId)
+  store.rotateProviderSecret(expectedId)
   assert.equal(
     store.listProviders(tenantId).find((provider) => provider.id === expectedId)?.connectionRevision,
     beforeRotationRevision + 1,
@@ -111,6 +112,108 @@ test('a keyed Session-provider create survives response-cache loss with one row 
   const afterRotation = await callFresh('POST', '/providers', body, headers)
   assert.equal(afterRotation.status, 409)
   assert.equal(afterRotation.json.secret, undefined)
+})
+
+test('keyed Session-secret rotation replays only its exact current durable receipt', async () => {
+  const tenantId = 'tenant-provider-secret-rotation'
+  const created = await call('POST', '/providers', {
+    label: 'Recoverable rotation',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+    kind: 'session',
+  }, { 'x-tenant-id': tenantId })
+  const providerId = created.json.id as string
+  const expectedRevision = created.json.connectionRevision ?? 0
+  const key = `provider-rotation-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': tenantId, 'idempotency-key': key }
+  const expectedReceipt = providerSecretRotationId(tenantId, providerId, key)
+
+  const rotated = await call('POST', `/providers/${providerId}/rotate`, { expectedRevision }, headers)
+  assert.equal(rotated.status, 200)
+  assert.match(rotated.json.secret, /^rv_live_/)
+  assert.equal(rotated.json.connectionRevision, expectedRevision + 1)
+  assert.deepEqual(rotated.json.secretRotationReceipt, { id: expectedReceipt, state: 'applied' })
+  assert.equal(store.providerAcceptsRelaySecret(providerId, created.json.secret), false)
+  assert.equal(store.providerAcceptsRelaySecret(providerId, rotated.json.secret), true)
+
+  const replay = await call('POST', `/providers/${providerId}/rotate`, { expectedRevision }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.headers['idempotency-replayed'], undefined, 'current credential truth, not a response cache, authorizes recovery')
+  assert.equal(replay.json.secret, rotated.json.secret)
+  assert.equal(replay.json.connectionRevision, expectedRevision + 1)
+
+  const restartedReplay = await callFresh('POST', `/providers/${providerId}/rotate`, { expectedRevision }, headers)
+  assert.equal(restartedReplay.status, 200)
+  assert.equal(restartedReplay.json.secret, rotated.json.secret)
+  assert.equal(restartedReplay.json.connectionRevision, expectedRevision + 1)
+
+  const nextKey = `${key}-next`
+  const next = await call('POST', `/providers/${providerId}/rotate`, {
+    expectedRevision: expectedRevision + 1,
+  }, { 'x-tenant-id': tenantId, 'idempotency-key': nextKey })
+  assert.equal(next.status, 200)
+  assert.equal(next.json.connectionRevision, expectedRevision + 2)
+  assert.notEqual(next.json.secret, rotated.json.secret)
+
+  const superseded = await callFresh('POST', `/providers/${providerId}/rotate`, { expectedRevision }, headers)
+  assert.equal(superseded.status, 409)
+  assert.equal(superseded.json.secret, undefined)
+  assert.equal(store.providerAcceptsRelaySecret(providerId, next.json.secret), true)
+})
+
+test('Session-secret cancellation fences late rotation and cannot hide an applied credential', async () => {
+  const tenantId = 'tenant-provider-secret-cancel'
+  const created = await call('POST', '/providers', {
+    label: 'Cancellable rotation',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+    kind: 'session',
+  }, { 'x-tenant-id': tenantId })
+  const providerId = created.json.id as string
+  const key = `provider-rotation-cancel-${Date.now().toString(36)}`
+  const headers = { 'x-tenant-id': tenantId, 'idempotency-key': key }
+  const receiptId = providerSecretRotationId(tenantId, providerId, key)
+
+  const cancelled = await call('DELETE', `/providers/${providerId}/rotate`, { expectedRevision: 0 }, headers)
+  assert.equal(cancelled.status, 200)
+  assert.equal(cancelled.json.connectionRevision, 1)
+  assert.deepEqual(cancelled.json.secretRotationReceipt, { id: receiptId, state: 'cancelled' })
+  assert.equal(store.providerAcceptsRelaySecret(providerId, created.json.secret), true, 'cancellation keeps the current bearer active')
+
+  const replay = await callFresh('DELETE', `/providers/${providerId}/rotate`, { expectedRevision: 0 }, headers)
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.connectionRevision, 1)
+  assert.equal((await callFresh('POST', `/providers/${providerId}/rotate`, { expectedRevision: 0 }, headers)).status, 409)
+  assert.equal(store.providerAcceptsRelaySecret(providerId, created.json.secret), true)
+
+  const appliedKey = `${key}-applied`
+  const appliedHeaders = { 'x-tenant-id': tenantId, 'idempotency-key': appliedKey }
+  const applied = await call('POST', `/providers/${providerId}/rotate`, { expectedRevision: 1 }, appliedHeaders)
+  assert.equal(applied.status, 200)
+  assert.equal(applied.json.connectionRevision, 2)
+  const refusedCancel = await callFresh('DELETE', `/providers/${providerId}/rotate`, { expectedRevision: 1 }, appliedHeaders)
+  assert.equal(refusedCancel.status, 409)
+  const recovered = await callFresh('POST', `/providers/${providerId}/rotate`, { expectedRevision: 1 }, appliedHeaders)
+  assert.equal(recovered.status, 200)
+  assert.equal(recovered.json.secret, applied.json.secret)
+  assert.equal(recovered.json.connectionRevision, 2)
+})
+
+test('Session-secret rotation validates its recovery coordinates', async () => {
+  const created = await call('POST', '/providers', {
+    label: 'Strict rotation',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+    kind: 'session',
+  })
+  const path = `/providers/${created.json.id}/rotate`
+  assert.equal((await call('POST', path, { expectedRevision: -1 }, { 'idempotency-key': 'bad-revision' })).status, 400)
+  assert.equal((await call('POST', path, {}, { 'idempotency-key': 'missing-revision' })).status, 400)
+  assert.equal((await call('DELETE', path, { expectedRevision: 0 })).status, 400)
+  assert.equal((await call('DELETE', path, { expectedRevision: -1 }, { 'idempotency-key': 'bad-cancel' })).status, 400)
+  const oversized = 'x'.repeat(257)
+  assert.equal((await call('POST', path, { expectedRevision: 0 }, { 'idempotency-key': oversized })).status, 400)
+  assert.equal((await call('DELETE', path, { expectedRevision: 0 }, { 'idempotency-key': oversized })).status, 400)
 })
 
 test('provider definition PATCH is sparse, compare-and-swap, replay-safe, and ownership-strict', async () => {

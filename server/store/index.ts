@@ -4692,28 +4692,92 @@ export const store = {
   replaceStaticProviderModels(id: string, models: ModelInfo[], expectedRevision?: number): ModelProvider | undefined {
     return replaceProviderModels(id, models, 'static', expectedRevision)
   },
-  /** Rotate a Session provider's rendezvous secret — the kill switch (§7.5),
-   *  immediate and total: the stored hash is replaced (no old-hash grace), the
-   *  relay retires on the spot (parked poll superseded, in-flight turn falls back
-   *  now, dot goes grey), and a connector holding the old secret meets 401 on its
-   *  next call. Returns the updated row + the NEW secret — shown once, like mint;
-   *  undefined for an unknown or non-session provider. */
-  rotateProviderSecret(id: string): { provider: ModelProvider; secret: string } | undefined {
+  /** Rotate a Session provider's rendezvous secret — the kill switch (§7.5).
+   * A keyed request carries an opaque durable receipt and a deterministic secret:
+   * exact replay can recover that bearer while it remains current, but no older
+   * request can rewind a newer credential. An unkeyed caller retains the legacy
+   * one-shot random rotation dialect. */
+  rotateProviderSecret(
+    id: string,
+    options: { logicalId?: string; secret?: string; expectedRevision?: number } = {},
+  ): { provider: ModelProvider; secret: string } | undefined {
     const current = MODEL_PROVIDERS.get(id)
     const config = PROVIDER_CONFIGS.get(id)
     if (!current || config?.kind !== 'session') return undefined
-    const secret = mintRelaySecret()
+    const keyed = options.logicalId !== undefined || options.secret !== undefined
+    if ((options.logicalId === undefined) !== (options.secret === undefined)) {
+      throw new ValidationError('A keyed Session-secret rotation requires both its logical identity and derived secret.')
+    }
+    const matchingReceipt = current.secretRotationReceipt?.id === options.logicalId
+      ? current.secretRotationReceipt
+      : undefined
+    if (keyed && matchingReceipt) {
+      if (matchingReceipt.state === 'cancelled') {
+        throw new ConflictError('This Session-secret rotation was cancelled.')
+      }
+      if (!sameSecretHash(config.secretHash ?? '', hashRelaySecret(options.secret!))) {
+        throw new ConflictError('This Session-secret rotation no longer represents the active credential.')
+      }
+      return { provider: current, secret: options.secret! }
+    }
+    const currentRevision = current.connectionRevision ?? 0
+    if (options.expectedRevision !== undefined && options.expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This provider connection changed elsewhere (expected revision ${options.expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
+    const secret = options.secret ?? mintRelaySecret()
     PROVIDER_CONFIGS.set(id, { ...config, secretHash: hashRelaySecret(secret) })
-    const provider: ModelProvider = {
+    let provider: ModelProvider = {
       ...current,
       secretHint: relaySecretHint(secret),
-      connectionRevision: (current.connectionRevision ?? 0) + 1,
+      connectionRevision: currentRevision + 1,
+    }
+    if (options.logicalId) {
+      provider.secretRotationReceipt = { id: options.logicalId, state: 'applied' }
+    } else {
+      const { secretRotationReceipt: _, ...withoutReceipt } = provider
+      provider = withoutReceipt
     }
     MODEL_PROVIDERS.set(id, provider)
     relay.retire(id)
     emitProviderChanged(provider)
     persist()
     return { provider, secret }
+  },
+  /** Cancel one keyed rotation before releasing its held client intent. Cancellation
+   * advances connection ordering without changing the current secret, so a late
+   * POST frozen at the old revision cannot apply. An already-applied exact receipt
+   * must be recovered instead of hidden behind a cancellation acknowledgement. */
+  cancelProviderSecretRotation(
+    id: string,
+    logicalId: string,
+    expectedRevision: number,
+  ): ModelProvider | undefined {
+    const current = MODEL_PROVIDERS.get(id)
+    const config = PROVIDER_CONFIGS.get(id)
+    if (!current || config?.kind !== 'session') return undefined
+    if (current.secretRotationReceipt?.id === logicalId) {
+      if (current.secretRotationReceipt.state === 'applied') {
+        throw new ConflictError('This Session-secret rotation already applied. Retry to recover its active credential.')
+      }
+      return current
+    }
+    const currentRevision = current.connectionRevision ?? 0
+    if (expectedRevision !== currentRevision) {
+      throw new ConflictError(
+        `This provider connection changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
+      )
+    }
+    const provider: ModelProvider = {
+      ...current,
+      connectionRevision: currentRevision + 1,
+      secretRotationReceipt: { id: logicalId, state: 'cancelled' },
+    }
+    MODEL_PROVIDERS.set(id, provider)
+    emitProviderChanged(provider)
+    persist()
+    return provider
   },
   /** Remove the exact reviewed provider across both public revision domains.
    * Definition/connection and dependency guards precede effects; session-pick

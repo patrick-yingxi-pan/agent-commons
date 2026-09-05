@@ -3,7 +3,7 @@
  * discard it only when the server rejects the replacement. Once acknowledged,
  * a failed local bind is recoverable at startup from the server's write-only
  * reference and must not roll back/delete the now-active key. */
-import type { CreatedProvider, ModelProvider } from '../../contract/index.ts'
+import type { ModelProvider } from '../../contract/index.ts'
 import {
   AccountSwitchedError,
   ApiRequestError,
@@ -12,7 +12,6 @@ import {
   provisionDesktopCredential,
   refreshProviderModels,
   reconcileProviderConnection,
-  rotateProvider,
   updateProviderConnection,
 } from '../api'
 import {
@@ -85,10 +84,6 @@ async function withConnectionHold<T>(providerId: string, work: () => Promise<T>)
 
 export function refreshProviderCatalog(providerId: string): Promise<ModelProvider> {
   return withConnectionHold(providerId, () => refreshProviderModels(providerId))
-}
-
-export function rotateProviderSecret(providerId: string): Promise<CreatedProvider> {
-  return withConnectionHold(providerId, () => rotateProvider(providerId))
 }
 
 export { createProviderConnectionAttempt } from './providerConnectionCore'

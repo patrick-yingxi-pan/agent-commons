@@ -70,7 +70,32 @@ test('a newer provider connection preserves definition and live/default state', 
 })
 
 test('an older provider connection acknowledgement cannot rewind its catalog', () => {
-  const current = provider({ connectionRevision: 6 })
-  const delayed = provider({ connectionRevision: 5, models: [{ id: 'old', label: 'Old' }] })
+  const current = provider({
+    connectionRevision: 6,
+    secretHint: 'cafe',
+    secretRotationReceipt: { id: 'rotation-current', state: 'applied' },
+  })
+  const delayed = provider({
+    connectionRevision: 5,
+    models: [{ id: 'old', label: 'Old' }],
+    secretHint: 'dead',
+    secretRotationReceipt: { id: 'rotation-old', state: 'applied' },
+  })
   assert.deepEqual(mergeProviderConnection(current, delayed), current)
+})
+
+test('a newer provider connection carries the Session secret hint and exact receipt together', () => {
+  const current = provider({
+    connectionRevision: 6,
+    secretHint: 'dead',
+    secretRotationReceipt: { id: 'rotation-old', state: 'applied' },
+  })
+  const incoming = provider({
+    connectionRevision: 7,
+    secretHint: 'cafe',
+    secretRotationReceipt: { id: 'rotation-current', state: 'cancelled' },
+  })
+  const merged = mergeProviderConnection(current, incoming)
+  assert.equal(merged.secretHint, 'cafe')
+  assert.deepEqual(merged.secretRotationReceipt, { id: 'rotation-current', state: 'cancelled' })
 })

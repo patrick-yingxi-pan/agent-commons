@@ -29,6 +29,7 @@ import type {
   CreateScheduleRequest,
   DeleteScheduleRequest,
   CreateProviderRequest,
+  RotateProviderSecretRequest,
   ModelProvider,
   RelayReplyRequest,
   UpdateProviderConnectionRequest,
@@ -106,6 +107,7 @@ import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
 import {
   deriveRelayCreationSecret,
+  deriveRelayRotationSecret,
   relayReply,
   mintRelaySecret,
   hashRelaySecret,
@@ -118,6 +120,7 @@ import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { scheduleCreationId } from '../scheduleCreationIdentity.ts'
 import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
+import { providerSecretRotationId } from '../providerSecretRotationIdentity.ts'
 import { orgCreationId } from '../orgCreationIdentity.ts'
 import { orgInviteAddressAudience, orgInviteCreationId } from '../orgInviteCreationIdentity.ts'
 import {
@@ -1389,9 +1392,12 @@ export function buildRouter(): Router {
     if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
     sendJson(res, provider)
   })
-  r.post('/providers', idempotent(async ({ req, res, body }) => {
+  r.post('/providers', async ({ req, res, body }) => {
     const tenantId = store.identity(req.headers).tenant.id
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    if (idempotencyKey && idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      return sendError(res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+    }
     const logicalProviderId = idempotencyKey
       ? providerCreationId(tenantId, idempotencyKey)
       : undefined
@@ -1520,7 +1526,7 @@ export function buildRouter(): Router {
       if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       throw err
     }
-  }))
+  })
   // Re-fetch a provider's model catalog from its endpoint's own list API — the
   // 'listed' source stamp is earned only by this funnel (and the registration-time
   // fetch), never claimable on a request. A Session provider has no endpoint to
@@ -1677,14 +1683,67 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  // Rotate a Session provider's rendezvous secret — the kill switch (§7.5). The old
-  // secret dies on the spot (a held connector meets 401; an in-flight turn falls back
-  // immediately); the response carries the NEW secret exactly once, like the mint.
-  r.uiFormPost('/providers/:id/rotate', 'one-time rendezvous-secret rotation is credential ceremony', ({ req, res, params }) => {
+  // Rotate a Session provider's rendezvous secret — the kill switch (§7.5). A keyed
+  // first-party request derives both a durable receipt and its bearer, so response
+  // loss can recover the exact still-current secret without allowing an old key to
+  // rewind a later credential. Unkeyed callers retain the legacy one-shot dialect.
+  r.uiFormPost('/providers/:id/rotate', 'one-time rendezvous-secret rotation is credential ceremony', async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
-    const rotated = store.rotateProviderSecret(params.id)
-    if (!rotated) return sendError(res, 'conflict', 'Only a Session provider has a rendezvous secret to rotate.')
-    sendJson(res, { ...rotated.provider, secret: rotated.secret })
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    if (idempotencyKey && idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      return sendError(res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+    }
+    const input = await body<RotateProviderSecretRequest>()
+    if (input?.expectedRevision !== undefined && (!Number.isInteger(input.expectedRevision) || input.expectedRevision < 0)) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative integer.')
+    }
+    if (idempotencyKey && input?.expectedRevision === undefined) {
+      return sendError(res, 'bad_request', 'A keyed Session-secret rotation requires expectedRevision.')
+    }
+    try {
+      const rotated = store.rotateProviderSecret(params.id, idempotencyKey
+        ? {
+            logicalId: providerSecretRotationId(tenantId, params.id, idempotencyKey),
+            secret: deriveRelayRotationSecret(tenantId, params.id, idempotencyKey),
+            expectedRevision: input.expectedRevision,
+          }
+        : { expectedRevision: input?.expectedRevision })
+      if (!rotated) return sendError(res, 'conflict', 'Only a Session provider has a rendezvous secret to rotate.')
+      sendJson(res, { ...rotated.provider, secret: rotated.secret })
+    } catch (err) {
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
+  })
+  // Cancellation is server-acknowledged, never a local forget. It records a
+  // revision-advancing tombstone only for the current request, fencing any late
+  // same-request POST while leaving the active secret untouched.
+  r.uiFormDelete('/providers/:id/rotate', 'one-time rendezvous-secret rotation cancellation is credential ceremony', async ({ req, res, params, body }) => {
+    if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
+    const tenantId = store.identity(req.headers).tenant.id
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    if (!idempotencyKey) return sendError(res, 'bad_request', 'Idempotency-Key is required to cancel a Session-secret rotation.')
+    if (idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      return sendError(res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+    }
+    const input = await body<RotateProviderSecretRequest>()
+    if (!Number.isInteger(input?.expectedRevision) || input.expectedRevision! < 0) {
+      return sendError(res, 'bad_request', 'expectedRevision must be a non-negative integer.')
+    }
+    try {
+      const provider = store.cancelProviderSecretRotation(
+        params.id,
+        providerSecretRotationId(tenantId, params.id, idempotencyKey),
+        input.expectedRevision!,
+      )
+      if (!provider) return sendError(res, 'conflict', 'Only a Session provider has a rendezvous secret to rotate.')
+      sendJson(res, provider)
+    } catch (err) {
+      if (err instanceof ConflictError) return sendError(res, err.code, err.message)
+      throw err
+    }
   })
 
   // ── The delegated-cognition relay (docs/delegated-cognition-provider.md) ────

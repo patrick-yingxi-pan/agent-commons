@@ -25,6 +25,8 @@ import {
   recoverySnapshotName,
 } from './backup.ts'
 import { accounts } from '../accounts.ts'
+import { deriveRelayRotationSecret } from '../relay.ts'
+import { providerSecretRotationId } from '../providerSecretRotationIdentity.ts'
 
 const TMP = join(tmpdir(), `claude-ui-snapshot-test-${process.pid}`)
 const FS_STORE = join(TMP, 'fs', '.data', 'store.json')
@@ -299,6 +301,13 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.ok(
     s.providerConfigs?.some(([, c]) => c.model === 'claude-opus-4-8'),
     'the provider config (server-only model id) rides along',
+  )
+  assert.ok(
+    s.providers?.some(([, provider]) =>
+      provider.label === 'Playground Session relay'
+      && provider.connectionRevision === 1
+      && provider.secretRotationReceipt?.state === 'applied'),
+    'the current Session-secret rotation receipt rides with its ordered provider row',
   )
   assert.ok(
     s.systemPrompts?.some(([, p]) => p.label === 'Playground research prompt'),
@@ -775,6 +784,22 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   assert.ok(provider, 'the created provider survives a boot')
   assert.equal(provider?.definitionRevision, 1, 'the provider definition revision survives a boot')
   assert.equal(store.providerConfig(provider?.id).model, 'claude-opus-4-8', 'its server-only config (model id) survives too')
+  const relayProvider = store.listProviders().find((candidate) => candidate.label === 'Playground Session relay')
+  assert.ok(relayProvider, 'the Session provider survives a boot')
+  assert.equal(relayProvider?.connectionRevision, 1, 'its rotation ordering survives a boot')
+  assert.equal(relayProvider?.secretRotationReceipt?.state, 'applied', 'its exact recovery receipt survives a boot')
+  if (relayProvider) {
+    const tenantId = store.defaultTenantId()
+    const key = 'playground-session-rotation'
+    const secret = deriveRelayRotationSecret(tenantId, relayProvider.id, key)
+    const recovered = store.rotateProviderSecret(relayProvider.id, {
+      logicalId: providerSecretRotationId(tenantId, relayProvider.id, key),
+      secret,
+      expectedRevision: 0,
+    })
+    assert.equal(recovered?.secret, secret, 'restart recovery reconstructs the same still-current bearer')
+    assert.equal(recovered?.provider.connectionRevision, 1, 'restart recovery does not apply rotation twice')
+  }
   const prompt = store.listSystemPrompts().find((p) => p.label === 'Playground research prompt')
   assert.ok(prompt, 'the created system prompt survives a boot')
   assert.equal(prompt?.definitionRevision, 1, 'the prompt definition revision survives a boot')

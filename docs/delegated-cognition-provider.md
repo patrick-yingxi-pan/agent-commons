@@ -129,13 +129,12 @@ Slice 18's invariant is two invariants fused:
 is selectable in the composer's model selector) → New provider → **kind toggle: "API endpoint" (today) vs
 "My AI session" (new)**. The session form asks for nothing we'd dial (no base URL, no
 key) — just a label ("My laptop's Claude") and effort levels (marked *advisory*). On
-Create, a **one-time panel** shows: the **rendezvous secret** (shown only in the
-creation ceremony, Copy), the
-command to start the user-side connector, and a prominent **"Prose only"** badge. Dismiss
-is gated behind an "I've saved it" checkbox, with the plain warning: *this is a password —
-anyone who has it can put words in your assistant's mouth.* The provider then appears with
-a grey **offline** dot and a `Session · prose-only` subtitle; re-opening it shows only a
-masked `rv_live_••••3f9a` fingerprint + a **Rotate** action, never the secret again.
+Create opens one secure **Connect your session** reveal containing a single bootstrap
+prompt that works across agent harnesses and carries the rendezvous secret. Done unlocks
+only after Copy is observed or the relay connects; no unverifiable “I saved it” checkbox
+or harness-specific command ceremony remains. The provider then appears with a grey
+**offline** dot and a Relay badge; re-opening it shows only a masked
+`rv_live_••••3f9a` fingerprint + a **Rotate relay secret** action.
 If the creation response itself is lost, the same in-flight logical key may reconstruct
 the same bearer long enough to finish that ceremony; an ordinary read cannot, and rotating
 the provider permanently invalidates the old creation recovery path.
@@ -382,8 +381,8 @@ or run tools, because the relay carries plain text, not tool calls.*
   persists** (the spend gate's pre-persist shape), so a dead or busy relay never wedges
   a turn and nothing half-written needs cleanup.
 - **Security walls** (§6.4): bearer secret compared constant-time (`timingSafeEqual`, the
-  `RUNNER_ENROLL_TOKEN` pattern) on every poll/reply; creation-ceremony-only reveal (including
-  exact lost-response recovery until rotation); **only a hash persisted**
+  `RUNNER_ENROLL_TOKEN` pattern) on every poll/reply; secure-ceremony-only reveal (including
+  exact lost-response recovery for creation and the current keyed rotation); **only a hash persisted**
   (§6.1); masked-on-read; never-logged; tenant-scoped dispatch (the route already holds the
   tenant — no re-derivation seam exists); DELETE/rotate invalidates; and the
   **outbound-injection wall** on the connector side (§7.9).
@@ -559,6 +558,17 @@ immediately — its turn degrades to the relay fallback in milliseconds, not at 
 deadline, and a late old-secret submit meets 401, an old-entry submit 410 (§7.1).
 Rejected: graceful rotate (drain in-flight work first). **Delete = rotate without a
 successor**, plus the provider-row removal and the existing agent-binding 409.
+
+First-party rotation is also an acknowledgement-owned credential ceremony. One
+tenant/provider/key deterministically derives the replacement secret and an opaque
+receipt; the store commits that receipt beside the new hash and connection revision.
+If the HTTP response or renderer is lost, the exact current receipt can reconstruct
+the same bearer without rotating again. Any later connection revision makes the old
+request powerless. **Cancel request** does not merely forget local state: before an
+application it advances connection ordering and records a cancelled receipt without
+changing the active bearer, so a late POST fails; after application it refuses, forcing
+recovery of the already-active credential. Browser reload storage retains only account,
+provider, reviewed revision, and opaque key—never the bearer.
 
 ### 7.6 A refusal is a reply; silence and errors are not
 

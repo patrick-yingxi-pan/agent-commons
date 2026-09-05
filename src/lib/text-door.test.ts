@@ -74,6 +74,11 @@ const NON_DOORS: Record<string, string[]> = {
     // The system-prompt probe — an ACTION (it can be disabled mid-run), not a door.
     'disabled:opacity-50',
   ],
+  'src/components/RelaySecretPanel.tsx': [
+    // Connector setup/download leave the app; accent anchors intentionally use
+    // the external-link cue rather than the in-app door primitive.
+    '<a ',
+  ],
   // The sign-in flow's own cue set; lib/authFlow owns the auth screens entire.
   'src/lib/authFlow.ts': ['AUTH_LINK_CLASS'],
 }

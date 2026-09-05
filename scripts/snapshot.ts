@@ -53,6 +53,13 @@ export async function buildComprehensive(): Promise<PersistedState> {
   const { store } = await import('../server/store/index.ts')
   const { opKey } = await import('../contract/index.ts')
   const { loadState } = await import('../server/persistence/persist.ts')
+  const {
+    deriveRelayCreationSecret,
+    deriveRelayRotationSecret,
+    hashRelaySecret,
+    relaySecretHint,
+  } = await import('../server/relay.ts')
+  const { providerSecretRotationId } = await import('../server/providerSecretRotationIdentity.ts')
 
   // Re-seed from the source-controlled fixtures (no configured store → seed,
   // then write the baseline). Every store mutation from here persists.
@@ -268,6 +275,28 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { model: 'claude-opus-4-8' },
   )
   store.updateProvider(provider.id, { modelFamily: 'claude-playground' }, provider.definitionRevision)
+  const relayTenant = store.defaultTenantId()
+  const relayProviderId = 'provider-session-playground'
+  const initialRelaySecret = deriveRelayCreationSecret(relayTenant, 'playground-session-create')
+  const relayProvider = store.createProvider(
+    {
+      label: 'Playground Session relay',
+      modelFamily: 'claude',
+      effortLevels: ['Default'],
+      kind: 'session',
+      secretHint: relaySecretHint(initialRelaySecret),
+    },
+    { kind: 'session', capabilities: { toolUse: true }, secretHash: hashRelaySecret(initialRelaySecret) },
+    relayTenant,
+    { logicalId: relayProviderId },
+  )
+  const relayRotationKey = 'playground-session-rotation'
+  const relayRotationSecret = deriveRelayRotationSecret(relayTenant, relayProvider.id, relayRotationKey)
+  store.rotateProviderSecret(relayProvider.id, {
+    logicalId: providerSecretRotationId(relayTenant, relayProvider.id, relayRotationKey),
+    secret: relayRotationSecret,
+    expectedRevision: relayProvider.connectionRevision ?? 0,
+  })
   const prompt = store.createSystemPrompt({
     label: 'Playground research prompt',
     body: 'You are a focused research assistant. Cite primary sources and stay terse.',

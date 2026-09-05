@@ -158,7 +158,7 @@ test('the credential is shown in exactly ONE place: inside the bootstrap prompt'
   assert.ok(prompt.includes(`connect to ${url} with secret ${secret}`), 'the prompt carries the relay URL + secret the connector’s start needs')
   assert.match(prompt, /install|drive/i, 'the prompt names both onboarding paths without prescribing a harness')
 
-  const panel = readFileSync(new URL('../../src/components/SectionView.tsx', import.meta.url), 'utf8')
+  const panel = readFileSync(new URL('../../src/components/RelaySecretPanel.tsx', import.meta.url), 'utf8')
   assert.ok(panel.includes('bootstrapPrompt(relayUrl, secret)'), 'the panel must build the prompt from the shared module')
   // The standalone raw-secret reveal (its own code row + Copy) must stay gone: a
   // second rendering of `secret` is the duplication this design removed.
@@ -175,9 +175,8 @@ test('the reveal closes on an OBSERVED fact, never on a self-attestation checkbo
   // second click that proves nothing extra, so the gate opens on either observed
   // fact: the line was copied, or the relay connected. If someone re-adds an
   // "I've saved it" checkbox, this fails.
-  const panel = readFileSync(new URL('../../src/components/SectionView.tsx', import.meta.url), 'utf8')
-  const reveal = panel.slice(panel.indexOf('function RelaySecretPanel'), panel.indexOf('The A2A Agent Card viewer'))
-  assert.ok(reveal.length > 0, 'the reveal panel moved — retarget this scan')
+  const reveal = readFileSync(new URL('../../src/components/RelaySecretPanel.tsx', import.meta.url), 'utf8')
+  assert.ok(reveal.includes('function RelaySecretPanel'), 'the shared reveal component must remain explicit')
   assert.ok(!/saved the connect line|saved the secret|CheckboxRow/.test(reveal), 'the reveal re-added a self-attestation gate')
   assert.ok(reveal.includes('const canClose = connected || tookLine'), 'the close-gate must read the two observed facts')
   assert.ok(/onCopied=\{\(\) => setTookLine\(true\)\}/.test(reveal), "the connect line's copy must open the gate")
