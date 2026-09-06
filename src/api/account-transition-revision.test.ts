@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { AuthAccount, Identity } from '../../contract/index.ts'
 import {
   accountTransitionTerminal,
+  visibleAccountTransition,
   type AccountTransitionIntent,
 } from './accountTransitionRevision.ts'
 
@@ -60,4 +61,48 @@ test('forget is terminal only under the same source identity with the target abs
   assert.deepEqual(accountTransitionTerminal(unsigned, { identity: signedOut, accounts: [] }), {
     kind: 'forgotten', userId: 'grace', reason: 'desired',
   })
+})
+
+test('credential entry retries only under its source and adopts exact email truth', () => {
+  const signIn = intent({
+    kind: 'credential-sign-in',
+    sourceUserId: 'ada',
+    email: ' GRACE@EXAMPLE.COM ',
+    password: 'private-login-password',
+  })
+  assert.equal(accountTransitionTerminal(signIn, {
+    identity: identity('ada'), accounts: [account('ada', true), account('grace')],
+  }), null)
+  assert.deepEqual(accountTransitionTerminal(signIn, {
+    identity: identity('grace'), accounts: [account('ada'), account('grace', true)],
+  }), { kind: 'identity', identity: identity('grace'), reason: 'desired' })
+  assert.deepEqual(accountTransitionTerminal(signIn, {
+    identity: identity('linus'), accounts: [account('linus', true)],
+  }), { kind: 'identity', identity: identity('linus'), reason: 'superseded' })
+
+  const signUp = intent({
+    kind: 'credential-sign-up',
+    sourceUserId: null,
+    name: 'New Person',
+    email: 'new@example.com',
+    password: 'private-signup-password',
+  })
+  const signedOut = identity('default', 'default')
+  assert.equal(accountTransitionTerminal(signUp, { identity: signedOut, accounts: [] }), null)
+  const created = identity('new')
+  assert.deepEqual(accountTransitionTerminal(signUp, { identity: created, accounts: [account('new', true)] }), {
+    kind: 'identity', identity: created, reason: 'desired',
+  })
+})
+
+test('the visible held transition never projects credential fields or its logical key', () => {
+  const transition = intent({
+    kind: 'credential-sign-up',
+    sourceUserId: 'ada',
+    name: 'Private Person',
+    email: 'private@example.com',
+    password: 'do-not-project',
+  })
+  assert.deepEqual(visibleAccountTransition(transition), { kind: 'credential-sign-up' })
+  assert.doesNotMatch(JSON.stringify(visibleAccountTransition(transition)), /private|do-not-project|intent-1/i)
 })

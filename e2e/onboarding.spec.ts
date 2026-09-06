@@ -73,7 +73,12 @@ test('create account via the wizard → own world → reload stays signed in →
   // ── Wrong password: a visible error, the auth surface stays up ──
   await page.getByTestId('auth-email').fill(EMAIL)
   await page.getByTestId('auth-password').fill('not-the-password')
+  const wrongLoginResponse = page.waitForResponse((response) =>
+    response.url().endsWith('/api/v1/auth/login') && response.request().method() === 'POST')
   await page.getByTestId('auth-submit').click()
+  const wrongLogin = await wrongLoginResponse
+  expect(wrongLogin.status()).toBe(401)
+  expect(wrongLogin.request().headers()['x-account-transition-source']).toBe('unsigned')
   await expect(page.getByTestId('auth-error')).toContainText('Invalid email or password')
   await expect(page.getByTestId('auth-screen')).toBeVisible()
 

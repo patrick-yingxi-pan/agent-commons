@@ -20,12 +20,12 @@ export interface AcknowledgedActionMutationDeps<Input, Baseline> {
   /** A represented business refusal may release its form immediately after the
    * reconciliation read proves the desired state absent. Transport uncertainty
    * must return undefined so Retry/Dismiss retains the logical action. */
-  settleRejected?: (error: unknown) => RevisionedMutationOutcome | undefined
+  settleRejected?: (error: unknown, input: Input) => RevisionedMutationOutcome | undefined
   /** Most action queues may release after Dismiss cannot complete its final
    * truth read. Identity transitions cannot: losing that read would expose a
    * world whose cookie and client belief may differ. */
   discardReconcileFailure?: 'release' | 'retain'
-  describeFailure: (error: unknown) => RevisionedMutationFailure
+  describeFailure: (error: unknown, input: Input) => RevisionedMutationFailure
   setStatus: (status: RevisionedMutationStatus) => void
   /** Derive or mint the one retry identity for this exact logical input. */
   mintIdempotencyKey: (input: Input) => string
@@ -95,10 +95,10 @@ export function createAcknowledgedActionMutationController<Input, Baseline>(
         }
         if (generation !== issuedGeneration || queue[0] !== entry) return
         if (realized) return complete(entry, 'applied')
-        const rejected = deps.settleRejected?.(error)
+        const rejected = deps.settleRejected?.(error, entry.input)
         if (rejected) return complete(entry, rejected)
         running = false
-        failure = deps.describeFailure(error)
+        failure = deps.describeFailure(error, entry.input)
         publish()
       },
     )
@@ -142,7 +142,7 @@ export function createAcknowledgedActionMutationController<Input, Baseline>(
         if (generation !== issuedGeneration || queue[0] !== entry) return
         if (deps.discardReconcileFailure === 'retain') {
           running = false
-          failure = deps.describeFailure(error)
+          failure = deps.describeFailure(error, entry.input)
           publish()
           return
         }

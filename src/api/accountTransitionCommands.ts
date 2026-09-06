@@ -37,9 +37,46 @@ async function rawJson<T>(response: Response): Promise<T> {
   }
 }
 
+/** Credential forms can mount while an identity reset is still replacing the
+ * query cache. Read the cookie authority directly immediately before binding
+ * the command; the route precondition closes any later cross-tab race. */
+export async function readAccountTransitionSource(): Promise<string | null> {
+  const identity = await rawJson<Identity>(await rawRequest(() => fetch(`${API_BASE}${paths.me}`)))
+  return identity.via === 'session' ? identity.user.id : null
+}
+
+async function credentialIdentity(response: Response, expectedEmail: string): Promise<AccountTransitionTerminal> {
+  if (response.status !== 200) {
+    throw new ApiRequestError('internal', 'The server did not acknowledge credential entry.', 0)
+  }
+  const identity = await response.json().catch(() => undefined) as Identity | undefined
+  if (
+    identity?.via !== 'session' ||
+    identity.user.email?.trim().toLowerCase() !== expectedEmail.trim().toLowerCase()
+  ) {
+    throw new ApiRequestError('internal', 'The server did not confirm the signed-in account.', 0)
+  }
+  return { kind: 'identity', identity, reason: 'desired' }
+}
+
 export async function applyAccountTransition(
   intent: AccountTransitionIntent,
 ): Promise<AccountTransitionTerminal> {
+  if (intent.kind === 'credential-sign-in' || intent.kind === 'credential-sign-up') {
+    const signup = intent.kind === 'credential-sign-up'
+    const response = await rawRequest(() => fetch(`${API_BASE}${signup ? paths.authSignup : paths.authLogin}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Account-Transition-Source': transitionSource(intent.sourceUserId),
+        ...(signup ? { 'Idempotency-Key': intent.intentId } : {}),
+      },
+      body: JSON.stringify(signup
+        ? { name: intent.name, email: intent.email, password: intent.password }
+        : { email: intent.email, password: intent.password }),
+    }))
+    return credentialIdentity(response, intent.email)
+  }
   if (intent.kind === 'switch-account') {
     const response = await rawRequest(() => fetch(`${API_BASE}${paths.authSession}`, {
       method: 'POST',

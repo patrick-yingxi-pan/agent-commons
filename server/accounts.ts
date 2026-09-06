@@ -92,6 +92,12 @@ export type OrgInviteRevokeResult =
   | { kind: 'closed' }
   | undefined
 
+export type AccountCreationRecovery =
+  | { kind: 'absent' }
+  | { kind: 'duplicate' }
+  | { kind: 'represented'; user: AccountUser; tenant: AccountTenant }
+  | { kind: 'conflict' }
+
 /** Durable acknowledgement record for one keyed access-token mint. The raw
  * idempotency key and bearer value never enter storage: a fixed-size digest
  * locates the ceremony, while the token can be reconstructed from the row's
@@ -297,23 +303,62 @@ export class AccountRegistry {
    *  The namespace bears the person's display name (GitHub-style — your
    *  namespace IS you; FWD-5 Phase 2 dropped the "(personal)" suffix with the
    *  workspace framing). Returns null on a duplicate email (the route 409s). */
-  createUser(name: string, email: string, password: string): { user: AccountUser; tenant: AccountTenant } | null {
+  createUser(
+    name: string,
+    email: string,
+    password: string,
+    logicalIds?: { userId: string; tenantId: string },
+  ): { user: AccountUser; tenant: AccountTenant } | null {
     if (this.findByEmail(email)) return null
-    this.userSeq += 1
-    this.tenantSeq += 1
+    if (logicalIds && (this.users.has(logicalIds.userId) || this.tenants.has(logicalIds.tenantId))) return null
+    if (!logicalIds) {
+      this.userSeq += 1
+      this.tenantSeq += 1
+    }
     const salt = randomBytes(16).toString('hex')
     const user: AccountUser = {
-      id: `user-${this.userSeq}`,
+      id: logicalIds?.userId ?? `user-${this.userSeq}`,
       name: name.trim(),
       email: email.trim(),
       passwordSalt: salt,
       passwordHash: hashPassword(password, salt),
     }
-    const tenant: AccountTenant = { id: `tenant-u${this.userSeq}-personal`, name: user.name, kind: 'personal' }
+    const tenant: AccountTenant = {
+      id: logicalIds?.tenantId ?? `tenant-u${this.userSeq}-personal`,
+      name: user.name,
+      kind: 'personal',
+    }
     this.users.set(user.id, user)
     this.tenants.set(tenant.id, tenant)
     this.memberships.push({ userId: user.id, tenantId: tenant.id, role: 'owner', home: true })
     return { user, tenant }
+  }
+
+  /** Resolve a deterministic signup identity after acknowledgement loss. Exact
+   * body equality is proved without storing the raw retry key or password; any
+   * partial row, reused email, or changed input is a conflict, never a guess. */
+  recoverUserCreation(
+    userId: string,
+    tenantId: string,
+    name: string,
+    email: string,
+    password: string,
+  ): AccountCreationRecovery {
+    const user = this.users.get(userId)
+    const tenant = this.tenants.get(tenantId)
+    const membership = this.membership(userId, tenantId)
+    const emailOwner = this.findByEmail(email)
+    if (!user && !tenant && !membership) return emailOwner ? { kind: 'duplicate' } : { kind: 'absent' }
+    if (
+      !user || !tenant || !membership || emailOwner?.id !== userId ||
+      user.name !== name.trim() || user.email?.trim().toLowerCase() !== email.trim().toLowerCase() ||
+      tenant.name !== user.name || tenant.kind !== 'personal' ||
+      membership.role !== 'owner' || membership.home !== true ||
+      this.verifyPassword(email, password)?.id !== userId
+    ) {
+      return { kind: 'conflict' }
+    }
+    return { kind: 'represented', user, tenant }
   }
 
   /** Credential check that is indistinguishable across failure modes: unknown

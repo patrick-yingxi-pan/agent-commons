@@ -6,7 +6,7 @@
  *  and the whole registry survives the persistence round-trip — hash included. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { call } from '../testkit/http.ts'
+import { call, callFresh } from '../testkit/http.ts'
 import { accounts, AccountRegistry } from '../accounts.ts'
 import { signSession, SESSION_COOKIE } from '../auth.ts'
 
@@ -45,6 +45,36 @@ test('signup validation: shape 400s, duplicate email 409s', async () => {
   await call('POST', '/auth/signup', { name: 'First', email: 'dup@example.test', password: 'longenough1' })
   const dup = await call('POST', '/auth/signup', { name: 'Second', email: 'dup@example.test', password: 'longenough2' })
   assert.equal(dup.status, 409, 'one account per email')
+})
+
+test('a source-bound keyed signup recovers one persisted account after acknowledgement loss', async () => {
+  const body = { name: 'Recover Rue', email: 'recover-rue@example.test', password: 'recover-rue-password' }
+  const headers = {
+    'x-account-transition-source': 'unsigned',
+    'idempotency-key': 'signup-recovery-key-1',
+  }
+  const first = await call('POST', '/auth/signup', body, headers)
+  assert.equal(first.status, 200)
+  assert.match(first.json.user.id, /^user-new-/)
+
+  const recovered = await callFresh('POST', '/auth/signup', body, headers)
+  assert.equal(recovered.status, 200)
+  assert.equal(recovered.json.user.id, first.json.user.id, 'restart-path Retry remints the same account')
+  assert.equal(recovered.json.tenant.id, first.json.tenant.id)
+  assert.ok(recovered.headers['set-cookie']?.startsWith(`${SESSION_COOKIE}=`))
+
+  const changed = await call('POST', '/auth/signup', { ...body, name: 'Changed Rue' }, headers)
+  assert.equal(changed.status, 409, 'one logical key cannot adopt changed input')
+  assert.equal(accounts.findByEmail(body.email)?.id, first.json.user.id)
+
+  const slices = accounts.toPersisted()
+  const reborn = new AccountRegistry()
+  reborn.rehydrate(slices)
+  assert.equal(
+    reborn.recoverUserCreation(first.json.user.id, first.json.tenant.id, body.name, body.email, body.password).kind,
+    'represented',
+    'the exact retry identity survives the persisted registry round-trip',
+  )
 })
 
 test('login: right credential signs in; wrong password and unknown email are INDISTINGUISHABLE 401s', async () => {

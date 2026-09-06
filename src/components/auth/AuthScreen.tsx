@@ -9,17 +9,18 @@
  *      minted WITH its one namespace (FWD-5 Phase 2: no workspace step);
  *    • Choose an account — the remembered-accounts picker (the account stack):
  *      instant, credential-less hops for accounts that already signed in here.
- *  Every submit rides the SAME onboarding seams the sidebar menu uses
- *  (signIn / signUp / the account-transition controller) — the server mints the
- *  session cookie and the world resets. This surface adds no new trust, only a
+ *  Every submit rides the SAME account-transition acknowledgement hold the
+ *  sidebar menu uses — the server mints the session cookie and the world resets.
+ *  This surface adds no new trust, only a
  *  front door; when `gated` (AUTH_GATE=require) the back-to-workspace escape is
  *  withheld and signing in is the only way through. */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowLeft, Check } from 'lucide-react'
 import { ClaudeMark } from '../ClaudeMark'
-import { signIn, signUp, useAuthAccounts, useMe } from '../../api'
+import { useAuthAccounts, useMe } from '../../api'
 import {
   enqueueAccountTransition,
+  enqueueCredentialAccountTransition,
   heldAccountTransition,
   useAccountTransitionStatus,
 } from '../../controller/accountTransitionMutations'
@@ -86,14 +87,19 @@ function SignIn({ addAccount, onMode }: { addAccount: boolean; onMode: (m: AuthS
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const frozen = busy || heldAccountTransition() !== null
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    if (frozen) return
     setBusy(true)
     setError('')
-    const r = await signIn(email, password)
+    const r = await enqueueCredentialAccountTransition({
+      kind: 'credential-sign-in',
+      email: email.trim(),
+      password,
+    })
     setBusy(false)
-    if (r.ok) closeAuthScreen()
-    else setError(r.message)
+    if (!r.ok && r.message) setError(r.message)
   }
   return (
     <>
@@ -108,6 +114,7 @@ function SignIn({ addAccount, onMode }: { addAccount: boolean; onMode: (m: AuthS
             type="email"
             autoFocus
             autoComplete="email"
+            disabled={frozen}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className={AUTH_INPUT_CLASS}
@@ -118,19 +125,20 @@ function SignIn({ addAccount, onMode }: { addAccount: boolean; onMode: (m: AuthS
             data-testid="auth-password"
             type="password"
             autoComplete="current-password"
+            disabled={frozen}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className={AUTH_INPUT_CLASS}
           />
         </Field>
         {error && <ErrorNote>{error}</ErrorNote>}
-        <button type="submit" data-testid="auth-submit" disabled={busy || !email || !password} className={AUTH_PRIMARY_CLASS}>
+        <button type="submit" data-testid="auth-submit" disabled={frozen || !email || !password} className={AUTH_PRIMARY_CLASS}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </Card>
       <AltCard>
         New to Agent Commons?{' '}
-        <button data-testid="auth-open-signup" onClick={() => onMode({ kind: 'signup' })} className={AUTH_LINK_CLASS}>
+        <button disabled={frozen} data-testid="auth-open-signup" onClick={() => onMode({ kind: 'signup' })} className={`${AUTH_LINK_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}>
           Create an account
         </button>
       </AltCard>
@@ -145,12 +153,13 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
   const [draft, setDraft] = useState<SignUpDraft>(EMPTY_SIGNUP)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const frozen = busy || heldAccountTransition() !== null
   const set = (patch: Partial<SignUpDraft>) => setDraft((d) => ({ ...d, ...patch }))
   const canAdvance = stepValid(step, draft)
 
   const advance = (e: FormEvent) => {
     e.preventDefault()
-    if (!canAdvance) return
+    if (!canAdvance || frozen) return
     const next = stepAfter(step)
     if (next) setStep(next)
   }
@@ -159,16 +168,17 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
   // one namespace (FWD-5 Phase 2 — there is no separate workspace to set up).
   const create = async (e: FormEvent) => {
     e.preventDefault()
-    if (!canAdvance) return
+    if (!canAdvance || frozen) return
     setBusy(true)
     setError('')
-    const r = await signUp(draft.name.trim(), draft.email.trim(), draft.password)
+    const r = await enqueueCredentialAccountTransition({
+      kind: 'credential-sign-up',
+      name: draft.name.trim(),
+      email: draft.email.trim(),
+      password: draft.password,
+    })
     setBusy(false)
-    if (!r.ok) {
-      setError(r.message)
-      return
-    }
-    closeAuthScreen()
+    if (!r.ok && r.message) setError(r.message)
   }
 
   const stepIndex = SIGNUP_STEPS.indexOf(step)
@@ -199,6 +209,7 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
               type="text"
               autoFocus
               autoComplete="name"
+              disabled={frozen}
               value={draft.name}
               onChange={(e) => set({ name: e.target.value })}
               className={AUTH_INPUT_CLASS}
@@ -209,12 +220,13 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
               data-testid="auth-email"
               type="email"
               autoComplete="email"
+              disabled={frozen}
               value={draft.email}
               onChange={(e) => set({ email: e.target.value })}
               className={AUTH_INPUT_CLASS}
             />
           </Field>
-          <button type="submit" data-testid="auth-continue" disabled={!canAdvance} className={AUTH_PRIMARY_CLASS}>
+          <button type="submit" data-testid="auth-continue" disabled={frozen || !canAdvance} className={AUTH_PRIMARY_CLASS}>
             Continue
           </button>
         </Card>
@@ -228,6 +240,7 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
               type="password"
               autoFocus
               autoComplete="new-password"
+              disabled={frozen}
               value={draft.password}
               onChange={(e) => set({ password: e.target.value })}
               className={AUTH_INPUT_CLASS}
@@ -247,16 +260,16 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
             ))}
           </ul>
           {error && <ErrorNote>{error}</ErrorNote>}
-          <button type="submit" data-testid="auth-submit" disabled={busy || !canAdvance} className={AUTH_PRIMARY_CLASS}>
+          <button type="submit" data-testid="auth-submit" disabled={frozen || !canAdvance} className={AUTH_PRIMARY_CLASS}>
             {busy ? 'Creating your account…' : 'Create account'}
           </button>
-          <BackLink onClick={() => setStep(stepBefore(step)!)} />
+          <BackLink disabled={frozen} onClick={() => setStep(stepBefore(step)!)} />
         </Card>
       )}
 
       <AltCard>
         Already have an account?{' '}
-        <button data-testid="auth-open-signin" onClick={() => onMode({ kind: 'signin' })} className={AUTH_LINK_CLASS}>
+        <button disabled={frozen} data-testid="auth-open-signin" onClick={() => onMode({ kind: 'signin' })} className={`${AUTH_LINK_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}>
           Sign in
         </button>
       </AltCard>
@@ -275,7 +288,8 @@ function AccountPicker({ onMode }: { onMode: (m: AuthScreenView) => void }) {
   // Nothing remembered on this browser → the picker has nothing to offer.
   // Render the sign-in form directly once truth settles; routing through an
   // effect creates an avoidable intermediate state after sign-out recovery.
-  if (!held && accounts.data?.length === 0) {
+  const credentialHeld = held?.kind === 'credential-sign-in' || held?.kind === 'credential-sign-up'
+  if ((!held || credentialHeld) && accounts.data?.length === 0) {
     return <SignIn addAccount={false} onMode={onMode} />
   }
   return (
@@ -374,13 +388,14 @@ function ErrorNote({ children }: { children: ReactNode }) {
   )
 }
 
-function BackLink({ onClick }: { onClick: () => void }) {
+function BackLink({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       data-testid="auth-back"
       onClick={onClick}
-      className="mx-auto block text-[12px] text-ink-faint transition hover:text-ink"
+      disabled={disabled}
+      className="mx-auto block text-[12px] text-ink-faint transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
     >
       Back
     </button>

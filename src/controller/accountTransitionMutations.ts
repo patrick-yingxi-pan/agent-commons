@@ -4,6 +4,9 @@ import {
   accountTransitionResourceId,
   type AccountTransitionIntent,
   type AccountTransitionTarget,
+  type CredentialAccountTransitionRequest,
+  type VisibleAccountTransition,
+  visibleAccountTransition,
 } from '../api/accountTransitionRevision.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
 import {
@@ -21,6 +24,7 @@ interface HeldAccountTransition {
   intent: AccountTransitionIntent
   result: Promise<RevisionedMutationOutcome>
   settle: (outcome: RevisionedMutationOutcome) => void
+  credentialError?: string
 }
 
 const statusStore = createMutationStatusStore()
@@ -33,7 +37,9 @@ export const publishAccountTransitionStatus = statusStore.publish
 function loadRuntime(): Promise<AccountTransitionRuntime> {
   runtimePromise ??= import('./accountTransitionMutationRuntime.ts')
     .then(({ createAccountTransitionMutationRuntime }) => {
-      runtime = createAccountTransitionMutationRuntime(publishAccountTransitionStatus)
+      runtime = createAccountTransitionMutationRuntime(publishAccountTransitionStatus, (intentId, message) => {
+        if (held?.intent.intentId === intentId) held.credentialError = message
+      })
       return runtime
     })
     .catch((error) => {
@@ -69,7 +75,9 @@ function start(entry: HeldAccountTransition): void {
       runtimeLoadFailed = true
       statusStore.publish({
         ...IDLE_REVISIONED_MUTATION,
-        error: 'Couldn’t load account-change recovery. Retry or Dismiss.',
+        error: entry.intent.kind === 'credential-sign-up'
+          ? 'Couldn’t load account-creation recovery. Retry.'
+          : 'Couldn’t load account-change recovery. Retry or Dismiss.',
         retryable: true,
         activeResourceId: accountTransitionResourceId(entry.intent),
         pendingCount: 1,
@@ -78,27 +86,51 @@ function start(entry: HeldAccountTransition): void {
   )
 }
 
-export function enqueueAccountTransition(input: AccountTransitionTarget): Promise<RevisionedMutationOutcome> {
-  if (held) return held.result
+function enqueueHeldAccountTransition(input: AccountTransitionTarget): HeldAccountTransition {
+  if (held) return held
   const intent: AccountTransitionIntent = { ...input, intentId: crypto.randomUUID() }
   let settle!: (outcome: RevisionedMutationOutcome) => void
   const result = new Promise<RevisionedMutationOutcome>((resolve) => { settle = resolve })
   const entry = { intent, result, settle }
   held = entry
   start(entry)
-  return result
+  return entry
 }
 
-export const heldAccountTransition = (): AccountTransitionIntent | null => held?.intent ?? null
+export function enqueueAccountTransition(input: AccountTransitionTarget): Promise<RevisionedMutationOutcome> {
+  return enqueueHeldAccountTransition(input).result
+}
+
+export async function enqueueCredentialAccountTransition(
+  input: CredentialAccountTransitionRequest,
+): Promise<{ ok: true } | { ok: false; message?: string }> {
+  if (held) return { ok: false, message: 'Finish the current account change before trying again.' }
+  let sourceUserId: string | null
+  try {
+    const { readAccountTransitionSource } = await import('../api/accountTransitionCommands.ts')
+    sourceUserId = await readAccountTransitionSource()
+  } catch {
+    return { ok: false, message: 'Couldn’t read the current account. Try again.' }
+  }
+  if (held) return { ok: false, message: 'Finish the current account change before trying again.' }
+  const entry = enqueueHeldAccountTransition({ ...input, sourceUserId })
+  const outcome = await entry.result
+  if (entry.credentialError) return { ok: false, message: entry.credentialError }
+  return outcome === 'applied' ? { ok: true } : { ok: false }
+}
+
+export const heldAccountTransition = (): VisibleAccountTransition | null =>
+  held ? visibleAccountTransition(held.intent) : null
 export const isAccountTransitionHeld = (): boolean => held !== null
 export const retryAccountTransition = (): void => {
   if (runtimeLoadFailed && held) start(held)
   else runtime?.retry()
 }
 export const discardAccountTransition = (): void => {
+  if (held?.intent.kind === 'credential-sign-up') return
   if (runtimeLoadFailed && held) release(held, 'discarded')
   else runtime?.discard()
 }
 export const useAccountTransitionStatus = statusStore.useStatus
 export { accountTransitionResourceId }
-export type { AccountTransitionTarget }
+export type { AccountTransitionTarget, CredentialAccountTransitionRequest }

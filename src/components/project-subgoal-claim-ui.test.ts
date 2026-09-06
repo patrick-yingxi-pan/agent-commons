@@ -37,7 +37,7 @@ test('Coordination holds one exact claim until acknowledged or authoritatively r
   assert.match(facade, /import\('\.\/projectSubGoalClaimMutationRuntime\.ts'\)/)
   assert.match(runtime, /createAcknowledgedActionMutationController/)
   assert.match(runtime, /error instanceof ApiRequestError && error\.status === 409 \? 'discarded'/)
-  assert.match(core, /const rejected = deps\.settleRejected\?\.\(error\)[\s\S]*complete\(entry, rejected\)/)
+  assert.match(core, /const rejected = deps\.settleRejected\?\.\(error, entry\.input\)[\s\S]*complete\(entry, rejected\)/)
   assert.match(notice, /kind="subgoal-claim"/)
   assert.match(shell, /<ProjectSubGoalClaimMutationNotice \/>/)
 })

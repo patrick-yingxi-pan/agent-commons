@@ -10,6 +10,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call } from './testkit/http.ts'
 import { signStack, verifyStack } from './auth.ts'
+import { accounts } from './accounts.ts'
 
 /** Extract cookies from the helper's comma-joined Set-Cookie capture. Our
  *  cookies carry no commas (Max-Age, not Expires), so the token regex is safe. */
@@ -215,6 +216,20 @@ test('first-party account transitions reject a stale source before touching a ne
   const forgetA = await call('DELETE', `/auth/accounts/${aId}`, undefined, stale)
   assert.equal(forgetA.status, 409)
   assert.equal(forgetA.headers['set-cookie'], undefined)
+
+  const login = await call('POST', '/auth/login', {
+    email: 'source-a@example.test', password: 'Source Ada-password-1',
+  }, stale)
+  assert.equal(login.status, 409)
+  assert.equal(login.headers['set-cookie'], undefined)
+
+  const blockedEmail = 'source-stale-signup@example.test'
+  const signupBlocked = await call('POST', '/auth/signup', {
+    name: 'Blocked Signup', email: blockedEmail, password: 'blocked-password-1',
+  }, { ...stale, 'idempotency-key': 'blocked-signup-key' })
+  assert.equal(signupBlocked.status, 409)
+  assert.equal(signupBlocked.headers['set-cookie'], undefined)
+  assert.equal(accounts.findByEmail(blockedEmail), undefined)
 
   const current = await call('GET', '/auth/accounts', undefined, { cookie: cookies(b) })
   assert.deepEqual(

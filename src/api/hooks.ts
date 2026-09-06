@@ -4,11 +4,10 @@
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
 import { useSyncExternalStore } from 'react'
-import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
-import { API_BASE, apiGet, apiPost, apiUrl } from './client.ts'
+import { useQuery, invalidate, type QueryState } from './cache.ts'
+import { apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
-import { switchAccount, type Account } from './account.ts'
 import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
@@ -174,37 +173,6 @@ export function useOrgMembers(orgId: string | undefined): QueryState<OrgMemberRo
 /** An org's invite ledger — OWNER-only (the route 403s a member; gate `enabled`). */
 export function useOrgInvites(orgId: string | undefined, enabled: boolean): QueryState<OrgInviteRow[]> {
   return useQuery(keys.orgInvites(orgId ?? ''), () => apiGet<OrgInviteRow[]>(paths.orgInvites(orgId!)), !!orgId && enabled)
-}
-
-/** Onboarding (P7): both endpoints mint the session cookie server-side; on
- *  success the caller ADOPTS it — same choreography tail as a switch (the mint
- *  already happened, so only the client half runs: generation bump → stream
- *  re-bind → cache reset). Raw fetches, deliberately outside client.ts's
- *  wrapper: an auth transition is definitionally cross-identity and the
- *  wrapper's echo tripwire would (correctly) flag its response. Failures
- *  surface as the server's message (a 409 duplicate email, a 401 bad
- *  credential) for the form to show. */
-async function authFlow(path: string, body: unknown): Promise<{ ok: true } | { ok: false; message: string }> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  const json = await res.json().catch(() => undefined)
-  if (!res.ok) return { ok: false, message: json?.error?.message ?? `Failed (${res.status})` }
-  adoptMintedSession({ userId: json.user.id, tenantId: json.tenant.id })
-  return { ok: true }
-}
-
-export const signUp = (name: string, email: string, password: string) =>
-  authFlow(paths.authSignup, { name, email, password })
-export const signIn = (email: string, password: string) => authFlow(paths.authLogin, { email, password })
-
-/** The client half of a switch whose session the SERVER already minted (a
- *  signup/login response set the cookie): record the pick and reset the world. */
-export function adoptMintedSession(next: Account): void {
-  switchAccount(next)
-  resetAll()
 }
 
 /** The live registry of native runners (one per connected host) + the

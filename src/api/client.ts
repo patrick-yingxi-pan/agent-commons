@@ -10,18 +10,23 @@ import { activeAccount, accountGeneration, shouldDropResponse } from './account.
  *  server both mount it at `/api/v1`); a packaged desktop app injects an absolute
  *  `http://127.0.0.1:<port>` via `VITE_API_BASE`. */
 export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? API_BASE_PATH
+  (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, '') ?? API_BASE_PATH
 
 /** An API call that failed — carries the contract error code so callers can
  *  branch (e.g. `capability_unavailable` → hide a native-only affordance). */
 export class ApiRequestError extends Error {
+  readonly code: ApiError['error']['code']
+  readonly status: number
+
   constructor(
-    readonly code: ApiError['error']['code'],
+    code: ApiError['error']['code'],
     message: string,
-    readonly status: number,
+    status: number,
   ) {
     super(message)
     this.name = 'ApiRequestError'
+    this.code = code
+    this.status = status
   }
 }
 

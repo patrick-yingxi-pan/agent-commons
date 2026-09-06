@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import {
   IDLE_REVISIONED_MUTATION,
   type RevisionedMutationStatus,
-} from './revisionedMutationCore'
+} from './revisionedMutationCore.ts'
 
 /** One external-store spine for acknowledgement controllers. Each caller owns
  * an isolated instance while subscription/publish mechanics compile once. */

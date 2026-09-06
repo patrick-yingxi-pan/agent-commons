@@ -123,6 +123,7 @@ import { discussionPostId } from '../discussionPostIdentity.ts'
 import { providerCreationId } from '../providerCreationIdentity.ts'
 import { providerSecretRotationId } from '../providerSecretRotationIdentity.ts'
 import { orgCreationId } from '../orgCreationIdentity.ts'
+import { accountCreationIds } from '../accountCreationIdentity.ts'
 import { orgInviteAddressAudience, orgInviteCreationId } from '../orgInviteCreationIdentity.ts'
 import {
   agentCreationId,
@@ -697,6 +698,7 @@ export function buildRouter(): Router {
   // this browser" for the switcher's instant hops.
   const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   r.uiRemoteMcpFormPost('/auth/signup', 'credential entry and account creation occur before an authenticated product session', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const { name, email, password, transport: transportRaw } = await body<SignUpRequest>()
     const transport = transportPick(res, transportRaw)
     if (!transport) return
@@ -707,7 +709,26 @@ export function buildRouter(): Router {
     if (!password || password.length < 8 || password.length > 128) {
       return sendError(res, 'bad_request', 'Password must be 8–128 characters.')
     }
-    const created = accounts.createUser(name, email, password)
+    const source = headerValue(req.headers, 'x-account-transition-source')
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    let logicalIds: ReturnType<typeof accountCreationIds> | undefined
+    if (source && idempotencyKey && transport === 'cookie') {
+      if (idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+        return sendError(res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+      }
+      logicalIds = accountCreationIds(source, idempotencyKey)
+      const recovery = accounts.recoverUserCreation(logicalIds.userId, logicalIds.tenantId, name, email, password)
+      if (recovery.kind === 'represented') {
+        return mintSession(req, res, recovery.user.id, recovery.tenant.id, true, transport)
+      }
+      if (recovery.kind === 'duplicate') {
+        return sendError(res, 'conflict', 'An account with this email already exists — sign in instead.')
+      }
+      if (recovery.kind === 'conflict') {
+        return sendError(res, 'conflict', 'This account-creation attempt no longer matches its original details.')
+      }
+    }
+    const created = accounts.createUser(name, email, password, logicalIds)
     if (!created) return sendError(res, 'conflict', 'An account with this email already exists — sign in instead.')
     store.accountsMutated() // real accounts persist across restarts (P7)
     mintSession(req, res, created.user.id, created.tenant.id, true, transport)
@@ -828,6 +849,7 @@ export function buildRouter(): Router {
     sendJson(res, { ok: true })
   })
   r.uiRemoteMcpFormPost('/auth/login', 'credential entry occurs before a properly authenticated product session', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const { email, password, transport: transportRaw } = await body<LoginRequest>()
     const transport = transportPick(res, transportRaw)
     if (!transport) return

@@ -37,7 +37,10 @@ function finalize(terminal: AccountTransitionTerminal): void {
   else openAuthScreen({ kind: 'picker' })
 }
 
-function describeFailure(error: unknown): RevisionedMutationFailure {
+function describeFailure(error: unknown, intent: AccountTransitionIntent): RevisionedMutationFailure {
+  if (intent.kind === 'credential-sign-up') {
+    return { message: 'Couldn’t confirm whether the account was created. Retry safely.', retryable: true }
+  }
   if (error instanceof ApiRequestError) {
     if (error.status === 429) {
       return { message: 'Account changes are temporarily rate-limited. Retry shortly.', retryable: true }
@@ -54,6 +57,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
 
 export function createAccountTransitionMutationRuntime(
   setStatus: (status: RevisionedMutationStatus) => void,
+  onCredentialRejected: (intentId: string, message: string) => void,
 ) {
   return createAcknowledgedActionMutationController<AccountTransitionIntent, undefined>({
     resourceId: accountTransitionResourceId,
@@ -70,6 +74,16 @@ export function createAccountTransitionMutationRuntime(
       return true
     },
     discardReconcileFailure: 'retain',
+    settleRejected: (error, intent) => {
+      if (
+        (intent.kind === 'credential-sign-in' || intent.kind === 'credential-sign-up') &&
+        error instanceof ApiRequestError && [400, 401, 409].includes(error.status)
+      ) {
+        onCredentialRejected(intent.intentId, error.message)
+        return 'discarded'
+      }
+      return undefined
+    },
     describeFailure,
     setStatus,
     // Deliberately not transported as Idempotency-Key: cached Set-Cookie replays

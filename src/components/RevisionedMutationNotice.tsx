@@ -17,12 +17,14 @@ export function RevisionedMutationNotice({
   pendingLabel: string
   discardLabel?: string
   onRetry: () => void
-  onDiscard: () => void
+  onDiscard?: () => void
 }) {
   if (!mutation.busy && !mutation.error) return null
   const phase = mutation.error ? 'failed' : 'pending'
-  const dismissAction = { label: 'Dismiss', icon: <X size={12} />, onClick: onDiscard }
-  const discardAction = discardLabel === 'Dismiss'
+  const dismissAction = onDiscard
+    ? { label: 'Dismiss', icon: <X size={12} />, onClick: onDiscard }
+    : undefined
+  const discardAction = !dismissAction || discardLabel === 'Dismiss'
     ? dismissAction
     : { ...dismissAction, label: discardLabel }
   return (
