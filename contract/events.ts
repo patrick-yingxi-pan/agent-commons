@@ -419,6 +419,15 @@ export interface FollowChangedEvent {
   parties: string[]
 }
 
+/** A viewer changed whether one visible resource reaches their notification
+ * inbox. This is private preference state: the tenant stamp gates the subject
+ * identity to exactly the account whose Watch control and Commons lens moved. */
+export interface WatchChangedEvent {
+  type: 'watch.changed'
+  tenantId: string
+  subject: import('./social.ts').SocialEntityRef
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -487,6 +496,7 @@ export type ServerEvent =
   | DiscussionChangedEvent
   | SocialProposalChangedEvent
   | FollowChangedEvent
+  | WatchChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

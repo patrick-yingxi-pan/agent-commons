@@ -186,6 +186,13 @@ test('follow rings the followee once; their PUBLISHES ring nobody (the deliberat
   assert.equal(rows[0].kind, 'social.followed')
   assert.equal(rows[0].actor, GRACE_NAME, 'the row carries the public display name')
 
+  const repeatedEvents: string[] = []
+  const unsubscribe = store.subscribe((event) => repeatedEvents.push(event.type))
+  store.setFollow(ADA_NAME, true, GRACE)
+  unsubscribe()
+  assert.equal(store.listNotifications(ADA).length, before + 1, 'same desired-state retry cannot ring twice')
+  assert.equal(repeatedEvents.includes('follow.changed'), false, 'same desired state emits no fictional change')
+
   // Unfollowing is not news — a bell for it would be noise about a decision
   // that is nobody's business but the follower's.
   store.setFollow(ADA_NAME, false, GRACE)

@@ -201,6 +201,8 @@ export const paths = {
   commons: () => `/commons`,
   commonsLike: (itemId: string) => `/commons/${encodeURIComponent(itemId)}/like`,
   socialWatch: () => `/social/watch`,
+  socialWatchState: (kind: string, id: string) =>
+    `/social/watch?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
   socialViewed: () => `/social/viewed`,
   /** A subject's proposals (social S3) + the per-proposal faces. */
   socialProposals: (kind: string, id: string) => `/proposals?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,

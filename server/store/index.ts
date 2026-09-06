@@ -3889,6 +3889,11 @@ export const store = {
         // below and broadcast both ids to every connected stream — the C31 leak
         // class the `reservation.changed` arm above was earned for, repeated.
         return e.parties.some((p) => tenantReadsAs(tenantId, p))
+      case 'watch.changed':
+        // Watch state belongs to exactly the active viewer namespace. The
+        // subject may be private, so it must never ride an org-member read
+        // union or the global fallthrough.
+        return e.tenantId === tenantId
       case 'reservation.changed': {
         // `resourceId` is `${guardianId}[:${subGoal}]` — the sub-goal suffix is free
         // text (a private Project's claim name). It once fell through the global
@@ -7977,18 +7982,21 @@ export const store = {
     if (tenantName(tenantId) === name) return 'self'
     if (!this.principalReachable(name, tenantId)) return undefined
     const set = follows.get(tenantId) ?? new Set<string>()
+    const wasFollowing = set.has(name)
+    const muted = mutes.get(tenantId)
+    const clearsMute = following && muted?.has(name) === true
+    if (wasFollowing === following && !clearsMute) return this.listFollows(tenantId)
     if (following) set.add(name)
     else set.delete(name)
     if (set.size > 0) follows.set(tenantId, set)
     else follows.delete(tenantId)
     if (following) {
-      const muted = mutes.get(tenantId)
       if (muted?.delete(name) && muted.size === 0) mutes.delete(tenantId)
     }
     const target = tenantIdForName(name)
     // A follow rings the followee — the one bell it mints, because somebody
     // acted ON them. Their publishes reach the follower's LENS, never a bell.
-    if (following && target !== undefined) {
+    if (!wasFollowing && following && target !== undefined) {
       notifyTenants([target], tenantId, { kind: 'social.followed', actor: tenantName(tenantId) })
     }
     emit({ type: 'follow.changed', parties: target !== undefined ? [tenantId, target] : [tenantId] })
@@ -9708,10 +9716,12 @@ export const store = {
   setWatch(subject: SocialEntityRef, tenantId: string, watching: boolean): WatchState {
     const key = watchKey(subject)
     const set = watches.get(key) ?? new Set<string>()
+    if (set.has(tenantId) === watching) return { watching }
     if (watching) set.add(tenantId)
     else set.delete(tenantId)
     if (set.size > 0) watches.set(key, set)
     else watches.delete(key)
+    emit({ type: 'watch.changed', tenantId, subject })
     persist()
     return { watching }
   },

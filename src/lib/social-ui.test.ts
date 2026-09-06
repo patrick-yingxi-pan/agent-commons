@@ -128,11 +128,13 @@ test('the follow toggle has ONE home: no surface hand-rolls a second one', () =>
   for (const f of walk(SRC)) {
     const rel = norm(f)
     const src = readFileSync(f, 'utf8')
-    if (rel.endsWith('components/FollowButton.tsx')) continue
-    if (rel.endsWith('api/commands.ts') || rel.endsWith('api/index.ts')) continue // the door itself
-    // Calling the follow COMMAND outside the funnel is the drift: it means a
-    // second control exists, with its own label, glyph and busy handling.
-    if (src.includes('setFollow(')) offenders.push(`${rel.split('/src/')[1]}: calls setFollow outside <FollowButton>`)
+    if (
+      rel.includes('/components/') &&
+      !rel.endsWith('components/FollowButton.tsx') &&
+      src.includes("kind: 'follow'")
+    ) {
+      offenders.push(`${rel.split('/src/')[1]}: enqueues Follow outside <FollowButton>`)
+    }
     if (src.includes('<FollowButton')) hosts += 1
   }
   assert.deepEqual(offenders, [])

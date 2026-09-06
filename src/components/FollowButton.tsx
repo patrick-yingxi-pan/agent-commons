@@ -1,6 +1,11 @@
-import { useState } from 'react'
 import { UserCheck, UserPlus } from 'lucide-react'
-import { setFollow } from '../api'
+import { useMe } from '../api'
+import {
+  enqueueStandingRelationship,
+  followRelationshipResourceId,
+  heldFollowRelationship,
+  useStandingRelationshipStatus,
+} from '../controller/standingRelationshipMutations.ts'
 
 /** The ONE follow toggle (S7). Every surface that offers "follow this
  *  workspace" wears this, for the reason `TierBadge` and `WatchToggle` exist:
@@ -23,29 +28,36 @@ export function FollowButton({ name, following, ready = true }: {
    *  rather than rendering "Follow" over an unknown truth. */
   ready?: boolean
 }) {
-  const [failed, setFailed] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const toggle = async () => {
-    if (busy || !ready) return
-    setBusy(true)
-    setFailed(false)
-    try {
-      await setFollow(name, !following)
-    } catch {
-      // The button renders purely from server state, so a swallowed failure
-      // would leave it visually unchanged with no signal — flag it instead.
-      setFailed(true)
-    } finally {
-      setBusy(false)
-    }
+  const me = useMe().data
+  const mutation = useStandingRelationshipStatus()
+  const held = heldFollowRelationship(name)
+  const active = mutation.activeResourceId === followRelationshipResourceId(name)
+  const waiting = active && mutation.error !== null
+  const label = held
+    ? !active
+      ? held.following ? 'Follow queued' : 'Unfollow queued'
+      : waiting
+        ? 'Waiting for Retry'
+        : held.following ? 'Following…' : 'Unfollowing…'
+    : following ? 'Following' : 'Follow'
+  const toggle = () => {
+    if (held || !ready || !me) return
+    void enqueueStandingRelationship({
+      tenantId: me.tenant.id,
+      kind: 'follow',
+      name,
+      following: !following,
+    })
   }
   return (
     <button
       onClick={toggle}
-      disabled={busy || !ready}
+      disabled={!!held || !ready || !me}
+      aria-busy={(active && !waiting) || undefined}
       aria-pressed={following}
       title={
-        failed ? 'Couldn’t update — click to retry'
+        waiting ? 'Use Retry or Dismiss in the recovery banner'
+        : held ? label
         : following ? `Stop following ${name} — their posts leave your Following lens`
         : `Follow ${name} — what they publish collects in your Following lens`
       }
@@ -55,7 +67,7 @@ export function FollowButton({ name, following, ready = true }: {
           : 'border-line text-ink-soft hover:border-line-strong hover:text-ink'
       }`}
     >
-      {following ? <UserCheck size={14} /> : <UserPlus size={14} />} {following ? 'Following' : 'Follow'}
+      {following ? <UserCheck size={14} /> : <UserPlus size={14} />} {label}
     </button>
   )
 }

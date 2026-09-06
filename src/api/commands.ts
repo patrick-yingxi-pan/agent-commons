@@ -35,11 +35,9 @@ import {
   type Discussion,
   type ReportDiscussionPostResponse,
   type SetDiscussionReactionRequest,
-  type SetFollowRequest,
   type MarkDiscussionReadRequest,
   type SocialProposal,
   type SocialEntityRef,
-  type WatchState,
   type PromptProbeRequest,
   type PromptProbeResult,
   type ContextStatus,
@@ -773,14 +771,6 @@ export async function redeemShareLink(token: string): Promise<{ subject: { kind:
  *  asked for. Invalidates the FEED as well as the list, because `followed` is a
  *  server-stamped field on every item — the Following lens would otherwise show
  *  a stale set until the next refetch. */
-export async function setFollow(name: string, following: boolean): Promise<string[]> {
-  const list = await apiPost<string[]>(paths.socialFollow(), { name, following } satisfies SetFollowRequest)
-  invalidate(keys.follows)
-  invalidate(keys.commons)
-  invalidate(keys.ownerProfile(name))
-  return list
-}
-
 /** Mark a thread read up to its newest post — what clears the inbox's unread
  *  dot. A private note to self: it rings nobody and moves no wall, so a failure
  *  is swallowed rather than surfaced (the `recordView` posture). */
@@ -974,16 +964,6 @@ export async function declineSocialProposal(
   return p
 }
 
-/** Watch / unwatch a Project (D24) — the bell subscription. */
-export async function setProjectWatch(projectId: string, watching: boolean): Promise<WatchState> {
-  const state = await apiPost<WatchState>(paths.projectWatch(projectId), { watching })
-  setData(keys.projectWatch(projectId), state)
-  // The feed carries each item's `watched` for the Commons' Watched lens (S4),
-  // so a watch changed from the project page must not leave that lens stale.
-  invalidate(keys.commons)
-  return state
-}
-
 /** ── The Commons lens acts (S4) ──────────────────────────────────────────────
  *  Watched / Liked / Posted / Recently viewed are the viewer's own
  *  relationships to a feed item, stamped by the server on every read. These are
@@ -995,16 +975,6 @@ export async function setCommonsLike(itemId: string, liked: boolean): Promise<{ 
   const out = await apiPost<{ likes: number; liked: boolean }>(paths.commonsLike(itemId), { liked })
   invalidate(keys.commons)
   return out
-}
-
-/** Watch / unwatch ANY subject — the general door behind the feed card's toggle.
- *  A project subject also refreshes that project's own watch state, so the page
- *  and the card can never disagree about the same subscription. */
-export async function setSocialWatch(subject: SocialEntityRef, watching: boolean): Promise<WatchState> {
-  const state = await apiPost<WatchState>(paths.socialWatch(), { subject, watching })
-  if (subject.kind === 'project') setData(keys.projectWatch(subject.id), state)
-  invalidate(keys.commons)
-  return state
 }
 
 /** Record that the caller opened a subject's page — the "Recently viewed" ledger.

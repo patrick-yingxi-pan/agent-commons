@@ -301,6 +301,12 @@ function route(e: ServerEvent): void {
       invalidate(keys.commons)
       invalidatePrefix(keys.ownerProfile())
       break
+    // Watch is viewer-private desired state. Every Commons card/lens may carry
+    // the subject-relative stamp; Project pages also own one direct query.
+    case 'watch.changed':
+      invalidate(keys.commons)
+      if (e.subject.kind === 'project') invalidate(keys.projectWatch(e.subject.id))
+      break
     // A social proposal changed (S3) — its subject's ledger, the row itself,
     // and (a landed relation-op delta) the graph projections are stale.
     case 'social-proposal.changed':

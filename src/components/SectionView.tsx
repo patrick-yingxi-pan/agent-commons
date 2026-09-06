@@ -245,8 +245,6 @@ import {
 import {
   desktopCredentialsAvailable,
   a2aAgentCardUrl,
-  setProjectWatch,
-  setSocialWatch,
   setCommonsLike,
   recordView,
   useAgentProposals,
@@ -585,6 +583,12 @@ import {
   isSavedContextCreationHeld,
   useSavedContextCreationStatus,
 } from '../controller/savedContextCreationMutations.ts'
+import {
+  enqueueStandingRelationship,
+  heldWatchRelationship,
+  useStandingRelationshipStatus,
+  watchRelationshipResourceId,
+} from '../controller/standingRelationshipMutations.ts'
 import {
   isSavedContextConnectionHeld,
   updateSavedContextConnection,
@@ -3337,32 +3341,39 @@ function WatchToggle({
   /** The feed card's ghost form (`cardActClass`); off = the bordered page form. */
   quiet?: boolean
 }) {
-  const [failed, setFailed] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const me = useMe().data
+  const mutation = useStandingRelationshipStatus()
+  const held = heldWatchRelationship(subject)
+  const active = mutation.activeResourceId === watchRelationshipResourceId(subject)
+  const waiting = active && mutation.error !== null
   const noun = subject.kind === 'project' ? 'project' : subject.kind
-  const toggle = async () => {
-    if (busy || !ready) return
-    setBusy(true)
-    setFailed(false)
-    try {
-      await setSocialWatch(subject, !watching)
-    } catch {
-      // The button renders purely from the server state, so a swallowed failure
-      // would leave it visually unchanged with no signal — flag it (the title
-      // reflects it) instead of an unhandled rejection.
-      setFailed(true)
-    } finally {
-      setBusy(false)
-    }
+  const label = held
+    ? !active
+      ? held.watching ? 'Watch queued' : 'Unwatch queued'
+      : waiting
+        ? 'Waiting for Retry'
+        : held.watching ? 'Watching…' : 'Unwatching…'
+    : watching ? 'Watching' : 'Watch'
+  const toggle = () => {
+    if (held || !ready || !me) return
+    void enqueueStandingRelationship({
+      tenantId: me.tenant.id,
+      kind: 'watch',
+      subject,
+      watching: !watching,
+    })
   }
   return (
     <button
       onClick={toggle}
-      disabled={busy || !ready}
+      disabled={!!held || !ready || !me}
+      aria-busy={(active && !waiting) || undefined}
       aria-pressed={watching}
       title={
-        failed
-          ? 'Couldn’t update — click to retry'
+        waiting
+          ? 'Use Retry or Dismiss in the recovery banner'
+          : held
+            ? label
           : watching
             ? `Stop receiving this ${noun}’s public acts`
             : `Get this ${noun}’s public acts in your notifications`
@@ -3377,7 +3388,7 @@ function WatchToggle({
             }`
       }
     >
-      <Bell size={14} /> {watching ? 'Watching' : 'Watch'}
+      <Bell size={14} /> {label}
     </button>
   )
 }

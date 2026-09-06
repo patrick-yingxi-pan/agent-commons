@@ -111,6 +111,22 @@ test('Contexts setup and recents events are stamped and delivered only to their 
   assert.equal(store.eventVisibleToTenant(removed, OTHER), false)
 })
 
+test('Watch emits only on a real transition and stays private to its viewer tenant', () => {
+  const subject = { kind: 'project', id: 'evt-watch-subject' } as const
+  store.setWatch(subject, OWNER, false)
+  const changed = emitted(() => store.setWatch(subject, OWNER, true))
+  const event = changed.find((candidate) => candidate.type === 'watch.changed')
+  assert.ok(event?.type === 'watch.changed')
+  assert.equal(event.tenantId, OWNER)
+  assert.deepEqual(event.subject, subject)
+  assert.equal(store.eventVisibleToTenant(event, OWNER), true)
+  assert.equal(store.eventVisibleToTenant(event, OTHER), false, 'the private subject never reaches another stream')
+
+  const replay = emitted(() => store.setWatch(subject, OWNER, true))
+  assert.equal(replay.some((candidate) => candidate.type === 'watch.changed'), false)
+  store.setWatch(subject, OWNER, false)
+})
+
 test('every schedule mutator emits schedule.changed, stamped with the owning tenant', () => {
   let task: ReturnType<typeof store.addSchedule>
   const onAdd = emitted(() => {

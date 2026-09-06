@@ -58,6 +58,7 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
   await grace.page.goto('/commons')
   await expect(grace.page.getByText(LENS_NOTE)).toBeVisible({ timeout: ms(20_000) })
   await card.getByRole('button', { name: 'Watch' }).click()
+  await expect(card.getByRole('button', { name: 'Watching' })).toBeVisible()
   await grace.page.goto('/commons/watched')
   await expect(grace.page.getByText(LENS_NOTE)).toBeVisible()
 
