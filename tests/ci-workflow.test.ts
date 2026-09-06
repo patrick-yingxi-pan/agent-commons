@@ -22,7 +22,7 @@ test('main and pull requests run the one complete verifier with bounded read-onl
   assert.match(workflow, /concurrency:\s*\n\s*group: verify-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\s*\n\s*cancel-in-progress: true/)
   assert.match(workflow, /runs-on: ubuntu-24\.04/)
   assert.match(workflow, /timeout-minutes: 45/)
-  assert.match(workflow, /CI: true/)
+  assert.match(workflow, /CI: true\s*\n(?:\s*#[^\n]*\n)*\s*E2E_SHARDS: 2\s*\n\s*E2E_HOST_FACTOR: 4/)
   assert.match(workflow, /run: npm ci/)
   assert.match(workflow, /run: npx playwright install --with-deps chromium/)
   assert.match(workflow, /run: npm run verify/)
