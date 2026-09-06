@@ -68,7 +68,7 @@ import type {
   TokenMintRecovery,
   TokenMintRequest,
 } from '../../contract/index.ts'
-import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
+import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -2581,9 +2581,24 @@ export function buildRouter(): Router {
   r.get('/notifications', ({ req, res }) => {
     sendJson(res, store.listNotifications(store.identity(req.headers).tenant.id))
   })
+  r.aliasGet('/notifications/read', 'POST /notifications/read', 'notification read-state recovery is the exact read form of the same inbox triage capability', ({ req, res, url }) => {
+    const ids = url.searchParams.getAll('id')
+    if (ids.length === 0 || ids.length > NOTIFICATION_CAP || ids.some((id) => !id)) {
+      return sendError(res, 'bad_request', `id must name between 1 and ${NOTIFICATION_CAP} notifications`)
+    }
+    sendJson(res, store.notificationReadState(store.identity(req.headers).tenant.id, [...new Set(ids)]))
+  })
   r.post('/notifications/read', async ({ req, res, body }) => {
     const input = await body<MarkNotificationsReadRequest>()
-    sendJson(res, store.markNotificationsRead(store.identity(req.headers).tenant.id, input?.ids))
+    if (input?.ids !== undefined) {
+      if (!Array.isArray(input.ids) || input.ids.length > NOTIFICATION_CAP || input.ids.some((id) => typeof id !== 'string' || !id)) {
+        return sendError(res, 'bad_request', `ids must contain at most ${NOTIFICATION_CAP} notification ids`)
+      }
+    }
+    sendJson(res, store.markNotificationsRead(
+      store.identity(req.headers).tenant.id,
+      input?.ids ? [...new Set(input.ids)] : undefined,
+    ))
   })
 
   // D23 — the honest close: poster-or-owner only, open items only (a done item is

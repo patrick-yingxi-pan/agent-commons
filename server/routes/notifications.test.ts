@@ -7,6 +7,7 @@
  *  per-tenant cap evicts oldest. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { NOTIFICATION_CAP } from '../../contract/index.ts'
 import { store } from '../store/index.ts'
 import { accounts } from '../accounts.ts'
 import { call } from '../testkit/http.ts'
@@ -126,12 +127,38 @@ test('a fork rings the definition owner’s bell (public credit, D18 × D24)', a
 test('mark-read: named ids, then all; idempotent', async () => {
   const { projectId } = await arena()
   await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `bell-read-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })
+  await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: `bell-read-second-${n}`, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })
   const before = await inbox(C)
   const unread = before.filter((x) => !x.read)
-  assert.ok(unread.length >= 1)
+  assert.ok(unread.length >= 2)
 
   const one = await call('POST', '/notifications/read', { ids: [unread[0].id] }, { 'x-tenant-id': C })
   assert.equal(one.json.find((x: any) => x.id === unread[0].id).read, true)
+
+  const frozenIds = (await inbox(C)).filter((x) => !x.read).map((x) => x.id)
+  assert.ok(frozenIds.length >= 1)
+  const lateName = `bell-late-${n}`
+  await call('POST', `/projects/${projectId}/open-subgoals`, { subGoal: lateName, type: 'charge', target: 'budget:demo' }, { 'x-tenant-id': B })
+  const frozen = await call('POST', '/notifications/read', { ids: frozenIds }, { 'x-tenant-id': C })
+  assert.ok(frozen.json.filter((x: any) => frozenIds.includes(x.id)).every((x: any) => x.read === true))
+  const late = frozen.json.find((x: any) => x.subGoal === lateName)
+  assert.equal(late.read, false, 'a later bell stays outside the frozen set')
+
+  store.setMute(late.actor, true, C)
+  assert.ok(!(await inbox(C)).some((x) => x.id === late.id), 'mute hides the row from the presentation list')
+  const exact = await call('GET', `/notifications/read?id=${encodeURIComponent(late.id)}`, undefined, { 'x-tenant-id': C })
+  assert.deepEqual(exact.json, [{ id: late.id, read: false }], 'exact recovery cannot confuse reversible mute with absence')
+  const foreignExact = await call('GET', `/notifications/read?id=${encodeURIComponent(late.id)}`, undefined, { 'x-tenant-id': D })
+  assert.deepEqual(foreignExact.json, [], 'exact recovery does not make notification ids an oracle')
+  store.setMute(late.actor, false, C)
+
+  const malformed = await call('POST', '/notifications/read', { ids: [''] }, { 'x-tenant-id': C })
+  assert.equal(malformed.status, 400)
+  const missingExact = await call('GET', '/notifications/read', undefined, { 'x-tenant-id': C })
+  assert.equal(missingExact.status, 400)
+  const oversized = await call('POST', '/notifications/read', { ids: Array.from({ length: NOTIFICATION_CAP + 1 }, (_, i) => `ntf-${i}`) }, { 'x-tenant-id': C })
+  assert.equal(oversized.status, 400)
+
   const all = await call('POST', '/notifications/read', {}, { 'x-tenant-id': C })
   assert.ok(all.json.every((x: any) => x.read === true), 'omitted ids = mark all')
   const again = await call('POST', '/notifications/read', {}, { 'x-tenant-id': C })

@@ -43,6 +43,7 @@ import { SavedContextCreationMutationNotice } from './SavedContextCreationMutati
 import { SavedContextDeletionNotice } from './SavedContextDeletionNotice'
 import { StandingRelationshipMutationNotice } from './StandingRelationshipMutationNotice'
 import { CommonsLikeMutationNotice } from './CommonsLikeMutationNotice'
+import { NotificationReadMutationNotice } from './NotificationReadMutationNotice'
 import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMutationNotice'
 import { SystemPromptCreationMutationNotice } from './SystemPromptCreationMutationNotice'
 import { DiscussionSessionLaunchMutationNotice } from './DiscussionSessionLaunchMutationNotice'
@@ -83,6 +84,7 @@ export function ShellMutationNotices() {
       <SavedContextDeletionNotice />
       <StandingRelationshipMutationNotice />
       <CommonsLikeMutationNotice />
+      <NotificationReadMutationNotice />
       <ScheduleMutationNotice />
       <DispatchMutationNotice />
       <DelegationCreationMutationNotice />

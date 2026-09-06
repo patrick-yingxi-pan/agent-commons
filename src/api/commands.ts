@@ -29,7 +29,6 @@ import {
   type SystemPromptEntry,
   type SystemPromptDefinitionMutationPatch,
   type UpdateSystemPromptRequest,
-  type AppNotification,
   type OpenSubGoal,
   type Contribution,
   type Discussion,
@@ -979,14 +978,6 @@ export async function recordView(subject: SocialEntityRef): Promise<void> {
   } catch {
     /* a view is not worth an error */
   }
-}
-
-/** Mark inbox rows read (D24) — the named ids, or all. The server answers with the
- *  full refreshed inbox; seed it so the bell count settles without a refetch. */
-export async function markNotificationsRead(ids?: string[]): Promise<AppNotification[]> {
-  const inbox = await apiPost<AppNotification[]>(paths.notificationsRead, ids ? { ids } : {})
-  setData(keys.notifications, inbox)
-  return inbox
 }
 
 /** Remove the reviewed Agent definition. Confirmation and uncertainty remain

@@ -258,6 +258,8 @@ export const paths = {
   /** The notification inbox + watch acts (D24). */
   notifications: '/notifications',
   notificationsRead: '/notifications/read',
+  notificationsReadState: (...ids: string[]) =>
+    `/notifications/read?${ids.map((id) => `id=${encodeURIComponent(id)}`).join('&')}`,
   projectWatch: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/watch`,
   /** The workspace profile (D21) — the display name IS the public handle. */
   ownerProfile: (name: string) => `/directory/owners/${encodeURIComponent(name)}`,

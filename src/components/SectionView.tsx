@@ -309,7 +309,6 @@ import {
   useSystemPrompts,
   useAgentToolCatalog,
   useNotifications,
-  markNotificationsRead,
 } from '../api'
 import {
   createProviderConnectionAttempt,
@@ -588,6 +587,13 @@ import {
   heldCommonsLike,
   useCommonsLikeStatus,
 } from '../controller/commonsLikeMutations.ts'
+import {
+  enqueueNotificationRead,
+  heldNotificationRead,
+  heldNotificationReadFor,
+  notificationReadResourceId,
+  useNotificationReadStatus,
+} from '../controller/notificationReadMutations.ts'
 import {
   enqueueStandingRelationship,
   heldWatchRelationship,
@@ -5999,10 +6005,22 @@ function NotificationsSection({
 }) {
   const rel = useRelations()
   const rows = useNotifications().data ?? []
+  const me = useMe().data
+  const readMutation = useNotificationReadStatus()
   // My own agent registry — resolves whether a proposal bell lands on MY review
   // queue (I own the agent) or the owner's public profile (I'm the proposer).
   const myAgents = useAgents().data ?? []
   const unread = rows.filter((r) => !r.read).length
+  const unreadIds = rows.filter((row) => !row.read).map((row) => row.id)
+  const heldAll = heldNotificationRead(unreadIds)
+
+  const readPhase = (ids: readonly string[]) => {
+    const held = ids.length === 1 ? heldNotificationReadFor(ids[0]!) : heldNotificationRead(ids)
+    if (!held) return undefined
+    const active = readMutation.activeResourceId === notificationReadResourceId(held.ids)
+    if (!active) return 'queued' as const
+    return readMutation.error ? 'failed' as const : 'pending' as const
+  }
 
   // The doors, expressed against the PANE bridge (`rel.navigate`) rather than
   // the shell's: an in-page door must stay in its pane and carry its origin,
@@ -6038,7 +6056,9 @@ function NotificationsSection({
   }
 
   const open = (n: AppNotification) => {
-    if (!n.read) void markNotificationsRead([n.id])
+    if (!n.read && me && !heldNotificationReadFor(n.id)) {
+      void enqueueNotificationRead({ tenantId: me.tenant.id, ids: [n.id] })
+    }
     const intent = doorFor(n)
     switch (intent.kind) {
       case 'schedule':
@@ -6098,15 +6118,29 @@ function NotificationsSection({
     <CompositeResourcePage section="notifications">
       <PageHeader title="Notifications">
         {unread > 0 && (
-          <button onClick={() => void markNotificationsRead()} className={INLINE_ACTION_CLASS}>
-            Mark all read
+          <button
+            onClick={() => {
+              if (me && !heldAll) void enqueueNotificationRead({ tenantId: me.tenant.id, ids: unreadIds })
+            }}
+            disabled={!me || !!heldAll}
+            aria-busy={readPhase(unreadIds) === 'pending' || undefined}
+            className={INLINE_ACTION_CLASS}
+          >
+            {readPhase(unreadIds) === 'queued' ? 'Read update queued'
+              : readPhase(unreadIds) === 'pending' ? 'Marking all read…'
+              : readPhase(unreadIds) === 'failed' ? 'Waiting for Retry'
+              : 'Mark all read'}
           </button>
         )}
       </PageHeader>
       <MainCollectionTemplate
         projection={projection}
         renderItem={(item) => (
-          <NotificationRow row={item.value} onOpen={() => open(item.value)} />
+          <NotificationRow
+            row={item.value}
+            onOpen={() => open(item.value)}
+            readPhase={!item.value.read ? readPhase([item.value.id]) : undefined}
+          />
         )}
       />
     </CompositeResourcePage>

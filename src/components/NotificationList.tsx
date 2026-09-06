@@ -121,21 +121,46 @@ export interface NotificationDoors {
  *  single <button> wrapping everything — legal inside an overlay list, but as a
  *  page row that hands a screen reader the entire row (sentence + timestamp +
  *  "Unread") as one name. */
-export function NotificationRow({ row, onOpen }: { row: AppNotification; onOpen: () => void }) {
+export type NotificationReadPhase = 'queued' | 'pending' | 'failed'
+
+export function NotificationRow({
+  row,
+  onOpen,
+  readPhase,
+}: {
+  row: AppNotification
+  onOpen: () => void
+  readPhase?: NotificationReadPhase
+}) {
   const Icon = KIND_ICON[row.kind]
+  const readLabel = readPhase === 'queued'
+    ? 'Read update queued'
+    : readPhase === 'pending'
+      ? 'Marking read…'
+      : readPhase === 'failed'
+        ? 'Waiting for Retry'
+        : null
   return (
     // The hosting FoldSection owns the horizontal inset (UI-30); this row owns
     // only its vertical rhythm, like every other CardList row under a rule.
-    <div onClick={cardDoorClick(onOpen)} className={`flex items-start gap-3 py-3 ${ROW_DOOR_CLASS}`}>
+    <div
+      data-notification-row=""
+      data-notification-row-read={readPhase}
+      onClick={cardDoorClick(onOpen)}
+      className={`flex items-start gap-3 py-3 ${ROW_DOOR_CLASS}`}
+    >
       <Icon size={15} className={`mt-0.5 shrink-0 ${row.read ? 'text-ink-faint' : 'text-accent-strong'}`} />
       <div className="min-w-0 flex-1">
         <button
           onClick={onOpen}
+          aria-busy={readPhase === 'pending' || undefined}
           className={`block max-w-full text-left text-[13px] leading-snug ${row.read ? 'text-ink-soft' : 'font-medium text-ink'} ${DOOR_CLASS}`}
         >
           {describe(row)}
         </button>
-        <span className="mt-0.5 block text-[11px] text-ink-faint">{relativeTime(row.at)}</span>
+        <span className="mt-0.5 block text-[11px] text-ink-faint">
+          {relativeTime(row.at)}{readLabel ? ` · ${readLabel}` : ''}
+        </span>
       </div>
       {!row.read && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-label="Unread" />}
     </div>

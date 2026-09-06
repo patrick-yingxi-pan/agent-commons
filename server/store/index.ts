@@ -34,6 +34,7 @@ import type {
   Discussion,
   DispatchRun,
   CommonsLikeState,
+  NotificationReadState,
   CommonsItem,
   Grant,
   OpenDiscussionRequest,
@@ -9810,6 +9811,15 @@ export const store = {
       .filter((x) => !muted?.has(x.actor)) // S5 earmuff — the bell honors the mute too
       .map(({ tenantId: _recipient, actorTenant: _actor, postId: _post, ...pub }) => pub)
       .reverse()
+  },
+  /** Exact read-state recovery for named inbox rows. Unlike the visible list,
+   * this ignores reversible mute presentation so hidden unread state cannot be
+   * mistaken for durable absence; the recipient/member wall still applies. */
+  notificationReadState(tenantId: string, ids: readonly string[]): NotificationReadState[] {
+    const named = new Set(ids)
+    return notifications
+      .filter((row) => named.has(row.id) && tenantReadsAs(tenantId, row.tenantId))
+      .map((row) => ({ id: row.id, read: row.read }))
   },
   /** Mark the caller's rows read — the named ids, or all. Idempotent; emits (and
    *  persists) only when something actually flipped. The same union as the read:

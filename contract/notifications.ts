@@ -145,9 +145,18 @@ export interface WatchState {
   watching: boolean
 }
 
-/** Body of `POST /notifications/read` — ids to mark read; omitted = all. */
+/** Body of `POST /notifications/read`. Named ids are the complete addressed set;
+ * omission remains a compatibility-level "mark all", not a first-party door. */
 export interface MarkNotificationsReadRequest {
   ids?: string[]
+}
+
+/** Exact recovery projection for `GET /notifications/read?id=…`. It bypasses
+ * reversible presentation filters such as mute while retaining the inbox's
+ * tenant wall; an omitted requested id is no longer retained or readable. */
+export interface NotificationReadState {
+  id: string
+  read: boolean
 }
 
 /** Per-tenant inbox cap — oldest evicted (the inbox is a pointer cache over acts
