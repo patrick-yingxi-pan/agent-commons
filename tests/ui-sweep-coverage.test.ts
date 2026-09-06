@@ -95,9 +95,9 @@ test('every manifest cell is really swept — the promise is not padded', () => 
   // The reverse drift: a cell listed but never visited would report as a
   // permanent violation, training the reader to ignore COVERAGE.
   const visited = new Set([...SWEEP.matchAll(/\bat\('([a-z0-9-]+)'\)/g)].map((m) => m[1]))
-  const fromSections = new Set(SECTIONS.map((s) => s.toLowerCase()))
+  const fromSections = new Set(SECTIONS)
   assert.ok(
-    SWEEP.includes('at(section.toLowerCase())'),
+    SWEEP.includes('at(section)'),
     'the section cells are named from SECTIONS — keep the loop naming them that way',
   )
   for (const name of CELLS) {
@@ -106,6 +106,14 @@ test('every manifest cell is really swept — the promise is not padded', () => 
       `the manifest promises "${name}" but the sweep never visits it`,
     )
   }
+})
+
+test('the section matrix is exactly the product registry — no top-level surface can disappear silently', () => {
+  const registry = read('src/lib/sections.tsx')
+  const body = registry.match(/export const SECTION_ORDER:[^=]+=[\s\S]*?\[([\s\S]*?)\]/)?.[1]
+  assert.ok(body, 'SECTION_ORDER remains structurally enumerable')
+  const productOrder = [...body.matchAll(/'([^']+)'/g)].map((match) => match[1])
+  assert.deepEqual(SECTIONS, productOrder)
 })
 
 // ── loud, never fatal ───────────────────────────────────────────────────────
@@ -197,6 +205,15 @@ test('the owned stack is really GATED, and the sweep proves it before sweeping',
   assert.ok(gate, 'the owned stack pins the gate explicitly rather than inheriting it')
   assert.equal(gate[1], 'require', "only 'require' turns the gate on — any other value silently opens the door")
   assert.match(SWEEP, /anonymous GET \/sessions/, 'and the boot asserts the gate is really up before sweeping')
+})
+
+test('the owned stack renders the conditional maintainer section in full', () => {
+  assert.match(SWEEP, /MAINTAINERS: 'user-ada'/, 'the isolated stack grants its signed-in account')
+  assert.match(
+    SWEEP,
+    /me\?\.instanceAdmin !== true[\s\S]{0,180}?note\(at\('admin'\), 'COVERAGE'/,
+    'the sweep refuses to substitute the denied deep-link face for the full admin surface',
+  )
 })
 
 test('readiness waits on the API, not just the UI', () => {

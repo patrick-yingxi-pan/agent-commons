@@ -200,6 +200,10 @@ async function bootStack() {
       // value, an ambient `off` included, means OFF, so this can be neither
       // inherited nor spelled loosely.
       AUTH_GATE: 'require',
+      // The owned matrix exercises the full conditional section, not merely
+      // its denied deep-link face. External-stack sweeps remain truthful to
+      // whatever deployment capability they are actually driving.
+      MAINTAINERS: 'user-ada',
       // The owned sweep stack never edits source while it runs. Keep the
       // interactive dev launcher's hot reload, but do not spend file handles on
       // a recursive backend watcher here.
@@ -492,6 +496,12 @@ for (const vp of VIEWPORTS) {
     await page.request
       .post(`${BASE}/api/v1/auth/login`, { data: { email: 'ada@acme.example', password: 'ada-demo-password' } })
       .catch(() => {})
+    if (!EXTERNAL) {
+      const me = await page.request.get(`${BASE}/api/v1/me`).then((response) => response.json()).catch(() => null)
+      if (me?.instanceAdmin !== true) {
+        note(at('admin'), 'COVERAGE', 'the owned stack did not grant Ada the full maintainer surface')
+      }
+    }
     await page.goto(BASE)
     await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 4000 }).catch(() => {})
     await tick(200)
@@ -579,8 +589,8 @@ for (const vp of VIEWPORTS) {
 
     // ── cells: the rail sections (incl. the social layer's Commons + Discussions) ──
     for (const section of SECTIONS) {
-      cell = at(section.toLowerCase())
-      if (!(await goTo(page, `/${section.toLowerCase()}`, cell))) continue
+      cell = at(section)
+      if (!(await goTo(page, `/${section}`, cell))) continue
       await noHScroll(page, cell)
       await shot(page, cell.replace('/', '_'))
       await sweepTriggers(page, vp, cell)

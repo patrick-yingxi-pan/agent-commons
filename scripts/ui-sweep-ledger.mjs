@@ -16,18 +16,26 @@
  *  harness knew one, the reason. Locked by tests/ui-sweep-coverage.test.ts.
  *  Dependency-free on purpose, so the lock needs no browser. */
 
-/** The rail sections the sweep addresses by canonical URL (ADAPT-15). */
+/** Every top-level section the product registry exposes, in its exact order.
+ *  These are section ids rather than display labels because the id is also the
+ *  canonical root address (ADAPT-15). `tests/ui-sweep-coverage.test.ts` locks
+ *  this list to SECTION_ORDER so adding a product surface cannot leave the
+ *  screenshot matrix green by omission. */
 export const SECTIONS = [
-  'Commons',
-  'Projects',
-  'Artifacts',
-  'Contexts',
-  'Agents',
-  'Scheduled',
-  'Discussions',
-  'Messages',
-  'Dispatch',
-  'Customize',
+  'sessions',
+  'commons',
+  'projects',
+  'artifacts',
+  'contexts',
+  'models',
+  'agents',
+  'scheduled',
+  'discussions',
+  'messages',
+  'notifications',
+  'dispatch',
+  'customize',
+  'admin',
 ]
 
 /** The cell manifest — the sweep's promise of what a green run covered. Every
@@ -40,7 +48,7 @@ export const CELLS = [
   'rail',
   'thread-repo',
   'draft',
-  ...SECTIONS.map((s) => s.toLowerCase()),
+  ...SECTIONS,
   'project-detail',
   'project-sharing',
   'scheduled-detail',

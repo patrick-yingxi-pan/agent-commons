@@ -20,6 +20,7 @@ when the subject is the repository, a document graph, or a cross-layer seam.
 | TEST-V2 | verification | Every shipped feature has one uniquely named current spec row naming implementation, lock, and status. | [`../docs/spec/`](../docs/spec/) | [`spec-conformance.test.ts`](spec-conformance.test.ts) | refines ROOT-V1 |
 | TEST-V3 | verification | A lock reads the real source, asserts its preconditions, and is watched fail before it is evidence. | [`helpers/source.ts`](helpers/source.ts) | [`context-map.test.ts`](context-map.test.ts) · [`contract-boundaries.test.ts`](contract-boundaries.test.ts) · [`product-identity.test.ts`](product-identity.test.ts) | refines ROOT-V1 |
 | TEST-V4 | verification | Browser-only behavior belongs in E2E; pure behavior moves into a testable module. | [`../e2e/`](../e2e/) · [`../src/lib/`](../src/lib/) | [`verify-plan.test.ts`](verify-plan.test.ts) | refines ROOT-V1; requires E2E-V1 |
+| TEST-V5 | verification | A green rendered UI matrix covers every registered top-level section; its owned stack grants the signed-in fixture every conditional surface the matrix claims. | [`../scripts/ui-sweep-ledger.mjs`](../scripts/ui-sweep-ledger.mjs) · [`../scripts/ui-sweep.mjs`](../scripts/ui-sweep.mjs) | [`ui-sweep-coverage.test.ts`](ui-sweep-coverage.test.ts) | refines ROOT-V1; requires UI-E4 |
 <!-- context-rules:end -->
 
 ## Details
