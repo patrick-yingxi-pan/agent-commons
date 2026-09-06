@@ -104,6 +104,33 @@ test('Dismiss reconciles before releasing later action intent', async () => {
   assert.equal(await second, 'applied')
 })
 
+test('a fail-closed Dismiss retains identity uncertainty when its truth read fails', async () => {
+  const calls: Pending[] = []
+  const statuses: RevisionedMutationStatus[] = []
+  const controller = createAcknowledgedActionMutationController<string, undefined>({
+    resourceId: (resourceId) => resourceId,
+    snapshot: () => undefined,
+    mutate: (resourceId, idempotencyKey) => new Promise<void>((resolve, reject) => {
+      calls.push({ resourceId, idempotencyKey, resolve, reject })
+    }),
+    reconcile: async () => { throw new Error('truth unavailable') },
+    discardReconcileFailure: 'retain',
+    describeFailure: () => ({ message: 'Identity is still being confirmed.', retryable: true }),
+    setStatus: (status) => statuses.push(status),
+    mintIdempotencyKey: () => 'identity-transition',
+  })
+
+  const result = controller.enqueue('switch')
+  calls[0]!.reject(new Error('response lost'))
+  await tick()
+  controller.discard()
+  await tick()
+
+  assert.equal(statuses.at(-1)?.error, 'Identity is still being confirmed.')
+  assert.equal(statuses.at(-1)?.pendingCount, 1)
+  assert.equal(await Promise.race([result, Promise.resolve('held')]), 'held')
+})
+
 test('clearing the account scope discards queued work and ignores a late acknowledgement', async () => {
   const h = harness()
   const first = h.controller.enqueue('routine-one')

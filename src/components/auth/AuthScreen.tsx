@@ -10,15 +10,21 @@
  *    • Choose an account — the remembered-accounts picker (the account stack):
  *      instant, credential-less hops for accounts that already signed in here.
  *  Every submit rides the SAME onboarding seams the sidebar menu uses
- *  (signIn / signUp / switchToAccount) — the server mints the
+ *  (signIn / signUp / the account-transition controller) — the server mints the
  *  session cookie and the world resets. This surface adds no new trust, only a
  *  front door; when `gated` (AUTH_GATE=require) the back-to-workspace escape is
  *  withheld and signing in is the only way through. */
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { ArrowLeft, Check } from 'lucide-react'
 import { ClaudeMark } from '../ClaudeMark'
-import { signIn, signUp, switchToAccount, useAuthAccounts } from '../../api'
+import { signIn, signUp, useAuthAccounts, useMe } from '../../api'
+import {
+  enqueueAccountTransition,
+  heldAccountTransition,
+  useAccountTransitionStatus,
+} from '../../controller/accountTransitionMutations'
 import { closeAuthScreen, type AuthScreenView } from '../../controller/useAuthScreen'
+import { AccountTransitionMutationNotice } from '../AccountTransitionMutationNotice'
 import { accountSubtitle } from '../../lib/accountFace'
 import {
   AUTH_ERROR_CLASS,
@@ -41,9 +47,12 @@ export function AuthScreen({ view, gated }: { view: AuthScreenView; gated: boole
   // touching the store until something completes; a store-level change (a
   // fresh open) re-seeds it.
   const [mode, setMode] = useState<AuthScreenView>(view)
+  useAccountTransitionStatus()
+  const transitionHeld = heldAccountTransition() !== null
   useEffect(() => setMode(view), [view])
   return (
     <div data-testid="auth-screen" className="flex min-h-dvh flex-col overflow-y-auto bg-canvas text-ink">
+      <AccountTransitionMutationNotice />
       <header className="flex flex-col items-center gap-3 pb-2 pt-14">
         <ClaudeMark size={40} />
       </header>
@@ -55,7 +64,8 @@ export function AuthScreen({ view, gated }: { view: AuthScreenView; gated: boole
           <button
             data-testid="auth-close"
             onClick={closeAuthScreen}
-            className="mt-6 inline-flex items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
+            disabled={transitionHeld}
+            className="mt-6 inline-flex items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
           >
             <ArrowLeft size={12} />
             Back to the workspace
@@ -258,12 +268,16 @@ function SignUpWizard({ onMode }: { onMode: (m: AuthScreenView) => void }) {
 
 function AccountPicker({ onMode }: { onMode: (m: AuthScreenView) => void }) {
   const accounts = useAuthAccounts()
+  const me = useMe().data
   const rows = accounts.data ?? []
-  // Nothing remembered on this browser → the picker has nothing to offer;
-  // fall through to the sign-in form once the (fast, local) read answers.
-  useEffect(() => {
-    if (accounts.data && accounts.data.length === 0) onMode({ kind: 'signin' })
-  }, [accounts.data, onMode])
+  const held = heldAccountTransition()
+  const mutation = useAccountTransitionStatus()
+  // Nothing remembered on this browser → the picker has nothing to offer.
+  // Render the sign-in form directly once truth settles; routing through an
+  // effect creates an avoidable intermediate state after sign-out recovery.
+  if (!held && accounts.data?.length === 0) {
+    return <SignIn addAccount={false} onMode={onMode} />
+  }
   return (
     <>
       <Title>Choose an account</Title>
@@ -272,10 +286,16 @@ function AccountPicker({ onMode }: { onMode: (m: AuthScreenView) => void }) {
           <button
             key={a.user.id}
             data-testid="auth-picker-account"
-            onClick={async () => {
-              if (await switchToAccount(a.user.id)) closeAuthScreen()
+            disabled={held !== null}
+            onClick={() => {
+              void enqueueAccountTransition({
+                kind: 'switch-account',
+                sourceUserId: me?.via === 'session' ? me.user.id : null,
+                targetUserId: a.user.id,
+                targetName: a.user.name,
+              })
             }}
-            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-panel-2"
+            className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-panel-2 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent-solid text-[13px] font-semibold text-on-solid">
               {(a.user.name.trim().charAt(0) || '?').toUpperCase()}
@@ -284,16 +304,20 @@ function AccountPicker({ onMode }: { onMode: (m: AuthScreenView) => void }) {
               <span className="block truncate text-[13px] font-medium text-ink">{a.user.name}</span>
               <span className="block truncate text-[11px] text-ink-faint">{accountSubtitle(a.user, a.tenant)}</span>
             </span>
-            {a.current && <span className="text-[10px] font-medium uppercase tracking-wide text-ink-faint">Current</span>}
+            {held?.kind === 'switch-account' && held.targetUserId === a.user.id ? (
+              <span className="text-[10px] font-medium text-ink-faint">
+                {mutation.error ? 'Waiting for Retry' : 'Switching…'}
+              </span>
+            ) : a.current && <span className="text-[10px] font-medium uppercase tracking-wide text-ink-faint">Current</span>}
           </button>
         ))}
       </Card>
       <AltCard>
-        <button data-testid="auth-open-signin" onClick={() => onMode({ kind: 'signin' })} className={AUTH_LINK_CLASS}>
+        <button disabled={held !== null} data-testid="auth-open-signin" onClick={() => onMode({ kind: 'signin' })} className={`${AUTH_LINK_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}>
           Sign in to another account
         </button>{' '}
         ·{' '}
-        <button data-testid="auth-open-signup" onClick={() => onMode({ kind: 'signup' })} className={AUTH_LINK_CLASS}>
+        <button disabled={held !== null} data-testid="auth-open-signup" onClick={() => onMode({ kind: 'signup' })} className={`${AUTH_LINK_CLASS} disabled:cursor-not-allowed disabled:opacity-50`}>
           Create an account
         </button>
       </AltCard>

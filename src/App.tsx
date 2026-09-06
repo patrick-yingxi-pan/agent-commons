@@ -1,8 +1,7 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { PanelLeft, Search } from 'lucide-react'
 import { NotificationBell, PaneActionButtons, Sidebar } from './components/Sidebar'
 import { SIDEBAR_ICON_BUTTON } from './lib/sidebar'
-import { AuthScreen } from './components/auth/AuthScreen'
 import { useAuthScreen } from './controller/useAuthScreen'
 import { setUiPrefScope } from './lib/uiPrefs'
 import type { PaneContent } from './lib/splitFrame'
@@ -49,6 +48,29 @@ import { useFocusedCompositeFoldAvailability } from './lib/useCompositeFeatures'
 const ShellMutationNotices = lazy(() =>
   import('./components/ShellMutationNotices').then((module) => ({ default: module.ShellMutationNotices })),
 )
+const AuthScreen = lazy(() =>
+  import('./components/auth/AuthScreen').then((module) => ({ default: module.AuthScreen })),
+)
+
+/** Auth and workspace are mutually exclusive top-level worlds. A stale or
+ * interrupted auth chunk must still leave a complete, operable front door. */
+class AuthScreenLoadBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children
+    return (
+      <AppBootstrapScreen
+        status="asset-error"
+        onRetry={() => window.location.reload()}
+      />
+    )
+  }
+}
 
 /** S6 — a share-link boot (`/shared/:token`), captured at module scope BEFORE
  *  the router consumes the boot address (viewForPath treats the shape as
@@ -95,7 +117,13 @@ export default function App() {
     // Gated with no explicit view: land on the picker — it falls through to
     // the sign-in form when no account is remembered on this browser.
     setUiPrefScope(null)
-    return <AuthScreen view={authView ?? { kind: 'picker' }} gated={gated} />
+    return (
+      <AuthScreenLoadBoundary>
+        <Suspense fallback={<AppBootstrapScreen status="loading" onRetry={retryAppBootstrap} />}>
+          <AuthScreen view={authView ?? { kind: 'picker' }} gated={gated} />
+        </Suspense>
+      </AuthScreenLoadBoundary>
+    )
   }
   // Per-account chrome + view memory (multi-account): the layout store reads as
   // THIS account. Both scope setters are pure module writes — idempotent per

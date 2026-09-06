@@ -196,3 +196,37 @@ test('the stack keeps SIGN-IN ORDER across switches; DELETE /auth/accounts/:id f
   assert.ok(forgetA.headers['set-cookie']!.includes('uw_session=;'), 'forgetting the active account signs it out')
   assert.equal(verifyStack(stackTok(forgetA)).length, 0)
 })
+
+test('first-party account transitions reject a stale source before touching a newer cookie', async () => {
+  const a = await signup('Source Ada', 'source-a@example.test')
+  const b = await signup('Source Bea', 'source-b@example.test', cookies(a))
+  const aId = a.json.user.id as string
+  const bId = b.json.user.id as string
+  const stale = { cookie: cookies(b), 'x-account-transition-source': `session:${aId}` }
+
+  const switchA = await call('POST', '/auth/session', { userId: aId }, stale)
+  assert.equal(switchA.status, 409)
+  assert.equal(switchA.headers['set-cookie'], undefined)
+
+  const signOut = await call('DELETE', '/auth/session', undefined, stale)
+  assert.equal(signOut.status, 409)
+  assert.equal(signOut.headers['set-cookie'], undefined)
+
+  const forgetA = await call('DELETE', `/auth/accounts/${aId}`, undefined, stale)
+  assert.equal(forgetA.status, 409)
+  assert.equal(forgetA.headers['set-cookie'], undefined)
+
+  const current = await call('GET', '/auth/accounts', undefined, { cookie: cookies(b) })
+  assert.deepEqual(
+    current.json.map((row: { user: { id: string }; current: boolean }) => [row.user.id, row.current]),
+    [[aId, false], [bId, true]],
+    'all three stale actions leave the newer session and stack untouched',
+  )
+
+  const valid = await call('POST', '/auth/session', { userId: aId }, {
+    cookie: cookies(b),
+    'x-account-transition-source': `session:${bId}`,
+  })
+  assert.equal(valid.status, 200)
+  assert.equal(valid.json.user.id, aId)
+})

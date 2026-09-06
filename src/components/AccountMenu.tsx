@@ -28,15 +28,18 @@
 import { lazy, Suspense, useState, type FormEvent, type ReactNode } from 'react'
 import { LogOut } from 'lucide-react'
 import {
-  forgetAccount,
-  signOut,
-  switchToAccount,
   useAuthAccounts,
   useCapabilities,
   useMe,
   useMyOrgs,
 } from '../api'
 import { openAuthScreen } from '../controller/useAuthScreen'
+import {
+  enqueueAccountTransition,
+  heldAccountTransition,
+  isAccountTransitionHeld,
+  useAccountTransitionStatus,
+} from '../controller/accountTransitionMutations'
 import {
   enqueueOrgCreation,
   heldOrgCreationIntent,
@@ -59,7 +62,7 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
   const [open, setOpen] = useState(false)
   const [mode, setMode] = useState<'menu' | 'neworg'>('menu')
   const close = () => {
-    if (isOrgCreationHeld()) return
+    if (isOrgCreationHeld() || isAccountTransitionHeld()) return
     setOpen(false)
     setMode('menu')
   }
@@ -95,6 +98,11 @@ export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => v
       <button
         data-testid="account-chip"
         onClick={() => {
+          if (isAccountTransitionHeld()) {
+            setOpen(true)
+            setMode('menu')
+            return
+          }
           if (isOrgCreationHeld()) {
             setOpen(true)
             setMode('neworg')
@@ -125,8 +133,22 @@ function MenuBody({
   const stacked = useAuthAccounts().data ?? []
   const orgs = useMyOrgs().data ?? []
   const signedIn = me?.via === 'session'
+  const sourceUserId = signedIn ? me.user.id : null
+  const held = heldAccountTransition()
+  const transition = useAccountTransitionStatus()
+  const transitionLabel = (userId: string): string | null => {
+    if (!held) return null
+    if (held.kind === 'sign-out' && held.sourceUserId === userId) {
+      return transition.error ? 'Waiting for Retry' : 'Signing out…'
+    }
+    if ('targetUserId' in held && held.targetUserId === userId) {
+      if (transition.error) return 'Waiting for Retry'
+      return held.kind === 'switch-account' ? 'Switching…' : 'Forgetting…'
+    }
+    return null
+  }
   return (
-    <>
+    <fieldset disabled={held !== null} aria-busy={held ? 'true' : undefined} className="contents">
       <Suspense fallback={null}>
         <OrgInvitationMenuSection />
       </Suspense>
@@ -163,8 +185,16 @@ function MenuBody({
               <button
                 data-testid="account-stack-option"
                 onClick={() => {
-                  onClose()
-                  if (!a.current) void switchToAccount(a.user.id)
+                  if (a.current) {
+                    onClose()
+                  } else {
+                    void enqueueAccountTransition({
+                      kind: 'switch-account',
+                      sourceUserId,
+                      targetUserId: a.user.id,
+                      targetName: a.user.name,
+                    })
+                  }
                 }}
                 className={`${rowClass(a.current)} pr-8`}
               >
@@ -172,7 +202,9 @@ function MenuBody({
                   {a.user.name}
                   <span className="ml-1 text-[10px] text-ink-faint">{accountSubtitle(a.user, a.tenant)}</span>
                 </span>
-                {a.current && <span className="text-[10px] text-ink-faint">Active</span>}
+                <span className="text-[10px] text-ink-faint">
+                  {transitionLabel(a.user.id) ?? (a.current ? 'Active' : '')}
+                </span>
               </button>
               {/* The per-row sign-out — a real control, so HOVER_REVEAL (UI-7:
                   persistent on touch tiers; focus reveals it for the keyboard
@@ -183,17 +215,15 @@ function MenuBody({
                 data-testid={a.current ? 'auth-signout' : 'account-stack-signout'}
                 aria-label={a.current ? `Sign out of ${a.user.name}` : `Forget ${a.user.name} on this browser`}
                 title={a.current ? 'Sign out' : 'Sign out of this account here'}
-                onClick={async () => {
-                  if (a.current) {
-                    onClose()
-                    // Sign out server-side FIRST (the stack forgets this account),
-                    // then land on the picker — the remaining accounts (or the
-                    // sign-in form when none remain) are next, GitHub-style.
-                    await signOut()
-                    openAuthScreen({ kind: 'picker' })
-                  } else {
-                    await forgetAccount(a.user.id)
-                  }
+                onClick={() => {
+                  void enqueueAccountTransition(a.current
+                    ? { kind: 'sign-out', sourceUserId: sourceUserId ?? a.user.id, sourceName: a.user.name, all: false }
+                    : {
+                        kind: 'forget-account',
+                        sourceUserId,
+                        targetUserId: a.user.id,
+                        targetName: a.user.name,
+                      })
                 }}
                 className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
               >
@@ -238,7 +268,7 @@ function MenuBody({
           </Row>
         </>
       )}
-    </>
+    </fieldset>
   )
 }
 

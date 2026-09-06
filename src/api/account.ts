@@ -38,7 +38,7 @@ export function accountGeneration(): number {
 }
 
 /** Record an account switch that has ALREADY been established server-side (the
- *  auth endpoint set the cookie — see hooks.switchActiveAccount, which owns the
+ *  auth endpoint set the cookie — see accountTransitionMutationRuntime, which owns the
  *  ordering). The single choreography point: bump the generation (in-flight
  *  responses become droppable), then notify subscribers — events.ts reopens its
  *  stream (now riding the new cookie) and the app layer resets the cache.

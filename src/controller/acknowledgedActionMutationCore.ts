@@ -21,6 +21,10 @@ export interface AcknowledgedActionMutationDeps<Input, Baseline> {
    * reconciliation read proves the desired state absent. Transport uncertainty
    * must return undefined so Retry/Dismiss retains the logical action. */
   settleRejected?: (error: unknown) => RevisionedMutationOutcome | undefined
+  /** Most action queues may release after Dismiss cannot complete its final
+   * truth read. Identity transitions cannot: losing that read would expose a
+   * world whose cookie and client belief may differ. */
+  discardReconcileFailure?: 'release' | 'retain'
   describeFailure: (error: unknown) => RevisionedMutationFailure
   setStatus: (status: RevisionedMutationStatus) => void
   /** Derive or mint the one retry identity for this exact logical input. */
@@ -134,8 +138,14 @@ export function createAcknowledgedActionMutationController<Input, Baseline>(
         if (generation !== issuedGeneration || queue[0] !== entry) return
         complete(entry, realized ? 'applied' : 'discarded')
       },
-      () => {
+      (error: unknown) => {
         if (generation !== issuedGeneration || queue[0] !== entry) return
+        if (deps.discardReconcileFailure === 'retain') {
+          running = false
+          failure = deps.describeFailure(error)
+          publish()
+          return
+        }
         complete(entry, 'discarded')
       },
     )

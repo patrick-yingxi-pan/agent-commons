@@ -5,10 +5,10 @@
  *  migrate; Phase 1 covers capabilities + sessions. */
 import { useSyncExternalStore } from 'react'
 import { useQuery, resetAll, invalidate, type QueryState } from './cache.ts'
-import { API_BASE, apiDelete, apiGet, apiPost, apiUrl } from './client.ts'
+import { API_BASE, apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
-import { switchAccount, refreshAccount, accountGeneration, type Account } from './account.ts'
+import { switchAccount, type Account } from './account.ts'
 import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
@@ -205,79 +205,6 @@ export const signIn = (email: string, password: string) => authFlow(paths.authLo
 export function adoptMintedSession(next: Account): void {
   switchAccount(next)
   resetAll()
-}
-
-/** True while a switch's mint round-trip is in flight — a second pick is
- *  ignored rather than raced: interleaved `Set-Cookie` responses could land in
- *  either order, leaving the cookie and the client's belief disagreeing (the
- *  echo tripwire would catch it loudly, but not starting the race is better). */
-let switching = false
-
-/** Instant hop to an account REMEMBERED on this browser (§12): POST the bare
- *  userId — the server validates it against the signed stack cookie and lands
- *  it in the account's ONE namespace (FWD-5 Phase 2). No credential re-entry
- *  (GitHub-style); the stack cookie is the proof it already signed in here. */
-export function switchToAccount(userId: string): Promise<boolean> {
-  return guardedSwitch({ userId })
-}
-
-/** Sign the ACTIVE account out (its stack entry is forgotten server-side; the
- *  other remembered accounts stay). `all` forgets every remembered account. */
-export function signOut(all = false): Promise<boolean> {
-  return guardedSwitch(null, all ? '?all=1' : '')
-}
-
-/** Forget ONE remembered (non-active) account: its stack entry drops server-side,
- *  the others keep their SIGN-IN ORDER, and the switcher list re-reads. The
- *  ACTIVE account goes through `signOut` instead — its session must clear too. */
-export async function forgetAccount(userId: string): Promise<void> {
-  try {
-    await apiDelete(paths.authAccount(userId))
-  } finally {
-    invalidate(keys.authAccounts) // idempotent server-side — re-read either way
-  }
-}
-
-async function guardedSwitch(body: { userId: string } | null, query = ''): Promise<boolean> {
-  if (switching) return false
-  switching = true
-  try {
-    return await performSwitch(body, query)
-  } finally {
-    switching = false
-  }
-}
-
-async function performSwitch(body: { userId: string } | null, query: string): Promise<boolean> {
-  const before = accountGeneration()
-  // The account the switch LANDED on — for a POST, read from the response's
-  // resolved Identity (server truth: a bare stack pick doesn't even know its
-  // landing tenant until the server answers); null for a sign-out.
-  let landed: Account | null = null
-  try {
-    const res = await fetch(`${API_BASE}${paths.authSession}${query}`, {
-      method: body ? 'POST' : 'DELETE',
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    if (!res.ok && res.status !== 204) throw new Error(`auth/session ${res.status}`)
-    if (body) {
-      const me = (await res.json()) as Identity
-      landed = { userId: me.user.id, tenantId: me.tenant.id }
-    }
-  } catch (err) {
-    console.error('[account] switch failed — staying on the current account:', err)
-    return false
-  }
-  if (accountGeneration() !== before) return false // a concurrent switch won the race
-  // The SERVER session changed (a mint or a sign-out landed) — always refresh,
-  // bypassing switchAccount's same-account no-op: after a page reload the
-  // in-memory pick is null while the cookie carries the identity, so a
-  // sign-out (null → null) would otherwise never reset the world. The UI's
-  // active-row guard is what prevents pointless same-account mints.
-  refreshAccount(landed)
-  resetAll()
-  return true
 }
 
 /** The live registry of native runners (one per connected host) + the

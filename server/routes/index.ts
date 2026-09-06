@@ -594,10 +594,23 @@ export function buildRouter(): Router {
     sendError(res, 'bad_request', "transport must be 'cookie' or 'bearer' (absent = cookie).")
     return null
   }
+  /** Optional compatibility precondition used by the first-party account UI.
+   * It closes the cross-tab gap between a click and route arrival: an intent
+   * issued by one account can never sign out, forget, or switch a newer one. */
+  const accountTransitionSourceMatches = (req: IncomingMessage, res: ServerResponse): boolean => {
+    const expected = headerValue(req.headers, 'x-account-transition-source')
+    if (expected === undefined) return true
+    const me = store.identity(req.headers)
+    const current = me.via === 'session' ? `session:${me.user.id}` : 'unsigned'
+    if (expected === current) return true
+    sendError(res, 'conflict', 'The current account changed before this action arrived.')
+    return false
+  }
   r.uiFormPost('/auth/session', 'browser account-stack switching — identity ceremony before workspace capability use', async ({ req, res, body }) => {
     if (!store.capabilities().features.identitySwitch) {
       return sendError(res, 'capability_unavailable', 'Account switching is disabled on this backend.')
     }
+    if (!accountTransitionSourceMatches(req, res)) return
     const { userId, tenantId } = await body<{ userId?: string; tenantId?: string }>()
     // ONE mint path (FWD-5 Phase 2 — the workspace collapse): an ACCOUNT-STACK
     // pick (§12) — a `userId` the signed stack cookie remembers, i.e. an account
@@ -627,6 +640,7 @@ export function buildRouter(): Router {
   // (GitHub's "sign out of one account"; the client then offers the remaining
   // accounts on its picker). `?all=1` forgets every remembered account too.
   r.uiFormDelete('/auth/session', 'browser sign-out and account-stack cookie ceremony', ({ req, res, url }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const me = store.identity(req.headers)
     const next = url.searchParams.get('all') ? [] : me.via === 'session' ? stackWithout(stack, me.user.id) : stack
@@ -640,6 +654,7 @@ export function buildRouter(): Router {
   // stack cookie itself is the authorization (it's this browser's own memory);
   // an id it doesn't hold is a no-op, answered identically (idempotent 204).
   r.uiFormDelete('/auth/accounts/:id', 'browser-local remembered-account ceremony', ({ req, res, params }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const me = store.identity(req.headers)
     const cookies = [stackSetCookie(stackWithout(stack, params.id))]

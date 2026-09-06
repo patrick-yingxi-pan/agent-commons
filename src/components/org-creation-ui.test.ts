@@ -18,7 +18,11 @@ test('New organization holds one exact founding intent until authoritative ackno
   assert.match(menu, /tenantId, request: \{ name \}/, 'the form binds its name to the active account')
   assert.match(menu, /value=\{visibleName\}/, 'the held exact name reconstructs from controller state')
   assert.match(menu, /disabled=\{frozen\}/, 'held form controls cannot race or rewrite the request')
-  assert.match(menu, /if \(isOrgCreationHeld\(\)\) return/, 'outside and Escape dismissal cannot erase uncertainty')
+  assert.match(
+    menu,
+    /if \(isOrgCreationHeld\(\) \|\| isAccountTransitionHeld\(\)\) return/,
+    'outside and Escape dismissal cannot erase either account-menu uncertainty',
+  )
   assert.match(menu, /Your organization name is still here/, 'Dismiss preserves the authored name')
   assert.match(controller, /intentId: crypto\.randomUUID\(\)/, 'one form submission owns one logical identity')
   assert.match(controller, /accountGeneration/, 'late acknowledgement is fenced by account scope')
