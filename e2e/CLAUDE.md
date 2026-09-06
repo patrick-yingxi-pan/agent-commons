@@ -14,7 +14,7 @@ running preview.
 | ID | Category | Rule | Implementation | Locks | Relations |
 |---|---|---|---|---|---|
 | E2E-V1 | verification | E2E proves rendered layout, focus, scroll, accessibility wiring, and cross-tenant walks—not store logic already locked below. | [`../src/components/`](../src/components/) · [`social-helpers.ts`](social-helpers.ts) | [`responsive.spec.ts`](responsive.spec.ts) · [`keyboard-resize.spec.ts`](keyboard-resize.spec.ts) | refines ROOT-V1 |
-| E2E-V2 | verification | Assertions target the rendered subject structurally and state every precondition; no textarea mirrors, vacuous counts, broad ancestor-text selectors, or clean-store assumptions. | [`social-helpers.ts`](social-helpers.ts) · [`agent-synopsis-row.ts`](agent-synopsis-row.ts) | [`social-sharing.spec.ts`](social-sharing.spec.ts) · [`project-page.spec.ts`](project-page.spec.ts) · [`notifications.spec.ts`](notifications.spec.ts) | refines ROOT-V1 |
+| E2E-V2 | verification | Assertions target the rendered subject structurally and state every precondition; no textarea mirrors, vacuous counts, broad ancestor-text selectors, or clean-store assumptions. Older Sessions are revealed through the density disclosure before navigation. | [`social-helpers.ts`](social-helpers.ts) · [`agent-synopsis-row.ts`](agent-synopsis-row.ts) · [`session-rail-helpers.ts`](session-rail-helpers.ts) | [`social-sharing.spec.ts`](social-sharing.spec.ts) · [`project-page.spec.ts`](project-page.spec.ts) · [`notifications.spec.ts`](notifications.spec.ts) · [`hooks-order.spec.ts`](hooks-order.spec.ts) · [`main-split.spec.ts`](main-split.spec.ts) · [`responsive.spec.ts`](responsive.spec.ts) | refines ROOT-V1 |
 | E2E-V3 | verification | Core pages, their shared chrome, narrow projections, and creation dialogs pass one exclusion-free WCAG 2.2 AA scan after the addressed surface is writable and finite entrance motion settles. | [`accessibility-helpers.ts`](accessibility-helpers.ts) · [`accessibility-audit.spec.ts`](accessibility-audit.spec.ts) · [`../src/lib/theme.ts`](../src/lib/theme.ts) · [`../src/components/ResourcePage.tsx`](../src/components/ResourcePage.tsx) | [`accessibility-audit.spec.ts`](accessibility-audit.spec.ts) · [`../src/components/accessibility-navigation.test.ts`](../src/components/accessibility-navigation.test.ts) | refines E2E-V1; requires UI-E28 |
 | E2E-V4 | verification | A rendered two-device Agent conflict proves the held sparse form, disabled draft, public recovery action, stable logical retry key, revision rebase, and preservation of an untouched remote field. | [`../src/components/SectionView.tsx`](../src/components/SectionView.tsx) · [`../src/components/AgentMutationNotice.tsx`](../src/components/AgentMutationNotice.tsx) | [`agent-mutations.spec.ts`](agent-mutations.spec.ts) | refines E2E-V1; requires UI-E29 |
 | E2E-V5 | verification | A rendered two-device provider conflict proves the held sparse form, disabled draft, public recovery action, stable logical retry key, definition rebase, and preservation of an untouched remote family. | [`../src/components/SectionView.tsx`](../src/components/SectionView.tsx) · [`../src/components/ProviderDefinitionMutationNotice.tsx`](../src/components/ProviderDefinitionMutationNotice.tsx) | [`provider-definition-mutations.spec.ts`](provider-definition-mutations.spec.ts) | refines E2E-V1; requires UI-E30 |
@@ -140,14 +140,12 @@ Spec gotchas: the app **opens on a fresh draft** (sending materializes a new ses
   2026-08-11: two assertions passed and the structural check after them read a
   half-rendered thread). Assert on the rendered body element —
   `locator('p', { hasText: BODY })` — which only the posted post can be.
-- **The e2e store PERSISTS across runs** (`.data/e2e-store.json`, gitignored),
-  and accumulated state eventually shows up as *locator timeouts in unrelated
-  specs* — two consecutive full runs failed in two different walks
-  (`keyboard-resize`, then `co-author-article`), each passing in isolation.
-  Deleting the file restored all 72. So: before blaming a change for a flaky
-  full-suite run, clear the store and re-run — and remember the flip side that
-  `tests/CLAUDE.md` already warns about, that a precondition only true on a
-  clean store is a precondition true exactly once.
+- **The isolated store accumulates state within a run.** Stack boot clears its
+  own snapshot, but earlier specs still create enough Sessions to move seeded
+  conversations behind “Show all.” Use [`session-rail-helpers.ts`](session-rail-helpers.ts)
+  before selecting an older row; do not treat the initial density slice as the
+  entire collection. The hook-order walk creates a crowded rail and proves its
+  destination starts hidden, so this precondition is exercised in isolation too.
 - **Prefer containment over counting for structural claims.** The reply-chain walk measured nesting by counting a `ul`'s `UL` ancestors; it was off by one
   and said nothing about *which* post had landed where. `parentRow.locator('li')
   .filter({ has: page.locator('p', { hasText: X }) })` states the claim

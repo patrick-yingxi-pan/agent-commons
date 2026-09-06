@@ -1,10 +1,10 @@
-import { randomBytes } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
 import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
+import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './authRoot.mjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
@@ -76,6 +76,10 @@ function focusMainWindow() {
 async function startDesktop() {
   app.setAppUserModelId(APP_ID)
   installApplicationMenu()
+  const authSecret = await loadDesktopAuthSecret({
+    filePath: join(app.getPath('userData'), AUTH_ROOT_FILE),
+    storage: safeStorage,
+  })
   credentialVault = await openDesktopCredentialVault()
   let providerCredentials = {}
   if (credentialVault) {
@@ -94,7 +98,7 @@ async function startDesktop() {
   rendererUrl = DEVELOPMENT ? trustedOrigin : backendOrigin
 
   configureSessionPermissions(trustedOrigin)
-  const backendHandle = await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials })
+  const backendHandle = await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials, authSecret })
   const backendFailure = () => backendHandle.exitError
   await waitForReady(`${backendOrigin}/api/v1/readyz`, trustedOrigin, START_TIMEOUT_MS, true, backendFailure)
   if (DEVELOPMENT) await waitForReady(rendererUrl, trustedOrigin, START_TIMEOUT_MS, false, backendFailure)
@@ -149,7 +153,7 @@ function configureSessionPermissions(origin) {
   session.defaultSession.setDevicePermissionHandler?.(() => false)
 }
 
-async function launchBackend({ port, backendOrigin, rendererOrigin, providerCredentials }) {
+async function launchBackend({ port, backendOrigin, rendererOrigin, providerCredentials, authSecret }) {
   const entry = join(app.getAppPath(), 'scripts', 'start.mjs')
   if (!existsSync(entry)) throw new Error(`The desktop backend entry is missing: ${entry}`)
 
@@ -160,7 +164,7 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       port,
       rendererOrigin,
       userDataPath: app.getPath('userData'),
-      authSecret: randomBytes(32).toString('base64url'),
+      authSecret,
       providerCredentials,
     }),
     serviceName: 'Agent Commons Backend',
@@ -503,6 +507,11 @@ async function createMainWindow(url, origin) {
 }
 
 async function failStartup(error) {
+  if (error instanceof DesktopAuthRootError) {
+    dialog.showErrorBox('Couldn’t unlock Agent Commons', error.message)
+    app.quit()
+    return
+  }
   console.error(error)
   try {
     const action = await offerStartupRecovery({

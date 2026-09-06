@@ -22,6 +22,8 @@
 import { test, expect, type ConsoleMessage } from '@playwright/test'
 import { splitPane } from './pane-actions.ts'
 import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
+import { revealSessionRow } from './session-rail-helpers.ts'
+import { RAIL_INSTANCE_CAP } from '../src/lib/subviews.ts'
 
 /** React's dev warning for a reordered hook list, plus the hard errors a count
  *  change throws in React 19 — any of these means a Rules-of-Hooks violation. */
@@ -40,6 +42,15 @@ test('the Workspace shell keeps a stable hook order across focus / panel / split
 
   await page.setViewportSize({ width: 1280, height: 1000 })
   await ensureAuthRefactorPanelOpen(page)
+
+  // Keep this navigation walk meaningful with a populated workspace: the
+  // destination must begin beyond the rail's recent head, even in isolation.
+  for (let index = 0; index <= RAIL_INSTANCE_CAP; index += 1) {
+    const created = await page.request.post('/api/v1/sessions', {
+      data: { firstMessage: `Hook-order rail density ${index}` },
+    })
+    expect(created.ok(), `recent session ${index} created`).toBe(true)
+  }
 
   // Mount on the fresh draft (focus null), then boot-restore a repo session:
   // `focus` goes non-null and its context panel auto-tiles as a pane in the
@@ -60,9 +71,10 @@ test('the Workspace shell keeps a stable hook order across focus / panel / split
   // Switch to a different thread and back — the singleton controller re-renders
   // with a different `focus` each time.
   await page.getByRole('button', { name: 'Expand Sessions' }).click()
-  await page.locator('aside').getByText('Dashboard query performance').first().click()
+  await expect(page.locator('aside').getByRole('button', { name: 'Dashboard query performance', exact: true })).toHaveCount(0)
+  await (await revealSessionRow(page, 'Dashboard query performance')).click()
   await expect(page.getByText('token refresh logic')).toHaveCount(0)
-  await page.locator('aside').getByText('Refactor auth middleware').first().click()
+  await (await revealSessionRow(page, 'Refactor auth middleware')).click()
   await expect(page.getByText('token refresh logic').first()).toBeVisible()
 
   // Split the focused (now lone-primary) pane — the main split tree changes

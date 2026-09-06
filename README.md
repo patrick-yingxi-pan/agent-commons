@@ -13,6 +13,9 @@ connector/MCP discovery + fulfilment are explicit fixtures documented in
 [`docs/spec/11-mock-boundary.md`](docs/spec/11-mock-boundary.md); release profiles
 fail closed where a real adapter is not configured.
 
+The current milestone order and remaining release gates are recorded in the
+[desktop preview plan](docs/production-plan.md).
+
 ## What the platform supports
 
 - **People and agent workers.** Accounts register providers and system prompts,
@@ -164,7 +167,17 @@ boots use explicit profiles:
   embedded SQLite, the credential-less device owner, client-asserted identity
   denial, and the exact-origin wall. Database and portable snapshots live under
   the OS-managed Agent Commons user-data directory; an orderly app quit drains
-  and checkpoints the backend. If the sandboxed window exits unexpectedly, a
+  and checkpoints the backend. The authentication signing root is encrypted
+  separately under OS protection (macOS Keychain), so sign-in, remembered
+  accounts, and personal MCP tokens survive a full relaunch within their existing
+  expiry/revocation rules. Secure storage must unlock before the backend starts;
+  an unreadable root is never silently replaced. Portable backups exclude this
+  device secret, so moving a backup to another device requires fresh sign-in and
+  newly issued personal tokens. Upgrading an older build creates its first
+  persistent root and invalidates credentials issued by that build's temporary
+  root once. The headless desktop launcher still accepts an operator-managed
+  `AUTH_SECRET`; the Electron shell owns its key independently.
+  If the sandboxed window exits unexpectedly, a
   native prompt reopens its last trusted route without restarting the healthy
   backend, or quits cleanly; saved work remains, while unsaved window text may
   be lost. If the authoritative local service itself exits after startup, one

@@ -119,6 +119,8 @@ satisfy today — kept here at L0 so they're visible, and enforced by
 `tests/spec-conformance.test.ts` (every `📝` requirement must appear in this list).
 Detail + anchors are in [pillar 10](10-forward-looking.md).
 
+- **FWD-9** `📝` — attached content reaching the selected model is the next desktop milestone. File previews already reach workspace persistence, but are not directly supplied as model input; both transports need a bounded, honest content-delivery path and content-dependent acceptance evidence.
+
 - ~~**FWD-1**~~ `✅` — context-seeded conversation entry is complete through `newSession(seed)` and the shared `EmptyState` attachment launcher; duplicate resource-specific launchers are not required.
 - ~~**FWD-2**~~ `✅` — panel intent is **done and moved to [ADAPT-28](01-adaptive-conversation.md)**: per-viewer absent/closed/named-context state persists server-side, syncs live across devices, and keeps an account-scoped offline mirror. The universal split retired the old per-conversation frame-width follow-on.
 - ~~**FWD-3**~~ `✅` — responsive layout is **done and moved to [ADAPT-11](01-adaptive-conversation.md)**: narrow-tier rail drawer + full-viewport panel takeover + the `short` height axis (the icon-rail idea was superseded by the drawer — PD35).

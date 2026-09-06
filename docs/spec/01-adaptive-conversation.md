@@ -8,6 +8,12 @@
 
 ## Requirements (L2)
 
+The ADAPT-11/ADAPT-17 navigation walks reveal older Sessions through the rail's
+“Show all” control before selecting them. `e2e/hooks-order.spec.ts` explicitly
+fills the recent head and asserts that its destination begins outside the slice;
+`e2e/session-rail-helpers.ts` shares that disclosure path with the split and
+responsive checks, without weakening their focus, highlight, or layout assertions.
+
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|
 | ADAPT-1 | App opens to a writable conversation workspace with one thread and composer; account resources remain directly reachable without a prerequisite workspace or project selection. | `src/App.tsx`, `src/components/Composer.tsx`, `src/components/Sidebar.tsx` | in-app (`src/App.tsx`); navigation registry — `src/lib/nav.test.ts` | ✅ |

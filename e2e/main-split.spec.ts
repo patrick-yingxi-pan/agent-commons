@@ -12,6 +12,7 @@ import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
 import { clearAutoPanel, openSplitPaneMenu, splitPane } from './pane-actions.ts'
 import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
+import { revealSessionRow } from './session-rail-helpers.ts'
 
 test('split duplicates the focused conversation; the rail retargets the focused pane; close dissolves', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 1000 })
@@ -145,7 +146,7 @@ test('a duplicated conversation pane is fully independent: its own composer stre
   // via the rail's Sessions branch.
   await splitPane(page, 'right')
   await page.getByRole('button', { name: 'Expand Sessions' }).click()
-  await page.locator('aside').getByText('Dashboard query performance').first().click()
+  await (await revealSessionRow(page, 'Dashboard query performance')).click()
   const pane = page.locator('[data-conversation-pane="dashboard-perf"]')
   await expect(pane).toBeVisible()
 
@@ -450,7 +451,7 @@ test("the rail's active highlight tracks the FOCUSED pane (UI-12 — no singleto
   // highlighting nothing after the first pane-routed navigation).
   const rail = page.getByRole('complementary')
   await rail.getByRole('button', { name: 'Expand Sessions' }).click()
-  const sessionRow = rail.getByRole('button', { name: 'Refactor auth middleware', exact: true })
+  const sessionRow = await revealSessionRow(page, 'Refactor auth middleware')
   await expect(sessionRow).toHaveAttribute('aria-current', 'page')
 
   // Split; retarget the focused duplicate at Projects — the SECTION row takes

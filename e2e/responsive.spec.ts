@@ -16,6 +16,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { ms } from './budget.ts'
 import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
+import { revealSessionRow } from './session-rail-helpers.ts'
 
 const STAMP = Date.now().toString(36)
 
@@ -73,7 +74,7 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   // its repo focus on open, so the panel appears on select.
   await reopen.click()
   await page.getByRole('button', { name: 'Expand Sessions' }).click()
-  await page.locator('aside').getByText('Refactor auth middleware').first().click()
+  await (await revealSessionRow(page, 'Refactor auth middleware')).click()
   const panelClose = page.getByRole('button', { name: 'Close', exact: true }).first()
   await expect(panelClose).toBeVisible()
   // The PanelShell root (its border-l + bg-panel chrome) spans the viewport.
@@ -234,7 +235,7 @@ test('tablet (768×1024): the panel overlays the thread behind a scrim; the scri
 
   // The seeded repo session restores its repo focus on open — panel + scrim.
   await page.getByRole('button', { name: 'Expand Sessions' }).click()
-  await page.locator('aside').getByText('Refactor auth middleware').first().click()
+  await (await revealSessionRow(page, 'Refactor auth middleware')).click()
   const panelClose = page.getByRole('button', { name: 'Close', exact: true }).first()
   await expect(panelClose).toBeVisible()
   const scrim = page.locator('div.bg-black\\/30')

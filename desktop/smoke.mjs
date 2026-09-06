@@ -4,9 +4,10 @@ import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { arch, platform, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { chromium } from '@playwright/test'
+import { chromium, expect } from '@playwright/test'
 import { startModelServer } from '../server/model/index.ts'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
+import { AUTH_ROOT_FILE } from './authRoot.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -50,18 +51,8 @@ async function waitForCdp(origin) {
   throw new Error('The packaged renderer did not expose its isolated smoke-test debugging endpoint.')
 }
 
-export async function smokePackagedDesktop({ executable = packagedExecutable() } = {}) {
-  if (!existsSync(executable)) throw new Error(`Packaged desktop executable is missing: ${executable}`)
-
-  const userDataPath = await mkdtemp(join(tmpdir(), 'agent-commons-desktop-smoke-'))
+async function launchPackagedDesktop(executable, userDataPath) {
   const debuggingOrigin = loopbackOrigin(await findAvailableLoopbackPort())
-  const modelOrigin = loopbackOrigin(await findAvailableLoopbackPort())
-  const modelServer = startModelServer(Number(new URL(modelOrigin).port), '127.0.0.1')
-  await new Promise((resolve, reject) => {
-    if (modelServer.listening) return resolve()
-    modelServer.once('listening', resolve)
-    modelServer.once('error', reject)
-  })
   let output = ''
   const child = spawn(executable, [
     `--user-data-dir=${userDataPath}`,
@@ -107,8 +98,40 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       child.stderr.on('data', inspect)
       child.once('error', onError)
       child.once('exit', onExit)
+      inspect()
     })
+    await waitForCdp(debuggingOrigin)
+    browser = await chromium.connectOverCDP(debuggingOrigin)
+    const page = browser.contexts().flatMap((context) => context.pages()).find((candidate) => candidate.url().startsWith(origin))
+    if (!page) throw new Error('Packaged Electron did not expose the trusted renderer page.')
+    return { child, browser, page, origin, output }
+  } catch (error) {
+    await browser?.close().catch(() => {})
+    await stop(child)
+    throw error
+  }
+}
 
+async function closePackagedDesktop(run) {
+  if (!run) return
+  await run.browser.close().catch(() => {})
+  await stop(run.child)
+}
+
+export async function smokePackagedDesktop({ executable = packagedExecutable() } = {}) {
+  if (!existsSync(executable)) throw new Error(`Packaged desktop executable is missing: ${executable}`)
+  const userDataPath = await mkdtemp(join(tmpdir(), 'agent-commons-desktop-smoke-'))
+  const modelOrigin = loopbackOrigin(await findAvailableLoopbackPort())
+  const modelServer = startModelServer(Number(new URL(modelOrigin).port), '127.0.0.1')
+  let run
+  try {
+    await new Promise((resolve, reject) => {
+      if (modelServer.listening) return resolve()
+      modelServer.once('listening', resolve)
+      modelServer.once('error', reject)
+    })
+    run = await launchPackagedDesktop(executable, userDataPath)
+    let { origin, page } = run
     const response = await fetch(origin, { redirect: 'error' })
     const html = await response.text()
     if (!response.ok || !html.includes('<title>Agent Commons</title>')) {
@@ -117,10 +140,6 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     if (!existsSync(join(userDataPath, 'store.db'))) {
       throw new Error('Packaged desktop did not create its SQLite store under isolated OS user data.')
     }
-    await waitForCdp(debuggingOrigin)
-    browser = await chromium.connectOverCDP(debuggingOrigin)
-    const page = browser.contexts().flatMap((context) => context.pages()).find((candidate) => candidate.url().startsWith(origin))
-    if (!page) throw new Error('Packaged Electron did not expose the trusted renderer page.')
     const hasCredentialBridge = await page.evaluate(() =>
       typeof window.agentCommonsDesktop?.credentials?.provision === 'function' &&
       Object.keys(window.agentCommonsDesktop.credentials).sort().join(',') === 'bind,discard,provision,removeProvider',
@@ -178,8 +197,38 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
         throw new Error('Packaged desktop recovery files were not private to the OS user.')
       }
     }
-    if (output.includes('· secure credentials') && !hasCredentialBridge) {
+    if (run.output.includes('· secure credentials') && !hasCredentialBridge) {
       throw new Error('OS-backed credential storage was available but its narrow preload bridge was not.')
+    }
+
+    // Exercise real cookie, account-stack, and personal-token authority. These
+    // must remain the same identity across independent native process lifetimes.
+    const identity = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/auth/signup', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Desktop Smoke', email: 'desktop-smoke@example.test', password: 'isolated-smoke-password' }),
+      })
+      if (!response.ok) throw new Error(`packaged signup returned ${response.status}`)
+      return response.json()
+    })
+    await page.reload()
+    const token = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/auth/token', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': 'packaged-restart-token' },
+        body: JSON.stringify({ label: 'Packaged restart smoke' }),
+      })
+      if (!response.ok) throw new Error(`packaged token mint returned ${response.status}`)
+      return response.json()
+    })
+    if (!token.token || token.identity.user.id !== identity.user.id) throw new Error('The smoke token has the wrong identity.')
+    const rootPath = join(userDataPath, AUTH_ROOT_FILE)
+    const encryptedRoot = await readFile(rootPath, 'utf8')
+    const ciphertext = JSON.parse(encryptedRoot).ciphertext
+    if ([automaticState, backupState].some((snapshot) => JSON.stringify(snapshot).includes(ciphertext))) {
+      throw new Error('A portable product backup included the device authentication root.')
+    }
+    if (process.platform !== 'win32' && ((await stat(rootPath)).mode & 0o777) !== 0o600) {
+      throw new Error('The device authentication root was not private to the OS user.')
     }
 
     // The isolated user-data directory is a genuine clean release world. Prove
@@ -224,6 +273,58 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       const [previousReference] = Object.keys(beforeRotation.entries ?? {})
       if (!previousReference) throw new Error('The packaged provider workflow did not bind its encrypted credential.')
 
+      await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Say hello from this saved desktop conversation.')
+      await page.getByRole('textbox', { name: 'Message', exact: true }).press('Enter')
+      await page.waitForURL(/\/s\/[^/]+$/)
+      await expect(page.getByText('The model here is a local mock', { exact: false }).first()).toBeVisible({ timeout: TIMEOUT_MS })
+      await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0, { timeout: TIMEOUT_MS })
+      const sessionPath = new URL(page.url()).pathname
+      const savedSession = await page.evaluate(async (path) => {
+        const response = await fetch(`/api/v1/sessions/${path.split('/').at(-1)}`)
+        if (!response.ok) throw new Error(`packaged session read returned ${response.status}`)
+        return response.json()
+      }, sessionPath)
+      if (!savedSession.messages?.some((message) => message.role === 'assistant' && message.content.includes('local mock'))) {
+        throw new Error('The packaged conversation did not persist its completed provider reply.')
+      }
+
+      await closePackagedDesktop(run)
+      run = await launchPackagedDesktop(executable, userDataPath)
+      ;({ origin, page } = run)
+      const reopenedIdentity = await page.evaluate(async () => (await fetch('/api/v1/me')).json())
+      if (reopenedIdentity.via !== 'session' || reopenedIdentity.user.id !== identity.user.id) {
+        throw new Error('The packaged relaunch lost its signed-in account.')
+      }
+      const remembered = await page.evaluate(async () => (await fetch('/api/v1/auth/accounts')).json())
+      if (!remembered.some((account) => account.user.id === identity.user.id)) {
+        throw new Error('The packaged relaunch lost its remembered-account stack.')
+      }
+      const bearerResponse = await fetch(`${origin}/api/v1/me`, { headers: { authorization: `Bearer ${token.token}` } })
+      const bearerIdentity = await bearerResponse.json()
+      if (!bearerResponse.ok || bearerIdentity.via !== 'session' || bearerIdentity.user.id !== identity.user.id) {
+        throw new Error('A personal token stopped working after the packaged relaunch.')
+      }
+      const recoveredToken = await page.evaluate(async () => {
+        const response = await fetch('/api/v1/auth/token', { headers: { 'idempotency-key': 'packaged-restart-token' } })
+        if (!response.ok) throw new Error(`token recovery returned ${response.status}`)
+        return response.json()
+      })
+      if (recoveredToken.session?.token !== token.token) throw new Error('The relaunched app could not recover its exact original token.')
+      const revoked = await page.evaluate(async (id) => {
+        const response = await fetch(`/api/v1/auth/tokens/${id}`, { method: 'DELETE' })
+        return response.status
+      }, token.tokenId)
+      const afterRevocation = await fetch(`${origin}/api/v1/auth/tokens`, { headers: { authorization: `Bearer ${token.token}` } })
+      if (revoked !== 200 || afterRevocation.status !== 401) throw new Error('Persisting the signing root weakened token revocation.')
+      if (await readFile(rootPath, 'utf8') !== encryptedRoot) throw new Error('An ordinary relaunch replaced the authentication root.')
+      await page.goto(`${origin}${sessionPath}`)
+      await expect(page.getByText('The model here is a local mock', { exact: false }).first()).toBeVisible()
+      const reopenedSession = await page.evaluate(async (id) => (await fetch(`/api/v1/sessions/${id}`)).json(), savedSession.id)
+      if (JSON.stringify(reopenedSession.messages) !== JSON.stringify(savedSession.messages)) {
+        throw new Error('The packaged relaunch changed the saved conversation.')
+      }
+      await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
+
       await page.goto(`${origin}/models/${encodeURIComponent(created.id)}`)
       await page.getByRole('button', { name: 'Update connection', exact: true }).click()
       await page.getByPlaceholder('Paste replacement API key', { exact: true }).fill(replacementSecret)
@@ -246,14 +347,13 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       const pruned = JSON.parse(await readFile(vaultPath, 'utf8'))
       if (Object.keys(pruned.entries ?? {}).length !== 0) throw new Error('Provider deletion left a credential in the packaged vault.')
     } else {
-      await firstProviderDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+      throw new Error('A clean packaged app with a protected authentication root must also expose secure provider setup.')
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · ${hasCredentialBridge ? 'OS-encrypted provider create/rotate/delete' : 'secure-storage fallback refused'}`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · OS-encrypted provider create/rotate/delete · signed-in relaunch + personal-token recovery/revocation + saved conversation`,
     )
   } finally {
-    await browser?.close().catch(() => {})
-    await stop(child)
+    await closePackagedDesktop(run)
     await new Promise((resolve) => modelServer.close(resolve)).catch(() => {})
     await rm(userDataPath, { recursive: true, force: true })
   }
