@@ -55,6 +55,33 @@ export interface AdminTokenRow extends ApiToken {
   userName: string
 }
 
+/** Exact recovery truth for the maintainer console's three destructive acts.
+ * Every variant echoes its complete target so a crossed response cannot settle
+ * another row. `ok` appears only on mutation acknowledgement; GET recovery
+ * omits it. Missing accounts/tokens/invites are terminal for the requested
+ * removal, while an accepted/declined invitation is represented but was not
+ * revoked. */
+export type AdminActionState =
+  | {
+      kind: 'deactivate-user'
+      userId: string
+      deactivated: boolean
+      ok?: true
+    }
+  | {
+      kind: 'revoke-token'
+      userId: string
+      tokenId: string
+      revoked: boolean
+      ok?: true
+    }
+  | {
+      kind: 'revoke-invite'
+      inviteId: string
+      status: OrgInviteRow['status'] | 'absent'
+      ok?: true
+    }
+
 /** Body of `GET /v1/admin/ops` — the ops face as ONE JSON document, derived
  *  from the same sources `/metrics` renders (a shared snapshot, so the two
  *  cannot drift). Counts are cumulative since boot unless noted. */

@@ -145,46 +145,6 @@ export function useAdminOps(enabled: boolean): QueryState<OpsSummary> {
   return useQuery(keys.adminOps, () => apiGet<OpsSummary>(paths.adminOps), enabled)
 }
 
-/** Disable an account's sign-in (no ownership cascade — v1). Result-object like
- *  every org mutation; the users list re-reads either way (the row changed, or
- *  the failure told us our copy is stale). */
-export async function adminDeactivateUser(userId: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await apiPost(paths.adminUserDeactivate(userId))
-    invalidate(keys.adminUsers)
-    invalidate(keys.adminTokens) // deactivation empties the user's token registry
-    return { ok: true }
-  } catch (err) {
-    invalidate(keys.adminUsers)
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to deactivate' }
-  }
-}
-
-/** Revoke ANY user's bearer token from the instance view. */
-export async function adminRevokeToken(userId: string, tokenId: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await apiDelete(paths.adminTokenRevoke(userId, tokenId))
-    invalidate(keys.adminTokens)
-    invalidate(keys.adminUsers) // the owner's tokenCount changed
-    return { ok: true }
-  } catch (err) {
-    invalidate(keys.adminTokens)
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to revoke' }
-  }
-}
-
-/** Close a pending org invitation from the instance view. */
-export async function adminRevokeInvite(inviteId: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  try {
-    await apiDelete(paths.adminInviteRevoke(inviteId))
-    invalidate(keys.adminInvites)
-    return { ok: true }
-  } catch (err) {
-    invalidate(keys.adminInvites)
-    return { ok: false, message: err instanceof Error ? err.message : 'Failed to revoke' }
-  }
-}
-
 /* ── Organizations (FWD-6 — namespaces with members, never worlds) ─────────── */
 
 /** The caller's org SEATS (`GET /me/orgs`) — the chip menu's Organizations doors

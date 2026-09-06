@@ -20,6 +20,11 @@ import { accounts } from '../accounts.ts'
 import { store } from '../store/index.ts'
 
 const ADMIN_GETS = ['/admin/users', '/admin/tenants', '/admin/invites', '/admin/tokens', '/admin/audit', '/admin/ops']
+const ADMIN_ACTION_GETS = [
+  '/admin/users/user-1/deactivate',
+  '/admin/tokens/user-1/token-1',
+  '/admin/invites/invite-1',
+]
 
 const asMaintainers = async <T>(list: string, fn: () => Promise<T>): Promise<T> => {
   process.env.MAINTAINERS = list
@@ -46,7 +51,7 @@ before(async () => {
 })
 
 test('the wall: without MAINTAINERS every /admin route 404s for everyone', async () => {
-  for (const path of ADMIN_GETS) {
+  for (const path of [...ADMIN_GETS, ...ADMIN_ACTION_GETS]) {
     const r = await call('GET', path, undefined, ada)
     assert.equal(r.status, 404, `GET ${path} hides without a grant`)
     assert.equal(r.json.error.code, 'not_found')
@@ -58,7 +63,7 @@ test('the wall: without MAINTAINERS every /admin route 404s for everyone', async
 
 test('the wall: a listed maintainer passes; an unlisted signed-in principal still 404s', async () => {
   await asMaintainers('user-ada', async () => {
-    for (const path of ADMIN_GETS) {
+    for (const path of [...ADMIN_GETS, ...ADMIN_ACTION_GETS]) {
       assert.equal((await call('GET', path, undefined, ada)).status, 200, `GET ${path} opens for the maintainer`)
       assert.equal((await call('GET', path, undefined, grace)).status, 404, `GET ${path} hides from everyone else`)
     }
@@ -166,9 +171,19 @@ test('the ops face derives from the same sources /metrics renders', async () => 
 
 test('deactivate: refused on seeded accounts (409) and unknown ids (404)', async () => {
   await asMaintainers('user-ada', async () => {
+    assert.deepEqual((await call('GET', '/admin/users/user-grace/deactivate', undefined, ada)).json, {
+      kind: 'deactivate-user',
+      userId: 'user-grace',
+      deactivated: false,
+    })
     const seeded = await call('POST', '/admin/users/user-grace/deactivate', undefined, ada)
     assert.equal(seeded.status, 409, 'the demo roster is code-owned')
     assert.equal((await call('POST', '/admin/users/user-nope/deactivate', undefined, ada)).status, 404)
+    assert.deepEqual((await call('GET', '/admin/users/user-nope/deactivate', undefined, ada)).json, {
+      kind: 'deactivate-user',
+      userId: 'user-nope',
+      deactivated: true,
+    }, 'an unrepresented account is terminal without weakening compatibility POST')
   })
 })
 
@@ -181,7 +196,22 @@ test('deactivate kills sign-in AND live bearer credentials, and survives a persi
   assert.equal((await call('GET', '/me', undefined, auth)).json.via, 'session', 'the fresh bearer resolves')
 
   await asMaintainers('user-ada', async () => {
-    assert.deepEqual((await call('POST', `/admin/users/${userId}/deactivate`, undefined, ada)).json, { ok: true })
+    assert.deepEqual((await call('POST', `/admin/users/${userId}/deactivate`, undefined, ada)).json, {
+      kind: 'deactivate-user',
+      userId,
+      deactivated: true,
+      ok: true,
+    })
+    assert.deepEqual((await call('GET', `/admin/users/${userId}/deactivate`, undefined, ada)).json, {
+      kind: 'deactivate-user',
+      userId,
+      deactivated: true,
+    })
+    assert.deepEqual(
+      (await call('POST', `/admin/users/${userId}/deactivate`, undefined, { ...ada, 'idempotency-key': 'admin-deactivate-replay' })).json,
+      { kind: 'deactivate-user', userId, deactivated: true, ok: true },
+      'an exact keyed replay converges without another state transition',
+    )
   })
   // The lockout is the existing stale-credential fall-through: the bearer no
   // longer resolves (falls to the default principal), and login refuses.
@@ -216,8 +246,20 @@ test('token revoke from the instance view kills the credential immediately; unkn
     const rows = await call('GET', '/admin/tokens', undefined, ada)
     const row = rows.json.find((t: any) => t.id === jti)
     assert.equal(row?.userId, 'user-grace', 'the instance list names the owner')
-    assert.equal((await call('DELETE', `/admin/tokens/user-grace/${jti}`, undefined, ada)).status, 200)
+    assert.deepEqual((await call('GET', `/admin/tokens/user-grace/${jti}`, undefined, ada)).json, {
+      kind: 'revoke-token', userId: 'user-grace', tokenId: jti, revoked: false,
+    })
+    assert.deepEqual(
+      (await call('DELETE', `/admin/tokens/user-grace/${jti}`, undefined, { ...ada, 'idempotency-key': 'admin-token-revoke' })).json,
+      { kind: 'revoke-token', userId: 'user-grace', tokenId: jti, revoked: true, ok: true },
+    )
+    assert.deepEqual((await call('GET', `/admin/tokens/user-grace/${jti}`, undefined, ada)).json, {
+      kind: 'revoke-token', userId: 'user-grace', tokenId: jti, revoked: true,
+    })
     assert.equal((await call('DELETE', `/admin/tokens/user-grace/${jti}`, undefined, ada)).status, 404, 'gone is gone')
+    assert.deepEqual((await call('GET', '/admin/tokens/user-grace/token-nope', undefined, ada)).json, {
+      kind: 'revoke-token', userId: 'user-grace', tokenId: 'token-nope', revoked: true,
+    })
   })
   assert.equal((await call('GET', '/me', undefined, graceAuth)).json.via, 'default', 'the revoked bearer stops resolving')
 })
@@ -233,8 +275,25 @@ test('invite revoke from the instance view: pending closes, resolved 409s, unkno
     const list = await call('GET', '/admin/invites', undefined, ada)
     const row = list.json.find((i: any) => i.id === invite.json.id)
     assert.equal(row?.orgName, 'Console Test Org', 'the instance view names the org')
-    assert.equal((await call('DELETE', `/admin/invites/${invite.json.id}`, undefined, ada)).status, 200)
+    assert.deepEqual((await call('GET', `/admin/invites/${invite.json.id}`, undefined, ada)).json, {
+      kind: 'revoke-invite', inviteId: invite.json.id, status: 'invited',
+    })
+    assert.deepEqual(
+      (await call('DELETE', `/admin/invites/${invite.json.id}`, undefined, { ...ada, 'idempotency-key': 'admin-invite-revoke' })).json,
+      { kind: 'revoke-invite', inviteId: invite.json.id, status: 'revoked', ok: true },
+    )
+    assert.deepEqual((await call('GET', `/admin/invites/${invite.json.id}`, undefined, ada)).json, {
+      kind: 'revoke-invite', inviteId: invite.json.id, status: 'revoked',
+    })
+    assert.deepEqual(
+      (await call('DELETE', `/admin/invites/${invite.json.id}`, undefined, { ...ada, 'idempotency-key': 'admin-invite-revoke-again' })).json,
+      { kind: 'revoke-invite', inviteId: invite.json.id, status: 'revoked', ok: true },
+      'a keyed desired-state replay does not emit another transition',
+    )
     assert.equal((await call('DELETE', `/admin/invites/${invite.json.id}`, undefined, ada)).status, 409, 'already resolved')
     assert.equal((await call('DELETE', '/admin/invites/invite-nope', undefined, ada)).status, 404)
+    assert.deepEqual((await call('GET', '/admin/invites/invite-nope', undefined, ada)).json, {
+      kind: 'revoke-invite', inviteId: 'invite-nope', status: 'absent',
+    })
   })
 })

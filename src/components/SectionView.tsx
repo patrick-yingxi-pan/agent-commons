@@ -290,9 +290,6 @@ import {
   useAdminTokens,
   useAdminAudit,
   useAdminOps,
-  adminDeactivateUser,
-  adminRevokeToken,
-  adminRevokeInvite,
   invalidate,
   keys,
   type ResourceUnavailableState,
@@ -583,6 +580,13 @@ import {
   useDiscussionReadStatus,
 } from '../controller/discussionReadMutations.ts'
 import {
+  adminActionResourceId,
+  enqueueAdminAction,
+  heldAdminAction,
+  useAdminActionStatus,
+  type AdminActionTarget,
+} from '../controller/adminActionMutations.ts'
+import {
   enqueueSavedContextCreation,
   isSavedContextCreationHeld,
   useSavedContextCreationStatus,
@@ -655,7 +659,6 @@ import {
   type AuditEntry,
   type AdminInviteRow,
   type AdminTenantRow,
-  type AdminTokenRow,
   type AdminUserRow,
   type MyOrg,
   type OpenSubGoal,
@@ -13245,12 +13248,6 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
   const usersQ = useAdminUsers(true)
   const row = usersQ.data?.find((u) => u.user.id === userId)
   const tokens = (useAdminTokens(true).data ?? []).filter((t) => t.userId === userId)
-  const [error, setError] = useState<string | null>(null)
-  const act = async (run: () => Promise<{ ok: true } | { ok: false; message: string }>) => {
-    setError(null)
-    const out = await run()
-    if (!out.ok) setError(out.message)
-  }
   return (
     <AtomicResourcePage>
       <header className={PAGE_HEADER_CLASS}>
@@ -13277,7 +13274,6 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
         <PageEmpty>{usersQ.error ? 'The account read failed — are you still on the maintainer allowlist?' : 'Loading account…'}</PageEmpty>
       ) : (
         <div>
-          {error && <p className="text-[12px] text-removed">{error}</p>}
           <FoldSection
             title="Namespace"
             summary={row.homeTenant ? `${row.homeTenant.name} · ${row.homeTenant.kind}` : 'No home namespace'}
@@ -13321,7 +13317,7 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
             ) : (
               <CardList>
                 {tokens.map((t) => (
-                  <div key={t.id} className="flex items-center gap-2.5 py-2.5">
+                  <div key={t.id} data-admin-token-id={t.id} className="flex items-center gap-2.5 py-2.5">
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
                       <div className="truncate text-[11px] text-ink-faint">
@@ -13331,7 +13327,8 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
                     <AdminConfirmAction
                       label="Revoke"
                       confirmLabel="Revoke token"
-                      onConfirm={() => void act(() => adminRevokeToken(userId, t.id))}
+                      pendingLabel="Revoking…"
+                      action={{ kind: 'revoke-token', userId, tokenId: t.id }}
                     />
                   </div>
                 ))}
@@ -13347,7 +13344,8 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
                 <AdminConfirmAction
                   label="Deactivate"
                   confirmLabel="Deactivate account"
-                  onConfirm={() => void act(() => adminDeactivateUser(userId))}
+                  pendingLabel="Deactivating…"
+                  action={{ kind: 'deactivate-user', userId }}
                 />
               </div>
             </FoldSection>
@@ -13364,17 +13362,44 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
 function AdminConfirmAction({
   label,
   confirmLabel,
-  onConfirm,
+  pendingLabel,
+  action,
 }: {
   label: string
   confirmLabel: string
-  onConfirm: () => void
+  pendingLabel: string
+  action: AdminActionTarget
 }) {
+  const me = useMe().data
+  const mutation = useAdminActionStatus()
+  const held = heldAdminAction(action)
+  const resourceId = adminActionResourceId(action)
+  const active = mutation.activeResourceId === resourceId
+  const failed = active && mutation.error !== null
+  const phase = held ? (!active ? 'queued' : failed ? 'failed' : 'pending') : undefined
   const [armed, setArmed] = useState(false)
+  if (held) {
+    return (
+      <button
+        type="button"
+        data-admin-action={phase}
+        data-admin-action-resource={resourceId}
+        disabled
+        aria-busy={active && !failed || undefined}
+        title={failed ? 'Use Retry or Dismiss in the recovery banner' : undefined}
+        className={`${DANGER_BUTTON_CLASS} shrink-0 px-2 py-0.5 text-[11px] disabled:opacity-55`}
+      >
+        {!active ? `${label} queued` : failed ? 'Waiting for Retry' : pendingLabel}
+      </button>
+    )
+  }
   if (!armed) {
     return (
       <button
+        type="button"
+        data-admin-action-resource={resourceId}
         onClick={() => setArmed(true)}
+        disabled={!me}
         className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-removed hover:text-removed"
       >
         {label}
@@ -13384,15 +13409,19 @@ function AdminConfirmAction({
   return (
     <span className="flex shrink-0 items-center gap-1.5">
       <button
+        type="button"
+        data-admin-action-resource={resourceId}
         onClick={() => {
           setArmed(false)
-          onConfirm()
+          if (me) void enqueueAdminAction({ ...action, tenantId: me.tenant.id })
         }}
+        disabled={!me}
         className={`${DANGER_BUTTON_CLASS} px-2 py-0.5 text-[11px]`}
       >
         {confirmLabel}
       </button>
       <button
+        type="button"
         onClick={() => setArmed(false)}
         className="rounded-md px-1.5 py-0.5 text-[11px] text-ink-faint transition hover:text-ink"
       >
@@ -13532,7 +13561,6 @@ function AdminOrgsPanel() {
   const tenants = useAdminTenants(true).data ?? []
   const users = useAdminUsers(true).data ?? []
   const invites = useAdminInvites(true).data ?? []
-  const [error, setError] = useState<string | null>(null)
   // TRUE orgs only: an org-kind tenant that is somebody's namespace (the Acme
   // seed world) is not an organization — the `namespace` fact discriminates —
   // and a seatless legacy tenant (a pre-collapse snapshot echo) has no roster
@@ -13540,14 +13568,8 @@ function AdminOrgsPanel() {
   const orgs = tenants.filter((t) => t.tenant.kind === 'org' && !t.namespace && t.members > 0)
   const membersOf = (orgId: string) =>
     users.flatMap((u) => u.orgSeats.filter((s) => s.tenant.id === orgId).map((s) => ({ user: u.user, role: s.role })))
-  const revoke = async (id: string) => {
-    setError(null)
-    const out = await adminRevokeInvite(id)
-    if (!out.ok) setError(out.message)
-  }
   return (
     <div className="space-y-5">
-      {error && <p className="text-[12px] text-removed">{error}</p>}
       {orgs.length === 0 ? (
         <Empty>No organizations founded yet.</Empty>
       ) : (
@@ -13572,7 +13594,7 @@ function AdminOrgsPanel() {
         ) : (
           <CardList>
             {invites.map((i) => (
-              <AdminInviteRowView key={i.id} row={i} onRevoke={() => revoke(i.id)} />
+              <AdminInviteRowView key={i.id} row={i} />
             ))}
           </CardList>
         )}
@@ -13581,9 +13603,9 @@ function AdminOrgsPanel() {
   )
 }
 
-function AdminInviteRowView({ row, onRevoke }: { row: AdminInviteRow; onRevoke: () => void }) {
+function AdminInviteRowView({ row }: { row: AdminInviteRow }) {
   return (
-    <div className="flex items-center gap-2.5 py-2.5">
+    <div data-admin-invite-id={row.id} className="flex items-center gap-2.5 py-2.5">
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] text-ink">
           {row.email} <span className="text-ink-faint">→ {row.orgName}</span>
@@ -13594,7 +13616,12 @@ function AdminInviteRowView({ row, onRevoke }: { row: AdminInviteRow; onRevoke: 
       </div>
       <AdminBadge tone={row.status === 'revoked' ? 'danger' : 'neutral'}>{row.status}</AdminBadge>
       {row.status === 'invited' && (
-        <AdminConfirmAction label="Revoke" confirmLabel="Revoke invite" onConfirm={onRevoke} />
+        <AdminConfirmAction
+          label="Revoke"
+          confirmLabel="Revoke invite"
+          pendingLabel="Revoking…"
+          action={{ kind: 'revoke-invite', inviteId: row.id }}
+        />
       )}
     </div>
   )
@@ -13604,12 +13631,6 @@ function AdminInviteRowView({ row, onRevoke }: { row: AdminInviteRow; onRevoke: 
  *  instance-side revocation. Peer + provider secrets keep their own surfaces. */
 function AdminCredentialsPanel() {
   const tokens = useAdminTokens(true).data ?? []
-  const [error, setError] = useState<string | null>(null)
-  const revoke = async (row: AdminTokenRow) => {
-    setError(null)
-    const out = await adminRevokeToken(row.userId, row.id)
-    if (!out.ok) setError(out.message)
-  }
   return (
     <div className="space-y-3">
       <p className="text-[12px] leading-relaxed text-ink-soft">
@@ -13617,20 +13638,24 @@ function AdminCredentialsPanel() {
         {' '}(the value is shown once, at mint). Revoking a row kills the credential immediately. A2A peer
         credentials and relay rendezvous secrets are administered on their own surfaces (Agents and Models).
       </p>
-      {error && <p className="text-[12px] text-removed">{error}</p>}
       {tokens.length === 0 ? (
         <Empty>No bearer tokens minted on this instance.</Empty>
       ) : (
         <CardList>
           {tokens.map((t) => (
-            <div key={`${t.userId}:${t.id}`} className="flex items-center gap-2.5 py-2.5">
+            <div key={`${t.userId}:${t.id}`} data-admin-token-id={t.id} className="flex items-center gap-2.5 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-[13px] text-ink">{t.label ?? 'Unlabeled token'}</div>
                 <div className="truncate text-[11px] text-ink-faint">
                   {t.userName} · minted {relativeTime(t.createdAt)}
                 </div>
               </div>
-              <AdminConfirmAction label="Revoke" confirmLabel="Revoke token" onConfirm={() => revoke(t)} />
+              <AdminConfirmAction
+                label="Revoke"
+                confirmLabel="Revoke token"
+                pendingLabel="Revoking…"
+                action={{ kind: 'revoke-token', userId: t.userId, tokenId: t.id }}
+              />
             </div>
           ))}
         </CardList>

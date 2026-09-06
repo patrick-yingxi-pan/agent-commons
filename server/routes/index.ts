@@ -1119,38 +1119,80 @@ export function buildRouter(): Router {
     if (maintainerDenied(req, res)) return
     sendJson(res, opsSnapshot())
   })
+  const adminUserDeactivationState = (userId: string): import('../../contract/index.ts').AdminActionState => {
+    const row = accounts.adminListUsers().find((candidate) => candidate.user.id === userId)
+    return { kind: 'deactivate-user', userId, deactivated: !row || row.deactivated === true }
+  }
+  const adminTokenRevocationState = (userId: string, tokenId: string): import('../../contract/index.ts').AdminActionState => ({
+    kind: 'revoke-token',
+    userId,
+    tokenId,
+    revoked: !accounts.adminListTokens().some((candidate) => candidate.userId === userId && candidate.id === tokenId),
+  })
+  const adminInviteRevocationState = (inviteId: string): import('../../contract/index.ts').AdminActionState => ({
+    kind: 'revoke-invite',
+    inviteId,
+    status: accounts.adminListInvites().find((candidate) => candidate.id === inviteId)?.status ?? 'absent',
+  })
   // Disable an account's sign-in (v1 "delete" — no ownership cascade; the
   // stale-credential fall-through in identity.ts does the lockout). Seeded
   // demo accounts are code-owned and refuse with an honest 409.
+  r.aliasGet('/admin/users/:id/deactivate', 'POST /admin/users/:id/deactivate', 'exact deactivation truth is the recovery face of the same maintainer-only account action', ({ req, res, params }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, adminUserDeactivationState(params.id))
+  })
   r.post('/admin/users/:id/deactivate', ({ req, res, params }) => {
     if (maintainerDenied(req, res)) return
+    const current = adminUserDeactivationState(params.id)
+    if (
+      current.kind === 'deactivate-user' &&
+      current.deactivated &&
+      accounts.adminListUsers().some((candidate) => candidate.user.id === params.id)
+    ) {
+      return sendJson(res, { ...current, ok: true as const })
+    }
     const out = accounts.deactivateUser(params.id)
     if (out === undefined) return sendError(res, 'not_found', `No user '${params.id}'`)
     if (out === 'seeded') return sendError(res, 'conflict', 'Seeded demo accounts cannot be deactivated.')
     store.accountsMutated()
-    sendJson(res, { ok: true })
+    sendJson(res, { ...adminUserDeactivationState(params.id), ok: true as const })
   })
   // Revoke ANY user's bearer token (the per-user face is DELETE /auth/tokens/:id).
+  r.aliasGet('/admin/tokens/:userId/:id', 'DELETE /admin/tokens/:userId/:id', 'exact token absence is the recovery face of the same maintainer-only credential action', ({ req, res, params }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, adminTokenRevocationState(params.userId, params.id))
+  })
   r.delete('/admin/tokens/:userId/:id', ({ req, res, params }) => {
     if (maintainerDenied(req, res)) return
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     if (!accounts.revokeApiToken(params.userId, params.id)) {
+      if (idempotencyKey) {
+        return sendJson(res, { ...adminTokenRevocationState(params.userId, params.id), ok: true as const })
+      }
       return sendError(res, 'not_found', `No token '${params.id}' on user '${params.userId}'`)
     }
     store.accountsMutated()
-    sendJson(res, { ok: true })
+    sendJson(res, { ...adminTokenRevocationState(params.userId, params.id), ok: true as const })
   })
   // Revoke a pending org invite from the instance view (the org face is
   // DELETE /orgs/:id/invites/:iid, owner-only; this one crosses orgs).
+  r.aliasGet('/admin/invites/:id', 'DELETE /admin/invites/:id', 'exact invitation terminal state is the recovery face of the same maintainer-only organization action', ({ req, res, params }) => {
+    if (maintainerDenied(req, res)) return
+    sendJson(res, adminInviteRevocationState(params.id))
+  })
   r.delete('/admin/invites/:id', ({ req, res, params }) => {
     if (maintainerDenied(req, res)) return
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     const stored = accounts.orgInvites.find((i) => i.id === params.id)
-    const out = stored && accounts.revokeInviteCommand(stored.orgId, params.id)
+    const out = stored && accounts.revokeInviteCommand(stored.orgId, params.id, { replayRevoked: !!idempotencyKey })
     if (!out) return sendError(res, 'not_found', `No invitation '${params.id}'`)
     if (out.kind === 'closed') return sendError(res, 'conflict', 'This invitation was already resolved.')
-    store.accountsMutated()
-    const changed = accounts.orgInvites.find((candidate) => candidate.id === params.id)
-    if (changed) emitOrgInviteChange(changed, 'revoked')
-    sendJson(res, { ok: true })
+    if (out.changed) {
+      store.accountsMutated()
+      const changed = accounts.orgInvites.find((candidate) => candidate.id === params.id)
+      if (changed) emitOrgInviteChange(changed, 'revoked')
+    }
+    sendJson(res, { ...adminInviteRevocationState(params.id), ok: true as const })
   })
 
   // ── Native-runner registry ─────────────────────────────────────────────────
