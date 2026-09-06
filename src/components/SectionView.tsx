@@ -306,12 +306,13 @@ import {
   useAgentToolCatalog,
   useNotifications,
 } from '../api'
+import { refreshProviderCatalog } from '../controller/providerConnection'
 import {
   createProviderConnectionAttempt,
+  enqueueProviderConnection,
   isProviderConnectionHeld,
-  refreshProviderCatalog,
-  replaceProviderConnection,
-} from '../controller/providerConnection'
+  useProviderConnectionStatus,
+} from '../controller/providerConnectionMutations.ts'
 import {
   enqueueProviderSecretRotation,
   useProviderSecretRotationStatus,
@@ -9409,6 +9410,8 @@ function FormDialog({
   onClose,
   error,
   busy = false,
+  fieldsDisabled = busy,
+  cancelLabel = 'Cancel',
   children,
 }: {
   title: string
@@ -9421,6 +9424,8 @@ function FormDialog({
   onClose: () => void
   error?: string | null
   busy?: boolean
+  fieldsDisabled?: boolean
+  cancelLabel?: string
   children: ReactNode
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -9466,7 +9471,7 @@ function FormDialog({
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-          <fieldset disabled={busy} className="contents">
+          <fieldset disabled={fieldsDisabled} className="contents">
             {children}
           </fieldset>
           {error && <p className="text-[12px] text-removed">{error}</p>}
@@ -9478,11 +9483,11 @@ function FormDialog({
             disabled={busy}
             className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
           >
-            Cancel
+            {cancelLabel}
           </button>
           <button
             onClick={onSubmit}
-            disabled={!canSubmit || busy}
+            disabled={!canSubmit || fieldsDisabled}
             className={`flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
           >
             {submitIcon}
@@ -10417,6 +10422,9 @@ function ModelsSection({
   // null = no dialog; 'new' = create; a provider = edit that one.
   const [editing, setEditing] = useState<ModelProvider | 'new' | null>(null)
   const [updatingConnectionId, setUpdatingConnectionId] = useState<string | null>(null)
+  useEffect(() => {
+    if (updatingConnectionId && providerId !== updatingConnectionId) setUpdatingConnectionId(null)
+  }, [providerId, updatingConnectionId])
   // A draft's explicit "Connect a model" door carries that draft in the pane
   // back stack. Once the registry has resolved and proves nothing can answer,
   // open the canonical provider form exactly once. Cancelling leaves the Models
@@ -10654,6 +10662,7 @@ function ProviderDetailSections({
   const me = useMe().data
   useProviderDefinitionMutationStatus()
   useProviderDeletionStatus()
+  useProviderConnectionStatus()
   const rotation = useProviderSecretRotationStatus()
   const [refreshing, setRefreshing] = useState(false)
   const [confirmingRemoval, setConfirmingRemoval] = useState(false)
@@ -11397,24 +11406,29 @@ function ProviderDialog({
  * fields mean "keep"; every supplied value is merged and the effective
  * connection is probed before the atomic server swap. */
 function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvider; onClose: () => void }) {
+  const me = useMe().data
+  const mutation = useProviderConnectionStatus()
   const [baseURL, setBaseURL] = useState('')
   const [model, setModel] = useState('')
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [uncertain, setUncertain] = useState(false)
-  const attemptRef = useRef<ReturnType<typeof createProviderConnectionAttempt> | null>(null)
   const hasSecureDeviceVault = desktopCredentialsAvailable()
+  const recoveryOwned = mutation.activeResourceId === provider.id && Boolean(mutation.error)
   const hasReplacement = Boolean(
     baseURL.trim() || model.trim() || (hasSecureDeviceVault ? apiKey.trim() : apiKeyEnv.trim()),
   )
 
   const submit = async () => {
     if (!hasReplacement || busy) return
+    if (!me) {
+      setError('Wait for your account to finish loading, then try again.')
+      return
+    }
     setBusy(true)
     setError(null)
-    const attempt = attemptRef.current ?? createProviderConnectionAttempt(
+    const attempt = createProviderConnectionAttempt(
       {
         ...(baseURL.trim() ? { baseURL: baseURL.trim() } : {}),
         ...(model.trim() ? { model: model.trim() } : {}),
@@ -11424,13 +11438,19 @@ function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvid
       hasSecureDeviceVault && apiKey.trim() ? apiKey.trim() : undefined,
       crypto.randomUUID(),
     )
-    attemptRef.current = attempt
     try {
-      await replaceProviderConnection(provider.id, attempt)
-      onClose()
+      const outcome = enqueueProviderConnection({ tenantId: me.tenant.id, providerId: provider.id, attempt })
+      if (!outcome) {
+        setError('Wait for the current provider change to settle before updating its connection.')
+        setBusy(false)
+        return
+      }
+      if (await outcome === 'applied') onClose()
+      else {
+        setError('Your connection details are still here. Review them, then update again when ready.')
+        setBusy(false)
+      }
     } catch (e) {
-      setUncertain(attempt.uncertain)
-      if (!attempt.uncertain) attemptRef.current = null
       setError(e instanceof Error ? e.message : 'Could not update this connection.')
       setBusy(false)
     }
@@ -11440,28 +11460,24 @@ function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvid
     <FormDialog
       title="Update connection"
       icon={<Plug size={18} className="text-ink-soft" />}
-      submitLabel={uncertain ? 'Retry update' : 'Verify & update'}
+      submitLabel="Verify & update"
       canSubmit={hasReplacement && !busy}
       onSubmit={submit}
       onClose={onClose}
       error={error}
-      busy={busy}
+      busy={busy && !recoveryOwned}
+      fieldsDisabled={busy}
+      cancelLabel={recoveryOwned ? 'Close form' : 'Cancel'}
     >
       <p className="text-[12px] leading-relaxed text-ink-soft">
         Replace only what changed for <span className="font-medium text-ink">{provider.label}</span>. Existing connection
         details stay write-only; blank fields remain unchanged. The complete connection is verified before anything is saved.
       </p>
-      {uncertain && (
-        <p className="rounded-md border border-warn/30 bg-warn/[0.08] px-2.5 py-2 text-[11px] leading-relaxed text-ink-soft">
-          The result is uncertain, so these fields are held unchanged. Retry safely reuses the same request and device-key reference.
-        </p>
-      )}
       <FormField label="Messages API URL" optional>
         <input
           type="url"
           value={baseURL}
           onChange={(e) => setBaseURL(e.target.value)}
-          disabled={uncertain}
           placeholder="New URL — leave blank to keep"
           className={FORM_INPUT_CLASS}
         />
@@ -11470,7 +11486,6 @@ function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvid
         <input
           value={model}
           onChange={(e) => setModel(e.target.value)}
-          disabled={uncertain}
           placeholder="New model — leave blank to keep"
           className={FORM_INPUT_CLASS}
         />
@@ -11481,7 +11496,6 @@ function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvid
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            disabled={uncertain}
             placeholder="Paste replacement API key"
             autoComplete="new-password"
             spellCheck={false}
@@ -11496,7 +11510,6 @@ function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvid
           <input
             value={apiKeyEnv}
             onChange={(e) => setApiKeyEnv(e.target.value.toUpperCase())}
-            disabled={uncertain}
             placeholder="PROVIDER_REPLACEMENT_KEY"
             className={FORM_INPUT_CLASS}
           />

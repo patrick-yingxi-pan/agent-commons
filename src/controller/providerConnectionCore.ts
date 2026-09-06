@@ -7,9 +7,9 @@ import type {
   UpdateProviderConnectionRequest,
 } from '../../contract/index.ts'
 
-/** One dialog lifetime owns one logical replacement. Mutable acknowledgement
- * state lets an explicit Retry reuse the exact idempotency key and provisioned
- * credential reference after an uncertain response. */
+/** One submitted intent owns one logical replacement. Mutable acknowledgement
+ * state lets shell Retry reuse the exact idempotency key and provisioned
+ * credential reference after the originating dialog leaves. */
 export interface ProviderConnectionAttempt {
   readonly patch: ProviderConnectionPatch
   readonly expectedRevision: number

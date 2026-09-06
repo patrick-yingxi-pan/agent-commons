@@ -102,17 +102,23 @@ test('lost maintainer capability cannot strand the restored workspace on a hidde
   // default e2e identity is deliberately unsigned, so its current chrome no
   // longer offers Maintain even though the per-account local blob still does.
   const storageKey = `claude-ui.mainsplit.v1.${me.user.id}`
-  await page.evaluate((key) => {
-    localStorage.setItem(key, JSON.stringify({
-      kind: 'pane',
-      content: { kind: 'msection', id: 'admin', sub: 'ops' },
-    }))
-  }, storageKey)
+  const stalePreference = JSON.stringify({
+    kind: 'pane',
+    content: { kind: 'msection', id: 'admin', sub: 'ops' },
+  })
+  await page.evaluate(({ key, value }) => localStorage.setItem(key, value), {
+    key: storageKey,
+    value: stalePreference,
+  })
   await page.reload()
 
   await expect(page.locator('[data-conversation-pane="draft"]')).toBeVisible()
   await expect(page.getByRole('heading', { name: /Maintain/ })).toHaveCount(0)
-  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey)).toBeNull()
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey)).not.toBe(stalePreference)
+  const safePreference = await page.evaluate((key) => localStorage.getItem(key), storageKey)
+  if (safePreference !== null) {
+    expect(JSON.parse(safePreference)).toEqual({ kind: 'pane', content: { kind: 'msession', id: 'draft' } })
+  }
   expect(new URL(page.url()).pathname).toBe('/')
 
   // A deliberate deep link remains an honest explanation instead of becoming

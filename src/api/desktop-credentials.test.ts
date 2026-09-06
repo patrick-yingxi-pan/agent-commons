@@ -70,7 +70,7 @@ test('the provider dialog switches only credential entry—not the provider HTTP
   assert.match(source, /function ProviderConnectionDialog\(/)
   assert.match(source, /label="Update connection"/)
   assert.match(source, /placeholder="Paste replacement API key"/)
-  assert.match(source, /replaceProviderConnection\(/, 'rotation uses the acknowledgement-gated controller sequence')
+  assert.match(source, /enqueueProviderConnection\(/, 'replacement enters the shell-owned acknowledgement sequence')
   assert.match(source, /createProviderConnectionAttempt\(/, 'one dialog lifetime owns one retryable logical replacement')
   assert.match(source, /provider\.connectionRevision \?\? 0/, 'the dialog pins the public connection revision it reviewed')
   const connectionCommand = commands.slice(

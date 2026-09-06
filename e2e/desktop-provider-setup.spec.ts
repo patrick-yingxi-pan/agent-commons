@@ -67,7 +67,7 @@ test('desktop provider setup keeps its OS-encrypted key face reachable at every 
   }
 })
 
-test('a lost rotation acknowledgement retries the exact request and device key once', async ({ page }) => {
+test('a lost connection acknowledgement survives navigation and retries the exact device key once', async ({ page }) => {
   test.setTimeout(ms(90_000))
   await page.addInitScript(() => {
     ;(window as any).__desktopCredentialCalls = []
@@ -122,11 +122,20 @@ test('a lost rotation acknowledgement retries the exact request and device key o
   })
   await page.getByPlaceholder('Paste replacement API key', { exact: true }).fill(replacement)
   await page.getByRole('button', { name: 'Verify & update', exact: true }).click()
-  await expect(dialog.getByText('Couldn’t confirm whether this connection changed', { exact: false })).toBeVisible()
-  await expect(dialog.getByText('The result is uncertain', { exact: false })).toBeVisible()
+  const failed = page.locator('[data-provider-connection="failed"]')
+  await expect(failed).toContainText('Couldn’t confirm whether this connection changed')
   await expect(page.getByPlaceholder('Paste replacement API key', { exact: true })).toBeDisabled()
-  await page.getByRole('button', { name: 'Retry update', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Close form', exact: true }).click()
   await expect(dialog).toBeHidden()
+
+  const sections = page.getByRole('navigation', { name: 'Sections' })
+  await sections.getByRole('button', { name: 'Models', exact: true }).click()
+  await page.getByRole('main').getByText(provider.label, { exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Update connection', exact: true })).toBeDisabled()
+
+  await failed.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(failed).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Update connection', exact: true })).toBeEnabled()
 
   expect(requests).toHaveLength(2)
   expect(requests[0]!.body).toEqual({
@@ -137,6 +146,9 @@ test('a lost rotation acknowledgement retries the exact request and device key o
   expect(requests[0]!.key).toBeTruthy()
   expect(requests[1]!.key).toBe(requests[0]!.key)
   expect(JSON.stringify(requests)).not.toContain(replacement)
+  const represented = await page.request.get(`/api/v1/providers/${provider.id}`)
+  expect(represented.ok()).toBeTruthy()
+  expect(((await represented.json()) as { connectionRevision?: number }).connectionRevision).toBe(1)
   expect(await page.evaluate(() => (window as any).__desktopCredentialCalls)).toEqual([
     ['provision', replacement],
     ['bind', `PROVIDER_DESKTOP_${'E'.repeat(32)}`, provider.id],

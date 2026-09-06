@@ -31,6 +31,7 @@ import { GrantMutationNotice } from './GrantMutationNotice'
 import { ProposalVerdictMutationNotice } from './ProposalVerdictMutationNotice'
 import { ProviderDefinitionMutationNotice } from './ProviderDefinitionMutationNotice'
 import { ProviderCreationMutationNotice } from './ProviderCreationMutationNotice'
+import { ProviderConnectionMutationNotice } from './ProviderConnectionMutationNotice'
 import { ProviderSecretRotationMutationNotice } from './ProviderSecretRotationMutationNotice'
 import { RelationMutationNotice } from './RelationMutationNotice'
 import { ScheduleMutationNotice } from './ScheduleMutationNotice'
@@ -124,6 +125,7 @@ export function ShellMutationNotices() {
       <AgentProposalVerdictMutationNotice />
       <ProviderDefinitionMutationNotice />
       <ProviderCreationMutationNotice />
+      <ProviderConnectionMutationNotice />
       <ProviderSecretRotationMutationNotice />
       <SystemPromptDefinitionMutationNotice />
       <SystemPromptCreationMutationNotice />
