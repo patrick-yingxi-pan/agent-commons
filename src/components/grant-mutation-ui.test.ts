@@ -28,6 +28,12 @@ test('every sharing host retains one frozen draft behind the shell recovery door
     'one settled projection cannot release a still-queued sibling hold')
   assert.match(panel, /maxLength=\{MAX_GRANT_NOTE_CHARS\}/,
     'the UI and server share one note boundary')
+  assert.match(panel, /const noteHelpId = useId\(\)/,
+    'the note help gets a stable per-instance description id')
+  assert.match(panel, /aria-describedby=\{noteHelpId\}[\s\S]*placeholder="Optional note"/,
+    'the note keeps its existing accessible label while using concise narrow copy')
+  assert.match(panel, /<p id=\{noteHelpId\}[\s\S]*Add a note to publish to this audience\. Leave blank to share access only\./,
+    'sharing guidance is persistent associated prose, not a clipped placeholder')
 
   for (const [name, source] of [['project/routine', section], ['artifact', artifact]] as const) {
     assert.match(source, /heldOpen=\{sharingHeld\}/, `${name} sharing section stays mounted while held`)

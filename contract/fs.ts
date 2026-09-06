@@ -5,8 +5,9 @@
  *
  *   • `ui-host`  — the machine the UI runs on. Read CLIENT-side (browser File
  *     System Access API / `<input type=file>` / drag-drop; Electron local fs on
- *     desktop). The server never sees these bytes unless an effect uploads them,
- *     so the server-backed catalog/content endpoints below do NOT serve it.
+ *     desktop). Picked previews persist through the conversation workspace;
+ *     bounded local text can be model input. The catalog/content endpoints below
+ *     do NOT gain filesystem authority over this source.
  *   • `runner`   — a connected native runner's host, reached through the broker
  *     (`fs.list` / `fs.read`, with a broker bytes route proxying the runner).
  *   • `cloud`    — the web backend's own storage, served from a root on its disk.
@@ -81,7 +82,7 @@ export interface FsFolderContents {
 }
 
 /** What `GET /fs/text?source=&path=` returns — a file's textual content (the
- *  editable preview). `kind` says whether the file is text (served here), an image
+ *  read-only preview). `kind` says whether the file is text (served here), an image
  *  (use the bytes content endpoint instead), or other binary. */
 export interface FsFileContent {
   id: string

@@ -13,6 +13,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { setTimeout as delay } from 'node:timers/promises'
 import { API_BASE_PATH } from '../../contract/index.ts'
 import { callTool, callToolForPrompt, spawnConnector as spawnScript, startRelayStub, type Connector } from '../testkit/connector.ts'
 
@@ -24,6 +25,16 @@ const CONNECTOR = fileURLToPath(new URL('../../connector/relay-connector.ts', im
 // the process-owned keepalive loop makes raw request COUNTS nondeterministic, so
 // assertions below filter by path/bearer instead of counting.
 const spawnConnector = (env: Record<string, string> = {}): Connector => spawnScript(CONNECTOR, { RELAY_BLOCK_MS: '100', ...env })
+
+/** Wait for the relay stub's observable receipt instead of racing the connector
+ * keepalive loop after the JSON-RPC start acknowledgement. */
+async function waitForPoll(stub: Awaited<ReturnType<typeof startRelayStub>>, expectedPath: string): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (!stub.seen.some((request) => request.path === expectedPath)) {
+    if (Date.now() >= deadline) throw new Error(`Timed out waiting for relay poll ${expectedPath}`)
+    await delay(10)
+  }
+}
 
 test('the connector default URL matches where the backend actually mounts its API', () => {
   // Regression: the backend serves everything under API_BASE_PATH (`/api/v1`);
@@ -322,6 +333,7 @@ test('v5 serving declaration: start(conversations) is advertised on every poll a
   const c = spawnConnector()
   try {
     assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl', conversations: 2 }), /Nothing pending/)
+    await waitForPoll(stub, '/v1/relay/poll?channels=2')
     assert.ok(stub.seen.length >= 1)
     assert.ok(
       stub.seen.every((s) => s.path.startsWith('/v1/relay/poll?channels=2')),

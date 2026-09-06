@@ -219,6 +219,56 @@ test('the round-trip: offer → poll → reply → streamed turn (estimated usag
   })
 })
 
+test('a persisted local text attachment reaches relay prompts, then disappears after detach', async () => {
+  const p = await mintSessionProvider('Attachment relay')
+  const { sessionId } = await sessionOnProvider(p.id)
+  const session = (await call('GET', `/sessions/${sessionId}`)).json
+  const attachment = {
+    id: 'ui-attachment-relay',
+    label: 'relay-notes.md',
+    kind: 'file',
+    source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+    previewText: 'RELAY_ATTACHMENT_SENTINEL_91a2: ship the signed release.',
+  }
+  const workspace = { ...session.workspace, attachments: [attachment] }
+  const attached = await call('PATCH', `/sessions/${sessionId}/context-state`, {
+    operations: [{ action: 'attach', context: { id: attachment.id, type: 'files', label: attachment.label, scope: '*', source: attachment.source } }],
+    workspace,
+  })
+  assert.equal(attached.status, 200)
+  const stored = (await call('GET', `/sessions/${sessionId}`)).json
+  assert.equal(stored.workspace.attachments[0].previewText, attachment.previewText, 'the local preview persisted with the workspace')
+
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '3000' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'Read the attached note.' })
+    const pulled = await parked
+    assert.equal(pulled.status, 200)
+    const firstText = pulled.json.prompt.messages[0].text as string
+    assert.match(firstText, /RELAY_ATTACHMENT_SENTINEL_91a2/)
+    assert.match(firstText, /"name":"relay-notes\.md","status":"ready"/)
+    await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'I read the attached note.' }, auth(p.secret))
+    assert.equal((await send).status, 200)
+
+    const detached = await call('PATCH', `/sessions/${sessionId}/context-state`, {
+      operations: [{ action: 'detach', contextId: attachment.id }],
+      workspace: { ...stored.workspace, attachments: [] },
+    })
+    assert.equal(detached.status, 200)
+    const parkedAgain = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const sendAgain = callRaw('POST', `/sessions/${sessionId}/messages`, { text: 'What remains attached?' })
+    const pulledAgain = await parkedAgain
+    assert.equal(pulledAgain.status, 200)
+    const secondText = pulledAgain.json.prompt.messages[0].text as string
+    assert.doesNotMatch(secondText, /RELAY_ATTACHMENT_SENTINEL_91a2/)
+    assert.doesNotMatch(secondText, /attached_files/)
+    await call('POST', '/relay/reply', { entryId: pulledAgain.json.entryId, completion: 'Nothing remains attached.' }, auth(p.secret))
+    assert.equal((await sendAgain).status, 200)
+  })
+})
+
 test('one channel admits one turn at a time (relay_busy 503, pre-persist) while the first is unharmed', async () => {
   const p = await mintSessionProvider('Busy gate')
   const { sessionId } = await sessionOnProvider(p.id)

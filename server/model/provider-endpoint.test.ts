@@ -17,6 +17,7 @@ import { generateCompactionSummaryPart, generateReply, probeProviderEndpoint, ty
 import { COMPACTION_SYSTEM_PROMPT } from '../compaction.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
+import type { Attachment } from '../../contract/entities.ts'
 
 let mock: Server
 let recorder: Server
@@ -111,6 +112,52 @@ test('a turn on a provider with its own endpoint reaches THAT endpoint, carrying
   assert.ok(hit, 'the provider endpoint received the turn')
   assert.equal(hit.path, '/v1/messages', 'via the Messages protocol route')
   assert.equal(hit.apiKey, 'provider-b-secret', 'authenticated with the referenced credential, not the ambient key')
+})
+
+test('an endpoint turn carries only bounded local text attachment content and omits unsupported sources', async () => {
+  const model = 'claude-attachment-wire'
+  const attachments: Attachment[] = [
+    {
+      id: 'ui-note',
+      label: 'release-notes.md',
+      kind: 'file',
+      source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+      previewText: 'ATTACHMENT_SENTINEL_7f3c: ship the signed release.',
+    },
+    {
+      id: 'remote-secret',
+      label: 'private.txt',
+      kind: 'file',
+      source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
+      previewText: 'MUST_NOT_REACH_MODEL_SECRET',
+    },
+    {
+      id: 'photo',
+      label: 'diagram.png',
+      kind: 'photo',
+      source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+      previewText: 'MUST_NOT_REACH_MODEL_PHOTO',
+    },
+  ]
+  const c = collect()
+  const { outcome } = await generateReply(
+    { ...session, attachments },
+    DEFAULT_AGENT,
+    'Summarize the attached release note.',
+    c.handlers,
+    undefined,
+    { baseURL: recorderUrl, model, capabilities: { toolUse: true } },
+  )
+  assert.equal(outcome, 'ok')
+  const hit = seen.find((request) => request.body?.model === model)
+  assert.ok(hit, 'the recording endpoint received the turn')
+  const user = hit.body.messages.at(-1)?.content as string
+  assert.match(user, /ATTACHMENT_SENTINEL_7f3c/)
+  assert.match(user, /"name":"release-notes\.md","status":"ready"/)
+  assert.match(user, /"name":"private\.txt","status":"preview-only"/)
+  assert.match(user, /"name":"diagram\.png","status":"preview-only"/)
+  assert.doesNotMatch(user, /MUST_NOT_REACH_MODEL_(SECRET|PHOTO)/)
+  assert.match(hit.body.system, /untrusted reference data/i)
 })
 
 test('a routine effort pick reaches the Messages output_config on every model round', async () => {

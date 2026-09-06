@@ -14,6 +14,7 @@ export function PhotoThumb({
   title,
   onClick,
   children,
+  showUnavailableLabel = false,
 }: {
   /** Stable id for the gradient fallback (so the same photo keeps its hue). */
   id: string
@@ -25,6 +26,8 @@ export function PhotoThumb({
   /** When set, renders as a button (the interactive picker/strip cells). */
   onClick?: () => void
   children?: ReactNode
+  /** Full previews disclose a missing/stale URL; small picker tiles stay compact. */
+  showUnavailableLabel?: boolean
 }) {
   // Fall back to the gradient if the image fails to load — a served source going
   // offline / a deleted file 404s, and a broken-image icon would be worse than the
@@ -42,6 +45,11 @@ export function PhotoThumb({
           onError={() => setFailedSrc(src)}
           className="absolute inset-0 h-full w-full object-cover"
         />
+      )}
+      {!showImg && showUnavailableLabel && (
+        <span data-photo-preview-unavailable className="absolute inset-0 flex items-center justify-center p-3">
+          <span className="rounded-md bg-panel/95 px-2 py-1 text-center text-[11px] text-ink-soft">Preview unavailable</span>
+        </span>
       )}
       {children}
     </>

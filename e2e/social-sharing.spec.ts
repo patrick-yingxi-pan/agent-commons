@@ -44,6 +44,60 @@ test('canonical Sharing pages open the act while composite overviews stay quiet'
   await ada.context.close()
   await grace.context.close()
 })
+
+test('sharing guidance stays associated and contained across canonical viewports', async ({ browser }, testInfo) => {
+  test.setTimeout(ms(120_000))
+  const ada = await newUser(browser)
+  const help = 'Add a note to publish to this audience. Leave blank to share access only.'
+  const viewports = [
+    { width: 320, height: 700 },
+    { width: 375, height: 812 },
+    { width: 768, height: 1024 },
+    { width: 844, height: 390 },
+    { width: 1280, height: 800 },
+  ]
+
+  const created = await ada.page.request.post(`${API}/sessions`, {
+    data: { firstMessage: `Sharing guidance ${Date.now().toString(36)}`, persistFirstMessage: true },
+  })
+  expect(created.ok(), 'conversation fixture created').toBeTruthy()
+  const conversation = await created.json() as { id: string }
+
+  const assertGuidance = async (host: string, viewport: { width: number; height: number }) => {
+    const note = ada.page.getByLabel('Share note (publishes when present)')
+    await expect(note).toBeVisible({ timeout: ms(20_000) })
+    const describedBy = await note.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    const guidance = ada.page.locator(`[id="${describedBy}"]`)
+    await expect(guidance).toHaveText(help)
+    await expect(note).toHaveAccessibleDescription(help)
+    await note.fill('Viewport note')
+    await guidance.scrollIntoViewIfNeeded()
+    await expect(guidance).toBeInViewport({ ratio: 1 })
+    const box = await guidance.boundingBox()
+    expect(box, `${host} guidance has a rendered box`).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+    await ada.page.screenshot({
+      path: testInfo.outputPath(`sharing-guidance-${host}-${viewport.width}x${viewport.height}.png`),
+    })
+  }
+
+  for (const viewport of viewports) {
+    await ada.page.setViewportSize(viewport)
+    for (const [host, path] of [['project', '/projects/p-insights/sharing'], ['routine', '/scheduled/s-issue-triage/sharing']] as const) {
+      await ada.page.goto(path)
+      await assertGuidance(host, viewport)
+    }
+
+    await ada.page.goto(`/s/${encodeURIComponent(conversation.id)}`)
+    await ada.page.getByRole('button', { name: 'Share this conversation' }).click()
+    await assertGuidance('conversation', viewport)
+    await ada.page.keyboard.press('Escape')
+  }
+
+  await ada.context.close()
+})
 test('share → feed → discuss → improve: one thread, one ledger, across two tenants', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser) // seeded default: user-ada / tenant-acme (owner)
@@ -203,8 +257,19 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   const ada = await newUser(browser)
   const grace = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
 
+  // Own the subject in this walk. The shared seeded conversation is also used
+  // by another walk in this spec, so this test should not depend on that
+  // fixture's persisted presentation state.
+  const stamp = Date.now().toString(36)
+  const created = await ada.page.request.post(`${API}/sessions`, {
+    data: { firstMessage: `Conversation sharing ${stamp}`, persistFirstMessage: true },
+  })
+  expect(created.ok(), 'conversation fixture created').toBeTruthy()
+  const conversation = await created.json() as { id: string }
+  const turnSession = `/s/${encodeURIComponent(conversation.id)}`
+
   // ── The share door is CHROME on the conversation, gated on ownership ──────
-  await ada.page.goto(TURN_SESSION)
+  await ada.page.goto(turnSession)
   await ada.page.getByRole('button', { name: 'Share this conversation' }).click()
   await ada.page.getByLabel('Audience id').fill('tenant-beta')
   await ada.page.getByLabel('Tier').selectOption({ label: 'Comment' })
@@ -212,7 +277,7 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   await expect(ada.page.getByText('tenant-beta')).toBeVisible()
 
   // ── Grace was walled; the grant opens the READ ────────────────────────────
-  await grace.page.goto(TURN_SESSION)
+  await grace.page.goto(turnSession)
   const graceTurns = grace.page.getByTitle('Discuss this turn')
   await expect(graceTurns.first()).toBeAttached({ timeout: ms(20_000) })
 
@@ -283,7 +348,7 @@ test('sharing a CONVERSATION: the owner shares from its title bar, the audience 
   // She keeps READING every thread and loses the ability to start one, so the
   // opener disappears while the marker stays. Without this the gutter offers an
   // act the server refuses — once per turn, on every turn.
-  await ada.page.goto(TURN_SESSION)
+  await ada.page.goto(turnSession)
   await ada.page.getByRole('button', { name: 'Share this conversation' }).click()
   await ada.page.getByLabel('Audience id').fill('tenant-beta')
   await ada.page.getByLabel('Tier').selectOption({ label: 'View' })

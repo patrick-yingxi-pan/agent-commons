@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Crop, FileText, Image as ImageIcon, PenLine, RotateCw, Sheet, Trash2 } from 'lucide-react'
-import type { Attachment, ArtifactKind } from '../types'
+import { FileText, Image as ImageIcon, Sheet, Trash2 } from 'lucide-react'
+import type { Attachment } from '../types'
 import { PanelShell } from './PanelShell'
 import { PhotoThumb } from './PhotoThumb'
-import { ArtifactBodyView } from './artifactPreview'
 import { useFsText, fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
-import { SOFT_BUTTON_CLASS } from '../lib/button'
+import { attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
@@ -23,16 +22,14 @@ function attachmentImageUrl(att: Attachment): string | undefined {
 
 interface AttachmentContent {
   loading: boolean
-  editable: boolean
   body: string
   isImage: boolean
   imageUrl?: string
 }
 
-/** Resolve an attachment's content from its source: a UI-host pick's client-held
- *  bytes, a served file's real text/image (cloud / runner), or — for a legacy
- *  seeded attachment with no source — the hand-authored fallback. One hook so every
- *  attachment renders from a single source-aware path. */
+/** Resolve a picked preview snapshot or served text/image (cloud / runner).
+ * Missing content remains unavailable, never replaced by invented file content.
+ * All rendered content is read-only; model availability is disclosed separately. */
 function useAttachmentContent(att: Attachment): AttachmentContent {
   const isImage = att.kind === 'photo' || isImageLabel(att.label)
   const imageUrl = attachmentImageUrl(att)
@@ -40,51 +37,43 @@ function useAttachmentContent(att: Attachment): AttachmentContent {
   const served = !!att.source && att.source.kind !== 'ui-host' && !!path && !isImage
   // Called unconditionally (enabled-gated) to honor the rules of hooks.
   const q = useFsText(att.source?.id ?? '', path ?? '', served)
-  if (isImage) return { loading: false, editable: false, body: '', isImage: true, imageUrl }
+  if (isImage) return { loading: false, body: '', isImage: true, imageUrl }
   if (att.source?.kind === 'ui-host') {
-    return { loading: false, editable: att.previewText !== undefined, body: att.previewText ?? '', isImage: false }
+    return { loading: false, body: att.previewText ?? '', isImage: false }
   }
   if (served) {
     const body = q.data?.kind === 'text' ? q.data.text ?? '' : ''
-    return { loading: q.status === 'loading', editable: q.data?.kind === 'text', body, isImage: false }
+    return { loading: q.status === 'loading', body, isImage: false }
   }
-  const info = fileInfo(att.label)
-  return { loading: false, editable: info.editable, body: info.content, isImage: false }
+  return { loading: false, body: '', isImage: false }
 }
 
 /** Right-side panel that displays a group of file or photo attachments and lets
- *  the user preview / edit / remove them. Opened by clicking a file/photo chip;
+ *  the user preview / remove them. Opened by clicking a file/photo chip;
  *  `initialId` pre-selects the clicked item. */
 export function AttachmentPanel({
   kind,
   items,
+  allAttachments,
   initialId,
   onClose,
   onRemove,
 }: {
   kind: 'file' | 'photo'
   items: Attachment[]
+  allAttachments: Attachment[]
   initialId?: string
   onClose: () => void
   onRemove: (id: string) => void
 }) {
   const [selectedId, setSelectedId] = useState(initialId ?? items[0]?.id)
-  // Per-item edit drafts live here (not in the child) so switching between
-  // files/photos preserves unsaved edits instead of discarding them on remount.
-  const [fileDrafts, setFileDrafts] = useState<Record<string, { text: string; saved: string }>>({})
-  const [photoDrafts, setPhotoDrafts] = useState<
-    Record<string, { caption: string; applied: string[] }>
-  >({})
 
   useEffect(() => {
     if (!items.some((i) => i.id === selectedId)) setSelectedId(items[0]?.id)
   }, [items, selectedId])
 
-  // Follow the chip the user picked. The panel stays mounted (one shared key) so
-  // its per-item edit drafts survive, which means a new `initialId` — from
-  // picking a different item in the counted chip's popup, or switching between
-  // the Files and Photos chips — won't remount it; sync the selection here
-  // instead. Keyed on `initialId` only: `items` is a fresh filtered array each
+  // Follow the chip the user picked without remounting the panel. Key this
+  // synchronization only on `initialId`: `items` is a fresh filtered array each
   // render, so depending on it would clobber an in-panel selection every render.
   useEffect(() => {
     if (initialId) setSelectedId(initialId)
@@ -110,8 +99,7 @@ export function AttachmentPanel({
           <PhotoBody
             item={selected}
             items={items}
-            draft={photoDrafts[selected.id]}
-            onDraft={(d) => setPhotoDrafts((m) => ({ ...m, [selected.id]: d }))}
+            allAttachments={allAttachments}
             onSelect={setSelectedId}
             onRemove={onRemove}
           />
@@ -119,8 +107,7 @@ export function AttachmentPanel({
           <FileBody
             item={selected}
             items={items}
-            draft={fileDrafts[selected.id]}
-            onDraft={(d) => setFileDrafts((m) => ({ ...m, [selected.id]: d }))}
+            allAttachments={allAttachments}
             onSelect={setSelectedId}
             onRemove={onRemove}
           />
@@ -132,38 +119,22 @@ export function AttachmentPanel({
   )
 }
 
-const PHOTO_TOOLS = [
-  { id: 'crop', label: 'Crop', Icon: Crop },
-  { id: 'rotate', label: 'Rotate', Icon: RotateCw },
-  { id: 'annotate', label: 'Annotate', Icon: PenLine },
-]
-
 function PhotoBody({
   item,
   items,
-  draft,
-  onDraft,
+  allAttachments,
   onSelect,
   onRemove,
 }: {
   item: Attachment
   items: Attachment[]
-  draft?: { caption: string; applied: string[] }
-  onDraft: (d: { caption: string; applied: string[] }) => void
+  allAttachments: Attachment[]
   onSelect: (id: string) => void
   onRemove: (id: string) => void
 }) {
-  const caption = draft?.caption ?? ''
-  const applied = draft?.applied ?? []
-
-  const toggle = (id: string) =>
-    onDraft({
-      caption,
-      applied: applied.includes(id) ? applied.filter((x) => x !== id) : [...applied, id],
-    })
-
+  const status = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto">
       <div className="grid grid-cols-3 gap-1.5 p-2.5">
         {items.map((p) => (
           <PhotoThumb
@@ -183,47 +154,15 @@ function PhotoBody({
         <PhotoThumb
           id={item.id}
           src={attachmentImageUrl(item)}
+          showUnavailableLabel
           className="flex aspect-video w-full items-end rounded-lg shadow-inner"
         >
           <span className="relative z-10 m-2 rounded bg-black/30 px-1.5 py-0.5 text-[11px] font-medium text-on-solid/95">
-            {item.label}
+            <span className="break-all">{item.label}</span>
           </span>
-          {/* Inverted seat: a WHITE chip over the photo, so its text needs the
-              deep solid value — `accent-strong` lifts in dark mode and would
-              land light-on-white (2.4:1). Same UI-20 pairing, other way up. */}
-          {applied.length > 0 && (
-            <span className="absolute right-2 top-2 z-10 rounded bg-on-solid/85 px-1.5 py-0.5 text-[10px] font-semibold text-accent-solid">
-              Edited · {applied.join(', ')}
-            </span>
-          )}
         </PhotoThumb>
 
-        <div className="mt-2 flex gap-1">
-          {PHOTO_TOOLS.map((t) => {
-            const on = applied.includes(t.id)
-            return (
-              <button
-                key={t.id}
-                onClick={() => toggle(t.id)}
-                className={`flex flex-1 items-center justify-center gap-1 rounded-md border px-2 py-1.5 text-[12px] font-medium transition ${
-                  on
-                    ? 'border-accent bg-accent-tint text-accent-strong'
-                    : 'border-line text-ink-soft hover:bg-surface'
-                }`}
-              >
-                <t.Icon size={13} />
-                {t.label}
-              </button>
-            )
-          })}
-        </div>
-
-        <input
-          value={caption}
-          onChange={(e) => onDraft({ caption: e.target.value, applied })}
-          placeholder="Add a caption…"
-          className="mt-2 w-full rounded-md border border-line bg-canvas px-2 py-1.5 text-[12px] text-ink outline-none transition focus:border-co"
-        />
+        <p className="mt-2 text-[11px] leading-snug text-ink-faint">{attachmentInputCopy(status)}</p>
 
         <button
           onClick={() => onRemove(item.id)}
@@ -240,22 +179,18 @@ function PhotoBody({
 function FileBody({
   item,
   items,
-  draft,
-  onDraft,
+  allAttachments,
   onSelect,
   onRemove,
 }: {
   item: Attachment
   items: Attachment[]
-  draft?: { text: string; saved: string }
-  onDraft: (d: { text: string; saved: string }) => void
+  allAttachments: Attachment[]
   onSelect: (id: string) => void
   onRemove: (id: string) => void
 }) {
   const content = useAttachmentContent(item)
-  const saved = draft?.saved ?? content.body
-  const text = draft?.text ?? content.body
-  const dirty = text !== saved
+  const status: AttachmentInputStatus = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -275,7 +210,7 @@ function FileBody({
                 className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
               >
                 <Icon size={16} className="shrink-0 text-cap-file" />
-                <span className="min-w-0 truncate text-[13px] font-medium text-ink">{f.label}</span>
+                <span className="min-w-0 break-all text-[13px] font-medium text-ink">{f.label}</span>
               </button>
               <button
                 onClick={() => onRemove(f.id)}
@@ -289,46 +224,28 @@ function FileBody({
         })}
       </div>
 
-      <div className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
+      <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
+        <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
         {content.isImage ? (
           <>
-            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+            <div className="mb-2 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">
               Preview · {item.label}
             </div>
-            <PhotoThumb id={item.id} src={content.imageUrl} className="aspect-video w-full rounded-lg shadow-inner" />
+            <PhotoThumb id={item.id} src={content.imageUrl} showUnavailableLabel className="aspect-video w-full rounded-lg shadow-inner" />
           </>
         ) : content.loading ? (
           <div className="flex flex-1 items-center justify-center text-[12px] text-ink-faint">Loading…</div>
-        ) : content.editable ? (
+        ) : content.body ? (
           <>
-            <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
-                Editing · {item.label}
-              </span>
-              {dirty && <span className="text-[11px] font-semibold text-accent-strong">● Unsaved</span>}
-            </div>
-            <textarea
-              value={text}
-              onChange={(e) => onDraft({ text: e.target.value, saved })}
-              spellCheck={false}
-              className="h-44 w-full flex-1 resize-none rounded-md border border-line bg-canvas p-2 font-mono text-[12px] leading-relaxed text-ink outline-none transition focus:border-co"
-            />
-            <div className="mt-2 flex justify-end">
-              <button
-                onClick={() => onDraft({ text, saved: text })}
-                disabled={!dirty}
-                className={`${SOFT_BUTTON_CLASS} px-3 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-40`}
-              >
-                Save
-              </button>
-            </div>
+            <div className="mb-1.5 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">Preview · {item.label}</div>
+            <pre className="min-h-44 min-w-0 flex-1 overflow-auto break-words whitespace-pre-wrap rounded-md border border-line bg-canvas p-2 font-mono text-[12px] leading-relaxed text-ink">{content.body}</pre>
           </>
         ) : (
           <>
-            <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
-              Preview · {item.label}
-            </div>
-            <ArtifactBodyView kind={previewKind(item.label.split('.').pop()?.toLowerCase() ?? '')} name={item.label} size="compact" />
+            <div className="mb-2 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">Preview · {item.label}</div>
+            <p className="text-[12px] leading-snug text-ink-soft">
+              {attEmptyText(item) ? 'This text file is empty.' : 'Preview unavailable for this attachment.'}
+            </p>
           </>
         )}
       </div>
@@ -343,42 +260,6 @@ function fileIcon(label: string) {
   return FileText
 }
 
-/** Which artifact renderer to use for a non-editable file preview. */
-function previewKind(ext: string): ArtifactKind {
-  if (['png', 'jpg', 'jpeg', 'svg', 'gif'].includes(ext)) return 'image'
-  if (['csv', 'xlsx'].includes(ext)) return 'sheet'
-  return 'doc'
-}
-
-/** Real, hand-authored bodies for the editable files in the attach catalog, so
- *  opening one shows actual content (and edits track as unsaved) rather than a
- *  generic placeholder. */
-const FILE_TEXT: Record<string, string> = {
-  'metrics.csv':
-    'metric,this week,last week,Δ\nWAU,18420,17310,+6.4%\nActivation,71%,67%,+4pt\np95 latency,240ms,1.81s,−87%\nNRR,114%,112%,+2pt',
-  'notes.md':
-    '# Notes\n\n- Insights ships behind the `insights` flag next week\n- Variant B won the onboarding test (+6.2% activation)\n- Ingest is over error budget — freeze risky changes',
-  'changelog.md':
-    '# Changelog\n\n## Unreleased\n- Insights dashboard (behind a flag)\n- Unified auth refresh path\n\n## 2026.6.1\n- Rate limiting: 429 + Retry-After\n- Faster widget queries (composite index)',
-}
-
-function fileInfo(label: string): { ext: string; editable: boolean; content: string } {
-  const ext = label.split('.').pop()?.toLowerCase() ?? ''
-  const named = FILE_TEXT[label]
-  if (named !== undefined) return { ext, editable: true, content: named }
-  if (ext === 'csv')
-    return {
-      ext,
-      editable: true,
-      content: 'cohort,users,churn\nAnnual · May,1204,2.1%\nAnnual · Jun,1190,4.8%\nMonthly · Jun,3902,3.0%',
-    }
-  if (ext === 'md')
-    return {
-      ext,
-      editable: true,
-      content: `# ${label.replace(/\.md$/, '')}\n\n- First point\n- Second point\n- Third point\n`,
-    }
-  if (ext === 'txt')
-    return { ext, editable: true, content: 'Plain-text notes.\nEdit me — the change tracks as unsaved.\n' }
-  return { ext, editable: false, content: '' }
+function attEmptyText(item: Attachment): boolean {
+  return item.source?.kind === 'ui-host' && typeof item.previewText === 'string' && item.previewText.length === 0
 }

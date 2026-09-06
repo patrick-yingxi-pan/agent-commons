@@ -138,11 +138,10 @@ test('the overlay panel separator takes RAPID keyboard steps, announces its valu
   // swallowed-step regression lives here now.
   await page.setViewportSize({ width: 768, height: 1000 })
   await ensureAuthRefactorPanelOpen(page)
-  await page.goto('/')
-
-  // The seeded repo session restores its panel on select (same door responsive.spec uses).
-  await page.getByRole('button', { name: 'Expand Sessions' }).click()
-  await page.locator('aside').getByText('Refactor auth middleware').first().click()
+  // Open the exact seeded session directly. The shared Sessions rail can be
+  // crowded or reordered by other fixtures; this test is about the panel
+  // separator, not sidebar membership or row reveal behavior.
+  await page.goto('/s/auth-refactor')
   const panelHandle = page.getByRole('separator', { name: 'Resize panel' })
   await expect(panelHandle).toBeVisible()
   const panel = page.locator('div.border-l.bg-panel').first()

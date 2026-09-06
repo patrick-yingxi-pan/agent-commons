@@ -157,7 +157,7 @@ export function PanelShell({
           setLayout('rightW', widthRef.current)
         }}
       />
-      <div className="flex flex-1 flex-col" style={{ width }}>
+      <div className="flex min-h-0 flex-1 flex-col" style={{ width }}>
         {header}
         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
       </div>

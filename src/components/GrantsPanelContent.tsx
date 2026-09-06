@@ -21,7 +21,7 @@
  *  again is a click that buys nothing. The exception is principled — the same
  *  one the discussion page's standing composer holds — so it is spelled as the
  *  default and the section passes `false` until its verb is pressed. */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { MinusCircle } from 'lucide-react'
 import {
   canonicalGrantNote,
@@ -67,6 +67,7 @@ export function GrantsPanelContent({
   const [error, setError] = useState<string | null>(null)
   const [activeAction, setActiveAction] = useState<'share' | string | null>(null)
   const actingRef = useRef(false)
+  const noteHelpId = useId()
 
   // The same subject can be projected in more than one pane. Every host must
   // inherit the shared controller hold, not only the panel that initiated it.
@@ -188,14 +189,20 @@ export function GrantsPanelContent({
             ))}
           </select>
         </div>
-        <input
-          aria-label="Share note (publishes when present)"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          maxLength={MAX_GRANT_NOTE_CHARS}
-          placeholder="Note — present = published, blank = silent share"
-          className={FORM_INPUT_CLASS}
-        />
+        <div className="min-w-0 space-y-1">
+          <input
+            aria-label="Share note (publishes when present)"
+            aria-describedby={noteHelpId}
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={MAX_GRANT_NOTE_CHARS}
+            placeholder="Optional note"
+            className={FORM_INPUT_CLASS}
+          />
+          <p id={noteHelpId} className="text-[11px] leading-snug text-ink-faint">
+            Add a note to publish to this audience. Leave blank to share access only.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <button onClick={() => void share()} className={INLINE_ACTION_CLASS} disabled={held || (audKind !== 'link' && !audId.trim())}>
             {activeAction === 'share' ? <><Spinner size={12} /> Sharing…</> : 'Share'}

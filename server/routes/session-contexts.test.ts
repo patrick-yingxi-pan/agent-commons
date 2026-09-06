@@ -106,6 +106,22 @@ test('malformed, unknown, and foreign-session transactions are refused', async (
   assert.equal(foreign.status, 404)
 })
 
+test('malformed attachment payloads cannot commit a binding or reach a model', async () => {
+  const sid = await session('invalid attachment boundary')
+  for (const attachment of [null, { id: 'a', label: 42, kind: 'file' },
+    { id: 'a', label: 'a.txt', kind: 'file', previewText: { secret: 'not text' } },
+    { id: 'a', label: 'a.txt', kind: 'file', source: { kind: 'ui-host' } }]) {
+    const result = await call('PATCH', `/sessions/${sid}/context-state`, {
+      operations: [{ action: 'attach', context: { id: 'a', label: 'a.txt', type: 'files' } }],
+      workspace: { ...EMPTY, attachments: [attachment] },
+    })
+    assert.equal(result.status, 400)
+    assert.match(result.json.error.message, /attachments require valid/)
+    assert.deepEqual(store.sessionContexts(sid), [])
+    assert.deepEqual(store.sessionWorkspace(sid), EMPTY)
+  }
+})
+
 test('resolveSessionContext finds an atomically attached context (the mediation lookup)', async () => {
   const sid = await session('mediation')
   await call('PATCH', `/sessions/${sid}/context-state`, {

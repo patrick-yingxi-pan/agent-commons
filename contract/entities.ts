@@ -46,12 +46,12 @@ export interface Attachment {
   kind: 'file' | 'photo'
   /** Which filesystem source it came from — UI host, a runner, or cloud storage
    *  (contract/fs.ts). Drives where its content is read from. Absent on legacy /
-   *  seeded attachments (treated as the default served source). */
+   *  seeded attachments (no readable source until reattached). */
   source?: import('./fs.ts').FsSource
-  /** Client-held preview for a `ui-host` attachment whose bytes live in the browser
-   *  (never round-tripped to the server unless an effect uploads them): an object
-   *  URL for an image, or the text body for a text file. Absent for server-backed
-   *  sources (cloud / runner), whose content is fetched from `/fs/*`. */
+  /** Picked preview fields persist in the conversation workspace. Readable local
+   * text may be supplied to the selected model under attachmentInput's budget;
+   * image previews are not model input, and browser object URLs are not portable.
+   * Server-backed sources instead load their previews through `/fs/*`. */
   previewUrl?: string
   previewText?: string
 }

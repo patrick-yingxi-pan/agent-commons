@@ -9,7 +9,8 @@
  *  endpoint (dev: server/model on :8788). To go live, repoint `ANTHROPIC_BASE_URL`
  *  at `api.anthropic.com` and set `ANTHROPIC_API_KEY` — no code change. */
 import Anthropic from '@anthropic-ai/sdk'
-import type { Agent, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
+import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
+import { attachmentPrompt } from './attachmentInput.ts'
 import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
 import { TOOL_DEFINITIONS, type ToolContext } from './model/tools.ts'
 import { deriveConnectorTools } from './model/connectorTools.ts'
@@ -227,6 +228,8 @@ export async function fetchProviderModels(config: ProviderConfig = {}): Promise<
 export interface ReplySession {
   id: string
   title: string
+  /** The authorized conversation's current server-owned attachment snapshot. */
+  attachments?: readonly Attachment[]
 }
 
 /** Streamed-reply callbacks the route wires to its SSE channel. */
@@ -353,7 +356,8 @@ export async function generateReply(
   // CRUD tools resolve the model's named provider / prompt / agent against what
   // currently exists — so "commission the agent I just made" resolves.
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
-  const system = systemPrompt(session, agent)
+  const input = attachmentPrompt(text, session.attachments)
+  const system = [systemPrompt(session, agent), input.systemAddition].filter(Boolean).join('\n\n')
   // The Agent's tool allowlist — a subset of the catalog (the default carries all).
   const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
   // P6: an attached connector/MCP contributes callable tools too — derived from the
@@ -374,7 +378,7 @@ export async function generateReply(
   const apiDefs = api ? deriveApiTools(api.catalog).definitions : []
   const tools = supportsTools ? [...agentTools, ...connectorDefs, ...apiDefs] : []
   const toolsParam = supportsTools ? { tools } : {}
-  const userContent = text.trim() || '(the user sent an empty message)'
+  const userContent = input.userText
 
   let assistantId = ''
   let fullText = ''

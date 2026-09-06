@@ -20,6 +20,7 @@ import type {
   Workspace,
 } from '../types'
 import type { ModelExecution, UsageModelRef } from '../../contract/index.ts'
+import { planAttachmentInput } from '../../contract/attachmentInput.ts'
 import type { ModelPick } from '../lib/models'
 import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
@@ -160,6 +161,9 @@ export function Composer({
   const mcpServers = connectors.filter((c) => c.kind === 'mcp')
   const fileItems = attachments.filter((a) => a.kind === 'file')
   const photoItems = attachments.filter((a) => a.kind === 'photo')
+  const attachmentInput = planAttachmentInput(attachments)
+  const readyAttachmentCount = attachmentInput.filter((item) => item.status === 'ready').length
+  const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount
 
   // Dependency between a GitHub-remote repo and the GitHub connector. It stays
   // invisible until a removal could break it — then the chip's confirm offers to
@@ -355,6 +359,22 @@ export function Composer({
                 onSkipConfirm={(v) => setTypeSkip(g.key, v)}
               />
             ))}
+          </div>
+        )}
+
+        {attachments.length > 0 && (
+          <div
+            role="status"
+            data-attachment-input-disclosure
+            className="mb-1.5 rounded-md bg-panel-2 px-2 py-1.5 text-[11px] leading-snug text-ink-soft"
+          >
+            <span data-attachment-input-ready={readyAttachmentCount}>
+              The selected model receives {readyAttachmentCount} text file
+              {readyAttachmentCount === 1 ? '' : 's'} on send or retry.
+            </span>
+            <span data-attachment-input-omitted={omittedAttachmentCount}>
+              {omittedAttachmentCount > 0 && <> {omittedAttachmentCount} not sent. Open attachments for details.</>}
+            </span>
           </div>
         )}
 

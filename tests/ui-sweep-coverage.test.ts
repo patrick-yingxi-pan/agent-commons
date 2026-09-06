@@ -181,6 +181,16 @@ test('an address that renders no workspace is unreachable, not swept', () => {
 
 // ── the stack the sweep drives ──────────────────────────────────────────────
 
+test('sharing cells wait for the lazy-loaded act rather than judging its loading fallback', () => {
+  const start = SWEEP.indexOf('async function sharingAct(')
+  assert.ok(start >= 0)
+  const body = SWEEP.slice(start, SWEEP.indexOf('\n/** Real ids', start))
+  assert.match(body, /getByLabel\('Audience kind'\)\.waitFor\(\{ state: 'visible', timeout: 8000 \}\)/)
+  assert.match(body, /note\(cell, 'UI-E19'/, 'a missing act still fails the sweep')
+  assert.match(SWEEP, /await sharingAct\(page, cell, 'project'\)/)
+  assert.match(SWEEP, /await sharingAct\(page, cell, 'routine'\)/)
+})
+
 test('the sweep boots its own isolated stack by default, never the dev server', () => {
   // The 31 unswept cells came from the shared dev store: a long-lived world the
   // developer mutates between runs, which is why the same harness passed in the

@@ -44,6 +44,7 @@ import { deriveConnectorTools } from './model/connectorTools.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv } from './env.ts'
+import { attachmentPrompt } from './attachmentInput.ts'
 import { deriveServerSecret } from './auth.ts'
 import { executeToolBatch, toolExecutionLimits, toolLoopLimits } from './toolExecution.ts'
 
@@ -508,7 +509,8 @@ export async function relayReply(
     description: t.description,
     inputSchema: t.input_schema as unknown as Record<string, unknown>,
   }))
-  const system = systemPrompt(session, agent)
+  const input = attachmentPrompt(text, session.attachments)
+  const system = [systemPrompt(session, agent), input.systemAddition].filter(Boolean).join('\n\n')
   // Content-address the near-invariant parts once per turn (v3 framing dedupe):
   // delivery strips whichever bodies the pulling connector already holds.
   const systemHash = hashRelayContent(system)
@@ -521,7 +523,7 @@ export async function relayReply(
   // results turn per round, so every follow-up entry carries the WHOLE exchange
   // — the mailbox is stateless across entries by design.
   const channel = { id: session.id, title: session.title }
-  const turns: RelayPromptTurn[] = [...history, { role: 'user', text: text.trim() || '(the user sent an empty message)' }]
+  const turns: RelayPromptTurn[] = [...history, { role: 'user', text: input.userText }]
 
   // The consent-gated proposals the relayed tool calls accumulate — identical
   // collection to `generateReply`'s (including the same-turn chaining window:

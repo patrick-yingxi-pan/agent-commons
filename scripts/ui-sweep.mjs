@@ -429,6 +429,16 @@ async function goTo(page, path, cell) {
   return true
 }
 
+/** The sharing editor is lazy-loaded. A visible workspace can still contain
+ * its loading fallback, so wait for the actual act before judging this cell. */
+async function sharingAct(page, cell, subject) {
+  try {
+    await page.getByLabel('Audience kind').waitFor({ state: 'visible', timeout: 8000 })
+  } catch {
+    note(cell, 'UI-E19', `the canonical ${subject} Sharing page did not expose its sharing act`)
+  }
+}
+
 /** Real ids from the API the UI reads, so a detail cell can never miss with
  *  "check the seeds or widen the pattern" — the harness asks the backend what
  *  exists instead of pattern-matching seed prose that drifts. */
@@ -615,9 +625,7 @@ for (const vp of VIEWPORTS) {
     if (ids.projectId) {
       if (await goTo(page, `/projects/${ids.projectId}/sharing`, cell)) {
         await noHScroll(page, cell)
-        if (!(await page.getByLabel('Audience kind').isVisible().catch(() => false))) {
-          note(cell, 'UI-E19', 'the canonical project Sharing page did not expose its sharing act')
-        }
+        await sharingAct(page, cell, 'project')
         await shot(page, cell.replace('/', '_'))
         await sweepTriggers(page, vp, cell, page.locator('main'))
         covered(cell)
@@ -640,9 +648,7 @@ for (const vp of VIEWPORTS) {
     if (ids.scheduleId) {
       if (await goTo(page, `/scheduled/${ids.scheduleId}/sharing`, cell)) {
         await noHScroll(page, cell)
-        if (!(await page.getByLabel('Audience kind').isVisible().catch(() => false))) {
-          note(cell, 'UI-E19', 'the canonical routine Sharing page did not expose its sharing act')
-        }
+        await sharingAct(page, cell, 'routine')
         await shot(page, cell.replace('/', '_'))
         await sweepTriggers(page, vp, cell, page.locator('main'))
         covered(cell)

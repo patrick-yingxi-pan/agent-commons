@@ -4,8 +4,9 @@
  *  client (the documented exception to "one door to the backend"; see
  *  contract/fs.ts). It uses the browser's own file APIs (`<input type=file>` +
  *  drag-drop; an Electron build could swap in native fs behind the same calls).
- *  Bytes stay in the browser as a preview (object URL for an image, the text body
- *  for a text file) and only reach the backend if an effect uploads them. */
+ *  Preview fields persist with the conversation workspace; bounded local text
+ *  can be sent to the selected model. Image object URLs remain browser-local
+ *  references, not portable content or model input. */
 import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 

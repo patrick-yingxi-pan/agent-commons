@@ -68,9 +68,9 @@ const RECENT_ROW_H = 38
 const RECENT_CHROME_H = 156
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
-  { id: 'files', label: 'Files', desc: 'Images, PDFs, docs from your computer', Icon: Paperclip },
+  { id: 'files', label: 'Files', desc: 'Local text input; other formats are preview-only', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
-  { id: 'folder', label: 'Folder', desc: 'Attach a local directory as a workspace', Icon: FolderOpen },
+  { id: 'folder', label: 'Folder', desc: 'List a folder’s files in your workspace', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
   { id: 'connector', label: 'Connector', desc: 'Google Drive, Slack, Notion, Linear…', Icon: Plug },
   { id: 'mcp', label: 'MCP server', desc: 'Add a Model Context Protocol server', Icon: Server },
@@ -1293,7 +1293,7 @@ function FolderPicker({
           >
             <FolderOpen size={18} className="mb-1 text-ink-faint" />
             <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
-            <span className="text-[11px] text-ink-faint">attaches its top-level files as a workspace</span>
+            <span className="text-[11px] text-ink-faint">Lists top-level filenames only; file contents are not sent to the model.</span>
           </button>
           {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
         </div>

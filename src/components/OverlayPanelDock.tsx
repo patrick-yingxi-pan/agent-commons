@@ -98,6 +98,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               key="att"
               kind={focus.kind}
               items={live.attachments.filter((a) => a.kind === focus.kind)}
+              allAttachments={live.attachments}
               initialId={focus.id}
               onClose={closePanel}
               onRemove={(id) => removeContexts([{ kind: focus.kind, id }])}

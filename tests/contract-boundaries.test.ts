@@ -89,6 +89,20 @@ test('the server runtime imports only its one intentional external dependency', 
 })
 
 // ── Seeds import contract types, never re-declare them ───────────────────────
+test('both model transports share server-owned attachment serialization and the UI shares its budget', () => {
+  for (const path of ['server/generate.ts', 'server/relay.ts']) {
+    const source = stripComments(read(join(ROOT, path)))
+    assert.match(source, /attachmentPrompt\(text, session\.attachments\)/)
+    assert.match(source, /input\.userText/)
+    assert.match(source, /input\.systemAddition/)
+  }
+  assert.match(stripComments(read(join(ROOT, 'server/routes/index.ts'))), /attachments: known\.workspace\?\.attachments/)
+  assert.match(stripComments(read(join(ROOT, 'server/attachmentInput.ts'))), /planAttachmentInput\(attachments\)/)
+  for (const path of ['src/components/Composer.tsx', 'src/components/AttachmentPanel.tsx']) {
+    assert.match(stripComments(read(join(ROOT, path))), /from '[^']*contract\/attachmentInput\.ts'/)
+  }
+})
+
 // The saved-context seed satisfies the wire type `SavedContext`; it must import
 // that shape from the contract, not mint a parallel copy. A hand-mirrored copy
 // silently drifted once already (the `lastUsed: string` → `lastUsedAt: number`

@@ -69,6 +69,7 @@ import type {
   TokenMintRequest,
 } from '../../contract/index.ts'
 import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
+import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -4326,6 +4327,9 @@ export function buildRouter(): Router {
     if (!ws || !Array.isArray(ws.workspaces) || !Array.isArray(ws.repos) || !Array.isArray(ws.connectors) || !Array.isArray(ws.attachments)) {
       return sendError(res, 'bad_request', 'workspaces, repos, connectors, and attachments arrays are required')
     }
+    if (!ws.attachments.every(isAttachmentInput)) {
+      return sendError(res, 'bad_request', 'attachments require valid id, label, kind, source, and optional text/URL previews')
+    }
     if (!store.getSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
     for (const operation of input.operations) {
       if (!operation || (operation.action !== 'attach' && operation.action !== 'detach')) {
@@ -4432,7 +4436,7 @@ export function buildRouter(): Router {
       persistedTail?.role === 'user' &&
       persistedTail.content === (text ?? '')
     const session = known
-      ? { id: known.id, title: known.title }
+      ? { id: known.id, title: known.title, attachments: known.workspace?.attachments }
       : { id: params.id, title: 'New session' }
     // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
     // resolves to the seeded default until users create their own.

@@ -71,6 +71,7 @@ export function ContextPanelView({
           <AttachmentPanel
             kind={panel.kind}
             items={live.attachments.filter((a) => a.kind === panel.kind)}
+            allAttachments={live.attachments}
             initialId={panel.id}
             onClose={noop}
             onRemove={removeAttachment}
