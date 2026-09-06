@@ -398,6 +398,15 @@ export interface DiscussionChangedEvent {
   anchor: import('./social.ts').SocialAnchor
 }
 
+/** A viewer's private DM read cursor changed. It names no thread: advancing one
+ * cursor can evict another bounded mark, so every device re-derives its inbox
+ * and open discussion projections. Exact-tenant delivery prevents this from
+ * becoming a read receipt for the other party. */
+export interface DiscussionReadsChangedEvent {
+  type: 'discussion-reads.changed'
+  tenantId: string
+}
+
 /** A social proposal changed (S3) — offered, landed, or declined. Visibility
  *  MIRRORS THE SUBJECT's read wall, like `discussion.changed`. (Distinct from
  *  `proposal.changed`, the D25 agent-definition review queue.) */
@@ -503,6 +512,7 @@ export type ServerEvent =
   | ProposalChangedEvent
   | GrantChangedEvent
   | DiscussionChangedEvent
+  | DiscussionReadsChangedEvent
   | SocialProposalChangedEvent
   | FollowChangedEvent
   | WatchChangedEvent

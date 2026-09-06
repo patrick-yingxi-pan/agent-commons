@@ -292,6 +292,13 @@ function route(e: ServerEvent): void {
       // arrives silently and the unread dot never lights.
       if (e.anchor.ref.kind === 'principal') invalidate(keys.directMessages)
       break
+    // A private read cursor moved (and may have evicted another bounded mark).
+    // Re-read every open discussion plus the inbox, but no public/feed surface:
+    // the other party receives no read receipt.
+    case 'discussion-reads.changed':
+      invalidatePrefix(keys.discussion())
+      invalidate(keys.directMessages)
+      break
     // A follow changed (S7) — delivered to the two parties only. The follower's
     // list and the FEED are both stale (`followed` is stamped per item, so the
     // Following lens would keep showing the old set); the followee's profile

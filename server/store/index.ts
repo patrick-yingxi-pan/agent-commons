@@ -3881,6 +3881,10 @@ export const store = {
         if (d) return this.discussionReadableBy(d, tenantId)
         return e.anchor.ref.kind !== 'principal' && this.grantSubjectVisible(e.anchor.ref, tenantId)
       }
+      case 'discussion-reads.changed':
+        // Read cursors are viewer-private, even from the other party to the DM.
+        // Strict equality also keeps personal state out of the org-seat union.
+        return e.tenantId === tenantId
       case 'social-proposal.changed':
         // A proposal's visibility MIRRORS ITS SUBJECT's (S3) — same rule.
         return this.grantSubjectVisible(e.subject, tenantId)
@@ -6806,6 +6810,16 @@ export const store = {
    *  `recordView`: it rings nobody, moves no wall, and a thread the caller
    *  cannot read is silently ignored rather than refused (a refusal would make
    *  this an existence oracle). */
+  discussionReadState(id: string, tenantId: string, throughPostId: string): import('../../contract/index.ts').DiscussionReadState {
+    const d = discussions.find((candidate) => candidate.id === id)
+    if (!d || !this.discussionReadableBy(d, tenantId)) return { throughPostId, read: true }
+    const target = d.posts.find((post) => post.id === throughPostId)
+    // Missing is terminal: posts cannot resurrect, and returning the same true
+    // for unreadable/foreign ids keeps this recovery door from becoming an oracle.
+    if (!target) return { throughPostId, read: true }
+    const mark = discussionReads.get(tenantId)?.get(d.id) ?? 0
+    return { throughPostId, read: mark >= (target.seq ?? 0) }
+  },
   markDiscussionRead(id: string, tenantId: string, throughPostId?: string): boolean {
     const d = discussions.find((x) => x.id === id)
     if (!d || !this.discussionReadableBy(d, tenantId)) return false
@@ -6822,9 +6836,12 @@ export const store = {
       mark = d.posts.reduce((m, p) => Math.max(m, p.seq ?? 0), 0)
     }
     const mine = discussionReads.get(tenantId) ?? new Map<string, number>()
+    const previous = mine.get(d.id) ?? 0
+    const next = Math.max(previous, mark)
+    if (next === previous) return true
     // Never move the mark BACKWARD: a stale client re-sending an old post id
     // would otherwise resurrect messages the reader has already seen.
-    mine.set(d.id, Math.max(mine.get(d.id) ?? 0, mark))
+    mine.set(d.id, next)
     // Evict oldest-marked threads past the cap (the inbox's pointer-cache rule —
     // losing a mark just shows a thread unread again, never loses a message).
     if (mine.size > READ_MARKS_PER_TENANT) {
@@ -6832,6 +6849,7 @@ export const store = {
       for (const [did] of oldest) mine.delete(did)
     }
     discussionReads.set(tenantId, mine)
+    emit({ type: 'discussion-reads.changed', tenantId })
     persist()
     return true
   },

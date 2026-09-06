@@ -2892,9 +2892,16 @@ export function buildRouter(): Router {
   // S7 — mark a thread read (the DM inbox's unread count). A private note to
   // self: it rings nobody and moves no wall, so an unreadable thread is
   // silently ignored rather than refused (a refusal would leak existence).
+  r.aliasGet('/discussions/:did/read', 'POST /discussions/:did/read', 'discussion read-cursor recovery is the exact read form of the same viewer-private triage capability', ({ req, res, params, url }) => {
+    const through = url.searchParams.getAll('throughPostId')
+    if (through.length !== 1 || !through[0]) {
+      return sendError(res, 'bad_request', 'throughPostId must name exactly one post')
+    }
+    sendJson(res, store.discussionReadState(params.did, store.identity(req.headers).tenant.id, through[0]))
+  })
   r.post('/discussions/:did/read', async ({ req, res, params, body }) => {
     const input = await body<MarkDiscussionReadRequest>()
-    if (input?.throughPostId !== undefined && typeof input.throughPostId !== 'string') {
+    if (input?.throughPostId !== undefined && (typeof input.throughPostId !== 'string' || !input.throughPostId)) {
       return sendError(res, 'bad_request', 'throughPostId must be a post id')
     }
     store.markDiscussionRead(params.did, store.identity(req.headers).tenant.id, input?.throughPostId)

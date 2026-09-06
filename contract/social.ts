@@ -629,9 +629,9 @@ export interface SetFollowRequest {
  *  caller's own list, so tenancy IS the filter and there is no parameter. */
 export type FollowList = string[]
 
-/** `POST /v1/discussions/:id/read` — mark a thread read up to its newest post
- *  (S7). A private note to self like `RecordViewRequest`: it rings nobody and
- *  moves no wall; it exists so a DM inbox can show an honest unread count. */
+/** `POST /v1/discussions/:id/read` — advance a thread's private read cursor
+ *  (S7). It rings nobody and moves no wall. First-party readers always freeze
+ *  `throughPostId`; omission remains the compatibility complete-set form. */
 export interface MarkDiscussionReadRequest {
   /** Mark read up to ONE post — its moment becomes the reader's mark. INV-9:
    *  absent is the complete-set constant, the whole thread. An id that is not in
@@ -639,6 +639,15 @@ export interface MarkDiscussionReadRequest {
    *  more read than the caller asked is the one failure mode that hides
    *  messages. The mark never moves backward. */
   throughPostId?: string
+}
+
+/** Exact recovery projection for
+ * `GET /v1/discussions/:id/read?throughPostId=…`. The addressed cursor is
+ * realized when the post is read or no longer represented/readable; the echoed
+ * id makes a crossed response impossible to accept accidentally. */
+export interface DiscussionReadState {
+  throughPostId: string
+  read: boolean
 }
 
 /** `POST /v1/social/viewed` — record that the caller OPENED a subject's page.

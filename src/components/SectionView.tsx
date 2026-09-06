@@ -273,7 +273,6 @@ import {
   useGrants,
   reactToDiscussionPost,
   reportDiscussionPost,
-  markDiscussionRead,
   useDelegations,
   useAttention,
   useMyWork,
@@ -576,6 +575,13 @@ import {
   isDiscussionStateHeld,
   useDiscussionStateStatus,
 } from '../controller/discussionStateMutations.ts'
+import {
+  discussionReadResourceId,
+  enqueueDiscussionRead,
+  heldDiscussionRead,
+  heldDiscussionReadFor,
+  useDiscussionReadStatus,
+} from '../controller/discussionReadMutations.ts'
 import {
   enqueueSavedContextCreation,
   isSavedContextCreationHeld,
@@ -5648,14 +5654,21 @@ function DiscussionPage({
   const stateHeld = d ? isDiscussionStateHeld(d.id) : false
   const threadHeld = postingHeld || deletionHeld || stateHeld
   const fold = useThreadFold(d?.posts ?? NO_POSTS, threadHeld)
-  // Opening a message marks it read — that is what "opened" means for an inbox,
-  // and leaving the dot lit on a thread the reader is looking at would be a
-  // visible lie. Keyed on the newest post so a reply while the page is open
-  // clears too; a private note to self, so a failure is swallowed.
+  // Opening a message advances through the newest post ACTUALLY rendered. A
+  // later arrival is a distinct intent, so response loss can never widen this
+  // act into "whatever is newest when Retry happens".
   const newestPostId = d?.posts[d.posts.length - 1]?.id
   useEffect(() => {
-    if (isDm && newestPostId) void markDiscussionRead(discussionId).catch(() => {})
-  }, [isDm, newestPostId, discussionId])
+    if (
+      isDm &&
+      (d?.unread ?? 0) > 0 &&
+      newestPostId &&
+      tenantId &&
+      !heldDiscussionRead(discussionId, newestPostId)
+    ) {
+      void enqueueDiscussionRead({ tenantId, discussionId, throughPostId: newestPostId })
+    }
+  }, [d?.unread, isDm, newestPostId, discussionId, tenantId])
   // ── Is this thread somebody's POST? Then this page is that post (S8) ────────
   // Asked of the FEED, not re-derived from the anchor: the server already
   // decides what is a wall post when it mints the item, and a second client-side
@@ -6165,6 +6178,17 @@ function assertHandledIntent(intent: never): void {
 function MessagesSection() {
   const rel = useRelations()
   const list = useDirectMessages().data ?? []
+  const readMutation = useDiscussionReadStatus()
+  const readPhase = (discussionId: string) => {
+    const held = heldDiscussionReadFor(discussionId)
+    if (!held) return undefined
+    const active = readMutation.activeResourceId === discussionReadResourceId(
+      held.discussionId,
+      held.throughPostId,
+    )
+    if (!active) return 'queued' as const
+    return readMutation.error ? 'failed' as const : 'pending' as const
+  }
   const projection = flatCollectionProjection({
     section: 'messages',
     fallbackLabel: 'Messages',
@@ -6184,8 +6208,20 @@ function MessagesSection() {
           const d = item.value
           const last = d.posts[d.posts.length - 1]
           const unread = d.unread ?? 0
+          const phase = readPhase(d.id)
+          const readLabel = phase === 'queued'
+            ? 'Read update queued'
+            : phase === 'pending'
+              ? 'Syncing read position…'
+              : phase === 'failed'
+                ? 'Waiting for Retry'
+                : null
           return (
-            <div className="flex items-center gap-3 py-3">
+            <div
+              data-message-row=""
+              data-message-read={phase}
+              className="flex items-center gap-3 py-3"
+            >
               <span className="flex w-4 shrink-0 items-center justify-center">
                 {unread > 0 ? (
                   <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-label={`${unread} unread`} />
@@ -6197,6 +6233,7 @@ function MessagesSection() {
                     row is scanned for. */}
                 <button
                   onClick={() => rel.navigate('discussions', d.id)}
+                  aria-busy={phase === 'pending' || undefined}
                   className={`block max-w-full truncate text-left text-[13px] ${unread > 0 ? 'font-medium text-ink' : 'text-ink'} ${DOOR_CLASS}`}
                 >
                   {d.counterpart ?? d.openedBy}
@@ -6206,6 +6243,7 @@ function MessagesSection() {
                     repo's rule is that a control or cue never keys on one. */}
                 <div className="mt-0.5 truncate text-[11px] text-ink-faint">
                   {last ? `${last.mine === true ? 'You: ' : ''}${last.body}` : 'No messages yet'}
+                  {readLabel ? ` · ${readLabel}` : ''}
                 </div>
               </div>
               <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(last?.at ?? d.openedAt)}</span>

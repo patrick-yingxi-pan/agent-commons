@@ -196,6 +196,8 @@ export const paths = {
   follows: () => `/me/follows`,
   socialFollow: () => `/social/follow`,
   discussionRead: (did: string) => `/discussions/${encodeURIComponent(did)}/read`,
+  discussionReadState: (did: string, throughPostId: string) =>
+    `/discussions/${encodeURIComponent(did)}/read?throughPostId=${encodeURIComponent(throughPostId)}`,
   /** The Commons feed (S4) + the acts behind its lenses: a like on one item, a
    *  watch on any subject, and the note that you opened one. */
   commons: () => `/commons`,

@@ -127,6 +127,28 @@ test('Watch emits only on a real transition and stays private to its viewer tena
   store.setWatch(subject, OWNER, false)
 })
 
+test('DM read cursors emit only on advancement and stay private to the reader', () => {
+  const reader = 'tenant-acme'
+  const otherParty = 'tenant-beta'
+  const thread = store.openDiscussion({
+    anchor: { ref: { kind: 'principal', id: 'Ada Lovelace' } },
+    firstPost: `private read event ${Date.now()}`,
+  }, otherParty)
+  assert.ok(thread && typeof thread === 'object')
+  const target = thread.posts[thread.posts.length - 1]!
+
+  const changed = emitted(() => { store.markDiscussionRead(thread.id, reader, target.id) })
+  const event = changed.find((candidate) => candidate.type === 'discussion-reads.changed')
+  assert.ok(event?.type === 'discussion-reads.changed')
+  assert.equal(event.tenantId, reader)
+  assert.equal(store.eventVisibleToTenant(event, reader), true)
+  assert.equal(store.eventVisibleToTenant(event, otherParty), false, 'the other party receives no read receipt')
+  assert.equal(store.eventVisibleToTenant(event, OTHER), false)
+
+  const replay = emitted(() => { store.markDiscussionRead(thread.id, reader, target.id) })
+  assert.equal(replay.some((candidate) => candidate.type === 'discussion-reads.changed'), false)
+})
+
 test('Commons Like emits only on a transition and mirrors its subject wall', () => {
   const reader = 'tenant-beta'
   const subject = { kind: 'project', id: 'evt-like-project' } as const

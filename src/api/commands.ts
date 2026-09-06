@@ -34,7 +34,6 @@ import {
   type Discussion,
   type ReportDiscussionPostResponse,
   type SetDiscussionReactionRequest,
-  type MarkDiscussionReadRequest,
   type SocialProposal,
   type SocialEntityRef,
   type PromptProbeRequest,
@@ -770,15 +769,6 @@ export async function redeemShareLink(token: string): Promise<{ subject: { kind:
  *  asked for. Invalidates the FEED as well as the list, because `followed` is a
  *  server-stamped field on every item — the Following lens would otherwise show
  *  a stale set until the next refetch. */
-/** Mark a thread read up to its newest post — what clears the inbox's unread
- *  dot. A private note to self: it rings nobody and moves no wall, so a failure
- *  is swallowed rather than surfaced (the `recordView` posture). */
-export async function markDiscussionRead(did: string): Promise<void> {
-  await apiPost<{ ok: true }>(paths.discussionRead(did), {} satisfies MarkDiscussionReadRequest)
-  invalidate(keys.directMessages)
-  invalidate(keys.discussion(did))
-}
-
 /** Set the caller's one thin reaction explicitly. A retry sends the same desired
  * state instead of toggling it back off. */
 export async function reactToDiscussionPost(

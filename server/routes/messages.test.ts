@@ -289,17 +289,40 @@ test('`throughPostId` marks read up to ONE post; a foreign id is refused, and th
   const two = await call('POST', `/discussions/${id}/posts`, { body: 'partial B' }, { 'x-tenant-id': GRACE })
   const posts = two.json.posts
   const a = posts[posts.length - 2]
+  const b = posts[posts.length - 1]
   assert.equal((await call('GET', `/discussions/${id}`, undefined, { 'x-tenant-id': ADA })).json.unread, 2)
+  assert.deepEqual(
+    (await call('GET', `/discussions/${id}/read?throughPostId=${encodeURIComponent(a.id)}`, undefined, { 'x-tenant-id': ADA })).json,
+    { throughPostId: a.id, read: false },
+    'exact recovery starts unresolved',
+  )
 
   // Read through the FIRST of the two: one remains.
   await call('POST', `/discussions/${id}/read`, { throughPostId: a.id }, { 'x-tenant-id': ADA })
   assert.equal((await call('GET', `/discussions/${id}`, undefined, { 'x-tenant-id': ADA })).json.unread, 1)
+  assert.deepEqual(
+    (await call('GET', `/discussions/${id}/read?throughPostId=${encodeURIComponent(a.id)}`, undefined, { 'x-tenant-id': ADA })).json,
+    { throughPostId: a.id, read: true },
+  )
+  assert.deepEqual(
+    (await call('GET', `/discussions/${id}/read?throughPostId=${encodeURIComponent(b.id)}`, undefined, { 'x-tenant-id': ADA })).json,
+    { throughPostId: b.id, read: false },
+    'a later post stays outside the frozen cursor',
+  )
 
   // Re-sending the older id must NOT rewind the mark (a stale client would
   // otherwise resurrect messages already seen).
   await call('POST', `/discussions/${id}/read`, {}, { 'x-tenant-id': ADA })
   await call('POST', `/discussions/${id}/read`, { throughPostId: a.id }, { 'x-tenant-id': ADA })
   assert.equal((await call('GET', `/discussions/${id}`, undefined, { 'x-tenant-id': ADA })).json.unread, undefined)
+
+  const absent = await call('GET', `/discussions/${id}/read?throughPostId=no-such-post`, undefined, { 'x-tenant-id': ADA })
+  assert.deepEqual(absent.json, { throughPostId: 'no-such-post', read: true }, 'terminal absence reveals no foreign post')
+  const stranger = await call('GET', `/discussions/${id}/read?throughPostId=${encodeURIComponent(b.id)}`, undefined, { 'x-tenant-id': STRANGER })
+  assert.deepEqual(stranger.json, { throughPostId: b.id, read: true }, 'an unreadable thread has the same terminal recovery face')
+  assert.equal((await call('GET', `/discussions/${id}/read`, undefined, { 'x-tenant-id': ADA })).status, 400)
+  assert.equal((await call('GET', `/discussions/${id}/read?throughPostId=a&throughPostId=b`, undefined, { 'x-tenant-id': ADA })).status, 400)
+  assert.equal((await call('POST', `/discussions/${id}/read`, { throughPostId: '' }, { 'x-tenant-id': ADA })).status, 400)
 
   // A post id from another thread marks NOTHING — widening it to "all read"
   // would hide messages the caller never asked to dismiss.

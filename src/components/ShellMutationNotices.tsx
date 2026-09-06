@@ -47,6 +47,7 @@ import { NotificationReadMutationNotice } from './NotificationReadMutationNotice
 import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMutationNotice'
 import { SystemPromptCreationMutationNotice } from './SystemPromptCreationMutationNotice'
 import { DiscussionSessionLaunchMutationNotice } from './DiscussionSessionLaunchMutationNotice'
+import { DiscussionReadMutationNotice } from './DiscussionReadMutationNotice'
 import { DiscussionPostDeletionMutationNotice } from './DiscussionPostDeletionMutationNotice'
 import { DiscussionStateMutationNotice } from './DiscussionStateMutationNotice'
 import { SessionForkMutationNotice } from './SessionForkMutationNotice'
@@ -69,6 +70,7 @@ export function ShellMutationNotices() {
       <SessionDeletionNotice />
       <SessionCompactionMutationNotice />
       <DiscussionSessionLaunchMutationNotice />
+      <DiscussionReadMutationNotice />
       <DiscussionPostDeletionMutationNotice />
       <DiscussionStateMutationNotice />
       <SessionForkMutationNotice />
