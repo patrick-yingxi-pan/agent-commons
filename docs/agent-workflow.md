@@ -11,6 +11,9 @@ procedure so the always-loaded map stays small.
   [`tests/CLAUDE.md`](../tests/CLAUDE.md).
 - Run `npm run typecheck` and `node --test` before declaring a code change done.
   Use `npm run verify` for the complete static/build/E2E sweep.
+- Pull requests and pushes to `main` run that exact complete verifier again in
+  GitHub Actions on Node 26. Keep the workflow a projection of `npm run verify`,
+  not a second hand-maintained list of checks.
 - Review the working diff adversarially after tests pass. Fix confirmed findings
   before commit; do not leave finished work uncommitted.
 

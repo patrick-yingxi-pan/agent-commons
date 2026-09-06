@@ -146,6 +146,10 @@ npm run ui:sweep     # signed-in surface × viewport review harness
 npm run verify       # typecheck + Node suite + build + sharded E2E
 ```
 
+Node 26 or newer is required. Pull requests and pushes to `main` repeat the
+complete `npm run verify` sweep in the repository's read-only GitHub Actions
+gate; local verification remains the pre-push requirement.
+
 `npm run dev` and `npm run server` retain the review/demo posture. Release-shaped
 boots use explicit profiles:
 

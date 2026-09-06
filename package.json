@@ -8,6 +8,9 @@
   "description": "A collaboration platform for people and agents.",
   "author": "Agent Commons contributors",
   "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=26"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dev:ui": "vite",
