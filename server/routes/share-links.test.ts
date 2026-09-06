@@ -15,6 +15,11 @@ const REDEEMER = 'tenant-link-redeemer'
 const BYSTANDER = 'tenant-link-bystander'
 let n = 0
 
+const sessionCookie = (response: { headers: Record<string, string> }): string => {
+  const token = response.headers['set-cookie']?.match(/uw_session=([^;,]+)/)?.[1] ?? ''
+  return `uw_session=${token}`
+}
+
 async function mint(tier: 'view' | 'comment' = 'view') {
   const projectId = `p-link-${(n += 1)}`
   store.applyRelationOp({ kind: 'create-project', projectId, projectName: `Link ${n}`, projectDescription: '' }, OWNER)
@@ -66,4 +71,32 @@ test('privacy: the redemption roster never crosses the wire', async () => {
   const row = roster.json.find((g: any) => g.audience.kind === 'link')
   assert.ok(row, 'the owner sees the link row')
   assert.equal(row.redeemedBy, undefined, 'who clicked is nobody’s business')
+})
+
+test('first-party redemption refuses a stale signed-in account before granting access', async () => {
+  const { projectId, token } = await mint('view')
+  const maya = await call('POST', '/auth/login', {
+    email: 'maya@growthworks.example',
+    password: 'maya-demo-password',
+  })
+  assert.equal(maya.status, 200)
+  const cookie = sessionCookie(maya)
+
+  const stale = await call('POST', '/grants/redeem', { token }, {
+    cookie,
+    'x-account-transition-source': 'session:user-ada',
+  })
+  assert.equal(stale.status, 409)
+  assert.equal(
+    store.grantedTier({ kind: 'project', id: projectId }, 'tenant-growthworks'),
+    undefined,
+    'the stale request has no grant side effect',
+  )
+
+  const valid = await call('POST', '/grants/redeem', { token }, {
+    cookie,
+    'x-account-transition-source': 'session:user-maya',
+  })
+  assert.equal(valid.status, 200)
+  assert.equal(store.grantedTier({ kind: 'project', id: projectId }, 'tenant-growthworks'), 'view')
 })

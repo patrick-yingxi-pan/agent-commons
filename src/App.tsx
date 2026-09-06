@@ -18,7 +18,6 @@ import {
   keys,
   onSessionRemoved,
   peek,
-  redeemShareLink,
   resolveAppBootstrap,
   retryAppBootstrap,
   useCapabilities,
@@ -37,11 +36,12 @@ import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SyncHealthNotice } from './components/SyncHealthNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
+import { SharedLinkGate } from './components/SharedLinkGate'
 import { SkipToMain } from './components/SkipToMain'
+import { sharedLinkAddress } from './lib/sharedLink.ts'
 import { SECTION_META } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
-import type { RoutedView } from './lib/urlRoutes'
 import { requestCompositeCommand, requestCompositeFold } from './lib/compositeFeatures'
 import { useFocusedCompositeFoldAvailability } from './lib/useCompositeFeatures'
 
@@ -71,18 +71,6 @@ class AuthScreenLoadBoundary extends Component<{ children: ReactNode }, { failed
     )
   }
 }
-
-/** S6 — a share-link boot (`/shared/:token`), captured at module scope BEFORE
- *  the router consumes the boot address (viewForPath treats the shape as
- *  no-preference, so the workspace boots normally underneath). Redeemed once
- *  the signed-in App mounts — the auth gate stays in front, which IS the S6
- *  slice: "anyone with the link" means anyone signed in; anonymous rendering
- *  through the gate is the recorded production tail. */
-const SHARED_BOOT_TOKEN =
-  typeof window !== 'undefined' && window.location.pathname.startsWith('/shared/')
-    ? decodeURIComponent(window.location.pathname.split('/')[2] ?? '')
-    : null
-let sharedBootConsumed = false
 
 /** The shell: decides WHICH top-level surface renders — the full-screen auth
  *  flow (multi-account §12) or the workspace. The auth screen shows when the
@@ -132,8 +120,8 @@ export default function App() {
   // body is the "Cannot update a component while rendering a different
   // component" error (see setUiPrefScope). They must run during render even so,
   // because the children's useState initializers read the store on mount. The
-  // Workspace is KEYED by the account, so a switch remounts it: every
-  // mount-time read (rail width, pane folds/heights, panel width, the
+  // signed-in branch is KEYED by the account, so a switch remounts Workspace:
+  // every mount-time read (rail width, pane folds/heights, panel width, the
   // persisted split TREE — which IS the account's view memory since Phase 6)
   // re-runs against the account's own blobs. A switch reset clears the gate
   // reads, so bootstrap waits for the NEW /me; no ad-hoc last-identity cache can
@@ -141,7 +129,15 @@ export default function App() {
   setUiPrefScope(resolvedIdentity.user.id)
   setMainSplitScope(resolvedIdentity.user.id) // the main split tree is per account, like the layout blob
   setRailSplitScope(resolvedIdentity.user.id)
-  return <Workspace key={resolvedIdentity.user.id} />
+  return (
+    <SharedLinkGate
+      key={resolvedIdentity.user.id}
+      address={sharedLinkAddress(window.location.pathname)}
+      expectedSessionUserId={resolvedIdentity.via === 'session' ? resolvedIdentity.user.id : undefined}
+    >
+      <Workspace />
+    </SharedLinkGate>
+  )
 }
 
 /** The View: composes the product chrome from three controllers — the main
@@ -489,38 +485,6 @@ function Workspace() {
     },
     [openDetail, openSection],
   )
-
-  // S6 — consume a share-link boot: redeem, then land on the subject's page
-  // (its canonical routed view, through the same focused-pane routing as any
-  // address). Session subjects open as conversations; artifacts (no page)
-  // land on the Commons, whose feed carries the share. Module-flagged so
-  // StrictMode's double-mount redeems once (redeem is idempotent regardless).
-  useEffect(() => {
-    if (!SHARED_BOOT_TOKEN || sharedBootConsumed) return
-    sharedBootConsumed = true
-    void redeemShareLink(SHARED_BOOT_TOKEN)
-      .then(({ subject }) => {
-        if (subject.kind === 'session') return openSession(subject.id)
-        const base = { kind: 'section' as const, projectId: null, scheduleId: null, ownerName: null }
-        const routed: RoutedView =
-          subject.kind === 'project'
-            ? { loc: { ...base, section: 'projects', projectId: subject.id }, subview: null }
-            : subject.kind === 'schedule'
-              ? { loc: { ...base, section: 'scheduled', scheduleId: subject.id }, subview: null }
-              : subject.kind === 'context'
-                ? { loc: { ...base, section: 'contexts', contextId: subject.id }, subview: null }
-                : subject.kind === 'discussion'
-                  ? { loc: { ...base, section: 'discussions', discussionId: subject.id }, subview: null }
-                  : { loc: { ...base, section: 'commons' }, subview: null }
-        applyRouteToFocused(routed)
-      })
-      .catch(() => {
-        // An unknown/rotated link: the workspace already booted normally —
-        // nothing to unwind, and the address holds no secret worth keeping.
-        window.history.replaceState(null, '', '/')
-      })
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- boot-once by design
-  }, [])
 
   // The original main-pane acts, gated once by their respective viewport axes.
   // The expanded rail switches this shared cluster by focus below; the

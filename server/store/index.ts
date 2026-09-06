@@ -43,6 +43,7 @@ import type {
   Message,
   Project,
   RecentsSnapshot,
+  RedeemGrantResponse,
   RelationGraph,
   RelationOp,
   ResolveMessageRelationResponse,
@@ -8212,7 +8213,7 @@ export const store = {
    *  404. Returns the subject so the client can land on its page. Deliberately
    *  SILENT (no bell either way): who clicked a link is nobody's business —
    *  the redaction rule extended to notifications. */
-  redeemGrant(token: string, tenantId: string): { subject: SocialEntityRef; tier: ShareTier } | undefined {
+  redeemGrant(token: string, tenantId: string): RedeemGrantResponse | undefined {
     const g = grants.find((x) => x.audience.kind === 'link' && x.audience.token === token)
     if (!g) return undefined
     const set = g.redeemedBy ?? (g.redeemedBy = [])

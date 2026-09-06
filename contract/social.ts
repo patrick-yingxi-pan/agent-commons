@@ -138,9 +138,8 @@ export function isAnchorLocus(v: unknown): v is AnchorLocus {
   }
 }
 
-/** Who a grant addresses. `link` (anyone with the token) is declared now but
- *  refused by the server until the public phase (S6) — the enum grows, the
- *  card surfaces don't change. */
+/** Who a grant addresses. A `link` carries the server-minted capability token;
+ * redemption joins a signed-in caller to the ordinary tier machinery. */
 export type Audience =
   | { kind: 'principal'; principalId: string }
   | { kind: 'org'; orgId: string }
@@ -207,6 +206,13 @@ export interface CreateGrantRequest {
   tier: ShareTier
   /** See `Grant.note` (INV-9: absent = silent share). */
   note?: string
+}
+
+/** `POST /v1/grants/redeem` — the canonical destination and tier opened by a
+ * capability-bearing link. The token itself never rides back in the response. */
+export interface RedeemGrantResponse {
+  subject: SocialEntityRef
+  tier: ShareTier
 }
 
 /** ── Discussion (S2) — the sixth noun ────────────────────────────────────────

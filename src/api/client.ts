@@ -44,6 +44,9 @@ export interface ApiMutationOptions {
   /** One key per logical mutation. A caller that retries after an uncertain
    * acknowledgement reuses it so an idempotent route can replay, not reapply. */
   idempotencyKey?: string
+  /** Bind a first-party identity-sensitive request to the signed-in account
+   * that initiated it. The server refuses a later cross-tab cookie change. */
+  expectedSessionUserId?: string
 }
 
 async function request<T>(method: string, path: string, body?: unknown, options: ApiMutationOptions = {}): Promise<T> {
@@ -58,10 +61,13 @@ async function request<T>(method: string, path: string, body?: unknown, options:
     res = await fetch(`${API_BASE}${path}`, {
       method,
       headers:
-        body !== undefined || options.idempotencyKey
+        body !== undefined || options.idempotencyKey || options.expectedSessionUserId
           ? {
               ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
               ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
+              ...(options.expectedSessionUserId
+                ? { 'X-Account-Transition-Source': `session:${options.expectedSessionUserId}` }
+                : {}),
             }
           : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,

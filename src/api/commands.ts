@@ -47,6 +47,7 @@ import {
   type PushRecentRequest,
   type Project,
   type RecentsSnapshot,
+  type RedeemGrantResponse,
   type RelationGraph,
   type RelationOp,
   type Reservation,
@@ -68,6 +69,8 @@ import {
   type UpdateSessionPreferencesRequest,
   type UpdateSessionRequest,
   type UpdateSessionContextStateRequest,
+  SHARE_TIERS,
+  SOCIAL_ENTITY_KINDS,
 } from '../../contract/index.ts'
 import { API_BASE, ApiRequestError, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
 import { invalidate, invalidatePrefix, mutate, peek, setData } from './cache.ts'
@@ -754,13 +757,26 @@ export function a2aAgentCardUrl(id: string): string {
 /** Redeem a share-link token (S6): the signed-in caller becomes audience at
  *  the grant's tier; returns the subject so the caller can land on its page.
  *  An unknown/rotated token throws (the 404). */
-export async function redeemShareLink(token: string): Promise<{ subject: { kind: string; id: string }; tier: string }> {
-  const out = await apiPost<{ subject: { kind: string; id: string }; tier: string }>(paths.grantRedeem(), { token })
+export async function redeemShareLink(token: string, expectedSessionUserId?: string): Promise<RedeemGrantResponse> {
+  const out = await apiPost<unknown>(
+    paths.grantRedeem(),
+    { token },
+    { expectedSessionUserId },
+  )
+  if (
+    typeof out !== 'object' || out === null ||
+    typeof (out as RedeemGrantResponse).subject?.id !== 'string' ||
+    !(out as RedeemGrantResponse).subject.id.trim() ||
+    !(SOCIAL_ENTITY_KINDS as readonly string[]).includes((out as RedeemGrantResponse).subject?.kind) ||
+    !(SHARE_TIERS as readonly string[]).includes((out as RedeemGrantResponse).tier)
+  ) {
+    throw new ApiRequestError('internal', 'The server returned an invalid shared-item destination.', 0)
+  }
   invalidatePrefix(keys.grants())
   invalidate(keys.projects)
   invalidate(keys.relations)
   invalidate(keys.commons)
-  return out
+  return out as RedeemGrantResponse
 }
 
 /** ── The person layer (S7) ───────────────────────────────────────────────────

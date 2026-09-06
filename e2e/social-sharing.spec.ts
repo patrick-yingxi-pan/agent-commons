@@ -114,7 +114,14 @@ test('share → feed → discuss → improve: one thread, one ledger, across two
 test('the share link: a signed-in third tenant opens /shared/:token and lands on the subject', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser)
-  const maya = await newUser(browser, { 'x-user-id': 'user-maya', 'x-tenant-id': 'tenant-growthworks' })
+  const maya = await newUser(browser)
+
+  // Use the real signed-session path here: share-link redemption binds itself
+  // to the account that initiated it, which a dev identity header cannot prove.
+  const signedIn = await maya.page.request.post(`${API}/auth/login`, {
+    data: { email: 'maya@growthworks.example', password: 'maya-demo-password' },
+  })
+  expect(signedIn.ok()).toBeTruthy()
 
   // ── Ada mints the link grant (the server mints the token) ─────────────────
   await ada.page.goto('/')
@@ -141,9 +148,51 @@ test('the share link: a signed-in third tenant opens /shared/:token and lands on
   await gotoSection(maya.page, 'Projects')
   await expect(maya.page.getByText(LINK_PROJECT)).toHaveCount(0)
 
-  // ── …and the link is the door: /shared/:token redeems and lands on the page ──
+  // ── …and the link is the door. Lose the FIRST acknowledgement after the
+  // server commits: the dedicated entry surface retains the exact intent, and
+  // Retry safely converges through the store's idempotent redemption. ─────────
+  const attempts: { body: unknown; source: string | undefined }[] = []
+  await maya.page.route(`**${API}/grants/redeem`, async (route) => {
+    attempts.push({
+      body: route.request().postDataJSON(),
+      source: route.request().headers()['x-account-transition-source'],
+    })
+    if (attempts.length === 1) {
+      const committed = await route.fetch()
+      expect(committed.ok()).toBeTruthy()
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'internal', message: 'lost acknowledgement' } }),
+      })
+      return
+    }
+    await route.continue()
+  })
+
   await maya.page.goto(`/shared/${link!.audience.token}`)
+  await expect(maya.page.getByRole('heading', { name: 'Couldn’t open shared item' })).toBeVisible()
+  await expect(maya.page).toHaveURL(`/shared/${link!.audience.token}`)
+  await expect(maya.page.getByRole('navigation')).toHaveCount(0)
+  await maya.page.getByRole('button', { name: 'Try again' }).click()
   await expect(maya.page.getByRole('heading', { name: LINK_PROJECT })).toBeVisible({ timeout: ms(20_000) })
+  await expect(maya.page).toHaveURL(new RegExp(`/projects/${pid}$`))
+  expect(attempts).toEqual([
+    { body: { token: link!.audience.token }, source: 'session:user-maya' },
+    { body: { token: link!.audience.token }, source: 'session:user-maya' },
+  ])
+
+  // The secret-bearing address was REPLACED, not pushed beneath the resource.
+  await maya.page.goBack()
+  await expect(maya.page).not.toHaveURL(/\/shared\//)
+
+  // A terminal unknown/rotated link removes its token immediately but keeps an
+  // honest explanation until the user chooses the safe Commons destination.
+  await maya.page.goto('/shared/not-a-real-token')
+  await expect(maya.page.getByRole('heading', { name: 'This share link is no longer available' })).toBeVisible()
+  await expect(maya.page).toHaveURL('/')
+  await maya.page.getByRole('button', { name: 'Go to Agent Commons' }).click()
+  await expect(maya.page.getByRole('navigation', { name: 'Sections' })).toBeVisible()
 
   await ada.context.close()
   await maya.context.close()

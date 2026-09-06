@@ -595,9 +595,9 @@ export function buildRouter(): Router {
     sendError(res, 'bad_request', "transport must be 'cookie' or 'bearer' (absent = cookie).")
     return null
   }
-  /** Optional compatibility precondition used by the first-party account UI.
-   * It closes the cross-tab gap between a click and route arrival: an intent
-   * issued by one account can never sign out, forget, or switch a newer one. */
+  /** Optional compatibility precondition used by first-party identity-sensitive
+   * ceremonies. It closes the cross-tab gap between intent and route arrival:
+   * an action issued by one account cannot mutate a newer signed-in account. */
   const accountTransitionSourceMatches = (req: IncomingMessage, res: ServerResponse): boolean => {
     const expected = headerValue(req.headers, 'x-account-transition-source')
     if (expected === undefined) return true
@@ -2736,6 +2736,7 @@ export function buildRouter(): Router {
   // S6 — redeem a link token: the signed-in caller becomes audience at the
   // grant's tier; unknown/rotated tokens 404 (existence-hiding).
   r.post('/grants/redeem', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const input = await body<{ token?: string }>()
     if (typeof input?.token !== 'string' || !input.token) return sendError(res, 'bad_request', 'token is required')
     const out = store.redeemGrant(input.token, store.identity(req.headers).tenant.id)
