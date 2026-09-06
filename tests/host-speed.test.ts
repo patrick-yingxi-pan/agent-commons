@@ -72,7 +72,7 @@ test('shard count follows the machine — and never reaches the shape that measu
   for (const junk of [0, -3, NaN, undefined]) assert.ok(shardCount(junk, 1) >= 1, `${junk} still yields a usable count`)
 })
 
-test('the runner’s measurement is preferred to a fresh one, but only if it is usable', () => {
+test('the runner’s selected factor is preferred to a fresh measurement, but only if it is usable', () => {
   // A shard calibrating mid-sweep measures the SWEEP, not the host, and that
   // slowness would then be multiplied again by the contention term. The runner
   // measures once, before anything competes, and passes it down.
@@ -84,6 +84,12 @@ test('the runner’s measurement is preferred to a fresh one, but only if it is 
   }
   const fresh = resolvedFactor({})
   assert.ok(fresh >= 1 && fresh <= 4, `no env → a fresh measurement in range, got ${fresh}`)
+
+  const runner = read(join(ROOT, 'scripts/verify.mjs'))
+  assert.match(runner, /const HOST_FACTOR = resolvedFactor\(\)/,
+    'the top-level runner must honor a supplied factor before passing it to every shard')
+  assert.doesNotMatch(runner, /const HOST_FACTOR = hostFactor\(\)/,
+    'a fresh calibration must not silently overwrite the documented environment seam')
 })
 
 /** `e2e/budget.ts` is the only consumer of all this, and it is applied at ~170

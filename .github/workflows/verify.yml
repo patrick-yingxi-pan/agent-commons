@@ -20,11 +20,10 @@ jobs:
     timeout-minutes: 45
     env:
       CI: true
-      # Measured hosted baseline (2026-09-06): the generic host default
-      # chose one shard and a 1.11x budget, taking 29.7m and timing out six
-      # otherwise-green interaction tests. Two isolated stacks cut the queue;
-      # the verifier's bounded 4x host factor absorbs runner scheduling jitter.
-      E2E_SHARDS: 2
+      # Measured hosted baseline (2026-09-06): the host-selected one shard with
+      # a 1.11x CPU-derived budget took 29.7m and timed out six otherwise-green
+      # interactions. Keep its CPU-safe shard count; the verifier's bounded 4x
+      # host factor absorbs shared-runner scheduling and I/O jitter.
       E2E_HOST_FACTOR: 4
     steps:
       - name: Check out the exact revision

@@ -101,15 +101,16 @@ export function shardCount(cores, factor = 1) {
   return Math.max(1, byCores - slowPenalty)
 }
 
-/** The host factor to USE — the runner's measurement if it made one, else a
- *  fresh one.
+/** The host factor to USE — the runner's selected profile if it supplied one,
+ *  else a fresh measurement.
  *
  *  Every shard must share one factor: independent samples can still see
  *  different JIT, frequency, and cache states even though scheduler wait no
  *  longer contaminates them. The runner calibrates once and passes the number
- *  down, so the two factors stay what they claim to be — one about the host,
- *  one about the load the sweep adds. A direct `npx playwright test` has no
- *  runner, so it measures for itself and its contention term is 1. */
+ *  down, so the two factors stay what they claim to be — one about the host or
+ *  its known operating environment, one about the load the sweep adds. A
+ *  direct `npx playwright test` has no runner, so it measures for itself and
+ *  its contention term is 1. */
 export function resolvedFactor(env = process.env) {
   const passed = Number(env.E2E_HOST_FACTOR)
   if (Number.isFinite(passed) && passed >= 1) return Math.min(4, passed)

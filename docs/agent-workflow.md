@@ -13,9 +13,9 @@ procedure so the always-loaded map stays small.
   Use `npm run verify` for the complete static/build/E2E sweep.
 - Pull requests and pushes to `main` run that exact complete verifier again in
   GitHub Actions on Node 26. Keep the workflow a projection of `npm run verify`,
-  not a second hand-maintained list of checks. Its explicit two-shard and
-  maximum-bounded E2E timing inputs are the measured hosted-runner profile;
-  local runs continue to calibrate themselves.
+  not a second hand-maintained list of checks. Its explicit maximum-bounded E2E
+  timing input is the measured hosted-runner profile; shard count remains
+  host-selected, and local runs continue to calibrate themselves.
 - Review the working diff adversarially after tests pass. Fix confirmed findings
   before commit; do not leave finished work uncommitted.
 

@@ -72,21 +72,18 @@ import { availableParallelism } from 'node:os'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { envCount, specFiles, specGroups, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
-import { hostFactor, shardCount } from './hostSpeed.mjs'
+import { resolvedFactor, shardCount } from './hostSpeed.mjs'
 
 /** The plan — which suites, which specs, how they split. Its own module so a
  *  node test can hold it: these decide the sweep's COVERAGE, and this file
  *  cannot be imported to check them (it spawns children at import time). */
 const SUITE = suiteFiles()
 
-/** How many E2E processes. Three by default: the suite is I/O-bound (a browser
- *  waiting on an app), so it oversubscribes cores happily, but each shard also
- *  boots a full stack — past a handful the boots cost more than the split
- *  saves. Capped by cores so a small machine does not thrash. */
-/** Measured ONCE and passed down. The CPU-time clock excludes scheduler wait,
- *  while one shared sample also prevents JIT/cache noise from giving sibling
- *  shards different ideas of the same host. */
-const HOST_FACTOR = hostFactor()
+/** Resolved ONCE and passed down. A caller-supplied bounded factor represents
+ *  a host profile the CPU-only calibration cannot observe (for example shared
+ *  runner scheduling); otherwise the fresh CPU-time sample prevents sibling
+ *  shards from deriving different budgets under contention. */
+const HOST_FACTOR = resolvedFactor()
 
 /** How many E2E processes. Derived from the host rather than from `cores / 2`:
  *  measured on the reference box, 6 shards on 12 cores ran SLOWER than 3
