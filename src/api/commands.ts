@@ -969,14 +969,6 @@ export async function declineSocialProposal(
  *  relationships to a feed item, stamped by the server on every read. These are
  *  the three writes that move them ("posted" needs none — it IS the actor). */
 
-/** Like / unlike one feed item. The response is that item's fresh counts; the
- *  feed cache is invalidated so the card and the lens agree. */
-export async function setCommonsLike(itemId: string, liked: boolean): Promise<{ likes: number; liked: boolean }> {
-  const out = await apiPost<{ likes: number; liked: boolean }>(paths.commonsLike(itemId), { liked })
-  invalidate(keys.commons)
-  return out
-}
-
 /** Record that the caller opened a subject's page — the "Recently viewed" ledger.
  *  Fire-and-forget by design: it is a private note to self, so a failed write is
  *  never worth interrupting a page load over. */

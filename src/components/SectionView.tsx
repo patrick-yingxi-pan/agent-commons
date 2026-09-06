@@ -245,7 +245,6 @@ import {
 import {
   desktopCredentialsAvailable,
   a2aAgentCardUrl,
-  setCommonsLike,
   recordView,
   useAgentProposals,
   useMe,
@@ -583,6 +582,12 @@ import {
   isSavedContextCreationHeld,
   useSavedContextCreationStatus,
 } from '../controller/savedContextCreationMutations.ts'
+import {
+  commonsLikeResourceId,
+  enqueueCommonsLike,
+  heldCommonsLike,
+  useCommonsLikeStatus,
+} from '../controller/commonsLikeMutations.ts'
 import {
   enqueueStandingRelationship,
   heldWatchRelationship,
@@ -5284,33 +5289,39 @@ function useRecordView(kind: SocialEntityRef['kind'], id: string | undefined): v
  *  notification: a like rings nobody and moves no wall. */
 function LikeButton({ item }: { item: CommonsItem }) {
   const liked = item.liked === true
-  const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
-  const toggle = async () => {
-    if (busy) return
-    setBusy(true)
-    setFailed(false)
-    try {
-      await setCommonsLike(item.id, !liked)
-    } catch {
-      // Rendered purely from server state, so a swallowed failure would look
-      // like nothing happened — say so instead (the WatchButton rule).
-      setFailed(true)
-    } finally {
-      setBusy(false)
-    }
+  const me = useMe().data
+  const mutation = useCommonsLikeStatus()
+  const held = heldCommonsLike(item.id)
+  const active = mutation.activeResourceId === commonsLikeResourceId(item.id)
+  const waiting = active && mutation.error !== null
+  const label = held
+    ? !active
+      ? held.liked ? 'Like queued' : 'Unlike queued'
+      : waiting
+        ? 'Waiting for Retry'
+        : held.liked ? 'Liking…' : 'Unliking…'
+    : liked ? 'Liked' : 'Like'
+  const toggle = () => {
+    if (held || !me) return
+    void enqueueCommonsLike({ tenantId: me.tenant.id, itemId: item.id, liked: !liked })
   }
   return (
     <button
       onClick={toggle}
-      disabled={busy}
+      disabled={!!held || !me}
+      aria-busy={(active && !waiting) || undefined}
       aria-pressed={liked}
-      aria-label={liked ? 'Unlike this post' : 'Like this post'}
-      title={failed ? 'Couldn’t update — click to retry' : liked ? 'Remove your like' : 'Like this post'}
+      aria-label={held ? label : liked ? 'Unlike this post' : 'Like this post'}
+      title={
+        waiting ? 'Use Retry or Dismiss in the recovery banner'
+        : held ? label
+        : liked ? 'Remove your like'
+        : 'Like this post'
+      }
       className={cardActClass(liked)}
     >
       <ThumbsUp size={14} />
-      {liked ? 'Liked' : 'Like'}
+      {label}
       {item.likes > 0 && <span className="tabular-nums text-ink-faint">{item.likes}</span>}
     </button>
   )

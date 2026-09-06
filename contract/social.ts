@@ -585,6 +585,14 @@ export interface SetCommonsLikeRequest {
   liked: boolean
 }
 
+/** Exact public aggregate plus private viewer membership for one Commons item.
+ * The aggregate may move when any visible reader acts; `liked` answers only
+ * for the authenticated viewer and is therefore never inferred from count. */
+export interface CommonsLikeState {
+  likes: number
+  liked: boolean
+}
+
 /** `POST /v1/social/watch` — watch (or unwatch) ANY subject. The
  *  project-scoped `/projects/:id/watch` (D24) is the same store under a
  *  `project` ref; this is the general door the Commons' Watched lens needs. */

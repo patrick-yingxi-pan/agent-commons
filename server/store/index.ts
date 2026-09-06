@@ -33,6 +33,7 @@ import type {
   DiffLine,
   Discussion,
   DispatchRun,
+  CommonsLikeState,
   CommonsItem,
   Grant,
   OpenDiscussionRequest,
@@ -3894,6 +3895,10 @@ export const store = {
         // subject may be private, so it must never ride an org-member read
         // union or the global fallthrough.
         return e.tenantId === tenantId
+      case 'commons-like.changed':
+        // The count is public only inside the item's existing subject wall;
+        // the event carries no viewer membership and therefore widens nothing.
+        return this.grantSubjectVisible(e.subject, tenantId)
       case 'reservation.changed': {
         // `resourceId` is `${guardianId}[:${subGoal}]` — the sub-goal suffix is free
         // text (a private Project's claim name). It once fell through the global
@@ -9728,18 +9733,28 @@ export const store = {
   watchState(subject: SocialEntityRef, tenantId: string): WatchState {
     return { watching: watches.get(watchKey(subject))?.has(tenantId) ?? false }
   },
-  /** Toggle the caller's like on ONE feed item. Visibility is the item's
+  /** Read the exact public aggregate and private viewer membership for one
+   * feed item behind the same subject wall as the Commons projection. */
+  commonsLikeState(itemId: string, tenantId: string): CommonsLikeState | undefined {
+    const subject = this.commonsItemSubject(itemId)
+    if (!subject || !this.grantSubjectVisible(subject, tenantId)) return undefined
+    const set = commonsLikes.get(itemId)
+    return { likes: set?.size ?? 0, liked: set?.has(tenantId) ?? false }
+  },
+  /** Set the caller's like on ONE feed item. Visibility is the item's
    *  SUBJECT's wall (a like is never wider than what it likes), so an item the
-   *  caller can't read is the existence-hiding undefined. Returns the fresh
-   *  counts rather than the feed — the caller updates one card. */
-  setCommonsLike(itemId: string, tenantId: string, liked: boolean): { likes: number; liked: boolean } | undefined {
+   *  caller can't read is the existence-hiding undefined. Repeating realized
+   *  desired state is a true no-op: no persistence write and no fictional push. */
+  setCommonsLike(itemId: string, tenantId: string, liked: boolean): CommonsLikeState | undefined {
     const subject = this.commonsItemSubject(itemId)
     if (!subject || !this.grantSubjectVisible(subject, tenantId)) return undefined
     const set = commonsLikes.get(itemId) ?? new Set<string>()
+    if (set.has(tenantId) === liked) return { likes: set.size, liked }
     if (liked) set.add(tenantId)
     else set.delete(tenantId)
     if (set.size > 0) commonsLikes.set(itemId, set)
     else commonsLikes.delete(itemId)
+    emit({ type: 'commons-like.changed', itemId, subject })
     persist()
     return { likes: set.size, liked }
   },

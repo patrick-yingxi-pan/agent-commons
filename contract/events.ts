@@ -428,6 +428,15 @@ export interface WatchChangedEvent {
   subject: import('./social.ts').SocialEntityRef
 }
 
+/** One Commons item's public endorsement aggregate changed. Visibility mirrors
+ * the subject: every permitted reader refreshes the count, while each response
+ * derives its own private `liked` membership. */
+export interface CommonsLikeChangedEvent {
+  type: 'commons-like.changed'
+  itemId: string
+  subject: import('./social.ts').SocialEntityRef
+}
+
 /** Sent once when an SSE channel opens, so the client can confirm liveness. */
 export interface HelloEvent {
   type: 'hello'
@@ -497,6 +506,7 @@ export type ServerEvent =
   | SocialProposalChangedEvent
   | FollowChangedEvent
   | WatchChangedEvent
+  | CommonsLikeChangedEvent
 
 export type ServerEventType = ServerEvent['type']
 

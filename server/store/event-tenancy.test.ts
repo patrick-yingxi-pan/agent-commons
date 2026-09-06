@@ -127,6 +127,38 @@ test('Watch emits only on a real transition and stays private to its viewer tena
   store.setWatch(subject, OWNER, false)
 })
 
+test('Commons Like emits only on a transition and mirrors its subject wall', () => {
+  const reader = 'tenant-beta'
+  const subject = { kind: 'project', id: 'evt-like-project' } as const
+  store.applyRelationOp({
+    kind: 'create-project',
+    projectId: subject.id,
+    projectName: 'Event Like Project',
+    projectDescription: 'Visible to one invited reader.',
+  }, OWNER)
+  const grant = store.createGrant({
+    subject,
+    audience: { kind: 'org', orgId: reader },
+    tier: 'view',
+    note: 'Like event fixture.',
+  }, OWNER)
+  assert.ok(grant && typeof grant === 'object')
+  const itemId = `share:${grant.id}`
+
+  const changed = emitted(() => { store.setCommonsLike(itemId, reader, true) })
+  const event = changed.find((candidate) => candidate.type === 'commons-like.changed')
+  assert.ok(event?.type === 'commons-like.changed')
+  assert.equal(event.itemId, itemId)
+  assert.deepEqual(event.subject, subject)
+  assert.equal(store.eventVisibleToTenant(event, OWNER), true, 'the owner sees the public count move')
+  assert.equal(store.eventVisibleToTenant(event, reader), true, 'the granted reader sees their membership move')
+  assert.equal(store.eventVisibleToTenant(event, OTHER), false, 'the private item id never crosses its wall')
+
+  const replay = emitted(() => { store.setCommonsLike(itemId, reader, true) })
+  assert.equal(replay.some((candidate) => candidate.type === 'commons-like.changed'), false)
+  store.setCommonsLike(itemId, reader, false)
+})
+
 test('every schedule mutator emits schedule.changed, stamped with the owning tenant', () => {
   let task: ReturnType<typeof store.addSchedule>
   const onAdd = emitted(() => {

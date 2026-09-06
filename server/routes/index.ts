@@ -20,6 +20,7 @@ import type {
   PostToDiscussionRequest,
   SocialEntityKind,
   SocialEntityRef,
+  CommonsLikeState,
   SetCommonsLikeRequest,
   SetFollowRequest,
   MarkDiscussionReadRequest,
@@ -2930,6 +2931,11 @@ export function buildRouter(): Router {
   // The lens acts (the rail's Watched / Liked / Posted / Recently viewed).
   // "Posted" needs no act — it IS the actor field — and the other three are the
   // thinnest writes in the system: a like, a watch, a note that you looked.
+  r.aliasGet('/commons/:itemId/like', 'POST /commons/:itemId/like', 'like-state reading and mutation are two forms of the same visible Commons endorsement capability', ({ req, res, params }) => {
+    const out = store.commonsLikeState(params.itemId, store.identity(req.headers).tenant.id)
+    if (!out) return sendError(res, 'not_found', `No feed item '${params.itemId}'`)
+    sendJson(res, out satisfies CommonsLikeState)
+  })
   r.post('/commons/:itemId/like', async ({ req, res, params, body }) => {
     const input = await body<SetCommonsLikeRequest>()
     if (typeof input?.liked !== 'boolean') return sendError(res, 'bad_request', 'liked (boolean) is required')

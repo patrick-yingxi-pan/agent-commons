@@ -307,6 +307,11 @@ function route(e: ServerEvent): void {
       invalidate(keys.commons)
       if (e.subject.kind === 'project') invalidate(keys.projectWatch(e.subject.id))
       break
+    // A Like has one public aggregate and private viewer membership. The event
+    // contains neither; every permitted client re-derives both from its feed.
+    case 'commons-like.changed':
+      invalidate(keys.commons)
+      break
     // A social proposal changed (S3) — its subject's ledger, the row itself,
     // and (a landed relation-op delta) the graph projections are stale.
     case 'social-proposal.changed':

@@ -53,10 +53,15 @@ test('liked: an explicit toggle, a public count, a viewer-relative flag', async 
 
   assert.equal((await read1(READER)).likes, 0)
   assert.equal((await read1(READER)).liked, undefined)
+  const exactOff = await call('GET', `/commons/${encodeURIComponent(itemId)}/like`, undefined, { 'x-tenant-id': READER })
+  assert.deepEqual(exactOff.json, { likes: 0, liked: false }, 'the recovery read distinguishes viewer state from count')
 
+  const transitions: string[] = []
+  const unsubscribe = store.subscribe((event) => transitions.push(event.type))
   const on = await call('POST', `/commons/${encodeURIComponent(itemId)}/like`, { liked: true }, { 'x-tenant-id': READER })
   assert.equal(on.status, 200)
   assert.deepEqual(on.json, { likes: 1, liked: true })
+  assert.equal(transitions.filter((type) => type === 'commons-like.changed').length, 1)
   assert.equal((await read1(READER)).liked, true)
   // The COUNT is public (like a post's reactions); who liked it is not.
   const asOwner = await read1(OWNER)
@@ -65,16 +70,21 @@ test('liked: an explicit toggle, a public count, a viewer-relative flag', async 
 
   // Explicit, not a parity toggle: liking twice is idempotent, so two clients
   // pressing at once converge on what the user asked for.
-  await call('POST', `/commons/${encodeURIComponent(itemId)}/like`, { liked: true }, { 'x-tenant-id': READER })
+  const repeated = await call('POST', `/commons/${encodeURIComponent(itemId)}/like`, { liked: true }, { 'x-tenant-id': READER })
+  assert.deepEqual(repeated.json, { likes: 1, liked: true })
+  assert.equal(transitions.filter((type) => type === 'commons-like.changed').length, 1, 'same desired state emits no fictional change')
   assert.equal((await read1(READER)).likes, 1)
   const off = await call('POST', `/commons/${encodeURIComponent(itemId)}/like`, { liked: false }, { 'x-tenant-id': READER })
   assert.deepEqual(off.json, { likes: 0, liked: false })
+  unsubscribe()
 })
 
 test('a like inherits its subject’s wall — existence-hiding, like every social read', async () => {
   const { itemId } = await publishedProject()
   const denied = await call('POST', `/commons/${encodeURIComponent(itemId)}/like`, { liked: true }, { 'x-tenant-id': STRANGER })
   assert.equal(denied.status, 404, 'a subject you cannot see has no likeable post')
+  const deniedRead = await call('GET', `/commons/${encodeURIComponent(itemId)}/like`, undefined, { 'x-tenant-id': STRANGER })
+  assert.equal(deniedRead.status, 404, 'the exact recovery read keeps the same existence-hiding wall')
   const bogus = await call('POST', '/commons/share:nope/like', { liked: true }, { 'x-tenant-id': READER })
   assert.equal(bogus.status, 404)
   const bad = await call('POST', `/commons/${encodeURIComponent(itemId)}/like`, { liked: 'yes' }, { 'x-tenant-id': READER })
