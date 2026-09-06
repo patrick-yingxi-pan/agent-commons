@@ -1,10 +1,15 @@
 /** Strict normalization for a caller-authored static model catalog. The store's
  * shared replacement funnel still owns id uniqueness, ordering, and stale-pick
  * cleanup for registration, declaration, and endpoint listing alike. */
-import type { ModelInfo, UpdateProviderModelsRequest } from '../../contract/index.ts'
+import type {
+  ModelInfo,
+  RefreshProviderModelsRequest,
+  UpdateProviderModelsRequest,
+} from '../../contract/index.ts'
 import { ValidationError } from '../conflict.ts'
 
 export type ProviderCatalogUpdate = UpdateProviderModelsRequest
+export type ProviderCatalogRefresh = RefreshProviderModelsRequest
 
 const MODEL_FIELDS = [
   'id',
@@ -118,4 +123,18 @@ export function providerCatalogUpdate(value: unknown): ProviderCatalogUpdate {
     models: providerCatalogModels(input.models),
     ...(expectedRevision !== undefined ? { expectedRevision } : {}),
   }
+}
+
+/** Normalize the interactive endpoint refresh precondition. Undefined and an
+ * empty object retain the legacy behavior where the route snapshots the latest
+ * connection revision immediately before its outbound list request. */
+export function providerCatalogRefresh(value: unknown): ProviderCatalogRefresh {
+  if (value === undefined) return {}
+  const input = object(value, 'A provider model-catalog refresh must be an object.')
+  unknownField(input, ['expectedRevision'], 'provider catalog refresh')
+  if (!Object.hasOwn(input, 'expectedRevision')) return {}
+  if (!Number.isSafeInteger(input.expectedRevision) || (input.expectedRevision as number) < 0) {
+    throw new ValidationError('expectedRevision must be a non-negative safe integer.')
+  }
+  return { expectedRevision: input.expectedRevision as number }
 }

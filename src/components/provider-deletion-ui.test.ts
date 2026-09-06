@@ -10,7 +10,8 @@ test('Provider removal is confirmed, dual-revision pinned, retained, and device-
   const runtime = stripComments(read(join(ROOT, 'src', 'controller', 'providerDeletionMutationRuntime.ts')))
   const holds = stripComments(read(join(ROOT, 'src', 'controller', 'providerMutationHolds.ts')))
   const definition = stripComments(read(join(ROOT, 'src', 'controller', 'providerDefinitionMutations.ts')))
-  const connection = stripComments(read(join(ROOT, 'src', 'controller', 'providerConnection.ts')))
+  const connection = stripComments(read(join(ROOT, 'src', 'controller', 'providerConnectionMutations.ts')))
+  const catalogRefresh = stripComments(read(join(ROOT, 'src', 'controller', 'providerCatalogRefreshMutations.ts')))
   const notice = stripComments(read(join(ROOT, 'src', 'components', 'ProviderDefinitionMutationNotice.tsx')))
 
   assert.doesNotMatch(view, /deleteProvider\(/, 'the page cannot bypass acknowledged removal')
@@ -36,7 +37,8 @@ test('Provider removal is confirmed, dual-revision pinned, retained, and device-
   assert.match(facade, /heldSnapshots\.set\(provider\.id, provider\)/)
   assert.match(holds, /'definition',[\s\S]*'connection',[\s\S]*'deletion'/)
   assert.match(definition, /acquireProviderMutation\('definition', providerId\)/)
-  assert.match(connection, /acquireProviderMutation\('connection', providerId\)/)
+  assert.match(connection, /acquireProviderMutation\('connection', intent\.providerId\)/)
+  assert.match(catalogRefresh, /acquireProviderMutation\('connection', input\.providerId\)/)
   assert.match(notice, /kind="provider-delete"/)
 })
 

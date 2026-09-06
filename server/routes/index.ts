@@ -177,7 +177,7 @@ import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.t
 import { providerConnectionUpdate } from './providerConnection.ts'
 import { providerDefinitionUpdate } from './providerDefinition.ts'
 import { providerDelete } from './providerDeletion.ts'
-import { providerCatalogModels, providerCatalogUpdate } from './providerCatalog.ts'
+import { providerCatalogModels, providerCatalogRefresh, providerCatalogUpdate } from './providerCatalog.ts'
 import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPromptDefinition.ts'
 import { commissionConfigurationUpdate, commissionCreate, commissionDelete } from './commissionConfiguration.ts'
 import { revisionedDelete } from './revisionedDeletion.ts'
@@ -1612,27 +1612,35 @@ export function buildRouter(): Router {
   // fetch), never claimable on a request. A Session provider has no endpoint to
   // list from (409); an endpoint that doesn't answer a model list is a 400 and the
   // existing catalog stays untouched.
-  r.post('/providers/:id/models/refresh', async ({ req, res, params }) => {
+  r.post('/providers/:id/models/refresh', idempotent(async ({ req, res, params, body }) => {
     if (denyForeignEntry(req, res, params.id, (t) => store.listProviders(t), 'provider')) return
     const tenantId = store.identity(req.headers).tenant.id
-    const expectedRevision = store.listProviders(tenantId)
-      .find((provider) => provider.id === params.id)?.connectionRevision ?? 0
-    const config = store.providerConfig(params.id)
-    if (config.kind === 'session') {
-      return sendError(res, 'conflict', 'A Session provider has no endpoint to list models from.')
-    }
-    const models = await fetchProviderModels(config)
-    if (!models) return sendError(res, 'bad_request', 'The provider’s endpoint didn’t answer a model list.')
     try {
+      const input = providerCatalogRefresh(await body<unknown>())
+      const currentRevision = store.listProviders(tenantId)
+        .find((provider) => provider.id === params.id)?.connectionRevision ?? 0
+      if (input.expectedRevision !== undefined && input.expectedRevision !== currentRevision) {
+        throw new ConflictError(
+          `This provider connection changed elsewhere (expected revision ${input.expectedRevision}, current revision ${currentRevision}).`,
+        )
+      }
+      const expectedRevision = input.expectedRevision ?? currentRevision
+      const config = store.providerConfig(params.id)
+      if (config.kind === 'session') {
+        return sendError(res, 'conflict', 'A Session provider has no endpoint to list models from.')
+      }
+      const models = await fetchProviderModels(config)
+      if (!models) return sendError(res, 'bad_request', 'The provider’s endpoint didn’t answer a model list.')
       const provider = store.refreshProviderModels(params.id, models, expectedRevision)
       if (!provider) return sendError(res, 'not_found', `No provider '${params.id}'`)
       // Re-read so the response carries the serve-time stamps (isDefault, online).
       sendJson(res, store.listProviders(tenantId).find((p) => p.id === params.id) ?? provider)
     } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
   // A caller-authored static catalog has its own strict door. It shares the
   // connection revision because replacing an endpoint can replace this same
   // model namespace; it never rides the human-authored definition PATCH.

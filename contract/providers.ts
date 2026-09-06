@@ -212,6 +212,13 @@ export interface UpdateProviderModelsRequest {
   expectedRevision?: number
 }
 
+/** Re-fetch the endpoint-owned catalog against the connection/catalog revision
+ * the caller reviewed. Absence preserves the legacy server-snapshot behavior;
+ * first-party clients always pin the visible revision. */
+export interface RefreshProviderModelsRequest {
+  expectedRevision?: number
+}
+
 /** Register a provider (the server mints the id). `config` is the write-only endpoint
  *  half — accepted here, verified by the registration probe, stored server-side, and
  *  never present on the `ModelProvider` reads. `kind:'session'` takes no config at all

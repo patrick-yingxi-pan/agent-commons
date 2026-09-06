@@ -450,6 +450,8 @@ test('PATCH connection rotates selected write-only fields only after a successfu
 
 test('PATCH connection compares its revision and replays one logical replacement exactly once', async () => {
   const mock = startModelServer(0, '127.0.0.1')
+  let modelRequestCount = 0
+  mock.on('request', () => { modelRequestCount += 1 })
   await new Promise<void>((resolve) => mock.on('listening', resolve))
   const addr = mock.address()
   const baseURL = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
@@ -480,10 +482,33 @@ test('PATCH connection compares its revision and replays one logical replacement
     assert.equal(replay.status, 200)
     assert.equal(replay.json.connectionRevision, 1, 'one logical retry cannot advance the connection twice')
 
-    const refreshed = await call('POST', `/providers/${created.json.id}/models/refresh`, {})
+    const modelRequestsBeforeRefresh = modelRequestCount
+    const refreshHeaders = { 'idempotency-key': `provider-catalog-refresh-${created.json.id}` }
+    const refreshed = await call('POST', `/providers/${created.json.id}/models/refresh`, {
+      expectedRevision: 1,
+    }, refreshHeaders)
     assert.equal(refreshed.status, 200)
     assert.equal(refreshed.json.connectionRevision, 2, 'the endpoint-owned catalog shares connection ordering')
     const currentCatalog = refreshed.json.models
+    const refreshReplay = await call('POST', `/providers/${created.json.id}/models/refresh`, {
+      expectedRevision: 1,
+    }, refreshHeaders)
+    assert.equal(refreshReplay.status, 200)
+    assert.equal(refreshReplay.json.connectionRevision, 2, 'one logical endpoint refresh cannot fetch and commit twice')
+    const staleRefresh = await call('POST', `/providers/${created.json.id}/models/refresh`, {
+      expectedRevision: 1,
+    }, { 'idempotency-key': `${refreshHeaders['idempotency-key']}-stale` })
+    assert.equal(staleRefresh.status, 409)
+    assert.equal(staleRefresh.json.error.code, 'conflict')
+    const malformedRefresh = await call('POST', `/providers/${created.json.id}/models/refresh`, {
+      expectedRevision: 'latest',
+    })
+    assert.equal(malformedRefresh.status, 400)
+    assert.equal(
+      modelRequestCount,
+      modelRequestsBeforeRefresh + 1,
+      'replay plus already-stale/malformed attempts cannot repeat outbound catalog work',
+    )
     assert.throws(
       () => store.refreshProviderModels(
         created.json.id,

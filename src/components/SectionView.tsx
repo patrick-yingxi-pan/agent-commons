@@ -306,13 +306,17 @@ import {
   useAgentToolCatalog,
   useNotifications,
 } from '../api'
-import { refreshProviderCatalog } from '../controller/providerConnection'
 import {
   createProviderConnectionAttempt,
   enqueueProviderConnection,
   isProviderConnectionHeld,
   useProviderConnectionStatus,
 } from '../controller/providerConnectionMutations.ts'
+import {
+  enqueueProviderCatalogRefresh,
+  isProviderCatalogRefreshHeld,
+  useProviderCatalogRefreshStatus,
+} from '../controller/providerCatalogRefreshMutations.ts'
 import {
   enqueueProviderSecretRotation,
   useProviderSecretRotationStatus,
@@ -10663,13 +10667,13 @@ function ProviderDetailSections({
   useProviderDefinitionMutationStatus()
   useProviderDeletionStatus()
   useProviderConnectionStatus()
+  const catalogRefresh = useProviderCatalogRefreshStatus()
   const rotation = useProviderSecretRotationStatus()
-  const [refreshing, setRefreshing] = useState(false)
   const [confirmingRemoval, setConfirmingRemoval] = useState(false)
   const isSession = provider.kind === 'session'
   const manageable = provider.tenantId !== undefined
   const mutationHeld = deleting || isProviderDefinitionHeld(provider.id) || isProviderConnectionHeld(provider.id)
-  const controlsHeld = mutationHeld || refreshing
+  const controlsHeld = mutationHeld
   const requestRemoval = () => {
     if (!controlsHeld) setConfirmingRemoval(true)
   }
@@ -10695,18 +10699,19 @@ function ProviderDetailSections({
     })
     if (!result) setError('Wait for the current provider change to settle before rotating its secret.')
   }
-  const refresh = async () => {
+  const refresh = () => {
     if (controlsHeld) return
     setError(null)
-    setRefreshing(true)
-    try {
-      await refreshProviderCatalog(provider.id)
-    } catch (e) {
-      // The endpoint didn't answer a model list (400) — the catalog stays untouched.
-      setError(e instanceof Error ? e.message : 'Could not refresh the model catalog.')
-    } finally {
-      setRefreshing(false)
+    if (!me) {
+      setError('Wait for your account to finish loading, then try again.')
+      return
     }
+    const outcome = enqueueProviderCatalogRefresh({
+      tenantId: me.tenant.id,
+      providerId: provider.id,
+      expectedRevision: provider.connectionRevision ?? 0,
+    })
+    if (!outcome) setError('Wait for the current provider change to settle before refreshing its model catalog.')
   }
   const overview = (
     <>
@@ -10846,9 +10851,11 @@ function ProviderDetailSections({
           actions={
             manageable && provider.catalogSource === 'listed' ? (
               <SectionAction
-                label={refreshing ? 'Refreshing model catalog' : 'Refresh model catalog'}
+                label={catalogRefresh.activeResourceId === provider.id || isProviderCatalogRefreshHeld(provider.id)
+                  ? 'Refreshing model catalog'
+                  : 'Refresh model catalog'}
                 icon={<RefreshCw size={14} />}
-                onClick={() => void refresh()}
+                onClick={refresh}
                 disabled={controlsHeld}
                 disabledReason="Waiting for this Provider change to settle"
               />

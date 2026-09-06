@@ -24,6 +24,7 @@ import {
   type UpdateCommissionRequest,
   type ModelProvider,
   type ProviderDefinitionMutationPatch,
+  type RefreshProviderModelsRequest,
   type UpdateProviderConnectionRequest,
   type UpdateProviderRequest,
   type SystemPromptEntry,
@@ -501,10 +502,20 @@ export async function deleteCommission(
  *  when the server refuses — a Session provider (nothing to list from, 409) or an
  *  endpoint that doesn't answer a model list (400) — so the card can surface the
  *  reason; the existing catalog stays untouched on failure. */
-export async function refreshProviderModels(id: string): Promise<ModelProvider> {
-  const provider = await apiPost<ModelProvider>(paths.providerModelsRefresh(id), {})
+export async function refreshProviderModels(
+  id: string,
+  expectedRevision: number,
+  idempotencyKey: string,
+): Promise<ModelProvider> {
+  const request = { expectedRevision } satisfies RefreshProviderModelsRequest
+  const provider = await apiPost<ModelProvider>(
+    paths.providerModelsRefresh(id),
+    request,
+    { idempotencyKey },
+  )
+  const accepted = acceptProviderConnection(provider)
   invalidate(keys.providers)
-  return provider
+  return accepted
 }
 
 /** Replace selected write-only connection fields after the server has probed
