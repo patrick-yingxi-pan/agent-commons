@@ -243,7 +243,6 @@ import {
   type WorkflowStep,
 } from '../data/cowork'
 import {
-  addSavedContext,
   desktopCredentialsAvailable,
   a2aAgentCardUrl,
   setProjectWatch,
@@ -581,6 +580,11 @@ import {
   isDiscussionStateHeld,
   useDiscussionStateStatus,
 } from '../controller/discussionStateMutations.ts'
+import {
+  enqueueSavedContextCreation,
+  isSavedContextCreationHeld,
+  useSavedContextCreationStatus,
+} from '../controller/savedContextCreationMutations.ts'
 import {
   isSavedContextConnectionHeld,
   updateSavedContextConnection,
@@ -8123,9 +8127,11 @@ const ADDABLE_GROUPS: { kind: SavedContextKind; label: string; items: SavedConte
 function AddContextControl({
   existingIds,
   onAdd,
+  pendingLabel,
 }: {
   existingIds: Set<string>
   onAdd: (ctx: SavedContext) => void
+  pendingLabel: (id: string) => string | null
 }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
@@ -8168,7 +8174,12 @@ function AddContextControl({
                     {g.label}
                   </p>
                   {g.items.map((c) => (
-                    <AddContextRow key={c.id} ctx={c} onAdd={() => onAdd(c)} />
+                    <AddContextRow
+                      key={c.id}
+                      ctx={c}
+                      onAdd={() => onAdd(c)}
+                      pendingLabel={pendingLabel(c.id)}
+                    />
                   ))}
                 </div>
               ))
@@ -8180,12 +8191,22 @@ function AddContextControl({
   )
 }
 
-function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void }) {
+function AddContextRow({
+  ctx,
+  onAdd,
+  pendingLabel,
+}: {
+  ctx: SavedContext
+  onAdd: () => void
+  pendingLabel: string | null
+}) {
   const Icon = contextIcon(ctx)
   return (
     <button
       onClick={onAdd}
-      className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2"
+      disabled={pendingLabel !== null}
+      aria-busy={pendingLabel === 'Adding…' || undefined}
+      className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition enabled:hover:bg-panel-2 disabled:cursor-wait disabled:opacity-65"
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
         <Icon size={15} />
@@ -8195,10 +8216,11 @@ function AddContextRow({ ctx, onAdd }: { ctx: SavedContext; onAdd: () => void })
         <span className="block truncate text-[11px] text-ink-faint">
           {ctx.detail}
           {ctx.kind !== 'repo' && ctx.status !== 'connected' ? ' · Needs authentication' : ''}
+          {pendingLabel ? ` · ${pendingLabel}` : ''}
         </span>
       </span>
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
-        <Plus size={14} />
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-enabled:group-hover:bg-accent-solid group-enabled:group-hover:text-on-solid">
+        {pendingLabel === 'Adding…' ? <Spinner size={12} /> : <Plus size={14} />}
       </span>
     </button>
   )
@@ -8227,6 +8249,8 @@ function ContextsSection({
   // bundled demo row is not a truthful substitute for server-owned state.
   const saved = useSavedContexts()
   const items = saved.data?.contexts ?? []
+  const me = useMe().data
+  const creation = useSavedContextCreationStatus()
   useSavedContextConnectionMutationStatus()
   useSavedContextDeletionStatus()
   const [query, setQuery] = useState('')
@@ -8240,7 +8264,7 @@ function ContextsSection({
   // evaporated when the section unmounted). Their existing command path updates
   // the local cache, while the broadcast reconciles every other client.
   const mutationHeld = (id: string) =>
-    isSavedContextConnectionHeld(id) || isSavedContextDeletionHeld(id)
+    isSavedContextCreationHeld(id) || isSavedContextConnectionHeld(id) || isSavedContextDeletionHeld(id)
   const toggle = (id: string) => {
     const item = items.find((c) => c.id === id)
     if (item && !mutationHeld(id)) {
@@ -8261,7 +8285,13 @@ function ContextsSection({
     })
   }
   const add = (ctx: SavedContext) => {
-    void addSavedContext(ctx)
+    if (!me || isSavedContextCreationHeld(ctx.id)) return
+    void enqueueSavedContextCreation({ tenantId: me.tenant.id, context: ctx })
+  }
+  const creationLabel = (id: string): string | null => {
+    if (!isSavedContextCreationHeld(id)) return null
+    if (creation.activeResourceId !== id) return 'Queued'
+    return creation.error ? 'Waiting for Retry' : 'Adding…'
   }
   // Clicking a row drills into the same detail a session shows for that context —
   // through the controller (rel.navigate), so the page has an address and history.
@@ -8359,7 +8389,11 @@ function ContextsSection({
             </>
           )}
         >
-          <AddContextControl existingIds={new Set(items.map((c) => c.id))} onAdd={add} />
+          <AddContextControl
+            existingIds={new Set(items.map((c) => c.id))}
+            onAdd={add}
+            pendingLabel={creationLabel}
+          />
         </PageHeader>
         <SearchBox value={query} onChange={setQuery} placeholder="Search contexts…" mirrorsRailFor="contexts" />
         <CompositePageControls

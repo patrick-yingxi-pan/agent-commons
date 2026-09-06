@@ -253,7 +253,7 @@ test('the Add-context quick list derives each row’s auth dot from the registry
 
 test('the Contexts page routes add/remove through the server commands, not view state', () => {
   const view = src('src', 'components', 'SectionView.tsx')
-  assert.match(view, /void addSavedContext\(ctx\)/)
+  assert.match(view, /enqueueSavedContextCreation\(\{ tenantId: me\.tenant\.id, context: ctx \}\)/)
   assert.match(view, /enqueueSavedContextDeletion\(target\.id, target\.connectionRevision \?\? 0\)/)
   assert.doesNotMatch(view, /removeSavedContext\(/, 'removal cannot bypass confirmation and acknowledgement')
   assert.doesNotMatch(view, /const \[removed, setRemoved\]/, 'the evaporating local hide-set is gone')

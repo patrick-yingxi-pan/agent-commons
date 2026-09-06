@@ -1158,23 +1158,6 @@ export async function patchSavedContextConnection(
   return acceptSavedContextConnection(incoming)
 }
 
-/** Save a context to the set-up registry (the Contexts page's Add). Optimistic —
- *  the row appears instantly — then POSTs the canonical write (idempotent by id;
- *  the server broadcasts `savedcontext.changed` for every other client). */
-export async function addSavedContext(context: SavedContext): Promise<void> {
-  mutate<SavedContextsSnapshot>(keys.savedContexts, (snap) => {
-    if (!snap) return snap as unknown as SavedContextsSnapshot
-    if (snap.contexts.some((c) => c.id === context.id)) return snap
-    return { ...snap, contexts: [context, ...snap.contexts] }
-  })
-  try {
-    await apiPost(paths.savedContexts, { context })
-    invalidate(keys.savedContexts)
-  } catch {
-    invalidate(keys.savedContexts)
-  }
-}
-
 /** Delete one reviewed reusable setup. The controller owns confirmation,
  * retry, and lost-ack reconciliation; absence is published only after the
  * server acknowledges the pinned logical mutation. */

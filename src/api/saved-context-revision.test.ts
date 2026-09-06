@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { SavedContext, SavedContextsSnapshot } from '../../contract/index.ts'
 import {
   mergeSavedContextConnection,
+  mergeSavedContextCreationSnapshot,
   mergeSavedContextConnectionSnapshot,
 } from './savedContextRevision.ts'
 
@@ -49,4 +50,32 @@ test('an addressed merge derives quick lists, removes authoritatively absent row
     removed,
     'a late acknowledgement cannot resurrect a removed row',
   )
+})
+
+test('creation reconciliation adds one addressed row without replacing or rewinding siblings', () => {
+  const sibling = { ...row('needs-auth', 4), id: 'sibling', kind: 'mcp' as const }
+  const snapshot: SavedContextsSnapshot = {
+    contexts: [sibling],
+    connectedConnectorIds: [],
+    connectedMcpIds: [],
+  }
+  const created = mergeSavedContextCreationSnapshot(snapshot, 'ctx', row('connected', 0))
+  assert.deepEqual(created.connectedConnectorIds, ['ctx'])
+  assert.equal(created.contexts.find((context) => context.id === 'sibling'), sibling)
+
+  const newer = { ...row('needs-auth', 3), detail: 'newer detail', sessions: 8 }
+  const refreshed = mergeSavedContextCreationSnapshot(created, 'ctx', newer)
+  const accepted = refreshed.contexts.find((context) => context.id === 'ctx')!
+  assert.equal(accepted.status, 'needs-auth')
+  assert.equal(accepted.connectionRevision, 3)
+  assert.equal(accepted.detail, 'detail-0', 'a creation acknowledgement cannot replace descriptive truth')
+  assert.equal(accepted.sessions, 0)
+
+  const crossed = mergeSavedContextCreationSnapshot(refreshed, 'ctx', row('connected', 1))
+  assert.equal(crossed.contexts.find((context) => context.id === 'ctx')?.connectionRevision, 3)
+  assert.deepEqual(crossed.connectedConnectorIds, [], 'an older creation response cannot rewind connection status')
+
+  const absent = mergeSavedContextCreationSnapshot(crossed, 'ctx', undefined)
+  assert.equal(absent.contexts.some((context) => context.id === 'ctx'), false)
+  assert.equal(absent.contexts[0], sibling)
 })

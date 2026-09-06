@@ -132,6 +132,37 @@ test('POST /saved-contexts saves a context server-side; DELETE removes it (the p
   assert.equal((await call('DELETE', '/saved-contexts/rt-test-linear')).status, 404, 'a second delete 404s')
 })
 
+test('POST /saved-contexts is naturally idempotent by tenant-scoped context id', async () => {
+  const id = `rt-context-create-${Date.now().toString(36)}`
+  const original = {
+    id,
+    label: 'Original setup',
+    kind: 'connector',
+    status: 'needs-auth',
+    detail: 'first committed setup',
+    lastUsedAt: null,
+    sessions: 0,
+  }
+  const first = await call('POST', '/saved-contexts', { context: original })
+  assert.equal(first.status, 200)
+  assert.equal(first.json.connectionRevision, 0)
+
+  const replay = await call('POST', '/saved-contexts', {
+    context: {
+      ...original,
+      label: 'Conflicting retry payload',
+      status: 'connected',
+      detail: 'must not overwrite the committed setup',
+    },
+  }, { 'idempotency-key': `context-create-${id}` })
+  assert.deepEqual(replay.json, first.json, 'repeat creation returns the original authoritative row')
+
+  const snapshot = (await call('GET', '/saved-contexts')).json
+  assert.equal(snapshot.contexts.filter((context: any) => context.id === id).length, 1)
+  assert.deepEqual(find(snapshot, id), first.json)
+  await call('DELETE', `/saved-contexts/${id}`)
+})
+
 test('POST /saved-contexts without a usable context is 400', async () => {
   assert.equal((await call('POST', '/saved-contexts', {})).status, 400)
   assert.equal((await call('POST', '/saved-contexts', { context: { id: 'x' } })).status, 400)

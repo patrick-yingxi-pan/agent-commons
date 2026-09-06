@@ -39,6 +39,7 @@ import { SocialPostMutationNotice } from './SocialPostMutationNotice'
 import { SessionDeletionNotice } from './SessionDeletionNotice'
 import { SessionCompactionMutationNotice } from './SessionCompactionMutationNotice'
 import { SavedContextMutationNotice } from './SavedContextMutationNotice'
+import { SavedContextCreationMutationNotice } from './SavedContextCreationMutationNotice'
 import { SavedContextDeletionNotice } from './SavedContextDeletionNotice'
 import { SystemPromptDefinitionMutationNotice } from './SystemPromptDefinitionMutationNotice'
 import { SystemPromptCreationMutationNotice } from './SystemPromptCreationMutationNotice'
@@ -76,6 +77,7 @@ export function ShellMutationNotices() {
       <OrgInviteOwnerMutationNotice />
       <OrgInviteVerdictMutationNotice />
       <SavedContextMutationNotice />
+      <SavedContextCreationMutationNotice />
       <SavedContextDeletionNotice />
       <ScheduleMutationNotice />
       <DispatchMutationNotice />
