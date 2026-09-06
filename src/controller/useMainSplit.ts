@@ -16,9 +16,9 @@
  *  Focus is a transient cursor, not layout — in-memory only, reconciled to
  *  the first pane whenever its own pane vanishes. The tree is per-account
  *  persisted (src/lib/mainSplit.ts). */
-import { useCallback, useRef, useState } from 'react'
-import { nodeAt, pane, panes, prunePanes, replacePane, setRatio, splitPane as splitLeaf, updatePaneContent, type PaneContent, type SplitDir } from '../lib/splitFrame'
-import { scrubBackStacks, withBackPush } from '../lib/paneHistory'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { nodeAt, pane, panes, replacePane, setRatio, splitPane as splitLeaf, updatePaneContent, type PaneContent, type SplitDir } from '../lib/splitFrame'
+import { pruneMainTree, withBackPush } from '../lib/paneHistory'
 import type { PaneSeed } from '../lib/paneNav'
 import {
   closeMainPane as closeMain,
@@ -40,15 +40,34 @@ export function useMainSplit(opts?: {
   /** Resolves a session's display title at back-PUSH time (the carried title
    *  of an msession back entry — nav.ts's "resolved when you leave it"). */
   sessionTitle?: (id: string) => string
+  /** Capability filter applied only to RESTORED view memory. Direct routes
+   *  still reach their explanatory denied page; an old persisted page cannot
+   *  strand an identity whose chrome no longer offers that destination. */
+  restoreKeep?: (content: MainPaneContent) => boolean
 }) {
   const optsRef = useRef(opts)
   optsRef.current = opts
   // Restore per account (the Workspace remounts keyed by account, so this
   // initializer re-runs against the right blob; legacy primary leaves were
   // stripped by the migration in getMainSplitPref).
-  const [mainTree, setMainTreeState] = useState<MainSplitNode | null>(() => getMainSplitPref())
+  const restoredRef = useRef<{ tree: MainSplitNode | null; normalized: boolean } | null>(null)
+  const [mainTree, setMainTreeState] = useState<MainSplitNode | null>(() => {
+    const stored = getMainSplitPref()
+    const restored = opts?.restoreKeep ? pruneMainTree(stored, opts.restoreKeep) : stored
+    restoredRef.current = { tree: restored, normalized: restored !== stored }
+    return restored
+  })
   const treeRef = useRef(mainTree)
   treeRef.current = mainTree
+
+  // A removed capability is an authority change, not a temporary layout
+  // clamp: retire inaccessible panes and history from storage so a later root
+  // boot cannot resurrect them. The state initializer already prevents a
+  // denied-frame flash; this post-mount write only normalizes the saved blob.
+  useEffect(() => {
+    const restored = restoredRef.current
+    if (restored?.normalized) setMainSplitPref(withoutFocusDrivenContext(restored.tree))
+  }, [])
 
   const [focusedPane, setFocusedPane] = useState<string>(() => firstPanePath(treeRef.current))
   const focusedRef = useRef(focusedPane)
@@ -251,7 +270,7 @@ export function useMainSplit(opts?: {
       // Panes first, then the surviving panes' BACK stacks (ADAPT-18): a gone
       // subject must vanish from history too, or the back affordance would
       // walk into a dead thread.
-      const next = scrubBackStacks(prunePanes(t, keep), keep)
+      const next = pruneMainTree(t, keep)
       if (next !== t) commit(next)
     },
     [commit],

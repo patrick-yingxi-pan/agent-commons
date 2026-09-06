@@ -36,7 +36,7 @@ import { ResizeHandle } from './ResizeHandle'
 import { SessionFilterMenu } from './SessionFilterMenu'
 import { ScheduledFilterMenu } from './ScheduledFilterMenu'
 import { RowMenu, projectMenuItems, type RowMenuItem } from './RowMenu'
-import { SECTION_CHILDREN, SECTION_META, SECTION_ORDER } from '../lib/sections'
+import { SECTION_CHILDREN, SECTION_META, SECTION_ORDER, sectionAvailable } from '../lib/sections'
 import { SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { SECTION_FILTERS } from '../lib/sectionFilter'
 import {
@@ -295,7 +295,7 @@ export function Sidebar({
   const instanceAdmin = me?.instanceAdmin === true
   const tenantName = me?.tenant.name
   const visibleSections = useMemo(
-    () => SECTION_ORDER.filter((id) => id !== 'admin' || instanceAdmin),
+    () => SECTION_ORDER.filter((id) => sectionAvailable(id, { instanceAdmin })),
     [instanceAdmin],
   )
   // Organize pane follows focus. Main focus uses the page registry; a selected

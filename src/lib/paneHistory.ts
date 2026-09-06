@@ -24,7 +24,7 @@
 import type { NavLocation } from './nav.ts'
 import { locOfSeed, seedOfLoc, PANE_SEED_KEYS, type PaneSeed } from './paneNav.ts'
 import { paneLocationPath, type MainPaneContent, type MainSplitNode, type PaneLoc } from './mainSplit.ts'
-import { panes, type SplitNode } from './splitFrame.ts'
+import { panes, prunePanes, type SplitNode } from './splitFrame.ts'
 
 /** The carried stack's cap — drop the oldest beyond this (a bound on the
  *  persisted blob, generous beyond any real navigation chain). */
@@ -185,4 +185,15 @@ export function scrubBackStacks(
     return a === n.a && b === n.b ? n : { ...n, a, b }
   }
   return walk(tree)
+}
+
+/** Remove unavailable live panes and the same destinations from every
+ *  surviving back stack as one operation. Used both for definitive live
+ *  disappearance and for bootstrap capability filtering: retaining a dead
+ *  history entry would merely postpone the stranded page until Back. */
+export function pruneMainTree(
+  tree: MainSplitNode | null,
+  keep: (content: MainPaneContent) => boolean,
+): MainSplitNode | null {
+  return scrubBackStacks(prunePanes(tree, keep), keep)
 }

@@ -13,7 +13,8 @@
  *       stack survives the JSON persistence round-trip),
  *    4. `planPop` — popstate order: pop the focused pane's own back top,
  *       else refocus a pane already showing the address, else plain route,
- *    5. `scrubBackStacks` — a pruned subject vanishes from history too. */
+ *    5. `scrubBackStacks` / `pruneMainTree` — a pruned subject vanishes from
+ *       both the live tree and history. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
@@ -22,6 +23,7 @@ import {
   navLocationOfLoc,
   paneLocOf,
   planPop,
+  pruneMainTree,
   pushedBack,
   samePaneLoc,
   scrubBackStacks,
@@ -240,6 +242,28 @@ test('scrubBackStacks drops a pruned subject from every history too (live-prune 
   assert.deepEqual(collapsed.kind !== 'context-panel' ? collapsed.back : null, [
     { kind: 'msection', id: 'projects', seed: { projectId: 'p1' } },
   ])
+})
+
+test('pruneMainTree removes unavailable live pages and the same page from surviving history', () => {
+  const admin: MainPaneContent = { kind: 'msection', id: 'admin' }
+  const projectsWithAdminBack: MainPaneContent = {
+    kind: 'msection',
+    id: 'projects',
+    back: [
+      { kind: 'msection', id: 'admin', sub: 'ops' },
+      { kind: 'msession', id: 's1', title: 'Auth refactor' },
+    ],
+  }
+  const keep = (content: MainPaneContent) => content.kind !== 'msection' || content.id !== 'admin'
+  const restored = pruneMainTree(splitPane(pane(admin), '', 'row', projectsWithAdminBack), keep)
+
+  assert.deepEqual(
+    panes(restored).map((entry) => entry.content),
+    [{ kind: 'msection', id: 'projects', back: [{ kind: 'msession', id: 's1', title: 'Auth refactor' }] }],
+    'the available sibling inherits the surface without a denied Back destination',
+  )
+  assert.equal(pruneMainTree(pane(admin), keep), null, 'an unavailable lone page restores as the empty background')
+  assert.equal(pruneMainTree(restored, keep), restored, 'an already-clean tree is reference-stable')
 })
 
 test('samePaneLoc is page identity — a carried title is chrome, not identity', () => {

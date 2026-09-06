@@ -11,7 +11,7 @@ import { OverlayPanelDock } from './components/OverlayPanelDock'
 import { useMainSplit } from './controller/useMainSplit'
 import { useRailSplit } from './controller/useRailSplit'
 import { useShellRoutes } from './controller/useShellRoutes'
-import { hostsSession, paneLocationPath, setMainSplitScope } from './lib/mainSplit'
+import { hostsSession, paneLocationPath, setMainSplitScope, type MainPaneContent } from './lib/mainSplit'
 import { setRailSplitScope, type RailViewRoot } from './lib/railSplit'
 import { SearchPanel } from './components/SearchPanel'
 import {
@@ -39,7 +39,7 @@ import { AppBootstrapScreen } from './components/AppBootstrapScreen'
 import { SharedLinkGate } from './components/SharedLinkGate'
 import { SkipToMain } from './components/SkipToMain'
 import { sharedLinkAddress } from './lib/sharedLink.ts'
-import { SECTION_META } from './lib/sections'
+import { SECTION_META, sectionAvailable } from './lib/sections'
 import { DRAFT_ID } from './data/liveSession'
 import type { SectionId, Session } from './types'
 import { requestCompositeCommand, requestCompositeFold } from './lib/compositeFeatures'
@@ -135,7 +135,7 @@ export default function App() {
       address={sharedLinkAddress(window.location.pathname)}
       expectedSessionUserId={resolvedIdentity.via === 'session' ? resolvedIdentity.user.id : undefined}
     >
-      <Workspace />
+      <Workspace instanceAdmin={resolvedIdentity.instanceAdmin === true} />
     </SharedLinkGate>
   )
 }
@@ -145,7 +145,7 @@ export default function App() {
  *  (boot / URL / popstate / account switch / doors), and the rail layout —
  *  holding only local view chrome (the search palette toggle). All business
  *  logic lives in the controllers (controller/) and the model (data/). */
-function Workspace() {
+function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
   const [searchOpen, setSearchOpen] = useState(false)
   const mainRef = useRef<HTMLElement>(null)
 
@@ -165,6 +165,11 @@ function Workspace() {
         ? 'New session'
         : (sessions.find((s) => s.id === id)?.title ?? peek<Session>(keys.session(id))?.title ?? 'Conversation'),
     [sessions],
+  )
+  const restorePaneAvailable = useCallback(
+    (content: MainPaneContent) =>
+      content.kind !== 'msection' || sectionAvailable(content.id, { instanceAdmin }),
+    [instanceAdmin],
   )
 
   // ── The MAIN workspace split (universal split, focused-pane model) ──────────
@@ -187,7 +192,7 @@ function Workspace() {
     closeMainPane,
     closePaneFromAction,
     setMainRatio,
-  } = useMainSplit({ sessionTitle: sessionLabel })
+  } = useMainSplit({ sessionTitle: sessionLabel, restoreKeep: restorePaneAvailable })
 
   // ── The RAIL split: the same focused-leaf interaction as main, deliberately
   // restricted to vertical views of the one account-resource forest.

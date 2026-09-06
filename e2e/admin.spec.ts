@@ -90,3 +90,33 @@ test('the console: hidden unsigned, full for the maintainer, absent for everyone
 
   await graceCtx.close()
 })
+
+test('lost maintainer capability cannot strand the restored workspace on a hidden page', async ({ page }) => {
+  await page.goto('/')
+  const identity = await page.request.get('/api/v1/me')
+  expect(identity.ok()).toBeTruthy()
+  const me = (await identity.json()) as { user: { id: string }; instanceAdmin?: boolean }
+  expect(me.instanceAdmin).not.toBe(true)
+
+  // Model a view saved while the account had the deployment-level grant. The
+  // default e2e identity is deliberately unsigned, so its current chrome no
+  // longer offers Maintain even though the per-account local blob still does.
+  const storageKey = `claude-ui.mainsplit.v1.${me.user.id}`
+  await page.evaluate((key) => {
+    localStorage.setItem(key, JSON.stringify({
+      kind: 'pane',
+      content: { kind: 'msection', id: 'admin', sub: 'ops' },
+    }))
+  }, storageKey)
+  await page.reload()
+
+  await expect(page.locator('[data-conversation-pane="draft"]')).toBeVisible()
+  await expect(page.getByRole('heading', { name: /Maintain/ })).toHaveCount(0)
+  await expect.poll(() => page.evaluate((key) => localStorage.getItem(key), storageKey)).toBeNull()
+  expect(new URL(page.url()).pathname).toBe('/')
+
+  // A deliberate deep link remains an honest explanation instead of becoming
+  // a client-side authorization oracle or silently changing destinations.
+  await page.goto('/admin')
+  await expect(page.getByText('This console is for instance maintainers', { exact: false })).toBeVisible()
+})

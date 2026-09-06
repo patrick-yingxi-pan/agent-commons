@@ -81,3 +81,16 @@ test('Sessions heads the resource forest immediately before Commons', () => {
   const order = [...orderBody.matchAll(/'([^']+)'/g)].map((match) => match[1])
   assert.deepEqual(order.slice(0, 2), ['sessions', 'commons'])
 })
+
+test('conditional section availability has one registry rule for rail chrome and restored panes', () => {
+  const registry = stripComments(read(join(ROOT, 'src', 'lib', 'sections.tsx'))).replace(/\s+/g, ' ')
+  const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))).replace(/\s+/g, ' ')
+  const app = stripComments(read(join(ROOT, 'src', 'App.tsx'))).replace(/\s+/g, ' ')
+
+  assert.ok(registry.includes("admin: { label: 'Maintain', subtitle: 'Instance administration for website maintainers.', Icon: Wrench, availability: 'instance-admin'"))
+  assert.ok(registry.includes("export function sectionAvailable("), 'the section registry owns the availability predicate')
+  assert.ok(sidebar.includes('SECTION_ORDER.filter((id) => sectionAvailable(id, { instanceAdmin }))'))
+  assert.ok(app.includes("content.kind !== 'msection' || sectionAvailable(content.id, { instanceAdmin })"))
+  assert.ok(app.includes('restoreKeep: restorePaneAvailable'), 'workspace restoration consumes the same predicate')
+  assert.doesNotMatch(sidebar, /id !== 'admin'/, 'the rail does not keep a parallel admin-only condition')
+})

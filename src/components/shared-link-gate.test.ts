@@ -9,7 +9,10 @@ test('share-link redemption gates workspace boot and exposes explicit recovery w
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'useSharedLinkRedemption.ts')))
   const screen = stripComments(read(join(ROOT, 'src', 'components', 'AppBootstrapScreen.tsx')))
 
-  assert.match(app, /<SharedLinkGate[\s\S]*<Workspace\s*\/>[\s\S]*<\/SharedLinkGate>/)
+  assert.match(
+    app,
+    /<SharedLinkGate[\s\S]*<Workspace instanceAdmin=\{resolvedIdentity\.instanceAdmin === true\}\s*\/>[\s\S]*<\/SharedLinkGate>/,
+  )
   assert.doesNotMatch(app, /SHARED_BOOT_TOKEN|sharedBootConsumed/, 'the workspace no longer races a module-scoped token')
   assert.match(gate, /phase === 'pending'[\s\S]*status="shared-loading"/)
   assert.match(gate, /phase === 'retryable'[\s\S]*onRetry=\{redemption\.retry\}[\s\S]*onExit=\{redemption\.dismiss\}/)

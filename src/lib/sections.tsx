@@ -5,7 +5,16 @@ import type { SectionId } from '../types'
  *  label / icon so the nav row and the section header always match. */
 export const SECTION_META: Record<
   SectionId,
-  { label: string; subtitle: string; Icon: typeof Box; beta?: boolean }
+  {
+    label: string
+    subtitle: string
+    Icon: typeof Box
+    beta?: boolean
+    /** A chrome gate, never an authorization wall. The server remains the
+     *  authority; this keeps navigation and restored view memory aligned with
+     *  the identity already established at app bootstrap. */
+    availability?: 'instance-admin'
+  }
 > = {
   commons: {
     label: 'Commons',
@@ -89,7 +98,20 @@ export const SECTION_META: Record<
     label: 'Maintain',
     subtitle: 'Instance administration for website maintainers.',
     Icon: Wrench,
+    availability: 'instance-admin',
   },
+}
+
+/** Whether this identity should be offered a section in chrome or restored
+ *  into it from per-account view memory. Kept beside SECTION_META so the rail
+ *  and workspace restore cannot grow separate capability lists. A direct URL
+ *  may still render the section's explanatory denied face; this governs only
+ *  chrome and persisted-memory restoration. */
+export function sectionAvailable(
+  id: SectionId,
+  access: { instanceAdmin: boolean },
+): boolean {
+  return SECTION_META[id].availability !== 'instance-admin' || access.instanceAdmin
 }
 
 export const SECTION_ORDER: SectionId[] = [
