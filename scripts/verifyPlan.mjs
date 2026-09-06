@@ -181,6 +181,34 @@ export function specGroups(n, files = specFiles()) {
   return groups.map((g) => g.files)
 }
 
+/** One externally distributed slice of the E2E manifest.
+ *
+ *  Local sharding means several stacks compete on ONE host. CI partitioning
+ *  means one stack on EACH host, so it needs a separate seam: pretending those
+ *  are the same knob either oversubscribes a small runner or leaves its one
+ *  process with the whole suite. Both variables are required together and
+ *  fail closed; a typo must not turn two intended halves into two full runs. */
+export function e2ePartition(env = process.env, files = specFiles()) {
+  const rawParts = env.VERIFY_E2E_PARTS
+  const rawPart = env.VERIFY_E2E_PART
+  if (rawParts === undefined && rawPart === undefined) {
+    return { part: 1, parts: 1, files: files.map((f) => f.file) }
+  }
+  if (rawParts === undefined || rawPart === undefined) {
+    throw new Error('VERIFY_E2E_PARTS and VERIFY_E2E_PART must be supplied together')
+  }
+
+  const parts = Number(rawParts)
+  const part = Number(rawPart)
+  if (!Number.isInteger(parts) || parts < 1 || !Number.isInteger(part) || part < 1 || part > parts) {
+    throw new Error(`invalid E2E partition ${JSON.stringify(rawPart)}/${JSON.stringify(rawParts)}`)
+  }
+  if (parts > files.length) {
+    throw new Error(`E2E partition count ${parts} exceeds the ${files.length} spec files`)
+  }
+  return { part, parts, files: specGroups(parts, files)[part - 1] }
+}
+
 /** A positive integer from the environment, or the fallback.
  *
  *  `Number('two')` is NaN, and NaN survives `Math.max`/`Math.min` unchanged — it

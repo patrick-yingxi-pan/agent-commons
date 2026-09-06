@@ -15,16 +15,34 @@ concurrency:
 
 jobs:
   full-product:
-    name: Full product
+    name: ${{ matrix.label }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Checks
+            lane: checks
+            e2e_part: 1
+            e2e_parts: 1
+          - label: E2E 1/2
+            lane: e2e
+            e2e_part: 1
+            e2e_parts: 2
+          - label: E2E 2/2
+            lane: e2e
+            e2e_part: 2
+            e2e_parts: 2
     env:
       CI: true
-      # Measured hosted baseline (2026-09-06): the host-selected one shard with
-      # a 1.11x CPU-derived budget took 29.7m and timed out six otherwise-green
-      # interactions. Keep its CPU-safe shard count; the verifier's bounded 4x
-      # host factor absorbs shared-runner scheduling and I/O jitter.
+      # Measured hosted baselines (2026-09-06): one runner took 29.7m and timed
+      # out six interactions at 1.11x, then exceeded a 45m job cap at 4x. Keep
+      # one CPU-safe stack per host, divide the registry across two isolated
+      # hosts, and retain the bounded factor for shared-runner/I/O jitter.
       E2E_HOST_FACTOR: 4
+      VERIFY_E2E_PART: ${{ matrix.e2e_part }}
+      VERIFY_E2E_PARTS: ${{ matrix.e2e_parts }}
     steps:
       - name: Check out the exact revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -41,7 +59,8 @@ jobs:
         run: npm ci
 
       - name: Install the Playwright browser and system dependencies
+        if: matrix.lane == 'e2e'
         run: npx playwright install --with-deps chromium
 
-      - name: Verify the complete product
-        run: npm run verify
+      - name: Verify ${{ matrix.label }}
+        run: npm run verify -- ${{ matrix.lane }}

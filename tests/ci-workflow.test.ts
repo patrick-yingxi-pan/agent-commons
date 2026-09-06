@@ -16,18 +16,22 @@ test('the repository declares its supported Node floor in both npm manifests', (
   assert.equal(lockfile.packages?.['']?.engines?.node, manifest.engines.node)
 })
 
-test('main and pull requests run the one complete verifier with bounded read-only authority', () => {
+test('main and pull requests run the complete verifier plan with bounded read-only authority', () => {
   assert.match(workflow, /pull_request:\s*\n\s*push:\s*\n\s*branches:\s*\n\s*- main/)
   assert.match(workflow, /permissions:\s*\n\s*contents: read/)
   assert.match(workflow, /concurrency:\s*\n\s*group: verify-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\s*\n\s*cancel-in-progress: true/)
   assert.match(workflow, /runs-on: ubuntu-24\.04/)
-  assert.match(workflow, /timeout-minutes: 45/)
-  assert.match(workflow, /CI: true\s*\n(?:\s*#[^\n]*\n)*\s*E2E_HOST_FACTOR: 4/)
+  assert.match(workflow, /timeout-minutes: 35/)
+  assert.match(workflow, /strategy:\s*\n\s*fail-fast: false/)
+  assert.match(workflow, /- label: Checks\s*\n\s*lane: checks\s*\n\s*e2e_part: 1\s*\n\s*e2e_parts: 1/)
+  assert.match(workflow, /- label: E2E 1\/2\s*\n\s*lane: e2e\s*\n\s*e2e_part: 1\s*\n\s*e2e_parts: 2/)
+  assert.match(workflow, /- label: E2E 2\/2\s*\n\s*lane: e2e\s*\n\s*e2e_part: 2\s*\n\s*e2e_parts: 2/)
+  assert.match(workflow, /CI: true\s*\n(?:\s*#[^\n]*\n)*\s*E2E_HOST_FACTOR: 4\s*\n\s*VERIFY_E2E_PART: \$\{\{ matrix\.e2e_part \}\}\s*\n\s*VERIFY_E2E_PARTS: \$\{\{ matrix\.e2e_parts \}\}/)
   assert.doesNotMatch(workflow, /E2E_SHARDS:/,
-    'CI must retain the verifier’s host-selected CPU-safe shard count')
+    'each CI runner must retain one CPU-safe local stack rather than oversubscribing')
   assert.match(workflow, /run: npm ci/)
-  assert.match(workflow, /run: npx playwright install --with-deps chromium/)
-  assert.match(workflow, /run: npm run verify/)
+  assert.match(workflow, /if: matrix\.lane == 'e2e'\s*\n\s*run: npx playwright install --with-deps chromium/)
+  assert.match(workflow, /run: npm run verify -- \$\{\{ matrix\.lane \}\}/)
   assert.doesNotMatch(workflow, /run: npm (?:test|run (?:typecheck|build|e2e))\s*$/m,
     'the workflow must not hand-maintain a partial copy of the verifier')
 })

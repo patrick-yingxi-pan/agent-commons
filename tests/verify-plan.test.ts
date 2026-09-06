@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
-import { envCount, specFiles, specGroups, specWeights, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
+import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
 
 test('the sweep runs every node suite the `npm test` glob does', () => {
   // Two enumerations of one set. `package.json`'s `test` script is a RECURSIVE
@@ -96,6 +96,35 @@ test('the shard groups PARTITION the spec files — every one, exactly once', ()
     for (const g of groups) assert.ok(g.length > 0, `n=${n}: no empty group (it would run the entire suite)`)
     assert.ok(groups.length <= Math.max(1, Math.min(n, all.length)), `n=${n}: never more groups than files`)
   }
+})
+
+test('external E2E partitions divide the same manifest and fail closed when misconfigured', () => {
+  const all = specFiles()
+  const left = e2ePartition({ VERIFY_E2E_PARTS: '2', VERIFY_E2E_PART: '1' }, all)
+  const right = e2ePartition({ VERIFY_E2E_PARTS: '2', VERIFY_E2E_PART: '2' }, all)
+  assert.equal(left.parts, 2)
+  assert.equal(right.parts, 2)
+  assert.deepEqual(
+    [...left.files, ...right.files].sort(),
+    all.map((f) => f.file).sort(),
+    'the isolated runners cover every spec exactly once between them',
+  )
+  assert.equal(new Set([...left.files, ...right.files]).size, all.length, 'no spec is duplicated between runners')
+
+  const whole = e2ePartition({}, all)
+  assert.deepEqual(whole.files.sort(), all.map((f) => f.file).sort(), 'no partition variables means the full local sweep')
+  for (const env of [
+    { VERIFY_E2E_PARTS: '2' },
+    { VERIFY_E2E_PART: '1' },
+    { VERIFY_E2E_PARTS: 'two', VERIFY_E2E_PART: '1' },
+    { VERIFY_E2E_PARTS: '2', VERIFY_E2E_PART: '0' },
+    { VERIFY_E2E_PARTS: '2', VERIFY_E2E_PART: '3' },
+  ]) assert.throws(() => e2ePartition(env, all), /partition|supplied together/, JSON.stringify(env))
+  assert.throws(
+    () => e2ePartition({ VERIFY_E2E_PARTS: String(all.length + 1), VERIFY_E2E_PART: '1' }, all),
+    /exceeds/,
+    'an empty partition must not reach Playwright as an accidental full-suite invocation',
+  )
 })
 
 test('the groups are BALANCED — the heaviest is not the whole suite, cache or no cache', () => {

@@ -65,19 +65,22 @@
  *  Output is buffered per lane and printed on completion — four interleaved
  *  live streams are unreadable. A failing lane prints its tail; the exit code
  *  is non-zero if any lane failed. `npm run verify checks` / `… e2e` runs a
- *  subset by name prefix.
+ *  subset by name prefix. `VERIFY_E2E_PART{,S}` selects one deterministic
+ *  slice when those subsets are distributed across isolated CI hosts.
  */
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { envCount, specFiles, specGroups, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
+import { e2ePartition, envCount, specFiles, specGroups, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
 import { resolvedFactor, shardCount } from './hostSpeed.mjs'
 
 /** The plan — which suites, which specs, how they split. Its own module so a
  *  node test can hold it: these decide the sweep's COVERAGE, and this file
  *  cannot be imported to check them (it spawns children at import time). */
 const SUITE = suiteFiles()
+const SPECS = specFiles()
+const PARTITION = e2ePartition(process.env, SPECS)
 
 /** Resolved ONCE and passed down. A caller-supplied bounded factor represents
  *  a host profile the CPU-only calibration cannot observe (for example shared
@@ -90,21 +93,24 @@ const HOST_FACTOR = resolvedFactor()
  *  (219s vs 195s) with a flake, because a shard is a Vite server, a backend, a
  *  model server and a Chromium, not a browser idling on I/O. `E2E_SHARDS`
  *  still overrides for an experiment. */
-const SHARDS = Math.max(
-  1,
-  Math.min(
-    envCount('E2E_SHARDS', shardCount(availableParallelism(), HOST_FACTOR), process.env, (m) =>
-      process.stdout.write(`${m}
+const SHARDS = PARTITION.parts > 1
+  ? 1
+  : Math.max(
+      1,
+      Math.min(
+        envCount('E2E_SHARDS', shardCount(availableParallelism(), HOST_FACTOR), process.env, (m) =>
+          process.stdout.write(`${m}
 `),
-    ),
-    // Still capped at cores/2, the pre-existing guardrail. The default dropped
-    // to cores/4 because oversubscription measured SLOWER (6 shards on 12
-    // cores: 219s vs 195s, with a flake) — which is a reason to lower the
-    // ceiling, never to raise it. An override may explore the region between
-    // the two; it may not go past where the measurement stops.
-    Math.max(1, Math.floor(availableParallelism() / 2)),
-  ),
-)
+        ),
+        // Still capped at cores/2, the pre-existing guardrail. The default dropped
+        // to cores/4 because oversubscription measured SLOWER (6 shards on 12
+        // cores: 219s vs 195s, with a flake) — which is a reason to lower the
+        // ceiling, never to raise it. An override may explore the region between
+        // the two; it may not go past where the measurement stops.
+        Math.max(1, Math.floor(availableParallelism() / 2)),
+      ),
+    )
+const E2E_GROUPS = PARTITION.parts > 1 ? [PARTITION.files] : specGroups(SHARDS, SPECS)
 const ONLY = process.argv.slice(2)
 
 /** LANES, not phases: steps inside a lane run in sequence, lanes run together.
@@ -120,13 +126,19 @@ const lanes = [
       { cmd: 'npm', args: ['run', 'build'] },
     ],
   },
-  ...specGroups(SHARDS).map((files, i) => ({
-    name: SHARDS === 1 ? 'e2e' : `e2e ${i + 1}/${SHARDS}`,
+  ...E2E_GROUPS.map((files, i) => ({
+    name: PARTITION.parts > 1
+      ? `e2e part ${PARTITION.part}/${PARTITION.parts}`
+      : SHARDS === 1 ? 'e2e' : `e2e ${i + 1}/${SHARDS}`,
     steps: [
       {
         cmd: 'npx',
         args: ['playwright', 'test', ...files],
-        env: { E2E_SHARD: String(i), E2E_SHARDS: String(SHARDS), E2E_HOST_FACTOR: String(HOST_FACTOR) },
+        env: {
+          E2E_SHARD: String(PARTITION.parts > 1 ? PARTITION.part - 1 : i),
+          E2E_SHARDS: String(E2E_GROUPS.length),
+          E2E_HOST_FACTOR: String(HOST_FACTOR),
+        },
       },
     ],
   })),
@@ -189,7 +201,10 @@ const runLane = async (lane) => {
   return { ...lane, code, ms, out }
 }
 
-process.stdout.write(`verify — ${lanes.length} lanes in parallel (${SHARDS} e2e shard${SHARDS === 1 ? '' : 's'})\n`)
+const partitionNote = PARTITION.parts > 1 ? `; e2e part ${PARTITION.part}/${PARTITION.parts}` : ''
+process.stdout.write(
+  `verify — ${lanes.length} lanes in parallel (${E2E_GROUPS.length} e2e shard${E2E_GROUPS.length === 1 ? '' : 's'}${partitionNote})\n`,
+)
 const results = await Promise.all(lanes.map(runLane))
 const failed = results.filter((r) => r.code !== 0)
 
@@ -219,12 +234,13 @@ function e2eCoverage(rs) {
   })
   const total = counts.reduce((a, b) => a + b, 0)
   const note = ` · ${total} e2e tests (${counts.join(' + ')})`
-  if (e2eLanes.length !== SHARDS) return { note, shortfall: null }
+  if (e2eLanes.length !== E2E_GROUPS.length) return { note, shortfall: null }
   // From the same module that plans the run — not a second reading of the spec
   // files. Two independent derivations of one number can agree while both are
   // wrong about which specs exist. (`specGroups` splits by measured WEIGHT now;
   // `tests` remains the coverage expectation, which is why they are two fields.)
-  const expected = specFiles().reduce((n, f) => n + f.tests, 0)
+  const assigned = new Set(PARTITION.files)
+  const expected = SPECS.reduce((n, f) => n + (assigned.has(f.file) ? f.tests : 0), 0)
   return { note, shortfall: total === expected ? null : `${total} of ${expected}` }
 }
 
