@@ -43,8 +43,15 @@ same-named selected files now keep independent snapshots through preview,
 reload, model input, and removal. Adapter regression tests were observed failing
 before the fix, and a browser chooser walk verifies the complete text journey.
 The full verifier passed all five lanes (277 browser tests), and packaged
-Electron verification passed. The packaged picker-to-conversation journey is
-still distinct acceptance work; native bridge presence alone does not prove it.
+Electron verification passed. Packaged attachment acceptance now crosses the
+native reader and IPC into the actual renderer, endpoint transport, durable
+conversation, and independent removal. Two same-name files retain their exact
+IDs and bodies across relaunch after both source files are deleted. This phase
+fixtures only the native dialog result and model response; the actual OS dialog
+still needs manual review. It uses a separate profile because Playwright's
+Electron launcher adds mock-keychain switches; real OS-backed storage acceptance
+remains in the unchanged ordinary executable smoke. An intentional mutation of
+the packaged native text return was observed failing at the rendered preview.
 Shared-preview review remains unavailable while the owner's Mac is locked.
 
 ## Open verification follow-ups

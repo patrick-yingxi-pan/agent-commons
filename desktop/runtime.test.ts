@@ -204,6 +204,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release-set.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/attachmentSmoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/attachmentSmokeFixture.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/authRoot.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/nativeRecovery.mjs'), false)
@@ -231,6 +233,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /snapshots/)
   assert.match(smoke, /recovery-/)
   assert.match(smoke, /vault\.includes\(smokeSecret\)/)
+  assert.match(smoke, /await smokePackagedAttachments\(\{ executable \}\)/,
+    'the ordinary executable and freshly extracted release both run attachment acceptance')
 
   const packaging = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')
   assert.match(packaging, /electronChecksums/)

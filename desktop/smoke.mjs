@@ -8,6 +8,7 @@ import { chromium, expect } from '@playwright/test'
 import { startModelServer } from '../server/model/index.ts'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { AUTH_ROOT_FILE } from './authRoot.mjs'
+import { smokePackagedAttachments } from './attachmentSmoke.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -357,6 +358,10 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
     await new Promise((resolve) => modelServer.close(resolve)).catch(() => {})
     await rm(userDataPath, { recursive: true, force: true })
   }
+  // Sequential and independently isolated: the ordinary launch above proves
+  // real OS-backed storage; Playwright's main-process dialog fixture below must
+  // neither reuse that profile nor compete with its single-instance lock.
+  await smokePackagedAttachments({ executable })
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await smokePackagedDesktop()

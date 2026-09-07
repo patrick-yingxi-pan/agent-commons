@@ -59,6 +59,8 @@ export function ignoreFromPackage(path) {
       'desktop/release-set.mjs',
       'desktop/release.mjs',
       'desktop/smoke.mjs',
+      'desktop/attachmentSmoke.mjs',
+      'desktop/attachmentSmokeFixture.mjs',
     ].includes(normalized)
   ) return true
   if (root === 'scripts' && normalized !== 'scripts/start.mjs') return true
