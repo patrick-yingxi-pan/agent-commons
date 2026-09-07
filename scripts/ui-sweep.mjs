@@ -359,11 +359,15 @@ const railOpen = (page) =>
 
 /** Is a context panel docked OVER the thread and eating pointer events? On the
  *  narrow tier OverlayPanelDock spans the whole thread (ADAPT-11) and stays
- *  mounted while empty, so presence isn't the question — pointer-events is. */
+ *  mounted while empty; on medium it can remain mounted at zero size after
+ *  closing. Presence is therefore not enough: require rendered dimensions and
+ *  hit-testing. */
 const overlayDockLive = (page) =>
   page.evaluate(() => {
     const d = document.querySelector('[data-overlay-dock]')
-    return !!d && getComputedStyle(d).pointerEvents !== 'none'
+    if (!d || getComputedStyle(d).pointerEvents === 'none') return false
+    const { width, height } = d.getBoundingClientRect()
+    return width > 0 && height > 0
   })
 
 /** Close a docked panel. It is NOT a popover: Escape does not dismiss it and it
@@ -466,17 +470,25 @@ async function seedIds(page) {
   // chips-plus-panel cell needs a repo. Ask rather than assume.
   let chipSessionId = null
   let repoSessionId = null
+  let threadSessionId = null
+  let threadSessionTitle = null
   for (const row of arr(sessions).slice(0, 14)) {
     const d = await get(`/sessions/${row.id}`)
     const w = d?.workspace ?? {}
     const n = (w.workspaces?.length ?? 0) + (w.repos?.length ?? 0) + (w.connectors?.length ?? 0) + (w.attachments?.length ?? 0)
     if (n > 0) chipSessionId ??= row.id
     if ((w.repos?.length ?? 0) > 0) repoSessionId ??= row.id
-    if (chipSessionId && repoSessionId) break
+    if (!threadSessionId && (w.repos?.length ?? 0) === 0 && Array.isArray(d?.messages) && d.messages.length > 0) {
+      threadSessionId = row.id
+      threadSessionTitle = d.title ?? row.title
+    }
+    if (chipSessionId && repoSessionId && threadSessionId) break
   }
   return {
     chipSessionId,
     repoSessionId: repoSessionId ?? chipSessionId,
+    threadSessionId,
+    threadSessionTitle,
     projectId: arr(projects)[0]?.id ?? null,
     scheduleId: arr(schedules)[0]?.id ?? null,
     artifactId: arr(artifacts)[0]?.id ?? null,
@@ -516,6 +528,8 @@ for (const vp of VIEWPORTS) {
     await page.getByRole('button', { name: 'Explore on my own' }).click({ timeout: 4000 }).catch(() => {})
     await tick(200)
 
+    const ids = await seedIds(page)
+
     // ── UI-3 + UI-8 (narrow): in-flow toggle; the closed drawer is inert ──
     if (vp.narrow) {
       const toggle = page.getByRole('button', { name: 'Expand sidebar' })
@@ -529,12 +543,23 @@ for (const vp of VIEWPORTS) {
 
     // ── cell: demo thread (composer popovers) ──
     let cell = at('thread-demo')
-    await noHScroll(page, cell)
-    await shot(page, cell.replace('/', '_'))
-    await sweepTriggers(page, vp, cell)
-    covered(cell)
-
-    const ids = await seedIds(page)
+    if (ids.threadSessionId && ids.threadSessionTitle) {
+      if (await goTo(page, `/s/${ids.threadSessionId}`, cell)) {
+        try {
+          await page.getByRole('heading', { name: ids.threadSessionTitle, exact: true }).waitFor({ state: 'visible', timeout: 8000 })
+          await page.locator('[data-turn]').first().waitFor({ state: 'visible', timeout: 8000 })
+          if (!(await dismissOverlayPanel(page)) || (await overlayDockLive(page))) {
+            throw new Error('a restored context overlay did not close before the thread screenshot')
+          }
+          await noHScroll(page, cell)
+          await shot(page, cell.replace('/', '_'))
+          await sweepTriggers(page, vp, cell)
+          covered(cell)
+        } catch (e) {
+          unreachable(cell, `populated session ${ids.threadSessionId} did not expose its title and transcript: ${firstLine(e)}`)
+        }
+      }
+    } else unreachable(cell, 'no populated ordinary conversation session detail')
 
     // ── cell: the chip remove-confirm, on a session that HAS a chip ──
     cell = at('chip-confirm')
@@ -589,12 +614,22 @@ for (const vp of VIEWPORTS) {
 
     // ── cell: a fresh draft ──
     cell = at('draft')
-    // The fresh draft IS the root address (ADAPT-1) — no drawer round-trip needed.
-    if (await goTo(page, '/', cell)) {
-      await noHScroll(page, cell)
-      await shot(page, cell.replace('/', '_'))
-      await sweepTriggers(page, vp, cell)
-      covered(cell)
+    if (await goTo(page, '/sessions', cell)) {
+      try {
+        if (!(await openRailIfNarrow(page, vp, cell))) throw new Error('the rail could not open for the Create navigation')
+        await page.locator('aside').getByRole('navigation', { name: 'Create', exact: true }).getByRole('button', { name: 'New session', exact: true }).click({ timeout: 4000 })
+        await closeRailIfNarrow(page, vp)
+        await page.locator('[data-conversation-pane="draft"]').waitFor({ state: 'visible', timeout: 8000 })
+        await page.getByRole('heading', { name: 'New session', exact: true }).waitFor({ state: 'visible', timeout: 8000 })
+        const turns = await page.locator('[data-turn]').count()
+        if (turns !== 0) throw new Error(`fresh draft exposed ${turns} transcript turns`)
+        await noHScroll(page, cell)
+        await shot(page, cell.replace('/', '_'))
+        await sweepTriggers(page, vp, cell)
+        covered(cell)
+      } catch (e) {
+        unreachable(cell, `fresh New session did not expose an empty draft: ${firstLine(e)}`)
+      }
     }
 
     // ── cells: the rail sections (incl. the social layer's Commons + Discussions) ──

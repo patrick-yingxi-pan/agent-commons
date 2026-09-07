@@ -15,6 +15,7 @@
  *  actually visits, and the harness's loud-not-fatal navigation contract. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import vm from 'node:vm'
 import { join } from 'node:path'
 import { ROOT, read as readAbs } from './helpers/source.ts'
 import { CELLS, SECTIONS, createLedger } from '../scripts/ui-sweep-ledger.mjs'
@@ -179,6 +180,49 @@ test('an address that renders no workspace is unreachable, not swept', () => {
   assert.ok(body.includes('unreachable(cell,'), 'a dead address records the cell unreachable')
 })
 
+test('thread-demo uses a populated session detail instead of the blank draft or repo fallback', () => {
+  const start = SWEEP.indexOf('async function seedIds')
+  const end = SWEEP.indexOf('\n// ── the sweep', start)
+  const seed = SWEEP.slice(start, end)
+  assert.ok(seed.includes('threadSessionId'), 'seed discovery names an independent thread-demo session')
+  assert.match(seed, /d\?\.messages[\s\S]{0,120}\.length\s*>\s*0/, 'thread discovery requires populated detail messages')
+  assert.match(seed, /w\.repos\?\.length\s*\?\?\s*0\)\s*===\s*0/, 'thread discovery requires a non-repo conversation')
+  assert.doesNotMatch(seed, /threadSessionId\s*:\s*repoSessionId/, 'thread discovery cannot fall back to the repo session')
+
+  const demoStart = SWEEP.indexOf("// ── cell: demo thread")
+  const demoEnd = SWEEP.indexOf('// ── cell: the chip remove-confirm', demoStart)
+  assert.ok(demoStart >= 0 && demoEnd > demoStart, 'the thread-demo source slice remains nonempty')
+  const idsAt = SWEEP.indexOf('const ids = await seedIds(page)')
+  assert.ok(idsAt >= 0, 'the demo obtains real ids before its checks')
+  assert.ok(idsAt < demoStart, 'the demo discovers its populated session before its checks')
+  const demo = SWEEP.slice(demoStart, demoEnd)
+  assert.match(demo, /ids\.threadSessionId/, 'the demo addresses the discovered populated session')
+  assert.match(demo, /getByRole\('heading', \{ name: ids\.threadSessionTitle/, 'the demo waits for the discovered heading')
+  assert.match(demo, /data-turn/, 'the demo waits for an actual transcript before screenshots/checks')
+  assert.match(demo, /unreachable\(cell,/, 'missing thread readiness becomes a coverage violation')
+  const transcriptWait = demo.indexOf("locator('[data-turn]').first().waitFor")
+  const overlayGate = demo.indexOf('dismissOverlayPanel(page)')
+  const screenshot = demo.indexOf('await shot(page, cell.replace')
+  assert.ok(transcriptWait >= 0 && transcriptWait < screenshot, 'the transcript readiness check precedes the demo screenshot')
+  assert.ok(overlayGate >= 0 && overlayGate < screenshot, 'overlay dismissal and failure gate precede the demo screenshot')
+  assert.match(demo, /restored context overlay did not close before the thread screenshot/, 'overlay failure remains a coverage failure')
+})
+
+test('draft cell explicitly selects the fresh draft and proves it is empty', () => {
+  const start = SWEEP.indexOf('// ── cell: a fresh draft')
+  const end = SWEEP.indexOf('// ── cells: the rail sections', start)
+  assert.ok(start >= 0 && end > start, 'the draft source slice remains nonempty')
+  const draft = SWEEP.slice(start, end)
+  assert.match(draft, /getByRole\('navigation', \{ name: 'Create', exact: true \}\)[\s\S]{0,180}getByRole\('button', \{ name: 'New session', exact: true \}\)\.click/, 'draft cell clicks New session through the Create navigation')
+  assert.match(draft, /data-conversation-pane="draft"/, 'draft cell waits for the draft identity')
+  assert.match(draft, /locator\('\[data-turn\]'\)\.count\(\)/, 'draft cell checks transcript emptiness')
+  assert.match(draft, /turns\s*!==\s*0[\s\S]{0,100}throw/, 'draft cell rejects any restored transcript')
+  assert.match(draft, /unreachable\(cell,/, 'draft setup failure becomes a coverage violation')
+  const zeroGuard = draft.indexOf('turns !== 0')
+  const screenshot = draft.indexOf('await shot(page, cell.replace')
+  assert.ok(zeroGuard >= 0 && zeroGuard < screenshot, 'draft zero-turn rejection precedes its screenshot')
+})
+
 // ── the stack the sweep drives ──────────────────────────────────────────────
 
 test('sharing cells wait for the lazy-loaded act rather than judging its loading fallback', () => {
@@ -264,4 +308,24 @@ test('the docked context panel carries the stamp the sweep looks for', () => {
     body.includes('pointerEvents'),
     'presence is not the question — the dock stays mounted while empty, so the sweep asks whether it eats pointer events',
   )
+})
+
+test('the dock detector treats zero-size or pointer-disabled docks as closed', () => {
+  const start = SWEEP.indexOf('const overlayDockLive')
+  const end = SWEEP.indexOf('\n/** Close a docked panel', start)
+  const source = SWEEP.slice(start, end)
+  const callback = source.match(/page\.evaluate\(\(\) => \{([\s\S]*)\n  \}\)/)?.[1]
+  assert.ok(callback, 'the live-dock callback remains extractable')
+  const run = (dock: { width: number; height: number; pointerEvents: string } | null) => {
+    const fn = vm.runInNewContext(`() => {${callback}}`, {
+      document: { querySelector: () => dock && { getBoundingClientRect: () => dock } },
+      getComputedStyle: () => ({ pointerEvents: dock?.pointerEvents ?? 'none' }),
+    })
+    return fn()
+  }
+  assert.equal(run(null), false, 'a missing dock is closed')
+  assert.equal(run({ width: 300, height: 1024, pointerEvents: 'none' }), false, 'a pointer-disabled dock is closed')
+  assert.equal(run({ width: 0, height: 1024, pointerEvents: 'auto' }), false, 'a zero-width dock is closed')
+  assert.equal(run({ width: 300, height: 0, pointerEvents: 'auto' }), false, 'a zero-height dock is closed')
+  assert.equal(run({ width: 300, height: 1024, pointerEvents: 'auto' }), true, 'a rendered hit-testable dock is live')
 })

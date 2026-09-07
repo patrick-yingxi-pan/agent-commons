@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-09-06. The standing goal remains production readiness for Agent
+Reviewed 2026-09-07. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -38,11 +38,11 @@ Revisit this order when a core journey reveals a blocker or the owner changes a
 product direction. Do not treat the remaining partial cross-device requirement
 as an instruction to harden every mutation before shipping useful desktop work.
 
-The latest local-text checkpoint removes basename-based attachment loss:
+The completed local-text checkpoint (`b31570a`) removes basename-based attachment loss:
 same-named selected files now keep independent snapshots through preview,
 reload, model input, and removal. Adapter regression tests were observed failing
 before the fix, and a browser chooser walk verifies the complete text journey.
-The full verifier passed all five lanes (277 browser tests), and packaged
+At that checkpoint, the full verifier passed all five lanes (277 browser tests), and packaged
 Electron verification passed. Packaged attachment acceptance now crosses the
 native reader and IPC into the actual renderer, endpoint transport, durable
 conversation, and independent removal. Two same-name files retain their exact
@@ -52,9 +52,41 @@ still needs manual review. It uses a separate profile because Playwright's
 Electron launcher adds mock-keychain switches; real OS-backed storage acceptance
 remains in the unchanged ordinary executable smoke. An intentional mutation of
 the packaged native text return was observed failing at the rendered preview.
-Shared-preview review remains unavailable while the owner's Mac is locked.
+The Mac is now unlocked and the shared preview is available, with all six demo
+accounts stacked. Interactive OS-dialog review remains unverified: browser
+file selection failed when the control tool lost the input node, and native
+window actions were unavailable. These are limits of the review evidence, not
+confirmed product defects; the packaged dialog-result-fixture acceptance above
+must not be described as a manual OS-dialog pass.
+
+The next core implementation still needs the owner's choice: real local
+folders/Git (recommended) or document/PDF import. Signing/notarization credentials
+and a download destination remain separate release prerequisites. Dependency
+advisory checking also awaits permission to send dependency names and versions
+to npm's advisory service; an attempted audit was denied and was not retried.
 
 ## Open verification follow-ups
+
+The five-viewport UI review exposed a semantic coverage defect: the cell named
+`thread-demo` captured a blank draft, while the `draft` cell could restore the
+previous repo conversation. The sweep now must discover a populated non-repo
+conversation and await its exact heading/transcript, and explicitly open a fresh
+draft before measuring it. Missing subjects count as coverage failures. The
+conversation check closes covering panels before capture; executable detection
+tests distinguish a closed zero-width tablet dock from a live one. A duplicate
+UI invariant identifier was also corrected, with a structural lock against
+recurrence. On 2026-09-07, the corrected sweep passed all 135 cells across five
+viewports with zero violations and zero skips; all ten corrected conversation
+and draft captures were visually checked. The regression locks were watched fail
+before restoration. Live account switching was also checked, and the shared
+preview was returned to Ada with the six-account roster stacked.
+
+Filed visual refinement (S4): at 375×812 in Commons, the empty post composer's
+long mention-help placeholder wraps beneath its one-row textarea and is partly
+clipped. Reproduce via Commons with an empty post composer. The accessible name
+remains present; shorten the placeholder or expose mention help outside the
+field when this surface is next revised. This does not block the core desktop
+integration milestone.
 
 One full local run of `e2e/agent-proposal-verdict.spec.ts` observed a Review
 button click without its dialog remaining open. Ten focused traced walks passed;
