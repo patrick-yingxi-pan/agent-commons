@@ -20,7 +20,7 @@ import type {
   Workspace,
 } from '../types'
 import type { ModelExecution, UsageModelRef } from '../../contract/index.ts'
-import { planAttachmentInput } from '../../contract/attachmentInput.ts'
+import { planAttachmentInput, workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import type { ModelPick } from '../lib/models'
 import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
@@ -161,7 +161,7 @@ export function Composer({
   const mcpServers = connectors.filter((c) => c.kind === 'mcp')
   const fileItems = attachments.filter((a) => a.kind === 'file')
   const photoItems = attachments.filter((a) => a.kind === 'photo')
-  const attachmentInput = planAttachmentInput(attachments)
+  const attachmentInput = planAttachmentInput(workspaceInputAttachments({ attachments, workspaces }))
   const readyAttachmentCount = attachmentInput.filter((item) => item.status === 'ready').length
   const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount
 
@@ -362,7 +362,7 @@ export function Composer({
           </div>
         )}
 
-        {attachments.length > 0 && (
+        {attachmentInput.length > 0 && (
           <div
             role="status"
             data-attachment-input-disclosure
@@ -373,7 +373,7 @@ export function Composer({
               {readyAttachmentCount === 1 ? '' : 's'} on send or retry.
             </span>
             <span data-attachment-input-omitted={omittedAttachmentCount}>
-              {omittedAttachmentCount > 0 && <> {omittedAttachmentCount} not sent. Open attachments for details.</>}
+              {omittedAttachmentCount > 0 && <> {omittedAttachmentCount} not sent. Open files or the workspace for details.</>}
             </span>
           </div>
         )}

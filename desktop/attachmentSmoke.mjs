@@ -211,6 +211,54 @@ export async function smokePackagedAttachments({ executable }) {
     assert.ok(afterDetach.some((message) => message.role === 'assistant' && message.content === `Read supplied attachment: ${SECOND_TEXT}`))
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
     console.log('[desktop-attachment-smoke] native dialog-result fixture · real selected-file reads + IPC · distinct same-name snapshots · endpoint bodies · full relaunch without source files · independent detach · prior reply preserved')
+
+    // Folder import is a separate conversation: its actual native snapshot,
+    // not an individually selected attachment, must supply this model input.
+    const folderPath = join(fixtureRoot, 'folder-import')
+    await mkdir(folderPath)
+    const folderText = 'native-folder-snapshot-body\n'
+    await writeFile(join(folderPath, 'notes.md'), folderText)
+    await writeFile(join(folderPath, '.env'), 'HIDDEN_FOLDER_SECRET=not-imported')
+    await writeFile(join(folderPath, 'photo.png'), 'not plain text')
+    const folderSession = await page.evaluate(async (providerId) => {
+      const response = await fetch('/api/v1/sessions', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId }),
+      })
+      if (!response.ok) throw new Error(`Folder conversation precondition: HTTP ${response.status}`)
+      return response.json()
+    }, session.providerId)
+    const folderRoute = `/s/${encodeURIComponent(folderSession.id)}`
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.goto(`${origin}${folderRoute}`)
+    await run.app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async (_owner, options) => {
+        if (options.properties.join(',') !== 'openDirectory') throw new Error('Expected folder selection')
+        return { canceled: false, filePaths: [path] }
+      }
+    }, folderPath)
+    await page.getByRole('button', { name: 'Add context' }).click()
+    const folderPicker = page.getByRole('dialog', { name: 'Add context' })
+    await folderPicker.getByRole('button', { name: /^Folder/ }).click()
+    await folderPicker.getByRole('button', { name: 'This computer', exact: true }).click()
+    await folderPicker.getByRole('button', { name: /Choose a folder from this computer/ }).click()
+    await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)
+    await page.locator('[data-overlay-dock="narrow"]').getByRole('button', { name: 'Close', exact: true }).click()
+    await send(page, 'Read the imported folder.', 'native-folder-snapshot-body')
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [
+      { name: 'folder-import/notes.md', status: 'ready', text: folderText },
+      { name: 'folder-import/photo.png', status: 'unavailable' },
+    ])
+    assert.equal(JSON.stringify(endpoint.requests).includes('HIDDEN_FOLDER_SECRET'), false)
+    assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+    await run.app.close()
+    run = undefined
+    await rm(folderPath, { recursive: true })
+    run = await launch(executable, userDataPath)
+    ;({ page, origin } = run)
+    await page.goto(`${origin}${folderRoute}`)
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'folder-import/' }).click()
+    await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)
+    console.log('[desktop-folder-smoke] real native folder reader + IPC · hidden-file exclusion · bounded snapshot preview + model input · full relaunch without source folder')
   } finally {
     await run?.app.close()
     await endpoint?.close()

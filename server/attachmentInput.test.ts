@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { attachmentPrompt, ATTACHMENT_INPUT_SYSTEM } from './attachmentInput.ts'
+import { workspaceInputAttachments } from '../contract/attachmentInput.ts'
 import type { Attachment } from '../contract/entities.ts'
 
 const file = (text: string, overrides: Partial<Attachment> = {}): Attachment => ({
@@ -95,4 +96,50 @@ test('omits oversized text as a whole file and leaves later attachment mutation 
   const oversized = documentFrom(attachmentPrompt('question', [file('x'.repeat(64 * 1024 + 1), { label: 'large.txt' })]))
   assert.deepEqual(oversized.attached_files, [{ name: 'large.txt', status: 'too-large' }])
   assert.equal(JSON.stringify(oversized).includes('x'.repeat(100)), false)
+})
+
+test('synthesizes folder local snapshots after direct attachments, without importing fixture artifacts', () => {
+  const direct = file('direct body', { id: 'direct', label: 'same-name.md' })
+  const workspaces = [
+    {
+      id: 'folder-a', label: 'Folder A', artifacts: [
+        { id: 'a-same', name: 'same-name.md', kind: 'doc', meta: 'fixture metadata', source: { id: 'ui-host::folder-a', label: 'Folder A/' }, localSnapshot: { text: 'folder A body' } },
+        { id: 'a-photo', name: 'photo.png', kind: 'image', meta: 'fixture image', source: { id: 'ui-host::folder-a', label: 'Folder A/' }, localSnapshot: { omitted: 'unsupported' } },
+      ],
+    },
+    {
+      id: 'folder-b', label: 'Folder B', artifacts: [
+        { id: 'b-same', name: 'same-name.md', kind: 'doc', meta: 'fixture metadata', source: { id: 'ui-host::folder-b', label: 'Folder B/' }, localSnapshot: { text: 'folder B body' } },
+      ],
+    },
+  ]
+
+  const attachments = workspaceInputAttachments({ attachments: [direct], workspaces })
+  assert.deepEqual(attachments.map((item) => ({ id: item.id, label: item.label, text: item.previewText })), [
+    { id: 'direct', label: 'same-name.md', text: 'direct body' },
+    { id: 'a-same', label: 'Folder A/same-name.md', text: 'folder A body' },
+    { id: 'b-same', label: 'Folder B/same-name.md', text: 'folder B body' },
+    { id: 'a-photo', label: 'Folder A/photo.png', text: undefined },
+  ])
+  const document = documentFrom(attachmentPrompt('question', attachments))
+  assert.deepEqual(document.attached_files.find((item) => item.name === 'Folder A/photo.png'), {
+    name: 'Folder A/photo.png', status: 'unavailable',
+  })
+})
+
+test('folder snapshots share the attachment input item and byte budgets', () => {
+  const workspaces = [{
+    id: 'folder', label: 'code', artifacts: [
+      { id: 'one', name: 'one.md', kind: 'doc', meta: '', source: { id: 'ui-host::folder', label: 'code/' }, localSnapshot: { text: 'a'.repeat(64 * 1024) } },
+      { id: 'two', name: 'two.md', kind: 'doc', meta: '', source: { id: 'ui-host::folder', label: 'code/' }, localSnapshot: { text: 'b'.repeat(64 * 1024) } },
+      { id: 'three', name: 'three.md', kind: 'doc', meta: '', source: { id: 'ui-host::folder', label: 'code/' }, localSnapshot: { text: 'c' } },
+    ],
+  }]
+  const attachments = workspaceInputAttachments({ attachments: [], workspaces })
+  const document = documentFrom(attachmentPrompt('question', attachments))
+  assert.deepEqual(document.attached_files.map(({ name, status, text }) => ({ name, status, text })), [
+    { name: 'code/one.md', status: 'ready', text: 'a'.repeat(64 * 1024) },
+    { name: 'code/two.md', status: 'ready', text: 'b'.repeat(64 * 1024) },
+    { name: 'code/three.md', status: 'total-limit', text: undefined },
+  ])
 })

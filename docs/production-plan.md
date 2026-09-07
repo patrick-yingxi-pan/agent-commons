@@ -21,7 +21,7 @@ milestones or address a demonstrated defect.
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake now shares source/configuration format recognition and strict whole UTF-8 decoding; a real browser file chooser proves source text reaches the endpoint fixture. Image/document/folder/remote-source input remains the FWD-9 gap. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake now shares source/configuration format recognition and strict whole UTF-8 decoding; a real browser file chooser proves source text reaches the endpoint fixture. Bounded top-level folder snapshots are built through CTX-FS-11; image/document extraction, live folder/Git and remote-source input remain the FWD-9 gap. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Connector/MCP execution has a real consent and authorization boundary but release fulfilment remains unconfigured. Select and deliver one real adapter and discovery workflow before broadening the catalog. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
@@ -59,13 +59,30 @@ window actions were unavailable. These are limits of the review evidence, not
 confirmed product defects; the packaged dialog-result-fixture acceptance above
 must not be described as a manual OS-dialog pass.
 
-The next core implementation still needs the owner's choice: real local
-folders/Git (recommended) or document/PDF import. Signing/notarization credentials
+The owner delegated sequencing on 2026-09-07: all planned core capabilities
+remain required. Start with bounded local folder snapshots (real previews and
+model input), then explicit-permission live folder/Git access, then document/PDF
+import. This dependency order is not a scope reduction. Signing/notarization credentials
 and a download destination remain separate release prerequisites. Dependency
 advisory checking also awaits permission to send dependency names and versions
 to npm's advisory service; an attempted audit was denied and was not retried.
 
 ## Open verification follow-ups
+
+The folder checkpoint imports real, bounded top-level text snapshots through
+the same native/browser policy and model-input plan. Equal-named folders keep
+independent identities through reload and removal. Hidden files and subfolders
+are excluded; unsupported, oversized and unavailable content is explained rather
+than replaced with demo bodies. Packaged acceptance proves native reading, IPC,
+model delivery and relaunch after the source folder is removed, while retaining
+the existing separate OS-backed storage smoke. Dialog results and model replies
+are test fixtures; actual OS-dialog and paid-provider acceptance remain manual.
+The initial-bundle lock rejected this increment at 803,567 bytes. Deferring rich
+workspace rendering restored the unchanged 800,000-byte ceiling; chunk failure
+stays within the workspace and offers an explicit reload. Five-viewport folder
+review added first-line and omission-notice visibility locks and corrected the
+short-window file-list height. No release signing or dependency-advisory gate is
+claimed complete by this checkpoint.
 
 The five-viewport UI review exposed a semantic coverage defect: the cell named
 `thread-demo` captured a blank draft, while the `draft` cell could restore the

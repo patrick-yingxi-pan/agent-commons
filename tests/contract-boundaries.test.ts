@@ -96,7 +96,7 @@ test('both model transports share server-owned attachment serialization and the 
     assert.match(source, /input\.userText/)
     assert.match(source, /input\.systemAddition/)
   }
-  assert.match(stripComments(read(join(ROOT, 'server/routes/index.ts'))), /attachments: known\.workspace\?\.attachments/)
+  assert.match(stripComments(read(join(ROOT, 'server/routes/index.ts'))), /attachments: workspaceInputAttachments\(known\.workspace\)/)
   assert.match(stripComments(read(join(ROOT, 'server/attachmentInput.ts'))), /planAttachmentInput\(attachments\)/)
   for (const path of ['src/components/Composer.tsx', 'src/components/AttachmentPanel.tsx']) {
     assert.match(stripComments(read(join(ROOT, path))), /from '[^']*contract\/attachmentInput\.ts'/)

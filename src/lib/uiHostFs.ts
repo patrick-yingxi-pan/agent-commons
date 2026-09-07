@@ -10,6 +10,7 @@
 import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../../contract/localTextFile.mjs'
+import { snapshotFolderFiles } from '../../contract/localFolderSnapshot.mjs'
 
 /** A file picked from the UI host, with its content held client-side for preview. */
 export interface UiHostFile {
@@ -121,43 +122,54 @@ export async function readDroppedFiles(list: FileList): Promise<UiHostFile[]> {
   return Promise.all(Array.from(list).map(toUiHostFile))
 }
 
-/** Open the OS folder picker and turn its top-level files into workspace artifacts.
- *  Listing only (real names + kinds from disk); per-artifact content preview for a
- *  UI-host folder isn't wired (the bytes would have to be threaded through attach),
- *  so those fall back to the scaffold. Returns null when the user cancels. */
+/** Open the OS folder picker and turn its top-level files into workspace artifacts
+ *  with bounded local snapshots. Returns null when the user cancels. */
 export async function pickUiHostFolder(
   scope: DesktopBridgeScope = window,
-): Promise<{ name: string; artifacts: Artifact[] } | null> {
+): Promise<{ id: string; name: string; artifacts: Artifact[] } | null> {
   const native = scope.agentCommonsDesktop?.context
   if (native) {
     const result = await native.pickFolder()
     if (result.status === 'cancelled') return null
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
     return {
+      id: crypto.randomUUID(),
       name: result.folder.name,
       artifacts: result.folder.files.map((file) => ({
-        id: `ui-host:${result.folder.name}/${file.name}`,
+        id: crypto.randomUUID(),
         name: file.name,
         kind: uiHostKind(file.name),
         meta: humanSize(file.sizeBytes),
+        localSnapshot: file.snapshot ?? { omitted: 'unreadable' },
       })),
     }
   }
   const files = await openInput({ multiple: true, directory: true })
   if (files.length === 0) return null
+  if (files.length > 500) throw new UiHostPickerError('too-many-folder-entries')
   // The folder name is the first segment of the relative path the browser reports.
   const rel = (f: File): string => (f as File & { webkitRelativePath?: string }).webkitRelativePath ?? f.name
   const folderName = rel(files[0]).split('/')[0] || 'folder'
-  // Keep only the folder's *top-level* files as artifacts (skip nested dirs).
-  const top = files.filter((f) => rel(f).split('/').length === 2)
-  const seen = new Set<string>()
-  const artifacts: Artifact[] = []
-  for (const f of top.length ? top : files) {
-    if (seen.has(f.name)) continue
-    seen.add(f.name)
-    artifacts.push({ id: `ui-host:${folderName}/${f.name}`, name: f.name, kind: uiHostKind(f.name), meta: humanSize(f.size) })
-  }
-  return { name: folderName, artifacts }
+  // Keep only the folder's *top-level* non-hidden files. Never fall back to
+  // nested files: a folder selection must not silently widen its scope.
+  const top = files
+    .filter((f) => rel(f).split('/').length === 2)
+    .filter((f) => !rel(f).split('/').some((part) => part.startsWith('.')))
+  const metadata = top.map((f) => ({ name: f.name, sizeBytes: f.size }))
+  const byName = new Map(top.map((f) => [f.name, f]))
+  const snapshots = await snapshotFolderFiles(metadata, async (file) => {
+    const input = byName.get(file.name)
+    if (!input) throw new Error('folder file disappeared')
+    return new Uint8Array(await input.arrayBuffer())
+  })
+  const artifacts: Artifact[] = snapshots.map((entry) => ({
+    id: crypto.randomUUID(),
+    name: entry.name,
+    kind: uiHostKind(entry.name),
+    meta: humanSize(entry.sizeBytes),
+    localSnapshot: entry.snapshot,
+  }))
+  return { id: crypto.randomUUID(), name: folderName, artifacts }
 }
 
 function humanSize(bytes: number): string {

@@ -13,6 +13,7 @@
  *  controller = the session-parametric mutation funnels (useSessionContextCommands,
  *  the same the composer's chip-remove uses — one funnel, no fork). */
 import { useEffect } from 'react'
+import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { PaneChromeContext, type PaneChrome } from './paneChrome'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
@@ -48,12 +49,13 @@ export function ContextPanelView({
   // and deduped, so it never stomps a conversation pane already showing it).
   const { live, reconciled, contextMutation } = usePaneConversation(sessionId)
   const { removeContexts, removeFolder, removeAttachment } = useSessionContextCommands(sessionId)
+  const inputAttachments = workspaceInputAttachments(live)
 
   const body = (() => {
     switch (panel.kind) {
       case 'workspace': {
         const w = live.workspaces.find((x) => x.id === panel.id)
-        return w ? <WorkspacePanel mode="workspace" workspace={w} onClose={noop} onRemoveFolder={removeFolder} /> : null
+        return w ? <WorkspacePanel mode="workspace" workspace={w} inputAttachments={inputAttachments} onClose={noop} onRemoveFolder={removeFolder} /> : null
       }
       case 'repo': {
         const r = live.repos.find((x) => x.id === panel.id)
@@ -71,7 +73,7 @@ export function ContextPanelView({
           <AttachmentPanel
             kind={panel.kind}
             items={live.attachments.filter((a) => a.kind === panel.kind)}
-            allAttachments={live.attachments}
+            allAttachments={inputAttachments}
             initialId={panel.id}
             onClose={noop}
             onRemove={removeAttachment}

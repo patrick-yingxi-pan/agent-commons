@@ -65,7 +65,7 @@ test('native picks keep same-basename files distinct across bodies and subsequen
   assert.notEqual(first[0]?.id, second[0]?.id)
 })
 
-test('the UI-host adapter maps a native folder to the same source-free artifact scaffold as the web picker', async () => {
+test('native folder snapshots retain real text and opaque identities', async () => {
   const scope: DesktopBridgeScope = {
     agentCommonsDesktop: {
       context: {
@@ -75,8 +75,8 @@ test('the UI-host adapter maps a native folder to the same source-free artifact 
           folder: {
             name: 'research',
             files: [
-              { name: 'notes.md', sizeBytes: 12 },
-              { name: 'photo.png', sizeBytes: 4096 },
+              { name: 'notes.md', sizeBytes: 12, snapshot: { text: 'hello' } },
+              { name: 'photo.png', sizeBytes: 4096, snapshot: { omitted: 'unsupported' } },
             ],
           },
         }),
@@ -84,13 +84,120 @@ test('the UI-host adapter maps a native folder to the same source-free artifact 
     },
   }
 
-  assert.deepEqual(await pickUiHostFolder(scope), {
-    name: 'research',
-    artifacts: [
-      { id: 'ui-host:research/notes.md', name: 'notes.md', kind: 'doc', meta: '12 B' },
-      { id: 'ui-host:research/photo.png', name: 'photo.png', kind: 'image', meta: '4.0 KB' },
-    ],
-  })
+  const picked = await pickUiHostFolder(scope)
+  assert.equal(picked?.name, 'research')
+  assert.ok(picked?.id && picked.id !== 'research')
+  assert.equal(picked?.artifacts[0]?.localSnapshot?.text, 'hello')
+  assert.equal(picked?.artifacts[1]?.localSnapshot?.omitted, 'unsupported')
+  assert.ok(picked?.artifacts.every((a) => a.id && !a.id.includes('research/')))
+})
+
+test('native folder snapshots keep same-name entries independent', async () => {
+  const scope: DesktopBridgeScope = {
+    agentCommonsDesktop: { context: {
+      pickFiles: async () => ({ status: 'cancelled' as const }),
+      pickFolder: async () => ({ status: 'selected' as const, folder: { name: 'repo', files: [
+        { name: 'notes.md', sizeBytes: 5, snapshot: { text: 'one' } },
+        { name: 'notes.md', sizeBytes: 6, snapshot: { text: 'two' } },
+      ] } }),
+    } },
+  }
+  const picked = await pickUiHostFolder(scope)
+  assert.deepEqual(picked?.artifacts.map((a) => a.localSnapshot?.text), ['one', 'two'])
+  assert.notEqual(picked?.artifacts[0]?.id, picked?.artifacts[1]?.id)
+})
+
+test('browser folder selection snapshots only visible top-level files', async () => {
+  const reads: string[] = []
+  const make = (name: string, path: string, body: string) => ({
+    name,
+    size: body.length,
+    webkitRelativePath: path,
+    arrayBuffer: async () => {
+      reads.push(path)
+      return new TextEncoder().encode(body).buffer
+    },
+  }) as unknown as File
+  const files = [
+    make('notes.md', 'repo/notes.md', 'actual notes'),
+    make('nested.md', 'repo/src/nested.md', 'must not be read'),
+    make('.hidden.md', 'repo/.hidden.md', 'must not be read'),
+  ]
+  const previous = globalThis.document
+  globalThis.document = {
+    createElement: () => {
+      const input = {
+        type: '', multiple: false, accept: '', files,
+        click: () => queueMicrotask(() => input.onchange?.()),
+        onchange: undefined as (() => void) | undefined,
+        addEventListener: () => {},
+      }
+      return input
+    },
+  } as unknown as Document
+  try {
+    const picked = await pickUiHostFolder({})
+    assert.equal(picked?.artifacts.length, 1)
+    assert.equal(picked?.artifacts[0]?.name, 'notes.md')
+    assert.equal(picked?.artifacts[0]?.localSnapshot?.text, 'actual notes')
+    assert.deepEqual(reads, ['repo/notes.md'])
+    assert.ok(picked?.artifacts[0]?.id && picked.id !== picked.artifacts[0].id)
+  } finally {
+    globalThis.document = previous
+  }
+})
+
+test('browser folder selection never reads a nested-only folder', async () => {
+  let reads = 0
+  const nested = {
+    name: 'nested.md', size: 6, webkitRelativePath: 'repo/src/nested.md',
+    arrayBuffer: async () => { reads += 1; return new TextEncoder().encode('nested').buffer },
+  } as unknown as File
+  const previous = globalThis.document
+  globalThis.document = {
+    createElement: () => {
+      const input = {
+        type: '', multiple: false, accept: '', files: [nested],
+        click: () => queueMicrotask(() => input.onchange?.()),
+        onchange: undefined as (() => void) | undefined,
+        addEventListener: () => {},
+      }
+      return input
+    },
+  } as unknown as Document
+  try {
+    const picked = await pickUiHostFolder({})
+    assert.equal(picked?.artifacts.length, 0)
+    assert.equal(reads, 0)
+  } finally {
+    globalThis.document = previous
+  }
+})
+
+test('browser folder entry cap rejects before reading any file', async () => {
+  let reads = 0
+  const files = Array.from({ length: 501 }, (_, i) => ({
+    name: `file-${i}.txt`, size: 1, webkitRelativePath: `repo/file-${i}.txt`,
+    arrayBuffer: async () => { reads += 1; return new Uint8Array([97]).buffer },
+  })) as unknown as File[]
+  const previous = globalThis.document
+  globalThis.document = {
+    createElement: () => {
+      const input = {
+        type: '', multiple: false, accept: '', files,
+        click: () => queueMicrotask(() => input.onchange?.()),
+        onchange: undefined as (() => void) | undefined,
+        addEventListener: () => {},
+      }
+      return input
+    },
+  } as unknown as Document
+  try {
+    await assert.rejects(() => pickUiHostFolder({}), /no more than 500/)
+    assert.equal(reads, 0)
+  } finally {
+    globalThis.document = previous
+  }
 })
 
 test('native refusal becomes concise recoverable picker copy and cancellation is a no-op', async () => {

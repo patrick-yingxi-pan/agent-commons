@@ -1,6 +1,8 @@
+import { constants } from 'node:fs'
 import { open, opendir, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
+import { snapshotFolderFiles, MAX_FOLDER_SNAPSHOT_FILE_BYTES } from '../contract/localFolderSnapshot.mjs'
 
 export const MAX_PICKED_FILES = 24
 export const MAX_FOLDER_ENTRIES = 500
@@ -40,8 +42,12 @@ async function safeFileDetails(filePath, inspect) {
 /** Read at most one byte beyond the accepted payload so a file changed between
  * stat and read cannot turn a selected preview into an unbounded IPC message. */
 async function readBounded(filePath, maxBytes) {
-  const handle = await open(filePath, 'r')
+  const handle = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
   try {
+    const details = await handle.stat()
+    if (!details.isFile() || !Number.isSafeInteger(details.size) || details.size < 0 || details.size > maxBytes + 1) {
+      throw new Error('file changed or is not regular')
+    }
     const buffer = Buffer.allocUnsafe(maxBytes + 1)
     const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
     return buffer.subarray(0, bytesRead)
@@ -134,17 +140,19 @@ export function createNativeContextPicker({
         const folderPath = result.filePaths[0]
         const entries = await listDirectory(folderPath)
         if (entries.length > MAX_FOLDER_ENTRIES) return rejected('too-many-folder-entries')
-        const files = entries.filter((entry) => entry.isFile())
+        const files = entries.filter((entry) => entry.isFile() && !entry.name.startsWith('.'))
 
-        const items = await Promise.all(files.map(async (entry) => {
+        const metadata = []
+        for (const entry of files) {
           const details = await safeFileDetails(join(folderPath, entry.name), inspect)
-          return { name: entry.name, sizeBytes: details.size }
-        }))
+          metadata.push({ name: entry.name, sizeBytes: details.size })
+        }
+        const snapshots = await snapshotFolderFiles(metadata, async (file) => readBytes(join(folderPath, file.name), MAX_FOLDER_SNAPSHOT_FILE_BYTES))
         return {
           status: 'selected',
           folder: {
             name: basename(folderPath) || 'folder',
-            files: items,
+            files: snapshots,
           },
         }
       } catch {

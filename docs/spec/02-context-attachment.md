@@ -31,7 +31,7 @@
 Send and retry use the conversation's **current attachments**. A failed turn's
 retry starts a new generation snapshot; it does not recover an earlier file set.
 The composer and per-file disclosure make this explicit. Local folder picks
-list top-level filenames only, without body previews or model input. Missing or
+import bounded, read-only top-level text snapshots (CTX-FS-11). Missing or
 stale image URLs display “Preview unavailable” in the full attachment preview.
 
 Supported local text includes common source-code and configuration files and
@@ -51,6 +51,7 @@ attachment when it is no longer needed. Existing saved IDs remain valid.
 
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|
+| CTX-FS-11 | **Local folder snapshots, not live access.** Browser and native selection import only visible regular top-level files. One shared policy sorts names, bounds whole UTF-8 text to 64 KiB/file, 128 KiB/import and 24 readable files, and records explicit omissions without reading excluded content. Each pick and artifact gets an opaque identity; actual text persists with the session, never falls back to demo content, and joins direct attachments under the one model-input budget. Direct files take priority, readable folder snapshots precede omitted metadata, and independent folder removal excludes future input. Reattach imports later disk edits; no absolute path, recursive read, reusable grant, image/PDF extraction or live Git authority is introduced. | `contract/localFolderSnapshot.mjs`, `contract/attachmentInput.ts`, `desktop/contextPicker.mjs`, `src/lib/uiHostFs.ts`, `src/components/panels/ArtifactPanel.tsx`, `server/routes/index.ts` | `contract/localFolderSnapshot.test.ts`, `contract/folder-input.test.ts`, `desktop/contextPicker.test.ts`, `src/lib/ui-host-fs.test.ts`, `server/attachmentInput.test.ts`, `e2e/folder-input.spec.ts`; packaged smoke | ✅ |
 | CTX-FS-1 | Files/photos/folders are served from a real filesystem via a shared reader (scan a root, scan a folder into artifacts, read text, read bytes) with a path-traversal guard — not fixtures. The three sources are modeled as `FsSource` (ui-host, runner, cloud). | `server/fs.ts`, `contract/fs.ts`, `src/lib/fsSources.ts` | `server/fs-reader.test.ts`, `server/routes/fs.test.ts` | ✅ |
 | CTX-FS-2 | **Cloud source** — the web backend reads its own root and serves catalog / folder / text / bytes over the uniform `/fs/*?source=cloud` routes; available on **both** backends. | `server/store/index.ts`, `server/routes/index.ts`, `server/http/respond.ts`, `sample-cloud/` | `server/routes/fs.test.ts` | ✅ |
 | CTX-FS-3 | **Runner source** — a runner host is browsed via the broker (`fs.list` discovery) and read post-attach through the mediated, journaled `POST /runners/:id/invoke` (`fs.read` / `fs.list`); a broker bytes route proxies the runner for images; the runner's advertised scopes (D3) bound every read. | `server/runner-runtime.ts`, `server/data/runners.ts`, `server/routes/index.ts`, `sample-runner-host/` | `server/routes/runner-fs.test.ts` | ✅ |

@@ -1,3 +1,5 @@
+import type { FolderFileSnapshot } from '../../contract/localFolderSnapshot.mjs'
+
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
  * workflow. Credentials remain write-only; backup and picker methods expose
@@ -40,7 +42,7 @@ export type DesktopFilePickResult =
 export type DesktopFolderPickResult =
   | { status: 'cancelled' }
   | { status: 'rejected'; reason: DesktopContextPickerRejection }
-  | { status: 'selected'; folder: { name: string; files: Array<{ name: string; sizeBytes: number }> } }
+  | { status: 'selected'; folder: { name: string; files: Array<{ name: string; sizeBytes: number; snapshot?: FolderFileSnapshot }> } }
 
 export interface DesktopBridge {
   context?: {

@@ -6,6 +6,7 @@
  *  the wide tier projects as a context pane, read through the same funnels a
  *  ConversationPane uses (one mapping, no fork). */
 import { AnimatePresence } from 'framer-motion'
+import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { conversations, useConversation } from '../controller/conversationStore'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { retryContextMutation } from '../controller/contextMutations'
@@ -31,6 +32,7 @@ export function OverlayPanelDock({
 
 function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow' }) {
   const { live, focus, contextMutation } = useConversation(sessionId)
+  const inputAttachments = workspaceInputAttachments(live)
   const { removeContexts, removeFolder } = useSessionContextCommands(sessionId)
 
   const closePanel = () => {
@@ -74,6 +76,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               key="ws"
               mode={focusedRepo ? 'repo' : 'workspace'}
               workspace={focusedWorkspace}
+              inputAttachments={inputAttachments}
               repo={focusedRepo}
               onClose={closePanel}
               onRemoveFolder={removeFolder}
@@ -98,7 +101,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               key="att"
               kind={focus.kind}
               items={live.attachments.filter((a) => a.kind === focus.kind)}
-              allAttachments={live.attachments}
+              allAttachments={inputAttachments}
               initialId={focus.id}
               onClose={closePanel}
               onRemove={(id) => removeContexts([{ kind: focus.kind, id }])}

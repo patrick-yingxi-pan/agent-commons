@@ -1,4 +1,30 @@
-import type { Attachment } from './entities.ts'
+import type { Attachment, SessionWorkspace } from './entities.ts'
+
+/** One ordered input projection for the composer, previews and both transports.
+ * Folder bodies are durable snapshots, never a request to read a path. Direct
+ * attachments come first; all sources then share the same message budget. */
+export function workspaceInputAttachments(workspace?: Pick<SessionWorkspace, 'attachments' | 'workspaces'>): Attachment[] {
+  if (!workspace) return []
+  const imported = (workspace.workspaces ?? []).flatMap((folder) =>
+    (Array.isArray(folder?.artifacts) ? folder.artifacts : []).flatMap((artifact): Attachment[] => {
+      if (!artifact?.localSnapshot || typeof artifact.source?.id !== 'string' ||
+          !artifact.source.id.startsWith('ui-host::') || typeof artifact.source.label !== 'string' ||
+          typeof artifact.name !== 'string') return []
+      return [{
+        id: artifact.id,
+        label: `${artifact.source.label}${artifact.name}`,
+        kind: 'file',
+        source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+        previewText: artifact.localSnapshot.text,
+      }]
+    }))
+  return [
+    ...(workspace.attachments ?? []),
+    // Metadata-only rows must not crowd readable folder text out of the cap.
+    ...imported.filter((item) => typeof item.previewText === 'string'),
+    ...imported.filter((item) => typeof item.previewText !== 'string'),
+  ]
+}
 
 /** One input budget shared by the composer and both model transports. Files are
  * included whole or omitted; a preview must never masquerade as a full import. */

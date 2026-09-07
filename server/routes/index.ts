@@ -1,6 +1,7 @@
 /** Route table for the mock backend. Each resource registers its endpoints here;
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
+import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import type {
   ApplyOpRequest,
   DeleteSavedContextRequest,
@@ -4436,7 +4437,7 @@ export function buildRouter(): Router {
       persistedTail?.role === 'user' &&
       persistedTail.content === (text ?? '')
     const session = known
-      ? { id: known.id, title: known.title, attachments: known.workspace?.attachments }
+      ? { id: known.id, title: known.title, attachments: workspaceInputAttachments(known.workspace) }
       : { id: params.id, title: 'New session' }
     // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
     // resolves to the seeded default until users create their own.

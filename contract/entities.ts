@@ -294,6 +294,9 @@ export interface Artifact {
   kind: ArtifactKind
   meta: string
   source?: ArtifactSource
+  /** One-shot local folder import, never live filesystem authority. Presence
+   * prevents authored/demo content from standing in for an unreadable file. */
+  localSnapshot?: import('./localFolderSnapshot.mjs').FolderFileSnapshot
 }
 
 export type FileStatus = 'added' | 'modified' | 'unchanged'

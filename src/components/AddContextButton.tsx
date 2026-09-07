@@ -1269,7 +1269,11 @@ function FolderPicker({
     try {
       const picked = await pickUiHostFolder()
       if (!picked) return
-      const src = { id: fsRecentKey('ui-host', picked.name), label: `${picked.name}/` }
+      if (!picked.artifacts.length) {
+        setFailure('No visible top-level files were found. Choose a folder containing files; hidden files and subfolders are excluded.')
+        return
+      }
+      const src = { id: fsRecentKey('ui-host', picked.id), label: `${picked.name}/` }
       onAdd({
         kind: 'folder',
         label: picked.name,
@@ -1293,8 +1297,9 @@ function FolderPicker({
           >
             <FolderOpen size={18} className="mb-1 text-ink-faint" />
             <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
-            <span className="text-[11px] text-ink-faint">Lists top-level filenames only; file contents are not sent to the model.</span>
+            <span className="text-[11px] text-ink-faint">Import top-level text snapshots for the selected model. Hidden files and subfolders are excluded.</span>
           </button>
+          <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Up to 24 readable files, 64 KB each and 128 KB total. Original files are never changed or kept in sync. Reattach to import later edits.</p>
           {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
         </div>
       ) : (

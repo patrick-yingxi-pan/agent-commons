@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, X } from 'lucide-react'
-import type { Artifact } from '../../types'
+import type { Artifact, Attachment } from '../../types'
+import { attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../../contract/attachmentInput.ts'
 import { ArtifactBodyView, KIND_ICON, KIND_LABEL } from '../artifactPreview'
 import { FOLD_HOVER } from '../../lib/foldHeader'
 import { DANGER_BUTTON_CLASS } from '../../lib/button'
@@ -10,8 +11,10 @@ export function ArtifactPanel({
   artifacts,
   workspaceName,
   onRemoveFolder,
+  inputAttachments = [],
 }: {
   artifacts: Artifact[]
+  inputAttachments?: Attachment[]
   workspaceName: string
   /** Remove a whole source folder from the workspace (the per-folder ✕). When
    *  absent, folder headers show no remove control. */
@@ -34,6 +37,7 @@ export function ArtifactPanel({
   }, [artifacts, selectedId])
 
   const selected = artifacts.find((a) => a.id === selectedId) ?? artifacts[0]
+  const inputPlan = planAttachmentInput(inputAttachments)
 
   const openPreview = (id: string) => {
     setSelectedId(id)
@@ -98,8 +102,7 @@ export function ArtifactPanel({
       </div>
 
       <div
-        className={`overflow-y-auto px-2 py-2 ${previewOpen && selected ? 'shrink-0' : 'flex-1'}`}
-        style={previewOpen && selected ? { maxHeight: '46%' } : undefined}
+        className={`overflow-y-auto px-2 py-2 ${previewOpen && selected ? 'max-h-[46%] shrink-0 short:max-h-[28%]' : 'flex-1'}`}
       >
         {showGroups
           ? groups.map((g) => {
@@ -174,18 +177,18 @@ export function ArtifactPanel({
 
       {previewOpen && selected && (
         <div className="flex-1 overflow-y-auto border-t border-line bg-surface p-3">
-          <ArtifactPreview artifact={selected} onClose={() => setPreviewOpen(false)} />
+          <ArtifactPreview artifact={selected} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id)?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
         </div>
       )}
     </div>
   )
 }
 
-function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
+function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: Artifact; inputStatus: AttachmentInputStatus; onClose: () => void }) {
   // A folder artifact served from a real filesystem carries its source on
   // `artifact.source.id` (`<source>::<folderPath>`) and its path on `artifact.id`,
   // so its real content is fetched. UI-host folders + seeded artifacts have no
-  // served source and fall back to the authored library / scaffold.
+  // served source. Local snapshots never fall back to the authored library.
   const parsed = artifact.source ? parseFsRecentKey(artifact.source.id) : null
   const served =
     parsed && parsed.sourceId !== 'ui-host' ? { sourceId: parsed.sourceId, path: artifact.id } : undefined
@@ -205,7 +208,29 @@ function ArtifactPreview({ artifact, onClose }: { artifact: Artifact; onClose: (
         </button>
       </div>
       <div className="mb-3 truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
-      <ArtifactBodyView kind={artifact.kind} name={artifact.name} artifactId={artifact.id} size="compact" served={served} />
+      {parsed?.sourceId === 'ui-host' ? (
+        <div data-folder-snapshot-preview>
+          <p className="mb-2 text-[11px] leading-snug text-ink-soft">Imported snapshot · read-only. Reattach the folder to import later edits.</p>
+          <p className="mb-3 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(inputStatus)}</p>
+          {typeof artifact.localSnapshot?.text === 'string' ? (
+            <pre className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">{artifact.localSnapshot.text || '(Empty file)'}</pre>
+          ) : (
+            <p className="text-[12px] leading-snug text-ink-faint">{folderOmissionCopy(artifact.localSnapshot?.omitted)}</p>
+          )}
+        </div>
+      ) : (
+        <ArtifactBodyView kind={artifact.kind} name={artifact.name} artifactId={artifact.id} size="compact" served={served} />
+      )}
     </div>
   )
+}
+
+function folderOmissionCopy(reason: NonNullable<Artifact['localSnapshot']>['omitted']): string {
+  switch (reason) {
+    case 'unsupported': return 'Preview unavailable. This format is not imported as plain text.'
+    case 'too-large': return 'Preview unavailable. This file exceeds the 64 KB import limit.'
+    case 'budget': return 'Preview unavailable. The folder import reached its 24-file or 128 KB limit. Attach this file separately to prioritize it.'
+    case 'unreadable': return 'Preview unavailable. The file could not be read as whole UTF-8 text.'
+    default: return 'Preview unavailable. Reattach the folder to import its text.'
+  }
 }

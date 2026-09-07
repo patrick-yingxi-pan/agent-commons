@@ -1,4 +1,7 @@
 import { test } from 'node:test'
+import { mkdtemp, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import {
   MAX_FOLDER_ENTRIES,
@@ -143,6 +146,10 @@ test('native folder selection lists only bounded top-level regular files and ret
       ]
     },
     inspect: async (path: string) => regularFile(path.endsWith('.png') ? 4096 : 12),
+    readBytes: async (path: string) => {
+      assert.equal(path, '/private/work/research/notes.md')
+      return Buffer.from('folder notes')
+    },
   })
 
   const result = await picker.pickFolder({})
@@ -151,8 +158,8 @@ test('native folder selection lists only bounded top-level regular files and ret
     folder: {
       name: 'research',
       files: [
-        { name: 'notes.md', sizeBytes: 12 },
-        { name: 'photo.png', sizeBytes: 4096 },
+        { name: 'notes.md', sizeBytes: 12, snapshot: { text: 'folder notes' } },
+        { name: 'photo.png', sizeBytes: 4096, snapshot: { omitted: 'unsupported' } },
       ],
     },
   })
@@ -175,6 +182,70 @@ test('native folder selection refuses an unbounded listing and converts read fai
     inspect: async () => { throw new Error('/private/work/gone.txt') },
   })
   assert.deepEqual(await broken.pickFolder({}), { status: 'rejected', reason: 'unreadable' })
+})
+
+test('native folder snapshots omit dotfiles and do not read unsupported or budget-exhausted entries', async () => {
+  const reads: string[] = []
+  const large = Buffer.alloc(64 * 1024, 0x78)
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: ['/private/work'] }),
+    listDirectory: async () => [
+      { name: '.env', isFile: () => true },
+      { name: '01.ts', isFile: () => true },
+      { name: '02.ts', isFile: () => true },
+      { name: '03.ts', isFile: () => true },
+      { name: 'photo.png', isFile: () => true },
+    ],
+    inspect: async (path: string) => regularFile(path.endsWith('.png') ? 4 : path.includes('03') ? 1 : 64 * 1024),
+    readBytes: async (path: string) => {
+      reads.push(path)
+      return path.includes('03') ? Buffer.from('x') : large
+    },
+  })
+  const result = await picker.pickFolder({})
+  assert.equal(result.status, 'selected')
+  assert.deepEqual(result.folder.files.map((file) => [file.name, file.snapshot]), [
+    ['01.ts', { text: 'x'.repeat(64 * 1024) }],
+    ['02.ts', { text: 'x'.repeat(64 * 1024) }],
+    ['03.ts', { omitted: 'budget' }],
+    ['photo.png', { omitted: 'unsupported' }],
+  ])
+  assert.deepEqual(reads, ['/private/work/01.ts', '/private/work/02.ts'])
+})
+
+test('native folder snapshots reject a file replaced by a symlink without exposing outside bytes', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-commons-folder-'))
+  const inside = join(root, 'notes.ts')
+  const outside = join(root, 'outside-secret.txt')
+  const moved = join(root, 'notes-original.ts')
+  await writeFile(inside, 'inside body')
+  await writeFile(outside, 'outside secret body')
+  try {
+    const picker = createNativeContextPicker({
+      showOpenDialog: async () => ({ canceled: false, filePaths: [root] }),
+      listDirectory: async () => [
+        { name: '.hidden.ts', isFile: () => true },
+        { name: 'notes.ts', isFile: () => true },
+        { name: 'link.ts', isFile: () => false },
+      ],
+      inspect: async (path: string) => {
+        const details = regularFile(path.endsWith('notes.ts') ? 11 : 0)
+        if (path.endsWith('notes.ts')) {
+          await rename(path, moved)
+          await symlink(outside, path)
+        }
+        return details
+      },
+    })
+    const result = await picker.pickFolder({})
+    assert.deepEqual(result, {
+      status: 'selected',
+      folder: { name: root.split('/').at(-1), files: [{ name: 'notes.ts', sizeBytes: 11, snapshot: { omitted: 'unreadable' } }] },
+    })
+    assert.equal(JSON.stringify(result).includes('outside secret body'), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('the default directory reader stops before materializing an unbounded listing', async () => {
