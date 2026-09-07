@@ -34,9 +34,9 @@ test('production assets are root-absolute so the SPA fallback can boot nested ca
 // ── The contract is portable: framework-free and Node-free ───────────────────
 test('contract/ imports only other contract modules — no React, no node:, no UI deps', () => {
   const offenders = []
-  for (const file of filesUnder('contract')) {
+  for (const file of filesUnder('contract', ['.ts', '.tsx', '.mjs'])) {
     const src = stripComments(read(file))
-    for (const m of src.matchAll(/\bfrom\s+'([^']+)'/g)) {
+    for (const m of src.matchAll(/(?:\bfrom\s+|^\s*import\s+|\bimport\s*\()'([^']+)'/gm)) {
       const spec = m[1]
       const ok = spec.startsWith('./') || spec.startsWith('../contract/')
       if (!ok) offenders.push(`${file.replace(ROOT, '')} imports '${spec}'`)
@@ -45,7 +45,7 @@ test('contract/ imports only other contract modules — no React, no node:, no U
   assert.deepEqual(
     offenders,
     [],
-    `contract/*.ts must import only sibling contract modules (it is imported verbatim by ` +
+    `contract runtime modules must import only sibling contract modules (they are imported verbatim by ` +
       `both the Vite UI and the Node server): ${offenders.join('; ')}`,
   )
 })
@@ -100,6 +100,16 @@ test('both model transports share server-owned attachment serialization and the 
   assert.match(stripComments(read(join(ROOT, 'server/attachmentInput.ts'))), /planAttachmentInput\(attachments\)/)
   for (const path of ['src/components/Composer.tsx', 'src/components/AttachmentPanel.tsx']) {
     assert.match(stripComments(read(join(ROOT, path))), /from '[^']*contract\/attachmentInput\.ts'/)
+  }
+})
+
+test('browser and native selected-file intake share one portable text policy', () => {
+  for (const path of ['desktop/contextPicker.mjs', 'src/lib/uiHostFs.ts']) {
+    const source = stripComments(read(join(ROOT, path)))
+    assert.match(source, /from '[^']*contract\/localTextFile\.mjs'/, `${path} uses the shared runtime policy`)
+    assert.match(source, /isLocalTextFileName\(/)
+    assert.match(source, /decodeLocalTextPreview\(bytes\)/)
+    assert.doesNotMatch(source, /const TEXT_EXT(?:S|ENSIONS)\s*=/, `${path} cannot maintain a parallel format list`)
   }
 })
 

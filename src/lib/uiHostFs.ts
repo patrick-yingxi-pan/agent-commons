@@ -9,6 +9,7 @@
  *  references, not portable content or model input. */
 import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
+import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../../contract/localTextFile.mjs'
 
 /** A file picked from the UI host, with its content held client-side for preview. */
 export interface UiHostFile {
@@ -16,7 +17,7 @@ export interface UiHostFile {
   id: string
   name: string
   kind: 'file' | 'photo'
-  /** Text body for a text file (the editable preview). */
+  /** Whole UTF-8 body for a supported text file (the read-only preview). */
   text?: string
   /** Object URL for an image (used directly as an `<img src>`). */
   url?: string
@@ -25,7 +26,6 @@ export interface UiHostFile {
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
 const SHEET_EXTS = new Set(['csv', 'tsv', 'xlsx', 'xls'])
 const SLIDE_EXTS = new Set(['key', 'ppt', 'pptx'])
-const TEXT_EXTS = new Set(['md', 'txt', 'csv', 'tsv', 'json', 'yaml', 'yml', 'html', 'xml', 'log', 'svg'])
 
 function extOf(name: string): string {
   const dot = name.lastIndexOf('.')
@@ -69,9 +69,10 @@ async function toUiHostFile(file: File): Promise<UiHostFile> {
     return { id: name, name, kind: 'photo', url: URL.createObjectURL(file) }
   }
   let text: string | undefined
-  if (TEXT_EXTS.has(extOf(name)) && file.size <= 256 * 1024) {
+  if (isLocalTextFileName(name) && file.size <= LOCAL_TEXT_PREVIEW_BYTES) {
     try {
-      text = await file.text()
+      const bytes = new Uint8Array(await file.slice(0, LOCAL_TEXT_PREVIEW_BYTES + 1).arrayBuffer())
+      text = decodeLocalTextPreview(bytes)
     } catch {
       /* unreadable — leave undefined, the preview falls back */
     }

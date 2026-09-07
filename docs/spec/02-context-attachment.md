@@ -34,6 +34,14 @@ The composer and per-file disclosure make this explicit. Local folder picks
 list top-level filenames only, without body previews or model input. Missing or
 stale image URLs display “Preview unavailable” in the full attachment preview.
 
+Supported local text includes common source-code and configuration files and
+extensionless names such as `Makefile`; the one filename registry is
+`contract/localTextFile.mjs`. Browser and native pickers both decode whole,
+strict UTF-8 up to 256 KiB for preview, preserving BOM and line endings. Binary
+control bytes, invalid UTF-8, and unsupported formats remain unavailable rather
+than being replacement-decoded. The smaller CTX-FS-8 model-input limits still
+apply, and selecting a file grants no ongoing access to its directory.
+
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|
 | CTX-FS-1 | Files/photos/folders are served from a real filesystem via a shared reader (scan a root, scan a folder into artifacts, read text, read bytes) with a path-traversal guard — not fixtures. The three sources are modeled as `FsSource` (ui-host, runner, cloud). | `server/fs.ts`, `contract/fs.ts`, `src/lib/fsSources.ts` | `server/fs-reader.test.ts`, `server/routes/fs.test.ts` | ✅ |
@@ -44,3 +52,4 @@ stale image URLs display “Preview unavailable” in the full attachment previe
 | CTX-FS-6 | Roots are deterministic, committed in-repo sample trees, env-overridable for real deployments (`CONTEXT_CLOUD_ROOT`, `CONTEXT_RUNNER_ROOT`). | `server/store/index.ts`, `server/data/runners.ts`, `sample-cloud/`, `sample-runner-host/` | `server/routes/fs.test.ts`, `server/routes/runner-fs.test.ts` | ✅ |
 | CTX-FS-7 | A runner id is validated to a safe slug at registration so it can't corrupt the `::`-delimited recents key (the source id stays delimiter-free). | `server/routes/index.ts`, `contract/fs.ts` | `server/routes/agents.test.ts` | ✅ |
 | CTX-FS-8 | **Local text attachment input (incremental checkpoint).** Persisted UI-host text previews are supplied as whole files to both endpoint and Session transports, bounded at 64 KiB per file, 128 KiB total, and the first 24 items. No truncation, filesystem read, remote fetch, blob/object-URL emission, or unsupported photo/document/folder/remote-source import is implied. The shared plan is shown by the UI; previews are read-only. Each generation captures one bounded input snapshot reused through its tool loop; a later detach excludes the file from future current inputs but does not erase prior assistant history. Provider proof is a deterministic protocol fixture, not a real paid-model acceptance. | `contract/attachmentInput.ts`, `server/attachmentInput.ts`, `server/generate.ts`, `server/relay.ts`, `server/routes/index.ts`, `src/components/AttachmentPanel.tsx`, `src/components/Composer.tsx`, `src/lib/uiHostFs.ts` | `contract/attachment-input.test.ts`, `server/attachmentInput.test.ts`, `server/model/provider-endpoint.test.ts`, `server/relay.test.ts`, `e2e/attachment-input.spec.ts`, `src/components/attachment-input-ui.test.ts` | ✅ |
+| CTX-FS-9 | **Portable source-text intake.** Browser selection/drop and Electron selection recognize common source/configuration files through one registry, decode only whole valid UTF-8 within 256 KiB, preserve BOM/line endings, and omit invalid, binary, or unsupported content. No MIME claim bypasses the format policy; no new directory/path authority is granted. CTX-FS-8 independently controls what reaches the model. | `contract/localTextFile.mjs`, `contract/localTextFile.d.mts`, `src/lib/uiHostFs.ts`, `desktop/contextPicker.mjs` | `contract/local-text-file.test.ts`, `src/lib/ui-host-fs.test.ts`, `desktop/contextPicker.test.ts`, `tests/contract-boundaries.test.ts`, `e2e/attachment-input.spec.ts` | ✅ |

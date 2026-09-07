@@ -1,9 +1,10 @@
 import { open, opendir, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
+import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
 
 export const MAX_PICKED_FILES = 24
 export const MAX_FOLDER_ENTRIES = 500
-export const MAX_TEXT_PREVIEW_BYTES = 256 * 1024
+export const MAX_TEXT_PREVIEW_BYTES = LOCAL_TEXT_PREVIEW_BYTES
 export const MAX_IMAGE_PREVIEW_BYTES = 8 * 1024 * 1024
 export const MAX_IMAGE_SELECTION_BYTES = 24 * 1024 * 1024
 
@@ -17,7 +18,6 @@ const IMAGE_MIME = new Map([
   ['.svg', 'image/svg+xml'],
   ['.webp', 'image/webp'],
 ])
-const TEXT_EXTENSIONS = new Set(['.csv', '.html', '.json', '.log', '.md', '.svg', '.tsv', '.txt', '.xml', '.yaml', '.yml'])
 
 const rejected = (reason) => ({ status: 'rejected', reason })
 
@@ -111,9 +111,10 @@ export function createNativeContextPicker({
             if (imageBytes + bytes.byteLength > MAX_IMAGE_SELECTION_BYTES) return rejected('selection-too-large')
             imageBytes += bytes.byteLength
             file.previewDataUrl = `data:${mimeType};base64,${bytes.toString('base64')}`
-          } else if (TEXT_EXTENSIONS.has(fileExtension(filePath)) && details.size <= MAX_TEXT_PREVIEW_BYTES) {
+          } else if (isLocalTextFileName(file.name) && details.size <= MAX_TEXT_PREVIEW_BYTES) {
             const bytes = await readBytes(filePath, MAX_TEXT_PREVIEW_BYTES)
-            if (bytes.byteLength <= MAX_TEXT_PREVIEW_BYTES) file.text = bytes.toString('utf8')
+            const text = decodeLocalTextPreview(bytes)
+            if (text !== undefined) file.text = text
           }
           selected.push(file)
         }

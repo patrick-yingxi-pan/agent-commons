@@ -4,6 +4,7 @@ import {
   MAX_FOLDER_ENTRIES,
   MAX_IMAGE_PREVIEW_BYTES,
   MAX_PICKED_FILES,
+  MAX_TEXT_PREVIEW_BYTES,
   createNativeContextPicker,
   listTopLevelEntriesBounded,
 } from './contextPicker.mjs'
@@ -31,6 +32,72 @@ test('native file selection returns bounded previews without paths or handles', 
   })
   assert.equal(JSON.stringify(result).includes('/private/work'), false)
   assert.deepEqual(dialogs, [{ title: 'Add files', properties: ['openFile', 'multiSelections'] }])
+})
+
+test('native text selection recognizes source files and common extensionless files, but omits unsafe content', async () => {
+  const payloads = new Map<string, Uint8Array>([
+    ['/private/example.py', Buffer.from('print("python")')],
+    ['/private/example.ts', Buffer.from('const answer: number = 42')],
+    ['/private/example.tsx', Buffer.from('export const View = () => null')],
+    ['/private/example.js', Buffer.from('export default 42')],
+    ['/private/example.rs', Buffer.from('fn main() {}')],
+    ['/private/Makefile', Buffer.from('all:\n\t@true\n')],
+    ['/private/Dockerfile', Buffer.from('FROM scratch\n')],
+    ['/private/LICENSE', Buffer.from('Permission is hereby granted.')],
+    ['/private/.gitignore', Buffer.from('node_modules\n')],
+    ['/private/exact.txt', Buffer.from('exact existing text')],
+    ['/private/empty.md', Buffer.alloc(0)],
+    ['/private/binary.txt', Uint8Array.from([0x61, 0x00, 0x62])],
+    ['/private/invalid.txt', Uint8Array.from([0xc3, 0x28])],
+    ['/private/large.txt', Buffer.alloc(256 * 1024 + 1, 0x78)],
+    ['/private/manual.pdf', Buffer.from('not model text')],
+    ['/private/archive.zip', Buffer.from('not model text')],
+  ])
+  const paths = [...payloads.keys()]
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: paths }),
+    inspect: async (path: string) => regularFile(payloads.get(path)?.byteLength ?? 0),
+    readBytes: async (path: string) => payloads.get(path) ?? new Uint8Array(),
+  })
+
+  const result = await picker.pickFiles({}, 'any')
+  assert.equal(result.status, 'selected')
+  const files = new Map(result.files.map((file) => [file.name, file]))
+  const expectedText = new Map([
+    ['example.py', 'print("python")'],
+    ['example.ts', 'const answer: number = 42'],
+    ['example.tsx', 'export const View = () => null'],
+    ['example.js', 'export default 42'],
+    ['example.rs', 'fn main() {}'],
+    ['Makefile', 'all:\n\t@true\n'],
+    ['Dockerfile', 'FROM scratch\n'],
+    ['LICENSE', 'Permission is hereby granted.'],
+    ['.gitignore', 'node_modules\n'],
+  ])
+  for (const [name, text] of expectedText) {
+    assert.equal(files.get(name)?.text, text, `${name} should carry its exact text`)
+  }
+  assert.equal(files.get('exact.txt')?.text, 'exact existing text')
+  assert.equal(files.get('empty.md')?.text, '')
+  for (const name of ['binary.txt', 'invalid.txt', 'large.txt', 'manual.pdf', 'archive.zip']) {
+    assert.equal(files.get(name)?.text, undefined, `${name} must not carry fabricated text`)
+  }
+})
+
+test('native text selection omits bytes that exceed the read budget after stat', async () => {
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: ['/private/growing.py'] }),
+    inspect: async () => regularFile(1),
+    readBytes: async (_path: string, maxBytes: number) => {
+      assert.equal(maxBytes, MAX_TEXT_PREVIEW_BYTES)
+      return Buffer.alloc(MAX_TEXT_PREVIEW_BYTES + 1, 0x78)
+    },
+  })
+  const result = await picker.pickFiles({}, 'any')
+  assert.deepEqual(result, {
+    status: 'selected',
+    files: [{ name: 'growing.py', kind: 'file', sizeBytes: 1 }],
+  })
 })
 
 test('native file selection cancels cleanly and rejects invalid, oversized, or excessive selections before reading', async () => {
