@@ -73,7 +73,10 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   // A context panel on narrow is a TAKEOVER: the seeded repo session restores
   // its repo focus on open, so the panel appears on select.
   await reopen.click()
+  await expect(page.locator('main[inert]')).toHaveCount(1)
   await page.getByRole('button', { name: 'Expand Sessions' }).click()
+  // Disclosure only expands the tree; it must not dismiss the narrow drawer.
+  await expect(page.locator('main[inert]')).toHaveCount(1)
   await (await revealSessionRow(page, 'Refactor auth middleware')).click()
   const panelClose = page.getByRole('button', { name: 'Close', exact: true }).first()
   await expect(panelClose).toBeVisible()

@@ -27,11 +27,42 @@ test('the UI-host adapter prefers Electron selected-file previews without learni
 
   assert.equal(uiHostSupportsPicker(), false)
   assert.equal(uiHostSupportsPicker(scope), true)
-  assert.deepEqual(await pickUiHostFiles('any', scope), [
-    { id: 'notes.md', name: 'notes.md', kind: 'file', text: 'hello', url: undefined },
-    { id: 'photo.png', name: 'photo.png', kind: 'photo', text: undefined, url: 'data:image/png;base64,AQID' },
-  ])
+  const selected = await pickUiHostFiles('any', scope)
+  assert.equal(selected.length, 2)
+  assert.equal(selected[0]?.name, 'notes.md')
+  assert.equal(selected[0]?.kind, 'file')
+  assert.equal(selected[0]?.text, 'hello')
+  assert.equal(selected[1]?.name, 'photo.png')
+  assert.equal(selected[1]?.kind, 'photo')
+  assert.equal(selected[1]?.url, 'data:image/png;base64,AQID')
+  assert.ok(selected[0]?.id && selected[0].id !== selected[0].name)
+  assert.ok(selected[1]?.id && selected[1].id !== selected[1].name)
+  assert.notEqual(selected[0]?.id, selected[1]?.id)
   assert.deepEqual(calls, ['any'])
+})
+
+test('native picks keep same-basename files distinct across bodies and subsequent selections', async () => {
+  let pick = 0
+  const scope: DesktopBridgeScope = {
+    agentCommonsDesktop: {
+      context: {
+        pickFiles: async () => ({
+          status: 'selected' as const,
+          files: [{ name: 'notes.txt', kind: 'file' as const, sizeBytes: 5, text: pick++ === 0 ? 'first' : 'second' }],
+        }),
+        pickFolder: async () => ({ status: 'cancelled' as const }),
+      },
+    },
+  }
+  const first = await pickUiHostFiles('any', scope)
+  const second = await pickUiHostFiles('any', scope)
+  assert.equal(first[0]?.name, 'notes.txt')
+  assert.equal(second[0]?.name, 'notes.txt')
+  assert.equal(first[0]?.text, 'first')
+  assert.equal(second[0]?.text, 'second')
+  assert.ok(first[0]?.id && first[0].id !== first[0].name)
+  assert.ok(second[0]?.id && second[0].id !== second[0].name)
+  assert.notEqual(first[0]?.id, second[0]?.id)
 })
 
 test('the UI-host adapter maps a native folder to the same source-free artifact scaffold as the web picker', async () => {
@@ -117,4 +148,37 @@ test('browser dropped files preserve safe local text and omit binary, invalid, o
   }
   assert.equal(byName.get('photo.png')?.kind, 'photo')
   assert.equal(byName.get('photo.png')?.text, undefined)
+})
+
+test('browser same-basename text files retain bodies while receiving distinct opaque IDs', async () => {
+  const selected = await readDroppedFiles(dropped([
+    new File(['first body'], 'notes.md', { type: 'text/markdown' }),
+    new File(['second body'], 'notes.md', { type: 'text/markdown' }),
+  ]))
+  assert.equal(selected.length, 2)
+  assert.deepEqual(selected.map((file) => file.name), ['notes.md', 'notes.md'])
+  assert.deepEqual(selected.map((file) => file.text), ['first body', 'second body'])
+  assert.ok(selected.every((file) => file.id && file.id !== file.name))
+  assert.notEqual(selected[0]?.id, selected[1]?.id)
+})
+
+test('browser same-basename photos and later re-picks receive distinct IDs and revocable URLs', async () => {
+  const first = await readDroppedFiles(dropped([
+    new File([Uint8Array.from([1, 2, 3])], 'photo.png', { type: 'image/png' }),
+    new File([Uint8Array.from([4, 5, 6])], 'photo.png', { type: 'image/png' }),
+  ]))
+  const second = await readDroppedFiles(dropped([
+    new File([Uint8Array.from([7, 8, 9])], 'photo.png', { type: 'image/png' }),
+  ]))
+  try {
+    assert.deepEqual(first.map((file) => file.name), ['photo.png', 'photo.png'])
+    assert.deepEqual(second.map((file) => file.name), ['photo.png'])
+    assert.ok(first.every((file) => file.kind === 'photo' && file.id && file.id !== file.name && file.url))
+    assert.ok(second[0]?.kind === 'photo' && second[0].id !== second[0].name && second[0].url)
+    assert.notEqual(first[0]?.id, first[1]?.id)
+    assert.notEqual(first[0]?.id, second[0]?.id)
+    assert.notEqual(first[1]?.id, second[0]?.id)
+  } finally {
+    for (const file of [...first, ...second]) if (file.url?.startsWith('blob:')) URL.revokeObjectURL(file.url)
+  }
 })

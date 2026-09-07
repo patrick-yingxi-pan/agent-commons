@@ -54,6 +54,9 @@ const STORE = SHARD === 0 ? '.data/e2e-store.json' : `.data/e2e-store-${SHARD}.j
 
 export default defineConfig({
   testDir: './e2e',
+  // Each Playwright process also owns its artifact scratch space. Sharing the
+  // root lets a sibling worker delete live trace resources during cleanup.
+  outputDir: `test-results/shard-${SHARD}`,
   // Reference milliseconds, scaled to this host and to the contention the sweep
   // creates by running SHARDS stacks at once. A flat 30s is a claim about one
   // machine; these numbers have to hold on a Mac, on a laptop throttling, and
@@ -70,7 +73,9 @@ export default defineConfig({
     // never 5173, so a developer's running `npm run dev` (mock backend, live store)
     // can't be silently reused in the wrong mode / against the wrong store.
     baseURL: `http://127.0.0.1:${UI_PORT}`,
-    trace: 'on-first-retry',
+    // Local runs have no automatic retry. Opt into first-failure evidence when
+    // diagnosing an intermittent full-suite failure, without changing the gate.
+    trace: process.env.E2E_TRACE === '1' ? 'retain-on-failure' : 'on-first-retry',
     // Grant clipboard write so a Copy affordance's write actually SUCCEEDS in
     // headless Chromium (an unfocused headless window otherwise rejects
     // writeText) — CopyButton now honestly shows "Copy failed" on a real

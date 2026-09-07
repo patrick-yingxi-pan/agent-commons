@@ -17,6 +17,21 @@ import { join } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
 import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
 
+test('full verification can retain first-failure browser traces without enabling retries', () => {
+  const config = stripComments(readFileSync(join(ROOT, 'playwright.config.ts'), 'utf8'))
+  assert.match(config, /trace: process\.env\.E2E_TRACE === '1' \? 'retain-on-failure' : 'on-first-retry'/)
+  assert.match(config, /retries: process\.env\.CI \? 1 : 0/, 'diagnostics do not change the first-attempt local gate')
+})
+
+test('parallel Playwright shards write artifacts to shard-qualified output directories', () => {
+  const config = stripComments(readFileSync(join(ROOT, 'playwright.config.ts'), 'utf8'))
+  assert.match(
+    config,
+    /outputDir:\s*`test-results\/shard-\$\{SHARD\}`/,
+    'parallel processes must not share test-results or race while cleaning trace artifacts',
+  )
+})
+
 test('the sweep runs every node suite the `npm test` glob does', () => {
   // Two enumerations of one set. `package.json`'s `test` script is a RECURSIVE
   // glob; the runner's first cut used a flat `readdirSync`. They agree while

@@ -66,6 +66,9 @@ test('a routine template stays held and Retry reuses its exact logical identity'
   await expect(picker.getByRole('status')).toContainText(`Creating “${template!.name}”`)
 
   await failed.getByRole('button', { name: 'Retry', exact: true }).click()
+  // The click schedules the retry request; observe the intercepted request
+  // before comparing its key with the first attempt.
+  await expect.poll(() => keys.length).toBe(2)
   expect(keys[0]).not.toBe('')
   expect(keys[1]).toBe(keys[0])
   const expectedId = scheduleCreationId(await tenantId(page), keys[0]!)

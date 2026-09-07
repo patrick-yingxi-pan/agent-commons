@@ -37,3 +37,29 @@ be identified separately from tests using the deterministic Messages fixture.
 Revisit this order when a core journey reveals a blocker or the owner changes a
 product direction. Do not treat the remaining partial cross-device requirement
 as an instruction to harden every mutation before shipping useful desktop work.
+
+The latest local-text checkpoint removes basename-based attachment loss:
+same-named selected files now keep independent snapshots through preview,
+reload, model input, and removal. Adapter regression tests were observed failing
+before the fix, and a browser chooser walk verifies the complete text journey.
+The full verifier passed all five lanes (277 browser tests), and packaged
+Electron verification passed. The packaged picker-to-conversation journey is
+still distinct acceptance work; native bridge presence alone does not prove it.
+Shared-preview review remains unavailable while the owner's Mac is locked.
+
+## Open verification follow-ups
+
+One full local run of `e2e/agent-proposal-verdict.spec.ts` observed a Review
+button click without its dialog remaining open. Ten focused traced walks passed;
+the cause is unconfirmed, not fixed by that repetition. First-failure tracing
+(`E2E_TRACE=1 npm run verify`) is now available to capture a recurrence without
+adding retries or extending timeouts. Keep this observation open until evidence
+identifies its cause.
+
+A traced full run also observed the phone drawer stop accepting a session-row
+click while the main pane intercepted it. Five focused walks with explicit
+drawer-state assertions and the next complete run passed, but no runtime cause
+or fix has been established. Keep this observation open too. The diagnostic run
+separately proved that parallel Playwright processes shared trace scratch space;
+each shard now owns its output directory, and the subsequent traced full run
+completed without artifact collisions.

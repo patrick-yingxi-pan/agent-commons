@@ -19,6 +19,11 @@ procedure so the always-loaded map stays small.
   runs continue to select their own shard count and calibrate themselves.
 - Review the working diff adversarially after tests pass. Fix confirmed findings
   before commit; do not leave finished work uncommitted.
+- Diagnose intermittent first-attempt browser failures with
+  `E2E_TRACE=1 npm run verify`. This runs the same complete plan and retains failed
+  browser traces in shard-owned directories under `test-results/` without adding
+  local retries or extending timeouts; ordinary runs keep their lower-overhead
+  trace policy.
 
 ## Review UI changes
 

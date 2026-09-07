@@ -68,7 +68,7 @@ async function startMessagesFixture() {
   return { server, url: `http://127.0.0.1:${port}`, seen, documents }
 }
 
-test('attached local text reaches the selected endpoint while preview-only content is visibly omitted', async ({ page }) => {
+test('same-name local files reach the endpoint independently while preview-only content is visibly omitted', async ({ page }) => {
   test.setTimeout(ms(90_000))
   const fixture = await startMessagesFixture()
   try {
@@ -95,6 +95,7 @@ test('attached local text reaches the selected endpoint while preview-only conte
     await picker.getByRole('button', { name: /Add files from this computer/ }).click()
     const chooser = await chooserPromise
     const sourceText = `# source fixture\nNONCE = ${JSON.stringify(NONCE)}\n`
+    const secondSourceText = '# second selected source\nVALUE = "independent-body"\n'
     await chooser.setFiles([
       {
         name: 'e2e-source.py',
@@ -102,15 +103,37 @@ test('attached local text reaches the selected endpoint while preview-only conte
         buffer: Buffer.from(sourceText),
       },
       {
+        name: 'e2e-source.py',
+        mimeType: 'text/x-python',
+        buffer: Buffer.from(secondSourceText),
+      },
+      {
         name: 'e2e-photo.png',
         mimeType: 'image/png',
         buffer: Buffer.from('not a real PNG image'),
       },
     ])
-    await expect(page.getByTitle('Open in sidebar').filter({ hasText: 'e2e-source.py' })).toBeVisible()
+    const sourceChips = page.getByTitle('Open in sidebar').filter({ hasText: 'e2e-source.py' })
+    const fileGroup = page.getByTitle('Files (2)', { exact: true })
+    await expect(fileGroup).toBeVisible()
     await expect(page.getByTitle('Open in sidebar').filter({ hasText: 'e2e-photo.png' })).toBeVisible()
-    await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/1 text file/i)
+    await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/2 text files/i)
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/1 not sent|omitted/i)
+    await fileGroup.click()
+    const fileMenu = page.getByRole('menu', { name: 'Files', exact: true })
+    const fileRows = fileMenu.getByRole('button', { name: 'e2e-source.py', exact: true })
+    await expect(fileRows).toHaveCount(2)
+    await fileRows.first().click()
+    const preview = page.locator('[data-attachment-preview]')
+    await expect(preview).toContainText(sourceText)
+    const firstId = await preview.getAttribute('data-attachment-preview')
+    await page.getByRole('button', { name: 'e2e-source.py', exact: true }).last().click()
+    await expect(preview).toContainText(secondSourceText)
+    const secondId = await preview.getAttribute('data-attachment-preview')
+    expect(firstId).toBeTruthy()
+    expect(secondId).toBeTruthy()
+    expect(secondId).not.toBe(firstId)
+    await closePreview(page)
 
     const composer = page.getByPlaceholder('Reply to Claude…')
     await composer.fill('Please summarize the attached note.')
@@ -118,12 +141,24 @@ test('attached local text reaches the selected endpoint while preview-only conte
     await expect(page.locator('[data-turn]').filter({ hasText: NONCE })).toBeVisible({ timeout: ms(20_000) })
     expect(fixture.seen.some((text) => text.includes(NONCE))).toBe(true)
     const firstDocument = fixture.documents.find((document) => document.attached_files?.some((file) => file.name === 'e2e-source.py'))
-    expect(firstDocument?.attached_files?.find((file) => file.name === 'e2e-source.py')).toEqual({ name: 'e2e-source.py', status: 'ready', text: sourceText })
+    expect(firstDocument?.attached_files?.filter((file) => file.name === 'e2e-source.py')).toEqual([
+      { name: 'e2e-source.py', status: 'ready', text: sourceText },
+      { name: 'e2e-source.py', status: 'ready', text: secondSourceText },
+    ])
     expect(firstDocument?.attached_files?.find((file) => file.name === 'e2e-photo.png')).toEqual({ name: 'e2e-photo.png', status: 'preview-only' })
 
     await page.reload()
-    await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/1 text file/i)
+    await expect(fileGroup).toBeVisible()
+    await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/2 text files/i)
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/1 not sent|omitted/i)
+    await fileGroup.click()
+    await fileRows.first().click()
+    await expect(preview).toHaveAttribute('data-attachment-preview', firstId!)
+    await expect(preview).toContainText(sourceText)
+    await page.getByRole('button', { name: 'e2e-source.py', exact: true }).last().click()
+    await expect(preview).toHaveAttribute('data-attachment-preview', secondId!)
+    await expect(preview).toContainText(secondSourceText)
+    await closePreview(page)
     // Attaching/reloading can already restore this focused photo. Chip clicks
     // toggle a panel, so only open it when it is not already the active preview.
     if (!(await page.locator('[data-photo-preview-unavailable]').isVisible())) {
@@ -133,12 +168,27 @@ test('attached local text reaches the selected endpoint while preview-only conte
     await closePreview(page)
 
     const remove = page.getByRole('button', { name: 'Remove e2e-source.py from the conversation' })
-    await remove.click()
+    await fileGroup.click()
+    await expect(fileRows).toHaveCount(2)
+    await fileMenu.getByTitle('Remove from context', { exact: true }).first().click()
     const confirm = page.locator('text=Remove e2e-source.py from the conversation?')
     await expect(confirm).toBeVisible()
     await confirm.locator('..').getByRole('button', { name: 'Remove', exact: true }).click()
-    await expect(page.getByTitle('Open in sidebar').filter({ hasText: 'e2e-source.py' })).toHaveCount(0)
+    await expect(sourceChips).toHaveCount(1)
     await composer.fill('What attachment text remains?')
+    await composer.press('Enter')
+    await expect(page.locator('[data-turn]').filter({ hasText: 'Read supplied attachment: # second selected source' })).toBeVisible({ timeout: ms(20_000) })
+    expect(fixture.seen.at(-1) ?? '').not.toContain(NONCE)
+    expect(fixture.documents.at(-1)?.attached_files).toEqual([
+      { name: 'e2e-source.py', status: 'ready', text: secondSourceText },
+      { name: 'e2e-photo.png', status: 'preview-only' },
+    ])
+
+    await remove.click()
+    await expect(confirm).toBeVisible()
+    await confirm.locator('..').getByRole('button', { name: 'Remove', exact: true }).click()
+    await expect(sourceChips).toHaveCount(0)
+    await composer.fill('What attachment text remains now?')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: 'No supplied attachment text.' })).toBeVisible({ timeout: ms(20_000) })
     expect(fixture.seen.at(-1) ?? '').not.toContain(NONCE)

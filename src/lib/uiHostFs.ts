@@ -13,7 +13,8 @@ import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName }
 
 /** A file picked from the UI host, with its content held client-side for preview. */
 export interface UiHostFile {
-  /** A stable-ish id for this pick (the file name; good enough for a session). */
+  /** Opaque identity for this selected snapshot, retained across attach/retry.
+   * Names cannot identify files from different folders or later selections. */
   id: string
   name: string
   kind: 'file' | 'photo'
@@ -44,6 +45,12 @@ export function uiHostKind(name: string): ArtifactKind {
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
 
+/** Mint once at intake, not during projection or mutation retry. No path or
+ * guessed file identity is needed to keep equal-named selections independent. */
+function selectedFile(file: Omit<UiHostFile, 'id'>): UiHostFile {
+  return { id: crypto.randomUUID(), ...file }
+}
+
 const PICKER_FAILURE: Record<DesktopContextPickerRejection, string> = {
   'image-too-large': 'Choose images up to 8 MB each.',
   'invalid-request': 'That selection is not supported.',
@@ -66,7 +73,7 @@ export class UiHostPickerError extends Error {
 async function toUiHostFile(file: File): Promise<UiHostFile> {
   const name = file.name
   if (isImage(name)) {
-    return { id: name, name, kind: 'photo', url: URL.createObjectURL(file) }
+    return selectedFile({ name, kind: 'photo', url: URL.createObjectURL(file) })
   }
   let text: string | undefined
   if (isLocalTextFileName(name) && file.size <= LOCAL_TEXT_PREVIEW_BYTES) {
@@ -77,7 +84,7 @@ async function toUiHostFile(file: File): Promise<UiHostFile> {
       /* unreadable — leave undefined, the preview falls back */
     }
   }
-  return { id: name, name, kind: 'file', text }
+  return selectedFile({ name, kind: 'file', text })
 }
 
 /** Whether the richer File System Access API is available (vs. the `<input>` fallback). */
@@ -98,8 +105,7 @@ export async function pickUiHostFiles(
     const result = await native.pickFiles(accept)
     if (result.status === 'cancelled') return []
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
-    return result.files.map((file) => ({
-      id: file.name,
+    return result.files.map((file) => selectedFile({
       name: file.name,
       kind: file.kind,
       text: file.text,
