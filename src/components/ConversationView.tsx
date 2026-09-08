@@ -30,7 +30,7 @@ import { messageWindow } from '../lib/messageWindow'
 import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
 import type { AddedContext, PanelFocus, UsageModelRef } from '../types'
-import type { ContextMutationStatus } from '../controller/conversationCore'
+import { isContextMutationHeld, type ContextMutationStatus } from '../controller/conversationCore'
 import {
   isSessionCompactionHeld,
   useSessionCompactionStatus,
@@ -362,8 +362,18 @@ export function ConversationView({
         connectors={live.connectors}
         attachments={live.attachments}
         focus={focus}
-        disabled={busy || compactionHeld || execution.blocked}
-        disabledLabel={execution.blocked ? execution.placeholder : onRelay ? RELAY_WAIT : undefined}
+        disabled={busy || compactionHeld || execution.blocked || isContextMutationHeld(contextMutation)}
+        disabledLabel={
+          contextMutation.busy
+            ? 'Updating context…'
+            : contextMutation.error
+              ? 'Retry the context update before sending.'
+              : execution.blocked
+                ? execution.placeholder
+                : onRelay
+                  ? RELAY_WAIT
+                  : undefined
+        }
         executionState={execution}
         onSend={sendAtLatest}
         onAddContext={onAddContext}

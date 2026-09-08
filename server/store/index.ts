@@ -75,6 +75,7 @@ import { randomUUID } from 'node:crypto'
 import {
   applyGraphOp,
   artifactFromDraft,
+  documentMarkdown,
   connectorsFor,
   describeCadence,
   discussionTitle,
@@ -1043,7 +1044,7 @@ const artifactBodies = new Map<string, ArtifactContent>()
 function artifactBodyOf(artifactId: string): ArtifactContent | undefined {
   const stored = artifactBodies.get(artifactId)
   if (stored) return stored
-  const a = findArtifact(artifactId)
+  const a = baseArtifacts().find((candidate) => candidate.id === artifactId)
   return a ? ARTIFACT_CONTENT[a.name] : undefined
 }
 
@@ -5961,7 +5962,7 @@ export const store = {
   },
 
   // ── Artifact bodies ──
-  /** The name-keyed body library the previews render, with the CALLER's edits
+  /** The exact-ID body library the previews render, with the CALLER's edits
    *  laid over the seed fixture (social S3). Two rules make that safe:
    *
    *  1. **Edits are keyed by artifact ID, the library by NAME.** The seed is a
@@ -5977,8 +5978,23 @@ export const store = {
    *  Unscoped (no tenant) returns the untouched seed — the internal-caller
    *  shape `listArtifacts` already uses. */
   artifactContent(tenantId?: string): ArtifactContentLibrary {
-    if (!tenantId || artifactBodies.size === 0) return ARTIFACT_CONTENT
+    if (!tenantId) return ARTIFACT_CONTENT
     const lib: ArtifactContentLibrary = { ...ARTIFACT_CONTENT }
+    // Demo workspace items predate the canonical artifact registry and carry
+    // separate IDs. Project only code-owned seed identities, never a filename
+    // supplied by an authored row or attached file. The live session must still
+    // contain the item and pass its current read wall (including revocation).
+    if (worldMode === 'demo') {
+      for (const seed of SEED_SESSIONS) {
+        const session = SESSIONS.find((candidate) => candidate.id === seed.id)
+        if (!session || !this.sessionVisibleToTenant(session, tenantId)) continue
+        for (const artifact of seed.artifacts ?? []) {
+          if (!session.artifacts?.some((candidate) => candidate.id === artifact.id)) continue
+          const body = ARTIFACT_CONTENT[artifact.name]
+          if (body) lib[artifact.id] = body
+        }
+      }
+    }
     // How many of this caller's visible artifacts wear each name. A name is a
     // WEAKER identity than an edit's: nothing stops one workspace holding two
     // artifacts called `notes.md`, and writing an edit under the shared name
@@ -5990,16 +6006,27 @@ export const store = {
     for (const a of graph.extraArtifacts) {
       if (this.artifactVisibleToTenant(a, tenantId)) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
     }
-    for (const [artifactId, body] of artifactBodies) {
-      const a = findArtifact(artifactId)
-      if (!a || !this.artifactVisibleToTenant(a, tenantId)) continue
-      // The ID key is always exact, and `ArtifactBodyView` prefers it.
-      lib[artifactId] = body
+    for (const a of [...baseArtifacts(), ...graph.extraArtifacts]) {
+      if (!this.artifactVisibleToTenant(a, tenantId)) continue
+      const body = artifactBodyOf(a.id)
+      if (!body) continue
+      // Every addressed body has an exact ID, including untouched seeds.
+      lib[a.id] = body
       // The NAME key is the compatibility path for the few readers that hold a
       // file name and no id — correct only while the name picks out one artifact.
       if ((byName.get(a.name) ?? 0) === 1) lib[a.name] = body
     }
     return lib
+  },
+  /** A fresh saved-document projection behind the exact artifact read wall.
+   * Undefined hides existence; null means a readable row has no exportable
+   * document. Only actual seed identities may use the demo name-keyed body. */
+  exportArtifactDocument(artifactId: string, tenantId: string) {
+    const artifact = findArtifact(artifactId)
+    if (!artifact || !this.artifactVisibleToTenant(artifact, tenantId)) return undefined
+    const body = artifactBodyOf(artifactId)
+    if ((artifact.kind !== 'doc' && artifact.kind !== 'email') || body?.type !== 'doc') return null
+    return { artifactId, ...documentMarkdown(artifact.name, body) }
   },
   /** The text an addressed block carries right now — see `artifactBlockTextOf`. */
   artifactBlockText(artifactId: string, block: number): string | undefined {

@@ -28,7 +28,7 @@ test('compaction remains retryable, disables composition, and discloses bounded 
   assert.match(shell, /<SessionCompactionMutationNotice \/>/, 'recovery survives conversation navigation')
   assert.doesNotMatch(pane, /leave the thread as-is; the user can retry/, 'the controller no longer swallows the failure')
   assert.match(pane, /canCompact=\{!!row && row\.own !== false\}/, 'a shared reader never sees the owner-only model act')
-  assert.match(view, /disabled=\{busy \|\| compactionHeld \|\| execution\.blocked\}/, 'sending stays held through response uncertainty')
+  assert.match(view, /disabled=\{busy \|\| compactionHeld \|\| execution\.blocked \|\| isContextMutationHeld\(contextMutation\)\}/, 'sending stays held through response and context uncertainty')
   assert.match(view, /lazy\(\(\) => import\('\.\/CompactionAffordance'\)/, 'the long-thread-only affordance stays outside the first conversation graph')
 
   assert.match(message, /lazy\(\(\) => import\('\.\/ConversationSummary'\)\)/, 'rare archive recovery stays outside the initial conversation graph')

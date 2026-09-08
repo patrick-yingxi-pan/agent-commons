@@ -41,3 +41,14 @@ test('direct creation is an authored document workflow, not a cosmetic format pi
   assert.match(section, /setCreatedDocumentName\(draft\.name\)/, 'acknowledged creation waits for the server-minted document id')
   assert.match(section, /rel\.navigate\('artifacts', created\.id\)/, 'the minted document opens through the pane-local canonical navigation funnel')
 })
+
+test('every addressed artifact body consumer refuses display-name fallback', () => {
+  const preview = stripComments(read(join(ROOT, 'src/components/artifactPreview.tsx')))
+  assert.match(preview, /const lib = artifactId \? library\?\.\[artifactId\] : library\?\.\[name\]/)
+  const proposals = stripComments(read(join(ROOT, 'src/components/ProposalsPanel.tsx')))
+  assert.match(proposals, /const body = isArtifact \? lib\?\.\[subject\.id\] : undefined/)
+  const commands = stripComments(read(join(ROOT, 'src/api/commands.ts')))
+  const resolver = commands.slice(commands.indexOf('function cachedArtifactBody('), commands.indexOf('export const peekArtifactContent'))
+  assert.match(resolver, /return library\?\.\[artifactId\]/)
+  assert.doesNotMatch(resolver, /\.name|cachedArtifactRows\(/)
+})

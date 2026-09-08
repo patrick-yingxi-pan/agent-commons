@@ -4,6 +4,7 @@ import {
   Box,
   Check,
   ChevronDown,
+  Download,
   FileText,
   Image as ImageIcon,
   Mail,
@@ -38,6 +39,8 @@ import { BackButton } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SectionAction } from './SectionAction'
 import { SHARING_MUTATION_WAIT } from '../controller/grantMutations.ts'
+import { useArtifactDownload } from '../controller/useArtifactDownload.ts'
+import { InlineOperationStatus } from './InlineOperationStatus'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -596,7 +599,7 @@ function Scaffold({ kind, name, size, excerpt }: { kind: ArtifactKind; name: str
  *  full page, the workspace side panel, and explicit miniature embeds. The
  *  Artifacts index deliberately uses a synopsis row instead: an index previews
  *  content without redrawing five different reading surfaces. Looks the body up
- *  by file name; falls back to a structured scaffold for unauthored files. */
+ *  by exact identity; name-only fixture previews retain their scaffold. */
 export function ArtifactBodyView({
   kind,
   name,
@@ -611,9 +614,7 @@ export function ArtifactBodyView({
   name: string
   size: Size
   excerpt?: string
-  /** The artifact's id, when the host has one. Body lookups prefer it over
-   *  `name` (see below); absent just means the name path, which is exact for
-   *  every artifact whose name is unique to its owner. */
+  /** An addressed artifact never borrows another file's body by display name. */
   artifactId?: string
   /** The owner's in-place block editing (social S3). Only a `doc` body takes
    *  one — the other kinds have no single-string addressable unit — so the
@@ -631,11 +632,9 @@ export function ArtifactBodyView({
    *  (which fall back to the library / scaffold). */
   served?: { sourceId: string; path: string }
 }) {
-  // The ID key wins when the server carried one (an EDITED body): a file name is
-  // not a unique handle — one workspace can hold two artifacts of the same name,
-  // and the name key would then show one document's revision inside the other.
-  const library = useArtifactContent().data
-  const lib = (artifactId ? library?.[artifactId] : undefined) ?? library?.[name]
+  const content = useArtifactContent()
+  const library = content.data
+  const lib = artifactId ? library?.[artifactId] : library?.[name]
   const isImage = kind === 'image'
   // Real text for a served, non-image artifact (enabled-gated; rules of hooks).
   const servedText = useFsText(served?.sourceId ?? '', served?.path ?? '', !!served && !isImage)
@@ -664,6 +663,11 @@ export function ArtifactBodyView({
         return _exhaustive
       }
     }
+  }
+  if (artifactId && !served && (kind === 'doc' || kind === 'email')) {
+    return <p className="text-[13px] text-ink-faint">{!library
+      ? (content.status === 'error' ? 'Could not load document content.' : 'Loading document content…')
+      : 'No saved document content yet.'}</p>
   }
   return <Scaffold kind={kind} name={name} size={size} excerpt={excerpt} />
 }
@@ -770,6 +774,7 @@ export function ArtifactDetailPage({
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [sharingHeld, setSharingHeld] = useState(false)
+  const documentDownload = useArtifactDownload(artifact.id)
   const edit: DocEdit | undefined = own
     ? {
         index: editing,
@@ -853,7 +858,15 @@ export function ArtifactDetailPage({
         <Section
           title="Content"
           summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
+          actions={(artifact.kind === 'doc' || artifact.kind === 'email') ? <SectionAction
+            label="Download Markdown"
+            icon={<Download size={14} />}
+            onClick={() => { void documentDownload.download() }}
+            disabled={editing !== null || saving || documentDownload.busy}
+            disabledReason={editing !== null || saving ? 'Save or cancel your edit before downloading' : 'Preparing download'}
+          /> : undefined}
         >
+          {documentDownload.notice && <InlineOperationStatus {...documentDownload.notice} />}
           <ArtifactBodyView
             kind={artifact.kind}
             name={artifact.name}

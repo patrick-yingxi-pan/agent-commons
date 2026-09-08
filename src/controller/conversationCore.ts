@@ -74,6 +74,10 @@ export interface ContextMutationStatus {
   retryable: boolean
 }
 
+/** Input-changing intent is unresolved until its exact acknowledgement lands.
+ * A failed queued removal is still intent, not permission to send old context. */
+export const isContextMutationHeld = (status: ContextMutationStatus): boolean => status.busy || status.error !== null
+
 /** One session's conversation state — everything a pane needs to render a
  *  thread and its composer affordances. */
 export interface ConversationState {
@@ -524,6 +528,13 @@ export function createConversationStore(
     const since = epoch(id)
     const run = async () => {
       if (epoch(id) !== since) return // reset while queued — the send is moot
+      // The transport reads server-owned context at request start. A pending
+      // detach must not be overtaken, even in the same-tick gap before React
+      // disables the composer or when Retry enters this path directly.
+      if (isContextMutationHeld(get(id).contextMutation)) {
+        settle(id, since, 'Finish the context update, then retry this message.', logical)
+        return
+      }
       await transport.sendMessage(id, logical.text, streamHandlers(id, since), {
         idempotencyKey: logical.idempotencyKey,
         retryLastUser,

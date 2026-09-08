@@ -30,6 +30,27 @@ milestones or address a demonstrated defect.
 
 ## Checkpoint criteria
 
+The saved-document export checkpoint adds a fresh authorized Markdown download
+to the canonical Content section for documents and draft emails, including
+standing routine reports. It exports the latest saved revision, not an unsaved
+editor or retained body cache. Browser retry/revocation checks and an actual
+packaged Electron download complement serializer, identity and HTTP/MCP locks.
+Addressed body/proposal readers now use exact IDs, preventing metadata-only rows
+from borrowing demo text through a matching filename. Native Office export,
+rich sheet/slide authoring, external tools and signed release remain required.
+Legacy demo workspace previews receive explicit code-owned seed-ID projections
+behind the live session read wall, never a generic filename fallback.
+Artifact removal awaits the owner's recoverable-Trash versus permanent-deletion
+decision because shared review history and routine report regeneration depend
+on that retention policy; no answer has been inferred.
+
+Packaged acceptance exposed a send/detach race: the next turn could snapshot
+old attachments while an earlier context update was still unacknowledged.
+The shared composer now holds during pending/failed context intent, retaining
+typed text; the transport boundary independently refuses overtaking sends and
+keeps their logical retry. Delayed-detach browser and same-tick core tests lock
+this ordering without hiding the defect behind a test-only wait.
+
 The routine document-delivery checkpoint replaces metadata-only standing saves
 with bounded model-authored report bodies. One stable routine binding preserves
 the document across runs and renames, under the routine's actual tenant. Body

@@ -467,9 +467,8 @@ export function useUsage(sessionId?: string): QueryState<UsageSnapshot> {
   return useQuery(keys.usage(sessionId), () => apiGet<UsageSnapshot>(paths.usage(sessionId)))
 }
 
-/** The artifact-body library — keyed by file name, plus an ARTIFACT-ID key for
- *  every body the caller has edited (social S3), which `ArtifactBodyView`
- *  prefers because a name does not uniquely pick out an artifact.
+/** Every readable body carries an exact ARTIFACT-ID key, including seeds.
+ *  Display-name keys are legacy fixture previews, never addressed identity.
  *  `enabled` gates the fetch for hosts that only sometimes read it (the shared
  *  ProposalsPanel renders on routines too, where the library is never touched). */
 export function useArtifactContent(enabled = true): QueryState<ArtifactContentLibrary> {

@@ -139,6 +139,14 @@ test('POLICY: authored artifact listing has identical HTTP and remote-MCP tenanc
   assert.equal(directRow?.tenantId, undefined, 'a grant-only HTTP row redacts the owner tenant stamp')
   assert.equal(mcpRow?.tenantId, undefined, 'a grant-only MCP row redacts the owner tenant stamp')
 
+  const exportDirect = await call('GET', `/artifacts/${created.id}/export`, undefined, { 'x-tenant-id': audience })
+  const exportMcp = await toolCall('get_artifacts_by_id_export', { id: created.id }, { 'x-tenant-id': audience })
+  assert.equal(exportDirect.status, 200)
+  assert.equal(exportMcp.status, 200)
+  assert.deepEqual(exportMcp.body, exportDirect.json, 'all read doors return the same saved Markdown projection')
+  const hiddenExport = await toolCall('get_artifacts_by_id_export', { id: created.id }, { 'x-tenant-id': 'tenant-growthworks' })
+  assert.equal(hiddenExport.status, 404)
+
   const moved = await call('POST', '/relations/ops', {
     op: {
       kind: 'refile-artifact', artifactId: created.id, artifactName: name,

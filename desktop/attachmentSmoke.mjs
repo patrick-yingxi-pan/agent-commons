@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron, expect } from '@playwright/test'
@@ -215,6 +215,83 @@ export async function smokePackagedAttachments({ executable }) {
       return post('/api/v1/sessions', { providerId: provider.id })
     }, { baseURL: endpoint.origin, model: SMOKE_MODEL_ID })
     const sessionPath = `/s/${encodeURIComponent(session.id)}`
+    await page.goto(`${origin}${sessionPath}`)
+
+    // Markdown export is a renderer download, not a native bridge. Create a real
+    // authored document through the authenticated relation seam, then capture the
+    // one download in the existing packaged Electron test process. The listener is
+    // test-only and writes into this smoke's isolated fixture root; production main
+    // and preload code retain their normal sandboxed authority.
+    const markdownName = `native-markdown-${Date.now().toString(36)}.md`
+    const markdownBody = `Native Markdown smoke body ${Date.now().toString(36)}\n\nCurrent saved revision.`
+    const markdownArtifact = await page.evaluate(async ({ name, body, sessionId }) => {
+      const apply = await fetch('/api/v1/relations/ops', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `native-markdown-${name}` },
+        body: JSON.stringify({ op: {
+          kind: 'save-artifact',
+          artifact: { name, kind: 'doc', meta: 'Document', body },
+          sessionId,
+          sessionTitle: 'Native Markdown Smoke',
+        } }),
+      })
+      if (!apply.ok) throw new Error(`Markdown artifact creation failed: HTTP ${apply.status}`)
+      const artifactsResponse = await fetch('/api/v1/artifacts')
+      if (!artifactsResponse.ok) throw new Error(`Markdown artifact listing failed: HTTP ${artifactsResponse.status}`)
+      const artifact = (await artifactsResponse.json()).find((candidate) => candidate.name === name)
+      if (!artifact) throw new Error('Markdown artifact was not returned by the authenticated registry')
+      const editedBody = 'Edited current saved revision.'
+      const edit = await fetch(`/api/v1/artifacts/${encodeURIComponent(artifact.id)}/content`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json', 'idempotency-key': `native-markdown-edit-${name}` },
+        body: JSON.stringify({ block: 1, text: editedBody, expectedRevision: 0 }),
+      })
+      if (!edit.ok) throw new Error(`Markdown artifact edit failed: HTTP ${edit.status}`)
+      return { id: artifact.id, editedBody }
+    }, { name: markdownName, body: markdownBody, sessionId: session.id })
+    const markdownRoute = `/artifacts/${encodeURIComponent(markdownArtifact.id)}`
+    await page.goto(`${origin}${markdownRoute}`)
+    await expect(page.getByRole('button', { name: 'Download Markdown', exact: true })).toBeVisible()
+    const exportPayload = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/export`)
+      return { status: response.status, payload: await response.json() }
+    }, markdownArtifact.id)
+    assert.equal(exportPayload.status, 200, 'fresh authenticated export GET succeeds')
+    assert.equal(exportPayload.payload.artifactId, markdownArtifact.id)
+    assert.equal(exportPayload.payload.filename, markdownName)
+    assert.equal(exportPayload.payload.mediaType, 'text/markdown;charset=utf-8')
+    assert.ok(Number.isSafeInteger(exportPayload.payload.revision))
+    assert.match(exportPayload.payload.content, /Edited current saved revision\\\./, 'export contains the current edited text with Markdown escaping')
+    assert.match(exportPayload.payload.content, /Native Markdown smoke body [\w-]+/, 'export contains the first authored paragraph')
+    const downloadDirectory = join(fixtureRoot, 'markdown-download')
+    const downloadPath = join(downloadDirectory, markdownName)
+    await mkdir(downloadDirectory, { recursive: true })
+    const downloadDone = await run.app.evaluateHandle(({ session }, { trustedOrigin, target }) => ({
+      done: new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve({ state: 'timed-out', filename: '' }), 30_000)
+        session.defaultSession.once('will-download', (event, item, contents) => {
+          let downloadOrigin = ''
+          try { downloadOrigin = new URL(contents.getURL()).origin } catch {}
+          if (downloadOrigin !== trustedOrigin) {
+            event.preventDefault()
+            clearTimeout(timeout)
+            resolve({ state: 'unexpected-origin', filename: '' })
+            return
+          }
+          item.setSavePath(target)
+          item.once('done', (_event, state) => {
+            clearTimeout(timeout)
+            resolve({ state, filename: item.getFilename() })
+          })
+        })
+      }),
+    }), { trustedOrigin: origin, target: downloadPath })
+    await page.getByRole('button', { name: 'Download Markdown', exact: true }).click()
+    const downloadResult = await downloadDone.evaluate((holder) => holder.done)
+    await downloadDone.dispose()
+    assert.deepEqual(downloadResult, { state: 'completed', filename: markdownName }, 'Electron completed the packaged download with the expected filename')
+    const downloaded = await readFile(downloadPath)
+    assert.deepEqual(downloaded.toString('utf8'), exportPayload.payload.content, 'downloaded Markdown bytes equal the fresh authenticated export content')
+    assert.match(downloaded.toString('utf8'), /Edited current saved revision\\\./, 'download preserves escaped Markdown punctuation')
+    console.log('[desktop-markdown-smoke] authenticated fresh export GET · current edited document bytes · test-only packaged download redirect · exact .md file')
     await page.goto(`${origin}${sessionPath}`)
 
     const calls = await run.app.evaluateHandle(({ dialog, BrowserWindow }, filePaths) => {
@@ -555,7 +632,11 @@ export async function smokePackagedAttachments({ executable }) {
     }])
     await page.getByTitle('Open in sidebar').filter({ hasText: 'native-presentation.pptx' }).click()
     await page.getByTitle('Remove file', { exact: true }).click()
-    await send(page, 'Check detached presentation.', 'No supplied attachment text.')
+    try {
+      await send(page, 'Check detached presentation.', 'No supplied attachment text.')
+    } catch (error) {
+      await preserveSmokeFailure(error, () => captureDetachFailure(page, pptxSession.id, endpoint, 'pptx-detach-reply'))
+    }
     const detachedPptxInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
     assert.equal(JSON.stringify(detachedPptxInput).includes('native-slide-body'), false)
     console.log('[desktop-pptx-smoke] real native PPTX bytes + IPC · packaged worker extraction · model body text and metadata · full relaunch without source · detach')

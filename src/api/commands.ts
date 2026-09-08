@@ -927,9 +927,7 @@ function cachedArtifactBody(
   artifactId: string,
   library: ArtifactContentLibrary | undefined = peek<ArtifactContentLibrary>(keys.artifactContent),
 ): ArtifactContent | undefined {
-  if (!library) return undefined
-  const artifact = cachedArtifactRows().find((row) => row.id === artifactId)
-  return library[artifactId] ?? (artifact ? library[artifact.name] : undefined)
+  return library?.[artifactId]
 }
 
 /** Controller snapshot of the body currently projected for one artifact. */

@@ -35,9 +35,9 @@ export type ArtifactContent = (
   revision?: number
 }
 
-/** The artifact-body library. Authored fixtures are keyed by file name; an
- * edited projection additionally carries its exact artifact-id key so two
- * same-named artifacts can never share mutable state. */
+/** The artifact-body library. Addressed readers use exact artifact-id keys for
+ * every visible body, including untouched seeds. Name keys remain a legacy
+ * fixture-preview compatibility path, never identity or write authority. */
 export type ArtifactContentLibrary = Record<string, ArtifactContent>
 
 /** The one authored-document boundary shared by proposal construction and

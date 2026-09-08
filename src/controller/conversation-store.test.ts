@@ -287,6 +287,33 @@ test('dispatchTurn (the pane path) appends the optimistic user turn, flags, and 
   assert.notEqual(store.get('s').live.messages.at(-1)?.id, store.get('t').live.messages.at(-1)?.id)
 })
 
+test('a send cannot overtake pending or failed context intent and can retry after acknowledgement', async () => {
+  for (const contextMutation of [
+    { busy: true, error: null, retryable: false },
+    { busy: false, error: 'Lost detach acknowledgement', retryable: true },
+  ]) {
+    const { transport, sends } = fakeTransport()
+    const store = createConversationStore(transport, empty)
+    // Cover the same-tick gap after UI dispatch but before the transport runs.
+    const attempted = store.dispatchTurn('s', 'Send only after detach')
+    store.patch('s', { contextMutation })
+    await tick()
+    assert.equal(sends.length, 0, 'unacknowledged input changes cannot reach the model')
+    await attempted
+    assert.equal(store.get('s').busy, false)
+    assert.match(store.get('s').sendFailure ?? '', /context update/)
+    assert.equal(store.get('s').retryableSend?.text, 'Send only after detach', 'the blocked intent is retained, not lost')
+    store.patch('s', { contextMutation: { busy: false, error: null, retryable: false } })
+    const retried = store.retryTurn('s')
+    await tick()
+    assert.equal(sends.length, 1)
+    assert.equal(sends[0]?.text, 'Send only after detach')
+    assert.equal(store.get('s').live.messages.filter((message) => message.role === 'user').length, 1)
+    sends[0]!.finish()
+    await retried
+  }
+})
+
 test('a failed send lands the refusal copy in the entry and settles the flags', async () => {
   const store = createConversationStore(
     {

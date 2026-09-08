@@ -22,3 +22,10 @@ test('context mutation delivery uses the shared accessible status/recovery primi
     assert.match(read(`src/components/${file}`), /<ContextMutationNotice\b/, `${file} renders delivery state`)
   }
 })
+
+test('conversation composer holds while context truth is pending or retryable', () => {
+  const conversation = read('src/components/ConversationView.tsx')
+  assert.match(conversation, /isContextMutationHeld\(contextMutation\)/)
+  assert.match(conversation, /contextMutation\.busy[\s\S]*Updating context…/)
+  assert.match(conversation, /contextMutation\.error[\s\S]*Retry the context update before sending\./)
+})

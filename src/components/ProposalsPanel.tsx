@@ -44,7 +44,6 @@ import {
   schedulePatchDelta,
   suggestionDelta,
 } from '../lib/proposalForm'
-import { useRelations } from '../controller/useRelations'
 import {
   enqueueSocialProposalCreation,
   isSocialProposalCreationHeld,
@@ -88,20 +87,13 @@ export function ProposalsPanel({
   const [error, setError] = useState<string | null>(null)
   const held = isSocialProposalCreationHeld(subject)
 
-  // An artifact subject resolves its body through the ONE name-keyed library
-  // the previews read — already the server's per-caller projection, so the
-  // blocks offered here are the blocks this viewer can actually see. The id→name
-  // join goes through the relation graph's `allArtifacts`, the same resolver the
-  // gallery uses: the bare `/artifacts` list carries only the SEEDED set, so
-  // joining against it would offer no blocks at all on a created artifact.
+  // Proposals and previews read the same exact-ID, per-caller body projection.
+  // A metadata-only artifact must never offer patches to a same-name fixture.
   const isArtifact = subject.kind === 'artifact'
-  const artifactName = useRelations().allArtifacts().find((a) => a.id === subject.id)?.name
   // Only an artifact subject reads the body library, so only it fetches one
   // (`useQuery`'s enabled gate) — this panel also renders on routines.
   const lib = useArtifactContent(isArtifact).data
-  // Prefer the exact ID key the server stamps for an edited body; fall back to
-  // the file name (see `ArtifactBodyView` — a name is not a unique handle).
-  const body = isArtifact ? (lib?.[subject.id] ?? (artifactName ? lib?.[artifactName] : undefined)) : undefined
+  const body = isArtifact ? lib?.[subject.id] : undefined
   const blocks = patchableBlocks(body)
   const chosen = blocks.find((b) => b.index === block)
 
