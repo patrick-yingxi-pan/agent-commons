@@ -68,7 +68,7 @@ const RECENT_ROW_H = 38
 const RECENT_CHROME_H = 156
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
-  { id: 'files', label: 'Files', desc: 'Local text input; other formats are preview-only', Icon: Paperclip },
+  { id: 'files', label: 'Files', desc: 'Text files and PDF text; other formats are preview-only', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
   { id: 'folder', label: 'Folder', desc: 'List a folder’s files in your workspace', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
@@ -722,28 +722,32 @@ function UiHostDropZone({
 }) {
   const [drag, setDrag] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
-  const take = (files: UiHostFile[]) => files.forEach(onPicked)
-  const choose = async () => {
+  const [importing, setImporting] = useState(false)
+  const intake = useRef<AbortController | null>(null)
+  useEffect(() => () => { intake.current?.abort() }, [])
+  const take = async (read: (signal: AbortSignal) => Promise<UiHostFile[]>) => {
+    if (intake.current) return
+    const controller = new AbortController()
+    intake.current = controller
+    setImporting(true)
     setFailure(null)
     try {
-      take(await pickUiHostFiles(accept))
+      const files = await read(controller.signal)
+      if (!controller.signal.aborted) files.forEach(onPicked)
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : 'The selected items could not be read. Try again.')
-    }
-  }
-  const drop = async (files: FileList) => {
-    setFailure(null)
-    try {
-      take(await readDroppedFiles(files))
-    } catch {
-      setFailure('The dropped items could not be read. Try again.')
+      if (!controller.signal.aborted) setFailure(error instanceof Error ? error.message : 'The selected items could not be read. Try again.')
+    } finally {
+      if (!controller.signal.aborted) setImporting(false)
+      intake.current = null
     }
   }
   return (
     <div>
       <button
         type="button"
-        onClick={() => void choose()}
+        onClick={() => void take((signal) => pickUiHostFiles(accept, window, signal))}
+        disabled={importing}
+        aria-busy={importing}
         onDragOver={(e) => {
           e.preventDefault()
           setDrag(true)
@@ -752,7 +756,8 @@ function UiHostDropZone({
         onDrop={(e) => {
           e.preventDefault()
           setDrag(false)
-          void drop(e.dataTransfer.files)
+          const files = e.dataTransfer.files
+          void take((signal) => readDroppedFiles(files, accept, signal))
         }}
         className={`flex w-full flex-col items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center transition ${
           drag ? 'border-accent bg-accent-tint' : 'border-line-strong hover:bg-panel-2'
@@ -766,6 +771,8 @@ function UiHostDropZone({
         <span className="text-[12px] font-medium text-ink">{label}</span>
         <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
       </button>
+      {importing && <p role="status" className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Importing selected files… Close this picker to cancel.</p>}
+      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PDFs: up to 8 MB and 100 pages each, 24 MB per selection. Only extracted text up to 64 KB is saved; images, layout and OCR are not included.</p>}
       {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
     </div>
   )
@@ -887,7 +894,7 @@ function FilesPicker({
     onAdd({
       kind: 'files',
       attachments: [
-        { id: fsRecentKey('ui-host', f.id), label: f.name, kind: f.kind, source: UI_HOST_SOURCE, previewText: f.text, previewUrl: f.url },
+        { id: fsRecentKey('ui-host', f.id), label: f.name, kind: f.kind, source: UI_HOST_SOURCE, previewText: f.text, previewUrl: f.url, documentImport: f.documentImport },
       ],
     })
   const attachServed = (e: FsFileEntry) =>

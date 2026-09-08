@@ -113,6 +113,20 @@ test('browser and native selected-file intake share one portable text policy', (
   }
 })
 
+test('PDF parsing stays lazy and worker-only, with no auxiliary fetch or native-main parser', () => {
+  const intake = stripComments(read(join(ROOT, 'src/lib/pdfImport.ts')))
+  assert.ok(intake.includes("import('./pdfExtractor')"))
+  const parser = stripComments(read(join(ROOT, 'src/lib/pdfExtractor.ts')))
+  for (const required of ['new ParserWorker()', 'PDFWorker.create({ port', 'useWorkerFetch: false', 'BinaryDataFactory: NoExternalData', 'useWasm: false', 'enableXfa: false', 'port?.terminate()']) {
+    assert.ok(parser.includes(required), `PDF sandbox policy must retain ${required}`)
+  }
+  for (const directory of ['desktop', 'server']) {
+    for (const file of filesUnder(directory, ['.ts', '.mjs'])) {
+      assert.ok(!stripComments(read(file)).includes("from 'pdfjs-dist"), `${file} cannot run PDF parsing outside the renderer worker boundary`)
+    }
+  }
+})
+
 // The saved-context seed satisfies the wire type `SavedContext`; it must import
 // that shape from the contract, not mint a parallel copy. A hand-mirrored copy
 // silently drifted once already (the `lastUsed: string` → `lastUsedAt: number`

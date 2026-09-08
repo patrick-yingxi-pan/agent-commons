@@ -38,6 +38,12 @@ when changing the renderer-facing bridge or setup UI.
 
 ## Verification
 
+Direct PDF selection transfers at most 8 MiB/file and 24 MiB/selection as
+transient path-free bytes to the sandboxed renderer. The lazy worker extracts
+text there; no PDF parser is imported into the native main process. Packaged
+attachment acceptance also proves this emitted worker loads under production
+CSP, and that extracted text/metadata survive relaunch without the source PDF.
+
 Packaged local-text acceptance also runs through `attachmentSmoke.mjs`: a
 main-process native-dialog result fixture supplies real temporary paths, while
 the packaged reader, trusted IPC, renderer, model transport, persistence, and

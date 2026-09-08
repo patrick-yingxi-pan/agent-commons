@@ -11,6 +11,7 @@ import {
   createNativeContextPicker,
   listTopLevelEntriesBounded,
 } from './contextPicker.mjs'
+import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../contract/pdfImport.mjs'
 
 const regularFile = (size: number) => ({ isFile: () => true, size })
 
@@ -85,6 +86,52 @@ test('native text selection recognizes source files and common extensionless fil
   for (const name of ['binary.txt', 'invalid.txt', 'large.txt', 'manual.pdf', 'archive.zip']) {
     assert.equal(files.get(name)?.text, undefined, `${name} must not carry fabricated text`)
   }
+  assert.ok(files.get('manual.pdf')?.pdfBytes instanceof Uint8Array)
+  assert.equal(files.get('manual.pdf')?.pdfFailure, undefined)
+})
+
+test('native PDF selection enforces the per-file bound and reports stat/read mismatches', async () => {
+  let reads = 0
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: ['/private/oversized.pdf'] }),
+    inspect: async () => regularFile(MAX_PDF_FILE_BYTES + 1),
+    readBytes: async (_path: string, maxBytes: number) => {
+      reads += 1
+      assert.equal(maxBytes, MAX_PDF_FILE_BYTES)
+      return Buffer.alloc(MAX_PDF_FILE_BYTES)
+    },
+  })
+  const result = await picker.pickFiles({}, 'any')
+  assert.deepEqual(result, { status: 'selected', files: [{ name: 'oversized.pdf', kind: 'file', sizeBytes: MAX_PDF_FILE_BYTES + 1, pdfFailure: 'file-too-large' }] })
+  assert.equal(reads, 0)
+
+  const mismatch = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: ['/private/mismatch.pdf'] }),
+    inspect: async () => regularFile(10),
+    readBytes: async () => Buffer.alloc(9),
+  })
+  const mismatchResult = await mismatch.pickFiles({}, 'any')
+  assert.deepEqual(mismatchResult, {
+    status: 'selected',
+    files: [{ name: 'mismatch.pdf', kind: 'file', sizeBytes: 10, pdfFailure: 'invalid' }],
+  })
+})
+
+test('native PDF selection bounds aggregate bytes before reading the next file', async () => {
+  const paths = ['/private/one.pdf', '/private/two.pdf', '/private/three.pdf', '/private/four.pdf']
+  const reads: string[] = []
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: paths }),
+    inspect: async () => regularFile(MAX_PDF_FILE_BYTES),
+    readBytes: async (path: string) => { reads.push(path); return Buffer.alloc(MAX_PDF_FILE_BYTES) },
+  })
+  const result = await picker.pickFiles({}, 'any')
+  assert.equal(result.status, 'selected')
+  assert.equal(result.files.length, 4)
+  assert.deepEqual(reads, paths.slice(0, 3))
+  assert.equal(result.files.slice(0, 3).reduce((sum, file) => sum + file.pdfBytes.byteLength, 0), MAX_PDF_SELECTION_BYTES)
+  assert.equal(result.files[3].pdfFailure, 'selection-limit')
+  assert.equal(result.files[3].pdfBytes, undefined)
 })
 
 test('native text selection omits bytes that exceed the read budget after stat', async () => {

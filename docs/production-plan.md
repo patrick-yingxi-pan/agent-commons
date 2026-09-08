@@ -21,7 +21,7 @@ milestones or address a demonstrated defect.
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake now shares source/configuration format recognition and strict whole UTF-8 decoding; a real browser file chooser proves source text reaches the endpoint fixture. Bounded top-level folder snapshots are built through CTX-FS-11; image/document extraction, live folder/Git and remote-source input remain the FWD-9 gap. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11) and direct-file PDF text extraction (CTX-FS-12) extend the same input plan. Images/OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Connector/MCP execution has a real consent and authorization boundary but release fulfilment remains unconfigured. Select and deliver one real adapter and discovery workflow before broadening the catalog. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
@@ -60,14 +60,41 @@ confirmed product defects; the packaged dialog-result-fixture acceptance above
 must not be described as a manual OS-dialog pass.
 
 The owner delegated sequencing on 2026-09-07: all planned core capabilities
-remain required. Start with bounded local folder snapshots (real previews and
-model input), then explicit-permission live folder/Git access, then document/PDF
-import. This dependency order is not a scope reduction. Signing/notarization credentials
+remain required. Bounded local folder snapshots and direct-file PDF text imports
+are built. The live-folder/Git read-access lifetime decision awaits the owner:
+remember a read-only connection until disconnected, or select
+it again after each relaunch. No answer has been inferred. Images/OCR, other
+document formats, live access and remote inputs remain required; sequencing is
+not a scope reduction. Signing/notarization credentials
 and a download destination remain separate release prerequisites. Dependency
 advisory checking also awaits permission to send dependency names and versions
 to npm's advisory service; an attempted audit was denied and was not retried.
 
 ## Open verification follow-ups
+
+The PDF text increment uses exactly pinned PDF.js as a renderer-only lazy
+parser, rather than hand-parsing an adversarial document format. It saves
+bounded extracted text and explicit outcomes, never original PDF bytes. The
+existing 500,000-byte UI chunk/async and 800,000-byte initial-graph gates remain
+unchanged; emitted worker JavaScript has a separate aggregate 1,300,000-byte
+gate (PDF.js worker baseline 1,220,555 bytes). Splitting workers cannot bypass
+the aggregate gate. Closing intake cancels attachment and parsing, and releases
+unattached image previews in mixed selections. OCR/layout/images and PDFs
+inside folder imports remain outstanding, not claimed by this increment.
+The build carries the installed PDF.js license and upstream notice into both
+distributions; its renderer-only package is not copied into the native backend.
+The rendered PDF walks cover Unicode and compressed text, genuine password
+protection, empty/invalid/oversized documents, limits, cancellation and a stalled
+worker. Packaged acceptance covers actual native bytes, the worker, exact model
+text/metadata, relaunch without the original PDF and detach. Review caught and
+locked stream-cancellation errors and unacknowledged cancellation; the complete
+responsive sweep passes 135/135 cells with no violations or skips.
+
+The image-input milestone must also replace the existing successful-image
+object-URL lifetime: removing or leaving an attached browser image currently
+retains its blob until page unload. The PDF increment closes aborted-batch
+cleanup only; it does not claim durable image import or complete image-resource
+lifecycle management.
 
 The folder checkpoint imports real, bounded top-level text snapshots through
 the same native/browser policy and model-input plan. Equal-named folders keep

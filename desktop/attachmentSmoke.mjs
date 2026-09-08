@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { _electron, expect } from '@playwright/test'
 import { exactLoopbackOrigin } from './runtime.mjs'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
+import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
 
 const TIMEOUT_MS = 30_000
 const FILE_NAME = 'native-source.py'
@@ -250,15 +251,60 @@ export async function smokePackagedAttachments({ executable }) {
     ])
     assert.equal(JSON.stringify(endpoint.requests).includes('HIDDEN_FOLDER_SECRET'), false)
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+
+    // The packaged renderer must resolve the real emitted worker under its
+    // loopback CSP; a source-server-only PDF test cannot prove this boundary.
+    const pdfPath = join(fixtureRoot, 'native-document.pdf')
+    const pdfText = '[Page 1]\nnative-pdf-body\n\n[Page 3]\nFinal PDF page'
+    await writeFile(pdfPath, pdfFixture({ pages: ['native-pdf-body', null, 'Final PDF page'], compress: true }))
+    const pdfSession = await page.evaluate(async (providerId) => {
+      const response = await fetch('/api/v1/sessions', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId }),
+      })
+      if (!response.ok) throw new Error(`PDF conversation precondition: HTTP ${response.status}`)
+      return response.json()
+    }, session.providerId)
+    const pdfRoute = `/s/${encodeURIComponent(pdfSession.id)}`
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await page.goto(`${origin}${pdfRoute}`)
+    await run.app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async (_owner, options) => {
+        if (!options.properties.includes('openFile')) throw new Error('Expected PDF file selection')
+        return { canceled: false, filePaths: [path] }
+      }
+    }, pdfPath)
+    const pdfPicker = await openFilesPicker(page)
+    await pdfPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await expect(page.locator('[data-document-import="ready"]')).toContainText('2 of 3 pages')
+    await expect(page.locator('[data-attachment-preview]')).toContainText(pdfText)
+    const pdfId = await page.locator('[data-attachment-preview]').getAttribute('data-attachment-preview')
+    await closePreview(page)
+    await send(page, 'Read the PDF text.', 'native-pdf-body')
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{
+      name: 'native-document.pdf', status: 'ready', text: pdfText,
+      extraction: { format: 'pdf', pages: 3, text_pages: 2 },
+    }])
+    assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
     await run.app.close()
     run = undefined
     await rm(folderPath, { recursive: true })
+    await rm(pdfPath)
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
     await page.goto(`${origin}${folderRoute}`)
     await page.getByTitle('Open in sidebar').filter({ hasText: 'folder-import/' }).click()
     await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)
     console.log('[desktop-folder-smoke] real native folder reader + IPC · hidden-file exclusion · bounded snapshot preview + model input · full relaunch without source folder')
+    await page.goto(`${origin}${pdfRoute}`)
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.pdf' }).click()
+    await expect(page.locator('[data-attachment-preview]')).toHaveAttribute('data-attachment-preview', pdfId)
+    await expect(page.locator('[data-attachment-preview]')).toContainText(pdfText)
+    await expect(page.locator('[data-document-import="ready"]')).toContainText('2 of 3 pages')
+    await page.getByTitle('Remove file', { exact: true }).click()
+    await send(page, 'Check detached PDF.', 'No supplied attachment text.')
+    const currentInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
+    assert.equal(JSON.stringify(currentInput).includes('native-pdf-body'), false, 'detach removes current attachment input, not previous assistant history')
+    console.log('[desktop-pdf-smoke] real native PDF bytes + IPC · packaged worker extraction · model text metadata · full relaunch without source PDF · detach')
   } finally {
     await run?.app.close()
     await endpoint?.close()

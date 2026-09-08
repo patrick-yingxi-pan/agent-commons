@@ -45,7 +45,8 @@ test('docked panel content can shrink below a long file list', () => {
 
 test('local picker copy distinguishes text input from preview-only formats and folders', () => {
   const src = stripComments(read(join(ROOT, 'src', 'components', 'AddContextButton.tsx')))
-  assert.match(src, /Local text input; other formats are preview-only/)
+  assert.match(src, /Text files and PDF text; other formats are preview-only/)
+  assert.match(src, /images, layout and OCR are not included/)
   assert.match(src, /Import top-level text snapshots for the selected model/)
   assert.match(src, /Hidden files and subfolders are excluded/)
 })

@@ -17,6 +17,10 @@ export const INITIAL_GRAPH_BUDGET_BYTES = 800_000
 /** Additional static graph reached by one dynamic import, excluding chunks the
  * cold boot already paid for. */
 export const ASYNC_GRAPH_BUDGET_BYTES = 500_000
+/** A document parser runs only after explicit file selection, in a separate
+ * worker. Count its emitted JavaScript asset too; assets cannot be a loophole
+ * around the unchanged UI graph budgets. PDF.js baseline: 1,220,555 bytes. */
+export const WORKER_BUDGET_BYTES = 1_300_000
 
 export interface BundleChunkMeasure {
   fileName: string
@@ -28,8 +32,16 @@ export interface BundleChunkMeasure {
 
 export interface BundleBudgetViolation extends BundleChunkMeasure {
   limit: number
-  kind: 'chunk' | 'initial-graph' | 'async-graph'
+  kind: 'chunk' | 'initial-graph' | 'async-graph' | 'worker'
   reason: string
+}
+
+export function workerBudgetViolations(assets: Array<{ fileName: string; bytes: number }>): BundleBudgetViolation[] {
+  const scripts = assets.filter((asset) => /\.[cm]?js$/.test(asset.fileName))
+  const bytes = scripts.reduce((sum, asset) => sum + asset.bytes, 0)
+  return bytes > WORKER_BUDGET_BYTES
+    ? [{ fileName: scripts.map((asset) => asset.fileName).join(', '), bytes, isEntry: false, limit: WORKER_BUDGET_BYTES, kind: 'worker', reason: `worker JavaScript assets total ${bytes} bytes; budget is ${WORKER_BUDGET_BYTES}` }]
+    : []
 }
 
 export function bundleBudgetViolations(chunks: BundleChunkMeasure[]): BundleBudgetViolation[] {
@@ -112,7 +124,10 @@ export function bundleBudgetPlugin(): Plugin {
             }]
           : [],
       )
-      const violations = bundleBudgetViolations(chunks)
+      const assets = Object.values(bundle).flatMap((item) => item.type === 'asset'
+        ? [{ fileName: item.fileName, bytes: typeof item.source === 'string' ? encoder.encode(item.source).byteLength : item.source.byteLength }]
+        : [])
+      const violations = [...bundleBudgetViolations(chunks), ...workerBudgetViolations(assets)]
       if (violations.length) {
         const diagnostics = violations.flatMap((violation) => {
           const chunk = bundle[violation.fileName]

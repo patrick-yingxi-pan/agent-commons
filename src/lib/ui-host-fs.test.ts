@@ -1,9 +1,37 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { DesktopBridgeScope } from '../api/desktopCredentials.ts'
+import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../../contract/pdfImport.mjs'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPicker } from './uiHostFs.ts'
 
 const dropped = (files: File[]): FileList => files as unknown as FileList
+
+test('cancelled mixed imports release image URLs and return no late file snapshots', async (t) => {
+  const revoked: string[] = []
+  t.mock.method(URL, 'createObjectURL', () => 'blob:cancelled-import')
+  t.mock.method(URL, 'revokeObjectURL', (url: string) => revoked.push(url))
+  const controller = new AbortController()
+  const pdf = {
+    name: 'cancelled.pdf', size: 1,
+    slice: () => ({ arrayBuffer: async () => { controller.abort(); return new ArrayBuffer(1) } }),
+  } as unknown as File
+  const selected = await readDroppedFiles(dropped([new File(['image'], 'photo.png'), pdf]), 'any', controller.signal)
+  assert.deepEqual(selected, [])
+  assert.deepEqual(revoked, ['blob:cancelled-import'])
+})
+
+test('native intake also discards its final result if cancelled while extracting', async () => {
+  const controller = new AbortController()
+  const file = {
+    name: 'cancelled.pdf', kind: 'file' as const, sizeBytes: 1,
+    get pdfBytes() { controller.abort(); return new Uint8Array(1) },
+  }
+  const scope = { agentCommonsDesktop: { context: {
+    pickFiles: async () => ({ status: 'selected' as const, files: [file] }),
+    pickFolder: async () => ({ status: 'cancelled' as const }),
+  } } }
+  assert.deepEqual(await pickUiHostFiles('any', scope, controller.signal), [])
+})
 
 test('the UI-host adapter prefers Electron selected-file previews without learning a path', async () => {
   const calls: unknown[] = []
@@ -229,7 +257,7 @@ test('browser dropped files preserve safe local text and omit binary, invalid, o
     new File([Uint8Array.from([0x61, 0x00, 0x62])], 'binary.txt', { type: 'text/plain' }),
     new File([Uint8Array.from([0xc3, 0x28])], 'invalid.txt', { type: 'text/plain' }),
     new File([new Uint8Array(256 * 1024 + 1)], 'large.txt', { type: 'text/plain' }),
-    new File(['not model text'], 'manual.pdf', { type: 'application/pdf' }),
+    new File([new Uint8Array(MAX_PDF_FILE_BYTES + 1)], 'manual.pdf', { type: 'application/pdf' }),
     new File(['not model text'], 'archive.zip', { type: 'application/zip' }),
     new File([Uint8Array.from([1, 2, 3])], 'photo.png', { type: 'image/png' }),
   ]))
@@ -255,6 +283,49 @@ test('browser dropped files preserve safe local text and omit binary, invalid, o
   }
   assert.equal(byName.get('photo.png')?.kind, 'photo')
   assert.equal(byName.get('photo.png')?.text, undefined)
+  assert.equal(byName.get('manual.pdf')?.documentImport?.format, 'pdf')
+  assert.equal(byName.get('manual.pdf')?.documentImport?.status, 'file-too-large')
+})
+
+test('native PDF metadata becomes truthful documentImport outcomes without exposing transient bytes', async () => {
+  const scope: DesktopBridgeScope = {
+    agentCommonsDesktop: { context: {
+      pickFiles: async () => ({ status: 'selected' as const, files: [
+        { name: 'failed.pdf', kind: 'file' as const, sizeBytes: 12, pdfFailure: 'page-limit' as const },
+        { name: 'missing.pdf', kind: 'file' as const, sizeBytes: 12 },
+      ] }),
+      pickFolder: async () => ({ status: 'cancelled' as const }),
+    } },
+  }
+  const selected = await pickUiHostFiles('any', scope)
+  assert.deepEqual(selected.map((file) => file.documentImport), [
+    { format: 'pdf', status: 'page-limit' },
+    { format: 'pdf', status: 'unavailable' },
+  ])
+})
+
+test('browser PDF limits are classified before reading bytes, including Photos rejection', async () => {
+  let reads = 0
+  const oversized = {
+    name: 'oversized.pdf', size: MAX_PDF_FILE_BYTES + 1,
+    slice: () => ({ arrayBuffer: async () => { reads += 1; return new ArrayBuffer(0) } }),
+  } as unknown as File
+  const selected = await readDroppedFiles(dropped([oversized]))
+  assert.deepEqual(selected[0]?.documentImport, { format: 'pdf', status: 'file-too-large' })
+  assert.equal(reads, 0)
+
+  const files = Array.from({ length: 4 }, (_, index) => ({
+    name: `${index}.pdf`, size: MAX_PDF_FILE_BYTES,
+    slice: () => ({ arrayBuffer: async () => { reads += 1; return new ArrayBuffer(0) } }),
+  })) as unknown as File[]
+  const aggregate = await readDroppedFiles(dropped(files))
+  assert.equal(aggregate[3]?.documentImport?.status, 'selection-limit')
+  assert.equal(reads, 3)
+  assert.equal(4 * MAX_PDF_FILE_BYTES > MAX_PDF_SELECTION_BYTES, true)
+
+  reads = 0
+  await assert.rejects(() => readDroppedFiles(dropped([oversized]), 'image'), /Choose a PNG/)
+  assert.equal(reads, 0)
 })
 
 test('browser same-basename text files retain bodies while receiving distinct opaque IDs', async () => {

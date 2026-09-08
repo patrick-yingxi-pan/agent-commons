@@ -11,6 +11,8 @@ import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../../contract/localTextFile.mjs'
 import { snapshotFolderFiles } from '../../contract/localFolderSnapshot.mjs'
+import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES, pdfImportFailure, type PdfImportOutcome } from '../../contract/pdfImport.mjs'
+import { importPdf } from './pdfImport.ts'
 
 /** A file picked from the UI host, with its content held client-side for preview. */
 export interface UiHostFile {
@@ -21,6 +23,7 @@ export interface UiHostFile {
   kind: 'file' | 'photo'
   /** Whole UTF-8 body for a supported text file (the read-only preview). */
   text?: string
+  documentImport?: PdfImportOutcome
   /** Object URL for an image (used directly as an `<img src>`). */
   url?: string
 }
@@ -71,10 +74,22 @@ export class UiHostPickerError extends Error {
 
 /** Read one browser `File` into a `UiHostFile` — an object URL for an image, the
  *  text body for a text file (capped so a stray huge file can't hang the preview). */
-async function toUiHostFile(file: File): Promise<UiHostFile> {
+async function toUiHostFile(file: File, pdfBudget: { used: number }, signal?: AbortSignal): Promise<UiHostFile> {
   const name = file.name
   if (isImage(name)) {
     return selectedFile({ name, kind: 'photo', url: URL.createObjectURL(file) })
+  }
+  if (isPdfFileName(name)) {
+    if (file.size > MAX_PDF_FILE_BYTES) return selectedFile({ name, kind: 'file', ...pdfImportFailure('file-too-large') })
+    if (pdfBudget.used + file.size > MAX_PDF_SELECTION_BYTES) return selectedFile({ name, kind: 'file', ...pdfImportFailure('selection-limit') })
+    pdfBudget.used += file.size
+    try {
+      const bytes = new Uint8Array(await file.slice(0, MAX_PDF_FILE_BYTES + 1).arrayBuffer())
+      if (bytes.byteLength !== file.size) return selectedFile({ name, kind: 'file', ...pdfImportFailure('invalid') })
+      return selectedFile({ name, kind: 'file', ...await importPdf(bytes, signal) })
+    } catch {
+      return selectedFile({ name, kind: 'file', ...pdfImportFailure('invalid') })
+    }
   }
   let text: string | undefined
   if (isLocalTextFileName(name) && file.size <= LOCAL_TEXT_PREVIEW_BYTES) {
@@ -100,26 +115,49 @@ export function uiHostSupportsPicker(scope?: DesktopBridgeScope): boolean {
 export async function pickUiHostFiles(
   accept: 'image' | 'any' = 'any',
   scope: DesktopBridgeScope = window,
+  signal?: AbortSignal,
 ): Promise<UiHostFile[]> {
   const native = scope.agentCommonsDesktop?.context
   if (native) {
     const result = await native.pickFiles(accept)
     if (result.status === 'cancelled') return []
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
-    return result.files.map((file) => selectedFile({
-      name: file.name,
-      kind: file.kind,
-      text: file.text,
-      url: file.previewDataUrl,
-    }))
+    const files: UiHostFile[] = []
+    for (const file of result.files) {
+      if (signal?.aborted) return []
+      const extracted = isPdfFileName(file.name)
+        ? file.pdfFailure ? pdfImportFailure(file.pdfFailure)
+          : file.pdfBytes ? await importPdf(file.pdfBytes, signal) : pdfImportFailure('unavailable')
+        : { text: file.text }
+      files.push(selectedFile({ name: file.name, kind: file.kind, url: file.previewDataUrl, ...extracted }))
+    }
+    return signal?.aborted ? [] : files
   }
   const files = await openInput({ multiple: true, accept: accept === 'image' ? 'image/*' : undefined })
-  return Promise.all(files.map(toUiHostFile))
+  return readSelectedFiles(files, accept, signal)
 }
 
 /** Read files dropped onto a drop zone. */
-export async function readDroppedFiles(list: FileList): Promise<UiHostFile[]> {
-  return Promise.all(Array.from(list).map(toUiHostFile))
+export async function readDroppedFiles(list: FileList, accept: 'image' | 'any' = 'any', signal?: AbortSignal): Promise<UiHostFile[]> {
+  return readSelectedFiles(Array.from(list), accept, signal)
+}
+
+async function readSelectedFiles(files: File[], accept: 'image' | 'any', signal?: AbortSignal): Promise<UiHostFile[]> {
+  if (files.length > 24) throw new UiHostPickerError('too-many-files')
+  if (accept === 'image' && files.some((file) => !isImage(file.name))) throw new UiHostPickerError('unsupported-image')
+  const selected: UiHostFile[] = []
+  const pdfBudget = { used: 0 }
+  try {
+    for (const file of files) {
+      if (signal?.aborted) break
+      selected.push(await toUiHostFile(file, pdfBudget, signal))
+    }
+    return signal?.aborted ? [] : selected
+  } finally {
+    if (signal?.aborted) {
+      for (const file of selected) if (file.url?.startsWith('blob:')) URL.revokeObjectURL(file.url)
+    }
+  }
 }
 
 /** Open the OS folder picker and turn its top-level files into workspace artifacts

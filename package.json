@@ -30,7 +30,7 @@
     "desktop:release:mac:finalize": "node desktop/release-set.mjs",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node --test \"contract/**/*.test.ts\" \"desktop/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\" \"tests/**/*.test.ts\" \"src/**/*.test.tsx\"",
+    "test": "node --test \"contract/**/*.test.ts\" \"desktop/**/*.test.ts\" \"scripts/**/*.test.ts\" \"server/**/*.test.ts\" \"src/**/*.test.ts\" \"tests/**/*.test.ts\" \"src/**/*.test.tsx\"",
     "e2e": "playwright test",
     "ui:sweep": "node scripts/ui-sweep.mjs",
     "preview": "vite preview",
@@ -44,6 +44,7 @@
     "@anthropic-ai/sdk": "^0.105.0",
     "framer-motion": "^11.15.0",
     "lucide-react": "^0.469.0",
+    "pdfjs-dist": "6.3.289",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

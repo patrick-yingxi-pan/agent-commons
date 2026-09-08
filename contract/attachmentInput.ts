@@ -1,4 +1,5 @@
 import type { Attachment, SessionWorkspace } from './entities.ts'
+import { isPdfImportOutcome } from './pdfImport.mjs'
 
 /** One ordered input projection for the composer, previews and both transports.
  * Folder bodies are durable snapshots, never a request to read a path. Direct
@@ -47,6 +48,7 @@ export function isAttachmentInput(value: unknown): value is Attachment {
   if (item.kind !== 'file' && item.kind !== 'photo') return false
   if (item.previewText !== undefined && typeof item.previewText !== 'string') return false
   if (item.previewUrl !== undefined && typeof item.previewUrl !== 'string') return false
+  if (item.documentImport !== undefined && !isPdfImportOutcome(item.documentImport)) return false
   if (item.source !== undefined) {
     if (!item.source || typeof item.source !== 'object' || Array.isArray(item.source)) return false
     const source = item.source as Record<string, unknown>
@@ -64,6 +66,7 @@ export function planAttachmentInput(attachments: readonly Attachment[] = []): At
     if (!isAttachmentInput(attachment)) return { attachment, status: 'unavailable' }
     if (index >= ATTACHMENT_INPUT_MAX_ITEMS) return { attachment, status: 'item-limit' }
     if (attachment.kind !== 'file' || attachment.source?.kind !== 'ui-host') return { attachment, status: 'preview-only' }
+    if (attachment.documentImport && attachment.documentImport.status !== 'ready') return { attachment, status: 'unavailable' }
     if (typeof attachment.previewText !== 'string') return { attachment, status: 'unavailable' }
     // A JS string has at least as many UTF-8 bytes as UTF-16 code units. Avoid
     // allocating an encoded copy of an already-obviously oversized payload.

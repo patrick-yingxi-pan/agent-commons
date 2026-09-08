@@ -182,6 +182,8 @@ dialog ever ships without one, extract a `DIALOG_SURFACE` funnel the same way.
 
 | UI-126 | **A sharing form keeps publication consequences readable while composing.** The generic grant form presents its publish-versus-access-only distinction as persistent wrapping help associated with the note field, not as a clipped placeholder that disappears on input. | `GrantsPanelContent` | `src/components/grant-mutation-ui.test.ts` · `e2e/social-sharing.spec.ts` | Attachment checkpoint's broad screenshot review, 2026-09-06: project and routine Sharing pages at 320 and 375 pixels clipped the only visible explanation of a blank note's meaning. The fix belongs to the generic form used by every sharing host. Removing the accessible association was watched fail its source lock; restoration and the 15-cell rendered walk passed, including filled fields and viewport-contained help. |
 
+| UI-128 | **File-intake mode and lifetime remain truthful across asynchronous parsing.** Photos reject non-images before reading; a closed picker cannot attach late snapshots or retain unused browser image URLs. PDF outcomes describe extracted text only, including omitted pages, and never promise layout or OCR. | `src/lib/uiHostFs.ts`; `src/lib/pdfImport.ts`; `src/lib/pdfExtractor.ts`; `UiHostDropZone`; `contract/pdfImport.mjs` | `src/lib/ui-host-fs.test.ts` · `contract/pdf-import.test.ts` · `e2e/pdf-input.spec.ts` | PDF intake review, 2026-09-07: drop ignored the Photos mode, and adding an asynchronous parser exposed late-completion and mixed-image URL cleanup paths. Shared intake checks and cancellation own these cases across selection and drop. |
+
 ## The ratchet procedure
 
 When a UI escape is confirmed (by a user report or a `/ui-review` sweep):

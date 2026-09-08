@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { bundleBudgetPlugin } from './scripts/bundleBudget.ts'
+import { thirdPartyNoticesPlugin } from './scripts/thirdPartyNotices.ts'
 
 // Minimal ambient `process` so the config can read env-driven ports without
 // pulling in @types/node (the UI tsconfig ships no Node types by design).
@@ -15,7 +16,7 @@ declare const process: { env: Record<string, string | undefined> }
 // app's deploy shape — it could not serve the same-origin API in any case.
 export default defineConfig({
   base: '/',
-  plugins: [react(), tailwindcss(), bundleBudgetPlugin()],
+  plugins: [react(), tailwindcss(), bundleBudgetPlugin(), thirdPartyNoticesPlugin()],
   build: {
     rollupOptions: {
       output: {

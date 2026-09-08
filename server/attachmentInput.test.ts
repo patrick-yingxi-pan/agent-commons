@@ -143,3 +143,26 @@ test('folder snapshots share the attachment input item and byte budgets', () => 
     { name: 'code/three.md', status: 'total-limit', text: undefined },
   ])
 })
+
+test('admits ready PDF extraction metadata but omits non-ready or forged PDF text', () => {
+  const ready = file('Extracted page text', {
+    id: 'pdf-ready', label: 'report.pdf',
+    documentImport: { format: 'pdf', status: 'ready', pages: 4, textPages: 2 },
+  })
+  const noText = file('forged scan text', {
+    id: 'pdf-no-text', label: 'scan.pdf',
+    documentImport: { format: 'pdf', status: 'no-text', pages: 4, textPages: 0 },
+  })
+  const forged = file('forged overflow text', {
+    id: 'pdf-forged', label: 'bad.pdf',
+    documentImport: { format: 'pdf', status: 'text-limit' },
+  })
+  const document = documentFrom(attachmentPrompt('Read these PDFs', [ready, noText, forged]))
+  assert.deepEqual(document.attached_files, [
+    { name: 'report.pdf', status: 'ready', text: 'Extracted page text', extraction: { format: 'pdf', pages: 4, text_pages: 2 } },
+    { name: 'scan.pdf', status: 'unavailable' },
+    { name: 'bad.pdf', status: 'unavailable' },
+  ])
+  assert.equal(JSON.stringify(document).includes('forged'), false)
+  assert.match(ATTACHMENT_INPUT_SYSTEM, /extracted text only, not page images, layout, or OCR/)
+})

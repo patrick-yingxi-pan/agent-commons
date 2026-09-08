@@ -1,4 +1,5 @@
 import type { FolderFileSnapshot } from '../../contract/localFolderSnapshot.mjs'
+import type { PdfImportStatus } from '../../contract/pdfImport.mjs'
 
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
@@ -32,6 +33,9 @@ export interface DesktopPickedFile {
   sizeBytes: number
   text?: string
   previewDataUrl?: string
+  /** Transient parser input. Never copied into persisted Attachment state. */
+  pdfBytes?: Uint8Array
+  pdfFailure?: Exclude<PdfImportStatus, 'ready' | 'no-text'>
 }
 
 export type DesktopFilePickResult =

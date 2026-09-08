@@ -54,6 +54,8 @@ export interface Attachment {
    * Server-backed sources instead load their previews through `/fs/*`. */
   previewUrl?: string
   previewText?: string
+  /** Text-extraction provenance only, never raw PDF bytes or authority. */
+  documentImport?: import('./pdfImport.mjs').PdfImportOutcome
 }
 
 /** A workspace (a folder attached as a Cowork-style surface). A conversation

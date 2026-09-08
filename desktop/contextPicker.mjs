@@ -3,6 +3,7 @@ import { open, opendir, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
 import { snapshotFolderFiles, MAX_FOLDER_SNAPSHOT_FILE_BYTES } from '../contract/localFolderSnapshot.mjs'
+import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../contract/pdfImport.mjs'
 
 export const MAX_PICKED_FILES = 24
 export const MAX_FOLDER_ENTRIES = 500
@@ -99,6 +100,7 @@ export function createNativeContextPicker({
 
         const selected = []
         let imageBytes = 0
+        let pdfBytes = 0
         for (const filePath of result.filePaths) {
           const details = await safeFileDetails(filePath, inspect)
           const mimeType = imageMime(filePath)
@@ -117,6 +119,19 @@ export function createNativeContextPicker({
             if (imageBytes + bytes.byteLength > MAX_IMAGE_SELECTION_BYTES) return rejected('selection-too-large')
             imageBytes += bytes.byteLength
             file.previewDataUrl = `data:${mimeType};base64,${bytes.toString('base64')}`
+          } else if (isPdfFileName(file.name)) {
+            if (details.size > MAX_PDF_FILE_BYTES) file.pdfFailure = 'file-too-large'
+            else if (pdfBytes + details.size > MAX_PDF_SELECTION_BYTES) file.pdfFailure = 'selection-limit'
+            else {
+              const bytes = await readBytes(filePath, MAX_PDF_FILE_BYTES)
+              if (bytes.byteLength > MAX_PDF_FILE_BYTES) file.pdfFailure = 'file-too-large'
+              else if (bytes.byteLength !== details.size) file.pdfFailure = 'invalid'
+              else if (pdfBytes + bytes.byteLength > MAX_PDF_SELECTION_BYTES) file.pdfFailure = 'selection-limit'
+              else {
+                pdfBytes += bytes.byteLength
+                file.pdfBytes = new Uint8Array(bytes)
+              }
+            }
           } else if (isLocalTextFileName(file.name) && details.size <= MAX_TEXT_PREVIEW_BYTES) {
             const bytes = await readBytes(filePath, MAX_TEXT_PREVIEW_BYTES)
             const text = decodeLocalTextPreview(bytes)

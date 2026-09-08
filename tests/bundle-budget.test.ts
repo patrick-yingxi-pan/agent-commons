@@ -7,7 +7,9 @@ import {
   ASYNC_GRAPH_BUDGET_BYTES,
   CHUNK_BUDGET_BYTES,
   INITIAL_GRAPH_BUDGET_BYTES,
+  WORKER_BUDGET_BYTES,
   bundleBudgetViolations,
+  workerBudgetViolations,
 } from '../scripts/bundleBudget.ts'
 
 test('bundle budget measures physical chunks, the whole cold graph, and each lazy navigation graph', () => {
@@ -40,4 +42,20 @@ test('the physical chunk budget stays at Vite’s warning line while graph budge
   assert.equal(CHUNK_BUDGET_BYTES, 500_000)
   assert.equal(INITIAL_GRAPH_BUDGET_BYTES, 800_000)
   assert.equal(ASYNC_GRAPH_BUDGET_BYTES, 500_000)
+  assert.equal(WORKER_BUDGET_BYTES, 1_300_000)
+})
+
+test('worker JavaScript assets have a separate aggregate gate that splitting cannot bypass', () => {
+  const assets = [
+    { fileName: 'parser.js', bytes: 1_000_000 },
+    { fileName: 'parser-shared.mjs', bytes: 300_000 },
+    { fileName: 'styles.css', bytes: 2_000_000 },
+    { fileName: 'parser.js.map', bytes: 5_000_000 },
+  ]
+  assert.deepEqual(workerBudgetViolations(assets), [])
+  const violations = workerBudgetViolations([...assets, { fileName: 'more.cjs', bytes: 1 }])
+  assert.equal(violations.length, 1)
+  assert.equal(violations[0].kind, 'worker')
+  assert.equal(violations[0].bytes, 1_300_001)
+  assert.equal(violations[0].limit, WORKER_BUDGET_BYTES)
 })

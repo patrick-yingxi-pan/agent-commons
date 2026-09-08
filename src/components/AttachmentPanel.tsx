@@ -7,6 +7,7 @@ import { useFsText, fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
+import { pdfImportCopy } from '../../contract/pdfImport.mjs'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
@@ -226,6 +227,7 @@ function FileBody({
 
       <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
         <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
+        {item.documentImport && <p data-document-import={item.documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{pdfImportCopy(item.documentImport)}</p>}
         {content.isImage ? (
           <>
             <div className="mb-2 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">

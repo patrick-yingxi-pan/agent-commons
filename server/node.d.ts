@@ -74,7 +74,10 @@ declare module 'node:url' {
 declare module 'node:module' {
   /** Returns a CommonJS `require` bound to `path` — used to load `node:sqlite`
    *  lazily from ESM without an async dynamic import (see persistence/sqlite.ts). */
-  export function createRequire(path: string | URL): (id: string) => unknown
+  export function createRequire(path: string | URL): {
+    (id: string): unknown
+    resolve(id: string): string
+  }
   /** Erase TypeScript syntax from source (the runtime's own type stripper) — the
    *  `GET /connector` route serves the checked-in connector TS as plain JS so a
    *  public user can run it with any Node, no repo clone (spec MODEL-14). */
