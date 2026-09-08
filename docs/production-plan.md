@@ -40,9 +40,21 @@ commissioning; granting read access is not granting either write authority.
 Shared-list guidance reflects that distinction. The visual sweep selects an
 explicitly owned Project for owner-only sharing checks, never the first visible
 row; independent reader walks still prove those controls are absent.
-This does not change durable membership storage or the public event protocol:
-live grant/revoke refresh is covered, while public sharing/prose edits still
-need a privacy-preserving ambient invalidation path for already-open visitors.
+The follow-on live Project checkpoint adds an id-only scoped invalidation for
+effective sharing, public-description, default-role and commission-cap changes.
+Unsharing reaches former public readers; private hints use current read authority
+on delivery and replay. Private relation payloads remain private. Canonical and
+dependent Project reads refresh instead of trusting event content, and publication
+follows durable commit. This does not change durable membership storage.
+Store, HTTP/MCP wire, persistence and cache locks cover these boundaries; the
+browser walk exercises already-open owner, granted-reader and public-directory
+views through sharing, prose edits/clears, unsharing and revocation. Independent
+discussion pages withdraw and reappear with their Project; the shared cache
+clears authoritative API not-found results without erasing data on transient
+failures. Project grant events reuse the same dependent-read refresh, so a
+directed revocation also withdraws an independently opened discussion.
+Checkpoint acceptance includes the complete verifier and responsive
+sweep alongside these focused locks.
 The full production goal and all remaining integration/release milestones stay
 in force; shared interactive review still requires an unlocked Mac.
 

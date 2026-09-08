@@ -11,6 +11,7 @@
  *  identity until it actually changes, so the external-store snapshot never loops. */
 import { useCallback, useEffect } from 'react'
 import { useSyncExternalStore } from 'react'
+import { ApiRequestError } from './client.ts'
 
 export type QueryStatus = 'idle' | 'loading' | 'success' | 'error'
 
@@ -18,6 +19,13 @@ export interface QueryState<T> {
   status: QueryStatus
   data: T | undefined
   error: Error | undefined
+}
+
+/** Only an explicit, typed API not-found response proves cached data is no
+ * longer readable. Network, server, and misclassified errors retain stale data
+ * so a transient failure cannot turn a usable page into a false absence. */
+export function queryFailureState(error: unknown): 'evict' | 'retain' {
+  return error instanceof ApiRequestError && error.code === 'not_found' && error.status === 404 ? 'evict' : 'retain'
 }
 
 interface Entry {
@@ -71,7 +79,14 @@ function run(key: string, fetcher: () => Promise<unknown>): void {
         if (e.gen === myGen) setState(key, { status: 'success', data, error: undefined })
       },
       (error) => {
-        if (e.gen === myGen) setState(key, { status: 'error', data: e.state.data, error: error as Error })
+        if (e.gen === myGen) {
+          const failureState = queryFailureState(error)
+          setState(key, {
+            status: 'error',
+            data: failureState === 'evict' ? undefined : e.state.data,
+            error: error as Error,
+          })
+        }
       },
     )
     .finally(() => {

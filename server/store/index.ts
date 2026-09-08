@@ -2078,6 +2078,9 @@ function titleFrom(firstMessage?: string): string {
  *  point makes the bound structural: a future session mutator cannot accidentally
  *  broadcast an arbitrarily long transcript by passing its in-memory row. */
 function eventForSubscribers(e: ServerEvent): ServerEvent {
+  if (e.type === 'project.changed') {
+    return { type: e.type, projectId: e.projectId, scope: e.scope }
+  }
   if (e.type !== 'session.updated' && e.type !== 'session.removed') return e
   return {
     type: e.type,
@@ -2130,6 +2133,17 @@ function emit(e: ServerEvent): void {
     return
   }
   publishEvent(scoped)
+}
+
+/** Sharing/prose/default changes invalidate authorized reads, never broadcast
+ * the relation payload. Capture prior public visibility for the unshare edge;
+ * private/grant-only recipients are resolved by the read wall at delivery. */
+function emitProjectChanged(project: Project, wasPublic = false): void {
+  emit({
+    type: 'project.changed',
+    projectId: project.id,
+    scope: wasPublic || project.shared === true ? 'public' : 'readers',
+  })
 }
 
 /** One tenant-safe invalidation face for the Agent registry. A directory event
@@ -3810,6 +3824,13 @@ export const store = {
         }
         return false
       }
+      case 'project.changed':
+        // An unshare still reaches former public readers. Private hints reuse
+        // the current read wall, including org seats and directed grants, so
+        // a revoked reader cannot receive private updates through replay.
+        if (!findProject(e.projectId)) return false
+        return e.scope === 'public' || (e.scope === 'readers' &&
+          this.grantSubjectVisible({ kind: 'project', id: e.projectId }, tenantId))
       case 'openwork.changed': {
         // The backlog's visibility mirrors the Project's (D19/P8): everyone while it's
         // shared, owner-only while private. The event carries only the project id, so
@@ -5129,8 +5150,10 @@ export const store = {
     // seed cap persists via the `commissionCaps` overlay; a created one via the `graph` slice.
     const project = findProject(projectId)
     if (!project) return undefined
+    if (project.commissionCap === cap) return project
     project.commissionCap = cap
     persist()
+    emitProjectChanged(project)
     return project
   },
   /** Set / clear a Project's **default contributor role** (D14) — the commissioning
@@ -5144,8 +5167,10 @@ export const store = {
     }
     const project = findProject(projectId)
     if (!project) return undefined
+    if (project.defaultRole === role) return project
     project.defaultRole = role
     persist()
+    emitProjectChanged(project)
     return project
   },
   /** How many active Commissions a Project currently holds — the count the D13 cap is
@@ -10651,6 +10676,15 @@ export const store = {
         throw new ConflictError("This Project's instructions changed elsewhere.")
       }
     }
+    // Capture values, not a live row: share changes replace graph rows and a
+    // public-to-private transition must still invalidate its former readers.
+    const projectBefore = op.kind === 'share-project' || op.kind === 'set-project-description'
+      ? findProject(op.projectId) : undefined
+    const publicFaceBefore = projectBefore && {
+      id: projectBefore.id,
+      shared: projectBefore.shared === true,
+      description: projectDescription(projectBefore, graph),
+    }
     // A current document save is one compound durable act: validate and
     // normalize its authored body before the graph can mint metadata, then lay
     // the body under the minted id before the single persist below. Historical
@@ -10806,9 +10840,16 @@ export const store = {
     // own HTTP response can cross a newer ambient refetch on the wire; revision
     // comparison prevents the older full graph from rewinding that newer view.
     graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
+    // Commit before publishing either hint. Inside a compound mutation this
+    // marks its durable batch; both events remain queued until that commit.
+    persist()
     // Stamp the acting tenant so the SSE fan-out delivers this only to that tenant (F2/PD9).
     emit({ type: 'relation.applied', op, by: 'user', tenantId: tenantId ?? defaultTenantId() })
-    persist()
+    const projectAfter = publicFaceBefore && findProject(publicFaceBefore.id)
+    if (publicFaceBefore && projectAfter && (
+      publicFaceBefore.shared !== (projectAfter.shared === true) ||
+      publicFaceBefore.description !== projectDescription(projectAfter, graph)
+    )) emitProjectChanged(projectAfter, publicFaceBefore.shared)
     // Return the caller's projected view (F2/PD9); no tenant ⇒ the full graph.
     return tenantId ? projectGraphForTenant(graph, tenantId) : graph
   },

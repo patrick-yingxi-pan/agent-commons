@@ -55,6 +55,46 @@ test('artifact creation and grant changes refresh the complete registry and body
   assert.match(eventCase(events, 'relation.applied'), /invalidateForCommonsOp\(e\.op\)/)
 })
 
+test('project.changed re-reads canonical and dependent projections without trusting event prose or owner identity', () => {
+  const events = src('src', 'api', 'events.ts')
+  const block = eventCase(events, 'project.changed')
+  for (const key of ['projects', 'relations', 'commons']) {
+    assert.match(block, new RegExp(`invalidate\\(keys\\.${key}\\b`), `project change refreshes ${key}`)
+  }
+  assert.match(block, /invalidateProjectDependencies\(e\.projectId\)/, 'project change refreshes dependent projections')
+  const helperStart = events.indexOf('function invalidateProjectDependencies(')
+  const helperEnd = events.indexOf('\n}', helperStart)
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, 'the dependency funnel is independently inspectable')
+  const helper = events.slice(helperStart, helperEnd)
+  for (const expected of [
+    'keys.commissions(projectId)',
+    'keys.commissions()',
+    'keys.openSubGoals(projectId)',
+    'keys.projectSubGoals(projectId)',
+    'keys.contributions(projectId)',
+    'keys.delegations(projectId)',
+    'keys.attention(projectId)',
+    "keys.discussions('project', projectId)",
+    "keys.socialCapability('project', projectId)",
+    'keys.projectWatch(projectId)',
+  ]) {
+    assert.ok(helper.includes(`invalidate(${expected})`), `project change refreshes ${expected}`)
+  }
+  for (const expected of ['keys.discussion()', 'keys.socialProposal()', 'keys.socialProposals()', 'keys.search()', 'keys.directoryProjects()', 'keys.ownerProfile()']) {
+    assert.ok(helper.includes(`invalidatePrefix(${expected})`), `project change refreshes ${expected} family`)
+  }
+  assert.ok(helper.includes('invalidate(keys.myDiscussions)'), 'project change refreshes the viewer discussion hub')
+  assert.doesNotMatch(block, /e\.(description|instructions|ownerId|ownerTenantId|ownerIds)/, 'event contents are not copied into UI state')
+})
+
+test('grant.changed reuses project dependency refresh only for project subjects', () => {
+  const events = src('src', 'api', 'events.ts')
+  const grant = eventCase(events, 'grant.changed')
+  assert.match(grant, /if \(e\.subject\.kind === 'project'\) invalidateProjectDependencies\(e\.subject\.id\)/)
+  assert.equal([...grant.matchAll(/invalidateProjectDependencies\(/g)].length, 1, 'no unguarded second dependency refresh')
+  assert.match(eventCase(events, 'project.changed'), /invalidateProjectDependencies\(e\.projectId\)/)
+})
+
 test('run.*/schedule.changed refresh the schedules list (the rail pane + the section read it)', () => {
   const events = src('src', 'api', 'events.ts')
   // run.started/progress fall through to run.finished — the block lives on the last label.

@@ -4,9 +4,9 @@
  * A list-derived detail may claim "missing" only after every registry read has
  * succeeded. Pending or failed refreshes are not evidence that an id is gone.
  * A direct by-id read may additionally map an existence-hiding 404 to the same
- * missing face; every other failure stays retryable. Cache-retained resources
- * never enter this policy because their page resolves before the unavailable
- * branch is considered. */
+ * missing face; every other failure stays retryable. The cache clears a
+ * confirmed existence-hiding not-found result; resources retained through
+ * transient failures resolve before this unavailable branch is considered. */
 import { invalidate, type QueryState } from './cache.ts'
 
 export type ResourceUnavailableState = 'loading' | 'error' | 'missing'

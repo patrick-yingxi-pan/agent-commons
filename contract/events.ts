@@ -116,6 +116,16 @@ export interface RelationAppliedEvent {
    *  (desktop / the mock backend's single tenant). */
   tenantId?: string
 }
+/** Public Project metadata or visibility changed. No prose, actor, owner, or
+ * audience identifiers cross this invalidation-only wire. `public` means the
+ * project was public before OR after the change, so unsharing can evict open
+ * visitor views. `readers` is checked against current ownership/grants on live
+ * delivery and replay; the hint itself never grants read or write authority. */
+export interface ProjectChangedEvent {
+  type: 'project.changed'
+  projectId: string
+  scope: 'public' | 'readers'
+}
 /** A type's recents list changed (e.g. attached on another device/tab). */
 export interface RecentsChangedEvent {
   type: 'recents.changed'
@@ -482,6 +492,7 @@ export type ServerEvent =
   | RunProgressEvent
   | RunFinishedEvent
   | RelationAppliedEvent
+  | ProjectChangedEvent
   | RecentsChangedEvent
   | NotificationChangedEvent
   | OrgInvitationChangedEvent

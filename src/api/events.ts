@@ -55,6 +55,29 @@ const sessionRemoved = makeSeam<[sessionId: string]>()
 export const onSessionRemoved = sessionRemoved.on
 const notifySessionRemoved = sessionRemoved.notify
 
+/** Invalidate projections that are composed from a Project's viewer-relative
+ * access and definition. Canonical registry/graph/feed caches stay visible in
+ * each event case because their refresh is event-specific and broader. */
+function invalidateProjectDependencies(projectId: string): void {
+  invalidate(keys.commissions(projectId))
+  invalidate(keys.commissions())
+  invalidate(keys.openSubGoals(projectId))
+  invalidate(keys.projectSubGoals(projectId))
+  invalidate(keys.contributions(projectId))
+  invalidate(keys.delegations(projectId))
+  invalidate(keys.attention(projectId))
+  invalidate(keys.discussions('project', projectId))
+  invalidate(keys.socialCapability('project', projectId))
+  invalidate(keys.projectWatch(projectId))
+  invalidatePrefix(keys.socialProposals())
+  invalidatePrefix(keys.discussion())
+  invalidate(keys.myDiscussions)
+  invalidatePrefix(keys.socialProposal())
+  invalidatePrefix(keys.search())
+  invalidatePrefix(keys.directoryProjects())
+  invalidatePrefix(keys.ownerProfile())
+}
+
 /** The single place an ambient event becomes a cache mutation. */
 function route(e: ServerEvent): void {
   switch (e.type) {
@@ -284,6 +307,17 @@ function route(e: ServerEvent): void {
       invalidate(keys.artifacts) // authored and seeded grants share one registry
       invalidate(keys.artifactContent) // grant/revoke changes exact body visibility
       invalidate(keys.commons) // a published share is a feed item (S4)
+      if (e.subject.kind === 'project') invalidateProjectDependencies(e.subject.id)
+      break
+    // A Project's canonical definition or viewer-relative access changed. The
+    // event carries only the id + audience scope: every permitted reader must
+    // re-read its own projection, especially on an unshare where stale foreign
+    // rows must not remain visible in dependent caches.
+    case 'project.changed':
+      invalidate(keys.projects)
+      invalidate(keys.relations)
+      invalidateProjectDependencies(e.projectId)
+      invalidate(keys.commons)
       break
     // A discussion changed (social S2) — the anchored list and the open thread
     // are stale; the family prefixes catch both projections.

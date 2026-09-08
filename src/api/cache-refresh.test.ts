@@ -5,6 +5,28 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { read, stripComments, ROOT } from '../../tests/helpers/source.ts'
+import { ApiRequestError } from './client.ts'
+import { queryFailureState } from './cache.ts'
+
+test('query failure state evicts only an authoritative not-found response', () => {
+  assert.equal(queryFailureState(new ApiRequestError('not_found', 'gone', 404)), 'evict')
+  assert.equal(queryFailureState(new ApiRequestError('internal', 'not found upstream', 404)), 'retain')
+  assert.equal(queryFailureState(new ApiRequestError('not_found', 'server error', 500)), 'retain')
+  assert.equal(queryFailureState(new ApiRequestError('internal', 'offline', 0)), 'retain')
+  assert.equal(queryFailureState(new Error('offline')), 'retain')
+  assert.equal(queryFailureState({ code: 'not_found', status: 404 }), 'retain')
+})
+
+test('query runner applies the failure policy without dropping transient stale data', () => {
+  const cache = stripComments(read(join(ROOT, 'src', 'api', 'cache.ts')))
+  const start = cache.indexOf('function run(')
+  const end = cache.indexOf('export function invalidate', start)
+  assert.ok(start >= 0 && end > start)
+  const block = cache.slice(start, end)
+  assert.match(block, /queryFailureState\(error\)/)
+  assert.match(block, /data: failureState === 'evict' \? undefined : e\.state\.data/)
+  assert.match(block, /if \(e\.gen === myGen\) \{\s*const failureState/, 'crossed failures cannot evict newer data')
+})
 
 test('cache-wide revalidation keeps data while refetching every live key', () => {
   const cache = stripComments(read(join(ROOT, 'src', 'api', 'cache.ts')))
