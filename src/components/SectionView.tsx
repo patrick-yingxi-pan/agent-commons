@@ -1120,7 +1120,8 @@ function ProjectsSection({
   // Yours vs your orgs vs the commons (shared-surface UI model): an ORG-owned
   // project is reached through a seat (FWD-6 — banded under "Your organizations",
   // whatever your role); a FOREIGN shared project is a different relationship —
-  // browsable, joinable, not yours. Neither interleaves with your own. The bands
+  // browsable, not yours; explicit read grants need not admit contributors.
+  // Neither interleaves with your own. The bands
   // survive the filter move: picking one facet leaves exactly one band standing,
   // and the all view still shows the three in order.
   const projectGroups = groupProjects(sorted, myOrgIds)
@@ -1143,7 +1144,7 @@ function ProjectsSection({
       description: group.key === 'org'
         ? "Projects owned by organizations you belong to — a seat, not a switch (the byline is the org's page)."
         : group.key === 'shared'
-          ? 'Projects other people opened to the commons — visit one to commission your agent or take open work.'
+          ? 'Projects shared with you — open a project to see its content and available actions.'
           : undefined,
       items: collectionProjectionItems(
         group.projects,

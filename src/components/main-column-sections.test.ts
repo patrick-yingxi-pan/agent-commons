@@ -31,6 +31,11 @@ const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
  *  that reads comments is asserting about comments. */
 const code = stripComments(src)
 
+test('shared Project guidance does not promise contributor authority to read-only grantees', () => {
+  assert.ok(code.includes('Projects shared with you — open a project to see its content and available actions.'))
+  assert.ok(!code.includes('visit one to commission your agent or take open work'))
+})
+
 /** One component's source, COMMENT-STRIPPED, through the SHARED extractor.
  *
  *  Both halves were mistakes here before they were rules. This suite hand-rolled
@@ -396,18 +401,19 @@ test('the project has ONE text about itself — the description, and About is it
   // `Project` reads `project.description` and is right by construction.
   const controller = read(join(ROOT, 'src', 'controller', 'useRelations.tsx'))
   assert.match(controller, /const withDescriptions = \(list: Project\[\]\): Project\[\] =>/, 'the overlay has one applier')
-  assert.match(controller, /const merged = \(\) => withDescriptions\(\[\.\.\.graph\.extraProjects, \.\.\.projects\]\)/,
+  assert.match(controller, /const merged = \(\) => withDescriptions\(registryRows\(graph\.extraProjects, projects\)\)/,
     'and it wraps the one merged list')
   assert.match(controller, /allProjects: merged,/, 'which is what every project reader is served')
-  // …and it is the ONLY place the two lists are spread together. A second spread
+  // …and it is the ONLY place the two lists are joined. A second merge
   // is a second, unresolved answer to "what are the projects" — which is what
   // `projectForSessionId` and `descriptionForProject` each were until now, one
   // of them handing the session breadcrumb a stale description.
   assert.equal(
-    (controller.match(/\[\.\.\.graph\.extraProjects, \.\.\.projects\]/g) ?? []).length,
+    (controller.match(/registryRows\(graph\.extraProjects, projects\)/g) ?? []).length,
     1,
     'the two project lists are merged in exactly one place',
   )
+  assert.doesNotMatch(controller, /\[\.\.\.graph\.extraProjects, \.\.\.projects\]/, 'complete registries must not duplicate authored rows')
   assert.match(fn('ProjectAbout'), /const current = project\.description/, 'About reads the resolved field')
   assert.match(fn('ProjectAbout'), /kind: 'set-project-description'/, 'and edits the one field')
   assert.match(fn('ProjectAbout'), /setReviewed\(current\)/, 'opening freezes the reviewed public text')

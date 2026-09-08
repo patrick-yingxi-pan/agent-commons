@@ -489,7 +489,9 @@ async function seedIds(page) {
     repoSessionId: repoSessionId ?? chipSessionId,
     threadSessionId,
     threadSessionTitle,
-    projectId: arr(projects)[0]?.id ?? null,
+    // The canonical registry includes foreign shared/granted rows. The owner
+    // sharing act requires write-grade ownership, never just list visibility.
+    projectId: arr(projects).find((project) => project.own === true)?.id ?? null,
     scheduleId: arr(schedules)[0]?.id ?? null,
     artifactId: arr(artifacts)[0]?.id ?? null,
     discussionId: arr(discussions)[0]?.id ?? null,

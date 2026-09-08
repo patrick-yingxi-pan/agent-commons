@@ -1613,6 +1613,27 @@ const publicSharedProject = (p: Project): Project => ({
   instructions: '',
 })
 
+const projectDescription = (p: Project, g: RelationGraph): string =>
+  g.projectDescriptions[p.id] ?? p.description
+
+/** One read face for both the canonical registry and graph acknowledgements.
+ * Public prose is current, but a grant never widens private membership or
+ * instructions. Org members read the full face without acquiring owner acts. */
+function projectForTenant(p: Project, g: RelationGraph, tenantId: string): Project | undefined {
+  const current = { ...p, description: projectDescription(p, g) }
+  const ownerName = tenantName(publicProjectOwnerTenant(p, tenantId))
+  if (rowVisibleTo(p, tenantId)) {
+    return {
+      ...current,
+      instructions: g.projectInstructions[p.id] ?? p.instructions,
+      ownerName,
+      own: ownsGrantSubject(p, tenantId),
+    }
+  }
+  if (p.shared !== true && grantedTierFor({ kind: 'project', id: p.id }, tenantId) === undefined) return undefined
+  return { ...publicSharedProject(current), ownerName, own: false, tenantId: undefined }
+}
+
 /** The public face of a Commission on a SHARED Project shown to a NON-owner (P8): the
  *  Contributor IDENTITY (agent / project / role) only. The D12 posture — `authority`, token
  *  `grant`, `reservationId` — is stripped, mirroring what `GET /commissions/:id/authority`
@@ -1667,22 +1688,8 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     // the frozen object leaks the owner's session ids + count across the tenant boundary. The
     // owner keeps the full object.
     extraProjects: g.extraProjects.flatMap((p) => {
-      // Stamp the public identity on every emitted row (the D17 posture, now on the
-      // projection too): `ownerName` is the workspace DISPLAY name; `own` is
-      // viewer-relative and drives the owner/visitor affordance split client-side. A
-      // foreign row also drops the raw `tenantId` — the display name is the public
-      // face; the raw id of a foreign tenant never crosses (mirrors the directory).
-      const ownerName = tenantName(publicProjectOwnerTenant(p, tenantId))
-      if (rowVisibleTo(p, tenantId)) {
-        // FWD-6 O-D6: `own` is WRITE-grade — the owner tenant itself, or an org
-        // OWNER seat. A member sees the full object (they're inside the wall)
-        // with visitor-style affordances (own: false).
-        return [{ ...p, ownerName, own: p.tenantId ? tenantWritesAs(tenantId, p.tenantId) : true }]
-      }
-      // Social S1: a grant lists the subject too — the shared-with-me band is
-      // fed by the same redacted public face as the everyone-switch.
-      const listed = p.shared === true || grantedTierFor({ kind: 'project', id: p.id }, tenantId) !== undefined
-      return listed ? [{ ...publicSharedProject(p), ownerName, own: false, tenantId: undefined }] : []
+      const projected = projectForTenant(p, g, tenantId)
+      return projected ? [projected] : []
     }),
     extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)),
     sessionProject: byProjValue(g.sessionProject),
@@ -1704,7 +1711,7 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
       Object.entries(g.projectDescriptions).filter(([pid]) => {
         if (projVisible(pid)) return true
         const p = findProject(pid)
-        return p?.shared === true
+        return p !== undefined && (p.shared === true || grantedTierFor({ kind: 'project', id: pid }, tenantId) !== undefined)
       }),
     ),
     artifactSource: byArtKey(g.artifactSource),
@@ -6166,25 +6173,21 @@ export const store = {
     if (!project) throw new ConflictError('The new Project could not be projected to its creator.')
     return { project, graph: projected }
   },
-  /** Seed projects, scoped to the caller's tenant when given (F2/PD9 — each of
-   *  the six demo accounts holds its own themed set, docs/demo-accounts.md).
-   *  Created projects live in `graph.extraProjects` (see relationGraph). */
+  /** Complete seeded + authored registry, using the graph's same viewer face.
+   * Prose overlays are current; membership continues to live in relation maps. */
   listProjects(tenantId?: string): Project[] {
-    const projects = baseProjects()
-    if (!tenantId) return projects
+    const projects = [...graph.extraProjects, ...baseProjects()]
+    if (!tenantId) return projects.map((p) => ({
+      ...p, description: projectDescription(p, graph),
+      instructions: graph.projectInstructions[p.id] ?? p.instructions,
+    }))
     return projects.flatMap((p) => {
-      if (rowVisibleTo(p, tenantId)) return [p]
-      // Social S1: a granted seed project rides as its redacted public face
-      // with visitor affordances (own: false) — the shared-with-me band.
-      if (grantedTierFor({ kind: 'project', id: p.id }, tenantId) === undefined) return []
-      return [{ ...publicSharedProject(p), ownerName: tenantName(publicProjectOwnerTenant(p, tenantId)), own: false, tenantId: undefined }]
+      const projected = projectForTenant(p, graph, tenantId)
+      return projected ? [projected] : []
     })
   },
-  /** Resolve a Project across BOTH homes — seeded (`PROJECTS`) + created
-   *  (`graph.extraProjects`) — the authoritative existence check. `listProjects()`
-   *  returns seed projects only, so routes that must reach a *created* (shared)
-   *  Project (commissioning / cooperation) resolve through this instead (P8). Returns
-   *  the live object; callers must not send it verbatim cross-tenant (redact first). */
+  /** Internal exact lookup across seeded and authored homes. Returns the live
+   * object; callers must not send it verbatim cross-tenant (redact first). */
   findProject(id: string): Project | undefined {
     return findProject(id)
   },
@@ -6388,6 +6391,7 @@ export const store = {
     // extraProjects only — seed Projects no-op), so the directory enumerates there.
     return graph.extraProjects
       .filter((p) => p.shared === true)
+      .map((p) => ({ ...p, description: projectDescription(p, graph) }))
       .filter((p) => !needle || p.name.toLowerCase().includes(needle) || p.description.toLowerCase().includes(needle))
       .map((p) => {
         const owner = p.tenantId ?? defaultTenantId()
@@ -7021,8 +7025,11 @@ export const store = {
     // 'Your projects' = seeds + created rows the caller owns; a FOREIGN shared row
     // (the Projects list's "Shared with you" band) surfaces via the directory group
     // below instead, so the two groups partition and nothing appears twice.
-    const projection = this.relationGraph(tenantId)
-    const ownProjects = [...this.listProjects(tenantId), ...projection.extraProjects.filter((p) => p.own !== false)]
+    const projects = this.listProjects(tenantId)
+    // Org members retain their org's private read face even without owner acts;
+    // foreign shared/granted rows carry no tenant stamp and form the other band.
+    const ownProjects = projects.filter((p) => p.own !== false || p.tenantId !== undefined)
+    const sharedProjects = projects.filter((p) => p.own === false && p.tenantId === undefined)
     const projectDir = this.projectDirectory(tenantId)
     const agentDir = this.agentDirectory(tenantId)
     const owners = [...new Set([...projectDir.map((p) => p.owner), ...agentDir.map((a) => a.owner)])]
@@ -7068,9 +7075,9 @@ export const store = {
             title: n,
             subtitle: `${count(projectDir.filter((p) => p.owner === n).length, 'shared project')} · ${count(agentDir.filter((a) => a.owner === n).length, 'published agent')}`,
           }))),
-        ...group('sharedProject', 'Shared projects', projectDir
-          .filter((p) => !p.own && hit(p.name, p.description))
-          .map((p): SearchHit => ({ type: 'sharedProject', id: p.id, title: p.name, subtitle: `Shared by ${p.owner} · ${p.description}` }))),
+        ...group('sharedProject', 'Shared projects', sharedProjects
+          .filter((p) => hit(p.name, p.description))
+          .map((p): SearchHit => ({ type: 'sharedProject', id: p.id, title: p.name, subtitle: `Shared by ${p.ownerName} · ${p.description}` }))),
         ...group('publishedAgent', 'Published agents', agentDir
           .filter((a) => !a.own && hit(a.label, a.instructions))
           .map((a): SearchHit => ({ type: 'publishedAgent', id: a.id, title: a.label, subtitle: `Published by ${a.owner} · ${a.instructions}`, ref: a.owner }))),

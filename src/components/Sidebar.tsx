@@ -382,11 +382,9 @@ export function Sidebar({
   }
 
   const { applyOp, projectIdForSession, scheduleProjectId, allProjects } = useRelations()
-  // The LIVE project registry — seeds + runtime-created (graph.extraProjects), the
-  // same list the Projects page renders. The rail must not read the seed-only
-  // /projects mirror: a just-created project would be nameless here ("Project")
-  // and missing from every "Add to project" / filter menu (registries have one
-  // home and live points-of-use).
+  // The same canonical registry + immediate creation acknowledgements that the
+  // Projects page renders, joined by ID so a pending refetch cannot hide or
+  // duplicate a just-created project in the rail or its action menus.
   const projects = useMemo(() => allProjects(), [allProjects])
   const projectName = (pid: string) => projects.find((p) => p.id === pid)?.name ?? 'Project'
 

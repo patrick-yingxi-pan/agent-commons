@@ -509,7 +509,7 @@ export function useScheduleTemplates(): QueryState<ScheduleTemplate[]> {
   return useQuery(keys.scheduleTemplates, () => apiGet<ScheduleTemplate[]>(paths.scheduleTemplates))
 }
 
-/** The projects list. */
+/** The complete tenant-visible project registry, seeded and authored. */
 export function useProjects(): QueryState<Project[]> {
   return useQuery(keys.projects, () => apiGet<Project[]>(paths.projects))
 }

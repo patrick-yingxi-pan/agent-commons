@@ -4619,7 +4619,6 @@ export function buildRouter(): Router {
       // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
       // Shared by BOTH transports — a relayed tool call resolves against the same
       // registries a dial-out one does.
-      const graphNow = store.relationGraph(tenantId)
       const commons = {
         // isDefault rides along so create_agent can pre-select the caller's
         // default-else-first binding when the model names none — the same
@@ -4632,12 +4631,14 @@ export function buildRouter(): Router {
         // created entities (the graph extras) first, then the seeds, so "file this
         // under ‹a project Claude created two turns ago›" resolves (a seed-only
         // list once defaulted that to the wrong project — INV-9).
-        projects: [...graphNow.extraProjects, ...store.listProjects(tenantId)].map((p) => ({
+        projects: store.listProjects(tenantId).map((p) => ({
           id: p.id,
           name: p.name,
           defaultRole: p.defaultRole,
-          description: graphNow.projectDescriptions[p.id] ?? p.description,
-          instructions: graphNow.projectInstructions[p.id] ?? p.instructions,
+          description: p.description,
+          instructions: p.instructions,
+          own: p.own,
+          shared: p.shared,
         })),
         // These semantic aliases propose filing/source writes. Read-only
         // grants remain discoverable through GET /artifacts, not write targets.

@@ -240,6 +240,20 @@ test('draft cell explicitly selects the fresh draft and proves it is empty', () 
 
 // ── the stack the sweep drives ──────────────────────────────────────────────
 
+test('the owner sharing sweep selects write-grade ownership, not registry position', () => {
+  const expression = SWEEP.match(/projectId: (.+),/)?.[1]
+  assert.ok(expression, 'the sweep derives a canonical project identity')
+  const select = (projects: Array<{ id: string; own?: boolean }>) =>
+    vm.runInNewContext(expression, { projects, arr: (rows: unknown[]) => rows })
+  const foreign = { id: 'foreign-first', own: false }
+  const legacy = { id: 'unproven-ownership' }
+  const owned = { id: 'owned', own: true }
+  assert.equal(select([foreign, legacy, owned]), owned.id, 'read visibility does not prove the owner-only act exists')
+  assert.equal(select([owned, foreign]), owned.id, 'selection is independent of row order')
+  assert.equal(select([foreign, legacy]), null, 'missing owner coverage stays explicit rather than probing a visitor')
+  assert.equal(select([]), null)
+})
+
 test('sharing cells wait for the lazy-loaded act rather than judging its loading fallback', () => {
   const start = SWEEP.indexOf('async function sharingAct(')
   assert.ok(start >= 0)

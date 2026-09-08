@@ -12,7 +12,7 @@ import type {
   StepTool,
 } from '../types'
 import { emptyGraph, opAppliedInGraph } from '../../contract/index.ts'
-import { artifactRegistryRows } from '../lib/artifactRegistry.ts'
+import { registryRows } from '../lib/registryRows.ts'
 import { OWNER_SECTION } from '../lib/paneNav'
 import {
   useArtifacts,
@@ -187,7 +187,7 @@ export function RelationsProvider({
     const projectIdForSession = (sid: string) =>
       sid in graph.sessionProject ? graph.sessionProject[sid] : null
     const artifactProjectId = (a: ArtifactItem) => graph.artifactProject[a.id] ?? a.projectId
-    const allArtifacts = () => artifactRegistryRows(graph.extraArtifacts, artifacts)
+    const allArtifacts = () => registryRows(graph.extraArtifacts, artifacts)
     const scheduleProjectId = (schedId: string) =>
       schedId in graph.scheduleProject ? graph.scheduleProject[schedId] : null
 
@@ -210,7 +210,7 @@ export function RelationsProvider({
       if (!edits || Object.keys(edits).length === 0) return list
       return list.map((p) => (edits[p.id] === undefined ? p : { ...p, description: edits[p.id]! }))
     }
-    const merged = () => withDescriptions([...graph.extraProjects, ...projects])
+    const merged = () => withDescriptions(registryRows(graph.extraProjects, projects))
 
     return {
       applyOp,

@@ -56,6 +56,108 @@ test('a created project is stamped with the caller tenant; relationGraph project
   assert.ok(!def.extraProjects.some((p) => p.id === 'proj-a' || p.id === 'proj-b'), 'default reader excludes non-default projects')
 })
 
+test('the canonical project registry includes each authored row once and preserves public projection walls', () => {
+  const owner = 'tenant-project-registry-owner'
+  const audience = 'tenant-beta'
+  const bystander = 'tenant-project-registry-bystander'
+  const projectId = 'proj-registry-shared'
+
+  store.applyRelationOp(
+    mkCreate(projectId, 'Registry shared', 'private-session'),
+    owner,
+  )
+  store.applyRelationOp({
+    kind: 'scope-context',
+    projectId,
+    projectName: 'Registry shared',
+    context: { id: 'private-context', label: 'Owner secret', kind: 'connector' },
+  }, owner)
+  store.applyRelationOp({
+    kind: 'set-project-instructions',
+    projectId,
+    projectName: 'Registry shared',
+    instructions: 'Owner-only instructions',
+  }, owner)
+  store.applyRelationOp({
+    kind: 'set-project-description',
+    projectId,
+    projectName: 'Registry shared',
+    description: 'Owner public description',
+  }, owner)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Registry shared', shared: true }, owner)
+  const directoryRow = store.projectDirectory(bystander).find((p) => p.id === projectId)
+  assert.equal(directoryRow?.description, 'Owner public description', 'the public directory uses the current description overlay')
+  const ownerProjection = store.relationGraph(owner)
+  const ownerGraph = ownerProjection.extraProjects.find((p) => p.id === projectId)
+  assert.equal(ownerProjection.projectDescriptions[projectId], 'Owner public description')
+  assert.deepEqual([ownerGraph?.sessionIds, ownerProjection.projectContexts[projectId], ownerProjection.projectInstructions[projectId]], [['private-session'], [{ id: 'private-context', label: 'Owner secret', kind: 'connector' }], 'Owner-only instructions'])
+  store.applyRelationOp({
+    kind: 'set-project-description',
+    projectId,
+    projectName: 'Registry shared',
+    description: '',
+  }, owner)
+
+  const owned = store.listProjects(owner).filter((p) => p.id === projectId)
+  assert.equal(owned.length, 1, 'an authored project has one canonical registry row')
+  assert.equal(owned[0]?.own, true, 'the project owner receives write-grade own')
+  assert.equal(owned[0]?.description, '', 'an explicitly empty current description is preserved')
+
+  const shared = store.listProjects(bystander).filter((p) => p.id === projectId)
+  assert.equal(shared.length, 1, 'shared-everyone visibility has one canonical row')
+  assert.equal(shared[0]?.own, false)
+  assert.equal(shared[0]?.tenantId, undefined, 'foreign owner tenant is redacted')
+  assert.deepEqual(
+    [shared[0]?.sessionIds, shared[0]?.contexts, shared[0]?.instructions, shared[0]?.scheduled],
+    [[], [], '', []],
+    'foreign shared rows redact owner-scoped fields',
+  )
+
+  // Sharing is an independent public state. Revoke it before exercising the
+  // narrower explicit-grant projection below, otherwise the shared-everyone
+  // row would correctly survive grant revocation.
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Registry shared', shared: false }, owner)
+
+  const granted = store.createGrant({
+    subject: { kind: 'project', id: projectId },
+    audience: { kind: 'org', orgId: audience },
+    tier: 'view',
+  }, owner)
+  assert.ok(granted && typeof granted === 'object', 'the explicit audience grant is created')
+  const grantedRows = store.listProjects(audience).filter((p) => p.id === projectId)
+  assert.equal(grantedRows.length, 1, 'an explicit grant has one canonical row')
+  assert.equal(grantedRows[0]?.own, false)
+  assert.equal(grantedRows[0]?.tenantId, undefined)
+  assert.equal(grantedRows[0]?.description, '', 'grant-only projection carries current empty description')
+
+  assert.equal(store.listProjects('tenant-project-registry-hidden').some((p) => p.id === projectId), false, 'private/ungranted projects stay absent')
+  assert.equal(store.listProjects(owner).filter((p) => p.id === projectId).length, 1, 'owner does not receive a duplicate through sharing')
+
+  const grantSearchId = 'proj-registry-grant-search'
+  store.applyRelationOp(mkCreate(grantSearchId, 'Grant-only searchable project', ''), owner)
+  store.applyRelationOp({ kind: 'set-project-description', projectId: grantSearchId, projectName: 'Grant-only searchable project', description: 'Grant-only current prose' }, owner)
+  const searchGrant = store.createGrant({
+    subject: { kind: 'project', id: grantSearchId },
+    audience: { kind: 'org', orgId: audience },
+    tier: 'view',
+  }, owner)
+  assert.ok(searchGrant && typeof searchGrant === 'object')
+  const grantSearch = store.searchAll(audience, 'Grant-only searchable project')
+  const grantProjectHits = grantSearch.groups.flatMap((group) => group.hits).filter((hit) => hit.id === grantSearchId)
+  assert.equal(grantProjectHits.length, 1, 'grant-only search exposes one shared-project hit')
+  assert.equal(grantSearch.groups.find((group) => group.type === 'project'), undefined, 'grant-only row is not misclassified as owned')
+})
+
+test('search emits one owned hit when the canonical project registry includes authored rows', () => {
+  const tenant = 'tenant-project-search-owner'
+  const id = 'proj-search-canonical'
+  store.applyRelationOp(mkCreate(id, 'Canonical Search Project', ''), tenant)
+  const hits = store.searchAll(tenant, 'Canonical Search Project').groups
+    .flatMap((group) => group.hits)
+    .filter((hit) => hit.type === 'project' && hit.id === id)
+  assert.equal(hits.length, 1, 'canonical authored project is not duplicated by search composition')
+})
+
 test('relation.applied is gated on the ACTING tenant, incl. null-projectId unfile/unlink ops', () => {
   // A create-project event stamped tenant-pa: visible to it, not another.
   const created = { type: 'relation.applied', op: mkCreate('proj-a', 'Alpha'), by: 'user', tenantId: 'tenant-pa' }

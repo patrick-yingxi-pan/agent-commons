@@ -13,6 +13,12 @@ import { keys } from './keys.ts'
  * its body in the separate content projection. */
 export function invalidateForCommonsOp(op: RelationOp): void {
   switch (op.kind) {
+    case 'create-project':
+    case 'share-project':
+    case 'set-project-description':
+    case 'set-project-instructions':
+      invalidate(keys.projects)
+      break
     case 'save-artifact':
       invalidate(keys.artifacts)
       invalidate(keys.artifactContent)

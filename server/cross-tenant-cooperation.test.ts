@@ -123,7 +123,8 @@ test('graph projection — a shared project is visible cross-tenant; a private o
 // ── Phase 1 — membership hardening (docs/design/test-plan-coop-lifecycle.md) ──────────
 
 test('A7 — share-project on a SEED project id no-ops (seed Projects are not shareable in slice 1)', () => {
-  const seedId = store.listProjects()[0]?.id
+  const authoredIds = new Set(store.relationGraph().extraProjects.map((project) => project.id))
+  const seedId = store.listProjects().find((project) => !authoredIds.has(project.id))?.id
   assert.ok(seedId, 'there is a seed project to probe')
   // The reducer's share-project case only touches extraProjects, so a seed id is a documented
   // no-op — no throw, and the seed project stays not-shared. (Applied by the seed owner, the

@@ -78,7 +78,7 @@ import { accountGeneration } from './account.ts'
 import { invalidate, invalidatePrefix, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
-import { artifactRegistryRows } from '../lib/artifactRegistry.ts'
+import { registryRows } from '../lib/registryRows.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { readReplyEvents } from './replyStream.ts'
 import { shouldAcceptRelationGraph } from './relationRevision.ts'
@@ -918,7 +918,7 @@ export async function landSocialProposal(
   return p
 }
 
-const cachedArtifactRows = (): ArtifactItem[] => artifactRegistryRows(
+const cachedArtifactRows = (): ArtifactItem[] => registryRows(
   peek<RelationGraph>(keys.relations)?.extraArtifacts ?? [],
   peek<ArtifactItem[]>(keys.artifacts) ?? [],
 )

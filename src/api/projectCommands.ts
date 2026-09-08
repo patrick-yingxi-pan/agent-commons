@@ -7,7 +7,7 @@ import type {
   RelationGraph,
 } from '../../contract/index.ts'
 import { apiGet, apiPost } from './client.ts'
-import { invalidatePrefix, peek, setData } from './cache.ts'
+import { invalidate, invalidatePrefix, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { shouldAcceptRelationGraph } from './relationRevision.ts'
 
@@ -21,6 +21,7 @@ export async function createProject(
   if (shouldAcceptRelationGraph(peek<RelationGraph>(keys.relations), created.graph)) {
     setData(keys.relations, created.graph)
   }
+  invalidate(keys.projects)
   invalidatePrefix(keys.ownerProfile())
   invalidatePrefix(keys.search())
   invalidatePrefix(keys.directoryProjects())
@@ -34,6 +35,7 @@ export async function reconcileProjectCreation(): Promise<void> {
   if (shouldAcceptRelationGraph(peek<RelationGraph>(keys.relations), incoming)) {
     setData(keys.relations, incoming)
   }
+  invalidate(keys.projects)
   invalidatePrefix(keys.ownerProfile())
   invalidatePrefix(keys.search())
   invalidatePrefix(keys.directoryProjects())

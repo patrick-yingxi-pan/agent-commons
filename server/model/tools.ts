@@ -52,6 +52,10 @@ export interface ToolContext {
       defaultRole?: ProjectRole
       description?: string
       instructions?: string
+      /** Whether this caller owns the project. Missing preserves unit/seed compatibility. */
+      own?: boolean
+      /** Whether a non-owner may collaborate on the project. */
+      shared?: boolean
     }[]
     /** Live artifacts — saved-out extras first, then seeds. */
     artifacts?: { id: string; name: string }[]
@@ -116,8 +120,24 @@ function byName<T extends { name: string }>(list: T[], name: string): T | undefi
   if (!n) return undefined
   return list.find((x) => x.name.toLowerCase() === n) ?? list.find((x) => x.name.toLowerCase().includes(n))
 }
+/** Commissioning is the one project write that may target a foreign project:
+ * shared projects explicitly admit contributors. Private foreign projects remain
+ * unavailable, and owned projects retain their normal eligibility. */
+function resolveProjectTarget(name: string, ctx: ToolContext, eligible: (project: { own?: boolean; shared?: boolean }) => boolean) {
+  const projects = ctx.commons?.projects ?? PROJECTS
+  const normalized = name.trim().toLowerCase()
+  if (!normalized) return undefined
+  // Resolve an exact name against the full catalog first. An exact but forbidden
+  // project must refuse rather than falling through to an eligible contains-match.
+  const exact = projects.find((project) => project.name.toLowerCase() === normalized)
+  if (exact) return eligible(exact) ? exact : undefined
+  return byName(projects.filter(eligible), name)
+}
 function resolveProject(name: string, ctx: ToolContext) {
-  return byName(ctx.commons?.projects ?? PROJECTS, name)
+  return resolveProjectTarget(name, ctx, (project) => project.own !== false)
+}
+function resolveCommissionProject(name: string, ctx: ToolContext) {
+  return resolveProjectTarget(name, ctx, (project) => project.own !== false || project.shared === true)
 }
 function resolveArtifact(name: string, ctx: ToolContext) {
   return byName(ctx.commons?.artifacts ?? ALL_ARTIFACTS, name)
@@ -614,7 +634,7 @@ const TOOLS: ToolSpec[] = [
     required: ['agent', 'project'],
     build: (input, ctx) => {
       const agent = byLabel(ctx.commons?.agents, str(input.agent))
-      const p = resolveProject(str(input.project), ctx)
+      const p = resolveCommissionProject(str(input.project), ctx)
       if (!p) return noMatch('project', str(input.project))
       if (!agent) {
         return { summary: `No worker agent matching "${str(input.agent)}" — proposed nothing.` }

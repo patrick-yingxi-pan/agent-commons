@@ -30,6 +30,22 @@ milestones or address a demonstrated defect.
 
 ## Checkpoint criteria
 
+The Project registry checkpoint extends the canonical discovery boundary to
+authored Projects. The HTTP/MCP list and graph acknowledgements now share one
+viewer projection, including current public prose and distinct org-member /
+org-owner controls. Search includes directed grants without duplicate hits, and
+the directory reflects description edits. Project and artifact UI merges use
+one opaque-ID union. Model aliases distinguish owner edits from shared-project
+commissioning; granting read access is not granting either write authority.
+Shared-list guidance reflects that distinction. The visual sweep selects an
+explicitly owned Project for owner-only sharing checks, never the first visible
+row; independent reader walks still prove those controls are absent.
+This does not change durable membership storage or the public event protocol:
+live grant/revoke refresh is covered, while public sharing/prose edits still
+need a privacy-preserving ambient invalidation path for already-open visitors.
+The full production goal and all remaining integration/release milestones stay
+in force; shared interactive review still requires an unlocked Mac.
+
 The authored-artifact discovery checkpoint closes a gap masked by the UI's
 relation-graph merge: `GET /artifacts` and remote MCP now list actual authored
 documents alongside fixtures. Current filing/unfiling is projected, same-name

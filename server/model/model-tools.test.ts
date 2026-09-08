@@ -290,6 +290,59 @@ test('commission_agent → a commission-agent op resolving the agent (live) + pr
   assert.equal((op as any).projectId, 'p-insights')
 })
 
+test('project writes refuse foreign projects, while commission_agent admits an explicitly shared foreign project', () => {
+  const ownership: ToolContext = {
+    ...ctxCommons,
+    commons: {
+      ...ctxCommons.commons!,
+      projects: [
+        { id: 'p-owned', name: 'Owned Project', own: true, shared: false, defaultRole: 'maintainer' },
+        { id: 'p-shared', name: 'Shared Project', own: false, shared: true, defaultRole: 'reader' },
+        { id: 'p-private', name: 'Private Foreign Project', own: false, shared: false },
+      ],
+    },
+  }
+
+  const file = executeTool('file_session', { project: 'Shared Project' }, ownership)
+  assert.equal(file.relationOps, undefined)
+  assert.match(file.summary, /no project matching/i)
+
+  const commission = executeTool('commission_agent', { agent: 'Scout', project: 'Shared Project' }, ownership)
+  assert.equal(commission.relationOps?.[0]?.kind, 'commission-agent')
+  assert.equal((commission.relationOps?.[0] as any).projectId, 'p-shared')
+  assert.equal((commission.relationOps?.[0] as any).role, 'reader')
+
+  const privateCommission = executeTool('commission_agent', { agent: 'Scout', project: 'Private Foreign Project' }, ownership)
+  assert.equal(privateCommission.relationOps, undefined)
+  assert.match(privateCommission.summary, /no project matching/i)
+})
+
+test('project metadata absent remains compatible with seed and unit-call project resolution', () => {
+  const e = executeTool('file_session', { project: 'Insights dashboard' }, ctxCommons)
+  assert.equal(e.relationOps?.[0]?.kind, 'file-session')
+})
+
+test('an exact foreign project name cannot fall through to an owned contains-match', () => {
+  const collision: ToolContext = {
+    ...ctxCommons,
+    commons: {
+      ...ctxCommons.commons!,
+      projects: [
+        { id: 'p-foreign-exact', name: 'Shared Project', own: false, shared: false },
+        { id: 'p-owned-contains', name: 'Shared Project Archive', own: true },
+      ],
+    },
+  }
+
+  const write = executeTool('set_project_description', { project: 'Shared Project', description: 'No redirect.' }, collision)
+  assert.equal(write.relationOps, undefined)
+  assert.match(write.summary, /no project matching/i)
+
+  const commission = executeTool('commission_agent', { agent: 'Scout', project: 'Shared Project' }, collision)
+  assert.equal(commission.relationOps, undefined)
+  assert.match(commission.summary, /no project matching/i)
+})
+
 test('commission_agent with an unknown agent proposes nothing (no op, just a summary)', () => {
   const e = executeTool('commission_agent', { agent: 'Nobody', project: 'Insights dashboard' }, ctxCommons)
   assert.equal(e.relationOps, undefined)

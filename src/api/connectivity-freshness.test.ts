@@ -27,6 +27,21 @@ const eventCase = (events: string, name: string) => {
 
 // ── The event router: every new/widened case actually heals the surfaces ──────
 
+test('Project creation, prose, sharing and recovery refresh the canonical registry', () => {
+  const invalidation = src('src', 'api', 'commonsInvalidation.ts')
+  for (const kind of ['create-project', 'share-project', 'set-project-description', 'set-project-instructions']) {
+    const start = invalidation.indexOf(`case '${kind}':`)
+    assert.ok(start >= 0, kind)
+    assert.match(invalidation.slice(start, invalidation.indexOf('break', start)), /invalidate\(keys\.projects\)/, kind)
+  }
+  const commands = src('src', 'api', 'projectCommands.ts')
+  for (const name of ['createProject', 'reconcileProjectCreation']) {
+    const block = commands.split(`export async function ${name}`)[1]?.split('export async function')[0]
+    assert.ok(block, name)
+    assert.match(block, /invalidate\(keys\.projects\)/, name)
+  }
+})
+
 test('artifact creation and grant changes refresh the complete registry and body projection', () => {
   const events = src('src', 'api', 'events.ts')
   const grant = eventCase(events, 'grant.changed')

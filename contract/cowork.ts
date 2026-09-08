@@ -99,8 +99,8 @@ export interface Project {
   shared?: boolean
   /** Projection-stamped public identity: the owning workspace's DISPLAY name — the same
    *  public face the D17 directory shows ("by Ada Lab"), never a raw foreign tenant id.
-   *  Set by the server's per-tenant projection on every created Project it emits; unset
-   *  on seed rows (they are the viewer's own by construction). */
+   *  Set by the server's per-tenant registry/graph projections. Raw seed rows and
+   *  older snapshots may omit it. */
   ownerName?: string
   /** Viewer-relative, projection-stamped: whether the CALLER's tenant owns this row.
    *  Drives the owner/visitor affordance split on the project page — owner-only controls

@@ -176,6 +176,24 @@ test('POLICY: authored artifact listing has identical HTTP and remote-MCP tenanc
   assert.equal(revokedBody.body[created.id], undefined, 'MCP revocation removes the authored body projection')
 })
 
+test('POLICY: authored projects are discoverable identically through HTTP and remote MCP', async () => {
+  const tenant = 'tenant-mcp-project-registry'
+  const name = `MCP canonical project ${Date.now()}`
+  const created = await call('POST', '/projects', { name, description: '' }, { 'x-tenant-id': tenant })
+  assert.equal(created.status, 201)
+  const id = created.json.project.id as string
+
+  const direct = await call('GET', '/projects', undefined, { 'x-tenant-id': tenant })
+  const viaMcp = await toolCall('get_projects', undefined, { 'x-tenant-id': tenant })
+  assert.equal(direct.status, 200)
+  assert.equal(viaMcp.status, 200)
+  const directRows = (direct.json as { id: string }[]).filter((project) => project.id === id)
+  const mcpRows = (viaMcp.body as { id: string }[]).filter((project) => project.id === id)
+  assert.equal(directRows.length, 1, 'HTTP exposes the authored project exactly once')
+  assert.equal(mcpRows.length, 1, 'MCP exposes the authored project exactly once')
+  assert.deepEqual(mcpRows[0], directRows[0], 'HTTP and MCP expose the same canonical project row')
+})
+
 test('POLICY: the maintainer wall is identical through MCP — included capability does not widen authority', async () => {
   const login = await toolCall('post_auth_login', {
     body: { email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' },
