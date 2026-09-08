@@ -134,7 +134,7 @@ test('a real Word document projects body text, reaches the model, survives reloa
     await page.goto(`${coldUi.baseUrl}/s/${session.id}`)
     page.on('request', onMainFrameNavigation)
     const parserRequests: string[] = []
-    page.on('request', (request) => { if (/docx/i.test(request.url()) && /worker/.test(request.url())) parserRequests.push(request.url()) })
+    page.on('request', (request) => { if (/officeParser/i.test(request.url()) && /worker/.test(request.url())) parserRequests.push(request.url()) })
     await selectFiles(page, [{ name: 'research.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ bodyXml, entries: {
       'word/header1.xml': '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>header must not appear</w:t></w:r></w:p></w:hdr>',
       'word/comments.xml': '<comments>comment must not appear</comments>',
@@ -148,7 +148,7 @@ test('a real Word document projects body text, reaches the model, survives reloa
     await expect(preview).toContainText('cell one')
     await expect(preview).toContainText('cell two')
     await expect(preview).not.toContainText('must not appear')
-    expect(parserRequests.length, 'the dedicated DOCX worker was loaded').toBeGreaterThan(0)
+    expect(parserRequests.length, 'the dedicated Office worker was loaded').toBeGreaterThan(0)
 
     await page.getByRole('button', { name: 'Share this conversation', exact: true }).click()
     await page.getByLabel('Audience id').fill('tenant-beta')
@@ -286,7 +286,7 @@ test('closing a pending DOCX import cancels it and releases the next intake', as
   let unblock: () => void = () => {}
   const held = new Promise<void>((resolve) => { unblock = resolve })
   let workerRequests = 0
-  await page.route(/docx/i, async (route) => {
+  await page.route(/officeParser/i, async (route) => {
     if (!new URL(route.request().url()).searchParams.has('worker_file')) return route.continue()
     workerRequests += 1
     if (workerRequests === 1) { await held; await route.abort() }
@@ -321,7 +321,7 @@ test('a stalled DOCX worker reaches the exact deadline and leaves no live worker
   })
   let release: () => void = () => {}
   const held = new Promise<void>((resolve) => { release = resolve })
-  await page.route(/docx/i, async (route) => {
+  await page.route(/officeParser/i, async (route) => {
     if (!new URL(route.request().url()).searchParams.has('worker_file')) return route.continue()
     await held
     await route.abort()

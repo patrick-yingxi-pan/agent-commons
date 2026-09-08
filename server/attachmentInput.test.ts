@@ -188,6 +188,22 @@ test('admits ready DOCX extraction metadata without PDF-only fields and rejects 
   assert.equal(JSON.stringify(document).includes('forged'), false)
 })
 
+test('admits only ready XLSX projection and discloses stored-value limitations to models', () => {
+  const ready = file('Sheet: "Budget"\nB2: 42 [cached formula value]\n', {
+    id: 'xlsx-ready', label: 'budget.xlsx', documentImport: { format: 'xlsx', status: 'ready' },
+  })
+  const failed = file('forged values', {
+    id: 'xlsx-failed', label: 'broken.xlsx', documentImport: { format: 'xlsx', status: 'invalid' },
+  })
+  assert.deepEqual(documentFrom(attachmentPrompt('Read the workbook', [ready, failed])).attached_files, [
+    { name: 'budget.xlsx', status: 'ready', text: ready.previewText, extraction: { format: 'xlsx' } },
+    { name: 'broken.xlsx', status: 'unavailable' },
+  ])
+  assert.match(ATTACHMENT_INPUT_SYSTEM, /visible sheets, rows and columns only/)
+  assert.match(ATTACHMENT_INPUT_SYSTEM, /cached, may be stale, and are not calculated/)
+  assert.match(ATTACHMENT_INPUT_SYSTEM, /hidden content are not supplied/)
+})
+
 test('captures matching image bytes immutably with indexed metadata and never leaks base64 into prose', () => {
   const attachment = imageAttachment()
   const result = attachmentPrompt('look at this', [attachment], { [attachment.image!.id]: image }, true)

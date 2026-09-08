@@ -35,7 +35,7 @@ import {
   isSessionCompactionHeld,
   useSessionCompactionStatus,
 } from '../controller/sessionCompactionMutations'
-import { composerExecutionState } from '../lib/modelExecution'
+import { composerExecutionState, type ComposerExecutionState } from '../lib/modelExecution'
 
 const RELAY_WAIT = 'Waiting on your session…'
 const CompactionAffordance = lazy(() => import('./CompactionAffordance').then((module) => ({ default: module.CompactionAffordance })))
@@ -226,12 +226,17 @@ export function ConversationView({
   // waiting on instead of faking a token stream).
   const row = (useSessions().data ?? []).find((s) => s.id === sessionId)
   const agents = useAgents().data ?? []
-  const providers = useProviders().data ?? []
+  const providersQ = useProviders()
+  const providers = providersQ.data ?? []
   const agent = agents.find((a) => a.id === (row?.agentId ?? 'agent-default'))
   const providerId = modelPick?.providerId ?? row?.providerId ?? agent?.providerId ?? DEFAULT_PROVIDER_ID
-  const onRelay = providers.find((p) => p.id === providerId)?.kind === 'session'
   const provider = providers.find((p) => p.id === providerId)
-  const execution = composerExecutionState(provider?.execution, onRelay ? provider?.online === true : undefined)
+  const onRelay = provider?.kind === 'session'
+  const execution: ComposerExecutionState = composerExecutionState(
+    provider?.execution,
+    onRelay ? provider?.online === true : undefined,
+    providersQ.data !== undefined && provider === undefined,
+  )
   useSessionCompactionStatus()
   const compactionHeld = isSessionCompactionHeld(sessionId)
 
@@ -359,8 +364,7 @@ export function ConversationView({
         focus={focus}
         disabled={busy || compactionHeld || execution.blocked}
         disabledLabel={execution.blocked ? execution.placeholder : onRelay ? RELAY_WAIT : undefined}
-        modelExecution={provider?.execution}
-        sessionProviderOnline={onRelay ? provider?.online === true : undefined}
+        executionState={execution}
         onSend={sendAtLatest}
         onAddContext={onAddContext}
         onOpenContext={onOpenContext}

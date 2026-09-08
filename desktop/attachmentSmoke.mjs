@@ -7,6 +7,7 @@ import { exactLoopbackOrigin } from './runtime.mjs'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
+import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -387,11 +388,60 @@ export async function smokePackagedAttachments({ executable }) {
       name: 'native-document.docx', status: 'ready', text: docxText, extraction: { format: 'docx' },
     }])
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+    const xlsxPath = join(fixtureRoot, 'native-document.xlsx')
+    const xlsxMarker = 'native-workbook-visible-marker'
+    await writeFile(xlsxPath, xlsxFixture({ sheets: [
+      {
+        name: 'Visible Data',
+        rows: [[xlsxMarker, 42, 'hidden column value'], ['hidden row', 'hidden row value']],
+        hiddenRows: [2],
+        hiddenColumns: ['C'],
+      },
+      { name: 'Hidden Sheet', hidden: true, rows: [['hidden sheet marker']] },
+    ] }), { mode: 0o600 })
+    const xlsxSession = await page.evaluate(async (providerId) => {
+      const response = await fetch('/api/v1/sessions', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId }),
+      })
+      if (!response.ok) throw new Error(`XLSX conversation precondition: HTTP ${response.status}`)
+      return response.json()
+    }, session.providerId)
+    const xlsxRoute = `/s/${encodeURIComponent(xlsxSession.id)}`
+    await page.goto(`${origin}${xlsxRoute}`)
+    await run.app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async (_owner, options) => {
+        if (!options.properties.includes('openFile')) throw new Error('Expected XLSX file selection')
+        return { canceled: false, filePaths: [path] }
+      }
+    }, xlsxPath)
+    const xlsxPicker = await openFilesPicker(page)
+    await xlsxPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await expect(page.locator('[data-document-import="ready"]')).toBeVisible()
+    await expect(page.locator('[data-attachment-preview]')).toContainText(xlsxMarker)
+    await expect(page.locator('[data-attachment-preview]')).not.toContainText('hidden row')
+    await expect(page.locator('[data-attachment-preview]')).not.toContainText('hidden sheet marker')
+    const xlsxId = await page.locator('[data-attachment-preview]').getAttribute('data-attachment-preview')
+    const xlsxAttachmentBeforeReload = await page.evaluate(async (id) => {
+      const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
+      return detail.workspace.attachments.find((attachment) => attachment.label === 'native-document.xlsx')
+    }, xlsxSession.id)
+    assert.equal(xlsxAttachmentBeforeReload.documentImport?.format, 'xlsx')
+    assert.equal(xlsxAttachmentBeforeReload.documentImport?.status, 'ready')
+    assert.equal(typeof xlsxAttachmentBeforeReload.previewText, 'string')
+    assert.match(xlsxAttachmentBeforeReload.previewText, new RegExp(xlsxMarker))
+    const xlsxText = xlsxAttachmentBeforeReload.previewText
+    await closePreview(page)
+    await send(page, 'Read the workbook values.', xlsxMarker)
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{
+      name: 'native-document.xlsx', status: 'ready', text: xlsxText, extraction: { format: 'xlsx' },
+    }])
+    assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
     await run.app.close()
     run = undefined
     await rm(folderPath, { recursive: true })
     await rm(pdfPath)
     await rm(docxPath)
+    await rm(xlsxPath)
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
     await page.goto(`${origin}${folderRoute}`)
@@ -420,6 +470,29 @@ export async function smokePackagedAttachments({ executable }) {
     await send(page, 'Check detached Word document.', 'No supplied attachment text.')
     assert.equal(JSON.stringify(endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content).includes('native-word-body'), false)
     console.log('[desktop-docx-smoke] real native Word bytes + IPC · packaged worker extraction · model body text · full relaunch without source · detach')
+    await page.goto(`${origin}${xlsxRoute}`)
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.xlsx' }).click()
+    await expect(page.locator('[data-attachment-preview]')).toHaveAttribute('data-attachment-preview', xlsxId)
+    await expect(page.locator('[data-attachment-preview]')).toContainText(xlsxMarker)
+    await expect(page.locator('[data-attachment-preview]')).not.toContainText('hidden sheet marker')
+    await expect(page.locator('[data-document-import="ready"]')).toBeVisible()
+    const savedXlsx = await page.evaluate(async (id) => {
+      const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
+      return detail.workspace.attachments.find((attachment) => attachment.label === 'native-document.xlsx')
+    }, xlsxSession.id)
+    assert.equal(savedXlsx.previewText, xlsxText)
+    assert.deepEqual(savedXlsx.documentImport, { format: 'xlsx', status: 'ready' })
+    assert.equal(savedXlsx.xlsxBytes, undefined)
+    await closePreview(page)
+    await send(page, 'Read the saved workbook again.', xlsxMarker)
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{
+      name: 'native-document.xlsx', status: 'ready', text: xlsxText, extraction: { format: 'xlsx' },
+    }])
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.xlsx' }).click()
+    await page.getByTitle('Remove file', { exact: true }).click()
+    await send(page, 'Check detached workbook.', 'No supplied attachment text.')
+    assert.equal(JSON.stringify(endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content).includes(xlsxMarker), false)
+    console.log('[desktop-xlsx-smoke] real native XLSX bytes + IPC · packaged worker extraction · model body text and metadata · full relaunch without source · detach')
     await page.goto(`${origin}${pdfRoute}`)
     await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.pdf' }).click()
     await expect(page.locator('[data-attachment-preview]')).toHaveAttribute('data-attachment-preview', pdfId)

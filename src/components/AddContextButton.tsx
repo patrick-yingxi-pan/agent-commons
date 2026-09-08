@@ -43,7 +43,8 @@ import { CheckSquare } from './Checkbox'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
-import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
+import type { UiHostFile } from '../lib/uiHostFs'
+import { useUiHostFs, type UiHostFsLoadState, type UiHostFsModule } from '../lib/useUiHostFs'
 import { prepareUiHostFiles } from '../controller/imageAttachments'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
@@ -70,7 +71,7 @@ const RECENT_ROW_H = 38
 const RECENT_CHROME_H = 156
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
-  { id: 'files', label: 'Files', desc: 'Text, PDF and Word text, and images for your conversation', Icon: Paperclip },
+  { id: 'files', label: 'Files', desc: 'Text, PDF, Word, Excel values, and images for your conversation', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
   { id: 'folder', label: 'Folder', desc: 'List a folder’s files in your workspace', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
@@ -717,10 +718,12 @@ function UiHostDropZone({
   accept,
   label,
   onPicked,
+  hostFs,
 }: {
   accept: 'image' | 'any'
   label: string
   onPicked: (f: UiHostFile) => void | Promise<void>
+  hostFs: UiHostFsModule
 }) {
   const [drag, setDrag] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
@@ -766,7 +769,7 @@ function UiHostDropZone({
     <div>
       <button
         type="button"
-        onClick={() => void take((signal) => pickUiHostFiles(accept, window, signal))}
+        onClick={() => void take((signal) => hostFs.pickUiHostFiles(accept, window, signal))}
         disabled={importing}
         aria-busy={importing}
         onDragOver={(e) => {
@@ -778,7 +781,7 @@ function UiHostDropZone({
           e.preventDefault()
           setDrag(false)
           const files = e.dataTransfer.files
-          void take((signal) => readDroppedFiles(files, accept, signal))
+          void take((signal) => hostFs.readDroppedFiles(files, accept, signal))
         }}
         className={`flex w-full flex-col items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center transition ${
           drag ? 'border-accent bg-accent-tint' : 'border-line-strong hover:bg-panel-2'
@@ -793,11 +796,28 @@ function UiHostDropZone({
         <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
       </button>
       {importing && <p role="status" className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Importing selected files… Close this picker to cancel.</p>}
-      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PDFs and Word (.docx): up to 8 MB each, 24 MB per selection; PDFs up to 100 pages. Only extracted text up to 64 KB is saved; images, layout and OCR are not included.</p>}
+      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PDF, Word (.docx) and Excel (.xlsx): up to 8 MB each, 24 MB combined per selection. Only extracted text up to 64 KB per file is saved. PDFs: up to 100 pages; images, layout and OCR are not included. Excel: visible cell values only; formulas are not calculated.</p>}
       <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PNG, JPEG, GIF or WebP: up to 8 MB each, 24 MB per selection. Images are saved as a resized PNG of the first frame.</p>
       {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
     </div>
   )
+}
+
+function UiHostLoadNotice({ state, label }: { state: UiHostFsLoadState; label: string }) {
+  if (state.status === 'ready') return null
+  if (state.status === 'loading') {
+    return <p role="status" aria-busy="true" className="px-1 py-6 text-center text-[11px] text-ink-soft">Loading {label}…</p>
+  }
+  if (state.status === 'error') {
+    return (
+      <div role="alert" data-local-picker-load="error" className="px-1 py-4 text-center text-[11px] text-danger-text">
+        <p>Local {label} could not be loaded.</p>
+        <p className="mt-1 text-ink-soft">Reload the app to try again. Copy any unsent text first.</p>
+        <button type="button" onClick={() => window.location.reload()} className="mt-2 rounded-md px-2 py-1 text-[11px] font-medium text-ink ring-1 ring-line-strong hover:bg-panel-2">Reload app</button>
+      </div>
+    )
+  }
+  return null
 }
 
 /** Empty / loading state for a served catalog pane. */
@@ -911,6 +931,7 @@ function FilesPicker({
   const sources = useFsSourceList()
   const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
   const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
+  const hostFs = useUiHostFs(active.kind === 'ui-host')
 
   const attachUiHost = (f: UiHostFile) =>
     onAdd({
@@ -926,7 +947,9 @@ function FilesPicker({
     <div className="pb-1">
       <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
       {active.kind === 'ui-host' ? (
-        <UiHostDropZone accept="any" label="Add files from this computer" onPicked={attachUiHost} />
+        hostFs.module ? (
+          <UiHostDropZone accept="any" label="Add files from this computer" onPicked={attachUiHost} hostFs={hostFs.module} />
+        ) : <UiHostLoadNotice state={hostFs} label="file access" />
       ) : (
         <ServedFiles source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={attachServed} />
       )}
@@ -947,6 +970,7 @@ function PhotosPicker({
   const sources = useFsSourceList()
   const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
   const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
+  const hostFs = useUiHostFs(active.kind === 'ui-host')
 
   const attachUiHost = (f: UiHostFile) =>
     onAdd({
@@ -960,7 +984,9 @@ function PhotosPicker({
     <div className="pb-1">
       <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
       {active.kind === 'ui-host' ? (
-        <UiHostDropZone accept="image" label="Add photos from this computer" onPicked={attachUiHost} />
+        hostFs.module ? (
+          <UiHostDropZone accept="image" label="Add photos from this computer" onPicked={attachUiHost} hostFs={hostFs.module} />
+        ) : <UiHostLoadNotice state={hostFs} label="photo access" />
       ) : (
         <ServedPhotos source={active} addedIds={addedIds} onAttach={attachServed} />
       )}
@@ -1283,6 +1309,12 @@ function FolderPicker({
   const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
   const [failure, setFailure] = useState<string | null>(null)
   const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
+  const hostFs = useUiHostFs(active.kind === 'ui-host')
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
 
   // Attach a served folder: fetch its contents, tag each artifact with the folder
   // (a source-qualified key so the workspace can fetch real content + de-dupe).
@@ -1294,9 +1326,12 @@ function FolderPicker({
   }
 
   const attachUiHost = async () => {
+    if (!hostFs.module || !mounted.current) return
     setFailure(null)
+    const issuedAccount = accountGeneration()
     try {
-      const picked = await pickUiHostFolder()
+      const picked = await hostFs.module.pickUiHostFolder()
+      if (!mounted.current || accountGeneration() !== issuedAccount) return
       if (!picked) return
       if (!picked.artifacts.length) {
         setFailure('No visible top-level files were found. Choose a folder containing files; hidden files and subfolders are excluded.')
@@ -1310,7 +1345,9 @@ function FolderPicker({
         source: UI_HOST_SOURCE,
       })
     } catch (error) {
-      setFailure(error instanceof Error ? error.message : 'The selected folder could not be read. Try again.')
+      if (mounted.current && accountGeneration() === issuedAccount) {
+        setFailure(error instanceof Error ? error.message : 'The selected folder could not be read. Try again.')
+      }
     }
   }
 
@@ -1318,19 +1355,21 @@ function FolderPicker({
     <div className="pb-1">
       <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
       {active.kind === 'ui-host' ? (
-        <div>
-          <button
-            type="button"
-            onClick={() => void attachUiHost()}
-            className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-6 text-center transition hover:bg-panel-2"
-          >
-            <FolderOpen size={18} className="mb-1 text-ink-faint" />
-            <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
-            <span className="text-[11px] text-ink-faint">Import top-level text snapshots for the selected model. Hidden files and subfolders are excluded.</span>
-          </button>
-          <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Up to 24 readable files, 64 KB each and 128 KB total. Original files are never changed or kept in sync. Reattach to import later edits.</p>
-          {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
-        </div>
+        hostFs.module ? (
+          <div>
+            <button
+              type="button"
+              onClick={() => void attachUiHost()}
+              className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-6 text-center transition hover:bg-panel-2"
+            >
+              <FolderOpen size={18} className="mb-1 text-ink-faint" />
+              <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
+              <span className="text-[11px] text-ink-faint">Import top-level text snapshots for the selected model. Hidden files and subfolders are excluded.</span>
+            </button>
+            <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Up to 24 readable files, 64 KB each and 128 KB total. Original files are never changed or kept in sync. Reattach to import later edits.</p>
+            {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
+          </div>
+        ) : <UiHostLoadNotice state={hostFs} label="folder access" />
       ) : (
         <ServedFolders source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={(f) => void attachServed(f)} />
       )}

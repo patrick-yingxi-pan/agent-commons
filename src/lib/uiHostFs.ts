@@ -12,9 +12,11 @@ import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName }
 import { snapshotFolderFiles } from '../../contract/localFolderSnapshot.mjs'
 import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES, pdfImportFailure } from '../../contract/pdfImport.mjs'
 import { isDocxFileName, MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES, docxImportFailure } from '../../contract/docxImport.mjs'
+import { isXlsxFileName, MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES, xlsxImportFailure } from '../../contract/xlsxImport.mjs'
 import type { DocumentImportOutcome } from '../../contract/documentImport.mjs'
 import { importPdf } from './pdfImport.ts'
 import { importDocx } from './docxImport.ts'
+import { importXlsx } from './xlsxImport.ts'
 import { importImage, ImageImportError } from './imageImport.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
@@ -92,6 +94,8 @@ export class UiHostPickerError extends Error {
 }
 
 /** Read one browser File into a bounded normalized image or whole-text snapshot. */
+const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_SELECTION_BYTES, MAX_XLSX_SELECTION_BYTES)
+
 async function toUiHostFile(file: File, documentBudget: { used: number }, imageBudget: { used: number }, signal?: AbortSignal): Promise<UiHostFile> {
   const name = file.name
   if (isImage(name)) {
@@ -109,7 +113,7 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
   }
   if (isPdfFileName(name)) {
     if (file.size > MAX_PDF_FILE_BYTES) return selectedFile({ name, kind: 'file', ...pdfImportFailure('file-too-large') })
-    if (documentBudget.used + file.size > Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_SELECTION_BYTES)) return selectedFile({ name, kind: 'file', ...pdfImportFailure('selection-limit') })
+    if (documentBudget.used + file.size > MAX_DOCUMENT_SELECTION_BYTES) return selectedFile({ name, kind: 'file', ...pdfImportFailure('selection-limit') })
     documentBudget.used += file.size
     try {
       const bytes = new Uint8Array(await file.slice(0, MAX_PDF_FILE_BYTES + 1).arrayBuffer())
@@ -121,7 +125,7 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
   }
   if (isDocxFileName(name)) {
     if (file.size > MAX_DOCX_FILE_BYTES) return selectedFile({ name, kind: 'file', ...docxImportFailure('file-too-large') })
-    if (documentBudget.used + file.size > Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_SELECTION_BYTES)) return selectedFile({ name, kind: 'file', ...docxImportFailure('selection-limit') })
+    if (documentBudget.used + file.size > MAX_DOCUMENT_SELECTION_BYTES) return selectedFile({ name, kind: 'file', ...docxImportFailure('selection-limit') })
     documentBudget.used += file.size
     try {
       const bytes = new Uint8Array(await file.slice(0, MAX_DOCX_FILE_BYTES + 1).arrayBuffer())
@@ -129,6 +133,18 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
       return selectedFile({ name, kind: 'file', ...await importDocx(bytes, signal) })
     } catch {
       return selectedFile({ name, kind: 'file', ...docxImportFailure('invalid') })
+    }
+  }
+  if (isXlsxFileName(name)) {
+    if (file.size > MAX_XLSX_FILE_BYTES) return selectedFile({ name, kind: 'file', ...xlsxImportFailure('file-too-large') })
+    if (documentBudget.used + file.size > MAX_DOCUMENT_SELECTION_BYTES) return selectedFile({ name, kind: 'file', ...xlsxImportFailure('selection-limit') })
+    documentBudget.used += file.size
+    try {
+      const bytes = new Uint8Array(await file.slice(0, MAX_XLSX_FILE_BYTES + 1).arrayBuffer())
+      if (bytes.byteLength !== file.size) return selectedFile({ name, kind: 'file', ...xlsxImportFailure('invalid') })
+      return selectedFile({ name, kind: 'file', ...await importXlsx(bytes, signal) })
+    } catch {
+      return selectedFile({ name, kind: 'file', ...xlsxImportFailure('invalid') })
     }
   }
   let text: string | undefined
@@ -186,6 +202,9 @@ export async function pickUiHostFiles(
         : isDocxFileName(file.name)
           ? file.docxFailure ? docxImportFailure(file.docxFailure)
             : file.docxBytes ? await importDocx(file.docxBytes, signal) : docxImportFailure('unavailable')
+        : isXlsxFileName(file.name)
+          ? file.xlsxFailure ? xlsxImportFailure(file.xlsxFailure)
+            : file.xlsxBytes ? await importXlsx(file.xlsxBytes, signal) : xlsxImportFailure('unavailable')
         : file.kind === 'photo'
           ? { imageInput: await importImage(nativeImages.get(file)!, signal) }
           : { text: file.text }

@@ -23,7 +23,7 @@ milestones or address a demonstrated defect.
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff still awaits an unlocked Mac. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff still awaits an unlocked Mac. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Bounded MCP transport/discovery now composes with tenant-owned lifecycle routes, a Contexts setup/catalog/recovery workflow, exact inspection receipts, and provision-only OS-encrypted desktop credentials. Startup reconciles persisted bindings before admission; disconnect/removal cleanup is independently retryable. Browser protocol fixtures and focused packaged OS-storage acceptance prove these boundaries, not third-party tool execution. Schema semantics, attachment, approval, call receipts, and model execution remain required; release fulfilment is still unconfigured. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
@@ -82,6 +82,26 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+The XLSX checkpoint extends the first-conversation path with bounded visible
+worksheet values, exact sparse cell addresses and explicit cached-formula
+labels. It never calculates formulas, reveals hidden sheet/row/column content,
+or retains archive bytes or file access. Dates and formatted numbers may remain
+raw stored values; this is not a spreadsheet editor or calculation engine.
+It uses the existing pinned ZIP/XML dependencies, with one shared Office worker
+and package reader for DOCX/XLSX. Limits remain 8 MiB/file, 24 MiB combined
+document selection and 64 KiB output; workbook structure additionally caps
+32 sheets and 10,000 cells/shared strings. The existing bundle budgets remain
+unchanged. Parser regression checks caught empty cached strings being reported
+as absent and zero dimensions being missed under alternative numeric spellings;
+both now have failure-first locks. Acceptance exercises preview/model parity,
+shared read-only views, the tenant wall, persistence, relaunch and detach.
+The Mac remains locked, so shared signed-in preview and manual OS-dialog
+handoff are still unverified; isolated automation is separate evidence.
+The browser review also exposed two recovery/copy gaps: failed module imports
+are cached, so the local picker now offers an explicit reload with unsent-text
+guidance; a resolved provider registry missing a shared conversation's private
+model must report unavailable access instead of an endless checking state.
+
 The usage checkpoint replaces restart-reset plan meters with tenant-owned
 durable counters and original period anchors. Existing ceilings and demo gauges
 are unchanged; clean/new accounts start at zero, and older snapshots acquire
@@ -118,6 +138,7 @@ Intentional mutations proved the GET cap, shared byte budget, modern no-resume,
 complete-event cursor and server retry locks fail before restoration. The prior
 cancellation checkpoint `ddd2217` is green in GitHub run `34225716157`.
 The resumption checkpoint `cd55070` is green in GitHub run `34228524077`.
+The durable-usage checkpoint `976a142` is green in GitHub run `34232137832`.
 
 The explicit MCP cancellation increment notifies a legacy peer of the exact
 submitted tool/list request when user cancellation wins. The control POST is

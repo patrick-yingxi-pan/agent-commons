@@ -28,6 +28,7 @@ export function modelSetupRequired(providers: ModelProvider[]): boolean {
 export function composerExecutionState(
   execution?: ModelExecution,
   sessionProviderOnline?: boolean,
+  providerUnavailable = false,
 ): ComposerExecutionState {
   if (sessionProviderOnline === false) {
     return {
@@ -40,6 +41,13 @@ export function composerExecutionState(
     return {
       blocked: false,
       note: 'Session provider connected · tool actions still require your confirmation.',
+    }
+  }
+  if (providerUnavailable) {
+    return {
+      blocked: true,
+      placeholder: 'This model connection is unavailable to this account.',
+      note: 'This model connection is unavailable to this account.',
     }
   }
   if (execution === undefined) {

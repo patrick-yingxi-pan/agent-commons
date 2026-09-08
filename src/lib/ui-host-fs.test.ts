@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import type { DesktopBridgeScope } from '../api/desktopCredentials.ts'
 import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../../contract/pdfImport.mjs'
 import { MAX_DOCX_FILE_BYTES } from '../../contract/docxImport.mjs'
+import { MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../../contract/xlsxImport.mjs'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPicker } from './uiHostFs.ts'
 import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
 
@@ -358,6 +359,27 @@ test('browser PDF limits are classified before reading bytes, including Photos r
   assert.equal(reads, 0)
 })
 
+test('browser XLSX bounds classify before reading and native XLSX failures never expose transient bytes', async () => {
+  let reads = 0
+  const oversized = {
+    name: 'report.xlsx', size: MAX_XLSX_FILE_BYTES + 1,
+    slice: () => ({ arrayBuffer: async () => { reads += 1; return new ArrayBuffer(0) } }),
+  } as unknown as File
+  const selected = await readDroppedFiles(dropped([oversized]))
+  assert.deepEqual(selected[0]?.documentImport, { format: 'xlsx', status: 'file-too-large' })
+  assert.equal(reads, 0)
+
+  const scope: DesktopBridgeScope = { agentCommonsDesktop: { context: {
+    pickFiles: async () => ({ status: 'selected' as const, files: [
+      { name: 'broken.xlsx', kind: 'file' as const, sizeBytes: 4, xlsxFailure: 'invalid' as const, xlsxBytes: new Uint8Array([1, 2, 3, 4]) },
+    ] }),
+    pickFolder: async () => ({ status: 'cancelled' as const }),
+  } } }
+  const native = await pickUiHostFiles('any', scope)
+  assert.deepEqual(native[0]?.documentImport, { format: 'xlsx', status: 'invalid' })
+  assert.equal(JSON.stringify(native).includes('xlsxBytes'), false)
+})
+
 test('browser PDF and DOCX selections share one aggregate document byte limit', async () => {
   let reads = 0
   const files = [
@@ -373,6 +395,24 @@ test('browser PDF and DOCX selections share one aggregate document byte limit', 
   const selected = await readDroppedFiles(dropped(files))
   assert.deepEqual(selected.map((file) => file.documentImport?.status), ['invalid', 'invalid', 'invalid', 'selection-limit'])
   assert.equal(reads, 3)
+})
+
+test('browser PDF, DOCX, and XLSX selections share the 24 MB aggregate document limit', async () => {
+  let reads = 0
+  const files = [
+    { name: 'one.pdf', size: MAX_PDF_FILE_BYTES },
+    { name: 'two.docx', size: MAX_DOCX_FILE_BYTES },
+    { name: 'three.xlsx', size: MAX_XLSX_FILE_BYTES },
+    { name: 'four.xlsx', size: MAX_XLSX_FILE_BYTES },
+  ].map(({ name, size }) => ({
+    name,
+    size,
+    slice: () => ({ arrayBuffer: async () => { reads += 1; return new ArrayBuffer(0) } }),
+  })) as unknown as File[]
+  const selected = await readDroppedFiles(dropped(files))
+  assert.deepEqual(selected.map((file) => file.documentImport?.status), ['invalid', 'invalid', 'invalid', 'selection-limit'])
+  assert.equal(reads, 3)
+  assert.equal(MAX_PDF_FILE_BYTES + MAX_DOCX_FILE_BYTES + MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES)
 })
 
 test('browser same-basename text files retain bodies while receiving distinct opaque IDs', async () => {

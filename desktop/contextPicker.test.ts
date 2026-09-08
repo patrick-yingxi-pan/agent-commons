@@ -13,6 +13,7 @@ import {
 } from './contextPicker.mjs'
 import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../contract/pdfImport.mjs'
 import { MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES } from '../contract/docxImport.mjs'
+import { MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../contract/xlsxImport.mjs'
 
 const regularFile = (size: number) => ({ isFile: () => true, size })
 
@@ -155,6 +156,38 @@ test('native DOCX selection transfers bounded archive bytes and shares the PDF a
   assert.equal(result.files[3]?.docxFailure, 'selection-limit')
   assert.equal(result.files[3]?.docxBytes, undefined)
   assert.equal(MAX_PDF_FILE_BYTES + MAX_DOCX_FILE_BYTES <= MAX_DOCX_SELECTION_BYTES, true)
+})
+
+test('native XLSX selection transfers bounded transient bytes and refuses oversized files before reading', async () => {
+  const paths = ['/private/report.xlsx', '/private/oversized.xlsx']
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: paths }),
+    inspect: async (path: string) => regularFile(path.endsWith('oversized.xlsx') ? MAX_XLSX_FILE_BYTES + 1 : 4),
+    readBytes: async (path: string, maxBytes: number) => {
+      assert.equal(path, '/private/report.xlsx')
+      assert.equal(maxBytes, MAX_XLSX_FILE_BYTES)
+      return Buffer.from([1, 2, 3, 4])
+    },
+  })
+  const result = await picker.pickFiles({}, 'any')
+  assert.equal(result.status, 'selected')
+  assert.deepEqual(result.files[0], { name: 'report.xlsx', kind: 'file', sizeBytes: 4, xlsxBytes: new Uint8Array([1, 2, 3, 4]) })
+  assert.deepEqual(result.files[1], { name: 'oversized.xlsx', kind: 'file', sizeBytes: MAX_XLSX_FILE_BYTES + 1, xlsxFailure: 'file-too-large' })
+})
+
+test('native PDF, DOCX and XLSX selections share one document byte budget', async () => {
+  const paths = ['/private/one.pdf', '/private/two.docx', '/private/three.xlsx', '/private/four.xlsx']
+  const reads: string[] = []
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: paths }),
+    inspect: async () => regularFile(MAX_XLSX_FILE_BYTES),
+    readBytes: async (path: string) => { reads.push(path); return Buffer.alloc(MAX_XLSX_FILE_BYTES) },
+  })
+  const result = await picker.pickFiles({}, 'any')
+  assert.equal(result.status, 'selected')
+  assert.deepEqual(reads, paths.slice(0, 3))
+  assert.equal(result.files[0].pdfBytes.byteLength + result.files[1].docxBytes.byteLength + result.files[2].xlsxBytes.byteLength, MAX_XLSX_SELECTION_BYTES)
+  assert.deepEqual(result.files[3], { name: 'four.xlsx', kind: 'file', sizeBytes: MAX_XLSX_FILE_BYTES, xlsxFailure: 'selection-limit' })
 })
 
 test('native text and image intake reject short reads instead of persisting truncated previews', async () => {

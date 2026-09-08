@@ -18,6 +18,14 @@ test('an unresolved provider never creates a send-before-status race', () => {
   })
 })
 
+test('a resolved registry missing the selected provider is unavailable, not still loading', () => {
+  assert.deepEqual(composerExecutionState(undefined, undefined, true), {
+    blocked: true,
+    placeholder: 'This model connection is unavailable to this account.',
+    note: 'This model connection is unavailable to this account.',
+  })
+})
+
 test('configured and development-mock providers remain usable but never share the same claim', () => {
   assert.equal(composerExecutionState('configured').blocked, false)
   assert.match(composerExecutionState('configured').note, /Connected model/)

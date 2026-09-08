@@ -5,13 +5,14 @@ import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName }
 import { snapshotFolderFiles, MAX_FOLDER_SNAPSHOT_FILE_BYTES } from '../contract/localFolderSnapshot.mjs'
 import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../contract/pdfImport.mjs'
 import { isDocxFileName, MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES } from '../contract/docxImport.mjs'
+import { isXlsxFileName, MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../contract/xlsxImport.mjs'
 
 export const MAX_PICKED_FILES = 24
 export const MAX_FOLDER_ENTRIES = 500
 export const MAX_TEXT_PREVIEW_BYTES = LOCAL_TEXT_PREVIEW_BYTES
 export const MAX_IMAGE_PREVIEW_BYTES = 8 * 1024 * 1024
 export const MAX_IMAGE_SELECTION_BYTES = 24 * 1024 * 1024
-const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_SELECTION_BYTES)
+const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_SELECTION_BYTES, MAX_XLSX_SELECTION_BYTES)
 
 const IMAGE_MIME = new Map([
   ['.bmp', 'image/bmp'],
@@ -151,6 +152,19 @@ export function createNativeContextPicker({
               else {
                 documentBytes += bytes.byteLength
                 file.docxBytes = new Uint8Array(bytes)
+              }
+            }
+          } else if (isXlsxFileName(file.name)) {
+            if (details.size > MAX_XLSX_FILE_BYTES) file.xlsxFailure = 'file-too-large'
+            else if (documentBytes + details.size > MAX_DOCUMENT_SELECTION_BYTES) file.xlsxFailure = 'selection-limit'
+            else {
+              const bytes = await readBytes(filePath, MAX_XLSX_FILE_BYTES)
+              if (bytes.byteLength > MAX_XLSX_FILE_BYTES) file.xlsxFailure = 'file-too-large'
+              else if (bytes.byteLength !== details.size) file.xlsxFailure = 'invalid'
+              else if (documentBytes + bytes.byteLength > MAX_DOCUMENT_SELECTION_BYTES) file.xlsxFailure = 'selection-limit'
+              else {
+                documentBytes += bytes.byteLength
+                file.xlsxBytes = new Uint8Array(bytes)
               }
             }
           } else if (isLocalTextFileName(file.name) && details.size <= MAX_TEXT_PREVIEW_BYTES) {

@@ -1,6 +1,7 @@
 import type { FolderFileSnapshot } from '../../contract/localFolderSnapshot.mjs'
 import type { PdfImportStatus } from '../../contract/pdfImport.mjs'
 import type { DocxImportStatus } from '../../contract/docxImport.mjs'
+import type { XlsxImportStatus } from '../../contract/xlsxImport.mjs'
 import type { McpCredentialBinding } from '../../contract/mcpConnections.ts'
 
 /** The renderer-side face of Electron's narrow native capabilities. The web
@@ -41,6 +42,9 @@ export interface DesktopPickedFile {
   /** Transient parser input. Never copied into persisted Attachment state. */
   docxBytes?: Uint8Array
   docxFailure?: Exclude<DocxImportStatus, 'ready' | 'no-text'>
+  /** Transient parser input. Never copied into persisted Attachment state. */
+  xlsxBytes?: Uint8Array
+  xlsxFailure?: Exclude<XlsxImportStatus, 'ready' | 'no-text'>
 }
 
 export type DesktopFilePickResult =

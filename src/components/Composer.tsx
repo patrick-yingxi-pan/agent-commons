@@ -19,7 +19,7 @@ import type {
   Repo,
   Workspace,
 } from '../types'
-import type { ModelExecution, UsageModelRef } from '../../contract/index.ts'
+import type { UsageModelRef } from '../../contract/index.ts'
 import { planAttachmentInput, workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import type { ModelPick } from '../lib/models'
 import { CheckSquare } from './Checkbox'
@@ -40,7 +40,7 @@ import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
-import { composerExecutionState } from '../lib/modelExecution'
+import type { ComposerExecutionState } from '../lib/modelExecution'
 import { useContextWritable } from '../controller/useContextWritable'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
@@ -93,8 +93,7 @@ export function Composer({
   onSelectModel,
   usageModel,
   messageTokens,
-  modelExecution,
-  sessionProviderOnline,
+  executionState: execution,
 }: {
   workspaces: Workspace[]
   repos: Repo[]
@@ -121,11 +120,9 @@ export function Composer({
   /** Live Messages token count of the open thread, so the usage gauge + its
    *  context breakdown fill in real time as the conversation grows. */
   messageTokens?: number
-  /** Server-computed endpoint posture; absent for Session providers. */
-  modelExecution?: ModelExecution
-  /** Present only for a Session provider; its relay liveness is a separate
-   * transport state from endpoint configuration. */
-  sessionProviderOnline?: boolean
+  /** The conversation host's resolved execution decision. Passing this keeps
+   * send gating and the visible composer copy on one provider-query snapshot. */
+  executionState: ComposerExecutionState
   onSend: (text: string) => void
   value: string
   onValueChange: (value: string) => void
@@ -137,7 +134,6 @@ export function Composer({
    *  one-folder workspace chip's ✕ so it matches the panel's per-folder delete. */
   onRemoveFolder?: (sourceId: string) => void
 }) {
-  const execution = composerExecutionState(modelExecution, sessionProviderOnline)
   const contextWritable = useContextWritable(sessionId)
   const ref = useRef<HTMLTextAreaElement>(null)
   // Reconstruct multiline height as well as text after a split-pane remount.

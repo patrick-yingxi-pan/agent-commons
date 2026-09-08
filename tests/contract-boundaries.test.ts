@@ -129,26 +129,53 @@ test('local images cross one bounded normalization, upload, and immutable refere
   assert.match(routes, /images: store\.sessionImageInput\(known\.id\)/)
 })
 
-test('Word parsing stays lazy and worker-only, with native codecs and no external resource access', () => {
-  const intake = stripComments(read(join(ROOT, 'src/lib/docxImport.ts')))
-  assert.ok(intake.includes("import('./docxParser.worker.ts?worker')"))
-  assert.ok(intake.includes('worker.terminate()'))
-  const worker = stripComments(read(join(ROOT, 'src/lib/docxParser.worker.ts')))
-  assert.match(worker, /from '\.\/docxExtraction\.ts'/)
-  assert.ok(worker.includes('extractDocx('))
-  const parser = stripComments(read(join(ROOT, 'src/lib/docxExtraction.ts')))
-  assert.ok(parser.includes("from '@zip.js/zip.js/lib/zip-core-custom.js'"))
-  for (const required of ['strictness: \'strict\'', 'useWebWorkers: false', 'useCompressionStream: true', 'checkCrc32: true', 'checkOverlappingEntry: true']) {
-    assert.ok(parser.includes(required), `Word archive policy must retain ${required}`)
+test('Office parsing stays lazy, shared, worker-only, and resource-free', () => {
+  const workerLifecycle = stripComments(read(join(ROOT, 'src/lib/documentWorkerImport.ts')))
+  assert.match(workerLifecycle, /export function createDocumentWorkerImporter/)
+  assert.match(workerLifecycle, /worker\.terminate\(\)/)
+  assert.match(workerLifecycle, /Promise\.resolve\(\)\.then\(load\)/)
+  assert.match(workerLifecycle, /postMessage\(\{ format, bytes: snapshot \}/)
+
+  const pipelines = [
+    ['docx', 'docxImport.ts'],
+    ['xlsx', 'xlsxImport.ts'],
+  ] as const
+  for (const [format, intakeName] of pipelines) {
+    const intake = stripComments(read(join(ROOT, 'src/lib', intakeName)))
+    assert.match(intake, /createDocumentWorkerImporter/)
+    assert.ok(intake.includes("import('./officeParser.worker.ts?worker')"), `${format} worker must remain lazy`)
+    assert.ok(intake.includes(`format: '${format}'`), `${format} importer must bind its parser format`)
+    assert.doesNotMatch(stripComments(read(join(ROOT, 'src/lib', intakeName))), /\b(?:fetch|XMLHttpRequest|WebSocket|importScripts)\b|\bfrom\s+['"]node:/)
   }
-  for (const path of ['src/lib/docxExtraction.ts', 'src/lib/docxText.ts']) {
+
+  const officeWorker = stripComments(read(join(ROOT, 'src/lib/officeParser.worker.ts')))
+  for (const extraction of ['docxExtraction.ts', 'xlsxExtraction.ts']) {
+    assert.ok(officeWorker.includes(`from './${extraction}'`))
+  }
+  assert.ok(officeWorker.includes('extractDocx(') && officeWorker.includes('extractXlsx('))
+  assert.ok(officeWorker.includes("value.format === 'docx'") && officeWorker.includes("value.format === 'xlsx'"))
+
+  const officePackage = stripComments(read(join(ROOT, 'src/lib/officePackage.ts')))
+  assert.ok(officePackage.includes("from '@zip.js/zip.js/lib/zip-core-custom.js'"))
+  assert.ok(officePackage.includes("from 'saxes'"))
+  for (const required of ['strictness: \'strict\'', 'useWebWorkers: false', 'useCompressionStream: true', 'checkCrc32: true', 'checkOverlappingEntry: true']) {
+    assert.ok(officePackage.includes(required), `Office archive policy must retain ${required}`)
+  }
+  assert.match(officePackage, /export function parseOfficeXml/)
+  assert.match(officePackage, /export async function readOfficePackage/)
+  for (const path of ['src/lib/officePackage.ts', 'src/lib/officeParser.worker.ts', 'src/lib/docxExtraction.ts', 'src/lib/docxText.ts', 'src/lib/xlsxExtraction.ts', 'src/lib/xlsxText.ts']) {
     assert.doesNotMatch(stripComments(read(join(ROOT, path))), /\b(?:fetch|XMLHttpRequest|WebSocket|importScripts)\b|\bfrom\s+['"]node:/, `${path} cannot resolve document resources outside its package`)
   }
+
+  const officeOwned = new Set([
+    'src/lib/officePackage.ts', 'src/lib/officeParser.worker.ts', 'src/lib/docxExtraction.ts', 'src/lib/docxText.ts',
+    'src/lib/xlsxExtraction.ts', 'src/lib/xlsxText.ts',
+  ])
   for (const directory of ['desktop', 'server', 'src']) {
     for (const file of filesUnder(directory, ['.ts', '.tsx', '.mjs'])) {
       const relative = file.slice(ROOT.length + 1)
-      if (['src/lib/docxExtraction.ts', 'src/lib/docxText.ts', 'src/lib/docxParser.worker.ts'].includes(relative)) continue
-      assert.doesNotMatch(stripComments(read(file)), /\bfrom\s+['"](?:@zip\.js\/zip\.js|saxes|[^'"]*docxExtraction|[^'"]*docxText)/, `${relative} cannot import Word parsing outside its worker`)
+      if (officeOwned.has(relative)) continue
+      assert.doesNotMatch(stripComments(read(file)), /\bfrom\s+['"](?:@zip\.js\/zip\.js|saxes|[^'"]*(?:officePackage|docxExtraction|docxText|xlsxExtraction|xlsxText))/, `${relative} cannot import Office parsing outside its workers`)
     }
   }
 })

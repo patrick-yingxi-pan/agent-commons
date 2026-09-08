@@ -22,6 +22,7 @@ test('Word workers are serial, text outcomes bounded, and each worker terminated
   const second = run(new Uint8Array([2]))
   await tick()
   assert.equal(ports.length, 1)
+  assert.deepEqual(ports[0].sent, [{ format: 'docx', bytes: new Uint8Array([1]) }])
   ports[0].answer({ text: 'body', documentImport: { format: 'docx', status: 'ready' } })
   assert.equal((await first).text, 'body')
   await tick()

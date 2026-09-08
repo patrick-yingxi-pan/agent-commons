@@ -54,12 +54,25 @@ test('docked panel content can shrink below a long file list', () => {
 
 test('local picker copy distinguishes text input from preview-only formats and folders', () => {
   const src = stripComments(read(join(ROOT, 'src', 'components', 'AddContextButton.tsx')))
-  assert.match(src, /Text, PDF and Word text, and images for your conversation/)
+  assert.match(src, /Text, PDF, Word, Excel values, and images for your conversation/)
   assert.match(src, /Images are saved as a resized PNG of the first frame/)
   assert.match(src, /images, layout and OCR are not included/)
-  assert.ok(src.includes('PDFs and Word (.docx): up to 8 MB each, 24 MB per selection'))
+  assert.ok(src.includes('PDF, Word (.docx) and Excel (.xlsx): up to 8 MB each, 24 MB combined per selection'))
+  assert.ok(src.includes('Excel: visible cell values only; formulas are not calculated.'))
   assert.match(src, /Import top-level text snapshots for the selected model/)
   assert.match(src, /Hidden files and subfolders are excluded/)
+})
+
+test('local picker chunk failure has honest explicit recovery without automatic reload', () => {
+  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const loader = stripComments(read(join(ROOT, 'src/lib/useUiHostFs.ts')))
+  assert.match(source, /import type \{ UiHostFile \} from/)
+  assert.equal((source.match(/const hostFs = useUiHostFs\(active\.kind === 'ui-host'\)/g) ?? []).length, 3, 'files, photos and folders all share the admission hook')
+  assert.match(source, /data-local-picker-load="error"/)
+  assert.match(source, /Copy any unsent text first/)
+  assert.match(source, /onClick=\{\(\) => window\.location\.reload\(\)\}/)
+  assert.doesNotMatch(loader, /location\.reload|setInterval/)
+  assert.match(loader, /if \(!alive\) return/)
 })
 
 test('context mutation controls share authoritative ownership across chips and both panel tiers', () => {
