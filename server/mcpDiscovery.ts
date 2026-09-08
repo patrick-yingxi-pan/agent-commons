@@ -5,13 +5,12 @@ import { postMcpHttp, McpHttpError, type McpHttpOptions } from './mcpHttpTranspo
 import { randomUUID } from 'node:crypto'
 import { parseMcpToolsPage, type McpDiscoveredTool } from './mcpCatalog.ts'
 import { isModernMcpErrorCode } from './mcpHttpResponse.ts'
+import { MCP_MODERN_VERSION, MCP_LEGACY_VERSIONS, MCP_CLIENT_INFO, mcpRequestMetadata, type McpProtocolVersion } from './mcpProtocol.ts'
 
-export const MCP_MODERN_VERSION = '2026-07-28'
-export const MCP_LEGACY_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26'] as const
+export { MCP_MODERN_VERSION, MCP_LEGACY_VERSIONS } from './mcpProtocol.ts'
 export const MAX_MCP_DISCOVERY_PAGES = 8
 export const MAX_MCP_DISCOVERY_TOOLS = 128
 export const MAX_MCP_CATALOG_BYTES = 524_288
-const CLIENT_INFO = { name: 'agent-commons', version: '0.1.0' }
 
 export class McpDiscoveryError extends Error {
   readonly code: 'protocol' | 'unsupported_version' | 'tools_unavailable' | 'catalog' | 'input_required'
@@ -73,7 +72,7 @@ export function createMcpDiscovery({ post = postMcpHttp, now = () => performance
     }
     input.signal?.addEventListener('abort', stop, { once: true })
     const timer = setTimeout(() => { timeout = true; stop() }, timeoutMs)
-    let protocolVersion: string = MCP_MODERN_VERSION
+    let protocolVersion: McpProtocolVersion = MCP_MODERN_VERSION
     let sessionId: string | undefined
     let serial = 0
     const requestPrefix = randomUUID()
@@ -82,11 +81,7 @@ export function createMcpDiscovery({ post = postMcpHttp, now = () => performance
       const left = remaining()
       if (controller.signal.aborted || !left) throw new McpHttpError(timeout || !left ? 'timeout' : 'cancelled', submitted)
       const modern = protocolVersion === MCP_MODERN_VERSION
-      const meta = modern ? { _meta: {
-        'io.modelcontextprotocol/protocolVersion': protocolVersion,
-        'io.modelcontextprotocol/clientInfo': CLIENT_INFO,
-        'io.modelcontextprotocol/clientCapabilities': {},
-      } } : {}
+      const meta = mcpRequestMetadata(protocolVersion)
       const message = method === null ? null : {
         jsonrpc: '2.0', ...(method.startsWith('notifications/') ? {} : { id: `${requestPrefix}-${++serial}` }),
         method, params: { ...params, ...meta },
@@ -129,7 +124,7 @@ export function createMcpDiscovery({ post = postMcpHttp, now = () => performance
       }
       if (useLegacy) {
         if (!legacy(protocolVersion)) protocolVersion = MCP_LEGACY_VERSIONS[0]
-        const initialized = await send('initialize', { protocolVersion, capabilities: {}, clientInfo: CLIENT_INFO })
+        const initialized = await send('initialize', { protocolVersion, capabilities: {}, clientInfo: MCP_CLIENT_INFO })
         // Retain the opaque session only for this transaction and cleanup.
         sessionId = initialized.sessionId
         announced = completeResult(initialized.message)

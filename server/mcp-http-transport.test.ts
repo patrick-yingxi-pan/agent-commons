@@ -28,6 +28,37 @@ async function endpoint(t, handler) {
   return `http://127.0.0.1:${server.address().port}/mcp?private=not-for-errors`
 }
 
+test('modern tool preflight refuses missing correlation, arbitrary schema placement and combined header overflow before DNS', async () => {
+  let resolutions = 0
+  const transport = createMcpHttpTransport({ resolve: async () => { resolutions++; throw new Error() } })
+  const schema = { type: 'object', properties: { tenant: { type: 'string', 'x-mcp-header': 'Tenant' } } }
+  const message = { jsonrpc: '2.0', id: 'one', method: 'tools/call', params: {
+    name: 'lookup', arguments: { tenant: 't' }, _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' },
+  } }
+  const input = { scope: 'public' as const, protocolVersion: '2026-07-28', toolInputSchema: schema }
+  await assert.rejects(transport('https://example.com/mcp', { ...message, id: undefined }, input), failure('request', false))
+  await assert.rejects(transport('https://example.com/mcp', message, { ...input, toolInputSchema: undefined }), failure('request', false))
+  await assert.rejects(transport('https://example.com/mcp', { ...message, method: 'tools/list' }, input), failure('request', false))
+  await assert.rejects(transport('https://example.com/mcp', {
+    ...message, params: { ...message.params, arguments: { tenant: 't'.repeat(16_200) } },
+  }, { ...input, bearerToken: 'b'.repeat(16_384) }), failure('request', false))
+  assert.equal(resolutions, 0)
+})
+
+test('transport request admission never invokes caller getters or toJSON and never drops non-JSON input', async () => {
+  let invoked = 0
+  let resolutions = 0
+  const transport = createMcpHttpTransport({ resolve: async () => { resolutions++; throw new Error() } })
+  const getter = { ...request, params: { get secret() { invoked++; throw new Error('secret') } } }
+  const hook = { ...request, toJSON() { invoked++; throw new Error('secret') } }
+  for (const message of [getter, hook]) {
+    await assert.rejects(transport('https://example.com/mcp', message, { scope: 'public' }), failure('request', false))
+  }
+  assert.equal(invoked, 0)
+  await assert.rejects(transport('https://example.com/mcp', { ...request, params: { absent: undefined } }, { scope: 'public' }), failure('request', false))
+  assert.equal(resolutions, 0)
+})
+
 test('real HTTP POST sends exact bounded JSON and scoped headers, then accepts its correlated result', async (t) => {
   let received
   const url = await endpoint(t, (req, res) => {

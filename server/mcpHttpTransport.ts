@@ -8,6 +8,8 @@ import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { isPublicAddress, parseOutboundEndpoint } from './outboundAddress.ts'
 import { createMcpSseDecoder, MAX_MCP_RESPONSE_BYTES, McpResponseError, parseRpcResponse } from './mcpHttpResponse.ts'
+import { buildMcpParameterHeaders, encodeMcpHeaderValue, parseMcpHeaderParameters } from './mcpHeaderParameters.ts'
+import { snapshotMcpJson } from './mcpJson.ts'
 
 export type McpHttpFailure = 'destination' | 'request' | 'timeout' | 'cancelled' | 'network' | 'response' | 'redirect' | 'authentication'
 export class McpHttpError extends Error {
@@ -34,6 +36,9 @@ export interface McpHttpOptions {
   sessionId?: string
   /** A write-only caller-owned credential. It is never included in errors. */
   bearerToken?: string
+  /** Required for modern tools/call. Headers are derived from this reviewed
+   * schema and the actual body, never supplied as arbitrary caller headers. */
+  toolInputSchema?: Record<string, unknown>
 }
 const MAX_REQUEST_BYTES = 65_536
 const DEFAULT_TIMEOUT_MS = 10_000
@@ -58,7 +63,7 @@ export function createMcpHttpTransport({
       'Accept-Encoding': 'identity',
     }
     try {
-      message = JSON.parse(JSON.stringify(message)) as Record<string, unknown> | null
+      message = snapshotMcpJson(message, { maxBytes: MAX_REQUEST_BYTES, maxDepth: 40, maxNodes: 8192 }) as Record<string, unknown> | null
       if (message === null) {
         if (!options.sessionId) throw new Error()
         body = new Uint8Array()
@@ -76,12 +81,20 @@ export function createMcpHttpTransport({
       }
       if (options.protocolVersion === '2026-07-28') {
         if (!message || options.sessionId !== undefined ||
-          !['server/discover', 'tools/list'].includes(message.method as string)) throw new Error()
+          !['server/discover', 'tools/list', 'tools/call'].includes(message.method as string)) throw new Error()
         const params = message.params as Record<string, unknown> | undefined
         const meta = params?._meta as Record<string, unknown> | undefined
         if (meta?.['io.modelcontextprotocol/protocolVersion'] !== options.protocolVersion) throw new Error()
         headers['Mcp-Method'] = message.method as string
+        if (message.method === 'tools/call') {
+          if (message.id === undefined || typeof params?.name !== 'string' || !params.name || Array.from(params.name).length > 128 ||
+            !params.arguments || typeof params.arguments !== 'object' || Array.isArray(params.arguments) ||
+            !options.toolInputSchema) throw new Error()
+          headers['Mcp-Name'] = encodeMcpHeaderValue(params.name)
+          Object.assign(headers, buildMcpParameterHeaders(parseMcpHeaderParameters(options.toolInputSchema), params.arguments))
+        }
       }
+      if (options.toolInputSchema !== undefined && (options.protocolVersion !== '2026-07-28' || message?.method !== 'tools/call')) throw new Error()
       if (options.sessionId !== undefined) {
         if (!safeHeader(options.sessionId, 256)) throw new Error()
         headers['Mcp-Session-Id'] = options.sessionId
@@ -91,6 +104,7 @@ export function createMcpHttpTransport({
         headers.Authorization = `Bearer ${options.bearerToken}`
       }
       headers['Content-Length'] = String(body.byteLength)
+      if (Object.entries(headers).reduce((bytes, [name, value]) => bytes + new TextEncoder().encode(`${name}: ${value}\r\n`).byteLength, 0) > 32_768) throw new Error()
     } catch { return Promise.reject(new McpHttpError('request', false)) }
     const deadline = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
     if (!Number.isSafeInteger(deadline) || deadline < 1 || deadline > 60_000) return Promise.reject(new McpHttpError('request', false))

@@ -28,6 +28,8 @@ and response. Late DNS cannot start a new request. Redirects, environment proxy
 agents, ambient cookies, compressed bodies, server-initiated requests and
 automatic retries are not supported. Credentials are explicit write-only input;
 errors contain fixed codes, not URLs, tokens, response text or raw exceptions.
+Request JSON is snapshotted before serialization (depth 40, 8,192 nodes for the
+complete RPC envelope), without invoking caller getters or `toJSON` hooks.
 
 After a request is submitted, a transport failure reports `mayHaveExecuted`.
 This is conservative uncertainty, not proof of success or failure. The future
@@ -35,6 +37,8 @@ adapter must durably retain that uncertainty rather than blindly replaying a
 write. An HTTP error cannot carry a successful tool result through this seam.
 Explicit legacy-session cleanup uses a body-free DELETE to the same validated
 endpoint; it cannot follow redirects or expand the destination scope.
+Outgoing headers have a combined 32 KiB ceiling, including the explicit bearer;
+mirrored tool parameters have their own 16 KiB aggregate ceiling within it.
 
 Pure framing/address tests and real loopback HTTP/SSE/TLS tests cover this
 substrate. The tests fixture only the remote peer; they do not demonstrate a
@@ -63,6 +67,45 @@ Cancellation closes active I/O and never starts a later page.
 Schema dialect semantics or authorize calls. Remote instructions, icons, links,
 `$ref` and tool annotations remain inert data. Extra protocol metadata is not
 mistaken for an invalid tool definition. Real HTTP peer tests cover both eras.
+
+## Implemented single-call protocol boundary (not connected to execution)
+
+`server/mcpToolCall.ts` sends exactly one explicit `tools/call` using a supplied
+protocol version and, for legacy peers, the surrounding caller-owned initialized
+session. It does not reuse discovery's already-released session, initialize a
+new one, downgrade, refresh a catalog, reconnect, retry, or continue a suspended
+call. `server/mcpProtocol.ts` owns the shared versions and request metadata.
+No product route, model transport, or release runtime is wired to this caller.
+
+The preflight snapshots arguments (48 KiB, depth 32, 4,096 nodes) and the reviewed
+schema without invoking getters or serialization hooks. This is structural
+admission, **not** semantic input/output schema validation or permission.
+`server/mcpHeaderParameters.ts` validates static `properties` paths and derives
+modern `Mcp-Name` / `Mcp-Param-*` headers from the actual request body. Header
+names are bounded, token-safe and case-insensitively unique; values follow the
+protocol's UTF-8/base64 sentinel rules. Non-static annotations, incompatible
+primitive values and header-budget overflow fail before network work. `$ref`
+is never resolved; data in schema examples/defaults is not treated as a schema.
+Executable catalog admission must still exclude individually invalid HTTP tool
+definitions rather than exposing them as callable tools.
+
+`server/mcpToolResult.ts` snapshots the entire result before interpretation
+(1 MiB, depth 32, 16,384 nodes, 128 content blocks). It retains supported text,
+image, audio, resource links and embedded resources as inert data, never fetching
+links or decoding media into host actions. Structured output may be any JSON
+value, including arrays and null. A tool's `isError` remains explicit; malformed
+or oversized results never become truncated successes. Modern complete results
+require their discriminator. `input_required` is refused with a fixed error,
+without exposing opaque continuation state or adopting a remote request.
+
+The transport's one deadline covers DNS, sockets and streaming. Cancellation
+before submission reports no possible execution; any lost, unsupported, or
+malformed reply after submission retains conservative `mayHaveExecuted`.
+Even an RPC refusal is not used as permission to replay. Local HTTP/SSE peer
+tests prove these protocol properties, not durable receipts, authorization,
+legacy-session orchestration, or third-party acceptance.
+
+## Implemented connection lifecycle and native custody
 
 `server/mcpConnections.ts` owns a tenant-scoped private registry and
 `server/mcpConnectionInspector.ts` composes exact credential resolution,
@@ -114,8 +157,10 @@ including extracted release candidates; helpers never ship in the artifact.
 - Full schema validation and execution messages: discovery supports the
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
-  but is not a complete MCP client. JSON Schema 2020-12 validation, header
-  parameter annotations, tool results and multi-round input handling remain.
+  but is not a complete MCP client. JSON Schema 2020-12 validation, executable
+  catalog admission, legacy call-session orchestration, output-schema checking
+  and multi-round input handling remain. The isolated single-call boundary
+  above does not replace those requirements.
 - Extend packaged credential acceptance through live inspection/replacement and
   interrupted acknowledgement; native queue/unit and browser fixtures cover
   these seams separately but cannot replace the combined OS-backed path.
