@@ -31,14 +31,28 @@ export function createMcpDiscovery({ post = postMcpHttp, now = () => performance
         const cursors = new Set<string>()
         let cursor: string | undefined
         let totalBytes = 0
+        let totalTools = 0
         for (let page = 0; page < MAX_MCP_DISCOVERY_PAGES; page++) {
-          const raw = await context.listTools(cursor ? { cursor } : {})
+          let raw: Record<string, unknown>
+          try { raw = await context.listTools(cursor ? { cursor } : {}) } catch (error) {
+            if (!(error instanceof McpSessionError) || error.code !== 'session_expired') throw error
+            if (page + 1 >= MAX_MCP_DISCOVERY_PAGES) throw new McpDiscoveryError('catalog')
+            await context.restartExpiredSession()
+            // A cursor/catalog belongs to its session, not the endpoint URL.
+            // Discard its projection, but never replenish transaction budgets.
+            tools.length = 0
+            names.clear()
+            cursors.clear()
+            cursor = undefined
+            continue
+          }
           totalBytes += new TextEncoder().encode(JSON.stringify(raw)).byteLength
           if (totalBytes > MAX_MCP_CATALOG_BYTES) throw new McpDiscoveryError('catalog')
           let parsed: ReturnType<typeof parseMcpToolsPage>
           try { parsed = parseMcpToolsPage(raw) } catch { throw new McpDiscoveryError('catalog') }
           for (const tool of parsed.tools) {
-            if (names.has(tool.name) || tools.length >= MAX_MCP_DISCOVERY_TOOLS) throw new McpDiscoveryError('catalog')
+            if (names.has(tool.name) || totalTools >= MAX_MCP_DISCOVERY_TOOLS) throw new McpDiscoveryError('catalog')
+            totalTools += 1
             names.add(tool.name)
             tools.push(tool)
           }

@@ -82,6 +82,31 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+Read-only MCP inspection now recovers once when a legacy peer expires its
+initialized session during catalog listing. It retires the old private ID,
+initializes without it, and restarts the catalog without old pages or cursors.
+The deadline, page attempts, processed tools and catalog bytes remain cumulative;
+stateless/modern/authentication failures never renew, and no tool call is replayed.
+HTTP peers cover all supported legacy versions and bare/correlated 404s. Focused
+tests cover cancellation, concurrent calls, replacement metadata and cleanup;
+intentional regressions in renewal, both size budgets and metadata each failed
+their locks before restoration. This completes a discovery recovery path, not
+MODEL-33's schema semantics, trust policy, durable execution receipts or actual
+third-party acceptance. Production loopback and the new validator dependency
+still await owner decisions.
+
+The first complete gate caught the shared PPTX contrast scan accepting the old
+phone overlay during a phone-to-tablet resize. The three Office walks now share
+one readiness helper that proves the exact rendered tier, full ancestor opacity
+and stable geometry across paints before the unchanged WCAG scan. A traced full
+run also exposed a relay image test accepting its deliberately short parking
+window's idle sentinel as a prompt; that test now follows the protocol's
+argument-free wait before inspecting the complete image-bearing content. Neither
+repair changes product colors, motion, relay behavior or acceptance thresholds.
+The wrong-tier assertion and bypassed idle wait were each observed failing at
+their exact rendered-tier/image-content locks before restoration.
+The previous accounting checkpoint `f820afd` is green in GitHub run `34246731218`.
+
 The per-call accounting checkpoint closes a demonstrated loss of usage when a
 completed model response was followed by cancellation, failed compaction, or a
 later provider error. Reply, routine and compaction drivers now persist each
@@ -167,7 +192,7 @@ an active GET keeps the original request's uncertainty and exact cancellation
 identity. Local peers cover all supported legacy versions, initialization and
 stateless streams, while modern requests remain non-resumable. This advances
 the protocol substrate only; schema semantics, attachment, approval, durable
-call receipts, expired-session handling and actual service acceptance remain.
+call receipts, execution-specific expiry recovery and actual service acceptance remain.
 Intentional mutations proved the GET cap, shared byte budget, modern no-resume,
 complete-event cursor and server retry locks fail before restoration. The prior
 cancellation checkpoint `ddd2217` is green in GitHub run `34225716157`.
@@ -191,7 +216,7 @@ It keeps known tool outcomes when cleanup fails and prevents scope reuse or
 implicit call replay. Review found and fixed a late-cancellation race that
 discarded an already-complete transport response; its regression was watched
 fail first. This remains an unconfigured execution substrate, not a completed
-external-work journey. Legacy session-expiry behavior, schema
+external-work journey. Execution-specific session-expiry recovery, schema
 semantics, approval, durable receipts and actual service acceptance remain.
 
 The single-call MCP increment adds bounded request/result parsing and modern
@@ -199,7 +224,7 @@ body-derived parameter headers behind an unconfigured protocol boundary. Local
 HTTP/SSE peers cover supported modern/legacy replies, tool errors, malformed
 results, cancellation before/after submission, and refusal without replay or
 continuation. Full schema semantics, per-call approval, durable uncertainty,
-legacy session-expiry handling and actual model execution remain required. No
+execution-specific session-expiry recovery and actual model execution remain required. No
 third-party account or new dependency is involved in this increment.
 Independent review found that the older HTTP request snapshot invoked caller
 serialization hooks. The same strict JSON helper now owns that transport path;

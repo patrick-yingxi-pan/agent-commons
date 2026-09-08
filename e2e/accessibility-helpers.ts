@@ -1,5 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
-import type { Page } from '@playwright/test'
+import { expect, type Page } from '@playwright/test'
+import { tierFor } from '../src/lib/viewport'
 
 const WCAG_22_AA_TAGS = [
   'wcag2a',
@@ -8,6 +9,30 @@ const WCAG_22_AA_TAGS = [
   'wcag21aa',
   'wcag22aa',
 ]
+
+/** A resize can leave the old, opaque phone preview mounted briefly before the
+ * tablet drawer's JS-driven entrance starts. Presence alone cannot identify the
+ * requested tier, and document.getAnimations() does not own Framer's springs. */
+export async function settledAttachmentPreview(page: Page) {
+  const tier = tierFor(page.viewportSize()!.width)
+  const dock = page.locator('[data-overlay-dock]')
+  if (tier === 'wide') await expect(dock).toHaveCount(0)
+  else await expect(dock).toHaveAttribute('data-overlay-dock', tier)
+  await expect.poll(() => page.locator('[data-attachment-preview]').evaluate(async (element) => {
+    const paint = () => {
+      if (!element.isConnected) return null
+      for (let node: Element | null = element; node; node = node.parentElement) {
+        if (getComputedStyle(node).opacity !== '1') return null
+      }
+      const { x, y, width, height } = element.getBoundingClientRect()
+      return JSON.stringify([x, y, width, height])
+    }
+    const before = paint()
+    if (!before) return false
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+    return before === paint()
+  })).toBe(true)
+}
 
 /** Run the standards-based browser audit and keep failures compact enough to
  * diagnose in CI. Deliberately no exclusions: shared chrome is part of every

@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
-import { assertWcag22Aa } from './accessibility-helpers'
+import { assertWcag22Aa, settledAttachmentPreview as settledPreview } from './accessibility-helpers'
 import { startMessagesFixture } from './attachment-endpoint'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers'
@@ -46,16 +46,6 @@ async function useXlsxUsagePartition(page: Page) {
   })
 }
 
-async function settledPreview(page: Page) {
-  const width = page.viewportSize()!.width
-  await expect(page.locator('[data-overlay-dock]')).toHaveCount(width < 1024 ? 1 : 0)
-  await expect.poll(() => page.locator('[data-attachment-preview]').evaluate((element) => {
-    for (let node: Element | null = element; node; node = node.parentElement) {
-      if (getComputedStyle(node).opacity !== '1') return false
-    }
-    return true
-  })).toBe(true)
-}
 
 test('a real workbook projects visible worksheet values, persists its preview, reaches the model, reloads and detaches', async ({ page, browser }) => {
   test.setTimeout(ms(90_000))

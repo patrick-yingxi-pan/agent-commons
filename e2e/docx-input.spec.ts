@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { createServer, type ViteDevServer } from 'vite'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
-import { assertWcag22Aa } from './accessibility-helpers'
+import { assertWcag22Aa, settledAttachmentPreview as settledPreview } from './accessibility-helpers'
 import { startMessagesFixture } from './attachment-endpoint'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers'
@@ -98,18 +98,6 @@ async function useDocxUsagePartition(page: Page) {
   })
 }
 
-async function settledPreview(page: Page) {
-  // Resizing can replace the dock after the old preview already satisfied
-  // geometry. Wait for the named tier, then for the new paint's full opacity.
-  const width = page.viewportSize()!.width
-  await expect(page.locator('[data-overlay-dock]')).toHaveCount(width < 1024 ? 1 : 0)
-  await expect.poll(() => page.locator('[data-attachment-preview]').evaluate((element) => {
-    for (let node: Element | null = element; node; node = node.parentElement) {
-      if (getComputedStyle(node).opacity !== '1') return false
-    }
-    return true
-  })).toBe(true)
-}
 
 test('a real Word document projects body text, reaches the model, survives reload and detaches', async ({ page, browser, baseURL }) => {
   test.setTimeout(ms(90_000))

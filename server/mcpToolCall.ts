@@ -21,7 +21,7 @@ export interface McpToolCall extends McpToolInvocation {
   sessionId?: string
 }
 export class McpToolCallError extends Error {
-  readonly code: McpHttpFailure | 'protocol' | 'rpc_error' | 'result' | 'input_required' | 'unsupported_version' | 'tools_unavailable'
+  readonly code: McpHttpFailure | 'protocol' | 'rpc_error' | 'result' | 'input_required' | 'unsupported_version' | 'tools_unavailable' | 'session_expired'
   readonly mayHaveExecuted: boolean
   constructor(code: McpToolCallError['code'], mayHaveExecuted: boolean) {
     super(`MCP tool call failed (${code}).`)

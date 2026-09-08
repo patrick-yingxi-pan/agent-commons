@@ -143,14 +143,22 @@ test('relay image turns become MCP image content and survive a tool round', asyn
   const image = { mimeType: 'image/png', data: 'AQID', width: 1, height: 1, byteLength: 3 }
   const user = { role: 'user' as const, text: 'inspect this image', images: [image] }
   const tools = [{ name: 'describe_image', description: 'Describe the supplied image.', inputSchema: { type: 'object' } }]
-  stub.pollQueue.push({ entryId: 'rve-image-1', prompt: { system: 'image briefing', systemHash: 'image-system-hash', toolsHash: 'image-tools-hash', channel: { id: 'image-channel', title: 'Image turn' }, messages: [user], tools } })
   const c = spawnConnector()
   try {
     const rpc = (method: string, params: unknown) => new Promise<Awaited<ReturnType<typeof c.rpc>>>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error(`connector image test RPC timed out; relay saw ${stub.seen.map((request) => request.path).join(', ')}`)), 6_000)
       void c.rpc(method, params).then((value) => { clearTimeout(timer); resolve(value) }, (error) => { clearTimeout(timer); reject(error) })
     })
-    const response = await rpc('tools/call', { name: 'start', arguments: { url: stub.url, secret: 'rv_live_image' } })
+    // The connector's deliberately short test parking window may let the first
+    // call return its idle sentinel just before the keepalive poll hands over the
+    // queued prompt. Re-call without arguments until the actual MCP content
+    // arrives; this mirrors callToolForPrompt while preserving image parts.
+    let response = await rpc('tools/call', { name: 'start', arguments: { url: stub.url, secret: 'rv_live_image' } })
+    assert.match(response.result?.content?.[0]?.text ?? '', /^Nothing pending\./, 'the initial empty mailbox returns the idle sentinel')
+    stub.pollQueue.push({ entryId: 'rve-image-1', prompt: { system: 'image briefing', systemHash: 'image-system-hash', toolsHash: 'image-tools-hash', channel: { id: 'image-channel', title: 'Image turn' }, messages: [user], tools } })
+    for (let tries = 0; response.result?.content?.[0]?.text?.startsWith('Nothing pending') && tries < 50; tries++) {
+      response = await rpc('tools/call', { name: 'respond_and_wait', arguments: {} })
+    }
     const content = response.result?.content ?? []
     const imagePart = content.find((part) => part.type === 'image') as { type: 'image'; data: string; mimeType: string } | undefined
     assert.deepEqual(imagePart, { type: 'image', data: image.data, mimeType: image.mimeType })

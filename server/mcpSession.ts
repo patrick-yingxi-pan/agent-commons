@@ -1,7 +1,8 @@
 /** Ephemeral MCP protocol lifecycle. The session credential never leaves this
  * scope; discovery and a single tool attempt share negotiation and cleanup,
- * not permission. No reinitialization, RPC replay or server-initiated request
- * handling is performed. Transport-owned legacy GET resumption and cancellation
+ * not permission. Read-only discovery may explicitly renew one expired legacy
+ * session; tool calls and generic callbacks are never replayed. Transport-owned
+ * legacy GET resumption and cancellation
  * control traffic preserve the original request identity and deadline;
  * a future configured adapter still owns policy and durable state. */
 import { randomUUID } from 'node:crypto'
@@ -19,10 +20,11 @@ export interface McpSessionDetails {
 }
 interface McpSession extends McpSessionDetails {
   listTools(params?: { cursor?: string }): Promise<Record<string, unknown>>
+  restartExpiredSession(): Promise<void>
   callTool(invocation: McpToolInvocation): Promise<McpToolResult>
 }
 export class McpSessionError extends Error {
-  readonly code: 'protocol' | 'unsupported_version' | 'tools_unavailable' | 'input_required'
+  readonly code: 'protocol' | 'unsupported_version' | 'tools_unavailable' | 'input_required' | 'session_expired'
   constructor(code: McpSessionError['code']) { super(`MCP session failed (${code}).`); this.code = code }
 }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
@@ -61,6 +63,8 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
     let submitted = false
     let active = true
     let toolAttempted = false
+    let listPhase: 'opening' | 'ready' | 'listing' | 'expired' | 'failed' = 'opening'
+    let restarted = false
     let cancellationController: AbortController | undefined
     const stop = () => {
       controller.abort()
@@ -76,6 +80,7 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
     }
     let protocolVersion: McpProtocolVersion = MCP_MODERN_VERSION
     let sessionId: string | undefined
+    let useLegacy = false
     let serial = 0
     const requestPrefix = randomUUID()
     const exchange = async (message: Record<string, unknown> | null, options: McpHttpOptions) => {
@@ -128,9 +133,28 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
     let details: McpSessionDetails
     let value: T
     let cleanup: McpSessionCleanup = 'not-needed'
+    const initializeLegacy = async () => {
+      // The old credential is never sent to initialize, retained for cleanup,
+      // or reused if the replacement handshake fails.
+      sessionId = undefined
+      const initialized = await send('initialize', { protocolVersion, capabilities: {}, clientInfo: MCP_CLIENT_INFO })
+      // Keep a newly issued credential for cleanup even if its handshake is bad.
+      sessionId = initialized.sessionId
+      const announced = completeResult(initialized.message)
+      if (!legacy(announced.protocolVersion)) throw new McpSessionError('unsupported_version')
+      protocolVersion = announced.protocolVersion
+      if (announced.serverInfo === undefined) throw new McpSessionError('protocol')
+      serverInfo(announced.serverInfo)
+      await send('notifications/initialized')
+      return announced
+    }
+    const describe = (announced: Record<string, unknown>): McpSessionDetails => {
+      if (!object(announced.capabilities) || !object(announced.capabilities.tools)) throw new McpSessionError('tools_unavailable')
+      const info = serverInfo(useLegacy ? announced.serverInfo : (object(announced._meta) ? announced._meta['io.modelcontextprotocol/serverInfo'] : undefined))
+      return { protocolVersion, ...(info ? { serverInfo: info } : {}) }
+    }
     try {
       let initial: Awaited<ReturnType<typeof post>> | undefined
-      let useLegacy = false
       try { initial = await send('server/discover') } catch (error) {
         if (!(error instanceof McpHttpError) || error.code !== 'response' || error.recognizedModernError ||
           ![400, 404, 405].includes(error.status ?? 0)) throw error
@@ -153,37 +177,65 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
       }
       if (useLegacy) {
         if (!legacy(protocolVersion)) protocolVersion = MCP_LEGACY_VERSIONS[0]
-        const initialized = await send('initialize', { protocolVersion, capabilities: {}, clientInfo: MCP_CLIENT_INFO })
-        // Keep this credential for cleanup even if the initialization is bad.
-        sessionId = initialized.sessionId
-        announced = completeResult(initialized.message)
-        if (!legacy(announced.protocolVersion)) throw new McpSessionError('unsupported_version')
-        protocolVersion = announced.protocolVersion
-        if (announced.serverInfo === undefined) throw new McpSessionError('protocol')
-        serverInfo(announced.serverInfo)
-        await send('notifications/initialized')
+        announced = await initializeLegacy()
       } else {
         announced = completeResult(initial?.message)
         if (!versions(announced.supportedVersions).includes(MCP_MODERN_VERSION)) throw new McpSessionError('unsupported_version')
       }
-      if (!object(announced.capabilities) || !object(announced.capabilities.tools)) throw new McpSessionError('tools_unavailable')
-      const info = serverInfo(useLegacy ? announced.serverInfo : (object(announced._meta) ? announced._meta['io.modelcontextprotocol/serverInfo'] : undefined))
-      details = { protocolVersion, ...(info ? { serverInfo: info } : {}) }
+      details = describe(announced)
+      listPhase = 'ready'
       const caller = createMcpToolCaller({ post: (_endpoint, message, callOptions) => {
         if (!active) return Promise.reject(new McpHttpError('cancelled', false))
         const left = available(false)
         return exchange(message, { ...callOptions, scope: input.scope, bearerToken: input.bearerToken,
           signal: controller.signal, timeoutMs: left })
       } })
-      value = await run({ ...details,
+      value = await run({
+        get protocolVersion() { return details.protocolVersion },
+        get serverInfo() { return details.serverInfo },
         listTools: async (params = {}) => {
-          if (!active || toolAttempted) throw new McpSessionError('protocol')
-          const response = await send('tools/list', params)
-          if (response.sessionId && response.sessionId !== sessionId && useLegacy) throw new McpSessionError('protocol')
-          return completeResult(response.message)
+          if (!active || toolAttempted || listPhase !== 'ready') throw new McpSessionError('protocol')
+          listPhase = 'listing'
+          const requestedSession = sessionId
+          try {
+            const response = await send('tools/list', params)
+            const error = response.message?.error
+            if (useLegacy && requestedSession && response.status === 404 &&
+              !(object(error) && isModernMcpErrorCode(error.code))) {
+              throw new McpHttpError('response', true, 404)
+            }
+            if (response.sessionId && response.sessionId !== sessionId && useLegacy) throw new McpSessionError('protocol')
+            const result = completeResult(response.message)
+            listPhase = 'ready'
+            return result
+          } catch (error) {
+            if (useLegacy && requestedSession && error instanceof McpHttpError &&
+              error.code === 'response' && error.status === 404 && !error.recognizedModernError) {
+              sessionId = undefined
+              listPhase = 'expired'
+              throw new McpSessionError('session_expired')
+            }
+            listPhase = 'failed'
+            throw error
+          }
+        },
+        restartExpiredSession: async () => {
+          if (!active || toolAttempted || listPhase !== 'expired') throw new McpSessionError('protocol')
+          if (restarted) throw new McpSessionError('session_expired')
+          // Consume the one restart before awaiting; concurrent callers and a
+          // failed replacement cannot issue another initialize.
+          restarted = true
+          listPhase = 'opening'
+          try {
+            details = describe(await initializeLegacy())
+            listPhase = 'ready'
+          } catch (error) {
+            listPhase = 'failed'
+            throw error
+          }
         },
         callTool: async (invocation) => {
-          if (!active || toolAttempted) throw new McpToolCallError('request', false)
+          if (!active || toolAttempted || listPhase !== 'ready') throw new McpToolCallError('request', false)
           toolAttempted = true
           try {
             return await caller(endpoint, { ...invocation, protocolVersion, ...(sessionId ? { sessionId } : {}) }, {

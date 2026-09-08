@@ -81,11 +81,24 @@ network failures never trigger another handshake. Deprecated 2024 HTTP+SSE is
 not adopted.
 
 The entire transaction has one 30-second deadline (bounded internal overrides),
-eight pages, 128 unique tools and a 512 KiB cumulative catalog budget. Duplicate
+eight page attempts, 128 processed tools and a 512 KiB cumulative catalog budget. Duplicate
 tools, cursor loops, oversized or malformed pages reject the complete catalog.
 Legacy sessions are released after inspection when possible; the result reports
 unconfirmed or server-managed cleanup without exposing the session credential.
 Cancellation closes active I/O and never starts a later page.
+
+Read-only inspection can renew one expired legacy session. An HTTP 404 for a
+`tools/list` request carrying the initialized session ID retires that private
+credential; the replacement `initialize` sends no old ID. Its catalog starts
+at page one, discarding the old catalog and cursors. The original deadline,
+page-attempt count (including the failed page), processed-tool count and catalog
+bytes remain cumulative. Only the replacement credential can be cleaned up.
+Stateless 404s, recognizable modern errors, authentication/network failures,
+cancellation and exhausted budgets cannot trigger this recovery. A second
+expiry fails without another handshake. Metadata follows the replacement
+handshake, while expired, renewing and closed facades cannot issue tool calls.
+Real HTTP peers cover bare and correlated legacy 404s; deterministic clock and
+state-machine tests lock limits, cancellation and private credential retirement.
 
 `server/mcpCatalog.ts` snapshots and bounds presentation fields and schema JSON
 (64 KiB, depth 32, 4,096 nodes per schema). It does **not** yet validate JSON
@@ -168,9 +181,10 @@ are separate from releasing a session with DELETE.
 An aborted transaction sends no later DELETE; server-side session expiry remains
 the cleanup fallback, and cancellation delivery is not a session-release receipt.
 
-New-session behavior after session expiry still needs deliberate integration.
-A later explicit transaction may initialize anew, but this transaction never
-replays an uncertain call. These gaps follow the
+Read-only catalog renewal above is separate from execution recovery. A later
+explicit tool transaction may initialize anew, but this transaction never
+replays an uncertain call. Safe execution recovery still needs durable receipts
+and an explicit product policy. These boundaries follow the
 [legacy HTTP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
 and do not authorize product execution.
 
@@ -227,7 +241,7 @@ including extracted release candidates; helpers never ship in the artifact.
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. JSON Schema 2020-12 validation, executable
-  catalog admission and expired-session handling,
+  catalog admission and execution-specific expiry recovery,
   output-schema checking and multi-round input handling remain. The isolated single-call boundary
   above does not replace those requirements.
 - Extend packaged credential acceptance through live inspection/replacement and
