@@ -234,6 +234,37 @@ test('scope-context adds a context to a project once (dedup by label), unscope-c
   assert.deepEqual(g.projectContexts['p1'], [], 'unscope-context removes the context')
 })
 
+test('source-qualified unscope removes only the matching same-label MCP context', () => {
+  const fixture = { kind: 'connector' as const, label: 'Postgres', meta: 'fixture', source: { kind: 'mcp' as const, id: 'mcp-fixture-postgres' } }
+  const external = { ...fixture, meta: 'external', source: { kind: 'mcp' as const, id: 'mcp-connection-postgres' } }
+  let graph = applyGraphOp(emptyGraph(), { kind: 'scope-context', projectId: 'p1', projectName: 'P', context: fixture }, mintIds())
+  graph = applyGraphOp(graph, { kind: 'scope-context', projectId: 'p1', projectName: 'P', context: external }, mintIds())
+  graph = applyGraphOp(graph, {
+    kind: 'unscope-context',
+    projectId: 'p1',
+    projectName: 'P',
+    contextLabel: external.label,
+    contextSource: external.source,
+  }, mintIds())
+  assert.deepEqual(graph.projectContexts.p1, [fixture], 'source identity targets only the external row')
+})
+
+test('legacy label-only unscope refuses an ambiguous same-label context set', () => {
+  const first = { kind: 'connector' as const, label: 'Postgres', meta: 'one', source: { kind: 'mcp' as const, id: 'mcp-one' } }
+  const second = { ...first, meta: 'two', source: { kind: 'mcp' as const, id: 'mcp-two' } }
+  const graph = {
+    ...emptyGraph(),
+    projectContexts: { p1: [first, second] },
+  }
+  const unchanged = applyGraphOp(graph, {
+    kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Postgres',
+  }, mintIds())
+  assert.equal(unchanged, graph, 'ambiguous legacy selector does not guess a row')
+  assert.equal(opAppliedInGraph(graph, {
+    kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Postgres',
+  }), false, 'ambiguous legacy selector remains unresolved')
+})
+
 test('unscope-context on an absent context is a no-op (returns the same graph)', () => {
   const g0 = { ...emptyGraph(), projectContexts: { p1: [{ kind: 'repo' as const, label: 'acme/web', meta: 'main' }] } }
   const g1 = applyGraphOp(g0, { kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'not-there' }, mintIds())
@@ -282,8 +313,29 @@ test('opKey is stable + distinct for the project-context ops (per-project, per-l
   )
   assert.equal(
     opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Linear' }),
-    'unscope-context:p1:Linear',
+    'unscope-context:p1:label:6:Linear',
   )
+  assert.notEqual(
+    opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Linear', contextSource: { kind: 'mcp', id: 'mcp-connection-linear' } }),
+    opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Linear' }),
+    'source-qualified and legacy selectors have distinct operation identities',
+  )
+  assert.equal(
+    opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Renamed Linear', contextSource: { kind: 'mcp', id: 'mcp-connection-linear' } }),
+    opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Linear', contextSource: { kind: 'mcp', id: 'mcp-connection-linear' } }),
+    'source-qualified operation identity survives a display-label rename',
+  )
+})
+
+test('project-context op keys cannot alias a framed source identity with an adversarial label', () => {
+  const sourceId = 'mcp-connection-' + 'a'.repeat(32)
+  const legacyLabel = `source:mcp:${sourceId}`
+  const legacy = opKey({ kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: legacyLabel })
+  const qualified = opKey({
+    kind: 'unscope-context', projectId: 'p1', projectName: 'P', contextLabel: 'Display name',
+    contextSource: { kind: 'mcp', id: sourceId },
+  })
+  assert.notEqual(legacy, qualified, 'legacy labels and source-qualified selectors have distinct framed identities')
 })
 
 test('the pure reducer preserves the server-owned graph revision', () => {

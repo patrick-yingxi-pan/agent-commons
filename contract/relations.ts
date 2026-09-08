@@ -9,10 +9,54 @@
  *  (which applies a confirmed op to the relationship graph). No React, no store,
  *  no data — just the model + its pure description helpers. */
 import type { ArtifactKind, SectionId } from './entities.ts'
-import type { ArtifactItem, ProjectContext, StepTool } from './cowork.ts'
+import type { ArtifactItem, ProjectContext, ProjectContextSource, StepTool } from './cowork.ts'
 import type { ProjectRole } from './roles.ts'
 
 export type RelationEntity = 'session' | 'project' | 'artifact' | 'context' | 'schedule'
+
+/** A project-context removal selector. New callers carry the stable source
+ *  identity; the label-only form remains for legacy proposals and is admitted
+ *  only when it identifies exactly one current context. */
+export interface ProjectContextSelector {
+  contextLabel: string
+  contextSource?: ProjectContextSource
+}
+
+export function projectContextIdentityKey(label: string, source?: ProjectContextSource): string {
+  // Keep the legacy label form distinct from a source-qualified form even when
+  // a user chooses a label that resembles the source encoding. Length framing
+  // also prevents delimiter-based aliases inside either form. The tag changes
+  // the old bare-label key deliberately: persisted old approvals are not
+  // guessed or widened into the new source-aware identity space.
+  const frame = (value: string): string => `${value.length}:${value}`
+  return source
+    ? `source:${frame(source.kind)}:${frame(source.id)}`
+    : `label:${frame(label)}`
+}
+
+export function projectContextMatchesSelector(
+  context: ProjectContext,
+  selector: ProjectContextSelector,
+): boolean {
+  if (selector.contextSource) {
+    return context.source?.kind === selector.contextSource.kind && context.source.id === selector.contextSource.id
+  }
+  return context.label === selector.contextLabel
+}
+
+/** Label-only selectors are safe only when they match one context. */
+export function projectContextSelectorIsAmbiguous(
+  contexts: readonly ProjectContext[],
+  selector: ProjectContextSelector,
+): boolean {
+  if (selector.contextSource) return false
+  let matches = 0
+  for (const context of contexts) {
+    if (projectContextMatchesSelector(context, selector)) matches += 1
+    if (matches > 1) return true
+  }
+  return false
+}
 
 /** A described relationship between two of the five entities. */
 export interface RelationDef {
@@ -147,7 +191,7 @@ export type RelationOp =
   // Project ↔ Context — scope a context to a project.
   | { kind: 'scope-context'; projectId: string; projectName: string; context: ProjectContext }
   // Project ↔ Context — remove a scoped context from a project (the inverse of scope-context).
-  | { kind: 'unscope-context'; projectId: string; projectName: string; contextLabel: string }
+  | ({ kind: 'unscope-context'; projectId: string; projectName: string } & ProjectContextSelector)
   // Project — edit a project's custom instructions (the right-panel "Instructions" card).
   // `expectedInstructions` is the exact text the author reviewed. ABSENT keeps
   // the legacy unconditional-write meaning for older/API callers.
@@ -229,9 +273,9 @@ export function opKey(op: RelationOp): string {
     case 'attach-context':
       return `attach-context:${op.sessionTitle}:${op.connectorId}`
     case 'scope-context':
-      return `scope-context:${op.projectId}:${op.context.label}`
+      return `scope-context:${op.projectId}:${projectContextIdentityKey(op.context.label, op.context.source)}`
     case 'unscope-context':
-      return `unscope-context:${op.projectId}:${op.contextLabel}`
+      return `unscope-context:${op.projectId}:${projectContextIdentityKey(op.contextLabel, op.contextSource)}`
     case 'set-project-instructions':
       return `set-project-instructions:${op.projectId}`
     case 'set-project-description':

@@ -5,13 +5,23 @@ import {
   MCP_CREDENTIAL_BINDINGS,
   MCP_CREDENTIAL_RESOLVE,
   MCP_CREDENTIAL_RESULT,
+  MCP_CREDENTIAL_SYNC,
+  MCP_CREDENTIAL_SYNC_RESULT,
   createMcpCredentialHost,
   installMcpCredentialRuntime,
 } from './mcpCredentialProtocol.mjs'
+import { configureMcpRuntime, initializeMcpRuntime } from '../server/mcpRuntime.ts'
 
 class FakePort extends EventEmitter {
   sent: unknown[] = []
   postMessage(message: unknown) { this.sent.push(message) }
+}
+
+class ConnectedPort extends EventEmitter {
+  peer?: ConnectedPort
+  postMessage(message: unknown) {
+    queueMicrotask(() => this.peer?.emit('message', message))
+  }
 }
 
 const reference = `MCP_DESKTOP_${'A'.repeat(32)}`
@@ -73,6 +83,142 @@ test('binding announcements are bounded, authoritative metadata and never contai
   assert.equal(port.sent.length, 0)
   runtime.close()
   host.close()
+})
+
+test('MCP binding synchronization is acknowledged and host snapshots are serialized', async () => {
+  const port = new FakePort()
+  const runtime = installMcpCredentialRuntime(port as any, { timeoutMs: 50 })
+  const first = runtime.synchronizeBindings([{ reference, binding }])
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  const firstRequest = port.sent.at(-1) as any
+  assert.equal(firstRequest.type, MCP_CREDENTIAL_SYNC)
+  port.emit('message', { data: { type: MCP_CREDENTIAL_SYNC_RESULT, requestId: firstRequest.requestId, available: true } })
+  assert.deepEqual(await first, { available: true })
+  runtime.close()
+
+  const child = new FakePort()
+  const seen: unknown[] = []
+  let release!: () => void
+  const host = createMcpCredentialHost(child as any, {
+    resolve: async () => 'unused',
+    onSynchronizeBindings: async (snapshot) => {
+      seen.push(snapshot)
+      if (seen.length === 1) await new Promise<void>((resolve) => { release = resolve })
+      return true
+    },
+    timeoutMs: 50,
+  })
+  child.emit('message', { type: MCP_CREDENTIAL_SYNC, requestId: 1, bindings: [{ reference, binding }] })
+  child.emit('message', { type: MCP_CREDENTIAL_SYNC, requestId: 2, bindings: [{ reference: `MCP_DESKTOP_${'B'.repeat(32)}`, binding: { ...binding, connectionId: 'mcp-2' } }] })
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.deepEqual(seen, [[{ reference, binding }]])
+  release()
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.deepEqual(seen, [
+    [{ reference, binding }],
+    [{ reference: `MCP_DESKTOP_${'B'.repeat(32)}`, binding: { ...binding, connectionId: 'mcp-2' } }],
+  ])
+  assert.deepEqual(child.sent, [
+    { type: MCP_CREDENTIAL_SYNC_RESULT, requestId: 1, available: true },
+    { type: MCP_CREDENTIAL_SYNC_RESULT, requestId: 2, available: true },
+  ])
+  host.close()
+})
+
+test('connected startup rejects a host synchronization failure but accepts intentional unavailable storage', async () => {
+  const childPort = new ConnectedPort()
+  const hostPort = new ConnectedPort()
+  childPort.peer = hostPort
+  hostPort.peer = childPort
+  const runtime = installMcpCredentialRuntime(childPort as any, { timeoutMs: 50 })
+  const host = createMcpCredentialHost(hostPort as any, {
+    resolve: async () => 'unused',
+    onSynchronizeBindings: async () => { throw new Error('vault failure detail must not cross the channel') },
+    timeoutMs: 50,
+  })
+  try {
+    configureMcpRuntime({
+      deviceBearerAvailable: false,
+      allowLoopback: false,
+      resolveCredential: async () => 'unused',
+      synchronizeBindings: bindings => runtime.synchronizeBindings(bindings),
+    })
+    await assert.rejects(initializeMcpRuntime([{ reference, binding }]), /synchronization failed/)
+
+    runtime.close()
+    host.close()
+    const unavailableChild = new ConnectedPort()
+    const unavailableHost = new ConnectedPort()
+    unavailableChild.peer = unavailableHost
+    unavailableHost.peer = unavailableChild
+    const unavailableRuntime = installMcpCredentialRuntime(unavailableChild as any, { timeoutMs: 50 })
+    const unavailableHostRuntime = createMcpCredentialHost(unavailableHost as any, {
+      resolve: async () => 'unused',
+      onSynchronizeBindings: async () => false,
+      timeoutMs: 50,
+    })
+    try {
+      configureMcpRuntime({
+        deviceBearerAvailable: false,
+        allowLoopback: false,
+        resolveCredential: async () => 'unused',
+        synchronizeBindings: bindings => unavailableRuntime.synchronizeBindings(bindings),
+      })
+      await initializeMcpRuntime([{ reference, binding }])
+    } finally {
+      unavailableRuntime.close()
+      unavailableHostRuntime.close()
+    }
+  } finally {
+    runtime.close()
+    host.close()
+    configureMcpRuntime({ deviceBearerAvailable: false, allowLoopback: false })
+  }
+})
+
+test('synchronization rejects mixed replies and reports invalid or queued host work as failure', async () => {
+  const port = new FakePort()
+  const runtime = installMcpCredentialRuntime(port as any, { timeoutMs: 50 })
+  const pending = runtime.synchronizeBindings([{ reference, binding }])
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  const request = port.sent.at(-1) as any
+  port.emit('message', {
+    type: MCP_CREDENTIAL_SYNC_RESULT,
+    requestId: request.requestId,
+    available: true,
+    error: 'failed',
+  })
+  await assert.rejects(pending, /invalid|failed/)
+  runtime.close()
+
+  const child = new FakePort()
+  const host = createMcpCredentialHost(child as any, {
+    resolve: async () => 'unused',
+    maxPending: 1,
+    onSynchronizeBindings: () => new Promise(() => {}),
+    timeoutMs: 50,
+  })
+  child.emit('message', { type: MCP_CREDENTIAL_SYNC, requestId: 1, bindings: [{ reference, binding, extra: true }] })
+  assert.deepEqual(child.sent.at(-1), { type: MCP_CREDENTIAL_SYNC_RESULT, requestId: 1, error: 'failed' })
+  child.emit('message', { type: MCP_CREDENTIAL_SYNC, requestId: 2, bindings: [{ reference, binding }] })
+  child.emit('message', { type: MCP_CREDENTIAL_SYNC, requestId: 3, bindings: [{ reference: `MCP_DESKTOP_${'B'.repeat(32)}`, binding: { ...binding, connectionId: 'mcp-2' } }] })
+  assert.deepEqual(child.sent.at(-1), { type: MCP_CREDENTIAL_SYNC_RESULT, requestId: 3, error: 'failed' })
+  host.close()
+})
+
+test('MCP synchronization queues are bounded like secret requests', async () => {
+  const port = new FakePort()
+  const runtime = installMcpCredentialRuntime(port as any, { timeoutMs: 50, maxPending: 1 })
+  const first = runtime.synchronizeBindings([{ reference, binding }])
+  await new Promise<void>((resolve) => setImmediate(resolve))
+  await assert.rejects(
+    runtime.synchronizeBindings([{ reference: `MCP_DESKTOP_${'B'.repeat(32)}`, binding: { ...binding, connectionId: 'mcp-2' } }]),
+    /busy/,
+  )
+  const request = port.sent.at(-1) as any
+  port.emit('message', { type: MCP_CREDENTIAL_SYNC_RESULT, requestId: request.requestId, available: true })
+  assert.deepEqual(await first, { available: true })
+  runtime.close()
 })
 
 test('runtime enforces timeout, capacity, close, and ignores late or malformed replies', async (t) => {

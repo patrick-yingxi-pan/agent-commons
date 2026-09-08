@@ -503,27 +503,46 @@ test('LIVE PRUNE: deleting a session evicts EVERY pane it hosts — the layout c
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/')
 
-  // Materialize a fresh session from the draft (its Sessions row is the newest).
-  await page.getByPlaceholder('Reply to Claude…').fill('prune me')
-  await page.keyboard.press('Enter')
-  await expect(page).toHaveURL(/\/s\/(?!draft)[\w-]+$/)
-  const sessionPath = new URL(page.url()).pathname
+  // Fork a completed seeded exchange rather than sending a new model turn.
+  // This test owns deletion/layout wiring, so its persisted-turn precondition
+  // must not depend on the CI plan budget or an ambient model response.
+  const source = await (await page.request.get('/api/v1/sessions/auth-refactor')).json() as {
+    id: string
+    messages?: Array<{ id: string; role: string }>
+  }
+  const sourceAssistantIndex = source.messages?.findLastIndex((message) => message.role === 'assistant') ?? -1
+  const sourceAssistant = source.messages?.[sourceAssistantIndex]
+  expect(sourceAssistant?.id, 'seeded source has a completed assistant turn').toBeTruthy()
+  const expectedRoles = source.messages!.slice(0, sourceAssistantIndex + 1).map((message) => message.role)
+  const forkResponse = await page.request.post(`/api/v1/sessions/${source.id}/fork`, {
+    data: { atMessageId: sourceAssistant!.id },
+    headers: { 'Idempotency-Key': `main-split-prune-${Date.now().toString(36)}` },
+  })
+  expect(forkResponse.ok(), 'completed fixture fork persisted').toBe(true)
+  const forked = await forkResponse.json() as { id: string; messages?: Array<{ role: string }> }
+  const renamed = await page.request.patch(`/api/v1/sessions/${forked.id}`, {
+    data: { title: 'prune me' },
+  })
+  expect(renamed.ok(), 'fixture title is writable').toBe(true)
+  const sessionId = forked.id
+  const sessionPath = `/s/${sessionId}`
+
+  await page.goto(sessionPath)
+  await expect(page).toHaveURL(new RegExp(`${sessionPath}$`))
 
   // Split: two panes on the SAME session (the duplicate keeps the id).
   await splitPane(page, 'right')
   await expect(page.locator('[data-main-pane]')).toHaveCount(2)
 
-  // The send materializes the page before its server-owned reply finishes.
-  // Deletion correctly refuses to race that live turn, so establish the actual
-  // precondition of this test: one completed persisted exchange and no turn.
-  const sessionId = sessionPath.split('/').at(-1)!
+  // The fork is already a completed persisted exchange; verify the exact
+  // delete precondition without waiting on a model or a live turn.
   await expect.poll(async () => {
     const full = await (await page.request.get(`/api/v1/sessions/${sessionId}`)).json()
     return {
       roles: (full.messages ?? []).map((message: { role: string }) => message.role),
       live: full.activeTurnId ?? null,
     }
-  }, { timeout: ms(20_000) }).toEqual({ roles: ['user', 'assistant'], live: null })
+  }, { timeout: ms(20_000) }).toEqual({ roles: expectedRoles, live: null })
 
   // Delete it from the Sessions row menu (the row is titled after the first
   // message) — confirm inline.

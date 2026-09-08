@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
-import { arch, platform, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
@@ -9,18 +9,15 @@ import { startModelServer } from '../server/model/index.ts'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { AUTH_ROOT_FILE } from './authRoot.mjs'
 import { smokePackagedAttachments } from './attachmentSmoke.mjs'
+import { smokePackagedMcpCredentials } from './mcpCredentialSmoke.mjs'
+import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
+
+export { packagedExecutable } from './smokePaths.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const TIMEOUT_MS = 30_000
 const OUTPUT_LIMIT = 16_384
-
-export function packagedExecutable(root = ROOT, targetPlatform = platform(), targetArch = arch()) {
-  const artifact = join(root, 'out', `Agent Commons-${targetPlatform}-${targetArch}`)
-  if (targetPlatform === 'darwin') return join(artifact, 'Agent Commons.app', 'Contents', 'MacOS', 'Agent Commons')
-  if (targetPlatform === 'win32') return join(artifact, 'Agent Commons.exe')
-  return join(artifact, 'Agent Commons')
-}
 
 function appendTail(current, chunk) {
   return `${current}${chunk}`.slice(-OUTPUT_LIMIT)
@@ -44,7 +41,7 @@ async function waitForCdp(origin) {
   const deadline = Date.now() + TIMEOUT_MS
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(`${origin}/json/version`)
+      const response = await fetch(`${origin}/json/version`, { signal: AbortSignal.timeout(1_000) })
       if (response.ok) return
     } catch {}
     await new Promise((resolve) => setTimeout(resolve, 100))
@@ -362,6 +359,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   // real OS-backed storage; Playwright's main-process dialog fixture below must
   // neither reuse that profile nor compete with its single-instance lock.
   await smokePackagedAttachments({ executable })
+  await smokePackagedMcpCredentials({ executable })
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await smokePackagedDesktop()

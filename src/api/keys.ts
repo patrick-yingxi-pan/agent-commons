@@ -88,7 +88,9 @@ export const keys = {
   sessionContexts: (id: string) => `session-contexts:${id}`,
   dispatch: 'dispatch',
   savedContexts: 'saved-contexts',
-  connectorDetail: (id: string) => `connector-detail:${id}`,
+  mcpConnections: 'mcp-connections',
+  mcpConnection: (id: string) => `mcp-connection:${id}`,
+  connectorDetail: (id: string | Connector) => `connector-detail:${typeof id === 'string' ? id : id.id}`,
   /** Keyed per session so the context-window figure tracks the open thread. */
   usage: (sessionId?: string) => (sessionId ? `usage:${sessionId}` : 'usage'),
   artifactContent: 'artifact-content',
@@ -310,6 +312,12 @@ export const paths = {
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
   savedContext: (id: string) => `/saved-contexts/${encodeURIComponent(id)}`,
+  mcpConnections: '/mcp-connections',
+  mcpConnection: (id: string) => `/mcp-connections/${encodeURIComponent(id)}`,
+  mcpConnectionInspect: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/inspect`,
+  mcpConnectionDisconnect: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/disconnect`,
+  mcpConnectionCleanup: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/credential-cleanup`,
+  mcpConnectionCredentialBinding: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/credential-binding`,
   connectorDetail: (c: Connector) => {
     const q = new URLSearchParams({ id: c.id, label: c.label })
     if (c.kind) q.set('kind', c.kind)

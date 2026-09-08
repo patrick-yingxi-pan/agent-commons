@@ -14,6 +14,7 @@
  *  harness runs workers:1 over one shared backend, so a per-viewport project
  *  would re-boot the webServer and roughly double the suite's runtime. */
 import { test, expect, type Page } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import { ms } from './budget.ts'
 import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
 import { revealSessionRow } from './session-rail-helpers.ts'
@@ -27,6 +28,10 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
   test.setTimeout(ms(120_000))
   await page.setViewportSize({ width: 375, height: 812 })
   await ensureAuthRefactorPanelOpen(page)
+  await page.context().setExtraHTTPHeaders({
+    'x-user-id': 'user-ada',
+    'x-tenant-id': `tenant-responsive-phone-${randomUUID()}`,
+  })
   await page.goto('/')
 
   // The rail starts closed on narrow — the reopen control is the door, and it
@@ -72,6 +77,12 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
 
   // A context panel on narrow is a TAKEOVER: the seeded repo session restores
   // its repo focus on open, so the panel appears on select.
+  // The send owns its usage partition; the seeded panel belongs to Ada's demo
+  // tenant. A full navigation disposes that first account's UI/cache before
+  // returning to the separate panel fixture. The send never spends its quota.
+  await page.context().setExtraHTTPHeaders({})
+  await page.goto('/')
+  await expect(reopen).toBeVisible()
   await reopen.click()
   await expect(page.locator('main[inert]')).toHaveCount(1)
   await page.getByRole('button', { name: 'Expand Sessions' }).click()
@@ -266,6 +277,10 @@ test('tablet (768×1024): the panel overlays the thread behind a scrim; the scri
 })
 
 test('landscape phone (844×390, short): compressed chrome, usable composer', async ({ page }) => {
+  await page.context().setExtraHTTPHeaders({
+    'x-user-id': 'user-ada',
+    'x-tenant-id': `tenant-responsive-landscape-${randomUUID()}`,
+  })
   await page.setViewportSize({ width: 844, height: 390 })
   await page.goto('/')
 

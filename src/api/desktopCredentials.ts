@@ -1,6 +1,7 @@
 import type { FolderFileSnapshot } from '../../contract/localFolderSnapshot.mjs'
 import type { PdfImportStatus } from '../../contract/pdfImport.mjs'
 import type { DocxImportStatus } from '../../contract/docxImport.mjs'
+import type { McpCredentialBinding } from '../../contract/mcpConnections.ts'
 
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
@@ -62,6 +63,9 @@ export interface DesktopBridge {
     bind(reference: string, providerId: string): Promise<void>
     discard(reference: string): Promise<void>
     removeProvider(providerId: string): Promise<void>
+  }
+  mcpCredentials?: {
+    provision(binding: McpCredentialBinding, secret: string): Promise<string>
   }
   data?: {
     createBackup(): Promise<DesktopBackupMetadata>

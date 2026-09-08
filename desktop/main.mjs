@@ -8,6 +8,8 @@ import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './a
 import { createNativeContextPicker } from './contextPicker.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
+import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
+import { createMcpCredentialLifecycle } from './mcpCredentialLifecycle.mjs'
 import { createDataBackendClient, desktopRecoveryStatus } from './dataProtocol.mjs'
 import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
 import { confirmManagedRestore, pickManagedBackup, waitForRestoreWorker } from './restoreProtocol.mjs'
@@ -18,6 +20,7 @@ import {
   openCredentialVault,
   secureStorageAvailable,
 } from './credentialVault.mjs'
+import { MCP_CREDENTIAL_FILE, openMcpCredentialVault } from './mcpCredentialVault.mjs'
 import {
   backendListenMarker,
   desktopBackendEnvironment,
@@ -35,6 +38,8 @@ const DEV_RENDERER_URL = process.env.AGENT_COMMONS_DEV_URL
 const DEVELOPMENT = Boolean(DEV_RENDERER_URL)
 const START_TIMEOUT_MS = 20_000
 const STOP_TIMEOUT_MS = 7_000
+const MCP_CREDENTIAL_CAPABILITY = 'mcp-provision-v1'
+const mcpCredentialChannels = Object.freeze({ provision: 'agent-commons:mcp-credentials:provision' })
 
 let mainWindow = null
 let backend = null
@@ -42,6 +47,9 @@ let backendReady = false
 let desktopReady = false
 let credentialVault = null
 let credentialBackend = null
+let mcpCredentialVault = null
+let mcpCredentialBackend = null
+let mcpCredentialLifecycle = null
 let dataBackend = null
 let quitting = false
 let quitAfterBackend = false
@@ -81,6 +89,8 @@ async function startDesktop() {
     storage: safeStorage,
   })
   credentialVault = await openDesktopCredentialVault()
+  mcpCredentialVault = await openMcpCredentialVaultForDesktop()
+  mcpCredentialLifecycle = mcpCredentialVault ? createMcpCredentialLifecycle(mcpCredentialVault) : null
   let providerCredentials = {}
   if (credentialVault) {
     try {
@@ -107,6 +117,7 @@ async function startDesktop() {
 
   backendReady = true
   if (credentialVault) installCredentialIpc()
+  if (mcpCredentialVault) installMcpCredentialIpc()
   installContextIpc()
   installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
@@ -130,6 +141,25 @@ async function openDesktopCredentialVault() {
     })
   } catch (error) {
     console.error('[desktop] secure credential storage could not be opened.', error)
+    return null
+  }
+}
+
+async function openMcpCredentialVaultForDesktop() {
+  try {
+    const encryptionAvailable = safeStorage.isEncryptionAvailable()
+    const linuxBackend = process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : undefined
+    if (!secureStorageAvailable({ encryptionAvailable, linuxBackend })) {
+      console.warn('[desktop] secure MCP credential storage is unavailable.')
+      return null
+    }
+    return await openMcpCredentialVault({
+      filePath: join(app.getPath('userData'), MCP_CREDENTIAL_FILE),
+      encrypt: (secret) => safeStorage.encryptString(secret),
+      decrypt: (ciphertext) => safeStorage.decryptString(ciphertext),
+    })
+  } catch (error) {
+    console.error('[desktop] secure MCP credential storage could not be opened.', error)
     return null
   }
 }
@@ -177,6 +207,13 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       onBindings: (bindings) => void reconcileCredentialBindings(bindings),
     })
   }
+  mcpCredentialBackend = createMcpCredentialHost(child, {
+    resolve: async (reference, binding) => {
+      if (!mcpCredentialVault) throw new Error('The MCP credential vault is unavailable.')
+      return mcpCredentialVault.read(reference, binding)
+    },
+    onSynchronizeBindings: bindings => mcpCredentialLifecycle ? mcpCredentialLifecycle.synchronize(bindings) : false,
+  })
 
   const handle = { child, exitError: null }
   const marker = backendListenMarker(backendOrigin)
@@ -205,6 +242,8 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       handle.exitError = exitError
       credentialBackend?.close()
       credentialBackend = null
+      mcpCredentialBackend?.close()
+      mcpCredentialBackend = null
       dataBackend?.close()
       dataBackend = null
       backend = null
@@ -282,6 +321,10 @@ function assertTrustedContextCaller(event) {
   assertTrustedDesktopCaller(event, 'Desktop context selection is not available from this page.')
 }
 
+function assertTrustedMcpCredentialCaller(event) {
+  assertTrustedDesktopCaller(event, 'MCP credential access is not available from this page.')
+}
+
 function assertTrustedDesktopCaller(event, message) {
   const callerUrl = event.senderFrame?.url
   if (!mainWindow || mainWindow.isDestroyed() || event.sender !== mainWindow.webContents || !callerUrl || !isTrustedAppUrl(callerUrl, trustedOrigin)) {
@@ -334,6 +377,21 @@ function installCredentialIpc() {
   handle(credentialChannels.removeProvider, async (providerId) => {
     const references = await credentialVault.removeProvider(providerId)
     await Promise.all(references.map((reference) => credentialBackend.delete(reference)))
+  })
+}
+
+function installMcpCredentialIpc() {
+  ipcMain.handle(mcpCredentialChannels.provision, async (event, binding, secret, capability) => {
+    assertTrustedMcpCredentialCaller(event)
+    if (capability !== MCP_CREDENTIAL_CAPABILITY || !mcpCredentialLifecycle) {
+      throw new Error('MCP credential storage is unavailable.')
+    }
+    try {
+      return await mcpCredentialLifecycle.provision(binding, secret)
+    } catch {
+      console.error(`[desktop] ${mcpCredentialChannels.provision} failed.`)
+      throw new Error('The MCP credential could not be stored securely on this device.')
+    }
   })
 }
 
@@ -445,7 +503,10 @@ async function createMainWindow(url, origin) {
       webviewTag: false,
       devTools: DEVELOPMENT,
       preload: join(app.getAppPath(), 'desktop', 'preload.cjs'),
-      additionalArguments: credentialVault ? ['--agent-commons-secure-credentials'] : [],
+      additionalArguments: [
+        ...(credentialVault ? ['--agent-commons-secure-credentials'] : []),
+        ...(mcpCredentialVault ? ['--agent-commons-mcp-credentials'] : []),
+      ],
     },
   })
   mainWindow = win
@@ -559,6 +620,8 @@ async function stopBackend({ requireExit = false } = {}) {
   backend = null
   credentialBackend?.close()
   credentialBackend = null
+  mcpCredentialBackend?.close()
+  mcpCredentialBackend = null
   dataBackend?.close()
   dataBackend = null
   backendReady = false

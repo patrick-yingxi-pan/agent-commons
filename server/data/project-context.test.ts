@@ -14,6 +14,7 @@ import {
 } from '../../src/lib/projectContext.ts'
 import { CONNECTOR_OPTIONS, MCP_OPTIONS } from './contextOptions.ts'
 import type { ProjectContext } from '../../contract/cowork.ts'
+import { applyGraphOp, emptyGraph, opAppliedInGraph } from '../../contract/graph.ts'
 
 test('addedToProjectContexts maps each AddedContext kind to the right ProjectContext', () => {
   assert.deepEqual(
@@ -46,8 +47,8 @@ test('addedToProjectContexts maps each AddedContext kind to the right ProjectCon
   )
   assert.deepEqual(
     addedToProjectContexts({ kind: 'mcp', connector: { id: 'mcp-x', label: 'Postgres', kind: 'mcp' } }),
-    [{ kind: 'connector', label: 'Postgres', meta: 'MCP server' }],
-    'mcp → connector tagged "MCP server" (ProjectContext has no mcp kind)',
+    [{ kind: 'connector', label: 'Postgres', meta: 'MCP server', source: { kind: 'mcp', id: 'mcp-x' } }],
+    'mcp → connector tagged "MCP server" with its opaque source id',
   )
 })
 
@@ -113,4 +114,33 @@ test('contextsToConnectors falls back to the label when a scoped connector is no
   assert.equal(CONNECTOR_OPTIONS.some((o) => o.label === absent), false, 'precondition: label is not in the catalog')
   const out = contextsToConnectors([{ kind: 'connector', label: absent, meta: 'whatever' }])
   assert.deepEqual(out, [{ id: absent, label: absent, kind: 'connector' }])
+})
+
+test('contextsToConnectors preserves an external MCP identity even when its label matches a fixture', () => {
+  const externalId = 'mcp-connection-external-project-context'
+  const out = contextsToConnectors([{
+    kind: 'connector', label: MCP_OPTIONS[0].label, meta: 'MCP server',
+    source: { kind: 'mcp', id: externalId },
+  }])
+  assert.deepEqual(out, [{ id: externalId, label: MCP_OPTIONS[0].label, kind: 'mcp' }])
+})
+
+test('project graph scope identity allows same-label fixture and external MCP contexts to coexist', () => {
+  const fixture = { kind: 'connector' as const, label: 'Postgres', meta: 'MCP server', source: { kind: 'mcp' as const, id: 'mcp-fixture-postgres' } }
+  const external = { ...fixture, source: { kind: 'mcp' as const, id: 'mcp-connection-postgres-external' } }
+  const op = (context: ProjectContext) => ({ kind: 'scope-context' as const, projectId: 'project-source-identity', projectName: 'Source identity', context })
+  let graph = emptyGraph()
+  graph = applyGraphOp(graph, op(fixture), () => 'unused')
+  graph = applyGraphOp(graph, op(external), () => 'unused')
+  graph = applyGraphOp(graph, op(external), () => 'unused')
+  assert.deepEqual(graph.projectContexts['project-source-identity'], [fixture, external])
+})
+
+test('project graph applied-state checks the same opaque MCP identity, not only its label', () => {
+  const fixture = { kind: 'connector' as const, label: 'Postgres', meta: 'MCP server', source: { kind: 'mcp' as const, id: 'mcp-fixture-postgres-applied' } }
+  const external = { ...fixture, source: { kind: 'mcp' as const, id: 'mcp-connection-postgres-applied' } }
+  const op = (context: ProjectContext) => ({ kind: 'scope-context' as const, projectId: 'project-applied-identity', projectName: 'Applied identity', context })
+  const graph = applyGraphOp(emptyGraph(), op(fixture), () => 'unused')
+  assert.equal(opAppliedInGraph(graph, op(external)), false)
+  assert.equal(opAppliedInGraph(graph, op(fixture)), true)
 })

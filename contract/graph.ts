@@ -5,8 +5,21 @@
  *  canonical apply, which persists + broadcasts) and pure client projections /
  *  tests. The live client publishes only acknowledged edits. */
 import type { RelationGraph } from './api.ts'
-import type { ArtifactItem, Project, ScheduledTask } from './cowork.ts'
-import { artifactFromDraft, opKey, type RelationOp } from './relations.ts'
+import type { ArtifactItem, Project, ProjectContext, ScheduledTask } from './cowork.ts'
+import {
+  artifactFromDraft,
+  opKey,
+  projectContextMatchesSelector,
+  projectContextSelectorIsAmbiguous,
+  type RelationOp,
+} from './relations.ts'
+
+function sameProjectContext(a: ProjectContext, b: ProjectContext): boolean {
+  if (a.source?.kind === 'mcp' || b.source?.kind === 'mcp') {
+    return a.source?.kind === 'mcp' && b.source?.kind === 'mcp' && a.source.id === b.source.id
+  }
+  return a.label === b.label
+}
 
 /** A graph with every slice empty. */
 export function emptyGraph(): RelationGraph {
@@ -131,23 +144,24 @@ export function applyGraphOp(
       return graph // a live-session effect, not a graph edit
     case 'scope-context': {
       const cur = graph.projectContexts[op.projectId] ?? []
-      if (cur.some((c) => c.label === op.context.label)) return graph
+      if (cur.some((candidate) => sameProjectContext(candidate, op.context))) return graph
       return {
         ...graph,
         projectContexts: { ...graph.projectContexts, [op.projectId]: [...cur, op.context] },
       }
     }
     case 'unscope-context': {
-      // The inverse of scope-context: drop the context (matched by label) from the
-      // project's scoped set. Seed contexts live here too (seedGraph copies them in),
-      // so this removes a seeded or an added one alike. A no-op if it's already gone.
+      // The inverse of scope-context. A source-qualified selector uses the stable
+      // MCP identity; a legacy label selector is accepted only when unambiguous,
+      // so a mutable display label can never remove the wrong same-label context.
       const cur = graph.projectContexts[op.projectId] ?? []
-      if (!cur.some((c) => c.label === op.contextLabel)) return graph
+      if (projectContextSelectorIsAmbiguous(cur, op)) return graph
+      if (!cur.some((c) => projectContextMatchesSelector(c, op))) return graph
       return {
         ...graph,
         projectContexts: {
           ...graph.projectContexts,
-          [op.projectId]: cur.filter((c) => c.label !== op.contextLabel),
+          [op.projectId]: cur.filter((c) => !projectContextMatchesSelector(c, op)),
         },
       }
     }
@@ -261,14 +275,16 @@ export function opAppliedInGraph(graph: RelationGraph, op: RelationOp): boolean 
           (op.ownerTenantId === undefined || a.tenantId === op.ownerTenantId),
       )
     case 'scope-context':
-      return (graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.context.label)
+      return (graph.projectContexts[op.projectId] ?? []).some((c) => sameProjectContext(c, op.context))
     case 'unscope-context':
-      // Applied ⇔ the label is absent from the project's contexts. An ABSENT key (a
-      // runtime-created project that never scoped anything) means the label is
-      // absent too ⇒ applied — the vacuous-unscope case the comment names. The old
-      // `op.projectId in graph.projectContexts` guard wrongly held it pending
-      // forever on exactly those projects, re-offering a confirmed card on reopen.
-      return !(graph.projectContexts[op.projectId] ?? []).some((c) => c.label === op.contextLabel)
+      // Applied ⇔ the selected context is absent. An ambiguous legacy label is
+      // deliberately not applied: the server rejects it and the card must not
+      // be treated as settled by a client that has not refreshed its graph.
+      {
+        const contexts = graph.projectContexts[op.projectId] ?? []
+        return !projectContextSelectorIsAmbiguous(contexts, op) &&
+          !contexts.some((c) => projectContextMatchesSelector(c, op))
+      }
     case 'set-project-instructions':
       return graph.projectInstructions?.[op.projectId] === op.instructions
     case 'set-project-description':

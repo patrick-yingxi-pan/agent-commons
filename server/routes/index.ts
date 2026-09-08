@@ -2,6 +2,7 @@
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
+import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
   ApplyOpRequest,
   DeleteSavedContextRequest,
@@ -69,7 +70,7 @@ import type {
   TokenMintRecovery,
   TokenMintRequest,
 } from '../../contract/index.ts'
-import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
+import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus, isProjectContextSource } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { IMAGE_UPLOAD_BODY_BYTES } from '../../contract/imageAssets.ts'
 import { timingSafeEqual } from 'node:crypto'
@@ -5128,22 +5129,23 @@ export function buildRouter(): Router {
   }))
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
+  registerMcpConnectionRoutes(r)
   r.get('/saved-contexts', ({ req, res }) => {
     sendJson(res, store.savedContexts(store.identity(req.headers).tenant.id))
   })
   // Save a context to the set-up registry (the Contexts page's Add — server-owned,
   // so it survives navigation/reload and reaches every client). Idempotent by id.
-  r.post('/saved-contexts', async ({ req, res, body }) => {
+  r.post('/saved-contexts', mcpConnectionRoute(async ({ req, res, body }) => {
     const { context: input } = await body<{ context?: unknown }>()
     const context = savedContextFrom(input)
     if (!context) {
       return sendError(res, 'bad_request', 'a complete, valid saved context is required')
     }
     sendJson(res, store.addSavedContext(context, store.identity(req.headers).tenant.id))
-  })
+  }))
   // Remove the exact reusable setup the caller reviewed. Legacy clients may
   // omit the precondition; first-party retries retain one idempotency key.
-  r.delete('/saved-contexts/:id', idempotent(async ({ req, res, params, body }) => {
+  r.delete('/saved-contexts/:id', idempotent(mcpConnectionRoute(async ({ req, res, params, body }) => {
     const { expectedRevision } = await body<DeleteSavedContextRequest>()
     if (
       expectedRevision !== undefined &&
@@ -5164,11 +5166,11 @@ export function buildRouter(): Router {
       throw error
     }
     sendJson(res, { ok: true })
-  }))
+  })))
   // Set a saved connector / MCP server's auth status (connect / disconnect; the
   // OAuth-callback / token-expiry seam). Broadcasts `connector.status` and returns
   // the updated snapshot so the originating client reconciles immediately.
-  r.patch('/saved-contexts/:id', idempotent(async ({ req, res, params, body }) => {
+  r.patch('/saved-contexts/:id', idempotent(mcpConnectionRoute(async ({ req, res, params, body }) => {
     const { status, expectedRevision } = await body<SetConnectorStatusRequest>()
     if (status !== 'connected' && status !== 'needs-auth') {
       return sendError(res, 'bad_request', "status must be 'connected' or 'needs-auth'")
@@ -5192,8 +5194,8 @@ export function buildRouter(): Router {
       if (error instanceof ConflictError) return sendError(res, error.code, error.message)
       throw error
     }
-  }))
-  r.get('/connectors/detail', ({ res, url }) => {
+  })))
+  r.get('/connectors/detail', mcpConnectionRoute(({ req, res, url }) => {
     const label = url.searchParams.get('label')
     if (!label) return sendError(res, 'bad_request', 'label is required')
     const kind = (url.searchParams.get('kind') ?? undefined) as
@@ -5201,8 +5203,8 @@ export function buildRouter(): Router {
       | 'connector'
       | 'mcp'
       | undefined
-    sendJson(res, store.connectorDetail({ id: url.searchParams.get('id') ?? label, label, kind }))
-  })
+    sendJson(res, store.connectorDetail({ id: url.searchParams.get('id') ?? label, label, kind }, store.identity(req.headers).tenant.id))
+  }))
 
   // ── Usage (composer gauge: context window + plan limit windows) ────────────
   r.get('/usage', ({ req, res, url }) => {
@@ -5431,6 +5433,12 @@ export function buildRouter(): Router {
   r.intrinsicPost('/relations/ops', 'relation consent is realized by the session\'s purpose-built proposal cards; the model never executes its own proposal', idempotent(async ({ req, res, body }) => {
     const { op } = await body<ApplyOpRequest>()
     if (!op || typeof op.kind !== 'string') return sendError(res, 'bad_request', 'op is required')
+    if (op.kind === 'scope-context' && op.context?.source !== undefined && !isProjectContextSource(op.context.source)) {
+      return sendError(res, 'bad_request', 'context source is malformed')
+    }
+    if (op.kind === 'unscope-context' && op.contextSource !== undefined && !isProjectContextSource(op.contextSource)) {
+      return sendError(res, 'bad_request', 'context source is malformed')
+    }
     // Project prose carries an optional exact-content precondition. Validate
     // both desired and expected fields before tenant checks or store effects;
     // `undefined` alone has the legacy unconditional-write meaning.

@@ -79,6 +79,8 @@ import {
   discussionTitle,
   emptyGraph,
   opKey,
+  projectContextSelectorIsAmbiguous,
+  isProjectContextSource,
   recentEntries,
   runPrompt,
   runRecap,
@@ -170,6 +172,7 @@ import {
   McpConnectionError,
   type McpConnectionSetup,
   type PrivateMcpConnection,
+  type McpInspectionOperation,
 } from '../mcpConnections.ts'
 import { isExternalMcpId, type McpConnectionView } from '../../contract/mcpConnections.ts'
 import {
@@ -5842,10 +5845,11 @@ export const store = {
     discovery: Parameters<typeof mcpConnectionRegistry.commitInspection>[3],
     inspectedAt: number,
     credentialReference?: string,
+    operation?: McpInspectionOperation,
   ): McpConnectionView {
     return commitMutationBatch(() => {
       const result = mcpConnectionRegistry.commitInspection(
-        id, tenantId, expectedRevision, discovery, inspectedAt, credentialReference,
+        id, tenantId, expectedRevision, discovery, inspectedAt, credentialReference, operation,
       )
       emit({ type: 'connector.status', id, status: 'connected', tenantId })
       persist()
@@ -5876,7 +5880,17 @@ export const store = {
   },
   /** The sidebar detail for one connector / MCP server (mock: derived locally;
    *  a real backend fetches live resources from the connected service). */
-  connectorDetail(connector: Connector): ConnectorDetail {
+  connectorDetail(connector: Connector, tenantId: string = defaultTenantId()): ConnectorDetail {
+    if (isExternalMcpId(connector.id)) {
+      const connection = this.mcpConnection(connector.id, tenantId)
+      if (!connection) throw new McpConnectionError('missing')
+      return {
+        blurb: 'This is a saved external MCP catalog. Inspection does not enable tool execution.',
+        access: ['Tool execution is not available yet. Inspecting a catalog does not approve any tool calls.'],
+        itemsLabel: 'Inspected tools',
+        items: connection.tools.map(tool => ({ label: tool.name, ...(tool.description ? { meta: tool.description } : {}) })),
+      }
+    }
     return connectorDetail(connector)
   },
 
@@ -10592,6 +10606,23 @@ export const store = {
    *   • Every other op is a relationship-graph edit, applied by the pure reducer.
    *  All three broadcast `relation.applied` and persist. */
   applyRelationOp(op: RelationOp, tenantId?: string): RelationGraph {
+    if (op.kind === 'scope-context' && op.context.source !== undefined && !isProjectContextSource(op.context.source)) {
+      throw new ValidationError('This context source is malformed.')
+    }
+    if (tenantId && op.kind === 'scope-context' && op.context.source?.kind === 'mcp' &&
+        isExternalMcpId(op.context.source.id) &&
+        !mcpConnectionRegistry.view(op.context.source.id, tenantId)) {
+      throw new ValidationError('This context source is unavailable.')
+    }
+    if (op.kind === 'unscope-context' && op.contextSource !== undefined && !isProjectContextSource(op.contextSource)) {
+      throw new ValidationError('This context source is malformed.')
+    }
+    if (op.kind === 'unscope-context') {
+      const contexts = graph.projectContexts[op.projectId] ?? []
+      if (projectContextSelectorIsAmbiguous(contexts, op)) {
+        throw new ValidationError('This context selector is ambiguous; refresh and include its source identity.')
+      }
+    }
     // Project prose has no independent row object/revision, so compare the
     // exact field the author reviewed. This avoids a coarse graph-revision
     // fence: filing a Conversation or editing an unrelated Project must not
@@ -10788,6 +10819,14 @@ export const store = {
    *  Seed projects/sessions are the default tenant's, so the default caller passes. (The
    *  artifact/schedule SUBJECT axes await slice 3b, when those entities gain a tenant.) */
   opDeniedForTenant(op: RelationOp, tenantId: string): boolean {
+    // A source-qualified project scope is an admission of a tenant-owned
+    // external MCP identity. Keep the source opaque at the wire boundary, but
+    // do not let a caller mint a foreign or phantom connection reference. The
+    // source owner may still remove a stale graph row later via unscope; this
+    // check is intentionally only on new scope admission.
+    if (op.kind === 'scope-context' && op.context.source?.kind === 'mcp' &&
+        isExternalMcpId(op.context.source.id) &&
+        !mcpConnectionRegistry.view(op.context.source.id, tenantId)) return true
     const pid = (op as { projectId?: string | null }).projectId
     // `!= null`, not truthiness: an EMPTY-STRING projectId is still a real key on the write
     // side and buckets to the default tenant on read (projectTenant('') ⇒ default), so it

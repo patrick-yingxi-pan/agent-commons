@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 import { startMessagesFixture } from './attachment-endpoint'
 import { ms } from './budget.ts'
@@ -72,6 +73,10 @@ test('an attached image is previewable by a read-only audience and hidden from a
 
 test('a real image becomes durable reference context and real model image blocks, then detaches', async ({ page }) => {
   test.setTimeout(ms(90_000))
+  await page.context().setExtraHTTPHeaders({
+    'x-user-id': 'user-ada',
+    'x-tenant-id': `tenant-image-${randomUUID()}`,
+  })
   await page.setViewportSize({ width: 1280, height: 800 })
   const endpoint = await startMessagesFixture()
   try {

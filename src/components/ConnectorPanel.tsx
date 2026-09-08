@@ -3,6 +3,8 @@ import type { Connector, ConnectorDetail } from '../types'
 import { connectorIconFor } from '../lib/connectors'
 import { useConnectorDetail } from '../api'
 import { PanelShell } from './PanelShell'
+import { isExternalMcpId } from '../../contract/mcpConnections.ts'
+import { McpConnectionPreview } from './McpCatalogBody.tsx'
 
 /** Shown while the connector's detail is loading from the backend (a beat). */
 const LOADING_DETAIL: ConnectorDetail = { blurb: '', access: [], itemsLabel: '', items: [] }
@@ -19,6 +21,11 @@ export function ConnectorDetailBody({
   connector: Connector
   connected?: boolean
 }) {
+  if (isExternalMcpId(connector.id)) return <McpConnectionPreview id={connector.id} />
+  return <FixtureConnectorDetailBody connector={connector} connected={connected} />
+}
+
+function FixtureConnectorDetailBody({ connector, connected }: { connector: Connector; connected: boolean }) {
   const detail = useConnectorDetail(connector).data ?? LOADING_DETAIL
   const isMcp = connector.kind === 'mcp'
   // Accent matches the composer chip (MCP → teal, connector → violet).

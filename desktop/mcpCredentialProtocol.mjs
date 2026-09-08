@@ -5,6 +5,8 @@
 export const MCP_CREDENTIAL_RESOLVE = 'agent-commons:mcp-credential:resolve'
 export const MCP_CREDENTIAL_RESULT = 'agent-commons:mcp-credential:result'
 export const MCP_CREDENTIAL_BINDINGS = 'agent-commons:mcp-credential:bindings'
+export const MCP_CREDENTIAL_SYNC = 'agent-commons:mcp-credential:sync'
+export const MCP_CREDENTIAL_SYNC_RESULT = 'agent-commons:mcp-credential:sync-result'
 export const MCP_CREDENTIAL_MAX_PENDING = 64
 export const MCP_CREDENTIAL_MAX_BINDINGS = 4_096
 export const MCP_CREDENTIAL_MAX_ID_CHARS = 256
@@ -12,6 +14,7 @@ export const MCP_CREDENTIAL_MAX_ENDPOINT_CHARS = 2_048
 export const MCP_CREDENTIAL_MAX_SECRET_CHARS = 8_192
 
 const REFERENCE_PATTERN = /^MCP_DESKTOP_[A-F0-9]{32}$/
+const SYNC_FAILURE = Symbol('mcp-credential-sync-failure')
 const printable = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && /^[\x20-\x7e]+$/.test(value)
 
 export function isMcpCredentialReference(value) {
@@ -83,12 +86,25 @@ export function installMcpCredentialRuntime(parentPort = globalThis.process?.par
   let sequence = 0
   let closed = false
   const pending = new Map()
+  const pendingSync = new Map()
   const messageOf = (event) => event && typeof event === 'object' && Object.hasOwn(event, 'data') ? event.data : event
   const send = (message) => {
     try { parentPort.postMessage(message); return true } catch { return false }
   }
   const onMessage = (event) => {
     const message = messageOf(event)
+    if (message?.type === MCP_CREDENTIAL_SYNC_RESULT && Number.isSafeInteger(message.requestId) && message.requestId > 0) {
+      const entry = pendingSync.get(message.requestId)
+      if (!entry) return
+      pendingSync.delete(message.requestId)
+      clearTimeout(entry.timer)
+      if (Object.hasOwn(message, 'error')) {
+        if (message.error === 'failed') entry.reject(genericError('The MCP credential synchronization failed.'))
+        else entry.reject(genericError('The MCP credential synchronization response is invalid.'))
+      } else if (typeof message.available === 'boolean') entry.resolve({ available: message.available })
+      else entry.reject(genericError('The MCP credential synchronization response is invalid.'))
+      return
+    }
     if (!message || message.type !== MCP_CREDENTIAL_RESULT || !Number.isSafeInteger(message.requestId) || message.requestId < 1) return
     const entry = pending.get(message.requestId)
     if (!entry) return
@@ -108,6 +124,11 @@ export function installMcpCredentialRuntime(parentPort = globalThis.process?.par
       entry.reject(genericError('The MCP credential channel is unavailable.'))
     }
     pending.clear()
+    for (const entry of pendingSync.values()) {
+      clearTimeout(entry.timer)
+      entry.reject(genericError('The MCP credential channel is unavailable.'))
+    }
+    pendingSync.clear()
   }
   const resolve = (reference, binding) => {
     if (closed) return Promise.reject(genericError('The MCP credential channel is unavailable.'))
@@ -134,22 +155,86 @@ export function installMcpCredentialRuntime(parentPort = globalThis.process?.par
     const safe = safeAnnouncement(bindings)
     if (safe) send({ type: MCP_CREDENTIAL_BINDINGS, bindings: safe })
   }
-  return { resolve, announceBindings, close }
+  let syncChain = Promise.resolve()
+  let syncPendingCount = 0
+  const synchronizeBindings = (bindings) => {
+    const safe = safeAnnouncement(bindings)
+    if (!safe) return Promise.reject(genericError('The MCP credential bindings snapshot is invalid.'))
+    if (syncPendingCount >= limit) return Promise.reject(genericError('The MCP credential channel is busy.'))
+    syncPendingCount += 1
+    const operation = syncChain.then(() => {
+      if (closed) throw genericError('The MCP credential channel is unavailable.')
+      const requestId = (sequence += 1)
+      return new Promise((resolvePromise, reject) => {
+        const timer = setTimeout(() => {
+          pendingSync.delete(requestId)
+          reject(genericError('The MCP credential synchronization timed out.'))
+        }, deadline)
+        pendingSync.set(requestId, { resolve: resolvePromise, reject, timer })
+        if (!send({ type: MCP_CREDENTIAL_SYNC, requestId, bindings: safe })) {
+          pendingSync.delete(requestId)
+          clearTimeout(timer)
+          reject(genericError('The MCP credential channel is unavailable.'))
+        }
+      })
+    }).finally(() => { syncPendingCount -= 1 })
+    syncChain = operation.then(() => undefined, () => undefined)
+    return operation
+  }
+  return { resolve, announceBindings, synchronizeBindings, close }
 }
 
 /** Main/host half. `resolve` is the host-only vault reader and receives the
  * exact validated reference plus binding; it is never exposed to the child. */
-export function createMcpCredentialHost(child, { resolve, onBindings = () => {}, timeoutMs = 5_000, maxPending = MCP_CREDENTIAL_MAX_PENDING } = {}) {
+export function createMcpCredentialHost(child, { resolve, onBindings = () => {}, onSynchronizeBindings = async () => false,
+  timeoutMs = 5_000, maxPending = MCP_CREDENTIAL_MAX_PENDING } = {}) {
   if (!child || typeof resolve !== 'function') throw new Error('The MCP credential host is unavailable.')
   const deadline = timeoutValue(timeoutMs)
   const limit = pendingLimit(maxPending)
   let closed = false
   const active = new Map()
+  let syncChain = Promise.resolve()
+  let syncQueued = 0
   const send = (message) => {
     try { child.postMessage(message); return true } catch { return false }
   }
   const onMessage = (message) => {
     if (closed || !message || typeof message !== 'object') return
+    if (message.type === MCP_CREDENTIAL_SYNC) {
+      const safe = Number.isSafeInteger(message.requestId) && message.requestId > 0 ? safeAnnouncement(message.bindings) : undefined
+      if (!safe || syncQueued >= limit) {
+        if (Number.isSafeInteger(message.requestId) && message.requestId > 0) {
+          send({ type: MCP_CREDENTIAL_SYNC_RESULT, requestId: message.requestId, error: 'failed' })
+        }
+        return
+      }
+      syncQueued += 1
+      const apply = syncChain.then(async () => {
+        syncQueued -= 1
+        if (closed) return false
+        let timer
+        try {
+          const timeout = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(genericError('The MCP credential synchronization timed out.')), deadline)
+          })
+          const result = await Promise.race([Promise.resolve().then(() => onSynchronizeBindings(safe)), timeout])
+          if (result === true || (result && typeof result === 'object' && result.available === true)) return true
+          if (result === false || (result && typeof result === 'object' && result.available === false)) return false
+          return SYNC_FAILURE
+        } catch {
+          return SYNC_FAILURE
+        } finally {
+          clearTimeout(timer)
+        }
+      })
+      syncChain = apply.then(() => undefined, () => undefined)
+      void apply.then((result) => {
+        if (closed) return
+        if (result === SYNC_FAILURE) send({ type: MCP_CREDENTIAL_SYNC_RESULT, requestId: message.requestId, error: 'failed' })
+        else send({ type: MCP_CREDENTIAL_SYNC_RESULT, requestId: message.requestId, available: result === true })
+      })
+      return
+    }
     if (message.type === MCP_CREDENTIAL_BINDINGS) {
       const safe = safeAnnouncement(message.bindings)
       if (safe) {

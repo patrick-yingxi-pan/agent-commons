@@ -40,10 +40,11 @@ import {
   useOpenSubGoals,
   useOwnerProfile,
   useProviders,
-  useSavedContexts,
   useSystemPrompts,
 } from '../api'
 import { useRelations } from '../controller/useRelations'
+import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
+import { resolveSavedContext } from '../lib/savedContextIdentity.ts'
 import { discussionTitle } from '../../contract/social.ts'
 import type { Project, SectionId } from '../types'
 import { OWNER_SECTION, type PaneSeed } from '../lib/paneNav'
@@ -1255,7 +1256,7 @@ function ProjectResourceChildren({
   foldSignal?: RailFoldSignal | null
 }) {
   const rel = useRelations()
-  const saved = useSavedContexts().data?.contexts ?? []
+  const saved = useContextRegistryProjection().data?.contexts ?? []
   const work = useOpenSubGoals(project.id).data ?? []
   const changes = useContributions(project.id).data ?? []
   const attention = useAttention(project.id).data
@@ -1265,7 +1266,7 @@ function ProjectResourceChildren({
   const discussions = useDiscussions('project', project.id).data ?? []
   const artifacts = rel.artifactsForProject(project.id)
   const contexts = rel.contextsForProject(project.id)
-    .map((ctx) => saved.find((item) => item.id === ctx.label || item.label === ctx.label))
+    .map((ctx) => resolveSavedContext(saved, ctx.label, ctx.source?.id))
     .filter((ctx): ctx is NonNullable<typeof ctx> => ctx !== undefined)
   const schedules = rel.schedulesForProject(project.id)
   const sessions = rel.sessionsForProject(project.id)
@@ -1531,7 +1532,7 @@ function ArtifactChildren({ foldSignal, ...props }: InstanceChildProps & { foldS
 
 function ContextChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
   const [filter] = useSectionFilter('contexts')
-  const rows = listContexts(useSavedContexts().data?.contexts ?? [], filter)
+  const rows = listContexts(useContextRegistryProjection().data?.contexts ?? [], filter)
   const activeGroupId = props.activeSeed?.collectionSectionId
   const groups = [
     ...contextCollectionSections(rows).filter((group) => group.items.length > 0 || group.id === activeGroupId).map((group) => ({

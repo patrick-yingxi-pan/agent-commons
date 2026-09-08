@@ -20,6 +20,30 @@ export interface ProjectContext {
   kind: 'folder' | 'repo' | 'connector' | 'doc'
   label: string
   meta: string
+  /** Stable origin for contexts whose display label is not an identity. In
+   * particular, an inspected external MCP connection must survive project
+   * round-trips without being reverse-mapped through the fixture catalog. */
+  source?: ProjectContextSource
+}
+
+/** Stable identity carried by a project context when its display label is not
+ * authoritative (currently external MCP connections). Kept deliberately
+ * narrow so a persisted/source selector cannot become an execution payload. */
+export interface ProjectContextSource {
+  kind: 'mcp'
+  id: string
+}
+
+/** Runtime boundary guard for the optional source selector. This is shared by
+ * relation-op admission and snapshot validation; callers must not coerce
+ * boxed/array values into an identity. */
+export function isProjectContextSource(value: unknown): value is ProjectContextSource {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
+  const row = value as Record<string, unknown>
+  const keys = Object.keys(row).sort()
+  return keys.length === 2 && keys[0] === 'id' && keys[1] === 'kind' &&
+    row.kind === 'mcp' && typeof row.id === 'string' &&
+    row.id.length > 0 && row.id.length <= 512 && !/[\u0000-\u001f\u007f]/.test(row.id)
 }
 
 export interface Project {

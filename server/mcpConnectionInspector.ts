@@ -3,14 +3,15 @@
  * tenant; the credential resolver belongs to the deployment, not the request. */
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import { discoverMcpTools, type McpDiscovery } from './mcpDiscovery.ts'
-import { McpConnectionError, mcpConnectionEndpoint, type PrivateMcpConnection } from './mcpConnections.ts'
+import { McpConnectionError, mcpConnectionEndpoint, type PrivateMcpConnection, type McpInspectionOperation } from './mcpConnections.ts'
 
-export interface McpCredentialBinding { tenantId: string; connectionId: string; endpoint: string }
+import type { McpCredentialBinding } from '../contract/mcpConnections.ts'
+export type { McpCredentialBinding } from '../contract/mcpConnections.ts'
 export type McpCredentialResolver = (reference: string, binding: McpCredentialBinding) => Promise<string>
 export interface McpInspectionStore {
   privateMcpConnection(id: string, tenantId: string): PrivateMcpConnection | undefined
   commitMcpInspection(id: string, tenantId: string, expectedRevision: number, discovery: McpDiscovery,
-    inspectedAt: number, credentialReference?: string): McpConnectionView
+    inspectedAt: number, credentialReference?: string, operation?: McpInspectionOperation): McpConnectionView
 }
 export class McpInspectionError extends Error {
   readonly code: 'credentials_unavailable' | 'cancelled' | 'timeout' | 'busy'
@@ -34,15 +35,18 @@ export function createMcpConnectionInspector({
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) throw new McpConnectionError('invalid')
   const active = new Set<string>()
   return async (id: string, tenantId: string, expectedRevision: number,
-    { credentialReference, signal }: { credentialReference?: string; signal?: AbortSignal } = {}): Promise<McpConnectionView> => {
+    { credentialReference: replacementReference, signal, operation }: { credentialReference?: string; signal?: AbortSignal; operation?: McpInspectionOperation } = {}): Promise<McpConnectionView> => {
     const row = store.privateMcpConnection(id, tenantId)
     if (!row) throw new McpConnectionError('missing')
     if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) throw new McpConnectionError('invalid')
     if (row.revision !== expectedRevision) throw new McpConnectionError('conflict')
+    // A refresh may reuse only this exact revision's private credential. A
+    // disconnect removes it, so reconnect must provision a fresh reference.
+    const credentialReference = replacementReference ?? row.credentialReference
     const { endpoint, scope } = mcpConnectionEndpoint(row.endpoint, allowLoopback)
     if (row.authentication === 'device-bearer') {
       if (!resolveCredential) throw new McpInspectionError('credentials_unavailable')
-      if (!credentialReference || !/^MCP_DESKTOP_[A-F0-9]{32}$/.test(credentialReference)) throw new McpConnectionError('invalid')
+      if (typeof credentialReference !== 'string' || !/^MCP_DESKTOP_[A-F0-9]{32}$/.test(credentialReference)) throw new McpConnectionError('invalid')
     } else if (credentialReference !== undefined) throw new McpConnectionError('invalid')
     if (signal?.aborted) throw new McpInspectionError('cancelled')
     const key = JSON.stringify([tenantId, id])
@@ -90,7 +94,7 @@ export function createMcpConnectionInspector({
       const discovery = await Promise.race([discover(endpoint, { scope, bearerToken, signal: controller.signal,
         timeoutMs: Math.max(1, Math.floor(timeoutMs - (performance.now() - started))) }), stopped])
       ensureCurrent()
-      return store.commitMcpInspection(id, tenantId, expectedRevision, discovery, now(), credentialReference)
+      return store.commitMcpInspection(id, tenantId, expectedRevision, discovery, now(), credentialReference, operation)
     } finally {
       clearTimeout(timer)
       signal?.removeEventListener('abort', cancelled)

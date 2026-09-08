@@ -100,7 +100,13 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'contextIsolation: true',
     'sandbox: true',
     "preload: join(app.getAppPath(), 'desktop', 'preload.cjs')",
-    "additionalArguments: credentialVault ? ['--agent-commons-secure-credentials'] : []",
+    'additionalArguments: [',
+    "--agent-commons-mcp-credentials",
+    'createMcpCredentialHost(',
+    'createMcpCredentialLifecycle(',
+    'mcpCredentialLifecycle.synchronize(',
+    'mcpCredentialLifecycle.provision(',
+    'installMcpCredentialIpc()',
     'assertTrustedCredentialCaller(event)',
     'assertTrustedDataCaller(event)',
     'assertTrustedContextCaller(event)',
@@ -181,6 +187,29 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   for (const channel of Object.values(dataChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const verb of ['pickFiles', 'pickFolder']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(contextChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
+  assert.match(preload, /mcpCredentials = Object.freeze\(/)
+  assert.match(preload, /mcp-provision-v1/)
+  assert.match(preload, /mcp-credentials:provision/)
+  const mcpBridge = preload.slice(preload.indexOf('mcpCredentials = Object.freeze('))
+  assert.match(mcpBridge, /provision:/)
+  assert.doesNotMatch(mcpBridge, /read:|list:|discard:|resolve:/, 'the renderer receives no MCP read/list/raw/discard authority')
+
+  const startupScript = readFileSync(new URL('../scripts/start.mjs', import.meta.url), 'utf8')
+  assert.match(startupScript, /installMcpCredentialRuntime\(\)/)
+  assert.match(startupScript, /configureMcpRuntime\(/)
+  assert.match(startupScript, /allowLoopback: false/)
+  const serverImport = startupScript.indexOf("await import('../server/index.ts')")
+  assert.ok(serverImport > startupScript.indexOf('deviceBearerAvailable: false'), 'server import follows the inert MCP runtime configuration')
+  assert.equal(
+    startupScript.indexOf('await mcpCredentialRuntime.synchronizeBindings('),
+    -1,
+    'MCP synchronization waits for server/index after durable rehydration',
+  )
+  assert.doesNotMatch(startupScript, /process\.env\[[^\]]*MCP|process\.env\.MCP/, 'MCP secrets never enter environment setup')
+  const entrypoint = readFileSync(new URL('../server/index.ts', import.meta.url), 'utf8')
+  const initialization = entrypoint.indexOf('await initializeMcpRuntime(store.mcpCredentialBindings())')
+  assert.ok(initialization > entrypoint.indexOf('store.initPersistence()'), 'credential reconciliation follows durable state loading')
+  assert.ok(initialization < entrypoint.indexOf('const server = createServer('), 'HTTP admission waits for the credential acknowledgement')
 
   const packager = readFileSync(new URL('./packager.config.mjs', import.meta.url), 'utf8')
   assert.match(packager, /asar:\s*true/)
@@ -204,6 +233,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release-set.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/smokePaths.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/mcpCredentialSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmokeFixture.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
@@ -235,6 +266,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /vault\.includes\(smokeSecret\)/)
   assert.match(smoke, /await smokePackagedAttachments\(\{ executable \}\)/,
     'the ordinary executable and freshly extracted release both run attachment acceptance')
+  assert.match(smoke, /await smokePackagedMcpCredentials\(\{ executable \}\)/,
+    'the ordinary executable and freshly extracted release both prove real OS-backed MCP credential reconciliation')
 
   const packaging = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')
   assert.match(packaging, /electronChecksums/)

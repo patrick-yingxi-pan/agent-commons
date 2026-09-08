@@ -13,6 +13,28 @@ const discovery = { protocolVersion: MCP_MODERN_VERSION, cleanup: 'not-needed' a
   tools: [{ name: 'lookup', description: 'Remote description', inputSchema: { type: 'object', properties: { query: { type: 'string' } } } }] }
 const fails = (code: McpConnectionError['code']) => (error: unknown) => error instanceof McpConnectionError && error.code === code
 
+test('inspection acknowledgement identity survives restart and disconnect without exposing its private fingerprint', () => {
+  const registry = createMcpConnectionRegistry()
+  registry.create(setup, 'owner')
+  const operation = { id: 'inspect-once', fingerprint: 'a'.repeat(64) }
+  const result = registry.commitInspection(id, 'owner', 0, discovery, 123, ref, operation)
+  assert.equal(result.inspectionOperationId, operation.id)
+  assert.doesNotMatch(JSON.stringify(result), /fingerprint/)
+  const restarted = createMcpConnectionRegistry()
+  restarted.rehydrate(registry.snapshot())
+  assert.deepEqual(restarted.privateConnection(id, 'owner')!.inspectionOperation, operation)
+  assert.throws(() => restarted.commitInspection(id, 'owner', 1, discovery, 124, ref, operation), fails('conflict'))
+  restarted.disconnect(id, 'owner', 1)
+  assert.equal(restarted.view(id, 'owner')!.inspectionOperationId, operation.id)
+  assert.equal(restarted.view(id, 'owner')!.status, 'disconnected')
+  const saved = restarted.snapshot()
+  for (const invalid of [null, [], { id: ' ', fingerprint: operation.fingerprint },
+    { ...operation, fingerprint: ['a'.repeat(64)] }, { ...operation, credentialReference: ref }]) {
+    assert.throws(() => restarted.rehydrate({ ...saved, connections: [{ ...saved.connections[0], inspectionOperation: invalid }] }), fails('invalid'))
+    assert.deepEqual(restarted.snapshot(), saved)
+  }
+})
+
 test('logical identity is tenant-scoped, stable, bounded and not a raw retry key', () => {
   assert.match(id, /^mcp-connection-[a-f0-9]{32}$/)
   assert.equal(id, mcpConnectionCreationId('owner', 'logical-key'))

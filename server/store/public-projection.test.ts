@@ -58,3 +58,15 @@ test('a Project’s defaultRole rides the FOREIGN shared view — a visitor’s 
     'a foreign tenant may not set another workspace’s default role',
   )
 })
+
+test('a foreign shared-project projection redacts owner-scoped context joins', () => {
+  const projectId = 'p-pub-context-redaction'
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Context privacy', projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Context privacy', shared: true }, A)
+  store.applyRelationOp({
+    kind: 'scope-context', projectId, projectName: 'Context privacy',
+    context: { kind: 'connector', label: 'Owner private MCP', meta: 'MCP server', source: { kind: 'mcp', id: 'mcp-fixture-owner-private' } },
+  }, A)
+  assert.deepEqual(store.relationGraph(A).projectContexts[projectId]?.map((context) => context.label), ['Owner private MCP'])
+  assert.equal(store.relationGraph(B).projectContexts[projectId], undefined, 'foreign readers do not receive owner context membership')
+})

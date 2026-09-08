@@ -14,6 +14,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from './index.ts'
+import { mcpConnectionCreationId } from '../mcpConnections.ts'
 
 const mkCreate = (id, name, sessionId) => ({
   kind: 'create-project',
@@ -133,4 +134,33 @@ test('an explicit UNFILE survives the projection — `null` is not a project id 
   const scoped = store.relationGraph(T).sessionProject
   assert.ok(s.id in scoped, 'the explicit unfile must not be filtered away')
   assert.equal(scoped[s.id], null, '…and it reads as null, not as a stale project id')
+})
+
+test('a scope-context source must belong to the acting tenant', () => {
+  const caller = 'tenant-context-source-caller'
+  const foreign = 'tenant-context-source-foreign'
+  const projectId = 'p-context-source-owner'
+  const sourceId = mcpConnectionCreationId(foreign, 'foreign-source')
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Source owner', projectDescription: '' }, caller)
+  store.createMcpConnection({
+    id: sourceId, label: 'Foreign MCP', endpoint: 'https://foreign.example/mcp', authentication: 'none',
+  }, foreign)
+  const ownSourceId = mcpConnectionCreationId(caller, 'own-source')
+  store.createMcpConnection({
+    id: ownSourceId, label: 'Own MCP', endpoint: 'https://own.example/mcp', authentication: 'none',
+  }, caller)
+  const op = {
+    kind: 'scope-context' as const,
+    projectId,
+    projectName: 'Source owner',
+    context: { kind: 'connector' as const, label: 'Foreign MCP', meta: 'MCP server', source: { kind: 'mcp' as const, id: sourceId } },
+  }
+  assert.equal(store.opDeniedForTenant(op, caller), true, 'a caller cannot scope another tenant’s external MCP identity')
+  assert.equal(store.opDeniedForTenant(op, foreign), true, 'the foreign source owner cannot write into the caller’s project')
+  assert.throws(() => store.applyRelationOp(op, caller), /unavailable/, 'the canonical store seam repeats the source ownership fence')
+  assert.equal(store.opDeniedForTenant({
+    ...op,
+    context: { ...op.context, label: 'Own MCP', source: { kind: 'mcp', id: ownSourceId } },
+  }, caller), false, 'the caller may scope its own external MCP identity')
+  assert.equal(store.relationGraph(caller).projectContexts[projectId], undefined, 'the rejected source never enters the graph')
 })

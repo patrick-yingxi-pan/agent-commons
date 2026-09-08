@@ -33,6 +33,7 @@ import { ProviderDefinitionMutationNotice } from './ProviderDefinitionMutationNo
 import { ProviderCreationMutationNotice } from './ProviderCreationMutationNotice'
 import { ProviderConnectionMutationNotice } from './ProviderConnectionMutationNotice'
 import { ProviderCatalogRefreshMutationNotice } from './ProviderCatalogRefreshMutationNotice'
+import { McpConnectionMutationNotice } from './McpConnectionMutationNotice'
 import { ProviderSecretRotationMutationNotice } from './ProviderSecretRotationMutationNotice'
 import { RelationMutationNotice } from './RelationMutationNotice'
 import { ScheduleMutationNotice } from './ScheduleMutationNotice'
@@ -128,6 +129,7 @@ export function ShellMutationNotices() {
       <ProviderCreationMutationNotice />
       <ProviderConnectionMutationNotice />
       <ProviderCatalogRefreshMutationNotice />
+      <McpConnectionMutationNotice />
       <ProviderSecretRotationMutationNotice />
       <SystemPromptDefinitionMutationNotice />
       <SystemPromptCreationMutationNotice />

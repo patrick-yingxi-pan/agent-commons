@@ -11,8 +11,38 @@ import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import { call } from '../testkit/http.ts'
+import { mcpConnectionCreationId } from '../mcpConnections.ts'
 
 const apply = (op: unknown) => call('POST', '/relations/ops', { op })
+
+test('scope-context rejects a malformed source selector at the wire boundary', async () => {
+  const res = await apply({
+    kind: 'scope-context',
+    projectId: 'p-insights',
+    projectName: 'Insights',
+    context: { kind: 'connector', label: 'Postgres', meta: 'external', source: [] },
+  })
+  assert.equal(res.status, 400)
+})
+
+test('scope-context rejects a foreign external MCP source before graph mutation', async () => {
+  const caller = `route-source-caller-${Date.now().toString(36)}`
+  const foreign = `${caller}-foreign`
+  const projectId = `route-source-project-${Date.now().toString(36)}`
+  const sourceId = mcpConnectionCreationId(foreign, 'foreign-source')
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Source owner', projectDescription: '' }, caller)
+  store.createMcpConnection({
+    id: sourceId, label: 'Foreign MCP', endpoint: 'https://foreign.example/mcp', authentication: 'none',
+  }, foreign)
+  const response = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'scope-context', projectId, projectName: 'Source owner',
+      context: { kind: 'connector', label: 'Foreign MCP', meta: 'MCP server', source: { kind: 'mcp', id: sourceId } },
+    },
+  }, { 'x-tenant-id': caller })
+  assert.equal(response.status, 404, 'foreign source ownership is existence-hidden')
+  assert.equal(store.relationGraph(caller).projectContexts[projectId], undefined, 'the rejected source never enters the graph')
+})
 
 test('create-provider op registers a provider through the funnel (a proper cascade root)', async () => {
   const res = await apply({ kind: 'create-provider', label: 'Wire provider', modelFamily: 'claude' })

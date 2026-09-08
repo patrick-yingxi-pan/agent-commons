@@ -2,7 +2,7 @@
  * this registry: the caller persists a transition before acknowledging it, and
  * probes outside the registry against a revision checked again at commit. */
 import { createHash } from 'node:crypto'
-import { EXTERNAL_MCP_ID_PREFIX, type McpConnectionView } from '../contract/mcpConnections.ts'
+import { EXTERNAL_MCP_ID_PREFIX, mcpConnectionContext, type McpConnectionView } from '../contract/mcpConnections.ts'
 import type { SavedContext } from '../contract/contexts.ts'
 import { parseOutboundEndpoint } from './outboundAddress.ts'
 import { parseMcpToolsPage } from './mcpCatalog.ts'
@@ -57,7 +57,9 @@ export interface PrivateMcpConnection {
   revision: number
   connected: boolean
   inspection?: McpDiscovery & { inspectedAt: number }
+  inspectionOperation?: McpInspectionOperation
 }
+export interface McpInspectionOperation { id: string; fingerprint: string }
 export interface McpConnectionState {
   connections: PrivateMcpConnection[]
   retired: Array<{ tenantId: string; id: string }>
@@ -76,7 +78,14 @@ function publicView(row: PrivateMcpConnection): McpConnectionView {
     protocolVersion: row.inspection?.protocolVersion ?? null,
     inspectedAt: row.inspection?.inspectedAt ?? null,
     tools: structuredClone(row.inspection?.tools ?? []), execution: 'unavailable',
+    inspectionOperationId: row.inspectionOperation?.id ?? null,
   }
+}
+function checkedOperation(value: unknown): McpInspectionOperation {
+  if (!object(value) || Object.keys(value).length !== 2 || !text(value.id, 128) ||
+      !/^[\x20-\x7e]+$/.test(value.id) || typeof value.fingerprint !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(value.fingerprint)) fail('invalid')
+  return { id: value.id, fingerprint: value.fingerprint }
 }
 function checkedInspection(value: unknown): PrivateMcpConnection['inspection'] {
   if (!object(value) || !revision(value.inspectedAt) ||
@@ -107,7 +116,7 @@ export function parseMcpConnectionState(value: unknown): McpConnectionState {
     seen.add(key)
   }
   const connections = value.connections.map((entry): PrivateMcpConnection => {
-    if (!object(entry) || Object.keys(entry).some(key => !['tenantId', 'id', 'label', 'endpoint', 'authentication', 'credentialReference', 'revision', 'connected', 'inspection'].includes(key))) fail('invalid')
+    if (!object(entry) || Object.keys(entry).some(key => !['tenantId', 'id', 'label', 'endpoint', 'authentication', 'credentialReference', 'revision', 'connected', 'inspection', 'inspectionOperation'].includes(key))) fail('invalid')
     claim(entry.tenantId, entry.id)
     if (!text(entry.label) || typeof entry.endpoint !== 'string' || !revision(entry.revision) ||
         typeof entry.connected !== 'boolean' || typeof entry.authentication !== 'string' ||
@@ -121,6 +130,8 @@ export function parseMcpConnectionState(value: unknown): McpConnectionState {
     if (entry.inspection !== undefined && (!object(entry.inspection) || Object.keys(entry.inspection).some(key =>
       !['protocolVersion', 'tools', 'cleanup', 'inspectedAt'].includes(key)))) fail('invalid')
     const inspection = entry.inspection === undefined ? undefined : checkedInspection(entry.inspection)
+    const inspectionOperation = entry.inspectionOperation === undefined ? undefined : checkedOperation(entry.inspectionOperation)
+    if (inspectionOperation && !inspection) fail('invalid')
     if (entry.credentialReference !== undefined && (typeof entry.credentialReference !== 'string' || !credentialPattern.test(entry.credentialReference))) fail('invalid')
     if (entry.connected && (!inspection || (entry.authentication === 'device-bearer' && !entry.credentialReference))) fail('invalid')
     if (entry.credentialReference !== undefined && (!entry.connected || entry.authentication !== 'device-bearer')) fail('invalid')
@@ -131,6 +142,7 @@ export function parseMcpConnectionState(value: unknown): McpConnectionState {
     return { tenantId, id: entry.id as string, label: entry.label, endpoint,
       authentication: entry.authentication as PrivateMcpConnection['authentication'], revision: entry.revision,
       connected: entry.connected, ...(inspection ? { inspection } : {}),
+      ...(inspectionOperation ? { inspectionOperation } : {}),
       ...(entry.credentialReference === undefined ? {} : { credentialReference: entry.credentialReference as string }) }
   })
   const retired = value.retired.map((entry) => {
@@ -165,11 +177,7 @@ export function createMcpConnectionRegistry() {
       return state.connections.filter(row => row.tenantId === tenantId).map(publicView)
     },
     savedContexts(tenantId: string): SavedContext[] {
-      return state.connections.filter(row => row.tenantId === tenantId).map(row => ({
-        id: row.id, label: row.label, kind: 'mcp', status: row.connected ? 'connected' : 'needs-auth',
-        connectionRevision: row.revision, lastUsedAt: null, sessions: 0,
-        detail: row.connected ? `External MCP · ${row.inspection!.tools.length} tools inspected` : 'External MCP · connection required',
-      }))
+      return state.connections.filter(row => row.tenantId === tenantId).map(row => mcpConnectionContext(publicView(row)))
     },
     create(setup: McpConnectionSetup, tenantId: string, allowLoopback = false): { connection: McpConnectionView; created: boolean } {
       if (!text(tenantId) || typeof setup.id !== 'string' || !idPattern.test(setup.id) || !text(setup.label) ||
@@ -188,12 +196,16 @@ export function createMcpConnectionRegistry() {
       state.connections.push(row)
       return { connection: publicView(row), created: true }
     },
-    commitInspection(id: string, tenantId: string, expectedRevision: number, discovery: McpDiscovery, inspectedAt: number, credentialReference?: string): McpConnectionView {
+    commitInspection(id: string, tenantId: string, expectedRevision: number, discovery: McpDiscovery, inspectedAt: number, credentialReference?: string, operation?: McpInspectionOperation): McpConnectionView {
       const row = requireCurrent(id, tenantId, expectedRevision)
+      const receipt = operation === undefined ? undefined : checkedOperation(operation)
+      if (receipt && row.inspectionOperation?.id === receipt.id) fail('conflict')
       if (row.authentication === 'device-bearer' ? !credentialReference || !credentialPattern.test(credentialReference) : credentialReference !== undefined) fail('invalid')
       if (credentialReference && state.connections.some(candidate => candidate !== row && candidate.credentialReference === credentialReference)) fail('conflict')
       const inspection = checkedInspection({ ...discovery, inspectedAt })!
       row.inspection = inspection
+      if (receipt) row.inspectionOperation = receipt
+      else delete row.inspectionOperation
       row.connected = true
       row.revision += 1
       if (credentialReference) row.credentialReference = credentialReference

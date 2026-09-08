@@ -20,6 +20,10 @@ const contextChannels = Object.freeze({
   pickFiles: 'agent-commons:context:pick-files',
   pickFolder: 'agent-commons:context:pick-folder',
 })
+const mcpCredentialChannels = Object.freeze({
+  provision: 'agent-commons:mcp-credentials:provision',
+})
+const MCP_CREDENTIAL_CAPABILITY = 'mcp-provision-v1'
 
 // Backup and user-mediated context selection are available in every desktop
 // run. Credentials join only after OS-backed encryption is available. A
@@ -43,6 +47,11 @@ if (process.argv.includes('--agent-commons-secure-credentials')) {
     bind: (reference, providerId) => ipcRenderer.invoke(credentialChannels.bind, reference, providerId),
     discard: (reference) => ipcRenderer.invoke(credentialChannels.discard, reference),
     removeProvider: (providerId) => ipcRenderer.invoke(credentialChannels.removeProvider, providerId),
+  })
+}
+if (process.argv.includes('--agent-commons-mcp-credentials')) {
+  bridge.mcpCredentials = Object.freeze({
+    provision: (binding, secret) => ipcRenderer.invoke(mcpCredentialChannels.provision, binding, secret, MCP_CREDENTIAL_CAPABILITY),
   })
 }
 contextBridge.exposeInMainWorld('agentCommonsDesktop', Object.freeze(bridge))

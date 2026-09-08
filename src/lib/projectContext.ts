@@ -18,9 +18,9 @@ export function projectContextTone(kind: ProjectContext['kind']): ChipTone {
 /** Map a session-shaped `AddedContext` (what the composer's Add-context picker
  *  emits) onto the project's `ProjectContext` shape, so the very same picker can
  *  scope context to a project. Files/photos fan out one ProjectContext per
- *  attachment; the scope-context reducer dedups by label, so a repeat is a no-op.
+ *  attachment; the scope-context reducer dedups by stable source where available.
  *  ProjectContext has no `mcp` kind, so an MCP server reads as a connector tagged
- *  by its meta (which `contextsToConnectors` uses to recover it). */
+ *  by its meta and optional opaque source id. */
 export function addedToProjectContexts(ctx: AddedContext): ProjectContext[] {
   switch (ctx.kind) {
     case 'folder':
@@ -30,7 +30,7 @@ export function addedToProjectContexts(ctx: AddedContext): ProjectContext[] {
     case 'connector':
       return [{ kind: 'connector', label: ctx.connector.label, meta: 'Connector' }]
     case 'mcp':
-      return [{ kind: 'connector', label: ctx.connector.label, meta: 'MCP server' }]
+      return [{ kind: 'connector', label: ctx.connector.label, meta: 'MCP server', source: { kind: 'mcp', id: ctx.connector.id } }]
     case 'files':
       return ctx.attachments.map((a) => ({ kind: 'doc', label: a.label, meta: 'File' }))
     case 'photos':
@@ -39,19 +39,20 @@ export function addedToProjectContexts(ctx: AddedContext): ProjectContext[] {
 }
 
 /** Reverse-map a project's scoped connectors / MCP servers into the `Connector[]`
- *  the Add-context picker reads its "Added" ticks from — matching the picker's
- *  catalogs by label to recover each option id (MCP ids carry the `mcp-` prefix the
- *  picker strips). An MCP context is distinguished by the `MCP server` meta that
- *  `addedToProjectContexts` stamps. Repos / folders / files aren't reverse-mapped;
- *  re-adding one is a harmless label-dedup no-op, so the picker just won't pre-tick
- *  them. */
+ *  the Add-context picker reads its "Added" ticks from — using an MCP source id
+ *  when present, and otherwise matching the fixture catalog by label (MCP ids carry
+ *  the `mcp-` prefix the picker strips). An MCP context is distinguished by the
+ *  `MCP server` meta that `addedToProjectContexts` stamps. Repos / folders / files
+ *  aren't reverse-mapped; re-adding one is a harmless label-dedup no-op, so the
+ *  picker just won't pre-tick them. */
 export function contextsToConnectors(contexts: ProjectContext[]): Connector[] {
   const out: Connector[] = []
   for (const c of contexts) {
     if (c.kind !== 'connector') continue
     if (c.meta === 'MCP server') {
-      const opt = MCP_OPTIONS.find((o) => o.label === c.label)
-      out.push({ id: `mcp-${opt?.id ?? c.label}`, label: c.label, kind: 'mcp' })
+      const sourceId = c.source?.kind === 'mcp' ? c.source.id : undefined
+      const opt = sourceId === undefined ? MCP_OPTIONS.find((o) => o.label === c.label) : undefined
+      out.push({ id: sourceId ?? `mcp-${opt?.id ?? c.label}`, label: c.label, kind: 'mcp' })
     } else {
       const opt = CONNECTOR_OPTIONS.find((o) => o.label === c.label)
       out.push({ id: opt?.id ?? c.label, label: c.label, kind: opt?.kind ?? 'connector' })

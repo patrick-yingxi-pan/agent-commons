@@ -3,9 +3,10 @@
 The product's inbound MCP door is described in [mcp-access.md](mcp-access.md).
 This document covers the separate client boundary for user-added external MCP
 servers. The full connect → inspect → attach → approve → execute workflow is
-not implemented yet. The private registry, strict persistence slice, and
-read-only inspection transaction now exist as isolated boundaries; routes, UI,
-desktop startup wiring, and release execution remain `unconfigured`.
+not implemented yet. The tenant-owned save → inspect → refresh/disconnect →
+remove workflow now has routes, a Contexts page, and native credential wiring.
+Tool attachment, semantic schema validation, approval, and release execution
+remain unfinished; release fulfilment stays `unconfigured`.
 
 ## Implemented transport substrate
 
@@ -69,12 +70,38 @@ bounded discovery, and revision-checked commit. The optional persisted slice
 keeps endpoint and opaque credential references private, excludes raw secrets,
 and strictly rejects malformed present state; generic Context setup cannot
 grant these reserved identities. `desktop/mcpCredentialVault.mjs` and
-`desktop/mcpCredentialProtocol.mjs` provide an isolated encrypted test/injected
-cipher vault and bounded on-demand child channel with exact bindings. These
-boundaries are tested without production main/preload/start wiring, native OS
-Keychain acceptance, routes, picker, or model runtime integration.
-The loopback integration test covers the composed credential/inspection path
-with an injected peer; it is not third-party or end-user acceptance.
+`desktop/mcpCredentialProtocol.mjs` provide an encrypted vault and bounded
+on-demand child channel with exact bindings. Electron opens this separate vault
+through secure OS storage; the renderer can provision a token but cannot read,
+enumerate, discard, or resolve secrets. The owner-only credential-binding form
+returns the exact server audience for that ceremony, with `no-store`; ordinary
+connection reads omit both endpoint and credential reference. The renderer
+validates the returned connection, tenant and endpoint before native provision.
+
+After durable state loads, startup awaits an acknowledged binding sync before
+accepting HTTP or creating a renderer window. Initial synchronization errors
+refuse startup; intentionally unavailable OS storage instead disables bearer
+capability. Later syncs retire only references
+removed from the preceding authoritative set, preserving in-flight provisional
+credentials. Failed cleanup is explicit and retryable after the product change
+has committed; it does not roll back a disconnect or permit the retired token.
+
+Inspection carries one client operation ID and reviewed revision. A private
+fingerprint and public receipt survive restart, so exact retries can acknowledge
+current truth without another network probe or undoing a later disconnect.
+The Contexts detail and conversation preview share the saved catalog, label its
+metadata as untrusted, and do not present inspection as live health or consent.
+Loopback integration fixtures exercise this composition but are not evidence of
+third-party service acceptance. Production network scope remains public HTTPS
+pending the owner's desktop loopback-policy decision.
+
+Packaged acceptance uses the real Electron executable and OS-backed safeStorage
+in an isolated profile. It proves provision-only IPC, secret exclusion from
+ordinary reads/logs/SQLite, persisted binding reconciliation on relaunch, and
+disconnect cleanup. The catalog is seeded into test-owned SQLite while the app
+is stopped; this test neither contacts an external server nor demonstrates tool
+execution. It runs as part of `desktop:smoke`, including freshly extracted
+release candidates; its helpers are excluded from the shipped artifact.
 
 ## Required next work
 
@@ -83,12 +110,11 @@ with an injected peer; it is not third-party or end-user acceptance.
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. JSON Schema 2020-12 validation, header
   parameter annotations, tool results and multi-round input handling remain.
-- User-facing routes/UI and production desktop/hosted wiring for the tenant-owned
-  endpoint, connection consent, secret lifecycle, reconnect/disconnect and
-  revocation. The isolated registry, vault boundary and CAS inspector are not
-  an end-user connection workflow or native OS Keychain acceptance.
-- Bounded real tool discovery, stable identities and schemas, inspected by the
-  user before attachment; remote descriptions and annotations remain untrusted.
+- Extend packaged credential acceptance to replacement, interrupted
+  acknowledgement, and cleanup failure; native queue/unit and browser fixtures
+  cover these seams separately but cannot replace the combined OS-backed path.
+- Attach inspected tools with stable identities and validated schemas;
+  remote descriptions and annotations remain untrusted.
 - An approved tool policy and durable execution/uncertainty receipts shared by
   both model transports, later confirmation and unattended routines.
 - Browser and packaged acceptance of the whole journey, including tenant walls,

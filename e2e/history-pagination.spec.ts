@@ -8,8 +8,16 @@ import { ms } from './budget.ts'
 test('a long conversation loads earlier history while keeping the mounted thread bounded', async ({ page }) => {
   test.setTimeout(ms(120_000))
   const stamp = Date.now().toString(36)
+  const headers = {
+    // Keep this deliberately under a fresh remote tenant: the default Ada tenant
+    // carries seeded plan usage and other E2E turns can exhaust its live window.
+    'x-user-id': 'user-ada',
+    'x-tenant-id': `tenant-history-${crypto.randomUUID()}`,
+  }
+  await page.context().setExtraHTTPHeaders(headers)
   const createdResponse = await page.request.post('/api/v1/sessions', {
     data: { firstMessage: `history paging ${stamp}` },
+    headers,
   })
   expect(createdResponse.ok()).toBe(true)
   const created = await createdResponse.json() as { id: string }
@@ -19,12 +27,12 @@ test('a long conversation loads earlier history while keeping the mounted thread
   for (let turn = 1; turn <= 21; turn += 1) {
     const sent = await page.request.post(`/api/v1/sessions/${created.id}/messages`, {
       data: { text: `history turn ${turn} · ${stamp}` },
-      headers: { 'Idempotency-Key': `history-${stamp}-${turn}` },
+      headers: { ...headers, 'Idempotency-Key': `history-${stamp}-${turn}` },
     })
     expect(sent.ok(), `turn ${turn} persisted`).toBe(true)
   }
 
-  const bounded = await (await page.request.get(`/api/v1/sessions/${created.id}?messageLimit=40`)).json()
+  const bounded = await (await page.request.get(`/api/v1/sessions/${created.id}?messageLimit=40`, { headers })).json()
   expect(bounded.messages).toHaveLength(40)
   expect(bounded.messagePage.olderCursor).toBeTruthy()
 

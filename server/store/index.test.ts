@@ -137,3 +137,22 @@ test('relations: the project-detail ops mutate the canonical graph + broadcast r
   )
   assert.deepEqual(ops, ['scope-context', 'unscope-context', 'set-project-instructions'], 'each canonical write broadcast relation.applied')
 })
+
+test('relations: legacy label-only unscope rejects an ambiguous same-label context', () => {
+  const projectId = `p-context-ambiguity-${Date.now()}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Context ambiguity', projectDescription: '' })
+  const first = { kind: 'connector' as const, label: 'Same label', meta: 'one', source: { kind: 'mcp' as const, id: 'mcp-connection-one' } }
+  const second = { ...first, meta: 'two', source: { kind: 'mcp' as const, id: 'mcp-connection-two' } }
+  store.applyRelationOp({ kind: 'scope-context', projectId, projectName: 'Context ambiguity', context: first })
+  store.applyRelationOp({ kind: 'scope-context', projectId, projectName: 'Context ambiguity', context: second })
+  assert.throws(
+    () => store.applyRelationOp({ kind: 'unscope-context', projectId, projectName: 'Context ambiguity', contextLabel: first.label }),
+    /ambiguous/,
+    'the server must not guess between same-label contexts',
+  )
+  assert.deepEqual(
+    store.relationGraph().projectContexts[projectId].map((context) => context.source?.id),
+    ['mcp-connection-one', 'mcp-connection-two'],
+    'rejected legacy removal leaves both durable rows intact',
+  )
+})

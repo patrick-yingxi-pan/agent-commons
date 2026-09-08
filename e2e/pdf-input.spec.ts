@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
 import { startMessagesFixture } from './attachment-endpoint'
 import { ms } from './budget.ts'
@@ -18,6 +19,10 @@ async function selectFiles(page: Page, files: Array<{ name: string; mimeType: st
 
 test('a real PDF is extracted locally, delivered as text, restored and detached', async ({ page }) => {
   test.setTimeout(ms(90_000))
+  await page.context().setExtraHTTPHeaders({
+    'x-user-id': 'user-ada',
+    'x-tenant-id': `tenant-pdf-${randomUUID()}`,
+  })
   await page.setViewportSize({ width: 1280, height: 800 })
   const endpoint = await startMessagesFixture()
   const marker = `PDF_BODY_${Date.now().toString(36)}`

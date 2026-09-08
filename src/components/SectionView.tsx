@@ -1,5 +1,8 @@
 import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
+import { isExternalMcpId } from '../../contract/mcpConnections.ts'
+import { McpConnectionCreateDialog, McpConnectionDetail } from './McpConnectionPanel.tsx'
+import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import {
   AlertCircle,
   Award,
@@ -66,6 +69,7 @@ import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
+import { resolveSavedContext } from '../lib/savedContextIdentity.ts'
 import {
   type CadenceSpec,
   type Frequency,
@@ -1398,11 +1402,18 @@ function ProjectDetail({
 
   // Scope / unscope context — both server-owned relation edits. Adding reuses the
   // session composer's full Add-context picker (mapping each AddedContext to the
-  // project's ProjectContext shape); removing splices it by label.
+  // project's ProjectContext shape); removal carries the stable MCP source when
+  // present, so a mutable display label can never select the wrong connection.
   const addContext = (ctx: ProjectContext) =>
     rel.applyOp({ kind: 'scope-context', projectId: project.id, projectName: project.name, context: ctx })
-  const removeContext = (label: string) =>
-    rel.applyOp({ kind: 'unscope-context', projectId: project.id, projectName: project.name, contextLabel: label })
+  const removeContext = (ctx: ProjectContext) =>
+    rel.applyOp({
+      kind: 'unscope-context',
+      projectId: project.id,
+      projectName: project.name,
+      contextLabel: ctx.label,
+      ...(ctx.source ? { contextSource: ctx.source } : {}),
+    })
   const attachToProject = (ctx: AddedContext) => {
     for (const pc of addedToProjectContexts(ctx)) addContext(pc)
   }
@@ -1681,8 +1692,8 @@ function ProjectDetail({
               <p className="text-[12px] text-ink-faint">No context attached yet.</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {contexts.map((ctx, i) => (
-                  <ProjectContextChip key={`${ctx.label}-${i}`} ctx={ctx} onRemove={() => removeContext(ctx.label)} />
+                  {contexts.map((ctx, i) => (
+                    <ProjectContextChip key={`${ctx.label}-${i}`} ctx={ctx} onRemove={() => removeContext(ctx)} />
                 ))}
               </div>
             )}
@@ -2179,12 +2190,11 @@ function ProjectScheduleRow({
  *  folder scope with no saved entry): capability shapes affordances, so a name that
  *  isn't the viewer's registry entry stays honest text (S18). One funnel for every
  *  registry-chip door — the project chip, the contributor reach, the routine toolbox. */
-function useContextDoor(): (name: string) => (() => void) | undefined {
+function useContextDoor(): (name: string, sourceId?: string) => (() => void) | undefined {
   const rel = useRelations()
   const items = useSavedContexts().data?.contexts ?? []
-  return (name: string) => {
-    const n = name.trim().toLowerCase()
-    const hit = items.find((c) => c.id.toLowerCase() === n || c.label.toLowerCase() === n)
+  return (name: string, sourceId?: string) => {
+    const hit = resolveSavedContext(items, name, sourceId)
     return hit ? () => rel.navigate('contexts', hit.id) : undefined
   }
 }
@@ -2193,7 +2203,7 @@ function ProjectContextChip({ ctx, onRemove }: { ctx: ProjectContext; onRemove: 
   const CIcon = CONTEXT_ICON[ctx.kind]
   // The chip is a DOOR to the context's own page when it resolves in the viewer's
   // registry (S18); otherwise Chip renders its display-only, non-interactive form.
-  const door = useContextDoor()(ctx.label)
+  const door = useContextDoor()(ctx.label, ctx.source?.id)
   return (
     <div className="group/chip relative inline-flex">
       <Chip
@@ -8241,6 +8251,7 @@ function AddContextControl({
   pendingLabel: (id: string) => string | null
 }) {
   const [open, setOpen] = useState(false)
+  const [mcpSetup, setMcpSetup] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
 
@@ -8270,6 +8281,10 @@ function AddContextControl({
           className={`absolute right-0 z-30 mt-2 w-[320px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           <div className="max-h-[min(60dvh,420px)] overflow-y-auto p-2">
+            <button type="button" onClick={() => { setOpen(false); setMcpSetup(true) }}
+              className="mb-2 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] font-medium text-accent-strong hover:bg-panel-2">
+              <Server size={15} />Add an MCP server
+            </button>
             {groups.length === 0 ? (
               <div className="px-2 py-6 text-center text-[12px] text-ink-faint">
                 Everything’s set up — nothing new to add.
@@ -8294,6 +8309,7 @@ function AddContextControl({
           </div>
         </div>
       )}
+      {mcpSetup && <McpConnectionCreateDialog onClose={() => setMcpSetup(false)} />}
     </div>
   )
 }
@@ -8354,7 +8370,7 @@ function ContextsSection({
   // which broadcasts `connector.status`, so the row's auth state reconciles here and
   // on every other client. Until that first answer, the registry stays empty — a
   // bundled demo row is not a truthful substitute for server-owned state.
-  const saved = useSavedContexts()
+  const saved = useContextRegistryProjection()
   const items = saved.data?.contexts ?? []
   const me = useMe().data
   const creation = useSavedContextCreationStatus()
@@ -8413,6 +8429,9 @@ function ContextsSection({
       onConfirm={confirmRemove}
     />
   ) : null
+  if (contextId && isExternalMcpId(contextId)) {
+    return <McpConnectionDetail key={contextId} id={contextId} onBack={onBack} backTo={backTo} />
+  }
   if (open)
     return (
       <>
@@ -8491,8 +8510,7 @@ function ContextsSection({
           title="Contexts"
           subtitle={selectedLabel ?? (
             <>
-              Accounts, servers, and repos you’ve set up once. Any session can reuse them from Add context — no
-              re-authenticating, no re-cloning.
+              Manage saved contexts and inspect external MCP servers. External server catalogs do not enable tool execution yet.
             </>
           )}
         >
@@ -8797,12 +8815,13 @@ function ContextRow({
           {ctx.kind === 'repo' ? (
             <StatusPill tone="neutral" label={ctx.dependsOnGitHub ? 'via GitHub' : 'Local only'} />
           ) : (
-            <StatusPill tone={connected ? 'ok' : 'warn'} label={connected ? 'Connected' : 'Needs auth'} />
+            <StatusPill tone={isExternalMcpId(ctx.id) ? 'neutral' : connected ? 'ok' : 'warn'}
+              label={isExternalMcpId(ctx.id) ? connected ? 'Inspected' : 'Inactive' : connected ? 'Connected' : 'Needs auth'} />
           )}
         </span>
 
         {/* Hover-revealed actions — same idiom as the panel's per-folder delete. */}
-        <div className={`flex items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
+        {!isExternalMcpId(ctx.id) && <div className={`flex items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
           {ctx.kind !== 'repo' && (
             <Tooltip label={connected ? 'Disconnect' : 'Connect'}>
               <button
@@ -8824,7 +8843,7 @@ function ContextRow({
           >
             <Trash2 size={14} />
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   )

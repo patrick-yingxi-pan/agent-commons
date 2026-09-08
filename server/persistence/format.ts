@@ -52,6 +52,7 @@ import type {
 } from '../accounts.ts'
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
+import { isProjectContextSource } from '../../contract/cowork.ts'
 import { join } from 'node:path'
 
 /** On-disk schema version. A supported older snapshot migrates forward; an
@@ -583,6 +584,20 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   }
   const record = (value: unknown) =>
     value !== null && typeof value === 'object' && !Array.isArray(value)
+  const graphContextsValid = (graph: unknown): boolean => {
+    if (!record(graph)) return false
+    const projectContexts = (graph as { projectContexts?: unknown }).projectContexts
+    if (!record(projectContexts)) return false
+    for (const contexts of Object.values(projectContexts as Record<string, unknown>)) {
+      if (!Array.isArray(contexts)) return false
+      for (const context of contexts) {
+        if (!record(context)) return false
+        const source = (context as { source?: unknown }).source
+        if (source !== undefined && !isProjectContextSource(source)) return false
+      }
+    }
+    return true
+  }
   return Boolean(
     state
       && (state.initialWorld === undefined || state.initialWorld === 'demo' || state.initialWorld === 'clean')
@@ -591,7 +606,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       && Array.isArray(state.workspaces)
       && Array.isArray(state.schedules)
       && record(state.recents)
-      && record(state.graph)
+      && graphContextsValid(state.graph)
       && record(state.seq),
   )
 }

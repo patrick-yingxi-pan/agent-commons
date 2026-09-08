@@ -15,6 +15,8 @@ milestones or address a demonstrated defect.
 - Verify, review, commit, and push each completed checkpoint directly to main.
 - Ask before selecting an updater policy or materially widening the supported
   external integration scope.
+- Sequencing is delegated: all planned core capabilities remain required;
+  prioritize complete, verifiable workflows without dropping later milestones.
 
 ## Progress and next milestones
 
@@ -22,7 +24,7 @@ milestones or address a demonstrated defect.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff still awaits an unlocked Mac. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | The bounded MCP transport/discovery, private tenant registry/store slice, exact-audience credential vault/IPC boundary, and CAS inspection seam are implemented and tested in isolation; routes, UI, desktop startup wiring, model execution, and release fulfilment remain unconfigured. Select and deliver one real adapter and discovery workflow before broadening the catalog. Repository content/git and some imported artifact renderers remain declared fixtures. |
+| Useful external work | Bounded MCP transport/discovery now composes with tenant-owned lifecycle routes, a Contexts setup/catalog/recovery workflow, exact inspection receipts, and provision-only OS-encrypted desktop credentials. Startup reconciles persisted bindings before admission; disconnect/removal cleanup is independently retryable. Browser protocol fixtures and focused packaged OS-storage acceptance prove these boundaries, not third-party tool execution. Schema semantics, attachment, approval, call receipts, and model execution remain required; release fulfilment is still unconfigured. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 
@@ -80,14 +82,57 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
-The next core workflow is a real external MCP connection (MODEL-33). Its
-bounded HTTP/DNS/TLS/JSON/SSE substrate, private tenant registry/store slice,
-exact-audience credential vault/IPC boundary, and revision-checked inspection
-commit are implemented and tested against local protocol peers. They are not
-yet exposed through routes, UI, desktop main/preload/start wiring, or model
-execution. The full [MCP client plan](mcp-client.md) retains user-facing
-discovery, production credential custody/Keychain acceptance, explicit trust
-and durable uncertain-call recovery as required work. The owner has been asked
+The current lifecycle review closes stale list/detail acknowledgements, exact
+removed-row recovery while native cleanup is pending, dismissible upstream
+inspection refusals, and account-switched form admission. Project context
+sources now retain their opaque identities through both page and rail doors;
+foreign/phantom source admission is refused and label/source action keys cannot
+alias. Shared-project owner-context redaction was already correct and gained a
+behavioral lock, not a speculative runtime change. The new dialog, recovery,
+empty/error catalog and same-label project browser tests exercise real routes
+with test-owned protocol peers; production loopback policy is unchanged.
+
+Focused packaged acceptance now runs inside the complete desktop verifier and
+the extracted-release smoke, with its helpers excluded from ASAR. The frozen
+unsigned arm64 artifact passes real authentication/Keychain, provider lifecycle,
+text/folder/PDF/DOCX/image, and MCP credential acceptance. Its runtime and emitted
+UI byte-match the workspace. The full Node suite passes 2,854 tests. The frozen
+responsive sweep passes all 135 cells with zero violations or skips; its first
+run lost a navigation context and covered only 120/135 cells, so that run is not
+a pass. The first combined single-shard gate passes checks and 295/300 browser
+tests. Retained traces prove the five refusals hit the shared seeded tenant's
+exhausted model quota before generation. History, image, PDF and responsive
+send walks now own independent usage partitions, while the phone panel walk
+explicitly returns to its separate seeded fixture. Production quotas, assertions,
+timeouts and retries are unchanged. The follow-up single-shard run passes all
+five repaired tests and 299/300 overall; its sole failure is an accessibility
+scan interrupted by a concurrent documentation edit. The saved Vite websocket
+message names `docs/mcp-client.md` as the full-reload trigger. This is workflow
+interference, not a backup-panel defect or a reason to weaken the scan. The
+entire workspace, including documentation, must remain quiescent during the
+final complete verifier. The shared Mac remains locked.
+
+Final credential review added two fail-first locks: a connected native channel
+must reject startup synchronization errors rather than acknowledge ordinary
+storage unavailability, and the renderer must validate the exact tenant/server
+binding before provisioning a token. Credential-only validation stays on the
+lazy native ceremony path, within the unchanged startup bundle budget.
+
+GitHub run `34201856978` at `9caa11a` failed the live-pane pruning test after
+the shared five-hour model quota was exhausted. The test now forks a completed
+seeded exchange through the actual API, verifies its persisted messages, and
+keeps the same split/delete assertions. Deletion-layout acceptance no longer
+depends on unrelated model quota; this does not retroactively pass the old run.
+
+The active core workflow is a real external MCP connection (MODEL-33). Saving,
+inspecting, refreshing, disconnecting/reconnecting, and removing a connection
+now cross real tenant-scoped routes and the UI. Desktop startup and provision-only
+credential wiring are implemented; focused native acceptance proves real OS
+storage, relaunch binding reconciliation, ordinary-read secret exclusion, and
+disconnect cleanup without contacting an external service. The full
+[MCP client plan](mcp-client.md) retains semantic schema validation, attachment,
+explicit trust, durable uncertain-call recovery, and combined real-service
+acceptance as required work. The owner has been asked
 about per-call approval before explicit server trust; no answer has been
 assumed. No real third-party account was contacted during these tests.
 The preceding transport/discovery checkpoint passed the full five-lane verifier with all 292
@@ -120,15 +165,14 @@ cold-scan lock and the browser journey now pass; the journey always owns a
 fresh cache and a strict, shard-derived UI port. Runtime parser loading remains
 lazy. No timeout or retry policy was widened.
 
-This MCP increment adds a read-only discovery transaction with the
+The preceding MCP transport increment added a read-only discovery transaction with the
 current metadata flow and three supported legacy initialization versions. It
 uses one deadline, bounded pagination and an inert catalog snapshot, and closes
 legacy sessions when possible. Wrong-id modern errors cannot trigger a false
 legacy fallback; cancellation closes live sockets. These are tested protocol
-boundaries, not a completed connection feature: routes, user inspection,
-production vault wiring/Keychain acceptance, semantic schema validation,
-approval and execution remain required. Release fulfilment is still
-unconfigured.
+boundaries, not evidence of tool execution. The current lifecycle increment
+adds routes, user inspection and native vault wiring; semantic schema validation,
+approval and execution remain required. Release fulfilment is still unconfigured.
 
 GitHub run `34193269086` at `ea27486` completed with checks and E2E1 passing
 and E2E2 failing. Its account-switch trace proves a different race: the session

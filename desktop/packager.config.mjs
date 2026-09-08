@@ -59,6 +59,8 @@ export function ignoreFromPackage(path) {
       'desktop/release-set.mjs',
       'desktop/release.mjs',
       'desktop/smoke.mjs',
+      'desktop/smokePaths.mjs',
+      'desktop/mcpCredentialSmoke.mjs',
       'desktop/attachmentSmoke.mjs',
       'desktop/attachmentSmokeFixture.mjs',
     ].includes(normalized)

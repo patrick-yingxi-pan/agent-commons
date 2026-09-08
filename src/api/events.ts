@@ -174,6 +174,9 @@ function route(e: ServerEvent): void {
     case 'connector.status':
     case 'savedcontext.changed':
       invalidate(keys.savedContexts)
+      invalidate(keys.mcpConnections)
+      invalidate(keys.mcpConnection(e.id))
+      invalidate(keys.connectorDetail(e.id))
       break
     // Recents changed (attached on another device/tab) — re-read the snapshot.
     case 'recents.changed':

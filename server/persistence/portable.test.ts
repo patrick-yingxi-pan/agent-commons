@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os'
 import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { STORE_VERSION, type PersistedState, type PersistenceBackend } from './format.ts'
 import {
+  readPortableSnapshot,
   restoreBackendSnapshot,
   writePortableSnapshot,
 } from './portable.ts'
@@ -78,6 +79,19 @@ test('a current-version export missing required slices is still invalid', () => 
 
   assert.throws(() => restoreBackendSnapshot(backend, FILE), /unsupported or invalid/)
   assert.equal(saves, 0)
+})
+
+test('snapshot admission rejects a malformed project-context source selector', () => {
+  const malformed = state('malformed-context-source')
+  malformed.graph.projectContexts = {
+    project: [{ kind: 'connector', label: 'Postgres', meta: 'external', source: [] }],
+  } as never
+  writeFileSync(FILE, JSON.stringify(malformed))
+  assert.throws(() => {
+    // Import through the public portable reader so both JSON restore and startup
+    // admission share the same source-shape fence.
+    readPortableSnapshot(FILE)
+  }, /unsupported or invalid/)
 })
 
 test('the real server checkpoints persistence on orderly process exit', () => {

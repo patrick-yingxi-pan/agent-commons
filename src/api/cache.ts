@@ -110,6 +110,22 @@ export function setData<T>(key: string, data: T): void {
   setState(key, { status: 'success', data, error: undefined })
 }
 
+/** Remove one authoritative row without leaving stale data in an error/SWR
+ * state. A later mount starts a fresh read, while any crossed response is
+ * fenced by the entry generation. */
+export function evict(key: string): void {
+  const entry = entries.get(key)
+  if (!entry) return
+  const fetcher = entry.fetcher
+  entry.gen += 1
+  entry.inFlight = undefined
+  entry.state = IDLE
+  for (const cb of entry.subs) cb()
+  // A mounted query must not be stranded in idle after eviction. Start its
+  // saved fetcher again; the generation bump above fences the crossed request.
+  if (fetcher) run(key, fetcher)
+}
+
 /** Read a key's cached data without subscribing — for imperative lookups outside
  *  React (e.g. the controller resolving a run session from the recent-runs feed).
  *  Returns undefined if the key was never queried / hasn't loaded. */
