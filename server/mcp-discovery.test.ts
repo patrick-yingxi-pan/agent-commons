@@ -106,6 +106,28 @@ test('modern discovery never adopts a session id returned by the remote server',
   for (const call of calls) assert.equal(call.headers['mcp-session-id'], undefined)
 })
 
+test('external cancellation during legacy cleanup does not acknowledge a read-only catalog', async (t) => {
+  const controller = new AbortController()
+  const methods: string[] = []
+  const url = await endpoint(t, (req, res, body) => {
+    methods.push(body?.method ?? req.method!)
+    if (req.method === 'DELETE') { controller.abort(); return res.writeHead(204).end() }
+    if (body?.method === 'server/discover') return json(res, 400, { jsonrpc: '2.0', id: body.id, error: { code: -32601, message: 'legacy' } })
+    if (body?.method === 'initialize') return json(res, 200, rpcResult(body.id, {
+      protocolVersion: MCP_LEGACY_VERSIONS[0], serverInfo: { name: 'legacy', version: '1' }, capabilities: { tools: {} },
+    }), { 'Mcp-Session-Id': 'read-only-cleanup' })
+    if (body?.method === 'notifications/initialized') return res.writeHead(202).end()
+    assert.equal(body?.method, 'tools/list')
+    return json(res, 200, rpcResult(body.id, { tools: [tool('found')] }))
+  })
+  await assert.rejects(discoverMcpTools(url, { ...loopback, signal: controller.signal }), (error) => {
+    assert.ok(error instanceof McpHttpError)
+    assert.equal(error.code, 'cancelled')
+    return true
+  })
+  assert.deepEqual(methods, ['server/discover', 'initialize', 'notifications/initialized', 'tools/list', 'DELETE'])
+})
+
 test('a legacy 400 falls back to initialize, sends initialized, lists with its opaque session, then releases it', async (t) => {
   const calls: Array<{ method: string; headers: IncomingMessage['headers']; body: RequestBody | null }> = []
   const sessionId = 'opaque-session-from-server'

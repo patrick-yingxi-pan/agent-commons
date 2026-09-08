@@ -11,15 +11,17 @@ import { parseMcpHeaderParameters, buildMcpParameterHeaders } from './mcpHeaderP
 import { MCP_MODERN_VERSION, isMcpProtocolVersion, mcpRequestMetadata, type McpProtocolVersion } from './mcpProtocol.ts'
 import { parseMcpToolResult, McpToolResultError } from './mcpToolResult.ts'
 
-export interface McpToolCall {
-  protocolVersion: McpProtocolVersion
-  /** Owned by the surrounding initialized legacy session; never renewed here. */
-  sessionId?: string
+export interface McpToolInvocation {
   tool: { name: string; inputSchema: Record<string, unknown> }
   arguments: Record<string, unknown>
 }
+export interface McpToolCall extends McpToolInvocation {
+  protocolVersion: McpProtocolVersion
+  /** Owned by the surrounding initialized legacy session; never renewed here. */
+  sessionId?: string
+}
 export class McpToolCallError extends Error {
-  readonly code: McpHttpFailure | 'protocol' | 'rpc_error' | 'result' | 'input_required'
+  readonly code: McpHttpFailure | 'protocol' | 'rpc_error' | 'result' | 'input_required' | 'unsupported_version' | 'tools_unavailable'
   readonly mayHaveExecuted: boolean
   constructor(code: McpToolCallError['code'], mayHaveExecuted: boolean) {
     super(`MCP tool call failed (${code}).`)
@@ -29,6 +31,20 @@ export class McpToolCallError extends Error {
   }
 }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+
+/** Freeze caller intent before a handshake can yield to other work. Semantic
+ * schema validation and permission are still prerequisites, not inferred here. */
+export function snapshotMcpToolInvocation(invocation: McpToolInvocation): McpToolInvocation {
+  try {
+    const name = invocation.tool.name
+    if (typeof name !== 'string' || !name || Array.from(name).length > 128 ||
+      Array.from(name).some((char) => /^[\u0000-\u001f\u007f-\u009f\ud800-\udfff]$/.test(char))) throw new Error()
+    const args = snapshotMcpJson(invocation.arguments, { maxBytes: 49_152, maxDepth: 32, maxNodes: 4096 })
+    const schema = snapshotMcpJson(invocation.tool.inputSchema, { maxBytes: 65_536, maxDepth: 32, maxNodes: 4096 })
+    if (!object(args) || !object(schema) || schema.type !== 'object') throw new Error()
+    return { tool: { name, inputSchema: schema }, arguments: args }
+  } catch { throw new McpToolCallError('request', false) }
+}
 
 export function createMcpToolCaller({ post = postMcpHttp } = {}) {
   return async (endpoint: string, call: McpToolCall, options: Pick<McpHttpOptions, 'scope' | 'bearerToken' | 'signal' | 'timeoutMs'>) => {
@@ -44,15 +60,12 @@ export function createMcpToolCaller({ post = postMcpHttp } = {}) {
       if (!isMcpProtocolVersion(protocolVersion) ||
         (sessionId !== undefined && (protocolVersion === MCP_MODERN_VERSION || typeof sessionId !== 'string' ||
           !/^[\x21-\x7e]{1,256}$/.test(sessionId)))) throw new Error()
-      const name = call.tool.name
-      if (typeof name !== 'string' || !name || Array.from(name).length > 128 ||
-        Array.from(name).some((char) => /^[\u0000-\u001f\u007f-\u009f\ud800-\udfff]$/.test(char))) throw new Error()
-      const args = snapshotMcpJson(call.arguments, { maxBytes: 49_152, maxDepth: 32, maxNodes: 4096 })
-      const reviewedSchema = snapshotMcpJson(call.tool.inputSchema, { maxBytes: 65_536, maxDepth: 32, maxNodes: 4096 })
-      if (!object(args) || !object(reviewedSchema) || reviewedSchema.type !== 'object') throw new Error()
-      schema = reviewedSchema
-      if (protocolVersion === MCP_MODERN_VERSION) buildMcpParameterHeaders(parseMcpHeaderParameters(schema), args)
-      request = { jsonrpc: '2.0', id: randomUUID(), method: 'tools/call', params: { name, arguments: args, ...mcpRequestMetadata(protocolVersion) } }
+      const invocation = snapshotMcpToolInvocation(call)
+      schema = invocation.tool.inputSchema
+      if (protocolVersion === MCP_MODERN_VERSION) buildMcpParameterHeaders(parseMcpHeaderParameters(schema), invocation.arguments)
+      request = { jsonrpc: '2.0', id: randomUUID(), method: 'tools/call', params: {
+        name: invocation.tool.name, arguments: invocation.arguments, ...mcpRequestMetadata(protocolVersion),
+      } }
     } catch { throw new McpToolCallError('request', false) }
     let reply: Awaited<ReturnType<typeof post>>
     try {
@@ -69,7 +82,9 @@ export function createMcpToolCaller({ post = postMcpHttp } = {}) {
       throw new McpToolCallError('network', true)
     }
     // Even a complete but unsupported reply does not establish no effect.
-    if (input.signal?.aborted) throw new McpToolCallError('cancelled', true)
+    // A fulfilled transport response won the completion/abort race. Validate
+    // that result even if cancellation arrives before this continuation; the
+    // transport already refuses a response received after its abort verdict.
     let message: Record<string, unknown>
     try {
       if (reply.sessionId !== undefined && (protocolVersion === MCP_MODERN_VERSION || reply.sessionId !== sessionId)) throw new Error()

@@ -102,8 +102,36 @@ The transport's one deadline covers DNS, sockets and streaming. Cancellation
 before submission reports no possible execution; any lost, unsupported, or
 malformed reply after submission retains conservative `mayHaveExecuted`.
 Even an RPC refusal is not used as permission to replay. Local HTTP/SSE peer
-tests prove these protocol properties, not durable receipts, authorization,
-legacy-session orchestration, or third-party acceptance.
+tests prove these protocol properties, not durable receipts, authorization or
+third-party acceptance. A transport response that completed before cancellation
+is still validated and returned; a late abort cannot erase a known result.
+
+`server/mcpToolSession.ts` now supplies the negotiated lifecycle around one
+attempt. It freezes caller intent before network work and uses
+`server/mcpSession.ts`, the same negotiation/deadline/cleanup owner as discovery.
+The transaction has one 30-second budget (bounded internal overrides) covering
+the modern probe, any compatible legacy initialization, the initialized
+notification, one tool call, and cleanup. The private legacy credential never
+leaves the internal scope, and a closed scope cannot issue another request.
+The transaction does not refresh the catalog or infer consent from discovery;
+the exact reviewed schema and arguments remain caller prerequisites.
+
+Only the tool transport reports possible execution: a handshake refusal or
+tool-DNS cancellation is not an executed tool merely because an earlier probe
+was sent. A validated success or `isError` result survives cleanup refusal,
+cancellation or deadline expiry with separate cleanup status; cleanup also
+preserves a primary error's code and uncertainty. No expired session, header
+mismatch or `input_required` response causes a second tool attempt. Read-only
+discovery deliberately retains its stricter external-cancellation behavior,
+so cancelling inspection during cleanup cannot acknowledge a catalog.
+
+This is not yet a fully conforming legacy client. Closing HTTP does not prove
+remote cancellation; legacy cancellation notifications, SSE resumption, and
+the new-session behavior after session expiry still need deliberate integration.
+A later explicit transaction may initialize anew, but this transaction never
+replays an uncertain call. These gaps follow the
+[legacy HTTP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+and do not authorize product execution.
 
 ## Implemented connection lifecycle and native custody
 
@@ -158,8 +186,8 @@ including extracted release candidates; helpers never ship in the artifact.
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. JSON Schema 2020-12 validation, executable
-  catalog admission, legacy call-session orchestration, output-schema checking
-  and multi-round input handling remain. The isolated single-call boundary
+  catalog admission, legacy cancellation/resumption and expired-session handling,
+  output-schema checking and multi-round input handling remain. The isolated single-call boundary
   above does not replace those requirements.
 - Extend packaged credential acceptance through live inspection/replacement and
   interrupted acknowledgement; native queue/unit and browser fixtures cover

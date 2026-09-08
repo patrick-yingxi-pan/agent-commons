@@ -170,6 +170,19 @@ test('legacy session rotation is refused and unknown transport exceptions never 
   await assert.rejects(caller(peer.url, makeCall(), options), failure('network', true))
 })
 
+test('a complete transport response remains authoritative when cancellation arrives before the consumer continuation', async () => {
+  const controller = new AbortController()
+  const caller = createMcpToolCaller({ post: (_endpoint, request) => {
+    // The transport promise is already fulfilled; cancellation follows that
+    // verdict but runs before the awaiting caller's continuation.
+    const received = Promise.resolve({ status: 200, message: { jsonrpc: '2.0', id: request.id, result: complete } })
+    queueMicrotask(() => controller.abort())
+    return received
+  } })
+  assert.deepEqual((await caller('https://example.com/mcp', makeCall(), { scope: 'public', signal: controller.signal })).content, complete.content)
+  assert.equal(controller.signal.aborted, true)
+})
+
 test('post-submission timeout and cancellation close the real socket, stay uncertain, and do not replay', { timeout: 5000 }, async (t) => {
   for (const mode of ['cancelled', 'timeout']) {
     let arrived

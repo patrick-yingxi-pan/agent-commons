@@ -82,12 +82,21 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+The MCP session increment shares protocol negotiation, the absolute deadline,
+and private legacy cleanup between read-only discovery and one tool attempt.
+It keeps known tool outcomes when cleanup fails and prevents scope reuse or
+implicit call replay. Review found and fixed a late-cancellation race that
+discarded an already-complete transport response; its regression was watched
+fail first. This remains an unconfigured execution substrate, not a completed
+external-work journey. Legacy cancellation/resumption/expiry behavior, schema
+semantics, approval, durable receipts and actual service acceptance remain.
+
 The single-call MCP increment adds bounded request/result parsing and modern
 body-derived parameter headers behind an unconfigured protocol boundary. Local
 HTTP/SSE peers cover supported modern/legacy replies, tool errors, malformed
 results, cancellation before/after submission, and refusal without replay or
 continuation. Full schema semantics, per-call approval, durable uncertainty,
-legacy-session orchestration and actual model execution remain required. No
+legacy cancellation/resumption/expiry handling and actual model execution remain required. No
 third-party account or new dependency is involved in this increment.
 Independent review found that the older HTTP request snapshot invoked caller
 serialization hooks. The same strict JSON helper now owns that transport path;
