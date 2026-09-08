@@ -64,6 +64,7 @@ test('MCP empty catalog is truthful and a failed inspection can be dismissed or 
   const failureMode = { fail: true }
   const failed = await startMcpFixture(failureMode)
   const stack = await startMcpRouterStack()
+  let releaseInspection: (() => void) | undefined
   try {
     await proxyMcpApi(page, stack)
     await page.goto('/contexts')
@@ -93,13 +94,27 @@ test('MCP empty catalog is truthful and a failed inspection can be dismissed or 
     await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
     await expect(notice).toHaveCount(0)
     await expect(page.getByText('Not inspected', { exact: true })).toBeVisible()
+    const heldInspection = new Promise<void>(resolve => { releaseInspection = resolve })
+    await page.route('**/api/v1/mcp-connections/*/inspect', async route => {
+      await heldInspection
+      await route.fallback()
+    }, { times: 1 })
     await page.getByRole('button', { name: 'Inspect catalog', exact: true }).click()
     await page.getByRole('dialog', { name: 'Inspect MCP server', exact: true }).getByRole('button', { name: 'Inspect catalog', exact: true }).click()
-    await expect(notice).toBeVisible()
+    const retry = notice.getByRole('button', { name: 'Retry', exact: true })
+    await expect(notice).toHaveAttribute('data-mutation-status', 'pending')
+    await expect(retry).toHaveCount(0)
+    releaseInspection!()
+    // Visibility alone also matches pending work. Do not heal the peer until
+    // this inspection actually fails, or it may succeed without offering Retry.
+    await expect(notice).toHaveAttribute('data-mutation-status', 'failed')
+    await expect(notice).toContainText('The MCP server could not provide a supported, valid tool catalog.')
+    await expect(retry).toBeVisible()
+    expect(failed.calls.filter(method => method === 'tools/list')).toHaveLength(0)
     failureMode.fail = false
-    await notice.getByRole('button', { name: 'Retry', exact: true }).click()
+    await retry.click()
     await expect(notice).toHaveCount(0)
     await expect(page.getByText('Catalog inspected', { exact: true })).toBeVisible()
     expect(failed.calls.filter(method => method === 'tools/list')).toHaveLength(1)
-  } finally { await empty.close(); await failed.close(); await stack.close() }
+  } finally { releaseInspection?.(); await empty.close(); await failed.close(); await stack.close() }
 })

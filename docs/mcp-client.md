@@ -97,11 +97,17 @@ pending the owner's desktop loopback-policy decision.
 
 Packaged acceptance uses the real Electron executable and OS-backed safeStorage
 in an isolated profile. It proves provision-only IPC, secret exclusion from
-ordinary reads/logs/SQLite, persisted binding reconciliation on relaunch, and
-disconnect cleanup. The catalog is seeded into test-owned SQLite while the app
-is stopped; this test neither contacts an external server nor demonstrates tool
-execution. It runs as part of `desktop:smoke`, including freshly extracted
-release candidates; its helpers are excluded from the shipped artifact.
+ordinary reads/logs/SQLite, and replacement-token binding reconciliation on
+relaunch. Obstructing only the test-owned vault filename causes a real atomic
+publication failure while SQLite remains writable: disconnect commits, removes
+the authoritative credential binding, and reports cleanup pending. Restoring
+that filename lets explicit cleanup Retry erase the retired token without
+changing the product revision or deleting an unrelated provisional token.
+Removal and orphan reconciliation are checked through another full relaunch.
+The catalog and replacement binding are seeded into test-owned SQLite while
+the app is stopped; this does not prove live replacement inspection, contact an
+external server, or demonstrate execution. It runs as part of `desktop:smoke`,
+including extracted release candidates; helpers never ship in the artifact.
 
 ## Required next work
 
@@ -110,9 +116,9 @@ release candidates; its helpers are excluded from the shipped artifact.
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. JSON Schema 2020-12 validation, header
   parameter annotations, tool results and multi-round input handling remain.
-- Extend packaged credential acceptance to replacement, interrupted
-  acknowledgement, and cleanup failure; native queue/unit and browser fixtures
-  cover these seams separately but cannot replace the combined OS-backed path.
+- Extend packaged credential acceptance through live inspection/replacement and
+  interrupted acknowledgement; native queue/unit and browser fixtures cover
+  these seams separately but cannot replace the combined OS-backed path.
 - Attach inspected tools with stable identities and validated schemas;
   remote descriptions and annotations remain untrusted.
 - An approved tool policy and durable execution/uncertainty receipts shared by

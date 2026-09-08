@@ -82,6 +82,25 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+The native MCP acceptance increment now covers replacement-token reconciliation
+after an offline binding switch, real vault-publication failure during a durable
+disconnect, explicit cleanup Retry, unrelated provisional preservation, and
+removal/orphan cleanup through relaunch. The rebuilt complete desktop verifier
+passes, including this real Electron/OS-encryption phase. A focused filesystem regression was
+observed failing when in-memory state advanced before durable publication, then
+passing after restoring the runtime. No production policy or runtime behavior
+was changed. Live inspection/replacement and interrupted acknowledgements remain
+combined acceptance gaps; the offline catalog fixture does not prove them.
+The exactly pinned, backend-only JSON Schema validator dependency decision has
+been requested; it has not been treated as approval to install a dependency.
+The first complete gate caught a native-smoke link in a context field reserved
+for test/spec files, plus a browser fixture healed while inspection was still
+pending. The latter's saved page already showed a successful catalog, not a
+missing product Retry. A held-request reproduction fails when the peer heals
+early; the repaired walk proves pending has no Retry, then waits for actual
+failure before healing the peer. Both MCP form/layout tests pass unchanged
+timing/retry limits. Prior main `fffb678` is also green in GitHub run `34214623391`.
+
 The current lifecycle review closes stale list/detail acknowledgements, exact
 removed-row recovery while native cleanup is pending, dismissible upstream
 inspection refusals, and account-switched form admission. Project context
@@ -96,7 +115,7 @@ Focused packaged acceptance now runs inside the complete desktop verifier and
 the extracted-release smoke, with its helpers excluded from ASAR. The frozen
 unsigned arm64 artifact passes real authentication/Keychain, provider lifecycle,
 text/folder/PDF/DOCX/image, and MCP credential acceptance. Its runtime and emitted
-UI byte-match the workspace. The full Node suite passes 2,854 tests. The frozen
+UI byte-match that checkpoint's workspace. Its full Node suite passed 2,854 tests. The frozen
 responsive sweep passes all 135 cells with zero violations or skips; its first
 run lost a navigation context and covered only 120/135 cells, so that run is not
 a pass. The first combined single-shard gate passes checks and 295/300 browser
@@ -110,7 +129,8 @@ scan interrupted by a concurrent documentation edit. The saved Vite websocket
 message names `docs/mcp-client.md` as the full-reload trigger. This is workflow
 interference, not a backup-panel defect or a reason to weaken the scan. The
 entire workspace, including documentation, must remain quiescent during the
-final complete verifier. The shared Mac remains locked.
+final complete verifier. The final frozen rerun passed all five lanes and all
+300 browser tests before `fffb678` landed. The shared Mac remains locked.
 
 Final credential review added two fail-first locks: a connected native channel
 must reject startup synchronization errors rather than acknowledge ordinary

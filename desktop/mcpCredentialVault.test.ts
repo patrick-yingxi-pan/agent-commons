@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, rmdir, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { MCP_CREDENTIAL_FILE, openMcpCredentialVault } from './mcpCredentialVault.mjs'
@@ -216,6 +216,42 @@ test('post-publication directory-sync failure fences the vault until reopen', as
 
     const reopened = await openMcpCredentialVault({ filePath, encrypt, decrypt })
     assert.equal(await reopened.read(reference, target), 'published-secret')
+  } finally {
+    await close(directory)
+  }
+})
+
+test('pre-publication discard failure preserves the target and unrelated credential for explicit retry', async () => {
+  const { directory, filePath, vault } = await fixture()
+  try {
+    const target = binding('pre-publication-target')
+    const unrelated = binding('pre-publication-unrelated')
+    const targetReference = await vault.provision(target, 'target-secret')
+    const unrelatedReference = await vault.provision(unrelated, 'unrelated-secret')
+    const before = await readFile(filePath)
+    const displaced = `${filePath}.original`
+
+    // Obstruct only the exact vault file path. The parent remains usable, so the
+    // failure occurs at the atomic rename before publication, not at directory setup.
+    await rename(filePath, displaced)
+    try {
+      await mkdir(filePath, { mode: 0o700 })
+      await assert.rejects(vault.discard(targetReference, target), (error: unknown) => {
+        if (!error || typeof error !== 'object' || !('code' in error)) return false
+        return ['EISDIR', 'ENOTDIR', 'EEXIST'].includes(String((error as { code?: unknown }).code))
+      })
+      assert.deepEqual(await readFile(displaced), before)
+      assert.equal(await vault.read(targetReference, target), 'target-secret')
+      assert.equal(await vault.read(unrelatedReference, unrelated), 'unrelated-secret')
+    } finally {
+      await rmdir(filePath).catch(() => {})
+      await rename(displaced, filePath)
+    }
+
+    assert.equal(await vault.discard(targetReference, target), true)
+    assert.equal(await vault.read(unrelatedReference, unrelated), 'unrelated-secret')
+    const after = JSON.parse(await readFile(filePath, 'utf8'))
+    assert.deepEqual(Object.keys(after.entries), [unrelatedReference])
   } finally {
     await close(directory)
   }
