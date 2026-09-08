@@ -70,7 +70,7 @@ const RECENT_ROW_H = 38
 const RECENT_CHROME_H = 156
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
-  { id: 'files', label: 'Files', desc: 'Text, PDF text and images for your conversation', Icon: Paperclip },
+  { id: 'files', label: 'Files', desc: 'Text, PDF and Word text, and images for your conversation', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
   { id: 'folder', label: 'Folder', desc: 'List a folder’s files in your workspace', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
@@ -793,7 +793,7 @@ function UiHostDropZone({
         <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
       </button>
       {importing && <p role="status" className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Importing selected files… Close this picker to cancel.</p>}
-      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PDFs: up to 8 MB and 100 pages each, 24 MB per selection. Only extracted text up to 64 KB is saved; images, layout and OCR are not included.</p>}
+      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PDFs and Word (.docx): up to 8 MB each, 24 MB per selection; PDFs up to 100 pages. Only extracted text up to 64 KB is saved; images, layout and OCR are not included.</p>}
       <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PNG, JPEG, GIF or WebP: up to 8 MB each, 24 MB per selection. Images are saved as a resized PNG of the first frame.</p>
       {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
     </div>

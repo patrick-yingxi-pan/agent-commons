@@ -4,12 +4,14 @@ import { basename, extname, join } from 'node:path'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
 import { snapshotFolderFiles, MAX_FOLDER_SNAPSHOT_FILE_BYTES } from '../contract/localFolderSnapshot.mjs'
 import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../contract/pdfImport.mjs'
+import { isDocxFileName, MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES } from '../contract/docxImport.mjs'
 
 export const MAX_PICKED_FILES = 24
 export const MAX_FOLDER_ENTRIES = 500
 export const MAX_TEXT_PREVIEW_BYTES = LOCAL_TEXT_PREVIEW_BYTES
 export const MAX_IMAGE_PREVIEW_BYTES = 8 * 1024 * 1024
 export const MAX_IMAGE_SELECTION_BYTES = 24 * 1024 * 1024
+const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_SELECTION_BYTES)
 
 const IMAGE_MIME = new Map([
   ['.bmp', 'image/bmp'],
@@ -50,8 +52,13 @@ async function readBounded(filePath, maxBytes) {
       throw new Error('file changed or is not regular')
     }
     const buffer = Buffer.allocUnsafe(maxBytes + 1)
-    const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, 0)
-    return buffer.subarray(0, bytesRead)
+    let offset = 0
+    while (offset < buffer.byteLength) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.byteLength - offset, offset)
+      if (bytesRead === 0) break
+      offset += bytesRead
+    }
+    return buffer.subarray(0, offset)
   } finally {
     await handle.close()
   }
@@ -100,7 +107,7 @@ export function createNativeContextPicker({
 
         const selected = []
         let imageBytes = 0
-        let pdfBytes = 0
+        let documentBytes = 0
         for (const filePath of result.filePaths) {
           const details = await safeFileDetails(filePath, inspect)
           const mimeType = imageMime(filePath)
@@ -116,26 +123,42 @@ export function createNativeContextPicker({
           if (mimeType) {
             const bytes = await readBytes(filePath, MAX_IMAGE_PREVIEW_BYTES)
             if (bytes.byteLength > MAX_IMAGE_PREVIEW_BYTES) return rejected('image-too-large')
+            if (bytes.byteLength !== details.size) return rejected('unreadable')
             if (imageBytes + bytes.byteLength > MAX_IMAGE_SELECTION_BYTES) return rejected('selection-too-large')
             imageBytes += bytes.byteLength
             file.previewDataUrl = `data:${mimeType};base64,${bytes.toString('base64')}`
           } else if (isPdfFileName(file.name)) {
             if (details.size > MAX_PDF_FILE_BYTES) file.pdfFailure = 'file-too-large'
-            else if (pdfBytes + details.size > MAX_PDF_SELECTION_BYTES) file.pdfFailure = 'selection-limit'
+            else if (documentBytes + details.size > MAX_DOCUMENT_SELECTION_BYTES) file.pdfFailure = 'selection-limit'
             else {
               const bytes = await readBytes(filePath, MAX_PDF_FILE_BYTES)
               if (bytes.byteLength > MAX_PDF_FILE_BYTES) file.pdfFailure = 'file-too-large'
               else if (bytes.byteLength !== details.size) file.pdfFailure = 'invalid'
-              else if (pdfBytes + bytes.byteLength > MAX_PDF_SELECTION_BYTES) file.pdfFailure = 'selection-limit'
+              else if (documentBytes + bytes.byteLength > MAX_DOCUMENT_SELECTION_BYTES) file.pdfFailure = 'selection-limit'
               else {
-                pdfBytes += bytes.byteLength
+                documentBytes += bytes.byteLength
                 file.pdfBytes = new Uint8Array(bytes)
+              }
+            }
+          } else if (isDocxFileName(file.name)) {
+            if (details.size > MAX_DOCX_FILE_BYTES) file.docxFailure = 'file-too-large'
+            else if (documentBytes + details.size > MAX_DOCUMENT_SELECTION_BYTES) file.docxFailure = 'selection-limit'
+            else {
+              const bytes = await readBytes(filePath, MAX_DOCX_FILE_BYTES)
+              if (bytes.byteLength > MAX_DOCX_FILE_BYTES) file.docxFailure = 'file-too-large'
+              else if (bytes.byteLength !== details.size) file.docxFailure = 'invalid'
+              else if (documentBytes + bytes.byteLength > MAX_DOCUMENT_SELECTION_BYTES) file.docxFailure = 'selection-limit'
+              else {
+                documentBytes += bytes.byteLength
+                file.docxBytes = new Uint8Array(bytes)
               }
             }
           } else if (isLocalTextFileName(file.name) && details.size <= MAX_TEXT_PREVIEW_BYTES) {
             const bytes = await readBytes(filePath, MAX_TEXT_PREVIEW_BYTES)
-            const text = decodeLocalTextPreview(bytes)
-            if (text !== undefined) file.text = text
+            if (bytes.byteLength === details.size) {
+              const text = decodeLocalTextPreview(bytes)
+              if (text !== undefined) file.text = text
+            }
           }
           selected.push(file)
         }

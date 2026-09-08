@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
+import { CHIP_COUNT_CLASS } from '../lib/chipStyle'
 
 /** The attached-context pill — a small rounded chip tinted by its context type.
  *  Shared verbatim by the composer (a session's attached context) and the
@@ -40,7 +41,7 @@ export function Chip({
     <>
       {icon}
       <span className="truncate">{children}</span>
-      {count != null && <span className="tabular-nums opacity-60">· {count}</span>}
+      {count != null && <span data-context-chip-count className={CHIP_COUNT_CLASS}>· {count}</span>}
       {expandable && (
         <ChevronDown size={11} className={`opacity-70 transition ${open ? 'rotate-180' : ''}`} />
       )}

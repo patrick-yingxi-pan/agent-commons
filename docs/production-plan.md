@@ -21,7 +21,7 @@ milestones or address a demonstrated defect.
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), and the bounded image path now extend the same input plan. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Automated text/PDF/image walks, packaged smoke, and responsive review cover this bounded path; the shared live-preview handoff awaits an unlocked Mac. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff still awaits an unlocked Mac. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Connector/MCP execution has a real consent and authorization boundary but release fulfilment remains unconfigured. Select and deliver one real adapter and discovery workflow before broadening the catalog. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
@@ -70,13 +70,21 @@ and a download destination remain separate release prerequisites. Dependency
 advisory checking also awaits permission to send dependency names and versions
 to npm's advisory service; an attempted audit was denied and was not retried.
 
+The DOCX increment adds the pinned `@zip.js/zip.js` 2.12.0 archive decoder and
+its XML companions `saxes` 6.0.0 / `xmlchars` 2.2.0. They are required to keep
+ZIP/XML parsing bounded and isolated in the renderer worker; their exact
+third-party notices are emitted into both distributions. The saxes npm tarball
+omits its license, so the exact v6.0.0 upstream text is vendored with a strict
+version gate rather than silently reused for a future upgrade. Any dependency
+upgrade requires a deliberate notice and bundle-budget review.
+
 ## Open verification follow-ups
 
 The PDF text increment uses exactly pinned PDF.js as a renderer-only lazy
 parser, rather than hand-parsing an adversarial document format. It saves
 bounded extracted text and explicit outcomes, never original PDF bytes. The
 existing 500,000-byte UI chunk/async and 800,000-byte initial-graph gates remain
-unchanged; emitted worker JavaScript has a separate aggregate 1,300,000-byte
+unchanged; emitted worker JavaScript has a separate aggregate 1,400,000-byte
 gate (PDF.js worker baseline 1,220,555 bytes). Splitting workers cannot bypass
 the aggregate gate. Closing intake cancels attachment and parsing, and releases
 unattached image previews in mixed selections. OCR/layout/images and PDFs
@@ -89,6 +97,28 @@ worker. Packaged acceptance covers actual native bytes, the worker, exact model
 text/metadata, relaunch without the original PDF and detach. Review caught and
 locked stream-cancellation errors and unacknowledged cancellation; the complete
 responsive sweep passes 135/135 cells with no violations or skips.
+
+The DOCX increment follows the same path with a dedicated ZIP/XML worker: only
+paragraphs, table cells, tabs and line breaks become bounded text; images,
+layout, headers/footers, notes/comments and revision history, `.doc` and `.docm` remain
+explicitly unsupported. Its archive, expansion, XML-depth/node, selection and
+UTF-8 text limits are locked in pure extraction, browser/native picker, model
+input and packaged smoke tests. The combined worker budget is now 1,400,000 B
+(measured DOCX+PDF total: 1,309,617 B); the 500,000 B physical chunk and
+800,000 B initial-graph limits remain unchanged.
+
+Word acceptance now covers owner/shared/foreign views, 15 ready/omitted/shared
+viewport states with WCAG scans, cancellation, the actual worker deadline, and
+the packaged native reader/IPC/model/relaunch/detach journey. Source-file removal
+before relaunch proves the saved body is durable. Exact-byte, moved-revision,
+worker-loader, termination, strict-outcome and distribution-notice regressions
+were observed failing before repair/restoration. The responsive review also
+found a 2.54:1 grouped-chip count: its shared style now retains full contrast,
+locked as UI-132. These are bounded document-text claims, not OCR, page-layout,
+paid-model, manual native-dialog, or signed two-architecture release acceptance.
+Final diff review also caught the new DOCX ledger row replacing the existing PDF
+row. A reference-integrity lock was observed failing on the missing CTX-FS-12
+before restoring the PDF row; both formats now retain their own requirement.
 
 The bounded image-input path is implemented but is not a claim of overall
 production readiness. It accepts PNG/JPEG/GIF/WebP in the browser/Electron
@@ -159,3 +189,9 @@ or fix has been established. Keep this observation open too. The diagnostic run
 separately proved that parallel Playwright processes shared trace scratch space;
 each shard now owns its output directory, and the subsequent traced full run
 completed without artifact collisions.
+
+During the Word checkpoint, one full run observed the sharing-guidance node
+detach during `scrollIntoViewIfNeeded`, after filling its associated note.
+The failure did not capture a trace; no runtime cause or product fix is claimed.
+Keep this observation open for first-failure tracing rather than masking it
+with retries, a longer timeout, or an accessibility exclusion.

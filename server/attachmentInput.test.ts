@@ -171,6 +171,23 @@ test('admits ready PDF extraction metadata but omits non-ready or forged PDF tex
   assert.match(ATTACHMENT_INPUT_SYSTEM, /extracted text only, not page images, layout, or OCR/)
 })
 
+test('admits ready DOCX extraction metadata without PDF-only fields and rejects failed DOCX text', () => {
+  const ready = file('Extracted Word body', {
+    id: 'docx-ready', label: 'brief.docx',
+    documentImport: { format: 'docx', status: 'ready' },
+  })
+  const failed = file('forged body', {
+    id: 'docx-failed', label: 'broken.docx',
+    documentImport: { format: 'docx', status: 'invalid' },
+  })
+  const document = documentFrom(attachmentPrompt('Read this Word file', [ready, failed]))
+  assert.deepEqual(document.attached_files, [
+    { name: 'brief.docx', status: 'ready', text: 'Extracted Word body', extraction: { format: 'docx' } },
+    { name: 'broken.docx', status: 'unavailable' },
+  ])
+  assert.equal(JSON.stringify(document).includes('forged'), false)
+})
+
 test('captures matching image bytes immutably with indexed metadata and never leaks base64 into prose', () => {
   const attachment = imageAttachment()
   const result = attachmentPrompt('look at this', [attachment], { [attachment.image!.id]: image }, true)

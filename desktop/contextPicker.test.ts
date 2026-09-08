@@ -12,6 +12,7 @@ import {
   listTopLevelEntriesBounded,
 } from './contextPicker.mjs'
 import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../contract/pdfImport.mjs'
+import { MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES } from '../contract/docxImport.mjs'
 
 const regularFile = (size: number) => ({ isFile: () => true, size })
 
@@ -132,6 +133,46 @@ test('native PDF selection bounds aggregate bytes before reading the next file',
   assert.equal(result.files.slice(0, 3).reduce((sum, file) => sum + file.pdfBytes.byteLength, 0), MAX_PDF_SELECTION_BYTES)
   assert.equal(result.files[3].pdfFailure, 'selection-limit')
   assert.equal(result.files[3].pdfBytes, undefined)
+})
+
+test('native DOCX selection transfers bounded archive bytes and shares the PDF aggregate budget', async () => {
+  const paths = ['/private/report.pdf', '/private/brief.docx', '/private/third.docx', '/private/over-budget.docx']
+  const reads: string[] = []
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: paths }),
+    inspect: async (path: string) => regularFile(path.endsWith('.pdf') ? MAX_PDF_FILE_BYTES : MAX_DOCX_FILE_BYTES),
+    readBytes: async (path: string, maxBytes: number) => {
+      reads.push(path)
+      assert.equal(maxBytes, path.endsWith('.pdf') ? MAX_PDF_FILE_BYTES : MAX_DOCX_FILE_BYTES)
+      return Buffer.alloc(maxBytes)
+    },
+  })
+  const result = await picker.pickFiles({}, 'any')
+  assert.equal(result.status, 'selected')
+  assert.deepEqual(reads, paths.slice(0, 3))
+  assert.ok(result.files[1]?.docxBytes instanceof Uint8Array)
+  assert.ok(result.files[2]?.docxBytes instanceof Uint8Array)
+  assert.equal(result.files[3]?.docxFailure, 'selection-limit')
+  assert.equal(result.files[3]?.docxBytes, undefined)
+  assert.equal(MAX_PDF_FILE_BYTES + MAX_DOCX_FILE_BYTES <= MAX_DOCX_SELECTION_BYTES, true)
+})
+
+test('native text and image intake reject short reads instead of persisting truncated previews', async () => {
+  const textPicker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: ['/private/short.txt'] }),
+    inspect: async () => regularFile(5),
+    readBytes: async () => Buffer.from('four'),
+  })
+  assert.deepEqual(await textPicker.pickFiles({}, 'any'), {
+    status: 'selected',
+    files: [{ name: 'short.txt', kind: 'file', sizeBytes: 5 }],
+  })
+  const imagePicker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: ['/private/short.png'] }),
+    inspect: async () => regularFile(4),
+    readBytes: async () => Buffer.from([1, 2, 3]),
+  })
+  assert.deepEqual(await imagePicker.pickFiles({}, 'any'), { status: 'rejected', reason: 'unreadable' })
 })
 
 test('native text selection omits bytes that exceed the read budget after stat', async () => {

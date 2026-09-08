@@ -129,6 +129,30 @@ test('local images cross one bounded normalization, upload, and immutable refere
   assert.match(routes, /images: store\.sessionImageInput\(known\.id\)/)
 })
 
+test('Word parsing stays lazy and worker-only, with native codecs and no external resource access', () => {
+  const intake = stripComments(read(join(ROOT, 'src/lib/docxImport.ts')))
+  assert.ok(intake.includes("import('./docxParser.worker.ts?worker')"))
+  assert.ok(intake.includes('worker.terminate()'))
+  const worker = stripComments(read(join(ROOT, 'src/lib/docxParser.worker.ts')))
+  assert.match(worker, /from '\.\/docxExtraction\.ts'/)
+  assert.ok(worker.includes('extractDocx('))
+  const parser = stripComments(read(join(ROOT, 'src/lib/docxExtraction.ts')))
+  assert.ok(parser.includes("from '@zip.js/zip.js/lib/zip-core-custom.js'"))
+  for (const required of ['strictness: \'strict\'', 'useWebWorkers: false', 'useCompressionStream: true', 'checkCrc32: true', 'checkOverlappingEntry: true']) {
+    assert.ok(parser.includes(required), `Word archive policy must retain ${required}`)
+  }
+  for (const path of ['src/lib/docxExtraction.ts', 'src/lib/docxText.ts']) {
+    assert.doesNotMatch(stripComments(read(join(ROOT, path))), /\b(?:fetch|XMLHttpRequest|WebSocket|importScripts)\b|\bfrom\s+['"]node:/, `${path} cannot resolve document resources outside its package`)
+  }
+  for (const directory of ['desktop', 'server', 'src']) {
+    for (const file of filesUnder(directory, ['.ts', '.tsx', '.mjs'])) {
+      const relative = file.slice(ROOT.length + 1)
+      if (['src/lib/docxExtraction.ts', 'src/lib/docxText.ts', 'src/lib/docxParser.worker.ts'].includes(relative)) continue
+      assert.doesNotMatch(stripComments(read(file)), /\bfrom\s+['"](?:@zip\.js\/zip\.js|saxes|[^'"]*docxExtraction|[^'"]*docxText)/, `${relative} cannot import Word parsing outside its worker`)
+    }
+  }
+})
+
 test('PDF parsing stays lazy and worker-only, with no auxiliary fetch or native-main parser', () => {
   const intake = stripComments(read(join(ROOT, 'src/lib/pdfImport.ts')))
   assert.ok(intake.includes("import('./pdfExtractor')"))

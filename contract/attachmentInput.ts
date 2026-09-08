@@ -1,5 +1,5 @@
 import type { Attachment, SessionWorkspace } from './entities.ts'
-import { isPdfImportOutcome } from './pdfImport.mjs'
+import { isDocumentImportOutcome } from './documentImport.mjs'
 import { isImageAssetRef } from './imageAssets.ts'
 import { IMAGE_MAX_COUNT, IMAGE_TURN_MAX_BYTES } from './imageInput.ts'
 
@@ -50,7 +50,7 @@ export function isAttachmentInput(value: unknown): value is Attachment {
   if (item.kind !== 'file' && item.kind !== 'photo') return false
   if (item.previewText !== undefined && typeof item.previewText !== 'string') return false
   if (item.previewUrl !== undefined && typeof item.previewUrl !== 'string') return false
-  if (item.documentImport !== undefined && !isPdfImportOutcome(item.documentImport)) return false
+  if (item.documentImport !== undefined && !isDocumentImportOutcome(item.documentImport)) return false
   if (item.image !== undefined && (item.kind !== 'photo' || !isImageAssetRef(item.image))) return false
   if (item.source !== undefined) {
     if (!item.source || typeof item.source !== 'object' || Array.isArray(item.source)) return false

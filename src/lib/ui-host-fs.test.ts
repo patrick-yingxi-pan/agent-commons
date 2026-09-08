@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { DesktopBridgeScope } from '../api/desktopCredentials.ts'
 import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../../contract/pdfImport.mjs'
+import { MAX_DOCX_FILE_BYTES } from '../../contract/docxImport.mjs'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPicker } from './uiHostFs.ts'
 import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
 
@@ -315,6 +316,24 @@ test('native PDF metadata becomes truthful documentImport outcomes without expos
   ])
 })
 
+test('native DOCX metadata becomes truthful documentImport outcomes without exposing transient bytes', async () => {
+  const scope: DesktopBridgeScope = {
+    agentCommonsDesktop: { context: {
+      pickFiles: async () => ({ status: 'selected' as const, files: [
+        { name: 'broken.docx', kind: 'file' as const, sizeBytes: 12, docxFailure: 'structure-limit' as const },
+        { name: 'missing.docx', kind: 'file' as const, sizeBytes: 12 },
+      ] }),
+      pickFolder: async () => ({ status: 'cancelled' as const }),
+    } },
+  }
+  const selected = await pickUiHostFiles('any', scope)
+  assert.deepEqual(selected.map((file) => file.documentImport), [
+    { format: 'docx', status: 'structure-limit' },
+    { format: 'docx', status: 'unavailable' },
+  ])
+  assert.equal(JSON.stringify(selected).includes('docxBytes'), false)
+})
+
 test('browser PDF limits are classified before reading bytes, including Photos rejection', async () => {
   let reads = 0
   const oversized = {
@@ -337,6 +356,23 @@ test('browser PDF limits are classified before reading bytes, including Photos r
   reads = 0
   await assert.rejects(() => readDroppedFiles(dropped([oversized]), 'image'), /Choose a PNG/)
   assert.equal(reads, 0)
+})
+
+test('browser PDF and DOCX selections share one aggregate document byte limit', async () => {
+  let reads = 0
+  const files = [
+    { name: 'one.pdf', size: MAX_PDF_FILE_BYTES },
+    { name: 'two.docx', size: MAX_DOCX_FILE_BYTES },
+    { name: 'three.docx', size: MAX_DOCX_FILE_BYTES },
+    { name: 'four.docx', size: MAX_DOCX_FILE_BYTES },
+  ].map(({ name, size }) => ({
+    name,
+    size,
+    slice: () => ({ arrayBuffer: async () => { reads += 1; return new ArrayBuffer(0) } }),
+  })) as unknown as File[]
+  const selected = await readDroppedFiles(dropped(files))
+  assert.deepEqual(selected.map((file) => file.documentImport?.status), ['invalid', 'invalid', 'invalid', 'selection-limit'])
+  assert.equal(reads, 3)
 })
 
 test('browser same-basename text files retain bodies while receiving distinct opaque IDs', async () => {

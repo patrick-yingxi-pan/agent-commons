@@ -113,6 +113,19 @@ test('every requirement id names exactly one spec row', () => {
   assert.deepEqual(duplicates, [], `requirement ids must be globally unique:\n${duplicates.join('\n')}`)
 })
 
+test('attachment requirement references retain their authoritative rows', () => {
+  const attachmentSpec = read('docs/spec/02-context-attachment.md')
+  const ids = new Set(requirementRows(attachmentSpec).map((row) => row.id))
+  assert.ok(ids.size > 0, 'expected attachment requirement rows')
+  const missing = []
+  for (const file of specFiles()) {
+    for (const match of read(file).matchAll(/\bCTX-(?:FS-)?\d+\b/g)) {
+      if (!ids.has(match[0])) missing.push(`${rel(file)} → ${match[0]}`)
+    }
+  }
+  assert.deepEqual(missing, [], `attachment requirements were removed or renamed without updating references:\n${missing.join('\n')}`)
+})
+
 test('every requirement row carries a status from the legend', () => {
   const bad = []
   for (const file of pillarFiles()) {

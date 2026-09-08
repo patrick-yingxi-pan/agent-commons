@@ -53,8 +53,8 @@ export interface Attachment {
   previewUrl?: string
   /** Readable local text may reach the selected model under attachmentInput's budget. */
   previewText?: string
-  /** Text-extraction provenance only, never raw PDF bytes or authority. */
-  documentImport?: import('./pdfImport.mjs').PdfImportOutcome
+  /** Text-extraction provenance only, never raw document bytes or authority. */
+  documentImport?: import('./documentImport.mjs').DocumentImportOutcome
   /** Server-owned image snapshot, durable across reload; no local path or bytes. */
   image?: import('./imageAssets.ts').ImageAssetRef
 }

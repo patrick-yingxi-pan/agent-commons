@@ -20,7 +20,10 @@ export const ASYNC_GRAPH_BUDGET_BYTES = 500_000
 /** A document parser runs only after explicit file selection, in a separate
  * worker. Count its emitted JavaScript asset too; assets cannot be a loophole
  * around the unchanged UI graph budgets. PDF.js baseline: 1,220,555 bytes. */
-export const WORKER_BUDGET_BYTES = 1_300_000
+/** DOCX adds a bounded ZIP/XML worker beside the existing PDF worker. The
+ * measured combined total is 1,309,617 B; 1.4 MB leaves a narrow reviewable
+ * margin without changing the physical, initial, or async graph gates. */
+export const WORKER_BUDGET_BYTES = 1_400_000
 
 export interface BundleChunkMeasure {
   fileName: string

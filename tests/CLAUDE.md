@@ -81,6 +81,8 @@ decision below that the test surface is verified by running, not by compiling.
   the system of record for *what's built vs mocked*.
   `tests/spec-conformance.test.ts` fails if a spec reference rots; the named
   locking tests are what prove the behavior.
+  Attachment IDs referenced across the ledger must still resolve to their
+  authoritative rows; adding a format cannot silently replace an existing row.
 - **Tests run in-memory.** The store's filesystem persistence is bypassed
   under `node --test`; snapshot round-trips are locked by
   `server/persistence/snapshot.test.ts`.

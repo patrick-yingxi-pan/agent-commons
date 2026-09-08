@@ -6,6 +6,7 @@ import { _electron, expect } from '@playwright/test'
 import { exactLoopbackOrigin } from './runtime.mjs'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
+import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -289,16 +290,68 @@ export async function smokePackagedAttachments({ executable }) {
       extraction: { format: 'pdf', pages: 3, text_pages: 2 },
     }])
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+    const docxPath = join(fixtureRoot, 'native-document.docx')
+    const docxText = 'native-word-body · café 世界 😀\nSecond paragraph'
+    await writeFile(docxPath, docxFixture({ paragraphs: docxText.split('\n') }), { mode: 0o600 })
+    const docxSession = await page.evaluate(async (providerId) => {
+      const response = await fetch('/api/v1/sessions', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId }),
+      })
+      if (!response.ok) throw new Error(`Word conversation precondition: HTTP ${response.status}`)
+      return response.json()
+    }, session.providerId)
+    const docxRoute = `/s/${encodeURIComponent(docxSession.id)}`
+    await page.goto(`${origin}${docxRoute}`)
+    await run.app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async (_owner, options) => {
+        if (!options.properties.includes('openFile')) throw new Error('Expected Word file selection')
+        return { canceled: false, filePaths: [path] }
+      }
+    }, docxPath)
+    const docxPicker = await openFilesPicker(page)
+    await docxPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await expect(page.locator('[data-document-import="ready"]')).toContainText('Word body text')
+    await expect(page.locator('[data-attachment-preview]')).toContainText(docxText)
+    const docxId = await page.locator('[data-attachment-preview]').getAttribute('data-attachment-preview')
+    await closePreview(page)
+    await send(page, 'Read the Word body text.', 'native-word-body')
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{
+      name: 'native-document.docx', status: 'ready', text: docxText, extraction: { format: 'docx' },
+    }])
+    assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
     await run.app.close()
     run = undefined
     await rm(folderPath, { recursive: true })
     await rm(pdfPath)
+    await rm(docxPath)
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
     await page.goto(`${origin}${folderRoute}`)
     await page.getByTitle('Open in sidebar').filter({ hasText: 'folder-import/' }).click()
     await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)
     console.log('[desktop-folder-smoke] real native folder reader + IPC · hidden-file exclusion · bounded snapshot preview + model input · full relaunch without source folder')
+    await page.goto(`${origin}${docxRoute}`)
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.docx' }).click()
+    await expect(page.locator('[data-attachment-preview]')).toHaveAttribute('data-attachment-preview', docxId)
+    await expect(page.locator('[data-attachment-preview]')).toContainText(docxText)
+    await expect(page.locator('[data-document-import="ready"]')).toContainText('Word body text')
+    const docxAttachment = await page.evaluate(async (id) => {
+      const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
+      return detail.workspace.attachments.find((attachment) => attachment.label === 'native-document.docx')
+    }, docxSession.id)
+    assert.equal(docxAttachment.previewText, docxText)
+    assert.deepEqual(docxAttachment.documentImport, { format: 'docx', status: 'ready' })
+    assert.equal(docxAttachment.docxBytes, undefined)
+    await closePreview(page)
+    await send(page, 'Read the saved Word document again.', 'native-word-body')
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{
+      name: 'native-document.docx', status: 'ready', text: docxText, extraction: { format: 'docx' },
+    }])
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.docx' }).click()
+    await page.getByTitle('Remove file', { exact: true }).click()
+    await send(page, 'Check detached Word document.', 'No supplied attachment text.')
+    assert.equal(JSON.stringify(endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content).includes('native-word-body'), false)
+    console.log('[desktop-docx-smoke] real native Word bytes + IPC · packaged worker extraction · model body text · full relaunch without source · detach')
     await page.goto(`${origin}${pdfRoute}`)
     await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.pdf' }).click()
     await expect(page.locator('[data-attachment-preview]')).toHaveAttribute('data-attachment-preview', pdfId)

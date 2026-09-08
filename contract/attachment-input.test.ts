@@ -76,6 +76,21 @@ test('invalid legacy shapes are safely marked unavailable', () => {
   assert.deepEqual(planAttachmentInput(invalid).map(({ status }) => status), ['unavailable', 'unavailable', 'unavailable'])
 })
 
+test('accepts the bounded DOCX outcome union and rejects forged failure text metadata', () => {
+  const ready = uiFile('Word body', {
+    label: 'brief.docx',
+    documentImport: { format: 'docx', status: 'ready' },
+  })
+  const failed = uiFile('forged body', {
+    label: 'broken.docx',
+    documentImport: { format: 'docx', status: 'invalid' },
+  })
+  assert.equal(isAttachmentInput(ready), true)
+  assert.equal(isAttachmentInput(failed), true)
+  assert.equal(isAttachmentInput({ ...ready, documentImport: { format: 'docx', status: 'ready', pages: 1 } }), false)
+  assert.deepEqual(planAttachmentInput([ready, failed]).map(({ status }) => status), ['ready', 'unavailable'])
+})
+
 test('the item cap is fixed and does not turn later metadata into file content', () => {
   const planned = planAttachmentInput(Array.from({ length: ATTACHMENT_INPUT_MAX_ITEMS + 1 }, (_, i) => uiFile(`text-${i}`, { id: `file-${i}` })))
   assert.equal(planned.length, ATTACHMENT_INPUT_MAX_ITEMS + 1)

@@ -11,6 +11,9 @@ procedure so the always-loaded map stays small.
   [`tests/CLAUDE.md`](../tests/CLAUDE.md).
 - Run `npm run typecheck` and `node --test` before declaring a code change done.
   Use `npm run verify` for the complete static/build/E2E sweep.
+- Run `npm run ui:sweep` separately from the full verifier: its isolated
+  5193/5194 stack overlaps the verifier's second browser shard. Never enable
+  server reuse to mask this collision; wait for the first command to finish.
 - Pull requests and pushes to `main` run that complete verifier plan again in
   GitHub Actions on Node 26. The checks lane and two deterministic E2E manifest
   partitions run through the verifier on isolated hosts; their union is the
