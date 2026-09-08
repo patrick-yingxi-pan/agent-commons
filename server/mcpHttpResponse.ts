@@ -3,6 +3,9 @@
  * links, applies annotations as permissions, or treats remote text as authority. */
 export const MAX_MCP_RESPONSE_BYTES = 1_048_576
 export const MAX_MCP_SSE_EVENT_BYTES = 262_144
+export const MAX_MCP_SSE_LAST_EVENT_ID_BYTES = 1_024
+
+export type McpSseResumeState = { lastEventId: string; retryMs: number }
 
 export class McpResponseError extends Error {
   readonly recognizedModernError: boolean
@@ -42,14 +45,42 @@ export function parseRpcResponse(text: string, expectedId: string | number, allo
 /** Incremental SSE framing: CR, LF and split CRLF are equivalent, UTF-8 is
  * decoded outside this class, and event data may span multiple data lines.
  * Server requests are refused rather than dispatched into host capabilities. */
-export function createMcpSseDecoder(expectedId: string | number) {
+export function createMcpSseDecoder(expectedId: string | number, resume?: McpSseResumeState) {
   let line = ''
   let afterCr = false
   let data: string[] = []
   let eventBytes = 0
   let final: Record<string, unknown> | undefined
+  const resumable = resume !== undefined
+  const utf8 = new TextEncoder()
+  if (resume !== undefined && (!resume || typeof resume !== 'object' || typeof resume.lastEventId !== 'string' || resume.lastEventId.includes('\u0000') ||
+    utf8.encode(resume.lastEventId).byteLength > MAX_MCP_SSE_LAST_EVENT_ID_BYTES ||
+    typeof resume.retryMs !== 'number' || !Number.isSafeInteger(resume.retryMs) || resume.retryMs < 0)) throw new McpResponseError()
+  let lastEventId = resume?.lastEventId ?? ''
+  let retryMs = resume?.retryMs ?? 0
+  let pendingEventId: string | undefined
+  const commitMetadata = () => {
+    if (!resumable) return
+    if (pendingEventId !== undefined) lastEventId = pendingEventId
+    pendingEventId = undefined
+  }
+  const metadata = (field: string, value: string) => {
+    if (!resumable) return
+    if (field === 'id') {
+      if (value.includes('\u0000')) return
+      if (utf8.encode(value).byteLength > MAX_MCP_SSE_LAST_EVENT_ID_BYTES) throw new McpResponseError()
+      pendingEventId = value
+      return
+    }
+    if (field === 'retry' && /^[0-9]+$/.test(value)) {
+      let parsed = Number(value)
+      if (!Number.isSafeInteger(parsed)) parsed = Number.MAX_SAFE_INTEGER
+      retryMs = parsed
+    }
+  }
   const dispatch = () => {
-    if (!data.length) { eventBytes = 0; return }
+    if (!data.length) { commitMetadata(); eventBytes = 0; return }
+    if (resumable && data.join('\n') === '') { data = []; commitMetadata(); eventBytes = 0; return }
     let value: unknown
     try { value = JSON.parse(data.join('\n')) } catch { throw new McpResponseError() }
     data = []
@@ -60,14 +91,23 @@ export function createMcpSseDecoder(expectedId: string | number) {
     if (Object.hasOwn(row, 'method')) {
       if (typeof row.method !== 'string' || !row.method.startsWith('notifications/') ||
         Object.hasOwn(row, 'id') || Object.hasOwn(row, 'result') || Object.hasOwn(row, 'error')) throw invalidResponse(row)
+      commitMetadata()
       return // Progress/log notifications do not become tool results or authority.
     }
-    final = rpcResponse(row, expectedId)
+    const parsed = rpcResponse(row, expectedId)
+    commitMetadata()
+    final = parsed
   }
   const finishLine = () => {
     if (!line) dispatch()
     else if (line === 'data') data.push('')
     else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''))
+    else if (resumable) {
+      const separator = line.indexOf(':')
+      const field = separator < 0 ? line : line.slice(0, separator)
+      const value = separator < 0 ? '' : line.slice(separator + 1).replace(/^ /, '')
+      metadata(field, value)
+    }
     line = ''
   }
   return {
@@ -89,5 +129,9 @@ export function createMcpSseDecoder(expectedId: string | number) {
       return undefined
     },
     end(): never { throw new McpResponseError() }, // EOF is not an SSE dispatch.
+    resumeState(): McpSseResumeState | undefined {
+      if (!resumable) return undefined
+      return { lastEventId, retryMs }
+    },
   }
 }

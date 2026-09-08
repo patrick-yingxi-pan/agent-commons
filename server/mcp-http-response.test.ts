@@ -131,6 +131,84 @@ test('SSE event byte bound counts UTF-8 bytes, including Unicode data', () => {
   throwsResponse(() => createMcpSseDecoder(1).push(make(low + 1)))
 })
 
+test('opt-in SSE resumption tracks detached metadata and accepts empty-data priming', () => {
+  const decoder = createMcpSseDecoder(7, { lastEventId: 'seed', retryMs: 25 })
+  assert.equal(decoder.push('id: first\nretry: 0\ndata:\n\n'), undefined)
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'first', retryMs: 0 })
+  const state = decoder.resumeState()!
+  state.lastEventId = 'mutated'
+  state.retryMs = 999
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'first', retryMs: 0 })
+  assert.deepEqual(decoder.push(frame(response(7))), response(7))
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'first', retryMs: 0 })
+})
+
+test('resumption ids inherit, empty id clears, NUL ids are ignored, oversized ids are refused, and fields are case-sensitive', () => {
+  const decoder = createMcpSseDecoder(3, { lastEventId: 'seed', retryMs: 10 })
+  decoder.push('id: next\n\n')
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'next', retryMs: 10 })
+  decoder.push('\n\n')
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'next', retryMs: 10 })
+  decoder.push('id\n\n')
+  assert.deepEqual(decoder.resumeState(), { lastEventId: '', retryMs: 10 })
+  decoder.push('id: bad\u0000id\nID: wrong\n\n')
+  assert.deepEqual(decoder.resumeState(), { lastEventId: '', retryMs: 10 })
+  throwsResponse(() => decoder.push(`id: ${'x'.repeat(1025)}\n\n`))
+  assert.deepEqual(decoder.resumeState(), { lastEventId: '', retryMs: 10 })
+})
+
+test('UTF-8 last-event-id uses a strict 1024-byte boundary', () => {
+  const accepted = createMcpSseDecoder(3, { lastEventId: '', retryMs: 0 })
+  accepted.push(`id: ${'😀'.repeat(256)}\n\n`)
+  assert.equal(accepted.resumeState()?.lastEventId, '😀'.repeat(256))
+  const refused = createMcpSseDecoder(3, { lastEventId: '', retryMs: 0 })
+  throwsResponse(() => refused.push(`id: ${'😀'.repeat(257)}\n\n`))
+  assert.equal(refused.resumeState()?.lastEventId, '')
+})
+
+test('retry accepts zero and saturates huge ASCII digits while ignoring invalid values', () => {
+  const decoder = createMcpSseDecoder(4, { lastEventId: '', retryMs: 7 })
+  decoder.push('retry: 0\n\n')
+  assert.equal(decoder.resumeState()?.retryMs, 0)
+  decoder.push('retry: 12x\n\n')
+  assert.equal(decoder.resumeState()?.retryMs, 0)
+  decoder.push(`retry: ${'9'.repeat(100)}\n\n`)
+  assert.equal(decoder.resumeState()?.retryMs, Number.MAX_SAFE_INTEGER)
+  decoder.push('id: pending\nretry: 2000\n')
+  assert.deepEqual(decoder.resumeState(), { lastEventId: '', retryMs: 2000 })
+  decoder.push('\n')
+  assert.equal(decoder.resumeState()?.lastEventId, 'pending')
+})
+
+test('an incomplete id event is not published, including split CRLF framing', () => {
+  const decoder = createMcpSseDecoder(8, { lastEventId: 'seed', retryMs: 4 })
+  assert.equal(decoder.push('id: pending\r'), undefined)
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'seed', retryMs: 4 })
+  assert.equal(decoder.push('\nretry: 99\r\n'), undefined)
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'seed', retryMs: 99 })
+  throwsResponse(() => decoder.end())
+  assert.deepEqual(decoder.resumeState(), { lastEventId: 'seed', retryMs: 99 })
+})
+
+test('default decoder behavior has no resumable state and ignores metadata fields', () => {
+  const decoder = createMcpSseDecoder(9)
+  assert.equal(decoder.resumeState(), undefined)
+  throwsResponse(() => createMcpSseDecoder(9).push('data:\n\n'))
+  assert.deepEqual(decoder.push('id: ignored\nretry: 999\n\n' + frame(response(9))), response(9))
+  assert.equal(decoder.resumeState(), undefined)
+})
+
+test('supplied resume state is validated instead of silently coerced', () => {
+  for (const invalid of [
+    { lastEventId: 'ok', retryMs: -1 },
+    { lastEventId: 'ok', retryMs: Number.NaN },
+    { lastEventId: 'bad\u0000id', retryMs: 0 },
+    { lastEventId: 'x'.repeat(1025), retryMs: 0 },
+    null,
+  ]) throwsResponse(() => createMcpSseDecoder(1, invalid as any))
+  assert.equal(createMcpSseDecoder(1).resumeState(), undefined)
+})
+
 test('a completed decoder cannot accept trailing input', () => {
   const decoder = createMcpSseDecoder(5)
   assert.deepEqual(decoder.push(frame(response(5))), response(5))

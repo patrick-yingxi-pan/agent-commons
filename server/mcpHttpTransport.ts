@@ -1,15 +1,17 @@
 /** Outbound MCP transport substrate, not a configured integration. Callers must
  * bind the endpoint and scope to explicit user consent before using this door.
- * No redirects, environment proxy, cookies, automatic retries or TLS override.
+ * No redirects, environment proxy, cookies, RPC replay or TLS override. Legacy
+ * response streams may resume through bounded read-only GETs, never a new POST.
  * Protocol negotiation, discovery, durable call receipts and UI live above it. */
 import { request as httpRequest, type ClientRequest, type IncomingMessage, type RequestOptions } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { isPublicAddress, parseOutboundEndpoint } from './outboundAddress.ts'
-import { createMcpSseDecoder, MAX_MCP_RESPONSE_BYTES, McpResponseError, parseRpcResponse } from './mcpHttpResponse.ts'
+import { createMcpSseDecoder, MAX_MCP_RESPONSE_BYTES, MAX_MCP_SSE_LAST_EVENT_ID_BYTES, McpResponseError, parseRpcResponse, type McpSseResumeState } from './mcpHttpResponse.ts'
 import { buildMcpParameterHeaders, encodeMcpHeaderValue, parseMcpHeaderParameters } from './mcpHeaderParameters.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
+import { MCP_LEGACY_VERSIONS } from './mcpProtocol.ts'
 
 export type McpHttpFailure = 'destination' | 'request' | 'timeout' | 'cancelled' | 'network' | 'response' | 'redirect' | 'authentication'
 export class McpHttpError extends Error {
@@ -42,6 +44,8 @@ export interface McpHttpOptions {
 }
 const MAX_REQUEST_BYTES = 65_536
 const DEFAULT_TIMEOUT_MS = 10_000
+export const MAX_MCP_RESUMPTIONS = 8
+const DEFAULT_RETRY_MS = 1_000
 const safeHeader = (value: string, max: number) => value.length > 0 && value.length <= max && /^[\x21-\x7e]+$/.test(value)
 
 /** Factory injection is for transport tests, not user configuration. Production
@@ -110,16 +114,20 @@ export function createMcpHttpTransport({
     if (!Number.isSafeInteger(deadline) || deadline < 1 || deadline > 60_000) return Promise.reject(new McpHttpError('request', false))
     if (options.signal?.aborted) return Promise.reject(new McpHttpError('cancelled', false))
     return new Promise((resolveReply, reject) => {
+      const started = performance.now()
       let settled = false
       let dispatched = false
       let responseStatus: number | undefined
       let recognizedModernError = false
       let request: ClientRequest | undefined
       let response: IncomingMessage | undefined
+      let resumeTimer: ReturnType<typeof setTimeout> | undefined
+      let resumptions = 0
       const finish = (error?: McpHttpFailure, reply?: Reply) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
+        clearTimeout(resumeTimer)
         options.signal?.removeEventListener('abort', abort)
         response?.destroy()
         request?.destroy()
@@ -138,76 +146,136 @@ export function createMcpHttpTransport({
           isIP(row.address) !== row.family || ![4, 6].includes(row.family) ||
           (options.scope === 'public' && !isPublicAddress(row.address)))) return finish('destination')
         const { address, family: pinnedFamily } = addresses[0]!
-        const socketOptions: RequestOptions = {
-          method: message === null ? 'DELETE' : 'POST', headers, agent: false, autoSelectFamily: false,
-          family: pinnedFamily, maxHeaderSize: 16_384,
-          rejectUnauthorized: true,
-          lookup: (_host, _options, callback) => callback(null, address, pinnedFamily),
-        }
-        request = (url.protocol === 'https:' ? https : http)(url, socketOptions, (incoming) => {
-          response = incoming
-          incoming.on('error', () => finish('network'))
-          incoming.on('close', () => { if (!settled && !incoming.complete) finish('network') })
-          if (settled) { incoming.destroy(); return }
-          const status = incoming.statusCode ?? 0
-          responseStatus = status
-          if (status >= 300 && status < 400) return finish('redirect')
-          if (status === 401 || status === 403) return finish('authentication')
-          const sessionId = incoming.headers['mcp-session-id']
-          if (sessionId !== undefined && (typeof sessionId !== 'string' || !safeHeader(sessionId, 256))) return finish('response')
-          const replyBase = { status, ...(typeof sessionId === 'string' ? { sessionId } : {}) }
-          if (message === null) return [200, 202, 204, 404, 405].includes(status) ? finish(undefined, { status }) : finish('response')
-          const acceptResponse = (result: Record<string, unknown>) => {
-            if ((status < 200 || status >= 300) && Object.hasOwn(result, 'result')) return finish('response')
-            finish(undefined, { ...replyBase, message: result })
+        const resumable = !!message && message.id !== undefined && MCP_LEGACY_VERSIONS.some(version => version === options.protocolVersion)
+        let bytes = 0 // The bound covers the original response and every resumed connection.
+        let replyBase: Reply | undefined
+        let streamSessionId = options.sessionId
+        const open = (resume?: McpSseResumeState) => {
+          if (settled) return
+          if (performance.now() - started >= deadline) return finish('timeout')
+          let connectionEnded = false
+          let sse: ReturnType<typeof createMcpSseDecoder> | undefined
+          let eligible = !!resume
+          let currentRequest: ClientRequest | undefined
+          let currentResponse: IncomingMessage | undefined
+          const live = () => !settled && !connectionEnded
+          const recover = (failure: McpHttpFailure) => {
+            if (!live()) return
+            const state = sse?.resumeState() ?? resume
+            if (!eligible || !state?.lastEventId || resumptions >= MAX_MCP_RESUMPTIONS) return finish(failure)
+            connectionEnded = true
+            currentResponse?.destroy()
+            currentRequest?.destroy()
+            const left = deadline - (performance.now() - started)
+            if (left <= 0) return finish('timeout')
+            // Never shorten a server retry interval to fit our deadline. The
+            // original timer will settle an operation that cannot resume in time.
+            if (state.retryMs >= left) return
+            resumptions++
+            resumeTimer = setTimeout(() => open(state), state.retryMs)
           }
-          if (message.id === undefined) return status === 202 ? finish(undefined, replyBase) : finish('response')
-          const encoding = incoming.headers['content-encoding']
-          if (encoding !== undefined && encoding !== 'identity') return finish('response')
-          const contentType = incoming.headers['content-type']
-          const media = typeof contentType === 'string' ? contentType.split(';')[0]!.trim().toLowerCase() : ''
-          if (media !== 'application/json' && media !== 'text/event-stream') return finish('response')
-          const declared = incoming.headers['content-length']
-          if (declared !== undefined && (typeof declared !== 'string' || !/^\d+$/.test(declared) || Number(declared) > MAX_MCP_RESPONSE_BYTES)) return finish('response')
-          const decoder = new TextDecoder('utf-8', { fatal: true })
-          const sse = media === 'text/event-stream' ? createMcpSseDecoder(message.id as string | number) : undefined
-          let bytes = 0
-          let text = ''
-          incoming.on('data', (chunk) => {
-            if (settled) return
-            try {
-              if (!(chunk instanceof Uint8Array)) return finish('response')
-              bytes += chunk.byteLength
-              if (bytes > MAX_MCP_RESPONSE_BYTES) return finish('response')
-              const decoded = decoder.decode(chunk, { stream: true })
-              if (sse) {
-                const final = sse.push(decoded)
-                if (final) acceptResponse(final)
-              } else text += decoded
-            } catch (error) {
-              recognizedModernError = error instanceof McpResponseError && error.recognizedModernError
-              finish('response')
-            }
-          })
-          incoming.on('end', () => {
-            if (settled) return
-            try {
-              const tail = decoder.decode()
-              if (sse) { sse.push(tail); sse.end() }
-              acceptResponse(parseRpcResponse(text + tail, message.id as string | number, status >= 400))
-            } catch (error) {
-              recognizedModernError = error instanceof McpResponseError && error.recognizedModernError
-              finish('response')
-            }
-          })
-        })
-        request.on('error', () => finish('network'))
-        request.on('upgrade', (_response, socket) => { socket.destroy(); finish('response') })
-        if (settled) { request.destroy(); return }
-        // Once submitted, a timeout or lost response cannot prove no effect.
-        // Callers must persist uncertainty rather than automatically retry.
-        dispatched = true
-        request.end(body)
+          const outgoing = { ...headers }
+          if (resume) {
+            const cursor = Buffer.from(resume.lastEventId, 'utf8')
+            // Last-Event-ID is UTF-8 bytes, not the modern Base64 sentinel.
+            // Refuse values that HTTP would reject or trim rather than retarget
+            // the stream with an altered cursor. IDs are never URLs or errors.
+            if (cursor.byteLength > MAX_MCP_SSE_LAST_EVENT_ID_BYTES || /[\x00-\x08\x0a-\x1f\x7f]/.test(resume.lastEventId) || /^[ \t]|[ \t]$/.test(resume.lastEventId)) return finish('response')
+            delete outgoing['Content-Type']
+            delete outgoing['Content-Length']
+            outgoing.Accept = 'text/event-stream'
+            outgoing['Cache-Control'] = 'no-store'
+            outgoing['Last-Event-ID'] = cursor.toString('latin1')
+            if (streamSessionId) outgoing['Mcp-Session-Id'] = streamSessionId
+          }
+          const socketOptions: RequestOptions = {
+            method: resume ? 'GET' : message === null ? 'DELETE' : 'POST', headers: outgoing,
+            agent: false, autoSelectFamily: false, family: pinnedFamily, maxHeaderSize: 16_384,
+            rejectUnauthorized: true,
+            // Every connection keeps the once-validated DNS result and TLS host.
+            lookup: (_host, _options, callback) => callback(null, address, pinnedFamily),
+          }
+          try {
+            currentRequest = (url.protocol === 'https:' ? https : http)(url, socketOptions, (incoming) => {
+              currentResponse = incoming
+              incoming.on('error', () => recover('network'))
+              incoming.on('close', () => { if (live() && !incoming.complete) recover('network') })
+              if (!live()) { incoming.destroy(); return }
+              response = incoming
+              const status = incoming.statusCode ?? 0
+              responseStatus = status
+              if (status >= 300 && status < 400) return finish('redirect')
+              if (status === 401 || status === 403) return finish('authentication')
+              const sessionId = incoming.headers['mcp-session-id']
+              if (sessionId !== undefined && (typeof sessionId !== 'string' || !safeHeader(sessionId, 256))) return finish('response')
+              if (resume && sessionId !== undefined && sessionId !== streamSessionId) return finish('response')
+              if (!resume) {
+                replyBase = { status, ...(typeof sessionId === 'string' ? { sessionId } : {}) }
+                if (message?.method === 'initialize' && typeof sessionId === 'string') streamSessionId = sessionId
+              }
+              if (message === null) return [200, 202, 204, 404, 405].includes(status) ? finish(undefined, { status }) : finish('response')
+              const acceptResponse = (result: Record<string, unknown>) => {
+                if ((status < 200 || status >= 300) && Object.hasOwn(result, 'result')) return finish('response')
+                finish(undefined, { ...replyBase!, message: result })
+              }
+              if (message.id === undefined) return status === 202 ? finish(undefined, replyBase!) : finish('response')
+              const encoding = incoming.headers['content-encoding']
+              if (encoding !== undefined && encoding !== 'identity') return finish('response')
+              const contentType = incoming.headers['content-type']
+              const media = typeof contentType === 'string' ? contentType.split(';')[0]!.trim().toLowerCase() : ''
+              if (media !== 'application/json' && media !== 'text/event-stream') return finish('response')
+              if (resume && (status !== 200 || media !== 'text/event-stream')) return finish('response')
+              const declared = incoming.headers['content-length']
+              if (declared !== undefined && (typeof declared !== 'string' || !/^\d+$/.test(declared) || Number(declared) > MAX_MCP_RESPONSE_BYTES - bytes)) return finish('response')
+              const decoder = new TextDecoder('utf-8', { fatal: true })
+              eligible = resumable && status >= 200 && status < 300 && media === 'text/event-stream' &&
+                (sessionId === undefined || sessionId === streamSessionId)
+              sse = media === 'text/event-stream' ? createMcpSseDecoder(message.id as string | number,
+                eligible ? resume ?? { lastEventId: '', retryMs: DEFAULT_RETRY_MS } : undefined) : undefined
+              let text = ''
+              incoming.on('data', (chunk) => {
+                if (!live()) return
+                try {
+                  if (!(chunk instanceof Uint8Array)) return finish('response')
+                  bytes += chunk.byteLength
+                  if (bytes > MAX_MCP_RESPONSE_BYTES) return finish('response')
+                  const decoded = decoder.decode(chunk, { stream: true })
+                  if (sse) {
+                    const final = sse.push(decoded)
+                    if (final) acceptResponse(final)
+                  } else text += decoded
+                } catch (error) {
+                  recognizedModernError = error instanceof McpResponseError && error.recognizedModernError
+                  finish('response')
+                }
+              })
+              incoming.on('end', () => {
+                if (!live()) return
+                try {
+                  const tail = decoder.decode()
+                  if (sse) {
+                    const final = sse.push(tail)
+                    if (final) return acceptResponse(final)
+                    return recover('response') // EOF never dispatches an incomplete SSE event.
+                  }
+                  acceptResponse(parseRpcResponse(text + tail, message.id as string | number, status >= 400))
+                } catch (error) {
+                  recognizedModernError = error instanceof McpResponseError && error.recognizedModernError
+                  finish('response')
+                }
+              })
+            })
+            request = currentRequest
+            currentRequest.on('error', () => recover('network'))
+            currentRequest.on('upgrade', (_response, socket) => { socket.destroy(); if (live()) finish('response') })
+            if (!live()) { currentRequest.destroy(); return }
+            // Resumption only reads the existing stream. The original RPC body
+            // is submitted once; a GET refusal never licenses POST replay.
+            if (!resume) dispatched = true
+            currentRequest.end(resume ? undefined : body)
+          } catch { recover('network') }
+        }
+        open()
       }).catch(() => finish('network'))
     })
   }

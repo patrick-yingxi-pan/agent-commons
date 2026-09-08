@@ -26,7 +26,7 @@ deadline includes DNS, connection and streaming (explicit internal overrides
 are limited to 1–60,000 ms). Closing or timing out destroys the actual request
 and response. Late DNS cannot start a new request. Redirects, environment proxy
 agents, ambient cookies, compressed bodies, server-initiated requests and
-automatic retries are not supported. Credentials are explicit write-only input;
+automatic RPC replay are not supported. Credentials are explicit write-only input;
 errors contain fixed codes, not URLs, tokens, response text or raw exceptions.
 Request JSON is snapshotted before serialization (depth 40, 8,192 nodes for the
 complete RPC envelope), without invoking caller getters or `toJSON` hooks.
@@ -39,6 +39,31 @@ Explicit legacy-session cleanup uses a body-free DELETE to the same validated
 endpoint; it cannot follow redirects or expand the destination scope.
 Outgoing headers have a combined 32 KiB ceiling, including the explicit bearer;
 mirrored tool parameters have their own 16 KiB aggregate ceiling within it.
+
+Supported legacy request-scoped SSE streams can resume after disconnection or
+EOF using at most eight body-free GETs with `Last-Event-ID`. They share the
+original deadline, cumulative 1 MiB response budget, admitted DNS address, TLS
+hostname, exact endpoint/query, version and explicit bearer. The private session
+is unchanged; initialization alone may establish it in its first response.
+No GET repeats the original RPC body or starts a new session. Completed replies,
+JSON, notifications, DELETE and modern/unversioned requests never resume.
+GET refuses redirects, authentication/session errors, unsupported media and
+malformed data rather than restarting the tool call.
+
+The parser records only complete-event IDs (including empty-data priming),
+inherits IDs across events, and clears the cursor on an empty ID. A complete
+ASCII-digit `retry` field updates the backoff immediately, even before a blank
+line; absent values default to one second. A peer interval longer than the
+remaining deadline is never shortened. IDs are bounded to 1,024 UTF-8 bytes;
+HTTP-unsafe or edge-whitespace cursors are refused, never silently rewritten.
+Partial EOF events are discarded; malformed UTF-8 is refused. Cancellation
+clears backoff and closes an active GET while retaining the original RPC's
+execution uncertainty. These are read-only stream recovery requests, not tool
+retries or durable restart recovery. This follows the
+[legacy transport lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
+and [SSE field rules](https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation);
+the [modern transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
+does not support GET resumption.
 
 Pure framing/address tests and real loopback HTTP/SSE/TLS tests cover this
 substrate. The tests fixture only the remote peer; they do not demonstrate a
@@ -73,8 +98,9 @@ mistaken for an invalid tool definition. Real HTTP peer tests cover both eras.
 `server/mcpToolCall.ts` sends exactly one explicit `tools/call` using a supplied
 protocol version and, for legacy peers, the surrounding caller-owned initialized
 session. It does not reuse discovery's already-released session, initialize a
-new one, downgrade, refresh a catalog, reconnect, retry, or continue a suspended
-call. `server/mcpProtocol.ts` owns the shared versions and request metadata.
+new one, downgrade, refresh a catalog, replay, or continue an input-required
+call. Read-only legacy response resumption is owned by the HTTP transport above.
+`server/mcpProtocol.ts` owns the shared versions and request metadata.
 No product route, model transport, or release runtime is wired to this caller.
 
 The preflight snapshots arguments (48 KiB, depth 32, 4,096 nodes) and the reviewed
@@ -142,7 +168,7 @@ are separate from releasing a session with DELETE.
 An aborted transaction sends no later DELETE; server-side session expiry remains
 the cleanup fallback, and cancellation delivery is not a session-release receipt.
 
-SSE resumption and the new-session behavior after session expiry still need deliberate integration.
+New-session behavior after session expiry still needs deliberate integration.
 A later explicit transaction may initialize anew, but this transaction never
 replays an uncertain call. These gaps follow the
 [legacy HTTP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
@@ -201,7 +227,7 @@ including extracted release candidates; helpers never ship in the artifact.
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. JSON Schema 2020-12 validation, executable
-  catalog admission, legacy SSE resumption and expired-session handling,
+  catalog admission and expired-session handling,
   output-schema checking and multi-round input handling remain. The isolated single-call boundary
   above does not replace those requirements.
 - Extend packaged credential acceptance through live inspection/replacement and

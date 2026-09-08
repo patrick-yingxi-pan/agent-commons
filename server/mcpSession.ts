@@ -1,7 +1,8 @@
 /** Ephemeral MCP protocol lifecycle. The session credential never leaves this
  * scope; discovery and a single tool attempt share negotiation and cleanup,
- * not permission. No reconnect, replay, stream resumption or server-initiated
- * request handling is performed. Bounded legacy cancellation is control traffic;
+ * not permission. No reinitialization, RPC replay or server-initiated request
+ * handling is performed. Transport-owned legacy GET resumption and cancellation
+ * control traffic preserve the original request identity and deadline;
  * a future configured adapter still owns policy and durable state. */
 import { randomUUID } from 'node:crypto'
 import { postMcpHttp, McpHttpError, type McpHttpOptions } from './mcpHttpTransport.ts'
