@@ -30,6 +30,19 @@ milestones or address a demonstrated defect.
 
 ## Checkpoint criteria
 
+The authored-artifact discovery checkpoint closes a gap masked by the UI's
+relation-graph merge: `GET /artifacts` and remote MCP now list actual authored
+documents alongside fixtures. Current filing/unfiling is projected, same-name
+IDs remain distinct, grant-only rows omit raw owner tenant identity, and the
+model's filing catalog includes owned targets only. One ID union keeps UI and
+body-cache projections duplicate-free while acknowledged creation stays
+immediate. Grant/revoke refreshes already-open list and body reads. Focused
+store/route/MCP locks and the five-viewport owner/shared/foreign browser walk
+cover these boundaries; duplicate concatenation and omitted grant invalidation
+were deliberately restored and observed failing. This is not a new rich-format
+authoring engine or paid-model acceptance. Shared interactive preview review
+still needs an unlocked Mac.
+
 Each milestone records its implementation and behavioral locks in the spec
 ledger, proves a relevant regression fails, runs the full verifier, and reviews
 the diff before landing. Native changes additionally run the packaged executable

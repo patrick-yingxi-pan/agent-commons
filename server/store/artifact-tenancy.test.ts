@@ -15,6 +15,110 @@ const mkSave = (name, projectId) => ({
   ...(projectId ? { projectId } : {}),
 })
 
+const mkAuthoredSave = (name, body, projectId) => ({
+  kind: 'save-artifact',
+  artifact: { name, kind: 'doc', meta: 'Document', body },
+  ...(projectId ? { projectId } : {}),
+})
+
+test('canonical artifact listing includes authored rows, seeded rows, and current project filing', () => {
+  const stamp = Date.now().toString(36)
+  const name = `listed-${stamp}.md`
+  const tenant = store.defaultTenantId()
+  store.applyRelationOp(mkAuthoredSave(name, 'A real authored body.', 'p-insights'), tenant)
+
+  const created = store.relationGraph(tenant).extraArtifacts.find((artifact) => artifact.name === name)
+  assert.ok(created, 'the strict authored save created an artifact row')
+  const listed = store.listArtifacts(tenant)
+  assert.ok(listed.some((artifact) => artifact.id === 'a1'), 'the seeded catalog remains listed')
+  const row = listed.find((artifact) => artifact.id === created.id)
+  assert.ok(row, 'the canonical artifact list includes the authored row')
+  assert.equal(row?.own, true)
+  assert.equal(row?.projectId, 'p-insights', 'the authored row retains its project filing')
+
+  store.applyRelationOp({
+    kind: 'refile-artifact', artifactId: created.id, artifactName: created.name,
+    projectId: 'p-infra', projectName: 'Platform hardening',
+  }, tenant)
+  assert.equal(store.listArtifacts(tenant).find((artifact) => artifact.id === created.id)?.projectId, 'p-infra')
+  store.applyRelationOp({
+    kind: 'refile-artifact', artifactId: created.id, artifactName: created.name,
+    projectId: null, projectName: 'Platform hardening',
+  }, tenant)
+  assert.equal(store.listArtifacts(tenant).find((artifact) => artifact.id === created.id)?.projectId, '', 'explicit unfile survives as the canonical empty sentinel')
+})
+
+test('canonical artifact listing keeps same-name authored IDs tenant-scoped and excludes foreign rows', () => {
+  const stamp = Date.now().toString(36)
+  const name = `same-listed-${stamp}.md`
+  const firstTenant = `tenant-list-a-${stamp}`
+  const secondTenant = `tenant-list-b-${stamp}`
+  store.applyRelationOp(mkAuthoredSave(name, 'First tenant body.'), firstTenant)
+  store.applyRelationOp(mkAuthoredSave(name, 'Second tenant body.'), secondTenant)
+
+  const first = store.relationGraph(firstTenant).extraArtifacts.find((artifact) => artifact.name === name)
+  const second = store.relationGraph(secondTenant).extraArtifacts.find((artifact) => artifact.name === name)
+  assert.ok(first && second, 'both strict authored saves created rows')
+  assert.notEqual(first.id, second.id, 'same names remain independent identities')
+  assert.deepEqual(store.listArtifacts(firstTenant).filter((artifact) => artifact.name === name).map((artifact) => artifact.id), [first.id])
+  assert.deepEqual(store.listArtifacts(secondTenant).filter((artifact) => artifact.name === name).map((artifact) => artifact.id), [second.id])
+})
+
+test('a granted artifact appears in the canonical list as readable but not owned', () => {
+  const stamp = Date.now().toString(36)
+  const owner = `tenant-list-owner-${stamp}`
+  const secondOwner = `tenant-list-owner-two-${stamp}`
+  // Directed grants resolve their audience through the account registry; use a
+  // real demo namespace while keeping the artifact owners synthetic and isolated.
+  const audience = 'tenant-beta'
+  const name = `granted-listed-${stamp}.md`
+  store.applyRelationOp(mkAuthoredSave(name, 'A shared authored body.'), owner)
+  store.applyRelationOp(mkAuthoredSave(name, 'A second shared authored body.'), secondOwner)
+  const created = store.relationGraph(owner).extraArtifacts.find((artifact) => artifact.name === name)
+  const second = store.relationGraph(secondOwner).extraArtifacts.find((artifact) => artifact.name === name)
+  assert.ok(created && second)
+  const grant = store.createGrant(
+    { subject: { kind: 'artifact', id: created.id }, audience: { kind: 'org', orgId: audience }, tier: 'view' },
+    owner,
+  )
+  const secondGrant = store.createGrant(
+    { subject: { kind: 'artifact', id: second.id }, audience: { kind: 'org', orgId: audience }, tier: 'view' },
+    secondOwner,
+  )
+  assert.ok(grant && secondGrant)
+  const rows = store.listArtifacts(audience).filter((artifact) => artifact.name === name)
+  assert.deepEqual(rows.map((artifact) => artifact.id).sort(), [created.id, second.id].sort(), 'both same-name grants remain independently addressable')
+  assert.ok(rows.every((artifact) => artifact.own === false), 'grants never widen ownership')
+  assert.equal(store.listArtifacts(owner).find((artifact) => artifact.id === created.id)?.tenantId, owner, 'the owner retains its tenant stamp')
+  assert.equal(rows.find((artifact) => artifact.id === created.id)?.tenantId, undefined, 'a grant-only row does not expose the owner tenant stamp')
+  assert.ok(store.artifactContent(audience)[created.id], 'the granted body is visible before revocation')
+  assert.equal(store.revokeGrant(grant.id, owner), 'ok')
+  assert.equal(store.listArtifacts(audience).some((artifact) => artifact.id === created.id), false, 'revoked access disappears')
+  assert.equal(store.artifactContent(audience)[created.id], undefined, 'revocation removes the authored body projection too')
+  assert.equal(store.listArtifacts(audience).some((artifact) => artifact.id === second.id), true)
+  assert.equal(store.revokeGrant(secondGrant.id, secondOwner), 'ok')
+  assert.equal(store.listArtifacts(audience).some((artifact) => artifact.id === second.id), false, 'the second revoked access disappears')
+  assert.equal(store.artifactContent(audience)[second.id], undefined, 'the second revoked body projection disappears too')
+})
+
+test('canonical artifact listing preserves stored synopsis while body edits stay separate', () => {
+  const stamp = Date.now().toString(36)
+  const tenant = `tenant-list-edit-${stamp}`
+  const name = `edited-listed-${stamp}.md`
+  const synopsis = 'Stored synopsis.'
+  store.applyRelationOp({
+    kind: 'save-artifact',
+    artifact: { name, kind: 'doc', meta: 'Document', body: 'Original excerpt.', excerpt: synopsis },
+  }, tenant)
+  const created = store.relationGraph(tenant).extraArtifacts.find((artifact) => artifact.name === name)
+  assert.ok(created)
+  const updated = store.updateArtifactBlock(created.id, 0, 'Current edited excerpt.')
+  assert.ok(updated, 'the authored body accepted the edit')
+  assert.equal(store.listArtifacts(tenant).find((artifact) => artifact.id === created.id)?.excerpt, synopsis, 'the stored synopsis remains metadata, separate from body edits')
+  const body = store.artifactContent(tenant)[created.id]
+  assert.equal(body?.type === 'doc' ? body.blocks[0]?.p : undefined, 'Current edited excerpt.')
+})
+
 test('a created artifact is stamped with the caller tenant; relationGraph projects the artifact axis', () => {
   store.applyRelationOp(mkSave('alpha.md'), 'tenant-aa')
   store.applyRelationOp(mkSave('beta.md'), 'tenant-bb')

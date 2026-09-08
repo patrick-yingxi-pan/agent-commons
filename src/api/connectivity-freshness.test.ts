@@ -27,6 +27,19 @@ const eventCase = (events: string, name: string) => {
 
 // ── The event router: every new/widened case actually heals the surfaces ──────
 
+test('artifact creation and grant changes refresh the complete registry and body projection', () => {
+  const events = src('src', 'api', 'events.ts')
+  const grant = eventCase(events, 'grant.changed')
+  for (const key of ['artifacts', 'artifactContent']) {
+    assert.ok(grant.includes(`invalidate(keys.${key})`), `grant change refreshes ${key}`)
+  }
+  const invalidation = eventCase(src('src', 'api', 'commonsInvalidation.ts'), 'save-artifact')
+  assert.match(invalidation, /invalidate\(keys\.artifacts\)/)
+  assert.match(invalidation, /invalidate\(keys\.artifactContent\)/)
+  assert.match(eventCase(src('src', 'api', 'commonsInvalidation.ts'), 'refile-artifact'), /invalidate\(keys\.artifacts\)/)
+  assert.match(eventCase(events, 'relation.applied'), /invalidateForCommonsOp\(e\.op\)/)
+})
+
 test('run.*/schedule.changed refresh the schedules list (the rail pane + the section read it)', () => {
   const events = src('src', 'api', 'events.ts')
   // run.started/progress fall through to run.finished — the block lives on the last label.

@@ -14,7 +14,11 @@ import { keys } from './keys.ts'
 export function invalidateForCommonsOp(op: RelationOp): void {
   switch (op.kind) {
     case 'save-artifact':
+      invalidate(keys.artifacts)
       invalidate(keys.artifactContent)
+      break
+    case 'refile-artifact':
+      invalidate(keys.artifacts)
       break
     case 'create-provider':
       invalidate(keys.providers)

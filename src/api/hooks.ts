@@ -514,7 +514,7 @@ export function useProjects(): QueryState<Project[]> {
   return useQuery(keys.projects, () => apiGet<Project[]>(paths.projects))
 }
 
-/** The base artifacts (the relation graph carries any saved-out extras). */
+/** The complete tenant-visible artifact registry, seeded and authored. */
 export function useArtifacts(): QueryState<ArtifactItem[]> {
   return useQuery(keys.artifacts, () => apiGet<ArtifactItem[]>(paths.artifacts))
 }

@@ -4639,7 +4639,9 @@ export function buildRouter(): Router {
           description: graphNow.projectDescriptions[p.id] ?? p.description,
           instructions: graphNow.projectInstructions[p.id] ?? p.instructions,
         })),
-        artifacts: [...graphNow.extraArtifacts, ...store.listArtifacts(tenantId)].map((a) => ({ id: a.id, name: a.name })),
+        // These semantic aliases propose filing/source writes. Read-only
+        // grants remain discoverable through GET /artifacts, not write targets.
+        artifacts: store.listArtifacts(tenantId).filter((a) => a.own === true).map((a) => ({ id: a.id, name: a.name })),
         schedules: store.listSchedules(tenantId).map((s) => ({ id: s.id, name: s.name, cadence: s.cadence })),
         // The Contexts registry (user-saved connectors/MCP servers — custom ones
         // included) merged over the Add-context catalog, deduped by id.

@@ -281,6 +281,8 @@ function route(e: ServerEvent): void {
       invalidatePrefix(keys.grants())
       invalidate(keys.projects) // seed rows enter/leave the shared-with-me band
       invalidate(keys.relations) // created rows ride the graph's extraProjects
+      invalidate(keys.artifacts) // authored and seeded grants share one registry
+      invalidate(keys.artifactContent) // grant/revoke changes exact body visibility
       invalidate(keys.commons) // a published share is a feed item (S4)
       break
     // A discussion changed (social S2) — the anchored list and the open thread

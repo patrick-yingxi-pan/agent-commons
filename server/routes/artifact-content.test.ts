@@ -124,6 +124,99 @@ test('saving a document materializes its bounded body atomically with the artifa
   ])
 })
 
+test('saving an authored document also makes it visible through the canonical artifact list', async () => {
+  const stamp = Date.now().toString(36)
+  const tenant = 'tenant-personal'
+  const name = `listed-route-${stamp}.md`
+  const body = 'The route-created document must appear in the artifact registry.'
+  const saved = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'save-artifact',
+      artifact: { name, kind: 'doc', meta: 'Document', body },
+      projectId: 'p-insights',
+      projectName: 'Insights dashboard',
+    },
+  }, { 'x-tenant-id': tenant, 'idempotency-key': `listed-route-${stamp}` })
+  assert.equal(saved.status, 200)
+  const created = (saved.json.extraArtifacts as ArtifactItem[]).find((artifact) => artifact.name === name)
+  assert.ok(created, 'the acknowledged graph carries the strict authored row')
+
+  const listed = await call('GET', '/artifacts', undefined, { 'x-tenant-id': tenant })
+  assert.equal(listed.status, 200)
+  const row = (listed.json as ArtifactItem[]).find((artifact) => artifact.id === created.id)
+  assert.ok(row, 'GET /artifacts includes the authored row')
+  assert.equal(row?.own, true)
+  assert.equal(row?.projectId, 'p-insights', 'the canonical row retains its project filing')
+
+  const moved = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'refile-artifact', artifactId: created.id, artifactName: name,
+      projectId: 'p-infra', projectName: 'Platform hardening',
+    },
+  }, { 'x-tenant-id': tenant, 'idempotency-key': `listed-route-refile-${stamp}` })
+  assert.equal(moved.status, 200)
+  const movedRow = ((await call('GET', '/artifacts', undefined, { 'x-tenant-id': tenant })).json as ArtifactItem[]).find((artifact) => artifact.id === created.id)
+  assert.equal(movedRow?.projectId, 'p-infra', 'the canonical route row follows a refile')
+
+  const unfiled = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'refile-artifact', artifactId: created.id, artifactName: name,
+      projectId: null, projectName: 'Platform hardening',
+    },
+  }, { 'x-tenant-id': tenant, 'idempotency-key': `listed-route-unfile-${stamp}` })
+  assert.equal(unfiled.status, 200)
+  const unfiledRow = ((await call('GET', '/artifacts', undefined, { 'x-tenant-id': tenant })).json as ArtifactItem[]).find((artifact) => artifact.id === created.id)
+  assert.equal(unfiledRow?.projectId, '', 'the canonical route row preserves explicit unfiled state')
+})
+
+test('canonical artifact listing keeps a foreign authored row hidden', async () => {
+  const stamp = Date.now().toString(36)
+  const owner = 'tenant-personal'
+  const bystander = 'tenant-beta'
+  const name = `private-route-${stamp}.md`
+  const saved = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'save-artifact',
+      artifact: { name, kind: 'doc', meta: 'Document', body: 'Private authored body.' },
+    },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `private-route-${stamp}` })
+  assert.equal(saved.status, 200)
+  const created = (saved.json.extraArtifacts as ArtifactItem[]).find((artifact) => artifact.name === name)
+  assert.ok(created)
+
+  const listed = await call('GET', '/artifacts', undefined, { 'x-tenant-id': bystander })
+  assert.equal(listed.status, 200)
+  assert.equal((listed.json as ArtifactItem[]).some((artifact) => artifact.id === created.id), false)
+})
+
+test('a granted authored route row redacts tenant identity and revocation removes its body projection', async () => {
+  const stamp = Date.now().toString(36)
+  const owner = 'tenant-personal'
+  const audience = 'tenant-beta'
+  const name = `shared-route-${stamp}.md`
+  const saved = await call('POST', '/relations/ops', {
+    op: { kind: 'save-artifact', artifact: { name, kind: 'doc', meta: 'Document', body: 'Shared route body.' } },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `shared-route-${stamp}` })
+  assert.equal(saved.status, 200)
+  const created = (saved.json.extraArtifacts as ArtifactItem[]).find((artifact) => artifact.name === name)
+  assert.ok(created)
+  const grant = await call('POST', '/grants', {
+    subject: { kind: 'artifact', id: created.id }, audience: { kind: 'org', orgId: audience }, tier: 'view',
+  }, { 'x-tenant-id': owner })
+  assert.equal(grant.status, 200)
+
+  const ownerRow = ((await call('GET', '/artifacts', undefined, { 'x-tenant-id': owner })).json as ArtifactItem[]).find((artifact) => artifact.id === created.id)
+  const sharedRow = ((await call('GET', '/artifacts', undefined, { 'x-tenant-id': audience })).json as ArtifactItem[]).find((artifact) => artifact.id === created.id)
+  assert.equal(ownerRow?.tenantId, owner, 'the owner retains its tenant stamp')
+  assert.equal(sharedRow?.tenantId, undefined, 'a grant-only row redacts the owner tenant stamp')
+  const sharedBody = (await call('GET', '/artifact-content', undefined, { 'x-tenant-id': audience })).json as ArtifactContentLibrary
+  assert.ok(sharedBody[created.id], 'the granted reader receives the authored body')
+
+  assert.equal((await call('DELETE', `/grants/${grant.json.id}`, undefined, { 'x-tenant-id': owner })).status, 200)
+  const revokedBody = (await call('GET', '/artifact-content', undefined, { 'x-tenant-id': audience })).json as ArtifactContentLibrary
+  assert.equal(revokedBody[created.id], undefined, 'revocation removes the authored body projection')
+})
+
 test('a document body is validated before the relation graph changes', async () => {
   const before = (await call('GET', '/relations')).json
   const invalid = await call('POST', '/relations/ops', {

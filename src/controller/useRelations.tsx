@@ -12,6 +12,7 @@ import type {
   StepTool,
 } from '../types'
 import { emptyGraph, opAppliedInGraph } from '../../contract/index.ts'
+import { artifactRegistryRows } from '../lib/artifactRegistry.ts'
 import { OWNER_SECTION } from '../lib/paneNav'
 import {
   useArtifacts,
@@ -147,7 +148,7 @@ export function RelationsProvider({
   children: ReactNode
 }) {
   const projects = useProjects().data ?? NO_PROJECTS
-  const baseArtifacts = useArtifacts().data ?? NO_ARTIFACTS
+  const artifacts = useArtifacts().data ?? NO_ARTIFACTS
   const schedules = useSchedules().data ?? NO_SCHEDULES
   const sessions = useSessions().data ?? NO_SESSIONS
   const graph = useRelationGraph().data ?? EMPTY_GRAPH
@@ -186,7 +187,7 @@ export function RelationsProvider({
     const projectIdForSession = (sid: string) =>
       sid in graph.sessionProject ? graph.sessionProject[sid] : null
     const artifactProjectId = (a: ArtifactItem) => graph.artifactProject[a.id] ?? a.projectId
-    const allArtifacts = () => [...graph.extraArtifacts, ...baseArtifacts]
+    const allArtifacts = () => artifactRegistryRows(graph.extraArtifacts, artifacts)
     const scheduleProjectId = (schedId: string) =>
       schedId in graph.scheduleProject ? graph.scheduleProject[schedId] : null
 
@@ -248,7 +249,7 @@ export function RelationsProvider({
       descriptionForProject: (pid) => merged().find((p) => p.id === pid)?.description,
       navigate: (section, id, subId) => navigate?.(section, id, subId),
     }
-  }, [projects, baseArtifacts, schedules, sessions, graph, applyOp, createProject, mutationController, mutation, navigate])
+  }, [projects, artifacts, schedules, sessions, graph, applyOp, createProject, mutationController, mutation, navigate])
 
   return <RelationsContext.Provider value={value}>{children}</RelationsContext.Provider>
 }

@@ -96,6 +96,86 @@ test('POLICY: tenancy answers identically — a foreign read 404s through both d
   assert.deepEqual(viaMcp.body, direct.json)
 })
 
+test('POLICY: authored artifact listing has identical HTTP and remote-MCP tenancy/grant projections', async () => {
+  const stamp = Date.now().toString(36)
+  const owner = 'tenant-personal'
+  const audience = 'tenant-beta'
+  const name = `mcp-listed-${stamp}.md`
+  const saved = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'save-artifact',
+      artifact: { name, kind: 'doc', meta: 'Document', body: 'A strict authored body for list parity.' },
+      projectId: 'p-insights',
+      projectName: 'Insights dashboard',
+    },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `mcp-listed-${stamp}` })
+  assert.equal(saved.status, 200)
+  const created = saved.json.extraArtifacts.find((artifact: { name: string }) => artifact.name === name)
+  assert.ok(created, 'the strict authored save returned its graph row')
+
+  const beforeDirect = await call('GET', '/artifacts', undefined, { 'x-tenant-id': audience })
+  const beforeMcp = await toolCall('get_artifacts', undefined, { 'x-tenant-id': audience })
+  assert.equal(beforeDirect.status, 200)
+  assert.equal(beforeMcp.status, 200)
+  assert.equal((beforeDirect.json as { id: string }[]).some((artifact) => artifact.id === created.id), false, 'an ungranted foreign artifact stays hidden over HTTP')
+  assert.equal((beforeMcp.body as { id: string }[]).some((artifact) => artifact.id === created.id), false, 'an ungranted foreign artifact stays hidden over MCP')
+
+  const grant = await call('POST', '/grants', {
+    subject: { kind: 'artifact', id: created.id },
+    audience: { kind: 'org', orgId: audience },
+    tier: 'view',
+  }, { 'x-tenant-id': owner })
+  assert.equal(grant.status, 200)
+
+  const grantedDirect = await call('GET', '/artifacts', undefined, { 'x-tenant-id': audience })
+  const grantedMcp = await toolCall('get_artifacts', undefined, { 'x-tenant-id': audience })
+  type ArtifactRow = { id: string; own?: boolean; tenantId?: string; projectId?: string }
+  const directRow = (grantedDirect.json as ArtifactRow[]).find((artifact) => artifact.id === created.id)
+  const mcpRow = (grantedMcp.body as ArtifactRow[]).find((artifact) => artifact.id === created.id)
+  assert.ok(directRow, 'the granted artifact appears over HTTP')
+  assert.ok(mcpRow, 'the granted artifact appears over MCP')
+  assert.deepEqual(mcpRow, directRow, 'HTTP and MCP expose the same granted artifact row')
+  assert.equal(directRow?.own, false, 'a granted reader is not an owner')
+  assert.equal(directRow?.tenantId, undefined, 'a grant-only HTTP row redacts the owner tenant stamp')
+  assert.equal(mcpRow?.tenantId, undefined, 'a grant-only MCP row redacts the owner tenant stamp')
+
+  const moved = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'refile-artifact', artifactId: created.id, artifactName: name,
+      projectId: 'p-infra', projectName: 'Platform hardening',
+    },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `mcp-listed-refile-${stamp}` })
+  assert.equal(moved.status, 200)
+  const movedDirect = (await call('GET', '/artifacts', undefined, { 'x-tenant-id': owner })).json.find((artifact: { id: string }) => artifact.id === created.id)
+  const movedMcp = (await toolCall('get_artifacts', undefined, { 'x-tenant-id': owner })).body.find((artifact: { id: string }) => artifact.id === created.id)
+  assert.equal(movedDirect?.projectId, 'p-infra', 'HTTP follows current filing')
+  assert.equal(movedMcp?.projectId, 'p-infra', 'MCP follows current filing')
+
+  const unfiled = await call('POST', '/relations/ops', {
+    op: {
+      kind: 'refile-artifact', artifactId: created.id, artifactName: name,
+      projectId: null, projectName: 'Platform hardening',
+    },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `mcp-listed-unfile-${stamp}` })
+  assert.equal(unfiled.status, 200)
+  const unfiledDirect = (await call('GET', '/artifacts', undefined, { 'x-tenant-id': owner })).json.find((artifact: { id: string }) => artifact.id === created.id)
+  const unfiledMcp = (await toolCall('get_artifacts', undefined, { 'x-tenant-id': owner })).body.find((artifact: { id: string }) => artifact.id === created.id)
+  assert.equal(unfiledDirect?.projectId, '', 'HTTP preserves explicit unfiled state')
+  assert.equal(unfiledMcp?.projectId, '', 'MCP preserves explicit unfiled state')
+
+  const grantedBody = await toolCall('get_artifact_content', undefined, { 'x-tenant-id': audience })
+  assert.ok(grantedBody.body[created.id], 'MCP grants the authored body before revocation')
+
+  const revoked = await call('DELETE', `/grants/${grant.json.id}`, undefined, { 'x-tenant-id': owner })
+  assert.equal(revoked.status, 200)
+  const afterDirect = await call('GET', '/artifacts', undefined, { 'x-tenant-id': audience })
+  const afterMcp = await toolCall('get_artifacts', undefined, { 'x-tenant-id': audience })
+  assert.equal((afterDirect.json as { id: string }[]).some((artifact) => artifact.id === created.id), false, 'revoked access disappears over HTTP')
+  assert.equal((afterMcp.body as { id: string }[]).some((artifact) => artifact.id === created.id), false, 'revoked access disappears over MCP')
+  const revokedBody = await toolCall('get_artifact_content', undefined, { 'x-tenant-id': audience })
+  assert.equal(revokedBody.body[created.id], undefined, 'MCP revocation removes the authored body projection')
+})
+
 test('POLICY: the maintainer wall is identical through MCP — included capability does not widen authority', async () => {
   const login = await toolCall('post_auth_login', {
     body: { email: 'ada@acme.example', password: 'ada-demo-password', transport: 'bearer' },

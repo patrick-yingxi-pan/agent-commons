@@ -10011,22 +10011,24 @@ export const store = {
     return this.listNotifications(tenantId)
   },
 
-  /** The base artifacts (the relation graph carries any saved-out extras),
-   *  scoped to the caller's tenant when given (F2/PD9). */
+  /** The complete artifact registry, including authored relation-graph rows.
+   * Read visibility may widen through grants; ownership never does. */
   listArtifacts(tenantId?: string): ArtifactItem[] {
-    const artifacts = baseArtifacts()
+    const artifacts = [...graph.extraArtifacts, ...baseArtifacts()].map((a) => ({
+      ...a,
+      projectId: graph.artifactProject[a.id] ?? a.projectId,
+    }))
     if (!tenantId) return artifacts
     return artifacts.filter((a) => this.artifactVisibleToTenant(a, tenantId)).map((a) => ({
       // Viewer-relative ownership, like every other shared subject: a granted
       // reader opens the artifact and never gets its filing controls.
       ...a,
       own: this.artifactOwnedBy(a, tenantId),
+      tenantId: this.artifactOwnedBy(a, tenantId) ? a.tenantId : undefined,
     }))
   },
-  /** An artifact by id across BOTH homes — the seeded set AND the ones the
-   *  relation graph created (`save-artifact`). `listArtifacts` reads only the
-   *  former, so a route that walls on it 404s every created artifact — which is
-   *  exactly what the body-edit door did before its test caught it. */
+  /** Exact internal lookup across seeded and authored rows; callers apply the
+   * same visibility/ownership wall as the complete registry. */
   artifactById(id: string): ArtifactItem | undefined {
     return findArtifact(id)
   },
