@@ -45,6 +45,7 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     .map((op) => `${op.method} ${op.pattern}`)
     .sort()
   assert.deepEqual(intrinsic, [
+    'POST /image-assets',
     'POST /projects',
     'POST /relations/ops',
     'POST /sessions/:id/messages',

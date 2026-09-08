@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { accountGeneration, onAccountSwitch } from '../api/account.ts'
 import {
   Check,
   ChevronLeft,
@@ -43,6 +44,7 @@ import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, type UiHostFile } from '../lib/uiHostFs'
+import { prepareUiHostFiles } from '../controller/imageAttachments'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
@@ -68,7 +70,7 @@ const RECENT_ROW_H = 38
 const RECENT_CHROME_H = 156
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
-  { id: 'files', label: 'Files', desc: 'Text files and PDF text; other formats are preview-only', Icon: Paperclip },
+  { id: 'files', label: 'Files', desc: 'Text, PDF text and images for your conversation', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
   { id: 'folder', label: 'Folder', desc: 'List a folder’s files in your workspace', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
@@ -709,8 +711,8 @@ function SourceSwitcher({
   )
 }
 
-/** The "This computer" pane: pick / drop real files from the UI host. Each pick
- *  attaches immediately (multi-add), its bytes held client-side for preview. */
+/** Pick/drop local snapshots, then persist image bytes before attaching refs.
+ * The whole selection belongs to the account that opened the picker. */
 function UiHostDropZone({
   accept,
   label,
@@ -718,22 +720,41 @@ function UiHostDropZone({
 }: {
   accept: 'image' | 'any'
   label: string
-  onPicked: (f: UiHostFile) => void
+  onPicked: (f: UiHostFile) => void | Promise<void>
 }) {
   const [drag, setDrag] = useState(false)
   const [failure, setFailure] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
   const intake = useRef<AbortController | null>(null)
-  useEffect(() => () => { intake.current?.abort() }, [])
+  useEffect(() => {
+    const unsubscribe = onAccountSwitch(() => {
+      intake.current?.abort()
+      setImporting(false)
+      setFailure(null)
+    })
+    return () => { unsubscribe(); intake.current?.abort() }
+  }, [])
   const take = async (read: (signal: AbortSignal) => Promise<UiHostFile[]>) => {
     if (intake.current) return
     const controller = new AbortController()
+    const issuedAccount = accountGeneration()
     intake.current = controller
     setImporting(true)
     setFailure(null)
     try {
       const files = await read(controller.signal)
-      if (!controller.signal.aborted) files.forEach(onPicked)
+      if (accountGeneration() !== issuedAccount) controller.abort()
+      if (!controller.signal.aborted) {
+        const prepared = await prepareUiHostFiles(files, controller.signal)
+        if (!controller.signal.aborted) {
+          // Queue the accepted selection before the first acknowledgement can
+          // open a split pane and remount this picker. The session FIFO owns
+          // commit/retry from here; closing the intake cannot cancel queued work.
+          setImporting(false)
+          const commits = prepared.map((file) => onPicked(file))
+          await Promise.all(commits)
+        }
+      }
     } catch (error) {
       if (!controller.signal.aborted) setFailure(error instanceof Error ? error.message : 'The selected items could not be read. Try again.')
     } finally {
@@ -773,7 +794,8 @@ function UiHostDropZone({
       </button>
       {importing && <p role="status" className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Importing selected files… Close this picker to cancel.</p>}
       {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PDFs: up to 8 MB and 100 pages each, 24 MB per selection. Only extracted text up to 64 KB is saved; images, layout and OCR are not included.</p>}
-      {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
+      <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PNG, JPEG, GIF or WebP: up to 8 MB each, 24 MB per selection. Images are saved as a resized PNG of the first frame.</p>
+      {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
     </div>
   )
 }
@@ -894,7 +916,7 @@ function FilesPicker({
     onAdd({
       kind: 'files',
       attachments: [
-        { id: fsRecentKey('ui-host', f.id), label: f.name, kind: f.kind, source: UI_HOST_SOURCE, previewText: f.text, previewUrl: f.url, documentImport: f.documentImport },
+        { id: fsRecentKey('ui-host', f.id), label: f.name, kind: f.kind, source: UI_HOST_SOURCE, previewText: f.text, documentImport: f.documentImport, image: f.image },
       ],
     })
   const attachServed = (e: FsFileEntry) =>
@@ -929,7 +951,7 @@ function PhotosPicker({
   const attachUiHost = (f: UiHostFile) =>
     onAdd({
       kind: 'photos',
-      attachments: [{ id: fsRecentKey('ui-host', f.id), label: f.name, kind: 'photo', source: UI_HOST_SOURCE, previewUrl: f.url, previewText: f.text }],
+      attachments: [{ id: fsRecentKey('ui-host', f.id), label: f.name, kind: 'photo', source: UI_HOST_SOURCE, previewText: f.text, image: f.image }],
     })
   const attachServed = (e: FsPhotoEntry) =>
     onAdd({ kind: 'photos', attachments: [{ id: fsRecentKey(active.id, e.id), label: e.name, kind: 'photo', source: active }] })

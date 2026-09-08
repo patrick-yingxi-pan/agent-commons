@@ -8,14 +8,16 @@ import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
 import { pdfImportCopy } from '../../contract/pdfImport.mjs'
+import { imageAssetContentUrl } from '../api/imageAssets'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
 
-/** The image URL for an attachment, or undefined (→ gradient fallback): a UI-host
- *  pick's client object URL, or a served file's bytes endpoint (cloud / runner). */
+/** Durable asset content or a served file endpoint; legacy local preview URLs
+ * are not portable and never treated as a readable image. */
 function attachmentImageUrl(att: Attachment): string | undefined {
-  if (att.source?.kind === 'ui-host') return att.previewUrl
+  if (att.image) return imageAssetContentUrl(att.image.id)
+  if (att.source?.kind === 'ui-host') return undefined
   const path = parseFsRecentKey(att.id)?.entryId
   if (att.source && path) return fsContentUrl(att.source.id, path)
   return undefined
@@ -65,7 +67,7 @@ export function AttachmentPanel({
   allAttachments: Attachment[]
   initialId?: string
   onClose: () => void
-  onRemove: (id: string) => void
+  onRemove?: (id: string) => void
 }) {
   const [selectedId, setSelectedId] = useState(initialId ?? items[0]?.id)
 
@@ -131,7 +133,7 @@ function PhotoBody({
   items: Attachment[]
   allAttachments: Attachment[]
   onSelect: (id: string) => void
-  onRemove: (id: string) => void
+  onRemove?: (id: string) => void
 }) {
   const status = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
   return (
@@ -156,6 +158,7 @@ function PhotoBody({
           id={item.id}
           src={attachmentImageUrl(item)}
           showUnavailableLabel
+          fit="contain"
           className="flex aspect-video w-full items-end rounded-lg shadow-inner"
         >
           <span className="relative z-10 m-2 rounded bg-black/30 px-1.5 py-0.5 text-[11px] font-medium text-on-solid/95">
@@ -164,14 +167,15 @@ function PhotoBody({
         </PhotoThumb>
 
         <p className="mt-2 text-[11px] leading-snug text-ink-faint">{attachmentInputCopy(status)}</p>
+        {item.image && <p className="mt-1 text-[11px] leading-snug text-ink-faint">Saved {item.image.width} × {item.image.height} image. Local imports save a PNG copy of the first frame.</p>}
 
-        <button
+        {onRemove && <button
           onClick={() => onRemove(item.id)}
           className="mt-2 flex items-center gap-1.5 text-[12px] font-medium text-ink-faint transition hover:text-removed"
         >
           <Trash2 size={13} />
           Remove photo
-        </button>
+        </button>}
       </div>
     </div>
   )
@@ -188,7 +192,7 @@ function FileBody({
   items: Attachment[]
   allAttachments: Attachment[]
   onSelect: (id: string) => void
-  onRemove: (id: string) => void
+  onRemove?: (id: string) => void
 }) {
   const content = useAttachmentContent(item)
   const status: AttachmentInputStatus = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
@@ -213,13 +217,13 @@ function FileBody({
                 <Icon size={16} className="shrink-0 text-cap-file" />
                 <span className="min-w-0 break-all text-[13px] font-medium text-ink">{f.label}</span>
               </button>
-              <button
+              {onRemove && <button
                 onClick={() => onRemove(f.id)}
                 title="Remove file"
                 className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-removed ${HOVER_REVEAL}`}
               >
                 <Trash2 size={13} />
-              </button>
+              </button>}
             </div>
           )
         })}
@@ -228,12 +232,13 @@ function FileBody({
       <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
         <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
         {item.documentImport && <p data-document-import={item.documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{pdfImportCopy(item.documentImport)}</p>}
+        {item.image && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG; the selected model must support vision to use this image.</p>}
         {content.isImage ? (
           <>
             <div className="mb-2 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">
               Preview · {item.label}
             </div>
-            <PhotoThumb id={item.id} src={content.imageUrl} showUnavailableLabel className="aspect-video w-full rounded-lg shadow-inner" />
+            <PhotoThumb id={item.id} src={content.imageUrl} showUnavailableLabel fit="contain" className="aspect-video w-full rounded-lg shadow-inner" />
           </>
         ) : content.loading ? (
           <div className="flex flex-1 items-center justify-center text-[12px] text-ink-faint">Loading…</div>

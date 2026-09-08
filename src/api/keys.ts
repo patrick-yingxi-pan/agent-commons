@@ -122,6 +122,8 @@ export const keys = {
 }
 
 export const paths = {
+  imageAssets: '/image-assets',
+  imageAssetContent: (id: string) => `/image-assets/${encodeURIComponent(id)}/content`,
   capabilities: '/capabilities',
   me: '/me',
   /** Mint (POST) / clear (DELETE) the verified session cookie (multi-account P6). */

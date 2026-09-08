@@ -567,13 +567,38 @@ for (const vp of VIEWPORTS) {
       if (await goTo(page, `/s/${ids.chipSessionId}`, cell)) {
         const chipX = page.locator('button[aria-label^="Remove"]').first()
         if (await chipX.count()) {
+          let confirmed = false
+          try {
+            if (!(await dismissOverlayPanel(page))) throw new Error('a docked context panel would not close')
+            // The remove affordance is hover-revealed. Use a real hit-tested
+            // click so a covered/disabled control cannot produce a false green.
+            await chipX.scrollIntoViewIfNeeded()
+            await chipX.hover({ timeout: 1500 })
+            await chipX.focus()
+            const ariaLabel = await chipX.getAttribute('aria-label')
+            const labelMatch = ariaLabel?.match(/^Remove (.+) from the conversation$/)
+            if (!labelMatch) throw new Error(`remove control has no conversation label: ${ariaLabel ?? 'missing aria-label'}`)
+            await chipX.click({ timeout: 1500 })
+            await tick()
+            const escapedLabel = labelMatch[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+            const confirm = page
+              .locator('[data-popover]:visible')
+              .filter({ hasText: new RegExp(`Remove ${escapedLabel}(?: from the conversation)?\\?`) })
+              .filter({ hasText: 'Cancel' })
+              .first()
+            await confirm.waitFor({ state: 'visible', timeout: 3000 })
+            const boxes = await measureSurfaces(page)
+            if (!boxes.length) throw new Error('the remove confirmation opened without a measurable popover')
+            for (const b of boxes) assertInside(cell, 'chip remove-confirm', b, vp)
+            await shot(page, cell.replace('/', '_'))
+            confirmed = true
+          } catch (e) {
+            unreachable(cell, `the chip remove-confirm did not open: ${firstLine(e)}`)
+          }
           // Open-only: Escape cancels the confirm; nothing is removed.
-          await chipX.click({ force: true }).catch(() => {})
-          await tick()
-          for (const b of await measureSurfaces(page)) assertInside(cell, 'chip remove-confirm', b, vp)
-          await page.keyboard.press('Escape')
+          await page.keyboard.press('Escape').catch(() => {})
           await tick(80)
-          covered(cell)
+          if (confirmed) covered(cell)
         } else unreachable(cell, `session ${ids.chipSessionId} reports a context but renders no remove control`)
       }
     } else unreachable(cell, 'no session with an attached context')

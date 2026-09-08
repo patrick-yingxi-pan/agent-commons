@@ -1,6 +1,6 @@
 import { createServer } from 'node:http'
 
-const MAX_REQUEST_BYTES = 1024 * 1024
+const MAX_REQUEST_BYTES = 12 * 1024 * 1024
 export const SMOKE_MODEL_ID = 'desktop-attachment-smoke-model'
 
 function writeJson(res, status, value) {
@@ -85,11 +85,13 @@ export async function startAttachmentSmokeEndpoint() {
     requests.push(body)
     const messages = Array.isArray(body?.messages) ? body.messages : []
     const latest = [...messages].reverse().find((message) => message?.role === 'user')?.content
-    const text = typeof latest === 'string' ? latest : JSON.stringify(latest ?? '')
+    const blocks = Array.isArray(latest) ? latest : []
+    const text = typeof latest === 'string' ? latest : blocks.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
     const document = extractDocument(text)
     if (document) documents.push(document)
     const ready = document?.attached_files?.find((file) => file?.status === 'ready')?.text
-    const reply = typeof ready === 'string' ? `Read supplied attachment: ${ready}` : 'No supplied attachment text.'
+    const imageCount = blocks.filter((block) => block.type === 'image').length
+    const reply = imageCount ? `Received ${imageCount} supplied image(s).` : typeof ready === 'string' ? `Read supplied attachment: ${ready}` : 'No supplied attachment text.'
     const result = { id: `desktop_attachment_${Date.now().toString(36)}`, type: 'message', role: 'assistant', model: SMOKE_MODEL_ID, content: [{ type: 'text', text: reply }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }
     if (body?.stream === true) streamMessage(res, reply)
     else writeJson(res, 200, result)

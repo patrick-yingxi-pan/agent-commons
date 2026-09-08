@@ -48,6 +48,7 @@ import { formOnly, type Router } from './http/router.ts'
 import { BASE_HEADERS, headerValue } from './http/respond.ts'
 import { positiveNumberEnv } from './env.ts'
 import { API_BASE_PATH } from '../contract/index.ts'
+import { IMAGE_UPLOAD_BODY_BYTES } from '../contract/imageAssets.ts'
 import { API_BODY_EXAMPLES, catalogOf, pathFor, toolNameFor, type ApiOperation } from './apiSurface.ts'
 import { dispatch } from './http/dispatch.ts'
 import { store } from './store/index.ts'
@@ -368,7 +369,10 @@ export function registerMcp(router: Router): void {
   router.post('/mcp', async ({ req, res, url, body }) => {
     let msg: any
     try {
-      msg = await body<any>()
+      // Only authenticated (or credential-less desktop) callers may carry the
+      // larger image-upload envelope. The re-entered product route still owns
+      // its exact body budget and all authorization.
+      msg = await body<any>(gateRefusesStream(req) ? undefined : { maxBytes: IMAGE_UPLOAD_BODY_BYTES })
     } catch {
       return sendRpc(res, rpcError(null, -32700, 'Parse error: request body is not valid JSON'), 400)
     }

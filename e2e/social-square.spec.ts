@@ -6,6 +6,7 @@
  *  `./social-helpers.ts`; the walks themselves are documented there. */
 import { test, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
+import { mkdirSync } from 'node:fs'
 import { ms } from './budget.ts'
 import { STAMP, createProject, gotoSection, newUser, openAdaProfile, openSection, openShareForm } from './social-helpers.ts'
 test('the Commons lenses: an act fills the collection the rail lists it under', async ({ browser }) => {
@@ -314,6 +315,52 @@ test('the square: compose → the feed carries it → a mention doors → a stra
 
   await ada.context.close()
   await grace.context.close()
+})
+
+test('the Commons composer keeps its one-row field and visible mention hint across viewports', async ({ browser }) => {
+  test.setTimeout(ms(120_000))
+  const ada = await newUser(browser)
+  const viewports = [
+    { width: 320, height: 700 },
+    { width: 375, height: 812 },
+    { width: 768, height: 1024 },
+    { width: 844, height: 390 },
+    { width: 1280, height: 800 },
+  ]
+  mkdirSync('.data/commons-composer-review', { recursive: true })
+
+  try {
+    await ada.page.goto('/')
+    await gotoSection(ada.page, 'Commons')
+    const composer = ada.page.getByRole('textbox', { name: 'Say something' })
+    const help = ada.page.locator('[data-composer-help]')
+
+    for (const viewport of viewports) {
+      await ada.page.setViewportSize(viewport)
+      await ada.page.reload()
+      await expect(composer).toBeVisible({ timeout: ms(20_000) })
+      await expect(composer).toHaveAttribute('placeholder', 'Say something…')
+      const describedBy = await composer.getAttribute('aria-describedby')
+      expect(describedBy).toBeTruthy()
+      await expect(ada.page.locator(`[id="${describedBy}"]`)).toHaveText('Type @ to mention someone.')
+      await expect(composer).toHaveAccessibleDescription('Type @ to mention someone.')
+
+      const emptyMetrics = await composer.evaluate((el) => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight }))
+      expect(emptyMetrics.scrollHeight, `${viewport.width}x${viewport.height}: empty field does not scroll`).toBeLessThanOrEqual(emptyMetrics.clientHeight)
+
+      await composer.fill('A short post that keeps the persistent mention hint visible.')
+      await expect(help).toBeVisible()
+      await expect(help).toBeInViewport({ ratio: 1 })
+      const box = await help.boundingBox()
+      expect(box, `${viewport.width}x${viewport.height}: mention hint has a rendered box`).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+      await ada.page.screenshot({ path: `.data/commons-composer-review/${viewport.width}x${viewport.height}.png` })
+      await composer.fill('')
+    }
+  } finally {
+    await ada.context.close()
+  }
 })
 
 /** ── S8: the mention picker — completing a name you could not type ───────────

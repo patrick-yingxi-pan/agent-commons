@@ -41,6 +41,7 @@ import type {
   SystemPromptEntry,
   WorkItemComment,
 } from '../../contract/index.ts'
+import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
 import type { ProviderConfig } from '../data/providers.ts'
 import type {
   AccountUser,
@@ -409,6 +410,8 @@ export interface PersistedState {
   /** The per-tenant notification inbox (D24) — derived, capped, disposable state
    *  (the acts themselves remain on their backlogs/profiles). Additive-optional. */
   notifications?: StoredNotification[]
+  /** Immutable tenant-scoped image snapshots, retained for restart-safe model input. */
+  imageAssets?: ImageAssetRow[]
   /** Change proposals against published definitions (D25), keyed by target agent
    *  id. Additive-optional like `dispatch`. */
   agentProposals?: [string, StoredAgentProposal[]][]
@@ -521,6 +524,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   commonsLikes: 'array',
   views: 'array',
   notifications: 'array',
+  imageAssets: 'array',
   agentProposals: 'mapEntries',
   a2aPeers: 'mapEntries',
   accountUsers: 'mapEntries',
@@ -564,6 +568,10 @@ export interface PersistenceBackend {
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
 export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  if (state?.imageAssets !== undefined) {
+    if (!Array.isArray(state.imageAssets)) return false
+    try { rehydrateImageAssets(state.imageAssets) } catch { return false }
+  }
   const record = (value: unknown) =>
     value !== null && typeof value === 'object' && !Array.isArray(value)
   return Boolean(

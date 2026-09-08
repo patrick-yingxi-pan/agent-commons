@@ -4,17 +4,21 @@
  *  client (the documented exception to "one door to the backend"; see
  *  contract/fs.ts). It uses the browser's own file APIs (`<input type=file>` +
  *  drag-drop; an Electron build could swap in native fs behind the same calls).
- *  Preview fields persist with the conversation workspace; bounded local text
- *  can be sent to the selected model. Image object URLs remain browser-local
- *  references, not portable content or model input. */
+ *  Text previews persist with the workspace. Images are normalized locally and
+ *  uploaded separately before only their durable references enter context. */
 import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../../contract/localTextFile.mjs'
 import { snapshotFolderFiles } from '../../contract/localFolderSnapshot.mjs'
 import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES, pdfImportFailure, type PdfImportOutcome } from '../../contract/pdfImport.mjs'
 import { importPdf } from './pdfImport.ts'
+import { importImage, ImageImportError } from './imageImport.ts'
+import type { ImageSnapshot } from '../../contract/imageInput.ts'
+import type { ImageAssetRef } from '../../contract/imageAssets.ts'
+import { IMAGE_MAX_CONTAINER_BYTES } from '../../contract/imageInput.ts'
 
-/** A file picked from the UI host, with its content held client-side for preview. */
+/** Local intake: bounded text or a transient normalized image, later replaced
+ * by its server-owned reference before entering conversation context. */
 export interface UiHostFile {
   /** Opaque identity for this selected snapshot, retained across attach/retry.
    * Names cannot identify files from different folders or later selections. */
@@ -24,11 +28,12 @@ export interface UiHostFile {
   /** Whole UTF-8 body for a supported text file (the read-only preview). */
   text?: string
   documentImport?: PdfImportOutcome
-  /** Object URL for an image (used directly as an `<img src>`). */
-  url?: string
+  imageInput?: ImageSnapshot
+  image?: ImageAssetRef
 }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
+const IMPORTABLE_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
 const SHEET_EXTS = new Set(['csv', 'tsv', 'xlsx', 'xls'])
 const SLIDE_EXTS = new Set(['key', 'ppt', 'pptx'])
 
@@ -48,6 +53,17 @@ export function uiHostKind(name: string): ArtifactKind {
 }
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
+const isImportableImage = (name: string) => IMPORTABLE_IMAGE_EXTS.has(extOf(name))
+
+function previewBytes(url: string): Uint8Array {
+  if (typeof url !== 'string' || url.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 + 32 ||
+      !/^data:image\/(png|jpeg|gif|webp);base64,/.test(url)) throw new ImageImportError('invalid')
+  const encoded = url.slice(url.indexOf(',') + 1)
+  let binary: string
+  try { binary = atob(encoded) } catch { throw new ImageImportError('invalid') }
+  if (binary.length > 8 * 1024 * 1024 || btoa(binary) !== encoded) throw new ImageImportError('invalid')
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0))
+}
 
 /** Mint once at intake, not during projection or mutation retry. No path or
  * guessed file identity is needed to keep equal-named selections independent. */
@@ -62,7 +78,7 @@ const PICKER_FAILURE: Record<DesktopContextPickerRejection, string> = {
   'too-many-files': 'Choose no more than 24 files at a time.',
   'too-many-folder-entries': 'Choose a folder with no more than 500 top-level items.',
   unreadable: 'The selected items could not be read. Check their permissions and try again.',
-  'unsupported-image': 'Choose a PNG, JPEG, GIF, SVG, WebP, BMP, or ICO image.',
+  'unsupported-image': 'Choose a PNG, JPEG, GIF, or WebP image.',
 }
 
 export class UiHostPickerError extends Error {
@@ -72,12 +88,21 @@ export class UiHostPickerError extends Error {
   }
 }
 
-/** Read one browser `File` into a `UiHostFile` — an object URL for an image, the
- *  text body for a text file (capped so a stray huge file can't hang the preview). */
-async function toUiHostFile(file: File, pdfBudget: { used: number }, signal?: AbortSignal): Promise<UiHostFile> {
+/** Read one browser File into a bounded normalized image or whole-text snapshot. */
+async function toUiHostFile(file: File, pdfBudget: { used: number }, imageBudget: { used: number }, signal?: AbortSignal): Promise<UiHostFile> {
   const name = file.name
   if (isImage(name)) {
-    return selectedFile({ name, kind: 'photo', url: URL.createObjectURL(file) })
+    if (!isImportableImage(name)) throw new UiHostPickerError('unsupported-image')
+    if (file.size > IMAGE_MAX_CONTAINER_BYTES || imageBudget.used + file.size > 24 * 1024 * 1024) throw new UiHostPickerError('selection-too-large')
+    imageBudget.used += file.size
+    try {
+      const bytes = new Uint8Array(await file.slice(0, 8 * 1024 * 1024 + 1).arrayBuffer())
+      if (bytes.byteLength !== file.size) throw new ImageImportError('invalid')
+      return selectedFile({ name, kind: 'photo', imageInput: await importImage(bytes, signal) })
+    } catch (error) {
+      if (error instanceof UiHostPickerError || error instanceof ImageImportError) throw error
+      throw new UiHostPickerError('unreadable')
+    }
   }
   if (isPdfFileName(name)) {
     if (file.size > MAX_PDF_FILE_BYTES) return selectedFile({ name, kind: 'file', ...pdfImportFailure('file-too-large') })
@@ -122,14 +147,31 @@ export async function pickUiHostFiles(
     const result = await native.pickFiles(accept)
     if (result.status === 'cancelled') return []
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
+    if (result.files.length > 24) throw new UiHostPickerError('too-many-files')
+    const nativeImages = new Map<(typeof result.files)[number], Uint8Array>()
+    let nativeImageBytes = 0
+    for (const file of result.files) {
+      if (accept === 'image' && file.kind !== 'photo') throw new UiHostPickerError('unsupported-image')
+      if (file.kind !== 'photo') continue
+      if (!isImportableImage(file.name)) throw new UiHostPickerError('unsupported-image')
+      if (!file.previewDataUrl) throw new ImageImportError('invalid')
+      // Bound aggregate encoded work before retaining a decoded copy.
+      if (file.previewDataUrl.length > Math.ceil((24 * 1024 * 1024 - nativeImageBytes) / 3) * 4 + 32) throw new UiHostPickerError('selection-too-large')
+      const bytes = previewBytes(file.previewDataUrl)
+      nativeImageBytes += bytes.byteLength
+      if (nativeImageBytes > 24 * 1024 * 1024) throw new UiHostPickerError('selection-too-large')
+      nativeImages.set(file, bytes)
+    }
     const files: UiHostFile[] = []
     for (const file of result.files) {
       if (signal?.aborted) return []
       const extracted = isPdfFileName(file.name)
         ? file.pdfFailure ? pdfImportFailure(file.pdfFailure)
           : file.pdfBytes ? await importPdf(file.pdfBytes, signal) : pdfImportFailure('unavailable')
-        : { text: file.text }
-      files.push(selectedFile({ name: file.name, kind: file.kind, url: file.previewDataUrl, ...extracted }))
+        : file.kind === 'photo'
+          ? { imageInput: await importImage(nativeImages.get(file)!, signal) }
+          : { text: file.text }
+      files.push(selectedFile({ name: file.name, kind: file.kind, ...extracted }))
     }
     return signal?.aborted ? [] : files
   }
@@ -144,20 +186,19 @@ export async function readDroppedFiles(list: FileList, accept: 'image' | 'any' =
 
 async function readSelectedFiles(files: File[], accept: 'image' | 'any', signal?: AbortSignal): Promise<UiHostFile[]> {
   if (files.length > 24) throw new UiHostPickerError('too-many-files')
-  if (accept === 'image' && files.some((file) => !isImage(file.name))) throw new UiHostPickerError('unsupported-image')
+  const images = files.filter((file) => isImage(file.name))
+  if (accept === 'image' && files.some((file) => !isImportableImage(file.name))) throw new UiHostPickerError('unsupported-image')
+  if (images.some((file) => !isImportableImage(file.name))) throw new UiHostPickerError('unsupported-image')
+  if (images.some((file) => file.size > IMAGE_MAX_CONTAINER_BYTES)) throw new UiHostPickerError('image-too-large')
+  if (images.reduce((sum, file) => sum + file.size, 0) > 24 * 1024 * 1024) throw new UiHostPickerError('selection-too-large')
   const selected: UiHostFile[] = []
   const pdfBudget = { used: 0 }
-  try {
-    for (const file of files) {
-      if (signal?.aborted) break
-      selected.push(await toUiHostFile(file, pdfBudget, signal))
-    }
-    return signal?.aborted ? [] : selected
-  } finally {
-    if (signal?.aborted) {
-      for (const file of selected) if (file.url?.startsWith('blob:')) URL.revokeObjectURL(file.url)
-    }
+  const imageBudget = { used: 0 }
+  for (const file of files) {
+    if (signal?.aborted) break
+    selected.push(await toUiHostFile(file, pdfBudget, imageBudget, signal))
   }
+  return signal?.aborted ? [] : selected
 }
 
 /** Open the OS folder picker and turn its top-level files into workspace artifacts

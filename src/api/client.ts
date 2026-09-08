@@ -41,12 +41,13 @@ export class AccountSwitchedError extends Error {
 }
 
 export interface ApiMutationOptions {
+  signal?: AbortSignal
   /** One key per logical mutation. A caller that retries after an uncertain
    * acknowledgement reuses it so an idempotent route can replay, not reapply. */
   idempotencyKey?: string
   /** Bind a first-party identity-sensitive request to the signed-in account
    * that initiated it. The server refuses a later cross-tab cookie change. */
-  expectedSessionUserId?: string
+  expectedSessionUserId?: string | null
 }
 
 async function request<T>(method: string, path: string, body?: unknown, options: ApiMutationOptions = {}): Promise<T> {
@@ -61,16 +62,17 @@ async function request<T>(method: string, path: string, body?: unknown, options:
     res = await fetch(`${API_BASE}${path}`, {
       method,
       headers:
-        body !== undefined || options.idempotencyKey || options.expectedSessionUserId
+        body !== undefined || options.idempotencyKey || options.expectedSessionUserId !== undefined
           ? {
               ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
               ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
-              ...(options.expectedSessionUserId
-                ? { 'X-Account-Transition-Source': `session:${options.expectedSessionUserId}` }
+              ...(options.expectedSessionUserId !== undefined
+                ? { 'X-Account-Transition-Source': options.expectedSessionUserId === null ? 'unsigned' : `session:${options.expectedSessionUserId}` }
                 : {}),
             }
           : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: options.signal,
     })
   } catch (err) {
     // Network / server-down — surface a uniform shape so the UI can show "offline".

@@ -41,6 +41,7 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { composerExecutionState } from '../lib/modelExecution'
+import { useContextWritable } from '../controller/useContextWritable'
 
 const SKIP_CONFIRM_KEY = 'claude-ui.composer.skipDeleteConfirm.v2'
 
@@ -133,6 +134,7 @@ export function Composer({
   onRemoveFolder?: (sourceId: string) => void
 }) {
   const execution = composerExecutionState(modelExecution, sessionProviderOnline)
+  const contextWritable = useContextWritable(sessionId)
   const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
   // "Don't ask again" — tracked per context type, so opting out of (say)
@@ -163,7 +165,8 @@ export function Composer({
   const photoItems = attachments.filter((a) => a.kind === 'photo')
   const attachmentInput = planAttachmentInput(workspaceInputAttachments({ attachments, workspaces }))
   const readyAttachmentCount = attachmentInput.filter((item) => item.status === 'ready').length
-  const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount
+  const readyImageCount = attachmentInput.filter((item) => item.status === 'image-ready').length
+  const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount - readyImageCount
 
   // Dependency between a GitHub-remote repo and the GitHub connector. It stays
   // invisible until a removal could break it — then the chip's confirm offers to
@@ -324,6 +327,7 @@ export function Composer({
           ? () => onRemoveFolder(workspaceFolders[0].id)
           : onRemoveContexts
       }
+      writable={contextWritable}
       skipConfirm={!!skipConfirm['workspaces']}
       onSkipConfirm={(v) => setTypeSkip('workspaces', v)}
     />
@@ -355,6 +359,7 @@ export function Composer({
                 focus={focus}
                 onOpen={onOpenContext}
                 onRemove={onRemoveContexts}
+                writable={contextWritable}
                 skipConfirm={!!skipConfirm[g.key]}
                 onSkipConfirm={(v) => setTypeSkip(g.key, v)}
               />
@@ -368,10 +373,11 @@ export function Composer({
             data-attachment-input-disclosure
             className="mb-1.5 rounded-md bg-panel-2 px-2 py-1.5 text-[11px] leading-snug text-ink-soft"
           >
-            <span data-attachment-input-ready={readyAttachmentCount}>
+            {(readyAttachmentCount > 0 || readyImageCount === 0) && <span data-attachment-input-ready={readyAttachmentCount}>
               The selected model receives {readyAttachmentCount} text file
               {readyAttachmentCount === 1 ? '' : 's'} on send or retry.
-            </span>
+            </span>}
+            {readyImageCount > 0 && <span data-attachment-image-ready={readyImageCount}> {readyImageCount} saved image{readyImageCount === 1 ? '' : 's'} will be sent if the selected model and connection support images.</span>}
             <span data-attachment-input-omitted={omittedAttachmentCount}>
               {omittedAttachmentCount > 0 && <> {omittedAttachmentCount} not sent. Open files or the workspace for details.</>}
             </span>
@@ -423,13 +429,13 @@ export function Composer({
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-0.5">
           <div className="flex items-center gap-1">
             <PermissionModeControl />
-            <AddContextButton
+            {contextWritable && <AddContextButton
               onAttach={onAddContext}
               connectors={connectors}
               repos={repos}
               attachments={attachments}
               workspaces={workspaces}
-            />
+            />}
             <AudioInputControl />
           </div>
           <div className="flex items-center gap-1.5">
@@ -495,11 +501,13 @@ function ChipGroup({
   onRemove,
   skipConfirm,
   onSkipConfirm,
+  writable,
 }: {
   group: ChipGroupModel
   focus: PanelFocus | null
   onOpen: (f: PanelFocus) => void
   onRemove: (focuses: PanelFocus[]) => void
+  writable: boolean
   skipConfirm: boolean
   onSkipConfirm: (v: boolean) => void
 }) {
@@ -509,6 +517,7 @@ function ChipGroup({
   // Local "don't ask again" tick inside the confirmation prompt.
   const [dontAsk, setDontAsk] = useState(false)
   const anyActive = group.items.some((it) => sameFocus(focus, it.focus))
+  useEffect(() => { if (!writable) { setConfirmKey(null); setDontAsk(false) } }, [writable])
 
   // Dismiss the popup — or, for a single chip, its remove confirmation — on an
   // outside click or Escape.
@@ -537,6 +546,7 @@ function ChipGroup({
   // Click the chip's trash / ✕. If a decision is already remembered (a basic
   // mute, or a cascade choice), apply it silently; otherwise open the confirm.
   const requestRemove = (it: ChipItem) => {
+    if (!writable) return
     if (it.cascade) {
       const decision = getDecision(it.cascade.prefKey)
       if (decision === it.cascade.removeAllValue) return onRemove([it.focus, ...it.cascade.extra])
@@ -553,6 +563,7 @@ function ChipGroup({
   // "Only" removes just this item (the basic Remove, or a cascade's keep-the-link
   // choice); "All" also removes the linked contexts.
   const removeOnly = (it: ChipItem) => {
+    if (!writable) return
     if (dontAsk) {
       if (it.cascade) setDecision(it.cascade.prefKey, it.cascade.keepValue)
       else onSkipConfirm(true)
@@ -562,6 +573,7 @@ function ChipGroup({
   }
 
   const removeAll = (it: ChipItem) => {
+    if (!writable) return
     if (dontAsk && it.cascade) setDecision(it.cascade.prefKey, it.cascade.removeAllValue)
     onRemove([it.focus, ...(it.cascade?.extra ?? [])])
     finishConfirm()
@@ -577,7 +589,7 @@ function ChipGroup({
           <Chip icon={only.icon} tone={group.tone} active={anyActive} onClick={() => onOpen(only.focus)}>
             {only.label}
           </Chip>
-          <button
+          {writable && <button
             type="button"
             onClick={() => requestRemove(only)}
             aria-label={`Remove ${only.label} from the conversation`}
@@ -585,10 +597,10 @@ function ChipGroup({
             className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/chip:opacity-100"
           >
             <X size={10} strokeWidth={2.5} />
-          </button>
+          </button>}
         </div>
 
-        {confirmKey === only.key && (
+        {writable && confirmKey === only.key && (
           <div ref={popRef} className={`absolute bottom-full left-0 z-20 mb-1.5 w-[264px] p-1 ${POPOVER_SURFACE}`}>
             <RemoveConfirm
               label={only.label}
@@ -630,7 +642,7 @@ function ChipGroup({
             {group.label}
           </div>
           {group.items.map((it) => {
-            if (confirmKey === it.key) {
+            if (writable && confirmKey === it.key) {
               return (
                 <RemoveConfirm
                   key={it.key}
@@ -664,14 +676,14 @@ function ChipGroup({
                   <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{it.label}</span>
                   {active && <Check size={14} className="shrink-0 text-accent" />}
                 </button>
-                <button
+                {writable && <button
                   type="button"
                   onClick={() => requestRemove(it)}
                   title="Remove from context"
                   className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus:opacity-100 ${HOVER_REVEAL}`}
                 >
                   <Trash2 size={13} />
-                </button>
+                </button>}
               </div>
             )
           })}

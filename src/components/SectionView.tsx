@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
 import {
   AlertCircle,
@@ -5360,6 +5360,7 @@ function LikeButton({ item }: { item: CommonsItem }) {
  *  no ranking, facets over algorithms, one thin reaction. A composer that
  *  courted attention would undo them. */
 function PostComposer() {
+  const helpId = useId()
   const [body, setBody] = useState('')
   const [acting, setActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -5369,7 +5370,7 @@ function PostComposer() {
   const authorName = me?.tenant.name
   const sharedHeld = authorName ? isWallPostMutationHeld(authorName) : false
   const held = acting || sharedHeld
-  // The picker the placeholder promises. A post has no thread yet — it IS the
+  // The picker the mention hint promises. A post has no thread yet — it IS the
   // first word — so `threadVoices` is empty exactly here, where the copy tells
   // the writer to reach someone: the square's roster is the people they follow
   // plus the bylines in the feed they are reading (`squareVoices`). Both lists
@@ -5420,11 +5421,12 @@ function PostComposer() {
           <textarea
             {...mention.fieldProps}
             aria-label="Say something"
+            aria-describedby={helpId}
             value={body}
             // Opens on ONE line, like every other composer, so Post sits on that
             // line instead of below it — the shared rule, not a local one.
             rows={composerRows(body, 8)}
-            placeholder="Say something — mention someone with @ to reach them"
+            placeholder="Say something…"
             className={`${FIELD_BARE_CLASS} resize-none`}
           />
           <button
@@ -5436,6 +5438,9 @@ function PostComposer() {
           </button>
         </div>
       </fieldset>
+      <p id={helpId} data-composer-help className="mt-1 text-[11px] text-ink-faint">
+        Type @ to mention someone.
+      </p>
       {mention.list}
       {error && <p role="alert" className="mt-1 truncate text-[11px] text-danger">{error}</p>}
     </div>

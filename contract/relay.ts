@@ -49,6 +49,8 @@ export interface RelayPromptTurn {
   text?: string
   toolCalls?: RelayToolCall[]
   toolResults?: RelayToolResult[]
+  /** Immutable snapshots, present only when both relay and model advertise image support. */
+  images?: ImageSnapshot[]
 }
 
 /** What a pulled prompt looks like: the system framing separate from the turns,
@@ -130,3 +132,4 @@ export interface RelayReplyRequest {
   toolCalls?: Array<{ name: string; input?: Record<string, unknown> }>
   error?: string
 }
+import type { ImageSnapshot } from './imageInput.ts'

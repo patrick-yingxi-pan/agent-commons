@@ -92,7 +92,7 @@ test('the server runtime imports only its one intentional external dependency', 
 test('both model transports share server-owned attachment serialization and the UI shares its budget', () => {
   for (const path of ['server/generate.ts', 'server/relay.ts']) {
     const source = stripComments(read(join(ROOT, path)))
-    assert.match(source, /attachmentPrompt\(text, session\.attachments\)/)
+    assert.match(source, /attachmentPrompt\(text, session\.attachments, session\.images, /)
     assert.match(source, /input\.userText/)
     assert.match(source, /input\.systemAddition/)
   }
@@ -111,6 +111,22 @@ test('browser and native selected-file intake share one portable text policy', (
     assert.match(source, /decodeLocalTextPreview\(bytes\)/)
     assert.doesNotMatch(source, /const TEXT_EXT(?:S|ENSIONS)\s*=/, `${path} cannot maintain a parallel format list`)
   }
+})
+
+test('local images cross one bounded normalization, upload, and immutable reference seam', () => {
+  const intake = stripComments(read(join(ROOT, 'src/lib/uiHostFs.ts')))
+  const prepare = stripComments(read(join(ROOT, 'src/controller/imageAttachments.ts')))
+  const composer = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const routes = stripComments(read(join(ROOT, 'server/routes/index.ts')))
+  assert.match(intake, /importImage\(/)
+  assert.doesNotMatch(intake, /createObjectURL/)
+  assert.match(prepare, /imageInput/)
+  assert.match(prepare, /await .*upload\(/)
+  assert.match(composer, /const issuedAccount = accountGeneration\(\)/)
+  assert.match(composer, /accountGeneration\(\) !== issuedAccount/)
+  assert.match(composer, /await prepareUiHostFiles\(/)
+  assert.match(routes, /imageReferencesAttachable\(ws\.attachments, params\.id, tenantId\)/)
+  assert.match(routes, /images: store\.sessionImageInput\(known\.id\)/)
 })
 
 test('PDF parsing stays lazy and worker-only, with no auxiliary fetch or native-main parser', () => {

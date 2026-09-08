@@ -27,6 +27,8 @@ import {
 import { accounts } from '../accounts.ts'
 import { deriveRelayRotationSecret } from '../relay.ts'
 import { providerSecretRotationId } from '../providerSecretRotationIdentity.ts'
+import { ImageAssetRegistry } from '../imageAssets.ts'
+import type { ImageSnapshot } from '../../contract/imageInput.ts'
 
 const TMP = join(tmpdir(), `claude-ui-snapshot-test-${process.pid}`)
 const FS_STORE = join(TMP, 'fs', '.data', 'store.json')
@@ -34,6 +36,15 @@ const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
 const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
 const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
+const COVERED_SLICES = ['imageAssets'] as const
+
+const snapshotImage: ImageSnapshot = {
+  mimeType: 'image/png',
+  data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+  width: 1,
+  height: 1,
+  byteLength: 68,
+}
 
 function stateNamed(title: string): PersistedState {
   return {
@@ -172,6 +183,20 @@ test('one portable snapshot restores across JSON and SQLite in both directions',
   delete process.env.DATABASE_PATH
 })
 
+test('portable backup preserves image asset bytes and references across restore', () => {
+  process.env.PERSIST_BACKEND = 'json'
+  process.env.DATA_FILE = FS_STORE
+  process.env.SNAPSHOT_DIR = join(TMP, 'image-assets-snapshots')
+  mkdirSync(dirname(FS_STORE), { recursive: true })
+  const row = new ImageAssetRegistry().put('tenant-image', snapshotImage, 42)
+  const original = { ...stateNamed('image snapshot'), imageAssets: [row] }
+  writeFileSync(FS_STORE, JSON.stringify(original))
+  saveSnapshot('image-assets')
+  writeFileSync(FS_STORE, JSON.stringify(stateNamed('broken image snapshot')))
+  restoreSnapshot('image-assets')
+  assert.deepEqual(JSON.parse(readFileSync(FS_STORE, 'utf8')).imageAssets, [row], 'backup restore retains immutable bytes and ref metadata')
+})
+
 test('an invalid portable snapshot is rejected before live storage changes', () => {
   process.env.PERSIST_BACKEND = 'json'
   process.env.DATA_FILE = FS_STORE
@@ -191,6 +216,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
   const s = await buildComprehensive()
   const g = s.graph
   assert.equal(s.initialWorld, 'demo', 'development snapshot records its authored world')
+  for (const slice of COVERED_SLICES) assert.ok(Array.isArray(s[slice]), `${slice} is exercised by the comprehensive snapshot builder`)
+  assert.ok(s.imageAssets?.length, 'the comprehensive snapshot contains a nonempty image asset slice')
+  assert.match(s.imageAssets?.[0]?.id ?? '', /^img-[a-f0-9]{64}$/, 'image asset reference is content-addressed')
+  assert.equal(s.imageAssets?.[0]?.image.data, snapshotImage.data, 'image asset bytes survive the comprehensive snapshot')
 
   // ── every graph sub-map exercised (one relation op per pair) ──
   assert.ok(g.extraProjects.some((p) => p.id === 'p-playground'), 'create-project → extraProjects')

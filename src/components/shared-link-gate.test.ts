@@ -37,7 +37,7 @@ test('share-link redemption binds a verified-session request to its initiating a
   const redeemRoute = routes.slice(redeemStart, redeemEnd)
 
   assert.match(app, /expectedSessionUserId=\{resolvedIdentity\.via === 'session'/)
-  assert.match(client, /'X-Account-Transition-Source': `session:\$\{options\.expectedSessionUserId\}`/)
+  assert.match(client, /'X-Account-Transition-Source': options\.expectedSessionUserId === null \? 'unsigned' : `session:\$\{options\.expectedSessionUserId\}`/)
   assert.match(commands, /redeemShareLink\(token: string, expectedSessionUserId\?: string\)/)
   assert.match(redeemRoute, /accountTransitionSourceMatches\(req, res\)/)
 })

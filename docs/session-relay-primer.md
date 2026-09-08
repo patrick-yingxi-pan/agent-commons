@@ -25,7 +25,8 @@ inverting the connection: instead of the server dialing the model, **the model
 dials the server**. The server hosts a *mailbox*; the remote AI polls it for
 work, thinks, and posts answers back. From the app's point of view it behaves
 like any other model in the picker; from the remote AI's point of view it's a
-simple fetch-answer-reply loop.
+simple fetch-answer-reply loop. Prompt messages contain text plus optional
+first-class image blocks; image bytes are never serialized into model prose.
 
 ```
  you, in the app UI                       your other AI session (anywhere)
@@ -102,7 +103,8 @@ to throttle or overload the relay either.
 
 When a user sends a message in any UI session, the server builds a package:
 the system briefing, the tool definitions, **that conversation's entire
-message history**, the new message — labeled with a `channel` (the
+message history**, the new message, and (when negotiated) bounded image blocks
+with their attachment metadata — labeled with a `channel` (the
 conversation's id and title) and a unique `entryId`.
 
 Because the package is complete, the far session needs **zero per-conversation
@@ -146,6 +148,17 @@ Past the ceiling, a *new* conversation's turn is refused instantly with a
 message naming the limit (never a silent stall); a tool-use round of a turn
 already underway bypasses the ceiling so a rival conversation can't kill a
 mid-flight exchange.
+
+### 6.1 Image capability and backward compatibility
+
+New connectors poll with `?images=1` on every request. The server records that
+capability for the provider and may include captured image blocks alongside
+text and attachment metadata. The image path is bounded at 8 images and 8 MiB
+per turn. A legacy connector that omits the parameter is treated as text-only:
+the server sends no image bytes and labels the attachment unsupported rather
+than pretending it was delivered. Capability is re-negotiated on each poll, so
+a later legacy poll resets the provider to safe text-only mode. This additive
+negotiation preserves existing poll and reply shapes for old connectors.
 
 ## 7. Serving: delegate to sub-agents by default
 

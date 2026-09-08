@@ -995,3 +995,96 @@ test('the user-side connector ships the relay-not-execute standing instruction +
   assert.match(source, /drainLoop/, 'the process-owned keepalive loop exists — liveness no longer rides the model’s calls')
   assert.match(source, /process\.stdin\.on\('end', \(\) => process\.exit/, 'and dies with its host, so an orphan never polls forever')
 })
+test('relay image capability is opt-in per poll and resets for legacy polls', () => {
+  const relay = new RelayRuntime(() => {})
+  assert.equal(relay.supportsImages('image-cap'), false)
+  relay.poll('image-cap', new Set(), 1, true).abandon()
+  assert.equal(relay.supportsImages('image-cap'), true)
+  relay.poll('image-cap').abandon()
+  assert.equal(relay.supportsImages('image-cap'), false)
+})
+
+test('image delivery rechecks the receiving connector capability for queued and parked prompts', async () => {
+  for (const parkedFirst of [false, true]) {
+    const relay = new RelayRuntime(() => {})
+    relay.poll('replace-image-connector', new Set(), 1, true).abandon()
+    const prompt = {
+      system: 'Reference image', systemHash: 'image-frame',
+      messages: [{ role: 'user', text: 'describe', images: [{ mimeType: 'image/png', data: 'private-image-bytes' }] }],
+    } as never
+    const parked = parkedFirst ? relay.poll('replace-image-connector') : undefined
+    const offered = relay.offer('replace-image-connector', prompt)!
+    assert.ok(offered)
+    const receiving = parked ?? relay.poll('replace-image-connector')
+    assert.deepEqual(await receiving.result, { idle: true }, 'legacy connector must not receive image-bearing input')
+    assert.deepEqual(await offered.completion, { kind: 'error', reason: 'The connected session no longer supports images. Reconnect with the current connector and try again.' })
+    assert.equal(relay.busy('replace-image-connector'), false, 'rejected delivery releases its turn')
+  }
+})
+
+test('relayReply only delivers captured image blocks to connectors advertising image support', async () => {
+  const image = {
+    mimeType: 'image/png' as const,
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    width: 1,
+    height: 1,
+    byteLength: 68,
+  }
+  const imageId = `img-${'a'.repeat(64)}`
+  const session = {
+    id: 'relay-image-session',
+    title: 'Image relay',
+    attachments: [{
+      id: 'photo', label: 'photo.png', kind: 'photo' as const,
+      source: { id: 'ui-host', kind: 'ui-host' as const, label: 'This computer' },
+      image: { id: imageId, mimeType: image.mimeType, width: image.width, height: image.height, byteLength: image.byteLength },
+    }],
+    images: { [imageId]: image },
+  }
+  const handlers = { onStart: () => {}, onDelta: () => {} }
+  const run = async (images: boolean) => {
+    const relay = new RelayRuntime(() => {})
+    if (images) relay.poll('image-provider', new Set(), undefined, true).abandon()
+    const reply = relayReply(session, DEFAULT_AGENT, 'describe', handlers, undefined, relay, 'image-provider')
+    const parked = relay.poll('image-provider', new Set(), undefined, images)
+    const entry = await parked.result
+    assert.ok('entryId' in entry)
+    if (!('entryId' in entry)) return undefined
+    const user = entry.prompt.messages.at(-1)
+    relay.submit('image-provider', entry.entryId, { kind: 'completion', text: 'done' })
+    await reply
+    return user?.images
+  }
+
+  assert.equal((await run(true))?.[0]?.data, image.data)
+  assert.equal(await run(false), undefined)
+})
+
+test('relay tool continuation preserves the captured image turn', async () => {
+  const image = {
+    mimeType: 'image/png' as const,
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    width: 1, height: 1, byteLength: 68,
+  }
+  const imageId = `img-${'b'.repeat(64)}`
+  const session = {
+    id: 'relay-image-tool-session', title: 'Image tool round',
+    attachments: [{ id: 'photo', label: 'photo.png', kind: 'photo' as const, image: { id: imageId, mimeType: image.mimeType, width: 1, height: 1, byteLength: image.byteLength } }],
+    images: { [imageId]: image },
+  }
+  const relay = new RelayRuntime(() => {})
+  relay.poll('image-tool-provider', new Set(), undefined, true).abandon()
+  const reply = relayReply(session, { ...DEFAULT_AGENT, tools: ['create_project'] }, 'describe', { onStart: () => {}, onDelta: () => {} }, undefined, relay, 'image-tool-provider')
+  const firstPark = relay.poll('image-tool-provider', new Set(), undefined, true)
+  const first = await firstPark.result
+  assert.ok('entryId' in first)
+  if (!('entryId' in first)) return
+  relay.submit('image-tool-provider', first.entryId, { kind: 'toolCalls', calls: [{ name: 'create_project', input: { name: 'Image project' } }] })
+  const continuation = await relay.poll('image-tool-provider', new Set(), undefined, true).result
+  assert.ok('entryId' in continuation)
+  if (!('entryId' in continuation)) return
+  const user = continuation.prompt.messages.find((turn) => turn.role === 'user' && turn.images?.length)
+  assert.equal(user?.images?.[0]?.data, image.data)
+  relay.submit('image-tool-provider', continuation.entryId, { kind: 'completion', text: 'done' })
+  await reply
+})

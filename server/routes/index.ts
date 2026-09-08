@@ -71,6 +71,7 @@ import type {
 } from '../../contract/index.ts'
 import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { IMAGE_UPLOAD_BODY_BYTES } from '../../contract/imageAssets.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -107,7 +108,7 @@ import {
 } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
-import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId } from '../generate.ts'
+import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId, type ReplySession } from '../generate.ts'
 import {
   deriveRelayCreationSecret,
   deriveRelayRotationSecret,
@@ -1870,7 +1871,7 @@ export function buildRouter(): Router {
     // conversations the far side is prepared to serve. Absent/malformed ⇒ serial
     // (window 1) — the runtime never fans out beyond what was confirmed.
     const channelsRaw = url.searchParams.get('channels')
-    const { result, abandon } = store.relay.poll(providerId, have, channelsRaw === null ? undefined : Number(channelsRaw))
+    const { result, abandon } = store.relay.poll(providerId, have, channelsRaw === null ? undefined : Number(channelsRaw), url.searchParams.get('images') === '1')
     req.on('close', abandon)
     const outcome = await result
     // The long-poll's client may have vanished during the park (that's what
@@ -4077,6 +4078,26 @@ export function buildRouter(): Router {
   })
 
   // ── Sessions ──────────────────────────────────────────────────────────────
+  // Image upload is the binary representation of attached context, not a grant
+  // to fetch a URL or read the caller's filesystem. Keep the larger parser
+  // budget on this one authenticated operation; conversation updates stay small.
+  r.intrinsicPost('/image-assets', 'the host supplies selected image context intrinsically; a model cannot manufacture a local-file selection', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
+    let input: unknown
+    try { input = await body({ maxBytes: IMAGE_UPLOAD_BODY_BYTES }) }
+    catch { return sendError(res, 'bad_request', 'Choose a valid image snapshot up to 3 MB.') }
+    try {
+      sendJson(res, store.putImageAsset(store.identity(req.headers).tenant.id, input))
+    } catch (error) {
+      if (error instanceof ValidationError) return sendError(res, 'bad_request', error.message)
+      throw error
+    }
+  })
+  r.get('/image-assets/:id/content', ({ req, res, params }) => {
+    const image = store.imageAssetForTenant(params.id, store.identity(req.headers).tenant.id)
+    if (!image) return sendError(res, 'not_found', 'No such image')
+    sendBytes(res, Buffer.from(image.data, 'base64'), image.mimeType)
+  })
   // The tenant boundary for an existing session addressed by id (F2/PD9), shared by
   // every by-id session route so reads and writes are isolated alike. If the session
   // exists but belongs to another tenant, 404 (not 403 — existence must not leak) and
@@ -4320,6 +4341,10 @@ export function buildRouter(): Router {
   // deliberately idempotent so a lost acknowledgement can be retried safely.
   r.patch('/sessions/:id/context-state', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
+    const session = store.getSession(params.id)
+    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    const tenantId = store.identity(req.headers).tenant.id
+    if (!store.sessionOwnedBy(session, tenantId)) return sendError(res, 'forbidden', 'Only the conversation owner may change attached context.')
     const input = await body<UpdateSessionContextStateRequest>()
     const ws = input?.workspace
     if (!input || !Array.isArray(input.operations)) {
@@ -4330,6 +4355,9 @@ export function buildRouter(): Router {
     }
     if (!ws.attachments.every(isAttachmentInput)) {
       return sendError(res, 'bad_request', 'attachments require valid id, label, kind, source, and optional text/URL previews')
+    }
+    if (!store.imageReferencesAttachable(ws.attachments, params.id, tenantId)) {
+      return sendError(res, 'bad_request', 'An attached image is unavailable. Select it again.')
     }
     if (!store.getSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
     for (const operation of input.operations) {
@@ -4436,8 +4464,8 @@ export function buildRouter(): Router {
       !ephemeral &&
       persistedTail?.role === 'user' &&
       persistedTail.content === (text ?? '')
-    const session = known
-      ? { id: known.id, title: known.title, attachments: workspaceInputAttachments(known.workspace) }
+    const session: ReplySession = known
+      ? { id: known.id, title: known.title, attachments: workspaceInputAttachments(known.workspace), images: store.sessionImageInput(known.id) }
       : { id: params.id, title: 'New session' }
     // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
     // resolves to the seeded default until users create their own.
@@ -4460,6 +4488,7 @@ export function buildRouter(): Router {
     // model is whatever session drains its mailbox, so its turns carry none.
     const turnConfig = known?.modelId ? { ...provider, model: known.modelId } : provider
     const turnModelId = provider.kind === 'session' ? undefined : resolvedModelId(turnConfig)
+    session.supportsImages = providerFace?.models?.find((model) => model.id === turnModelId)?.capabilities?.vision !== false
     // Release profiles never silently fall back to the deterministic mock. An
     // endpoint whose server-owned connection is incomplete refuses before the
     // user row, spend, or live-turn slot changes — the same fail-before-write

@@ -147,6 +147,7 @@ interface ParkedPoll {
   /** The framing/tool hashes this puller advertised as cached — bodies it
    *  already holds are stripped from whatever prompt it is handed. */
   have: ReadonlySet<string>
+  images: boolean
 }
 
 let entrySeq = 0
@@ -172,6 +173,7 @@ export class RelayRuntime {
    *  undelivered prompt, so fanning out to it would lose turns). Transient,
    *  like everything here. */
   private readonly advertised = new Map<string, number>()
+  private readonly imageCapable = new Set<string>()
   /** Relays currently announced online (drives edge-triggered relay.* events). */
   private readonly announced = new Set<string>()
   private readonly reapTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -308,7 +310,7 @@ export class RelayRuntime {
       this.parked.delete(providerId)
       clearTimeout(parked.timer)
       turn.taken = true
-      parked.resolve({ entryId, prompt: deliverPrompt(prompt, parked.have) })
+      parked.resolve(this.deliverTurn(providerId, turn, parked.have, parked.images))
     }
     // One signal per offer, delivered-on-the-spot or queued alike — the entry
     // now COUNTS toward `activeConversations`, so the observers must hear it.
@@ -326,7 +328,10 @@ export class RelayRuntime {
     providerId: string,
     have: ReadonlySet<string> = new Set(),
     channels?: number,
+    images = false,
   ): { result: Promise<RelayPollResult>; abandon: () => void } {
+    if (images === true) this.imageCapable.add(providerId)
+    else this.imageCapable.delete(providerId)
     // Record the advertisement EVERY poll (stateless, like `have`): a malformed
     // or absent value reads as serial — the minimal-risk meaning (INV-9's shape:
     // an absence never widens what the far side is sent).
@@ -335,8 +340,9 @@ export class RelayRuntime {
     for (const turn of this.turnsOf(providerId).values()) {
       if (turn.taken) continue
       turn.taken = true
+      const result = this.deliverTurn(providerId, turn, have, images)
       this.notifyActivity(providerId)
-      return { result: Promise.resolve({ entryId: turn.entryId, prompt: deliverPrompt(turn.prompt, have) }), abandon: () => {} }
+      return { result: Promise.resolve(result), abandon: () => {} }
     }
     const prev = this.parked.get(providerId)
     if (prev) {
@@ -352,10 +358,25 @@ export class RelayRuntime {
       resolve: resolveResult,
       timer: setTimeout(() => this.unpark(providerId, parked, { idle: true }), this.pollWindowMs()),
       have,
+      images,
     }
     ;(parked.timer as { unref?: () => void }).unref?.()
     this.parked.set(providerId, parked)
     return { result, abandon: () => this.unpark(providerId, parked, { idle: true }) }
+  }
+
+  supportsImages(providerId: string): boolean { return this.imageCapable.has(providerId) }
+
+  /** A connector can be replaced after generation captured its capability.
+   * Recheck the actual receiver: never send image-bearing input to an old
+   * connector that would silently discard it while reporting a normal reply. */
+  private deliverTurn(providerId: string, turn: InflightTurn, have: ReadonlySet<string>, images: boolean): RelayPollResult {
+    if (!images && turn.prompt.messages.some((message) => message.images?.length)) {
+      this.dropTurn(providerId, turn.entryId)
+      turn.settle({ kind: 'error', reason: 'The connected session no longer supports images. Reconnect with the current connector and try again.' })
+      return { idle: true }
+    }
+    return { entryId: turn.entryId, prompt: deliverPrompt(turn.prompt, have) }
   }
 
   /** Remove THIS parked poll (if still the one parked) and settle its promise.
@@ -409,6 +430,7 @@ export class RelayRuntime {
     }
     this.inflight.delete(providerId)
     this.advertised.delete(providerId)
+    this.imageCapable.delete(providerId)
     this.lastSeen.delete(providerId)
     const timer = this.reapTimers.get(providerId)
     if (timer) clearTimeout(timer)
@@ -509,7 +531,7 @@ export async function relayReply(
     description: t.description,
     inputSchema: t.input_schema as unknown as Record<string, unknown>,
   }))
-  const input = attachmentPrompt(text, session.attachments)
+  const input = attachmentPrompt(text, session.attachments, session.images, relay.supportsImages(providerId) && session.supportsImages !== false)
   const system = [systemPrompt(session, agent), input.systemAddition].filter(Boolean).join('\n\n')
   // Content-address the near-invariant parts once per turn (v3 framing dedupe):
   // delivery strips whichever bodies the pulling connector already holds.
@@ -523,7 +545,7 @@ export async function relayReply(
   // results turn per round, so every follow-up entry carries the WHOLE exchange
   // — the mailbox is stateless across entries by design.
   const channel = { id: session.id, title: session.title }
-  const turns: RelayPromptTurn[] = [...history, { role: 'user', text: input.userText }]
+  const turns: RelayPromptTurn[] = [...history, { role: 'user', text: input.userText, ...(input.images?.length ? { images: input.images } : {}) }]
 
   // The consent-gated proposals the relayed tool calls accumulate — identical
   // collection to `generateReply`'s (including the same-turn chaining window:

@@ -1,7 +1,7 @@
 /** One shared primitive for every photo surface (the picker grid, the Browse grid,
  *  the attachment panel's strip + hero): render a real image when we have a URL,
  *  fall back to a deterministic gradient when we don't (loading, no source, or a
- *  client-side pick that hasn't produced an object URL). Form follows function — a
+ *  legacy pick without a saved asset). Form follows function — a
  *  photo looks the same everywhere because one component draws it. Children are
  *  overlaid (a ✓ "Added" badge, a caption), so callers compose without re-styling. */
 import { useState, type ReactNode } from 'react'
@@ -15,10 +15,11 @@ export function PhotoThumb({
   onClick,
   children,
   showUnavailableLabel = false,
+  fit = 'cover',
 }: {
   /** Stable id for the gradient fallback (so the same photo keeps its hue). */
   id: string
-  /** Image URL (served bytes or a client object URL); absent → gradient fallback. */
+  /** Authorized image content URL; absent → gradient fallback. */
   src?: string
   /** Sizing / rounding / ring classes for the box. */
   className?: string
@@ -28,6 +29,8 @@ export function PhotoThumb({
   children?: ReactNode
   /** Full previews disclose a missing/stale URL; small picker tiles stay compact. */
   showUnavailableLabel?: boolean
+  /** Full previews show the complete reference; compact navigation tiles crop. */
+  fit?: 'cover' | 'contain'
 }) {
   // Fall back to the gradient if the image fails to load — a served source going
   // offline / a deleted file 404s, and a broken-image icon would be worse than the
@@ -43,7 +46,7 @@ export function PhotoThumb({
           alt=""
           loading="lazy"
           onError={() => setFailedSrc(src)}
-          className="absolute inset-0 h-full w-full object-cover"
+          className={`absolute inset-0 h-full w-full ${fit === 'contain' ? 'object-contain' : 'object-cover'}`}
         />
       )}
       {!showImg && showUnavailableLabel && (

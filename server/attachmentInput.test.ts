@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { attachmentPrompt, ATTACHMENT_INPUT_SYSTEM } from './attachmentInput.ts'
 import { workspaceInputAttachments } from '../contract/attachmentInput.ts'
 import type { Attachment } from '../contract/entities.ts'
+import type { ImageSnapshot } from '../contract/imageInput.ts'
 
 const file = (text: string, overrides: Partial<Attachment> = {}): Attachment => ({
   id: overrides.id ?? 'file-1',
@@ -12,6 +13,9 @@ const file = (text: string, overrides: Partial<Attachment> = {}): Attachment => 
   previewText: text,
   ...overrides,
 })
+const pngData = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+const image: ImageSnapshot = { mimeType: 'image/png', data: pngData, width: 1, height: 1, byteLength: atob(pngData).length }
+const imageAttachment = (id = 'img-ref') => file('', { id, kind: 'photo', image: { id: `img-${'a'.repeat(64)}`, mimeType: image.mimeType, width: 1, height: 1, byteLength: image.byteLength } })
 
 interface ParsedAttachment {
   name: string
@@ -165,4 +169,32 @@ test('admits ready PDF extraction metadata but omits non-ready or forged PDF tex
   ])
   assert.equal(JSON.stringify(document).includes('forged'), false)
   assert.match(ATTACHMENT_INPUT_SYSTEM, /extracted text only, not page images, layout, or OCR/)
+})
+
+test('captures matching image bytes immutably with indexed metadata and never leaks base64 into prose', () => {
+  const attachment = imageAttachment()
+  const result = attachmentPrompt('look at this', [attachment], { [attachment.image!.id]: image }, true)
+  const document = documentFrom(result)
+  assert.deepEqual(document.attached_files, [{ name: 'notes.txt', status: 'image-ready', image_index: 1, width: 1, height: 1 }])
+  assert.equal(result.images?.length, 1)
+  assert.equal(result.images?.[0]?.data, pngData)
+  assert.doesNotMatch(result.userText, /iVBORw0KGgo/)
+  image.data = 'mutated'
+  assert.equal(result.images?.[0]?.data, pngData)
+})
+
+test('image resolution fails closed for missing or invalid snapshots and unsupported models', () => {
+  const attachment = imageAttachment()
+  const missing = documentFrom(attachmentPrompt('q', [attachment], {}, true))
+  assert.deepEqual(missing.attached_files, [{ name: 'notes.txt', status: 'unavailable' }])
+  const unsupported = documentFrom(attachmentPrompt('q', [attachment], { [attachment.image!.id]: image }, false))
+  assert.deepEqual(unsupported.attached_files, [{ name: 'notes.txt', status: 'unsupported-model' }])
+})
+
+test('image metadata keeps the first eight and eight MiB total limits', () => {
+  const attachments = Array.from({ length: 9 }, (_, i) => imageAttachment(`photo-${i}`))
+  const result = attachmentPrompt('q', attachments, Object.fromEntries(attachments.map((a) => [a.image!.id, image])), true)
+  const document = documentFrom(result)
+  assert.equal(document.attached_files.length, 9)
+  assert.equal(document.attached_files[8]!.status, 'image-count-limit')
 })

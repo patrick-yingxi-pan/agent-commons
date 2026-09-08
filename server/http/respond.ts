@@ -12,7 +12,7 @@ export interface Ctx {
   /** Parsed request URL (query via `url.searchParams`). */
   url: URL
   /** Parse the JSON request body (empty body → `{}`). */
-  body<T>(): Promise<T>
+  body<T>(options?: { maxBytes: number }): Promise<T>
 }
 
 /** Permissive CORS — the dev UI is same-origin via the Vite proxy, but a native
@@ -72,6 +72,7 @@ export function sendBytes(res: ServerResponse, bytes: Uint8Array, contentType: s
     'Content-Type': contentType,
     'X-Content-Type-Options': 'nosniff',
     'Content-Security-Policy': 'sandbox',
+    'Cache-Control': 'no-store',
   })
   // `end` accepts a string in the ambient types; the Buffer's bytes are written
   // verbatim at runtime (same as the static-asset path). Cast through unknown.
@@ -157,20 +158,29 @@ const MAX_BODY_BYTES = 1024 * 1024
 
 /** Read and JSON-parse the request body. Returns `{}` for an empty body so
  *  handlers can destructure without guarding; rejects past the size cap. */
-export function readBody<T>(req: IncomingMessage): Promise<T> {
+export function readBody<T>(req: IncomingMessage, options?: { maxBytes: number }): Promise<T> {
+  const maxBytes = options?.maxBytes ?? MAX_BODY_BYTES
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 8 * MAX_BODY_BYTES) {
+    return Promise.reject(new Error('invalid request body budget'))
+  }
   return new Promise((resolve, reject) => {
     const chunks: Uint8Array[] = []
     let size = 0
+    let failed = false
     req.on('data', (c) => {
       const chunk = c as Uint8Array
+      if (failed) return
       size += chunk.length
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBytes) {
+        failed = true
+        chunks.length = 0
         reject(new Error('request body too large'))
         return
       }
       chunks.push(chunk)
     })
     req.on('end', () => {
+      if (failed) return
       if (chunks.length === 0) return resolve({} as T)
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as T)

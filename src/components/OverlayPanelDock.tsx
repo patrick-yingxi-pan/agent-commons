@@ -9,6 +9,7 @@ import { AnimatePresence } from 'framer-motion'
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { conversations, useConversation } from '../controller/conversationStore'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { useContextWritable } from '../controller/useContextWritable'
 import { retryContextMutation } from '../controller/contextMutations'
 import { rememberPanelPreference } from '../controller/panelPreferences'
 import { SCRIM_CLASS } from '../lib/scrim'
@@ -33,6 +34,7 @@ export function OverlayPanelDock({
 function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow' }) {
   const { live, focus, contextMutation } = useConversation(sessionId)
   const inputAttachments = workspaceInputAttachments(live)
+  const writable = useContextWritable(sessionId)
   const { removeContexts, removeFolder } = useSessionContextCommands(sessionId)
 
   const closePanel = () => {
@@ -79,7 +81,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               inputAttachments={inputAttachments}
               repo={focusedRepo}
               onClose={closePanel}
-              onRemoveFolder={removeFolder}
+              onRemoveFolder={writable ? removeFolder : undefined}
             />
           )}
         </AnimatePresence>
@@ -90,7 +92,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               key="conn"
               connector={focusedConnector}
               onClose={closePanel}
-              onDisconnect={() => removeContexts([{ kind: 'connector', id: focusedConnector.id }])}
+              onDisconnect={writable ? () => removeContexts([{ kind: 'connector', id: focusedConnector.id }]) : undefined}
             />
           )}
         </AnimatePresence>
@@ -104,7 +106,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               allAttachments={inputAttachments}
               initialId={focus.id}
               onClose={closePanel}
-              onRemove={(id) => removeContexts([{ kind: focus.kind, id }])}
+              onRemove={writable ? (id) => removeContexts([{ kind: focus.kind, id }]) : undefined}
             />
           )}
         </AnimatePresence>

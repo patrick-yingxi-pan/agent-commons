@@ -12,6 +12,19 @@
 > (Surfaced by the top-down audit: `/artifact-content`, `/connectors/detail`, and MCP
 > were faked without being declared here before.)
 
+The bounded image path is implemented and is not a fixture: the browser/Electron
+boundary structurally validates PNG/JPEG/GIF/WebP bytes (8 MiB raw), normalizes
+the first frame to PNG (2,000 px maximum edge, ≤3 MiB), and persists immutable
+tenant-scoped asset references through SQL and portable backups. Model turns are
+bounded to 8 images/8 MiB; endpoint and negotiated relay/MCP image blocks are
+real boundary work. Owner context walls and shared-view image reads are real.
+Structural validation is not complete codec decoding. Protocol and persistence
+locks, packaged executable smoke, and the complete responsive sweep exercise
+this boundary. Final repository verification gates landing; the shared preview
+handoff awaits an unlocked Mac. OCR, SVG/BMP/ICO, other documents, live folder/Git, remote
+input, paid-provider acceptance, and manual OS-dialog/native release acceptance
+remain outside this milestone.
+
 ## The declared fixtures (L2)
 
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |

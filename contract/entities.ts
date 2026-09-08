@@ -48,14 +48,15 @@ export interface Attachment {
    *  (contract/fs.ts). Drives where its content is read from. Absent on legacy /
    *  seeded attachments (no readable source until reattached). */
   source?: import('./fs.ts').FsSource
-  /** Picked preview fields persist in the conversation workspace. Readable local
-   * text may be supplied to the selected model under attachmentInput's budget;
-   * image previews are not model input, and browser object URLs are not portable.
-   * Server-backed sources instead load their previews through `/fs/*`. */
+  /** Legacy preview URL, never model input or authority. New local images use
+   * the durable `image` reference; server-backed sources preview via `/fs/*`. */
   previewUrl?: string
+  /** Readable local text may reach the selected model under attachmentInput's budget. */
   previewText?: string
   /** Text-extraction provenance only, never raw PDF bytes or authority. */
   documentImport?: import('./pdfImport.mjs').PdfImportOutcome
+  /** Server-owned image snapshot, durable across reload; no local path or bytes. */
+  image?: import('./imageAssets.ts').ImageAssetRef
 }
 
 /** A workspace (a folder attached as a Cowork-style surface). A conversation

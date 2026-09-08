@@ -144,6 +144,21 @@ test('popover enumeration follows the live DOM instead of stale numeric indexes'
   assert.doesNotMatch(body, /const n = await triggers\.count\(\)/, 'no pre-interaction count controls the loop')
 })
 
+test('chip confirmation is a real covered surface, not a swallowed click or empty measurement', () => {
+  const start = SWEEP.indexOf('// ── cell: the chip remove-confirm')
+  const end = SWEEP.indexOf('// ── cell: the rail / drawer', start)
+  assert.ok(start >= 0 && end > start, 'the chip-confirm source slice remains nonempty')
+  const chip = SWEEP.slice(start, end)
+  assert.doesNotMatch(chip, /chipX\.click\([\s\S]{0,160}\.catch\(\(\) => \{\}\)/, 'chip clicks cannot be swallowed')
+  assert.match(chip, /dismissOverlayPanel\(page\)/, 'covering context docks are dismissed first')
+  assert.match(chip, /getAttribute\('aria-label'\)/, 'the expected question is derived from the clicked control')
+  assert.match(chip, /from the conversation\)\?/, 'plain and cascade confirmation questions are supported')
+  assert.match(chip, /hasText: 'Cancel'/, 'the confirmation surface is required, not an unrelated popover')
+  assert.match(chip, /data-popover/, 'the stamped popover is selected for measurement')
+  assert.ok(chip.includes("await shot(page, cell.replace('/', '_'))"), 'the open confirmation gets a screenshot')
+  assert.match(chip, /unreachable\(cell,/, 'failed click or missing confirmation becomes coverage failure')
+})
+
 test('a failed rail-drawer open is reported and returns — it never throws', () => {
   const fn = SWEEP.slice(SWEEP.indexOf('async function openRailIfNarrow'))
   const body = fn.slice(0, fn.indexOf('\nasync function closeRailIfNarrow'))

@@ -6,6 +6,7 @@ export function sse(res: import('node:http').ServerResponse, event: string, data
 
 export async function startMessagesFixture() {
   const seen: string[] = []
+  const images: Array<Array<{ type: 'image'; source: { type: string; media_type: string; data: string } }>> = []
   const documents: Array<{ attached_files?: Array<{ name: string; status: string; text?: string }>; omitted_items?: number }> = []
   const server: Server = createServer(async (req, res) => {
     const chunks: Buffer[] = []
@@ -22,13 +23,15 @@ export async function startMessagesFixture() {
     }
     const messages = body.messages ?? []
     const latest = [...messages].reverse().find((message) => message.role === 'user')?.content
-    const text = typeof latest === 'string' ? latest : JSON.stringify(latest ?? '')
+    const blocks = Array.isArray(latest) ? latest : []
+    images.push(blocks.filter((block) => block.type === 'image'))
+    const text = typeof latest === 'string' ? latest : blocks.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
     seen.push(text)
     const marker = text.lastIndexOf('\n\n{"attached_files":')
     const document = marker >= 0 ? JSON.parse(text.slice(marker + 2)) as { attached_files?: Array<{ name: string; status: string; text?: string }>; omitted_items?: number } : undefined
     if (document) documents.push(document)
     const ready = document?.attached_files?.find((file) => file.status === 'ready')?.text
-    const reply = ready ? `Read supplied attachment: ${ready}` : 'No supplied attachment text.'
+    const reply = images.at(-1)!.length ? `Received ${images.at(-1)!.length} supplied image(s).` : ready ? `Read supplied attachment: ${ready}` : 'No supplied attachment text.'
     if (!body.stream) {
       res.writeHead(200, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ id: `msg_fixture_${Date.now().toString(36)}`, type: 'message', role: 'assistant', model: 'e2e-attachment-model', content: [{ type: 'text', text: reply }], stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }))
@@ -47,5 +50,5 @@ export async function startMessagesFixture() {
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
   const port = typeof address === 'object' && address ? address.port : 0
-  return { server, url: `http://127.0.0.1:${port}`, seen, documents }
+  return { server, url: `http://127.0.0.1:${port}`, seen, documents, images }
 }

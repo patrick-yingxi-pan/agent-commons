@@ -96,7 +96,7 @@ export function ConnectorPanel({
 }: {
   connector: Connector
   onClose: () => void
-  onDisconnect: () => void
+  onDisconnect?: () => void
 }) {
   const Icon = connectorIconFor(connector.kind)
   const isMcp = connector.kind === 'mcp'
@@ -109,7 +109,7 @@ export function ConnectorPanel({
         <ConnectorDetailBody connector={connector} />
       </div>
 
-      <div className="shrink-0 border-t border-line p-3">
+      {onDisconnect && <div className="shrink-0 border-t border-line p-3">
         <button
           onClick={onDisconnect}
           className="flex items-center gap-1.5 text-[12px] font-medium text-ink-faint transition hover:text-removed"
@@ -117,7 +117,7 @@ export function ConnectorPanel({
           <Trash2 size={13} />
           {isMcp ? 'Remove server' : 'Disconnect'}
         </button>
-      </div>
+      </div>}
     </PanelShell>
   )
 }

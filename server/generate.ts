@@ -19,6 +19,7 @@ import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 import { executeToolBatch, toolLoopLimits } from './toolExecution.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, type CompactionPartResult } from './compaction.ts'
+import type { ImageSnapshot } from '../contract/imageInput.ts'
 
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
@@ -230,6 +231,8 @@ export interface ReplySession {
   title: string
   /** The authorized conversation's current server-owned attachment snapshot. */
   attachments?: readonly Attachment[]
+  images?: Readonly<Record<string, ImageSnapshot>>
+  supportsImages?: boolean
 }
 
 /** Streamed-reply callbacks the route wires to its SSE channel. */
@@ -356,7 +359,7 @@ export async function generateReply(
   // CRUD tools resolve the model's named provider / prompt / agent against what
   // currently exists — so "commission the agent I just made" resolves.
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
-  const input = attachmentPrompt(text, session.attachments)
+  const input = attachmentPrompt(text, session.attachments, session.images, session.supportsImages !== false)
   const system = [systemPrompt(session, agent), input.systemAddition].filter(Boolean).join('\n\n')
   // The Agent's tool allowlist — a subset of the catalog (the default carries all).
   const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
@@ -378,7 +381,9 @@ export async function generateReply(
   const apiDefs = api ? deriveApiTools(api.catalog).definitions : []
   const tools = supportsTools ? [...agentTools, ...connectorDefs, ...apiDefs] : []
   const toolsParam = supportsTools ? { tools } : {}
-  const userContent = input.userText
+  const userContent: Anthropic.MessageParam['content'] = input.images?.length
+    ? [...input.images.map((image) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: image.mimeType, data: image.data } })), { type: 'text', text: input.userText }]
+    : input.userText
 
   let assistantId = ''
   let fullText = ''

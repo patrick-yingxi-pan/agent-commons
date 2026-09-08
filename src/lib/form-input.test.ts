@@ -89,6 +89,19 @@ test('every composer opens on ONE line, then grows by line breaks', () => {
   assert.equal(composerRows('\n'.repeat(50), 6), 6, 'a paste of many lines cannot swallow the page')
 })
 
+test('the Commons composer keeps mention guidance outside the one-row field', () => {
+  const source = stripComments(read('src/components/SectionView.tsx'))
+  const start = source.indexOf('function PostComposer()')
+  const end = source.indexOf('function CommonsSection', start)
+  assert.ok(start >= 0 && end > start, 'the Commons composer has a bounded source body')
+  const composer = source.slice(start, end)
+  assert.match(composer, /const helpId = useId\(\)/)
+  assert.match(composer, /placeholder="Say something…"/)
+  assert.match(composer, /aria-describedby=\{helpId\}/)
+  assert.match(composer, /<p id=\{helpId\} data-composer-help[^>]*>[\s\S]*?Type @ to mention someone\./)
+  assert.match(composer, /<textarea[\s\S]*?\.\.\.mention\.fieldProps[\s\S]*?aria-describedby=\{helpId\}/)
+})
+
 test('no composer hand-rolls its own row count', () => {
   const offenders: string[] = []
   for (const file of filesUnder('src')) {

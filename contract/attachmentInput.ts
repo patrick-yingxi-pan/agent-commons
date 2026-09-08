@@ -1,5 +1,7 @@
 import type { Attachment, SessionWorkspace } from './entities.ts'
 import { isPdfImportOutcome } from './pdfImport.mjs'
+import { isImageAssetRef } from './imageAssets.ts'
+import { IMAGE_MAX_COUNT, IMAGE_TURN_MAX_BYTES } from './imageInput.ts'
 
 /** One ordered input projection for the composer, previews and both transports.
  * Folder bodies are durable snapshots, never a request to read a path. Direct
@@ -33,7 +35,7 @@ export const ATTACHMENT_TEXT_FILE_BYTES = 64 * 1024
 export const ATTACHMENT_TEXT_TOTAL_BYTES = 128 * 1024
 export const ATTACHMENT_INPUT_MAX_ITEMS = 24
 
-export type AttachmentInputStatus = 'ready' | 'preview-only' | 'unavailable' | 'too-large' | 'total-limit' | 'item-limit'
+export type AttachmentInputStatus = 'ready' | 'image-ready' | 'image-count-limit' | 'image-total-limit' | 'preview-only' | 'unavailable' | 'too-large' | 'total-limit' | 'item-limit'
 export interface AttachmentInputItem {
   attachment: Attachment
   status: AttachmentInputStatus
@@ -49,6 +51,7 @@ export function isAttachmentInput(value: unknown): value is Attachment {
   if (item.previewText !== undefined && typeof item.previewText !== 'string') return false
   if (item.previewUrl !== undefined && typeof item.previewUrl !== 'string') return false
   if (item.documentImport !== undefined && !isPdfImportOutcome(item.documentImport)) return false
+  if (item.image !== undefined && (item.kind !== 'photo' || !isImageAssetRef(item.image))) return false
   if (item.source !== undefined) {
     if (!item.source || typeof item.source !== 'object' || Array.isArray(item.source)) return false
     const source = item.source as Record<string, unknown>
@@ -62,9 +65,18 @@ export function isAttachmentInput(value: unknown): value is Attachment {
  * authorizes a backend filesystem read, remote fetch, or binary import. */
 export function planAttachmentInput(attachments: readonly Attachment[] = []): AttachmentInputItem[] {
   let usedBytes = 0
+  let imageBytes = 0
+  let imageCount = 0
   return attachments.map((attachment, index) => {
     if (!isAttachmentInput(attachment)) return { attachment, status: 'unavailable' }
     if (index >= ATTACHMENT_INPUT_MAX_ITEMS) return { attachment, status: 'item-limit' }
+    if (attachment.image) {
+      if (imageCount >= IMAGE_MAX_COUNT) return { attachment, status: 'image-count-limit' }
+      if (imageBytes + attachment.image.byteLength > IMAGE_TURN_MAX_BYTES) return { attachment, status: 'image-total-limit' }
+      imageCount++
+      imageBytes += attachment.image.byteLength
+      return { attachment, status: 'image-ready', bytes: attachment.image.byteLength }
+    }
     if (attachment.kind !== 'file' || attachment.source?.kind !== 'ui-host') return { attachment, status: 'preview-only' }
     if (attachment.documentImport && attachment.documentImport.status !== 'ready') return { attachment, status: 'unavailable' }
     if (typeof attachment.previewText !== 'string') return { attachment, status: 'unavailable' }
@@ -81,6 +93,9 @@ export function planAttachmentInput(attachments: readonly Attachment[] = []): At
 
 export function attachmentInputCopy(status: AttachmentInputStatus): string {
   switch (status) {
+    case 'image-ready': return 'Saved image. Sent on your next turn when the selected model and connection support images.'
+    case 'image-count-limit': return 'Preview only for this turn. Up to 8 attached images can be sent at once.'
+    case 'image-total-limit': return 'Preview only for this turn. Attached images share an 8 MB input budget.'
     case 'ready': return 'Send and retry use the currently attached text for the selected model.'
     case 'preview-only': return 'Preview only. This attachment is not sent to the model.'
     case 'unavailable': return 'Not sent to the model. Reattach a readable text file up to 64 KB.'

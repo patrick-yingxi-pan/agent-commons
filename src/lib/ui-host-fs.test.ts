@@ -3,21 +3,30 @@ import assert from 'node:assert/strict'
 import type { DesktopBridgeScope } from '../api/desktopCredentials.ts'
 import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../../contract/pdfImport.mjs'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPicker } from './uiHostFs.ts'
+import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
 
 const dropped = (files: File[]): FileList => files as unknown as FileList
+function installImageGlobals() {
+  const previousBitmap = globalThis.createImageBitmap
+  const previousCanvas = globalThis.OffscreenCanvas
+  globalThis.createImageBitmap = async () => ({ width: 2, height: 2, close() {} }) as never
+  globalThis.OffscreenCanvas = class {
+    width: number; height: number
+    constructor(width: number, height: number) { this.width = width; this.height = height }
+    getContext() { return { drawImage() {} } }
+    async convertToBlob() { return new Blob([imageFixture(2, 2)], { type: 'image/png' }) }
+  } as never
+  return () => { globalThis.createImageBitmap = previousBitmap; globalThis.OffscreenCanvas = previousCanvas }
+}
 
-test('cancelled mixed imports release image URLs and return no late file snapshots', async (t) => {
-  const revoked: string[] = []
-  t.mock.method(URL, 'createObjectURL', () => 'blob:cancelled-import')
-  t.mock.method(URL, 'revokeObjectURL', (url: string) => revoked.push(url))
+test('cancelled mixed imports return no late file snapshots', async () => {
   const controller = new AbortController()
   const pdf = {
     name: 'cancelled.pdf', size: 1,
     slice: () => ({ arrayBuffer: async () => { controller.abort(); return new ArrayBuffer(1) } }),
   } as unknown as File
-  const selected = await readDroppedFiles(dropped([new File(['image'], 'photo.png'), pdf]), 'any', controller.signal)
+  const selected = await readDroppedFiles(dropped([pdf]), 'any', controller.signal)
   assert.deepEqual(selected, [])
-  assert.deepEqual(revoked, ['blob:cancelled-import'])
 })
 
 test('native intake also discards its final result if cancelled while extracting', async () => {
@@ -33,7 +42,8 @@ test('native intake also discards its final result if cancelled while extracting
   assert.deepEqual(await pickUiHostFiles('any', scope, controller.signal), [])
 })
 
-test('the UI-host adapter prefers Electron selected-file previews without learning a path', async () => {
+test('the UI-host adapter prefers Electron selected-file previews without learning a path', async (t) => {
+  t.after(installImageGlobals())
   const calls: unknown[] = []
   const scope: DesktopBridgeScope = {
     agentCommonsDesktop: {
@@ -44,7 +54,7 @@ test('the UI-host adapter prefers Electron selected-file previews without learni
             status: 'selected',
             files: [
               { name: 'notes.md', kind: 'file', sizeBytes: 5, text: 'hello' },
-              { name: 'photo.png', kind: 'photo', sizeBytes: 3, previewDataUrl: 'data:image/png;base64,AQID' },
+              { name: 'photo.png', kind: 'photo', sizeBytes: imageFixture().byteLength, previewDataUrl: `data:image/png;base64,${Buffer.from(imageFixture()).toString('base64')}` },
             ],
           }
         },
@@ -62,7 +72,7 @@ test('the UI-host adapter prefers Electron selected-file previews without learni
   assert.equal(selected[0]?.text, 'hello')
   assert.equal(selected[1]?.name, 'photo.png')
   assert.equal(selected[1]?.kind, 'photo')
-  assert.equal(selected[1]?.url, 'data:image/png;base64,AQID')
+  assert.ok(selected[1]?.imageInput)
   assert.ok(selected[0]?.id && selected[0].id !== selected[0].name)
   assert.ok(selected[1]?.id && selected[1].id !== selected[1].name)
   assert.notEqual(selected[0]?.id, selected[1]?.id)
@@ -241,7 +251,8 @@ test('native refusal becomes concise recoverable picker copy and cancellation is
   assert.equal(await pickUiHostFolder(scope), null)
 })
 
-test('browser dropped files preserve safe local text and omit binary, invalid, oversized, unsupported, and image content', async () => {
+test('browser dropped files preserve safe local text and omit binary, invalid, oversized, unsupported, and image content', async (t) => {
+  t.after(installImageGlobals())
   const files = await readDroppedFiles(dropped([
     new File(['print("python")'], 'example.py', { type: 'text/plain' }),
     new File(['const answer = 42'], 'example.ts', { type: 'text/plain' }),
@@ -259,7 +270,7 @@ test('browser dropped files preserve safe local text and omit binary, invalid, o
     new File([new Uint8Array(256 * 1024 + 1)], 'large.txt', { type: 'text/plain' }),
     new File([new Uint8Array(MAX_PDF_FILE_BYTES + 1)], 'manual.pdf', { type: 'application/pdf' }),
     new File(['not model text'], 'archive.zip', { type: 'application/zip' }),
-    new File([Uint8Array.from([1, 2, 3])], 'photo.png', { type: 'image/png' }),
+    new File([imageFixture()], 'photo.png', { type: 'image/png' }),
   ]))
   const byName = new Map(files.map((file) => [file.name, file]))
   const expectedText = new Map([
@@ -340,23 +351,23 @@ test('browser same-basename text files retain bodies while receiving distinct op
   assert.notEqual(selected[0]?.id, selected[1]?.id)
 })
 
-test('browser same-basename photos and later re-picks receive distinct IDs and revocable URLs', async () => {
+test('browser same-basename photos and later re-picks receive distinct IDs and revocable URLs', async (t) => {
+  t.after(installImageGlobals())
   const first = await readDroppedFiles(dropped([
-    new File([Uint8Array.from([1, 2, 3])], 'photo.png', { type: 'image/png' }),
-    new File([Uint8Array.from([4, 5, 6])], 'photo.png', { type: 'image/png' }),
+    new File([imageFixture()], 'photo.png', { type: 'image/png' }),
+    new File([imageFixture(3, 2)], 'photo.png', { type: 'image/png' }),
   ]))
   const second = await readDroppedFiles(dropped([
-    new File([Uint8Array.from([7, 8, 9])], 'photo.png', { type: 'image/png' }),
+    new File([imageFixture(4, 2)], 'photo.png', { type: 'image/png' }),
   ]))
   try {
     assert.deepEqual(first.map((file) => file.name), ['photo.png', 'photo.png'])
     assert.deepEqual(second.map((file) => file.name), ['photo.png'])
-    assert.ok(first.every((file) => file.kind === 'photo' && file.id && file.id !== file.name && file.url))
-    assert.ok(second[0]?.kind === 'photo' && second[0].id !== second[0].name && second[0].url)
+    assert.ok(first.every((file) => file.kind === 'photo' && file.id && file.id !== file.name && file.imageInput))
+    assert.ok(second[0]?.kind === 'photo' && second[0].id !== second[0].name && second[0].imageInput)
     assert.notEqual(first[0]?.id, first[1]?.id)
     assert.notEqual(first[0]?.id, second[0]?.id)
     assert.notEqual(first[1]?.id, second[0]?.id)
   } finally {
-    for (const file of [...first, ...second]) if (file.url?.startsWith('blob:')) URL.revokeObjectURL(file.url)
   }
 })

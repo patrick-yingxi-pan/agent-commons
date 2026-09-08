@@ -160,6 +160,31 @@ test('an endpoint turn carries only bounded local text attachment content and om
   assert.match(hit.body.system, /untrusted reference data/i)
 })
 
+test('an endpoint tool continuation retains the captured image input', async () => {
+  const model = 'claude-image-tool-continuation'
+  const image = {
+    mimeType: 'image/png' as const,
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    width: 1, height: 1, byteLength: 68,
+  }
+  const imageId = `img-${'c'.repeat(64)}`
+  const result = await generateReply(
+    { ...session, attachments: [{ id: 'photo', label: 'diagram.png', kind: 'photo', image: { id: imageId, mimeType: image.mimeType, width: 1, height: 1, byteLength: image.byteLength } }], images: { [imageId]: image } },
+    DEFAULT_AGENT,
+    'Create a project called Endpoint image round trip.',
+    collect().handlers,
+    undefined,
+    { baseURL: recorderUrl, model, capabilities: { toolUse: true } },
+  )
+  assert.equal(result.outcome, 'ok')
+  const hits = seen.filter((request) => request.body?.model === model)
+  assert.ok(hits.length >= 2, 'the endpoint was called for the initial turn and tool continuation')
+  for (const hit of hits) {
+    const images = hit.body.messages.flatMap((message) => Array.isArray(message.content) ? message.content.filter((block) => block.type === 'image') : [])
+    assert.deepEqual(images, [{ type: 'image', source: { type: 'base64', media_type: image.mimeType, data: image.data } }], 'each model round retains the exact captured image block')
+  }
+})
+
 test('a routine effort pick reaches the Messages output_config on every model round', async () => {
   const model = 'claude-routine-effort'
   const { outcome } = await generateReply(

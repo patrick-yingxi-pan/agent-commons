@@ -312,7 +312,7 @@ function renderPrompt(r: ReceivedPrompt): string {
 
 let stopped: string | null = null // the stop-reason message, once terminal
 const buffered: ReceivedPrompt[] = []
-let waiter: ((text: string) => void) | null = null
+let waiter: ((content: RelayContent[]) => void) | null = null
 let loopRunning = false
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -351,11 +351,21 @@ function refreshFraming(): string {
   )
 }
 
-function handOver(text: string): boolean {
+type RelayContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }
+const textContent = (text: string): RelayContent[] => [{ type: 'text', text }]
+function renderReceivedContent(r: ReceivedPrompt): RelayContent[] {
+  const content: RelayContent[] = textContent(renderPrompt(r))
+  for (const image of r.prompt.messages.flatMap((turn) => turn.images ?? [])) {
+    content.push({ type: 'image', data: image.data, mimeType: image.mimeType })
+  }
+  return content
+}
+
+function handOver(content: RelayContent[]): boolean {
   const w = waiter
   if (!w) return false
   waiter = null
-  w(text)
+  w(content)
   return true
 }
 
@@ -375,7 +385,7 @@ async function drainLoop(): Promise<void> {
       // those bodies) and the serving window (v5 handshake — the server admits
       // no more concurrent conversations than this binding declared).
       const have = advertised()
-      const polled = await relayFetch(`/relay/poll?channels=${servingWindow()}${have ? `&have=${have}` : ''}`)
+      const polled = await relayFetch(`/relay/poll?channels=${servingWindow()}&images=1${have ? `&have=${have}` : ''}`)
       backoff = 1_000
       if (polled.status === 401) {
         stopped = ROTATED
@@ -398,7 +408,7 @@ async function drainLoop(): Promise<void> {
         const received = resolvePrompt(result.entryId, result.prompt)
         // Render only at actual delivery (renderPrompt records what was shown,
         // for suffix rendering) — a queued prompt renders on the model's call.
-        if (waiter) handOver(renderPrompt(received))
+        if (waiter) handOver(renderReceivedContent(received))
         else buffered.push(received)
       } else if ('superseded' in result) {
         stopped = SUPERSEDED
@@ -418,52 +428,52 @@ async function drainLoop(): Promise<void> {
     }
   }
   loopRunning = false
-  if (stopped) handOver(stopped)
+  if (stopped) handOver(textContent(stopped))
 }
 
 /** One drain step for the MODEL: optionally submit the previous answer (prose or
  *  relayed tool calls), then hand over the buffered/next prompt — parking up to
  *  BLOCK_MS before returning the idle sentinel. */
-async function drain(entryId?: string, answer?: string, toolCalls?: Array<{ name: string; input?: Record<string, unknown> }>): Promise<string> {
-  if (stopped) return stopped
+async function drain(entryId?: string, answer?: string, toolCalls?: Array<{ name: string; input?: Record<string, unknown> }>): Promise<RelayContent[]> {
+  if (stopped) return textContent(stopped)
   if (entryId && answer !== undefined && toolCalls !== undefined) {
-    return 'Pass either answer (prose) or toolCalls (relayed calls), not both — then call respond_and_wait again.'
+    return textContent('Pass either answer (prose) or toolCalls (relayed calls), not both — then call respond_and_wait again.')
   }
   // An answer/toolCalls WITHOUT an entryId can't be submitted (the entryId names
   // the parked turn) — silently parking it would let the model believe it
   // answered while the relay turn dies at its deadline. Correct it explicitly.
   if (!entryId && (answer !== undefined || toolCalls !== undefined)) {
-    return 'To submit an answer you must pass the entryId you were handed with the prompt — then call respond_and_wait again.'
+    return textContent('To submit an answer you must pass the entryId you were handed with the prompt — then call respond_and_wait again.')
   }
   if (entryId && (answer !== undefined || toolCalls !== undefined)) {
     const body = JSON.stringify(toolCalls !== undefined ? { entryId, toolCalls } : { entryId, completion: answer })
     const submitted = await relayFetch('/relay/reply', { method: 'POST', body })
     if (submitted.status === 401) {
       stopped = ROTATED
-      return stopped
+      return textContent(stopped)
     }
     if (submitted.status === 400) {
       const detail = (submitted.json as { error?: { message?: string } })?.error?.message ?? 'invalid reply'
-      return `The relay refused that answer (${detail}) — fix it and call respond_and_wait again with the same entryId.`
+      return textContent(`The relay refused that answer (${detail}) — fix it and call respond_and_wait again with the same entryId.`)
     }
     if (submitted.status === 410) console.error(`[relay-connector] entry ${entryId} already settled (deadline/cancel) — answer dropped, polling on.`)
   }
   void drainLoop() // ensure the keepalive loop is running (it self-dedupes)
-  if (stopped) return stopped
+  if (stopped) return textContent(stopped)
   const next = buffered.shift()
-  if (next) return renderPrompt(next)
-  return await new Promise<string>((resolve) => {
+  if (next) return renderReceivedContent(next)
+  return await new Promise<RelayContent[]>((resolve) => {
     // A stale parked call (a host retry) is superseded by the newcomer — resolve
     // it with the re-call sentinel so no handler dangles.
-    if (waiter) handOver(RECALL)
-    const me = (text: string) => {
+    if (waiter) handOver(textContent(RECALL))
+    const me = (content: RelayContent[]) => {
       clearTimeout(timer)
-      resolve(text)
+      resolve(content)
     }
     const timer = setTimeout(() => {
       if (waiter === me) {
         waiter = null
-        resolve(RECALL)
+        resolve(textContent(RECALL))
       }
     }, BLOCK_MS)
     waiter = me
@@ -472,16 +482,16 @@ async function drain(entryId?: string, answer?: string, toolCalls?: Array<{ name
 
 /** Latch-then-drain: the whole credential surface of the connector — the
  *  serving declaration latches WITH the binding (see its header note). */
-async function startDraining(url?: string, secret?: string, conversations?: number): Promise<string> {
+async function startDraining(url?: string, secret?: string, conversations?: number): Promise<RelayContent[]> {
   const declared = conversations !== undefined && Number.isFinite(conversations) && conversations >= 1 ? clampConversations(conversations) : undefined
   if (bound) {
     const differs =
       (secret !== undefined && secret !== bound.secret) ||
       (url !== undefined && normalizeUrl(url) !== bound.url) ||
       (declared !== undefined && declared !== servingWindow())
-    if (differs) return LATCHED
+    if (differs) return textContent(LATCHED)
   } else {
-    if (!secret) return UNLATCHED
+    if (!secret) return textContent(UNLATCHED)
     if (declared !== undefined) declaredConversations = declared
     bound = { url: normalizeUrl(url ?? DEFAULT_URL), secret }
     console.error(
@@ -631,7 +641,7 @@ async function handle(req: JsonRpcRequest): Promise<void> {
               : bound
                 ? await drain(args?.entryId, args?.answer, args?.toolCalls)
                 : UNLATCHED
-        return reply({ content: [{ type: 'text', text }] })
+        return reply({ content: Array.isArray(text) ? text : textContent(text) })
       } catch (err) {
         const detail = err instanceof Error ? err.message : String(err)
         return reply({ content: [{ type: 'text', text: `The relay is unreachable (${detail}). Call respond_and_wait again to retry.` }], isError: true })

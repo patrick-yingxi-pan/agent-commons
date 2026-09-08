@@ -155,7 +155,7 @@ export class Router {
       if (route.method !== req.method) continue
       const params = match(route.segments, path)
       if (!params) continue
-      const ctx: Ctx = { req, res, params, url, body: () => readBody(req) }
+      const ctx: Ctx = { req, res, params, url, body: (options) => readBody(req, options) }
       try {
         for (const mw of this.middlewares) {
           if (!(await mw(ctx))) return true // middleware handled the response (e.g. 429)

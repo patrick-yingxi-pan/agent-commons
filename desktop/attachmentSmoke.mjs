@@ -6,6 +6,7 @@ import { _electron, expect } from '@playwright/test'
 import { exactLoopbackOrigin } from './runtime.mjs'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
+import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 
 const TIMEOUT_MS = 30_000
 const FILE_NAME = 'native-source.py'
@@ -85,9 +86,12 @@ async function inspectPair(page, expectedIds) {
 
 async function send(page, text, expectedReply) {
   const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+  const replies = page.locator('[data-turn]').filter({ hasText: expectedReply })
+  const previous = await replies.count()
   await composer.fill(text)
   await composer.press('Enter')
-  await expect(page.locator('[data-turn]').filter({ hasText: expectedReply })).toBeVisible({ timeout: TIMEOUT_MS })
+  await expect(replies).toHaveCount(previous + 1, { timeout: TIMEOUT_MS })
+  await expect(replies.last()).toBeVisible({ timeout: TIMEOUT_MS })
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0, { timeout: TIMEOUT_MS })
 }
 
@@ -305,6 +309,48 @@ export async function smokePackagedAttachments({ executable }) {
     const currentInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
     assert.equal(JSON.stringify(currentInput).includes('native-pdf-body'), false, 'detach removes current attachment input, not previous assistant history')
     console.log('[desktop-pdf-smoke] real native PDF bytes + IPC · packaged worker extraction · model text metadata · full relaunch without source PDF · detach')
+    const imagePath = join(fixtureRoot, 'native-image.png')
+    await writeFile(imagePath, imageFixture(240, 120), { mode: 0o600 })
+    await run.app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async (_owner, options) => {
+        if (!options.properties.includes('openFile')) throw new Error('Expected image file selection')
+        return { canceled: false, filePaths: [path] }
+      }
+    }, imagePath)
+    const imagePicker = await openFilesPicker(page)
+    await imagePicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    const imagePreview = page.locator('[data-attachment-preview]')
+    await expect(imagePreview).toHaveAttribute('data-attachment-input-status', 'image-ready')
+    await expect.poll(() => imagePreview.locator('img').last().evaluate((image) => image.complete && image.naturalWidth === 240)).toBe(true)
+    const imageId = await imagePreview.getAttribute('data-attachment-preview')
+    const storedImage = await page.evaluate(async (id) => {
+      const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
+      return detail.workspace.attachments.find((attachment) => attachment.image)
+    }, pdfSession.id)
+    assert.equal(storedImage.previewUrl, undefined)
+    assert.equal(storedImage.image.data, undefined)
+    assert.equal(storedImage.image.width, 240)
+    await closePreview(page)
+    await send(page, 'Describe the native image.', 'Received 1 supplied image(s).')
+    const imageBlocks = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
+    assert.equal(imageBlocks.filter((block) => block.type === 'image').length, 1)
+    assert.equal(imageBlocks.find((block) => block.type === 'image').source.media_type, 'image/png')
+    assert.equal(JSON.stringify(endpoint.requests).includes(imagePath), false)
+    await run.app.close()
+    run = undefined
+    await rm(imagePath)
+    run = await launch(executable, userDataPath)
+    ;({ page, origin } = run)
+    await page.goto(`${origin}${pdfRoute}`)
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-image.png' }).click()
+    const restoredImage = page.locator('[data-attachment-preview]')
+    await expect(restoredImage).toHaveAttribute('data-attachment-preview', imageId)
+    await expect.poll(() => restoredImage.locator('img').last().evaluate((image) => image.complete && image.naturalWidth === 240)).toBe(true)
+    await page.getByRole('button', { name: 'Remove photo', exact: true }).click()
+    await send(page, 'Check detached image.', 'No supplied attachment text.')
+    const detachedInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
+    assert.equal(typeof detachedInput, 'string', 'detachment excludes image blocks from future turns')
+    console.log('[desktop-image-smoke] real native image bytes + IPC · renderer raster conversion · durable asset upload · model image blocks · full relaunch without source · detach')
   } finally {
     await run?.app.close()
     await endpoint?.close()

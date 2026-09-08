@@ -86,7 +86,7 @@ test('the first start latches; different credentials are refused without a netwo
     assert.ok(stub.seen.length >= 1, 'the latch started the keepalive loop')
     // Every poll advertises the serving window (v5 handshake) — undeclared, the
     // connector's own default (8, sized for the default sub-agent fan-out).
-    assert.equal(stub.seen[0]!.path, '/v1/relay/poll?channels=8')
+    assert.equal(stub.seen[0]!.path, '/v1/relay/poll?channels=8&images=1')
     assert.equal(stub.seen[0]!.auth, 'Bearer rv_live_first', 'the typed secret is the bearer')
 
     assert.match(await callTool(c, 'start', { secret: 'rv_live_evil' }), /already bound/, 'a different secret is refused')
@@ -132,6 +132,36 @@ test('a full round-trip through the latched connector: prompt document out, entr
     const reply = stub.seen.find((s) => s.path === '/v1/relay/reply')
     assert.ok(reply, 'the answer reached the relay')
     assert.deepEqual(JSON.parse(reply.body), { entryId: 'rve-7', completion: 'hi there' }, 'the answer is entry-keyed on the wire')
+  } finally {
+    c.close()
+    await stub.close()
+  }
+})
+
+test('relay image turns become MCP image content and survive a tool round', async () => {
+  const stub = await startRelayStub()
+  const image = { mimeType: 'image/png', data: 'AQID', width: 1, height: 1, byteLength: 3 }
+  const user = { role: 'user' as const, text: 'inspect this image', images: [image] }
+  const tools = [{ name: 'describe_image', description: 'Describe the supplied image.', inputSchema: { type: 'object' } }]
+  stub.pollQueue.push({ entryId: 'rve-image-1', prompt: { system: 'image briefing', systemHash: 'image-system-hash', toolsHash: 'image-tools-hash', channel: { id: 'image-channel', title: 'Image turn' }, messages: [user], tools } })
+  const c = spawnConnector()
+  try {
+    const rpc = (method: string, params: unknown) => new Promise<Awaited<ReturnType<typeof c.rpc>>>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`connector image test RPC timed out; relay saw ${stub.seen.map((request) => request.path).join(', ')}`)), 6_000)
+      void c.rpc(method, params).then((value) => { clearTimeout(timer); resolve(value) }, (error) => { clearTimeout(timer); reject(error) })
+    })
+    const response = await rpc('tools/call', { name: 'start', arguments: { url: stub.url, secret: 'rv_live_image' } })
+    const content = response.result?.content ?? []
+    const imagePart = content.find((part) => part.type === 'image') as { type: 'image'; data: string; mimeType: string } | undefined
+    assert.deepEqual(imagePart, { type: 'image', data: image.data, mimeType: image.mimeType })
+    assert.ok(content.some((part) => part.type === 'text' && part.text.includes('inspect this image')), 'ordinary text remains in the rendered document')
+    assert.ok(stub.seen.some((request) => request.path.includes('/relay/poll?') && request.path.includes('images=1')), 'poll advertises image support')
+
+    stub.pollQueue.push({ entryId: 'rve-image-2', prompt: { systemHash: 'image-system-hash', toolsHash: 'image-tools-hash', channel: { id: 'image-channel', title: 'Image turn' }, messages: [user, { role: 'assistant', toolCalls: [{ id: 'tc-image', name: 'describe_image', input: {} }] }, { role: 'user', toolResults: [{ toolCallId: 'tc-image', content: 'Tool saw the image.' }] }], tools } })
+    const round = await callToolForPrompt(c, 'respond_and_wait', { entryId: 'rve-image-1', toolCalls: [{ name: 'describe_image', input: {} }] })
+    assert.match(round, /continuing the exchange|A prompt arrived/, 'the next tool round is delivered')
+    const replay = stub.seen.find((request) => request.path === '/v1/relay/reply' && request.body.includes('rve-image-1'))
+    assert.ok(replay && replay.body.includes('toolCalls'), 'tool calls are submitted unchanged')
   } finally {
     c.close()
     await stub.close()
@@ -333,7 +363,7 @@ test('v5 serving declaration: start(conversations) is advertised on every poll a
   const c = spawnConnector()
   try {
     assert.match(await callTool(c, 'start', { url: stub.url, secret: 'rv_live_decl', conversations: 2 }), /Nothing pending/)
-    await waitForPoll(stub, '/v1/relay/poll?channels=2')
+    await waitForPoll(stub, '/v1/relay/poll?channels=2&images=1')
     assert.ok(stub.seen.length >= 1)
     assert.ok(
       stub.seen.every((s) => s.path.startsWith('/v1/relay/poll?channels=2')),

@@ -45,7 +45,7 @@ test('malformed and oversized requests fail safely without forwarding or poisoni
   try {
     const malformed = await fetch(`${fixture.origin}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not json' })
     assert.equal(malformed.status, 400)
-    const oversized = await fetch(`${fixture.origin}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'x'.repeat(1024 * 1024) }] }) })
+    const oversized = await fetch(`${fixture.origin}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'x'.repeat(12 * 1024 * 1024) }] }) })
     assert.equal(oversized.status, 413)
     assert.deepEqual(fixture.documents, [])
     const models = await fetch(`${fixture.origin}/v1/models`)

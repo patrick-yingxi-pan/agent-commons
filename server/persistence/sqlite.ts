@@ -30,6 +30,11 @@ import {
   type PersistenceBackend,
 } from './format.ts'
 import { migrateState } from './migrate.ts'
+import type { ImageSnapshot } from '../../contract/imageInput.ts'
+
+function sameImage(a: ImageSnapshot, b: ImageSnapshot): boolean {
+  return a.data === b.data && a.mimeType === b.mimeType && a.width === b.width && a.height === b.height && a.byteLength === b.byteLength
+}
 
 // ── Minimal local typing for the `node:sqlite` surface we use ─────────────────
 // (the server hand-rolls its Node types in node.d.ts rather than pull in @types/node).
@@ -83,6 +88,19 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       );
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE image_assets (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        image_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        ord INTEGER NOT NULL
+      );
+      CREATE INDEX image_assets_by_tenant ON image_assets (tenant_id);
+    `,
+  },
 ]
 
 /** Best-effort id extraction for the `entities.entity_id` index column — populated
@@ -100,6 +118,9 @@ export class SqliteBackend implements PersistenceBackend {
   readonly #db: SqliteDatabase
   readonly #path: string
   readonly #freshAtOpen: boolean
+  // The process owns this connection. Retain immutable content references so an
+  // ordinary small mutation need not reread/re-encode the entire image library.
+  #imageContent = new Map<string, ImageSnapshot>()
 
   /** Opens (creating if absent) the database at `path` and brings its schema up to
    *  date. `path` defaults to `databaseFile()`; tests pass `':memory:'` or a temp
@@ -190,6 +211,11 @@ export class SqliteBackend implements PersistenceBackend {
       for (const key of present) {
         const kind = SLICE_KIND[key]
         if (!kind) continue // a slice this build no longer knows — skip it
+        if (key === 'imageAssets') {
+          const rows = this.#db.prepare('SELECT id, tenant_id, image_json, created_at FROM image_assets ORDER BY ord').all()
+          result[key] = rows.map((r) => ({ id: String(r.id), tenantId: String(r.tenant_id), image: JSON.parse(String(r.image_json)), createdAt: Number(r.created_at) }))
+          continue
+        }
         if (kind === 'singleton') {
           const row = this.#db.prepare('SELECT json FROM kv WHERE key = ?').get(key)
           if (row) result[key] = JSON.parse(String(row.json))
@@ -210,6 +236,7 @@ export class SqliteBackend implements PersistenceBackend {
       const migrated = migrateState(result as unknown as PersistedState)
       if (!migrated) throw new Error('store version is unsupported or has no migration path')
       if (!hasCorePersistedShape(migrated)) throw new Error('store snapshot is missing required core slices')
+      this.#imageContent = new Map((migrated.imageAssets ?? []).map((row) => [row.id, { ...row.image }]))
       return migrated
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -217,9 +244,9 @@ export class SqliteBackend implements PersistenceBackend {
     }
   }
 
-  /** Replace the whole snapshot in one transaction (a full rewrite, mirroring the
-   *  JSON backend — the state is small and this keeps "no stale rows" trivially
-   *  true). Any failed transaction throws after rollback. */
+  /** Replace the logical snapshot in one transaction. Legacy slices are rewritten;
+   *  immutable image rows are diff-synced so unchanged content is never updated.
+   *  Any failed transaction throws after rollback. */
   save(state: PersistedState): void {
     const present = (Object.keys(state) as (keyof PersistedState)[]).filter(
       (k) => state[k] !== undefined,
@@ -242,10 +269,30 @@ export class SqliteBackend implements PersistenceBackend {
       )
 
       putKv.run(SLICES_KEY, JSON.stringify(present))
+      const desiredImages = state.imageAssets ?? []
+      const existingImages = new Map(this.#db.prepare('SELECT id, tenant_id, created_at, ord FROM image_assets').all().map((r) => [String(r.id), r]))
+      const wantedImages = new Set(desiredImages.map((row) => row.id))
+      const removeImage = this.#db.prepare('DELETE FROM image_assets WHERE id = ?')
+      for (const id of existingImages.keys()) if (!wantedImages.has(id)) removeImage.run(id)
+      const insertImage = this.#db.prepare('INSERT INTO image_assets (id, tenant_id, image_json, created_at, ord) VALUES (?, ?, ?, ?, ?)')
+      const updateImage = this.#db.prepare('UPDATE image_assets SET tenant_id = ?, image_json = ?, created_at = ?, ord = ? WHERE id = ?')
+      const reorderImage = this.#db.prepare('UPDATE image_assets SET ord = ? WHERE id = ?')
+      const readImage = this.#db.prepare('SELECT image_json FROM image_assets WHERE id = ?')
+      const nextImageContent = new Map<string, ImageSnapshot>()
+      for (const [ord, row] of desiredImages.entries()) {
+        const old = existingImages.get(row.id)
+        const priorContent = old && (this.#imageContent.get(row.id) ?? JSON.parse(String(readImage.get(row.id)?.image_json)) as ImageSnapshot)
+        if (!old) insertImage.run(row.id, row.tenantId, JSON.stringify(row.image), row.createdAt, ord)
+        else if (String(old.tenant_id) !== row.tenantId || !priorContent || !sameImage(priorContent, row.image) || Number(old.created_at) !== row.createdAt) updateImage.run(row.tenantId, JSON.stringify(row.image), row.createdAt, ord, row.id)
+        else if (Number(old.ord) !== ord) reorderImage.run(ord, row.id)
+        nextImageContent.set(row.id, { ...row.image })
+      }
       for (const key of present) {
         const kind = SLICE_KIND[key]
         const value = state[key]
-        if (kind === 'singleton') {
+        if (key === 'imageAssets') {
+          continue
+        } else if (kind === 'singleton') {
           putKv.run(key, JSON.stringify(value))
         } else if (kind === 'array') {
           ;(value as unknown[]).forEach((item, idx) => {
@@ -259,6 +306,7 @@ export class SqliteBackend implements PersistenceBackend {
       }
 
       this.#db.exec('COMMIT')
+      this.#imageContent = nextImageContent
     } catch (err) {
       try {
         this.#db.exec('ROLLBACK')

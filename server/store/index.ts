@@ -13,6 +13,9 @@
  *
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
+import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
+import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
+import { isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
 import type {
   A2aPeer,
   AnchorLocus,
@@ -2050,6 +2053,7 @@ const sessionContextBindings = new Map<string, SessionContext[]>([
 // fields on first read (server/workspace.ts), then replaced by the client's
 // write-through as context attaches/detaches. Persisted to disk (see persist.ts).
 const sessionWorkspaces = new Map<string, SessionWorkspace>()
+let imageAssets = new ImageAssetRegistry()
 
 /** A session title from its first message — the leading words, trimmed to a row-
  *  friendly length (mirrors how the desktop app titles a fresh chat). Empty input
@@ -2496,6 +2500,7 @@ function snapshot(): PersistedState {
     retiredSessionCreationIds: [...retiredSessionCreationIds],
     bindings: [...sessionContextBindings.entries()],
     workspaces: [...sessionWorkspaces.entries()],
+    imageAssets: imageAssets.snapshot(),
     sessionPreferences: persistedSessionPreferences(),
     schedules,
     recents: persistedContextRecents.defaultRecents,
@@ -2979,6 +2984,7 @@ function rehydrate(s: PersistedState): void {
   for (const [k, v] of s.bindings) sessionContextBindings.set(k, v)
   sessionWorkspaces.clear()
   for (const [k, v] of s.workspaces) sessionWorkspaces.set(k, v)
+  imageAssets = rehydrateImageAssets(s.imageAssets)
   // The Agent Commons registries (D6/D9/D10/D7). Each is replaced only when the
   // snapshot carries it, so a pre-v4-shaped snapshot keeps the seeded set rather
   // than wiping it (defensive — a v4 snapshot always writes all five).
@@ -4066,6 +4072,47 @@ export const store = {
     const seeded = session ? workspaceFromSeed(session) : { ...EMPTY_WORKSPACE }
     sessionWorkspaces.set(id, seeded)
     return seeded
+  },
+  /** Binary snapshots are stored once, separately from workspace projections.
+   * Deduplication is tenant-scoped, so content equality cannot expose another
+   * account's upload. Abandoned selections expire only when unreferenced. */
+  putImageAsset(tenantId: string, image: unknown) {
+    if (!isImageSnapshot(image)) throw new ValidationError('Choose a valid PNG, JPEG, GIF, or WebP image snapshot up to 3 MB.')
+    const referenced = new Set([...sessionWorkspaces.values()].flatMap((workspace) => workspace.attachments.flatMap((item) => item.image ? [item.image.id] : [])))
+    const cutoff = Date.now() - 60 * 60 * 1000
+    // Garbage collection is its own committed transition; a later quota refusal
+    // must not leave an uncommitted removal or poison the compound-mutation wall.
+    if (imageAssets.remove(imageAssets.snapshot().filter((row) => row.createdAt < cutoff && !referenced.has(row.id)).map((row) => row.id))) persist()
+    const row = imageAssets.put(tenantId, image)
+    persist()
+    return imageAssetRef(row.id, row.image)
+  },
+  imageAssetForTenant(id: string, tenantId: string): ImageSnapshot | undefined {
+    const row = imageAssets.get(id)
+    if (!row) return undefined
+    const visible = row.tenantId === tenantId || SESSIONS.some((session) =>
+      this.sessionVisibleToTenant(session, tenantId) &&
+      sessionWorkspaces.get(session.id)?.attachments.some((item) => item.image?.id === id))
+    return visible ? row.image : undefined
+  },
+  imageReferencesAttachable(attachments: readonly import('../../contract/entities.ts').Attachment[], sessionId: string, tenantId: string): boolean {
+    return attachments.every((item) => {
+      if (!item.image) return true
+      const row = imageAssets.get(item.image.id)
+      if (!row || !imageAssetRefMatches(item.image, row.image)) return false
+      return row.tenantId === tenantId || this.sessionWorkspace(sessionId).attachments.some((old) => old.image?.id === row.id)
+    })
+  },
+  /** Capture exactly the references in this authorized conversation; neither
+   * caller-supplied ids elsewhere nor preview URLs can widen a model's input. */
+  sessionImageInput(sessionId: string): Readonly<Record<string, ImageSnapshot>> {
+    const images: Record<string, ImageSnapshot> = Object.create(null)
+    for (const item of this.sessionWorkspace(sessionId).attachments) {
+      if (!item.image) continue
+      const row = imageAssets.get(item.image.id)
+      if (row && imageAssetRefMatches(item.image, row.image)) images[row.id] = row.image
+    }
+    return images
   },
   /** Replace a session's live workspace (the client's attach/detach write-through —
    *  it assembles the merged panels from the server-owned context catalogs and

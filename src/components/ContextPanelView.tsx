@@ -20,6 +20,7 @@ import { ConnectorPanel } from './ConnectorPanel'
 import { AttachmentPanel } from './AttachmentPanel'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
+import { useContextWritable } from '../controller/useContextWritable'
 import { retryContextMutation } from '../controller/contextMutations'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { contextPaneId } from '../lib/mainSplit'
@@ -50,21 +51,22 @@ export function ContextPanelView({
   const { live, reconciled, contextMutation } = usePaneConversation(sessionId)
   const { removeContexts, removeFolder, removeAttachment } = useSessionContextCommands(sessionId)
   const inputAttachments = workspaceInputAttachments(live)
+  const writable = useContextWritable(sessionId)
 
   const body = (() => {
     switch (panel.kind) {
       case 'workspace': {
         const w = live.workspaces.find((x) => x.id === panel.id)
-        return w ? <WorkspacePanel mode="workspace" workspace={w} inputAttachments={inputAttachments} onClose={noop} onRemoveFolder={removeFolder} /> : null
+        return w ? <WorkspacePanel mode="workspace" workspace={w} inputAttachments={inputAttachments} onClose={noop} onRemoveFolder={writable ? removeFolder : undefined} /> : null
       }
       case 'repo': {
         const r = live.repos.find((x) => x.id === panel.id)
-        return r ? <WorkspacePanel mode="repo" repo={r} onClose={noop} onRemoveFolder={removeFolder} /> : null
+        return r ? <WorkspacePanel mode="repo" repo={r} onClose={noop} onRemoveFolder={writable ? removeFolder : undefined} /> : null
       }
       case 'connector': {
         const c = live.connectors.find((x) => x.id === panel.id)
         return c ? (
-          <ConnectorPanel connector={c} onClose={noop} onDisconnect={() => removeContexts([{ kind: 'connector', id: c.id }])} />
+          <ConnectorPanel connector={c} onClose={noop} onDisconnect={writable ? () => removeContexts([{ kind: 'connector', id: c.id }]) : undefined} />
         ) : null
       }
       case 'file':
@@ -76,7 +78,7 @@ export function ContextPanelView({
             allAttachments={inputAttachments}
             initialId={panel.id}
             onClose={noop}
-            onRemove={removeAttachment}
+            onRemove={writable ? removeAttachment : undefined}
           />
         )
       default:

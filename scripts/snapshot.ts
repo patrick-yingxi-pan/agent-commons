@@ -173,6 +173,11 @@ export async function buildComprehensive(): Promise<PersistedState> {
     label: 'insights-dashboard',
     scope: '~/projects/insights-dashboard',
   })
+  const image = store.putImageAsset(store.defaultTenantId(), {
+    mimeType: 'image/png',
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    width: 1, height: 1, byteLength: 68,
+  })
   store.setSessionWorkspace(session.id, {
     workspaces: [
       {
@@ -200,7 +205,10 @@ export async function buildComprehensive(): Promise<PersistedState> {
       },
     ],
     connectors: [{ id: 'gh-mcp', label: 'GitHub', kind: 'github' }],
-    attachments: [{ id: 'att-1', label: 'gtm-brief.md', kind: 'file' }],
+    attachments: [
+      { id: 'att-1', label: 'gtm-brief.md', kind: 'file' },
+      { id: 'att-image', label: 'sample.png', kind: 'photo', image },
+    ],
   })
   store.setSessionPreferences('user-local', session.id, { kind: 'repo', id: 'repo-playground' })
   store.applyRelationOp({

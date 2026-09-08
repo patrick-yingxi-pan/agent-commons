@@ -57,15 +57,19 @@ test('same-name local files reach the endpoint independently while preview-only 
         mimeType: 'text/x-python',
         buffer: Buffer.from(secondSourceText),
       },
-      {
-        name: 'e2e-photo.png',
-        mimeType: 'image/png',
-        buffer: Buffer.from('not a real PNG image'),
-      },
     ])
     const sourceChips = page.getByTitle('Open in sidebar').filter({ hasText: 'e2e-source.py' })
     const fileGroup = page.getByTitle('Files (2)', { exact: true })
     await expect(fileGroup).toBeVisible()
+    // Legacy metadata-only photos remain honest after reload. New local image
+    // intake rejects corrupt PNG bytes; that path has its own image-input walk.
+    const detail = await (await page.request.get(`/api/v1/sessions/${sessionRow.id}`)).json()
+    const legacy = await page.request.patch(`/api/v1/sessions/${sessionRow.id}/context-state`, { data: {
+      operations: [], workspace: { ...detail.workspace, attachments: [...detail.workspace.attachments,
+        { id: 'legacy-photo', label: 'e2e-photo.png', kind: 'photo', source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' }, previewUrl: 'blob:expired-local-photo' },
+      ] },
+    } })
+    expect(legacy.ok()).toBe(true)
     await expect(page.getByTitle('Open in sidebar').filter({ hasText: 'e2e-photo.png' })).toBeVisible()
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/2 text files/i)
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/1 not sent|omitted/i)
