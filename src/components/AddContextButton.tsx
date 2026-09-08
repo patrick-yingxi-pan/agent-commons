@@ -71,7 +71,7 @@ const RECENT_ROW_H = 38
 const RECENT_CHROME_H = 156
 
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
-  { id: 'files', label: 'Files', desc: 'Text, PDF, Word, Excel values, and images for your conversation', Icon: Paperclip },
+  { id: 'files', label: 'Files', desc: 'Text, documents, spreadsheets, slides and images', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
   { id: 'folder', label: 'Folder', desc: 'List a folder’s files in your workspace', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
@@ -796,7 +796,7 @@ function UiHostDropZone({
         <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
       </button>
       {importing && <p role="status" className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Importing selected files… Close this picker to cancel.</p>}
-      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PDF, Word (.docx) and Excel (.xlsx): up to 8 MB each, 24 MB combined per selection. Only extracted text up to 64 KB per file is saved. PDFs: up to 100 pages; images, layout and OCR are not included. Excel: visible cell values only; formulas are not calculated.</p>}
+      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Documents (.pdf, .docx, .xlsx, .pptx): up to 8 MB each, 24 MB combined per selection. Only extracted text up to 64 KB per file is saved. PDFs: up to 100 pages; images, layout and OCR are not included. Excel: visible cell values only; formulas are not calculated. PowerPoint: slide text only; speaker notes and hidden slides are excluded.</p>}
       <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PNG, JPEG, GIF or WebP: up to 8 MB each, 24 MB per selection. Images are saved as a resized PNG of the first frame.</p>
       {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
     </div>

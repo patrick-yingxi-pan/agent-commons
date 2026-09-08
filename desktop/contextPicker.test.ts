@@ -14,6 +14,7 @@ import {
 import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../contract/pdfImport.mjs'
 import { MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES } from '../contract/docxImport.mjs'
 import { MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../contract/xlsxImport.mjs'
+import { MAX_PPTX_FILE_BYTES, MAX_PPTX_SELECTION_BYTES } from '../contract/pptxImport.mjs'
 
 const regularFile = (size: number) => ({ isFile: () => true, size })
 
@@ -188,6 +189,35 @@ test('native PDF, DOCX and XLSX selections share one document byte budget', asyn
   assert.deepEqual(reads, paths.slice(0, 3))
   assert.equal(result.files[0].pdfBytes.byteLength + result.files[1].docxBytes.byteLength + result.files[2].xlsxBytes.byteLength, MAX_XLSX_SELECTION_BYTES)
   assert.deepEqual(result.files[3], { name: 'four.xlsx', kind: 'file', sizeBytes: MAX_XLSX_FILE_BYTES, xlsxFailure: 'selection-limit' })
+})
+
+test('native PPTX is transient, bounded before reading, and shares every document selection budget', async () => {
+  assert.equal(MAX_PPTX_FILE_BYTES, MAX_XLSX_FILE_BYTES)
+  assert.equal(MAX_PPTX_SELECTION_BYTES, MAX_XLSX_SELECTION_BYTES)
+  const paths = ['/private/one.pdf', '/private/two.docx', '/private/three.xlsx', '/private/four.pptx', '/private/oversized.pptx']
+  const reads: string[] = []
+  const picker = createNativeContextPicker({
+    showOpenDialog: async () => ({ canceled: false, filePaths: paths }),
+    inspect: async (path: string) => regularFile(MAX_XLSX_FILE_BYTES + (path.endsWith('oversized.pptx') ? 1 : 0)),
+    readBytes: async (path: string) => { reads.push(path); return Buffer.alloc(MAX_XLSX_FILE_BYTES) },
+  })
+  const result = await picker.pickFiles({}, 'any')
+  assert.equal(result.status, 'selected')
+  assert.deepEqual(reads, paths.slice(0, 3))
+  assert.deepEqual(result.files[3], { name: 'four.pptx', kind: 'file', sizeBytes: MAX_XLSX_FILE_BYTES, pptxFailure: 'selection-limit' })
+  assert.deepEqual(result.files[4], { name: 'oversized.pptx', kind: 'file', sizeBytes: MAX_XLSX_FILE_BYTES + 1, pptxFailure: 'file-too-large' })
+
+  for (const size of [3, 4, 5]) {
+    const selected = await createNativeContextPicker({
+      showOpenDialog: async () => ({ canceled: false, filePaths: ['/private/deck.PPTX'] }),
+      inspect: async () => regularFile(4),
+      readBytes: async (_path: string, maxBytes: number) => { assert.equal(maxBytes, MAX_XLSX_FILE_BYTES); return Buffer.alloc(size, 7) },
+    }).pickFiles({}, 'any')
+    assert.deepEqual(selected.files[0], {
+      name: 'deck.PPTX', kind: 'file', sizeBytes: 4,
+      ...(size === 4 ? { pptxBytes: new Uint8Array([7, 7, 7, 7]) } : { pptxFailure: 'invalid' }),
+    })
+  }
 })
 
 test('native text and image intake reject short reads instead of persisting truncated previews', async () => {

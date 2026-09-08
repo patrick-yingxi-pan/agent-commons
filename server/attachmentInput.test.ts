@@ -216,6 +216,21 @@ test('captures matching image bytes immutably with indexed metadata and never le
   assert.equal(result.images?.[0]?.data, pngData)
 })
 
+test('PPTX input admits only complete slide text with explicit extraction limits, never failure text', () => {
+  const ready = file('Slide 1\nLaunch plan', {
+    id: 'pptx-ready', label: 'launch.pptx', documentImport: { format: 'pptx', status: 'ready' },
+  })
+  const failed = file('forged slide text', {
+    id: 'pptx-failed', label: 'broken.pptx', documentImport: { format: 'pptx', status: 'invalid' },
+  })
+  assert.deepEqual(documentFrom(attachmentPrompt('Read the slides', [ready, failed])).attached_files, [
+    { name: 'launch.pptx', status: 'ready', text: ready.previewText, extraction: { format: 'pptx' } },
+    { name: 'broken.pptx', status: 'unavailable' },
+  ])
+  assert.match(ATTACHMENT_INPUT_SYSTEM, /PowerPoint entries contain slide text/)
+  assert.match(ATTACHMENT_INPUT_SYSTEM, /speaker notes.*not supplied/)
+})
+
 test('image resolution fails closed for missing or invalid snapshots and unsupported models', () => {
   const attachment = imageAttachment()
   const missing = documentFrom(attachmentPrompt('q', [attachment], {}, true))

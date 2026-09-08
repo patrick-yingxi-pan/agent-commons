@@ -4,6 +4,7 @@ import type { DesktopBridgeScope } from '../api/desktopCredentials.ts'
 import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../../contract/pdfImport.mjs'
 import { MAX_DOCX_FILE_BYTES } from '../../contract/docxImport.mjs'
 import { MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../../contract/xlsxImport.mjs'
+import { MAX_PPTX_FILE_BYTES, MAX_PPTX_SELECTION_BYTES } from '../../contract/pptxImport.mjs'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPicker } from './uiHostFs.ts'
 import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
 
@@ -425,6 +426,56 @@ test('browser same-basename text files retain bodies while receiving distinct op
   assert.deepEqual(selected.map((file) => file.text), ['first body', 'second body'])
   assert.ok(selected.every((file) => file.id && file.id !== file.name))
   assert.notEqual(selected[0]?.id, selected[1]?.id)
+})
+
+test('PPTX browser bounds share document admission and native outcomes discard bytes and forged text', async () => {
+  assert.equal(MAX_PPTX_FILE_BYTES, MAX_XLSX_FILE_BYTES)
+  assert.equal(MAX_PPTX_SELECTION_BYTES, MAX_XLSX_SELECTION_BYTES)
+  let reads = 0
+  const files = ['one.pdf', 'two.docx', 'three.xlsx', 'four.pptx'].map((name) => ({
+    name, size: MAX_XLSX_FILE_BYTES,
+    slice: () => ({ arrayBuffer: async () => { reads += 1; return new ArrayBuffer(0) } }),
+  })) as unknown as File[]
+  const selected = await readDroppedFiles(dropped(files))
+  assert.equal(reads, 3)
+  assert.deepEqual(selected.map((file) => file.documentImport?.status), ['invalid', 'invalid', 'invalid', 'selection-limit'])
+  const oversized = await readDroppedFiles(dropped([{
+    name: 'large.PPTX', size: MAX_XLSX_FILE_BYTES + 1,
+    slice: () => { throw new Error('oversized source must not be read') },
+  } as unknown as File]))
+  assert.deepEqual(oversized[0].documentImport, { format: 'pptx', status: 'file-too-large' })
+  const scope: DesktopBridgeScope = { agentCommonsDesktop: { context: {
+    pickFiles: async () => ({ status: 'selected' as const, files: [
+      { name: 'broken.pptx', kind: 'file' as const, sizeBytes: 4, pptxFailure: 'invalid' as const, pptxBytes: new Uint8Array([1, 2, 3, 4]), text: 'forged slide text' },
+      { name: 'missing.pptx', kind: 'file' as const, sizeBytes: 4, text: 'forged slide text' },
+    ] }),
+    pickFolder: async () => ({ status: 'cancelled' as const }),
+  } } }
+  const native = await pickUiHostFiles('any', scope)
+  assert.deepEqual(native.map(({ documentImport }) => documentImport), [{ format: 'pptx', status: 'invalid' }, { format: 'pptx', status: 'unavailable' }])
+  assert.doesNotMatch(JSON.stringify(native), /pptxBytes|forged/)
+})
+
+test('every browser document format bounds its slice and rejects changed-size reads without loading a parser', async () => {
+  const formats = [
+    ['pdf', MAX_PDF_FILE_BYTES], ['docx', MAX_DOCX_FILE_BYTES],
+    ['xlsx', MAX_XLSX_FILE_BYTES], ['pptx', MAX_PPTX_FILE_BYTES],
+  ] as const
+  for (const [format, limit] of formats) {
+    for (const size of [3, 5]) {
+      const slices: number[][] = []
+      const selected = await readDroppedFiles(dropped([{
+        name: `changed.${format}`, size: 4,
+        slice: (start: number, end: number) => {
+          slices.push([start, end])
+          return { arrayBuffer: async () => new ArrayBuffer(size) }
+        },
+      } as unknown as File]))
+      assert.deepEqual(slices, [[0, limit + 1]], format)
+      assert.deepEqual(selected[0].documentImport, { format, status: 'invalid' })
+      assert.equal(selected[0].text, undefined)
+    }
+  }
 })
 
 test('browser same-basename photos and later re-picks receive distinct IDs and revocable URLs', async (t) => {

@@ -8,6 +8,7 @@ import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeF
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
+import { pptxFixture } from '../tests/helpers/pptxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -436,12 +437,53 @@ export async function smokePackagedAttachments({ executable }) {
       name: 'native-document.xlsx', status: 'ready', text: xlsxText, extraction: { format: 'xlsx' },
     }])
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+    const pptxPath = join(fixtureRoot, 'native-presentation.pptx')
+    const pptxText = 'Slide 1: native-slide-body\nA\tB'
+    await writeFile(pptxPath, pptxFixture({
+      slides: [{ shapes: ['native-slide-body'], table: [['A', 'B']], notes: ['speaker note must not enter input'] }],
+    }), { mode: 0o600 })
+    const pptxSession = await page.evaluate(async (providerId) => {
+      const response = await fetch('/api/v1/sessions', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId }),
+      })
+      if (!response.ok) throw new Error(`PPTX conversation precondition: HTTP ${response.status}`)
+      return response.json()
+    }, session.providerId)
+    const pptxRoute = `/s/${encodeURIComponent(pptxSession.id)}`
+    await page.goto(`${origin}${pptxRoute}`)
+    await run.app.evaluate(({ dialog }, path) => {
+      dialog.showOpenDialog = async (_owner, options) => {
+        if (!options.properties.includes('openFile')) throw new Error('Expected PPTX file selection')
+        return { canceled: false, filePaths: [path] }
+      }
+    }, pptxPath)
+    const pptxPicker = await openFilesPicker(page)
+    await pptxPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await expect(page.locator('[data-document-import="ready"]')).toContainText('Visible slide text')
+    await expect(page.locator('[data-attachment-preview]')).toContainText(pptxText)
+    await expect(page.locator('[data-attachment-preview]')).not.toContainText('speaker note must not enter input')
+    const pptxId = await page.locator('[data-attachment-preview]').getAttribute('data-attachment-preview')
+    const pptxAttachmentBeforeReload = await page.evaluate(async (id) => {
+      const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
+      return detail.workspace.attachments.find((attachment) => attachment.label === 'native-presentation.pptx')
+    }, pptxSession.id)
+    assert.equal(pptxAttachmentBeforeReload.documentImport?.format, 'pptx')
+    assert.equal(pptxAttachmentBeforeReload.documentImport?.status, 'ready')
+    assert.equal(pptxAttachmentBeforeReload.previewText, pptxText)
+    await closePreview(page)
+    await send(page, 'Read the presentation text.', 'native-slide-body')
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{
+      name: 'native-presentation.pptx', status: 'ready', text: pptxText,
+      extraction: { format: 'pptx' },
+    }])
+    assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
     await run.app.close()
     run = undefined
     await rm(folderPath, { recursive: true })
     await rm(pdfPath)
     await rm(docxPath)
     await rm(xlsxPath)
+    await rm(pptxPath)
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
     await page.goto(`${origin}${folderRoute}`)
@@ -493,6 +535,30 @@ export async function smokePackagedAttachments({ executable }) {
     await send(page, 'Check detached workbook.', 'No supplied attachment text.')
     assert.equal(JSON.stringify(endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content).includes(xlsxMarker), false)
     console.log('[desktop-xlsx-smoke] real native XLSX bytes + IPC · packaged worker extraction · model body text and metadata · full relaunch without source · detach')
+    await page.goto(`${origin}${pptxRoute}`)
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-presentation.pptx' }).click()
+    await expect(page.locator('[data-attachment-preview]')).toHaveAttribute('data-attachment-preview', pptxId)
+    await expect(page.locator('[data-attachment-preview]')).toContainText(pptxText)
+    await expect(page.locator('[data-document-import="ready"]')).toContainText('Visible slide text')
+    const savedPptx = await page.evaluate(async (id) => {
+      const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
+      return detail.workspace.attachments.find((attachment) => attachment.label === 'native-presentation.pptx')
+    }, pptxSession.id)
+    assert.equal(savedPptx.previewText, pptxText)
+    assert.deepEqual(savedPptx.documentImport, { format: 'pptx', status: 'ready' })
+    assert.equal(savedPptx.pptxBytes, undefined)
+    await closePreview(page)
+    await send(page, 'Read the saved presentation again.', 'native-slide-body')
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{
+      name: 'native-presentation.pptx', status: 'ready', text: pptxText,
+      extraction: { format: 'pptx' },
+    }])
+    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-presentation.pptx' }).click()
+    await page.getByTitle('Remove file', { exact: true }).click()
+    await send(page, 'Check detached presentation.', 'No supplied attachment text.')
+    const detachedPptxInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
+    assert.equal(JSON.stringify(detachedPptxInput).includes('native-slide-body'), false)
+    console.log('[desktop-pptx-smoke] real native PPTX bytes + IPC · packaged worker extraction · model body text and metadata · full relaunch without source · detach')
     await page.goto(`${origin}${pdfRoute}`)
     await page.getByTitle('Open in sidebar').filter({ hasText: 'native-document.pdf' }).click()
     await expect(page.locator('[data-attachment-preview]')).toHaveAttribute('data-attachment-preview', pdfId)

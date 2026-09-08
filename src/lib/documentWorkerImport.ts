@@ -1,7 +1,7 @@
 export type ParserPort = Pick<Worker, 'postMessage' | 'terminate' | 'onmessage' | 'onerror' | 'onmessageerror'>
 export type WorkerLoader = () => Promise<() => ParserPort>
 interface DocumentWorkerPolicy<Result> {
-  format: 'docx' | 'xlsx'
+  format: 'docx' | 'xlsx' | 'pptx'
   timeoutMs: number
   maxFileBytes: number
   maxSelectionBytes: number

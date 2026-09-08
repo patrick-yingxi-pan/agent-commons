@@ -54,11 +54,12 @@ test('docked panel content can shrink below a long file list', () => {
 
 test('local picker copy distinguishes text input from preview-only formats and folders', () => {
   const src = stripComments(read(join(ROOT, 'src', 'components', 'AddContextButton.tsx')))
-  assert.match(src, /Text, PDF, Word, Excel values, and images for your conversation/)
+  assert.match(src, /Text, documents, spreadsheets, slides and images/)
   assert.match(src, /Images are saved as a resized PNG of the first frame/)
   assert.match(src, /images, layout and OCR are not included/)
-  assert.ok(src.includes('PDF, Word (.docx) and Excel (.xlsx): up to 8 MB each, 24 MB combined per selection'))
+  assert.ok(src.includes('Documents (.pdf, .docx, .xlsx, .pptx): up to 8 MB each, 24 MB combined per selection'))
   assert.ok(src.includes('Excel: visible cell values only; formulas are not calculated.'))
+  assert.ok(src.includes('PowerPoint: slide text only; speaker notes and hidden slides are excluded.'))
   assert.match(src, /Import top-level text snapshots for the selected model/)
   assert.match(src, /Hidden files and subfolders are excluded/)
 })
