@@ -78,6 +78,9 @@ export interface ContextMutationStatus {
  *  thread and its composer affordances. */
 export interface ConversationState {
   live: Live
+  /** Unsent, memory-only text belongs to the conversation, not a pane mount.
+   * Account disposal and explicit reset clear it with the rest of this entry. */
+  composerText: string
   typing: boolean
   busy: boolean
   /** The server-owned turn currently streaming into this client (stop handle). */
@@ -124,6 +127,15 @@ export interface ConversationTransport {
     options: { idempotencyKey: string; retryLastUser: boolean },
   ) => Promise<void>
   reattachTurn: (sessionId: string, turnId: string, fromSeq: number, handlers: TurnHandlers) => Promise<void>
+  /** Read one authoritative session detail after a live-turn stream reports
+   *  404. The server removes the live handle immediately after persisting its
+   *  answer, so this bounded read can distinguish completion from interruption
+   *  without retrying the write or spinning on a stale turn id. */
+  reconcileSession?: (sessionId: string, signal?: AbortSignal) => Promise<{ live: Live; activeTurnId?: string; history?: HistoryPage }>
+  /** Transport-owned classification keeps protocol errors out of this pure
+   *  controller. Only the API's typed stale-turn response may trigger the one
+   *  authoritative read; ordinary 404s remain interruptions. */
+  isStaleReattachError?: (error: unknown) => boolean
   cancelTurn: (sessionId: string, turnId: string) => Promise<void>
   /** A turn settled (message.end) — the wiring refreshes the usage gauge. */
   onTurnSettled?: (sessionId: string) => void
@@ -131,7 +143,20 @@ export interface ConversationTransport {
 
 export type ConversationStore = ReturnType<typeof createConversationStore>
 
-export function createConversationStore(transport: ConversationTransport, empty: () => Live) {
+export interface ConversationStoreOptions {
+  /** Bound the one authoritative read after a stale live-turn handle. */
+  reattachRecoveryTimeoutMs?: number
+}
+
+export function createConversationStore(
+  transport: ConversationTransport,
+  empty: () => Live,
+  options: ConversationStoreOptions = {},
+) {
+  const reattachRecoveryTimeoutMs = options.reattachRecoveryTimeoutMs ?? 30_000
+  if (!Number.isSafeInteger(reattachRecoveryTimeoutMs) || reattachRecoveryTimeoutMs < 1 || reattachRecoveryTimeoutMs > 30_000) {
+    throw new RangeError('Recovery timeout must be an integer between 1 and 30000 milliseconds.')
+  }
   const states = new Map<string, ConversationState>()
   const listeners = new Map<string, Set<() => void>>()
   const epochs = new Map<string, number>()
@@ -142,6 +167,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
 
   const blank = (): ConversationState => ({
     live: empty(),
+    composerText: '',
     typing: false,
     busy: false,
     liveTurn: null,
@@ -339,7 +365,7 @@ export function createConversationStore(transport: ConversationTransport, empty:
     // second send of one materialization must not clobber the real entry).
     // An open panel (`focus`) counts as state worth moving: a recreated blank
     // entry always has focus null, so the coalesce-skip is unaffected.
-    if (!s || (s.live.messages.length === 0 && !s.busy && !s.typing && !s.pendingEscalation && !s.focus)) return
+    if (!s || (s.live.messages.length === 0 && !s.composerText && !s.busy && !s.typing && !s.pendingEscalation && !s.focus)) return
     bump(from)
     states.set(to, s)
     states.delete(from)
@@ -568,18 +594,65 @@ export function createConversationStore(transport: ConversationTransport, empty:
    *  face) — replays from seq 0 through the same handlers. */
   const reattach = (id: string, turnId: string): Promise<void> => {
     const since = epoch(id)
+    const capturedLogical = logicalForLastUser(id)
     patch(id, { typing: true, busy: true, liveTurn: { sessionId: id, turnId } })
-    return transport.reattachTurn(id, turnId, 0, streamHandlers(id, since)).then(
-      () => settle(id, since),
-      (err: unknown) => settle(
+    const staleLiveTurn = (error: unknown): boolean => transport.isStaleReattachError?.(error) === true
+    const logicalOnFailure = (): RetryableSend | undefined =>
+      capturedLogical ? { ...capturedLogical, turnId } : undefined
+    const settleReattachFailure = async (
+      error: unknown,
+      reconcileSession: NonNullable<ConversationTransport['reconcileSession']>,
+    ): Promise<void> => {
+      const message = error instanceof Error && error.message ? error.message : null
+      const logical = logicalOnFailure()
+      // A completed turn is no longer attachable. Keep the generation affordance
+      // busy while the one authoritative read is in flight: no false Retry or
+      // interruption may flash before the server record is consulted.
+      if (epoch(id) !== since) return
+      const controller = new AbortController()
+      let timeoutId: ReturnType<typeof setTimeout> | undefined
+      try {
+        const timeout = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            controller.abort()
+            reject(new Error('The saved conversation could not be checked before the recovery deadline.'))
+          }, reattachRecoveryTimeoutMs)
+        })
+        const authoritative = await Promise.race([reconcileSession(id, controller.signal), timeout])
+        if (epoch(id) !== since) return
+        // Seed the reconciliation latch with the failed logical operation so
+        // reconcile can clear it only when the authoritative suffix proves a
+        // user+assistant completion. An active turn or user-only record retains
+        // the retry after this bounded read; no stale handle is retried.
+        if (logical) update(id, (s) => ({ ...s, retryableSend: logical }))
+        reconcile(id, since, authoritative.live, authoritative.history)
+        const remainsRetryable = !logical || get(id).retryableSend !== null || !!authoritative.activeTurnId
+        settle(id, since, remainsRetryable ? message : undefined, remainsRetryable ? logical : undefined)
+        if (!remainsRetryable) transport.onTurnSettled?.(id)
+      } catch {
+        // The original interruption is exposed only after the authoritative
+        // read fails; a failed read cannot prove that the turn completed.
+        settle(id, since, message, logical)
+      } finally {
+        if (timeoutId !== undefined) clearTimeout(timeoutId)
+      }
+      return
+    }
+    const ordinaryReattachFailure = (error: unknown): void => {
+      settle(
         id,
         since,
-        err instanceof Error && err.message ? err.message : null,
-        (() => {
-          const logical = logicalForLastUser(id)
-          return logical ? { ...logical, turnId } : undefined
-        })(),
-      ),
+        error instanceof Error && error.message ? error.message : null,
+        logicalOnFailure(),
+      )
+    }
+    return transport.reattachTurn(id, turnId, 0, streamHandlers(id, since)).then(
+      () => settle(id, since),
+      (error: unknown) => {
+        const reconcileSession = transport.reconcileSession
+        if (staleLiveTurn(error) && reconcileSession) return settleReattachFailure(error, reconcileSession)
+        ordinaryReattachFailure(error)
+      },
     )
   }
 

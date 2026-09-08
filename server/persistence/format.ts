@@ -51,6 +51,7 @@ import type {
   StoredOrgInvite,
 } from '../accounts.ts'
 import type { InitialWorld } from '../initialWorld.ts'
+import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { join } from 'node:path'
 
 /** On-disk schema version. A supported older snapshot migrates forward; an
@@ -417,6 +418,10 @@ export interface PersistedState {
   agentProposals?: [string, StoredAgentProposal[]][]
   /** Registered A2A peers (D28) — verified-identity credentials, hashed. */
   a2aPeers?: [string, StoredA2aPeer][]
+  /** Private inspected MCP connection registry. Additive-optional so older
+   * snapshots boot with an empty registry; present malformed state refuses
+   * startup rather than silently discarding a connection. */
+  mcpConnections?: McpConnectionState
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -527,6 +532,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   imageAssets: 'array',
   agentProposals: 'mapEntries',
   a2aPeers: 'mapEntries',
+  mcpConnections: 'singleton',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',
@@ -571,6 +577,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   if (state?.imageAssets !== undefined) {
     if (!Array.isArray(state.imageAssets)) return false
     try { rehydrateImageAssets(state.imageAssets) } catch { return false }
+  }
+  if (state?.mcpConnections !== undefined) {
+    try { parseMcpConnectionState(state.mcpConnections) } catch { return false }
   }
   const record = (value: unknown) =>
     value !== null && typeof value === 'object' && !Array.isArray(value)

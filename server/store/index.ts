@@ -166,6 +166,13 @@ import { isContributionReviewRequirementId } from '../contributionReviewRequirem
 import { isDelegatedJudgmentId } from '../delegatedJudgmentIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
 import {
+  createMcpConnectionRegistry,
+  McpConnectionError,
+  type McpConnectionSetup,
+  type PrivateMcpConnection,
+} from '../mcpConnections.ts'
+import { isExternalMcpId, type McpConnectionView } from '../../contract/mcpConnections.ts'
+import {
   getSessionPreferences as viewerSessionPreferences,
   persistedSessionPreferences,
   pruneSessionPreferences,
@@ -2038,6 +2045,7 @@ const contextRegistry = createContextRegistry({
   seedRecents: seedContextRecents(),
   defaultTenantId,
 })
+const mcpConnectionRegistry = createMcpConnectionRegistry()
 
 // Per-session attached contexts — the *attachment of record* (Primitive 1 of
 // docs/shared-resource-coordination.md). Server-owned so every effect a session
@@ -2507,6 +2515,7 @@ function snapshot(): PersistedState {
     recentsByTenant: persistedContextRecents.tenantRecents,
     graph,
     savedContexts: contextRegistry.persistedContexts(),
+    mcpConnections: mcpConnectionRegistry.snapshot(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
     // the providers so a restored one keeps its concrete model id.
     providers: [...MODEL_PROVIDERS.entries()],
@@ -2609,6 +2618,7 @@ function cleanFirstBootState(): PersistedState {
   clean.recentsByTenant = []
   clean.graph = emptyGraph()
   clean.savedContexts = []
+  clean.mcpConnections = { connections: [], retired: [] }
   clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
   clean.providerConfigs = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]]
   clean.systemPrompts = [[defaultPrompt.id, defaultPrompt]]
@@ -2965,6 +2975,7 @@ function rehydrate(s: PersistedState): void {
     defaultRecents: s.recents,
     tenantRecents: s.recentsByTenant,
   })
+  mcpConnectionRegistry.rehydrate(s.mcpConnections)
   // Merge over an empty graph so a snapshot written before a slice existed (e.g.
   // projectInstructions) gains it as an empty map rather than `undefined`. Runtime
   // artifacts persisted before tenant stamping belong to the default namespace;
@@ -5741,7 +5752,17 @@ export const store = {
 
   // ── Contexts (the set-up ones, on the Contexts page) ──
   savedContexts(tenantId: string = defaultTenantId()): SavedContextsSnapshot {
-    return contextRegistry.snapshot(tenantId)
+    const base = contextRegistry.snapshot(tenantId)
+    const external = mcpConnectionRegistry.savedContexts(tenantId)
+    const contexts = [...base.contexts.filter((context) => !isExternalMcpId(context.id)), ...external]
+    return {
+      contexts,
+      connectedConnectorIds: base.connectedConnectorIds.filter((id) => !isExternalMcpId(id)),
+      connectedMcpIds: [
+        ...base.connectedMcpIds.filter((id) => !isExternalMcpId(id)),
+        ...external.filter((context) => context.status === 'connected').map((context) => context.id),
+      ],
+    }
   },
   /** Set a saved connector / MCP server's auth status — the connect / disconnect on
    *  the Contexts page, and the seam a real OAuth callback or token-expiry would use.
@@ -5753,12 +5774,13 @@ export const store = {
     tenantId: string = defaultTenantId(),
     expectedRevision?: number,
   ): SavedContextsSnapshot | undefined {
+    if (isExternalMcpId(id)) throw new McpConnectionError('invalid')
     const result = contextRegistry.setStatus(id, status, tenantId, expectedRevision)
     if (!result) return undefined
-    if (!result.changed) return result.snapshot
+    if (!result.changed) return this.savedContexts(tenantId)
     emit({ type: 'connector.status', id, status, tenantId })
     persist()
-    return result.snapshot
+    return this.savedContexts(tenantId)
   },
   /** Save a context to the account's set-up list (the Contexts page's Add). The
    *  registry is the system of record — the page's add once lived in component
@@ -5766,6 +5788,7 @@ export const store = {
    *  existing row); broadcasts so every client's page + composer quick list
    *  reconcile; persists. */
   addSavedContext(ctx: SavedContext, tenantId: string = defaultTenantId()): SavedContext {
+    if (isExternalMcpId(ctx.id)) throw new McpConnectionError('invalid')
     const { context, created } = contextRegistry.add(ctx, tenantId)
     if (!created) return context
     emit({ type: 'savedcontext.changed', id: context.id, tenantId })
@@ -5779,10 +5802,77 @@ export const store = {
     tenantId: string = defaultTenantId(),
     expectedRevision?: number,
   ): boolean {
+    if (isExternalMcpId(id)) throw new McpConnectionError('invalid')
     if (!contextRegistry.remove(id, tenantId, expectedRevision)) return false
     emit({ type: 'savedcontext.changed', id, tenantId })
     persist()
     return true
+  },
+  /** Public MCP connection projection. Endpoint and credential references are
+   * intentionally absent; discovery metadata is presentation-only until a
+   * future execution adapter is wired. */
+  mcpConnections(tenantId: string): McpConnectionView[] {
+    return mcpConnectionRegistry.list(tenantId)
+  },
+  mcpConnection(id: string, tenantId: string): McpConnectionView | undefined {
+    return mcpConnectionRegistry.view(id, tenantId)
+  },
+  /** Internal-only authority lookup for the transport and credential seam. */
+  privateMcpConnection(id: string, tenantId: string): PrivateMcpConnection | undefined {
+    return mcpConnectionRegistry.privateConnection(id, tenantId)
+  },
+  createMcpConnection(
+    setup: McpConnectionSetup,
+    tenantId: string,
+    allowLoopback = false,
+  ): { connection: McpConnectionView; created: boolean } {
+    return commitMutationBatch(() => {
+      const result = mcpConnectionRegistry.create(setup, tenantId, allowLoopback)
+      if (result.created) {
+        emit({ type: 'savedcontext.changed', id: result.connection.id, tenantId })
+        persist()
+      }
+      return result
+    })
+  },
+  commitMcpInspection(
+    id: string,
+    tenantId: string,
+    expectedRevision: number,
+    discovery: Parameters<typeof mcpConnectionRegistry.commitInspection>[3],
+    inspectedAt: number,
+    credentialReference?: string,
+  ): McpConnectionView {
+    return commitMutationBatch(() => {
+      const result = mcpConnectionRegistry.commitInspection(
+        id, tenantId, expectedRevision, discovery, inspectedAt, credentialReference,
+      )
+      emit({ type: 'connector.status', id, status: 'connected', tenantId })
+      persist()
+      return result
+    })
+  },
+  disconnectMcpConnection(id: string, tenantId: string, expectedRevision: number): McpConnectionView {
+    return commitMutationBatch(() => {
+      const result = mcpConnectionRegistry.disconnect(id, tenantId, expectedRevision)
+      emit({ type: 'connector.status', id, status: 'needs-auth', tenantId })
+      persist()
+      return result
+    })
+  },
+  removeMcpConnection(id: string, tenantId: string, expectedRevision: number): boolean {
+    return commitMutationBatch(() => {
+      const removed = mcpConnectionRegistry.remove(id, tenantId, expectedRevision)
+      if (removed) {
+        emit({ type: 'savedcontext.changed', id, tenantId })
+        persist()
+      }
+      return removed
+    })
+  },
+  /** Internal credential bindings for the authenticated MCP transport. */
+  mcpCredentialBindings() {
+    return mcpConnectionRegistry.credentialBindings()
   },
   /** The sidebar detail for one connector / MCP server (mock: derived locally;
    *  a real backend fetches live resources from the connected service). */

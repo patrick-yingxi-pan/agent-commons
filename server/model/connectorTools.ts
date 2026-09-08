@@ -13,6 +13,7 @@
  *  fixture runtime while release profiles fail closed until a real adapter exists. */
 import type { Connector, ToolActivity } from '../../contract/entities.ts'
 import type { SessionContext } from '../../contract/contexts.ts'
+import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { connectorDetail, type ConnectorDetail } from '../data/connectorDetails.ts'
 import { acceptConnectorInput, invokeConnectorRuntime, type ConnectorToolRuntime } from '../connectorRuntime.ts'
 
@@ -94,6 +95,9 @@ export function deriveConnectorTools(
 
   for (const ctx of contexts) {
     if (!isConnectorContext(ctx)) continue
+    // A saved external connection cannot borrow fixture capabilities through
+    // a label or a caller-supplied kind. Real execution awaits its own adapter.
+    if (isExternalMcpId(ctx.id)) continue
     const detail = connectorDetail(asConnector(ctx))
     const s = slug(ctx.label) || ctx.id
 

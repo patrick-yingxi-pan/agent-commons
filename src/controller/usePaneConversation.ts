@@ -103,7 +103,7 @@ export function usePaneConversation(sessionId: string): ConversationState & { lo
     // store entry the New-session door reset.
     if (sessionId === DRAFT_ID) return
     const entry = conversations.get(sessionId)
-    const pristine = entry.live.messages.length === 0 && !entry.busy && !entry.typing
+    const pristine = entry.live.messages.length === 0 && !entry.composerText && !entry.busy && !entry.typing
     // Seed a pristine entry from the local mirror so the thread paints at once
     // (the primary's exact recipe); a lived-in entry is shared as-is.
     if (pristine) {

@@ -10,6 +10,7 @@ import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 
 const TIMEOUT_MS = 30_000
+const DIAGNOSTIC_TIMEOUT_MS = 2_000
 const FILE_NAME = 'native-source.py'
 const FIRST_TEXT = '# first native source\nVALUE = "native-first-body"\n'
 const SECOND_TEXT = '# second native source\nVALUE = "native-second-body"\n'
@@ -102,6 +103,73 @@ async function readMessages(page, sessionId) {
     if (!response.ok) throw new Error(`Native attachment conversation read: HTTP ${response.status}`)
     return (await response.json()).messages
   }, sessionId)
+}
+
+async function boundedDiagnostic(label, operation) {
+  let timer
+  try {
+    return await new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} timed out`)), DIAGNOSTIC_TIMEOUT_MS)
+      Promise.resolve().then(operation).then(resolve, reject)
+    })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+export async function writeDetachEvidence(reportPath, evidence) {
+  await writeFile(reportPath, JSON.stringify(evidence, null, 2), { flag: 'wx', mode: 0o600 })
+  return reportPath
+}
+
+export async function preserveSmokeFailure(originalError, capture) {
+  try {
+    await capture()
+  } catch (diagnosticError) {
+    console.error(`[desktop-attachment-smoke] unable to capture detach evidence: ${String(diagnosticError)}`)
+  }
+  throw originalError
+}
+
+async function captureDetachFailure(page, sessionId, endpoint, stage) {
+  const stamp = `${process.pid}-${Date.now()}`
+  const screenshotPath = join(tmpdir(), `agent-commons-attachment-${stamp}.png`)
+  const reportPath = join(tmpdir(), `agent-commons-attachment-${stamp}.json`)
+  const session = await boundedDiagnostic('session evidence read', () => page.evaluate(async (id) => {
+    const response = await fetch(`/api/v1/sessions/${encodeURIComponent(id)}`)
+    return response.ok ? await response.json() : { status: response.status }
+  }, sessionId)).catch((error) => ({ readError: String(error) }))
+  const requests = endpoint.requests
+  const latestRequest = requests.at(-1)
+  const composer = await boundedDiagnostic('composer evidence read', () => page.getByRole('textbox', { name: 'Message', exact: true }).evaluate((element) => ({
+    value: element.value,
+    disabled: element.disabled,
+    ariaDisabled: element.getAttribute('aria-disabled'),
+  }))).catch((error) => ({ readError: String(error) }))
+  const evidence = {
+    stage,
+    url: page.url(),
+    renderedTurns: await boundedDiagnostic('rendered transcript read', () => page.locator('[data-turn]').allTextContents()).catch(() => []),
+    composer,
+    session: {
+      status: session.status,
+      activeTurnId: session.activeTurnId ?? session.workspace?.activeTurnId ?? null,
+      messages: Array.isArray(session.messages) ? session.messages : [],
+      attachments: session.workspace?.attachments?.map(({ id, label, previewText, documentImport, image }) => ({
+        id, label, previewText, documentImport, hasImage: Boolean(image),
+      })) ?? [],
+    },
+    requestCount: requests.length,
+    latestRequest: latestRequest ? {
+      messageCount: latestRequest.messages?.length ?? 0,
+      lastUserContent: latestRequest.messages?.filter((message) => message.role === 'user').at(-1)?.content,
+    } : undefined,
+  }
+  await boundedDiagnostic('failure screenshot', () => page.screenshot({ path: screenshotPath, fullPage: true })).catch((error) => {
+    evidence.screenshotError = String(error)
+  })
+  await writeDetachEvidence(reportPath, { ...evidence, screenshotPath })
+  console.error(`[desktop-attachment-smoke] detach evidence ${reportPath} · screenshot ${screenshotPath}`)
 }
 
 /** A separate, test-only packaged phase. Only the OS dialog result and remote
@@ -358,7 +426,11 @@ export async function smokePackagedAttachments({ executable }) {
     await expect(page.locator('[data-attachment-preview]')).toContainText(pdfText)
     await expect(page.locator('[data-document-import="ready"]')).toContainText('2 of 3 pages')
     await page.getByTitle('Remove file', { exact: true }).click()
-    await send(page, 'Check detached PDF.', 'No supplied attachment text.')
+    try {
+      await send(page, 'Check detached PDF.', 'No supplied attachment text.')
+    } catch (error) {
+      await preserveSmokeFailure(error, () => captureDetachFailure(page, pdfSession.id, endpoint, 'pdf-detach-reply'))
+    }
     const currentInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
     assert.equal(JSON.stringify(currentInput).includes('native-pdf-body'), false, 'detach removes current attachment input, not previous assistant history')
     console.log('[desktop-pdf-smoke] real native PDF bytes + IPC · packaged worker extraction · model text metadata · full relaunch without source PDF · detach')

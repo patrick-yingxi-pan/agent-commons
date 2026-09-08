@@ -56,6 +56,7 @@ test('contextual rail-row buttons share one enforced resting-display funnel', ()
   assert.match(filter, /has-\[\[data-open=true\]\]:opacity-100/, 'an open filter remains visible')
   assert.match(filter, /focus-within:opacity-100/, 'a keyboard-focused filter remains visible')
   assert.match(filter, /data-contextual-action=\{placement === 'rail'/, 'rail filters identify the governed role')
+  assert.match(filter, /className="[^"]*\bh-6\b[^\"]*\bw-6\b/, 'filter targets meet the shared 24px accessibility floor')
 
   const rowMenu = componentSrc('RowMenu.tsx')
   assert.match(rowMenu, /data-contextual-action=\{triggerClassName == null/, 'default row menus identify the same role')

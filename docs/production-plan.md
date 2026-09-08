@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-09-07. The standing goal remains production readiness for Agent
+Reviewed 2026-09-08. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -22,7 +22,7 @@ milestones or address a demonstrated defect.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff still awaits an unlocked Mac. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | Connector/MCP execution has a real consent and authorization boundary but release fulfilment remains unconfigured. Select and deliver one real adapter and discovery workflow before broadening the catalog. Repository content/git and some imported artifact renderers remain declared fixtures. |
+| Useful external work | The bounded MCP transport/discovery, private tenant registry/store slice, exact-audience credential vault/IPC boundary, and CAS inspection seam are implemented and tested in isolation; routes, UI, desktop startup wiring, model execution, and release fulfilment remain unconfigured. Select and deliver one real adapter and discovery workflow before broadening the catalog. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 
@@ -81,13 +81,16 @@ upgrade requires a deliberate notice and bundle-budget review.
 ## Open verification follow-ups
 
 The next core workflow is a real external MCP connection (MODEL-33). Its
-bounded HTTP/DNS/TLS/JSON/SSE substrate is implemented and tested against local
-protocol peers, but is not exposed through routes or model execution. The full
-[MCP client plan](mcp-client.md) retains user-facing discovery, secret lifecycle,
-explicit trust and durable uncertain-call recovery as required work. The owner
-has been asked about per-call approval before explicit server trust; no answer
-has been assumed. No real third-party account was contacted during these tests.
-This substrate checkpoint passed the full five-lane verifier with all 292
+bounded HTTP/DNS/TLS/JSON/SSE substrate, private tenant registry/store slice,
+exact-audience credential vault/IPC boundary, and revision-checked inspection
+commit are implemented and tested against local protocol peers. They are not
+yet exposed through routes, UI, desktop main/preload/start wiring, or model
+execution. The full [MCP client plan](mcp-client.md) retains user-facing
+discovery, production credential custody/Keychain acceptance, explicit trust
+and durable uncertain-call recovery as required work. The owner has been asked
+about per-call approval before explicit server trust; no answer has been
+assumed. No real third-party account was contacted during these tests.
+The preceding transport/discovery checkpoint passed the full five-lane verifier with all 292
 browser tests. Focused regressions were observed failing for unsafe resolved
 addresses, mismatched response IDs, success-shaped HTTP errors, CRLF byte-budget
 undercounting, and environment-disabled TLS verification before their fixes.
@@ -122,9 +125,60 @@ current metadata flow and three supported legacy initialization versions. It
 uses one deadline, bounded pagination and an inert catalog snapshot, and closes
 legacy sessions when possible. Wrong-id modern errors cannot trigger a false
 legacy fallback; cancellation closes live sockets. These are tested protocol
-boundaries, not a completed connection feature: routes, credential custody,
-user inspection, semantic schema validation, approval and execution remain
-required. Release fulfilment is still unconfigured.
+boundaries, not a completed connection feature: routes, user inspection,
+production vault wiring/Keychain acceptance, semantic schema validation,
+approval and execution remain required. Release fulfilment is still
+unconfigured.
+
+GitHub run `34193269086` at `ea27486` completed with checks and E2E1 passing
+and E2E2 failing. Its account-switch trace proves a different race: the session
+read still names an active turn, that turn finishes before the stream reattach,
+and the 404 recovery settles the controller before the authoritative session
+refresh. The saved assistant reply exists but the UI retains a false interruption.
+The repair makes that handoff one bounded, identity-fenced truth read before
+releasing the composer or exposing Retry. A deterministic browser lock exercises
+the missing real stream handle at all five canonical viewports; controller
+locks additionally cover held reads, failed reads and history continuity.
+This does not retroactively make the failed CI run healthy.
+
+The associated review also found two concrete recovery risks: a delayed HTTP
+body could cross an account switch after the header-time identity check, and
+an indefinitely stalled reconciliation read could keep the composer busy.
+The repair fences body completion and session-cache publication, and gives the
+read a 30-second abortable deadline without retrying the send. Late and failed
+reads cannot clear recovery or restore an outgoing account's session.
+
+Packaged validation during this increment observed the PDF-detach reply missing
+after the preceding authentication/Keychain, text, folder and Word phases passed.
+A diagnostic run completed every packaged phase, but did not establish a cause.
+The smoke now retains private, bounded best-effort failure evidence for that
+exact handoff. A later packaged run recurred and captured an empty composer,
+an acknowledged empty attachment list, and no new message/model request. A
+held-acknowledgement browser regression then proved that removing a context
+could remount the composer and erase unsent input. The repair keeps memory-only
+text in the existing account-scoped conversation state and reconstructs its
+multiline height after remount; it does not add browser or server persistence.
+Explicit reset, submission and account disposal still clear that private text.
+The rebuilt packaged executable now passes authentication/Keychain, text,
+folder, Word, PDF and image acceptance, including the previously failing
+PDF-detach send. The browser walk also exposed a 20px revealed rail filter
+target; its shared owner is raised to the existing 24px accessibility minimum.
+The five-viewport browser regression now passes multiline draft restoration,
+single-send behavior and WCAG 2.2 AA checks, including same-document desktop
+navigation. The full responsive sweep also passes all 135 cells with zero
+violations or skips. The complete repository verifier remains the final gate
+after review corrections; the locked shared Mac still prevents interactive
+preview handoff.
+
+The checkpoint's first complete gate caught the component index crossing its
+line budget and a credential-channel test depending on a 10ms wall-clock race
+under suite load. Redundant context prose was condensed without removing rules.
+Credential timeout/order tests now advance the test clock explicitly; removing
+the stale-completion identity guard still makes the request-ID-reuse lock fail.
+Production deadlines and retry policy are unchanged.
+Final review also caught coercive enum/ID admission in the MCP registry. Array
+and boxed-string regressions were observed failing; scalar-only validation now
+rejects those malformed records without replacing the saved registry.
 
 The combined discovery/cold-import checkpoint passed all five verifier lanes in
 147.1 seconds: 2,727 Node tests, typechecking, the production build and all 292
@@ -224,12 +278,8 @@ and draft captures were visually checked. The regression locks were watched fail
 before restoration. Live account switching was also checked, and the shared
 preview was returned to Ada with the six-account roster stacked.
 
-Filed visual refinement (S4): at 375×812 in Commons, the empty post composer's
-long mention-help placeholder wraps beneath its one-row textarea and is partly
-clipped. Reproduce via Commons with an empty post composer. The accessible name
-remains present; shorten the placeholder or expose mention help outside the
-field when this surface is next revised. This does not block the core desktop
-integration milestone.
+The earlier Commons mention-help clipping refinement was resolved in the image
+checkpoint described above; it is no longer an open direction or prerequisite.
 
 One full local run of `e2e/agent-proposal-verdict.spec.ts` observed a Review
 button click without its dialog remaining open. Ten focused traced walks passed;

@@ -20,6 +20,16 @@ test('only connector/MCP contexts contribute tools', () => {
   assert.equal(isConnectorContext(folder), false)
 })
 
+test('external MCP identities cannot acquire fixture tools by copying a fixture label or standing approval', () => {
+  const id = `mcp-connection-${'a'.repeat(32)}`
+  for (const type of ['mcp', 'connector']) {
+    const result = deriveConnectorTools([{ ...mcpFs, id, type }], { standingApprovedContextIds: new Set([id]) })
+    assert.deepEqual(result.definitions, [])
+    assert.equal(result.bindings.size, 0)
+  }
+  assert.ok(deriveConnectorTools([mcpFs]).definitions.length > 0, 'declared development fixture remains independently available')
+})
+
 test('an MCP context contributes one tool per advertised tool, correctly named + classified', () => {
   const { definitions, bindings } = deriveConnectorTools([mcpFs])
   assert.deepEqual(

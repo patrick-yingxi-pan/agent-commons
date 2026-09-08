@@ -1,11 +1,5 @@
-export interface McpDiscoveredTool {
-  name: string
-  title?: string
-  description?: string
-  inputSchema: Record<string, unknown>
-  outputSchema?: Record<string, unknown>
-  annotations?: Record<string, unknown>
-}
+import type { McpDiscoveredTool } from '../contract/mcpConnections.ts'
+export type { McpDiscoveredTool } from '../contract/mcpConnections.ts'
 
 export const MCP_CATALOG_PAGE_MAX_TOOLS = 128
 export const MCP_CATALOG_NAME_MAX_CHARS = 128

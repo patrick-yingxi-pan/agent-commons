@@ -313,6 +313,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'saved contexts retain their server-owned tenant partition')
   assert.ok(s.savedContexts?.some((context) => context.connectionRevision === 1),
     'a saved-context connection revision survives the durable snapshot')
+  assert.equal(s.mcpConnections?.connections.length, 1, 'the private MCP slice is exercised, not merely empty')
+  assert.equal(s.mcpConnections?.connections[0]?.inspection?.tools[0]?.name, 'snapshot_fixture', 'the inert catalog survives')
+  assert.equal(s.mcpConnections?.connections[0]?.credentialReference, undefined, 'the playground creates no credential')
+  assert.equal(s.mcpConnections?.retired.length, 1, 'removed MCP setup retains a non-resurrecting identity')
+  assert.ok(!s.savedContexts?.some(row => row.id === s.mcpConnections?.connections[0]?.id), 'public context rows are projections, not duplicate storage')
   assert.ok(s.recents.repo.includes('repo-playground'), 'a recent was promoted')
   assert.ok(s.recentsByTenant?.some(([tenantId, recents]) => tenantId === 'tenant-zeta' && recents.repo.includes('repo-tenant-zeta')),
     'non-default viewer recents persist in their own partition')

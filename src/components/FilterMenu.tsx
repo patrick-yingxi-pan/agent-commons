@@ -110,7 +110,7 @@ export function FilterMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open}
-        className="flex h-5 w-5 items-center justify-center rounded text-ink-faint transition hover:bg-surface/70 hover:text-ink-soft data-[open=true]:bg-surface data-[open=true]:text-ink"
+        className="flex h-6 w-6 items-center justify-center rounded text-ink-faint transition hover:bg-surface/70 hover:text-ink-soft data-[open=true]:bg-surface data-[open=true]:text-ink"
       >
         <SlidersHorizontal size={14} />
       </button>

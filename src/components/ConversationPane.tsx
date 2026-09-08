@@ -180,6 +180,8 @@ export function ConversationPane({
         sessionId={sessionId}
         onOpenSession={nav.onOpenSession}
         live={conv.live}
+        composerText={conv.composerText}
+        onComposerTextChange={(composerText) => conversations.patch(sessionId, { composerText })}
         typing={conv.typing}
         busy={conv.busy}
         streaming={!!(conv.busy && conv.liveTurn)}

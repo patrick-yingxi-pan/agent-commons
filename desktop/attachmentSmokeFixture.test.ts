@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { request } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
+import { preserveSmokeFailure, writeDetachEvidence } from './attachmentSmoke.mjs'
 
 const documentText = (first: string, second: string) => `user prose with { braces }\n\n${JSON.stringify({ attached_files: [
   { name: 'same.py', status: 'ready', text: first },
@@ -79,5 +83,47 @@ test('aborted request bodies do not reject the server or capture partial data', 
   } finally {
     await fixture.close()
     await assert.rejects(fetch(`${fixture.origin}/v1/models`))
+  }
+})
+
+test('detach diagnostics are private fixture evidence and preserve the original smoke failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'agent-commons-attachment-diagnostics-'))
+  const reportPath = join(root, 'failure.json')
+  const evidence = {
+    stage: 'pdf-detach-reply',
+    renderedTurns: ['fixture reply'],
+    session: {
+      activeTurnId: null,
+      messages: [{ role: 'assistant', content: 'fixture reply' }],
+      attachments: [{ id: 'fixture-id', label: 'native-document.pdf', documentImport: { format: 'pdf', status: 'ready' } }],
+    },
+    requestCount: 1,
+    latestRequest: { messageCount: 2, lastUserContent: 'Check detached PDF.' },
+    screenshotPath: '/private/tmp/fixture.png',
+  }
+  try {
+    await writeDetachEvidence(reportPath, evidence)
+    const permissions = (await stat(reportPath)).mode & 0o777
+    assert.equal(permissions, 0o600)
+    const serialized = await readFile(reportPath, 'utf8')
+    assert.deepEqual(JSON.parse(serialized), evidence)
+    assert.doesNotMatch(serialized, /"[^"\n]*(?:token|authorization|secret)[^"\n]*"\s*:/i)
+
+    const original = new Error('original smoke assertion')
+    const diagnostic = new Error('diagnostic collection failed')
+    const logged: string[] = []
+    const previousError = console.error
+    console.error = (...args: unknown[]) => logged.push(args.join(' '))
+    try {
+      await assert.rejects(
+        preserveSmokeFailure(original, async () => { throw diagnostic }),
+        (error: unknown) => error === original,
+      )
+    } finally {
+      console.error = previousError
+    }
+    assert.equal(logged.some((line) => line.includes('diagnostic collection failed')), true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })

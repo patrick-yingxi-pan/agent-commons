@@ -90,6 +90,17 @@ async function request<T>(method: string, path: string, body?: unknown, options:
   }
   if (res.status === 204) return undefined as T
   const text = await res.text()
+  if (options.signal?.aborted) throw new ApiRequestError('internal', 'Request aborted', 0)
+  // A response body can outlive the headers across an account switch. Recheck
+  // after consuming it so a delayed previous-tenant body cannot reach callers
+  // such as loadSession, which may publish it into the shared cache.
+  const bodyVerdict = shouldDropResponse(issuedGen, accountGeneration(), acct, res.headers.get('x-resolved-tenant'))
+  if (bodyVerdict.drop) {
+    if (bodyVerdict.reason === 'echo-mismatch') {
+      console.error(`[api] identity echo mismatch after body read: acting as tenant '${acct?.tenantId}' but the server resolved '${res.headers.get('x-resolved-tenant')}' — response dropped`)
+    }
+    throw new AccountSwitchedError(bodyVerdict.reason ?? 'switched')
+  }
   const json = text ? JSON.parse(text) : undefined
   if (!res.ok) {
     const e = (json as ApiError | undefined)?.error

@@ -3,7 +3,9 @@
 The product's inbound MCP door is described in [mcp-access.md](mcp-access.md).
 This document covers the separate client boundary for user-added external MCP
 servers. The full connect → inspect → attach → approve → execute workflow is
-not implemented yet. Release execution remains `unconfigured`.
+not implemented yet. The private registry, strict persistence slice, and
+read-only inspection transaction now exist as isolated boundaries; routes, UI,
+desktop startup wiring, and release execution remain `unconfigured`.
 
 ## Implemented transport substrate
 
@@ -59,8 +61,20 @@ Cancellation closes active I/O and never starts a later page.
 (64 KiB, depth 32, 4,096 nodes per schema). It does **not** yet validate JSON
 Schema dialect semantics or authorize calls. Remote instructions, icons, links,
 `$ref` and tool annotations remain inert data. Extra protocol metadata is not
-mistaken for an invalid tool definition. Real HTTP peer tests cover both eras;
-no route, saved connection, picker or model runtime uses this client yet.
+mistaken for an invalid tool definition. Real HTTP peer tests cover both eras.
+
+`server/mcpConnections.ts` owns a tenant-scoped private registry and
+`server/mcpConnectionInspector.ts` composes exact credential resolution,
+bounded discovery, and revision-checked commit. The optional persisted slice
+keeps endpoint and opaque credential references private, excludes raw secrets,
+and strictly rejects malformed present state; generic Context setup cannot
+grant these reserved identities. `desktop/mcpCredentialVault.mjs` and
+`desktop/mcpCredentialProtocol.mjs` provide an isolated encrypted test/injected
+cipher vault and bounded on-demand child channel with exact bindings. These
+boundaries are tested without production main/preload/start wiring, native OS
+Keychain acceptance, routes, picker, or model runtime integration.
+The loopback integration test covers the composed credential/inspection path
+with an injected peer; it is not third-party or end-user acceptance.
 
 ## Required next work
 
@@ -69,8 +83,10 @@ no route, saved connection, picker or model runtime uses this client yet.
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. JSON Schema 2020-12 validation, header
   parameter annotations, tool results and multi-round input handling remain.
-- A tenant-owned configured endpoint, connection consent, secret lifecycle,
-  reconnect/disconnect and revocation, with desktop and hosted boundaries.
+- User-facing routes/UI and production desktop/hosted wiring for the tenant-owned
+  endpoint, connection consent, secret lifecycle, reconnect/disconnect and
+  revocation. The isolated registry, vault boundary and CAS inspector are not
+  an end-user connection workflow or native OS Keychain acceptance.
 - Bounded real tool discovery, stable identities and schemas, inspected by the
   user before attachment; remote descriptions and annotations remain untrusted.
 - An approved tool policy and durable execution/uncertainty receipts shared by

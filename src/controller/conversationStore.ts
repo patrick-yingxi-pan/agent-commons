@@ -4,14 +4,25 @@
  *  and the React subscription hook. Panes (and, in Phase 1, the singleton
  *  controller's active session) read conversation state ONLY through here. */
 import { useCallback, useSyncExternalStore } from 'react'
-import { sendMessage, reattachTurn, cancelTurn, invalidate, keys } from '../api'
-import { EMPTY_LIVE } from '../data/liveSession'
+import { sendMessage, reattachTurn, cancelTurn, invalidate, keys, loadSession, LiveTurnUnavailableError } from '../api'
+import { EMPTY_LIVE, liveFromSession } from '../data/liveSession'
 import { createConversationStore, type ConversationState } from './conversationCore'
 
 export const conversations = createConversationStore(
   {
     sendMessage: (sessionId, text, handlers, options) => sendMessage(sessionId, text, handlers, options),
     reattachTurn: (sessionId, turnId, fromSeq, handlers) => reattachTurn(sessionId, turnId, fromSeq, handlers),
+    isStaleReattachError: (error) => error instanceof LiveTurnUnavailableError,
+    reconcileSession: async (sessionId, signal) => {
+      const session = await loadSession(sessionId, signal)
+      return {
+        live: liveFromSession(session),
+        activeTurnId: session.activeTurnId,
+        history: session.messagePage
+          ? { olderCursor: session.messagePage.olderCursor, olderTokens: session.messagePage.olderTokens }
+          : undefined,
+      }
+    },
     cancelTurn,
     // The turn consumed real tokens, and a persisted turn grew the thread's
     // context — refresh the usage gauge for this session.

@@ -60,6 +60,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
     relaySecretHint,
   } = await import('../server/relay.ts')
   const { providerSecretRotationId } = await import('../server/providerSecretRotationIdentity.ts')
+  const { mcpConnectionCreationId } = await import('../server/mcpConnections.ts')
 
   // Re-seed from the source-controlled fixtures (no configured store → seed,
   // then write the baseline). Every store mutation from here persists.
@@ -73,6 +74,20 @@ export async function buildComprehensive(): Promise<PersistedState> {
   const seedContexts = store.savedContexts().contexts
   const a0 = seedArtifacts[0]
   const a1 = seedArtifacts[1]
+
+  // Exercise the private MCP slice without contacting a server, provisioning a
+  // secret or enabling execution. This catalog is an explicit snapshot fixture.
+  const mcpOwner = 'tenant-zeta'
+  const mcpId = mcpConnectionCreationId(mcpOwner, 'snapshot-active')
+  const retiredMcpId = mcpConnectionCreationId(mcpOwner, 'snapshot-retired')
+  for (const id of [mcpId, retiredMcpId]) store.createMcpConnection({
+    id, label: 'Snapshot MCP fixture', endpoint: 'https://mcp.example/snapshot', authentication: 'none',
+  }, mcpOwner)
+  store.commitMcpInspection(mcpId, mcpOwner, 0, {
+    protocolVersion: '2026-07-28', cleanup: 'not-needed',
+    tools: [{ name: 'snapshot_fixture', inputSchema: { type: 'object' } }],
+  }, 1)
+  store.removeMcpConnection(retiredMcpId, mcpOwner, 0)
 
   // ── Projects ── a created project (extraProjects) the rest files into.
   store.applyRelationOp({

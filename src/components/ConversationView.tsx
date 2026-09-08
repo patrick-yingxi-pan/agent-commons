@@ -45,6 +45,8 @@ export function ConversationView({
   onOpenSession,
   draft = false,
   live,
+  composerText,
+  onComposerTextChange,
   typing,
   busy,
   streaming,
@@ -78,6 +80,8 @@ export function ConversationView({
    *  materialization funnel without duplicating its optimistic user row. */
   draft?: boolean
   live: Live
+  composerText: string
+  onComposerTextChange: (value: string) => void
   typing: boolean
   busy: boolean
   /** A turn is streaming into THIS view right now (the stop affordance). */
@@ -341,6 +345,8 @@ export function ConversationView({
       <ContextMutationNotice state={contextMutation} onRetry={onRetryContext} />
 
       <Composer
+        value={composerText}
+        onValueChange={onComposerTextChange}
         sessionId={sessionId}
         modelPick={modelPick}
         onSelectModel={onSelectModel}

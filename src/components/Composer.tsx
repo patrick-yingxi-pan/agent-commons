@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Check,
   CornerDownLeft,
@@ -82,6 +82,8 @@ export function Composer({
   disabled,
   disabledLabel,
   onSend,
+  value,
+  onValueChange: setValue,
   onAddContext,
   onOpenContext,
   onRemoveContexts,
@@ -125,6 +127,8 @@ export function Composer({
    * transport state from endpoint configuration. */
   sessionProviderOnline?: boolean
   onSend: (text: string) => void
+  value: string
+  onValueChange: (value: string) => void
   onAddContext: (ctx: AddedContext) => void
   onOpenContext: (focus: PanelFocus) => void
   /** Removes one or more contexts at once (a cascade may remove two). */
@@ -135,8 +139,14 @@ export function Composer({
 }) {
   const execution = composerExecutionState(modelExecution, sessionProviderOnline)
   const contextWritable = useContextWritable(sessionId)
-  const [value, setValue] = useState('')
   const ref = useRef<HTMLTextAreaElement>(null)
+  // Reconstruct multiline height as well as text after a split-pane remount.
+  useLayoutEffect(() => {
+    const input = ref.current
+    if (!input) return
+    input.style.height = 'auto'
+    input.style.height = Math.min(input.scrollHeight, window.innerHeight < 480 ? 96 : 180) + 'px'
+  }, [value])
   // "Don't ask again" — tracked per context type, so opting out of (say)
   // deleting files still confirms before removing a repo.
   const [skipConfirm, setSkipConfirm] = useState<Record<string, boolean>>(loadSkipConfirm)
@@ -340,7 +350,6 @@ export function Composer({
     if (!t || disabled) return
     onSend(t)
     setValue('')
-    if (ref.current) ref.current.style.height = 'auto'
   }
 
   return (
@@ -400,13 +409,7 @@ export function Composer({
             rows={1}
             aria-label="Message"
             disabled={disabled}
-            onChange={(e) => {
-              setValue(e.target.value)
-              e.target.style.height = 'auto'
-              // A short viewport (landscape phone) can't give the box 180px.
-              const cap = window.innerHeight < 480 ? 96 : 180
-              e.target.style.height = Math.min(e.target.scrollHeight, cap) + 'px'
-            }}
+            onChange={(e) => setValue(e.target.value)}
             onKeyDown={(e) => {
               // Ignore the Enter that COMMITS an IME composition (Chinese/Japanese/
               // Korean input) — it carries isComposing, and sending the half-composed

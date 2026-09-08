@@ -48,6 +48,8 @@ function fakeTransport() {
       new Promise<void>((resolve, reject) => {
         reattaches.push({ sessionId, turnId, handlers, finish: resolve, fail: reject })
       }),
+    isStaleReattachError: (error) =>
+      typeof error === 'object' && error !== null && 'code' in error && error.code === 'live_turn_unavailable',
     cancelTurn: (sessionId, turnId) => {
       cancelled.push({ sessionId, turnId })
       return Promise.resolve()
@@ -449,6 +451,209 @@ test('a failed reattach keeps retry available after rendering a partial assistan
   assert.deepEqual(store.get('s').live.messages.map((message) => message.role), ['user', 'assistant'])
 })
 
+test('a stale 404 reattach reconciles the persisted answer before exposing interruption', async () => {
+  const { transport, reattaches } = fakeTransport()
+  let release!: (value: { live: Live; activeTurnId?: string; history?: { olderCursor: string | null; olderTokens: number } }) => void
+  const store = createConversationStore(
+    {
+      ...transport,
+      reconcileSession: () => new Promise((resolve) => { release = resolve }),
+    },
+    empty,
+  )
+  store.reset('s', { ...EMPTY, messages: [user('server-user', 'finish this')] })
+  store.reconcile('s', store.epoch('s'), { ...EMPTY, messages: [user('server-user', 'finish this')] }, { olderCursor: 'old', olderTokens: 2 })
+
+  const reattach = store.reattach('s', 'turn-live')
+  await tick()
+  const notFound = Object.assign(new Error('No live turn'), { code: 'live_turn_unavailable' })
+  reattaches[0]!.fail(notFound)
+  await tick()
+  assert.equal(store.get('s').busy, true, 'the stale handle stays busy during authoritative recovery')
+  assert.equal(store.get('s').retryableSend, null, 'Retry is not exposed before authoritative recovery')
+  assert.equal(store.get('s').sendFailure, null, 'interruption is not exposed before authoritative recovery')
+  release({
+    live: { ...EMPTY, messages: [user('server-user', 'finish this'), { id: 'answer', role: 'assistant', content: 'finished' }] },
+    history: { olderCursor: 'fresh', olderTokens: 3 },
+  })
+  await reattach
+  await tick()
+
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.content), ['finish this', 'finished'])
+  assert.deepEqual(store.get('s').history, { olderCursor: 'old', olderTokens: 2, loading: false, error: null }, 'loaded history is retained')
+  assert.equal(store.get('s').retryableSend, null)
+  assert.equal(store.get('s').sendFailure, null)
+  assert.equal(store.get('s').busy, false)
+})
+
+test('a stale 404 with an authoritative active turn does not clear Retry from a prior assistant', async () => {
+  const { transport, reattaches } = fakeTransport()
+  const store = createConversationStore(
+    {
+      ...transport,
+      reconcileSession: async () => ({
+        activeTurnId: 'new-live-turn',
+        live: {
+          ...EMPTY,
+          messages: [
+            user('prior-user', 'prior'),
+            { id: 'prior-answer', role: 'assistant', content: 'prior answer' },
+            user('server-user', 'finish this'),
+            { id: 'partial', role: 'assistant', content: 'partial' },
+          ],
+        },
+      }),
+    },
+    empty,
+  )
+  store.reset('s', {
+    ...EMPTY,
+    messages: [user('prior-user', 'prior'), { id: 'prior-answer', role: 'assistant', content: 'prior answer' }, user('server-user', 'finish this')],
+  })
+
+  const reattach = store.reattach('s', 'turn-live')
+  await tick()
+  reattaches[0]!.fail(Object.assign(new Error('No live turn'), { code: 'live_turn_unavailable' }))
+  await reattach
+  await tick()
+
+  assert.equal(store.get('s').retryableSend?.turnId, 'turn-live')
+  assert.match(store.get('s').sendFailure ?? '', /No live turn/)
+  assert.equal(store.get('s').busy, false)
+})
+
+test('a stale 404 without a captured user boundary cannot declare an assistant-only record complete', async () => {
+  const { transport, reattaches } = fakeTransport()
+  const store = createConversationStore(
+    {
+      ...transport,
+      reconcileSession: async () => ({
+        live: { ...EMPTY, messages: [{ id: 'answer', role: 'assistant', content: 'unproven' }] },
+      }),
+    },
+    empty,
+  )
+  store.reset('s', EMPTY)
+
+  const reattach = store.reattach('s', 'turn-live')
+  await tick()
+  reattaches[0]!.fail(Object.assign(new Error('No live turn'), { code: 'live_turn_unavailable' }))
+  await reattach
+  await tick()
+
+  assert.match(store.get('s').sendFailure ?? '', /No live turn/)
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.content), ['unproven'])
+})
+
+test('a stale 404 whose authoritative refetch fails remains an explicit interruption', async () => {
+  const { transport, reattaches } = fakeTransport()
+  const store = createConversationStore(
+    {
+      ...transport,
+      reconcileSession: async () => { throw new Error('session read failed') },
+    },
+    empty,
+  )
+  store.reset('s', { ...EMPTY, messages: [user('server-user', 'finish this')] })
+
+  const reattach = store.reattach('s', 'turn-live')
+  await tick()
+  reattaches[0]!.fail(Object.assign(new Error('No live turn'), { code: 'live_turn_unavailable' }))
+  await reattach
+  await tick()
+
+  assert.match(store.get('s').sendFailure ?? '', /No live turn/)
+  assert.equal(store.get('s').retryableSend?.turnId, 'turn-live')
+})
+
+test('recovery deadline overrides cannot disable or exceed the production bound', () => {
+  const { transport } = fakeTransport()
+  for (const reattachRecoveryTimeoutMs of [0, -1, 0.5, NaN, Infinity, 30_001, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(() => createConversationStore(transport, empty, { reattachRecoveryTimeoutMs }), RangeError)
+  }
+})
+
+test('a hung stale-404 refetch aborts at the deadline and releases busy exactly once', async () => {
+  const { transport, reattaches } = fakeTransport()
+  let signal!: AbortSignal
+  let reads = 0
+  let releaseAuthority!: (value: { live: Live }) => void
+  const store = createConversationStore(
+    {
+      ...transport,
+      reconcileSession: (_id, incoming) => {
+        reads += 1
+        signal = incoming!
+        return new Promise((resolve) => { releaseAuthority = resolve })
+      },
+    },
+    empty,
+    { reattachRecoveryTimeoutMs: 5 },
+  )
+  store.reset('s', { ...EMPTY, messages: [user('server-user', 'finish this')] })
+  const reattach = store.reattach('s', 'turn-live')
+  await tick()
+  reattaches[0]!.fail(Object.assign(new Error('No live turn'), { code: 'live_turn_unavailable' }))
+  await reattach
+
+  assert.equal(reads, 1)
+  assert.equal(signal.aborted, true)
+  assert.equal(store.get('s').busy, false)
+  assert.equal(store.get('s').retryableSend?.turnId, 'turn-live')
+  assert.match(store.get('s').sendFailure ?? '', /No live turn/)
+  releaseAuthority({ live: { ...EMPTY, messages: [user('server-user', 'finish this'), { id: 'late', role: 'assistant', content: 'late data' }] } })
+  await tick()
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.content), ['finish this'], 'late post-timeout data is ignored')
+})
+
+test('a late stale-404 refetch cannot repopulate a disposed account entry', async () => {
+  const { transport, reattaches } = fakeTransport()
+  let release!: (value: { live: Live; activeTurnId?: string }) => void
+  const store = createConversationStore(
+    {
+      ...transport,
+      reconcileSession: () => new Promise((resolve) => { release = resolve }),
+    },
+    empty,
+  )
+  store.reset('s', { ...EMPTY, messages: [user('server-user', 'finish this')] })
+
+  const reattach = store.reattach('s', 'turn-live')
+  await tick()
+  reattaches[0]!.fail(Object.assign(new Error('No live turn'), { code: 'live_turn_unavailable' }))
+  await tick()
+  await tick()
+  store.clearAll()
+  release({ live: { ...EMPTY, messages: [user('server-user', 'finish this'), { id: 'answer', role: 'assistant', content: 'late' }] } })
+  await reattach
+  await tick()
+
+  assert.deepEqual(store.get('s').live.messages, [])
+  assert.equal(store.get('s').sendFailure, null)
+})
+
+test('an epoch already disposed before stale-404 handling does not start an authority read', async () => {
+  const { transport, reattaches } = fakeTransport()
+  let reads = 0
+  const store = createConversationStore(
+    {
+      ...transport,
+      reconcileSession: async () => {
+        reads += 1
+        return { live: EMPTY }
+      },
+    },
+    empty,
+  )
+  store.reset('s', { ...EMPTY, messages: [user('server-user', 'finish this')] })
+  const reattach = store.reattach('s', 'turn-live')
+  await tick()
+  store.clearAll()
+  reattaches[0]!.fail(Object.assign(new Error('No live turn'), { code: 'live_turn_unavailable' }))
+  await reattach
+  assert.equal(reads, 0, 'the account/reset fence is checked before fetch')
+})
+
 test('escalations hold per session; holdEscalation never replaces a held prompt', () => {
   const { transport } = fakeTransport()
   const store = createConversationStore(transport, empty)
@@ -511,6 +716,26 @@ test('focus is per session (Phase 6): keyed isolation, adopt carries it, reset c
   store.subscribe('a', () => (notified += 1))
   store.setFocus('a', null)
   assert.equal(notified, 1)
+})
+
+test('unsent composer text follows its session through reconciliation and adoption, never account disposal', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  const text = 'Unsent first line\nSecond line · café 世界'
+  store.patch('s', { composerText: text })
+  assert.equal(store.get('other').composerText, '')
+  store.reconcile('s', store.epoch('s'), EMPTY)
+  store.setFocus('s', { kind: 'repo', id: 'repo-1' })
+  store.setLive('s', EMPTY)
+  assert.equal(store.get('s').composerText, text, 'server and pane projections cannot erase local input')
+  store.patch('draft', { composerText: text })
+  store.adopt('draft', 'materialized')
+  assert.equal(store.get('materialized').composerText, text)
+  assert.equal(store.get('draft').composerText, '')
+  store.reset('s', EMPTY)
+  assert.equal(store.get('s').composerText, '', 'explicit reset starts clean')
+  store.clearAll()
+  assert.equal(store.get('materialized').composerText, '', 'an outgoing account retains no private input')
 })
 
 test('subscribe notifies on the entry’s changes only; clearAll drops every conversation', () => {

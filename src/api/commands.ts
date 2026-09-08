@@ -73,7 +73,8 @@ import {
   SHARE_TIERS,
   SOCIAL_ENTITY_KINDS,
 } from '../../contract/index.ts'
-import { API_BASE, ApiRequestError, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
+import { API_BASE, AccountSwitchedError, ApiRequestError, apiDelete, apiGet, apiPatch, apiPost } from './client.ts'
+import { accountGeneration } from './account.ts'
 import { invalidate, invalidatePrefix, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
@@ -110,6 +111,19 @@ export interface SendHandlers {
   onToolActivity?: (messageId: string, toolActivities: Extract<ReplyStreamEvent, { type: 'message.toolActivity' }>['toolActivities']) => void
   /** The final, complete assistant message (authoritative). */
   onEnd?: (message: Extract<ReplyStreamEvent, { type: 'message.end' }>['message']) => void
+}
+
+/** The live-turn handle can disappear in the gap between the session detail
+ * read and the stream attach after the server persists its answer. This typed
+ * transport error lets the controller perform one authoritative detail read;
+ * it must not be confused with an arbitrary 404 or an English error string. */
+export class LiveTurnUnavailableError extends Error {
+  readonly code = 'live_turn_unavailable'
+
+  constructor() {
+    super('The live reply is no longer available. Retry to check the saved conversation.')
+    this.name = 'LiveTurnUnavailableError'
+  }
 }
 
 /** Send one logical turn and stream the reply. The caller may retain the
@@ -172,8 +186,8 @@ export async function sendMessage(
 /** Reattach to a turn already running server-side (multi-account §6.4/§6.5):
  *  the stream replays buffered frames after `after` (0 = from the top), then
  *  follows the live tail through the same `message.end` the original stream
- *  carries. A 404 means the turn already persisted — refetch the session; the
- *  record is the authority. Fetch-streamed (fetch CAN set headers; only
+ *  carries. A 404 means the live handle is unavailable — the controller makes
+ *  one authoritative session read before exposing recovery. Fetch-streamed (fetch CAN set headers; only
  *  EventSource can't), so it joins the standard identity policy. */
 export async function reattachTurn(
   sessionId: string,
@@ -189,8 +203,7 @@ export async function reattachTurn(
     throw new Error('Couldn’t reconnect to the reply. Retry will reattach to the same generation.')
   }
   if (res.status === 404) {
-    invalidate(keys.session(sessionId)) // finished while we were away — re-read the record
-    return
+    throw new LiveTurnUnavailableError()
   }
   if (!res.ok || !res.body) throw new Error(`reattach failed: ${res.status}`)
   try {
@@ -244,8 +257,11 @@ export async function createSession(
 /** Read a session's newest bounded thread tail from the server (the system of
  *  record) and prime the cache. The controller calls this on select; older pages
  *  are requested explicitly and merged in its keyed conversation store. */
-export async function loadSession(id: string): Promise<Session> {
-  const session = await apiGet<Session>(paths.session(id, { limit: MESSAGE_PAGE_SIZE }))
+export async function loadSession(id: string, signal?: AbortSignal): Promise<Session> {
+  const issuedGeneration = accountGeneration()
+  const session = await apiGet<Session>(paths.session(id, { limit: MESSAGE_PAGE_SIZE }), { signal })
+  if (signal?.aborted) throw new ApiRequestError('internal', 'Session read aborted before publication.', 0)
+  if (accountGeneration() !== issuedGeneration) throw new AccountSwitchedError('switched before session publication')
   setData(keys.session(id), session)
   return session
 }
