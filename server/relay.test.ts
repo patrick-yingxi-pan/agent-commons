@@ -17,6 +17,7 @@ import { call, callRaw } from './testkit/http.ts'
 import { store } from './store/index.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { deriveRelayCreationSecret, deriveRelayRotationSecret, hashRelaySecret, relayReply, RelayRuntime } from './relay.ts'
+import { UsageRecordingError } from './modelUsage.ts'
 
 const PROVIDER_BODY = { label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' }
 const auth = (secret: string) => ({ authorization: `Bearer ${secret}` })
@@ -811,6 +812,159 @@ test('a tool consuming the whole relay deadline cannot offer a doomed continuati
     assert.match(result.message.content, /didn’t answer in time/)
     assert.deepEqual(await continuation, { idle: true }, 'no post-deadline continuation reached the far side')
   })
+})
+
+test('relay meters each accepted response before tool effects and aggregates without double-counting', async () => {
+  await withEnv({ RELAY_TIMEOUT_MS: '1000' }, async () => {
+    const relay = new RelayRuntime(() => {})
+    const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+    const effects: string[] = []
+    const reply = relayReply(
+      { id: 'usage-order-session', title: 'Usage order' },
+      { ...DEFAULT_AGENT, tools: [] },
+      'read usage',
+      { onStart: () => {}, onDelta: () => {}, onUsage: (u) => { usage.push(u); effects.push('usage') } },
+      undefined,
+      relay,
+      'usage-order-provider',
+      undefined,
+      [],
+      [],
+      {
+        catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+        dispatch: async () => {
+          effects.push('effect')
+          return { status: 200, body: { ok: true } }
+        },
+      },
+    )
+    const first = await relay.poll('usage-order-provider').result
+    assert.ok('entryId' in first)
+    if (!('entryId' in first)) return
+    relay.submit('usage-order-provider', first.entryId, {
+      kind: 'toolCalls',
+      calls: [{ id: 'rtc-usage', name: 'api__get_usage', input: {} }],
+    })
+    // The callback is synchronous and precedes the dispatch effect.
+    const continuation = await relay.poll('usage-order-provider').result
+    assert.ok('entryId' in continuation)
+    assert.deepEqual(usage.length, 1)
+    assert.deepEqual(effects, ['usage', 'effect'])
+    if (!('entryId' in continuation)) return
+    relay.submit('usage-order-provider', continuation.entryId, { kind: 'completion', text: 'done' })
+    const result = await reply
+    assert.equal(usage.length, 2)
+    assert.deepEqual(result.usage, {
+      inputTokens: usage[0].inputTokens + usage[1].inputTokens,
+      outputTokens: usage[0].outputTokens + usage[1].outputTokens,
+    })
+  })
+})
+
+test('relay fallback preserves completed tool-call usage after a later timeout', async () => {
+  await withEnv({ RELAY_TIMEOUT_MS: '35' }, async () => {
+    const relay = new RelayRuntime(() => {})
+    const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+    const reply = relayReply(
+      { id: 'usage-timeout-session', title: 'Usage timeout' },
+      { ...DEFAULT_AGENT, tools: [] },
+      'read usage',
+      { onStart: () => {}, onDelta: () => {}, onUsage: (u) => usage.push(u) },
+      undefined,
+      relay,
+      'usage-timeout-provider',
+      undefined,
+      [],
+      [],
+      {
+        catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+        dispatch: async () => ({ status: 200, body: { ok: true } }),
+      },
+    )
+    const first = await relay.poll('usage-timeout-provider').result
+    assert.ok('entryId' in first)
+    if (!('entryId' in first)) return
+    // This completed response executes, then the unanswered continuation times
+    // out. The first round's usage must remain visible in the fallback.
+    relay.submit('usage-timeout-provider', first.entryId, {
+      kind: 'toolCalls',
+      calls: [{ id: 'rtc-usage-timeout', name: 'api__get_usage', input: {} }],
+    })
+    const result = await reply
+    assert.equal(result.outcome, 'fallback')
+    assert.equal(usage.length, 1)
+    assert.ok(usage[0].inputTokens > 0)
+    assert.ok(usage[0].outputTokens > 0)
+    assert.deepEqual(result.usage, usage[0])
+  })
+})
+
+test('usage recorder failure is terminal before relay tool effects or continuation', async () => {
+  await withEnv({ RELAY_POLL_MS: '20', RELAY_TIMEOUT_MS: '1000' }, async () => {
+    const relay = new RelayRuntime(() => {})
+    let dispatched = 0
+    const reply = relayReply(
+      { id: 'usage-failure-session', title: 'Usage failure' },
+      { ...DEFAULT_AGENT, tools: [] },
+      'read usage',
+      { onStart: () => {}, onDelta: () => {}, onUsage: () => { throw new Error('meter unavailable') } },
+      undefined,
+      relay,
+      'usage-failure-provider',
+      undefined,
+      [],
+      [],
+      {
+        catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+        dispatch: async () => { dispatched += 1; return { status: 200, body: {} } },
+      },
+    )
+    const first = await relay.poll('usage-failure-provider').result
+    assert.ok('entryId' in first)
+    if (!('entryId' in first)) return
+    relay.submit('usage-failure-provider', first.entryId, {
+      kind: 'toolCalls',
+      calls: [{ id: 'rtc-usage-failure', name: 'api__get_usage', input: {} }],
+    })
+    await assert.rejects(reply, (error: unknown) => error instanceof UsageRecordingError)
+    assert.equal(dispatched, 0)
+    assert.deepEqual(await relay.poll('usage-failure-provider').result, { idle: true })
+  })
+})
+
+test('cancellation after a completed relay tool-call preserves its usage report', async () => {
+  const relay = new RelayRuntime(() => {})
+  const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+  const controller = new AbortController()
+  const reply = relayReply(
+    { id: 'usage-cancel-session', title: 'Usage cancel' },
+    { ...DEFAULT_AGENT, tools: [] },
+    'read usage',
+    { onStart: () => {}, onDelta: () => {}, onUsage: (u) => usage.push(u) },
+    controller.signal,
+    relay,
+    'usage-cancel-provider',
+    undefined,
+    [],
+    [],
+    {
+      catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+      dispatch: async () => await new Promise(() => {}),
+    },
+  )
+  const first = await relay.poll('usage-cancel-provider').result
+  assert.ok('entryId' in first)
+  if (!('entryId' in first)) return
+  relay.submit('usage-cancel-provider', first.entryId, {
+    kind: 'toolCalls',
+    calls: [{ id: 'rtc-usage-cancel', name: 'api__get_usage', input: {} }],
+  })
+  for (let i = 0; i < 20 && usage.length === 0; i += 1) await new Promise<void>((resolve) => setImmediate(resolve))
+  assert.equal(usage.length, 1)
+  assert.ok(usage[0].inputTokens > 0)
+  assert.ok(usage[0].outputTokens > 0)
+  controller.abort()
+  await assert.rejects(reply)
 })
 
 // ── v3: the framing dedupe (context-window economy) ───────────────────────────

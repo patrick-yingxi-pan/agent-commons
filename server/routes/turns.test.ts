@@ -48,6 +48,41 @@ async function waitForLiveTurn(sessionId: string, timeoutMs = 5_000) {
   }
 }
 
+for (const cancel of [false, true]) {
+  test(`the message route records completed model calls once even when cancelled: ${cancel}`, async () => {
+    const tenantId = `tenant-call-usage-${cancel}`
+    const session = store.createSession('Meter before continuation', tenantId)
+    const recordUsage = store.recordUsage
+    const reports: Array<[number, number, string | undefined]> = []
+    let cancelled = false
+    store.recordUsage = (input, output, tenant) => {
+      recordUsage.call(store, input, output, tenant)
+      reports.push([input, output, tenant])
+      if (cancel) {
+        const live = turns.bySession(session.id)
+        cancelled = !!live && turns.cancel(live.id)
+      }
+    }
+    try {
+      const response = await callRaw('POST', `/sessions/${session.id}/messages`, {
+        text: 'Open a workspace and draft the launch assets.',
+      }, { 'x-tenant-id': tenantId })
+      assert.equal(response.status, 200)
+      assert.equal(reports.length, cancel ? 1 : 2, 'each completed call, no terminal aggregate duplicate')
+      for (const [input, output, tenant] of reports) {
+        assert.ok(input > 0)
+        assert.ok(output >= 0)
+        assert.equal(tenant, tenantId)
+      }
+      assert.equal(cancelled, cancel)
+      assert.equal(turns.bySession(session.id), undefined)
+      assert.ok(frames(response.body).some((frame) => frame.type === 'message.end'))
+    } finally {
+      store.recordUsage = recordUsage
+    }
+  })
+}
+
 test('a completed send carries turnId + monotonic delta seq, and clears activeTurnId', async () => {
   const s = store.createSession('turn wire shape')
   const res = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello there' })

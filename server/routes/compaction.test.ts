@@ -10,6 +10,7 @@ import { sessionCompactionId } from '../sessionCompactionIdentity.ts'
 import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 import { turns } from '../turns.ts'
+import { PersistenceWriteError } from '../persistence/persist.ts'
 
 let model: Server
 let modelBase = ''
@@ -41,6 +42,75 @@ function longSession(tenantId: string, label: string) {
   }
   return session
 }
+
+for (const mode of ['later-refusal', 'empty-response', 'success'] as const) {
+  test(`compaction meters each completed response exactly once: ${mode}`, async () => {
+    const tenantId = `tenant-usage-${mode}`
+    const session = longSession(tenantId, mode)
+    const originalMessages = structuredClone(session.messages)
+    const reports: Array<[number, number, string | undefined]> = []
+    const recordUsage = store.recordUsage
+    let requests = 0
+    let recordedBeforeNextRequest = false
+    const endpoint = createServer(async (req, res) => {
+      for await (const _chunk of req) { /* consume the complete request */ }
+      requests += 1
+      if (requests === 2) recordedBeforeNextRequest = reports.length === 1
+      if (mode === 'later-refusal' && requests > 1) {
+        res.writeHead(400, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'fixture refusal' } }))
+        return
+      }
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({
+        id: `usage-summary-${requests}`, type: 'message', role: 'assistant', model: 'fixture',
+        content: [{ type: 'text', text: mode === 'empty-response' ? '' : 'Preserve the reviewed decisions.' }],
+        stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 120, output_tokens: 30 },
+      }))
+    })
+    await new Promise<void>((resolve) => endpoint.listen(0, '127.0.0.1', resolve))
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(endpoint.address() as { port: number }).port}`
+    store.recordUsage = (input, output, tenant) => {
+      reports.push([input, output, tenant])
+      recordUsage.call(store, input, output, tenant)
+    }
+    try {
+      const result = await call('POST', `/sessions/${session.id}/compact`, {}, { 'x-tenant-id': tenantId })
+      assert.equal(result.status, mode === 'success' ? 200 : 409)
+      assert.equal(reports.length, mode === 'success' ? requests : 1)
+      for (const report of reports) assert.deepEqual(report, [120, 30, tenantId])
+      if (mode !== 'empty-response') assert.equal(recordedBeforeNextRequest, true, 'no later model call precedes recording')
+      if (mode !== 'success') {
+        assert.deepEqual(store.getSession(session.id)!.messages, originalMessages)
+        assert.equal(store.getSession(session.id)!.compactedMessages, undefined)
+      }
+    } finally {
+      store.recordUsage = recordUsage
+      process.env.ANTHROPIC_BASE_URL = modelBase
+      endpoint.closeAllConnections()
+      await new Promise<void>((resolve) => endpoint.close(() => resolve()))
+    }
+  })
+}
+
+test('compaction preserves storage-unavailable classification when usage recording fails', async () => {
+  const tenantId = 'tenant-compaction-usage-storage'
+  const session = longSession(tenantId, 'storage failure')
+  const original = structuredClone(session.messages)
+  const recordUsage = store.recordUsage
+  let reports = 0
+  store.recordUsage = () => { reports += 1; throw new PersistenceWriteError(new Error('private-disk-path')) }
+  try {
+    const result = await call('POST', `/sessions/${session.id}/compact`, {}, { 'x-tenant-id': tenantId })
+    assert.equal(result.status, 503)
+    assert.equal(result.json.error.code, 'storage_unavailable')
+    assert.doesNotMatch(JSON.stringify(result.json), /private-disk-path/)
+    assert.equal(reports, 1, 'the failed accounting path cannot start a second summary pass')
+    assert.deepEqual(store.getSession(session.id)!.messages, original)
+  } finally {
+    store.recordUsage = recordUsage
+  }
+})
 
 test('POST compact generates a substantive brief, meters it, and exposes the untouched archive in bounded pages', async () => {
   const tenantId = `tenant-compaction-route-${Date.now()}`

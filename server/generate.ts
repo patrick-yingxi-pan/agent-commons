@@ -20,6 +20,7 @@ import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 import { executeToolBatch, toolLoopLimits } from './toolExecution.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, type CompactionPartResult } from './compaction.ts'
 import type { ImageSnapshot } from '../contract/imageInput.ts'
+import { createModelUsageRecorder, UsageRecordingError, type ModelUsageHandler } from './modelUsage.ts'
 
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
@@ -241,6 +242,9 @@ export interface ReplyHandlers {
   onStart: (messageId: string) => void
   /** A chunk of assistant text to append. */
   onDelta: (text: string) => void
+  /** One completed model call's usage, before tools or another call. Production
+   * callers persist this report; ReplyResult.usage must not be recorded again. */
+  onUsage?: ModelUsageHandler
 }
 
 /** A turn's real token usage, summed across the tool-use loop's model calls — fed
@@ -298,6 +302,7 @@ export async function generateCompactionSummaryPart(
   prompt: string,
   provider: ProviderConfig = {},
   signal?: AbortSignal,
+  onUsage?: ModelUsageHandler,
 ): Promise<CompactionPartResult> {
   try {
     const response = await clientFor(provider).messages.create(
@@ -309,6 +314,8 @@ export async function generateCompactionSummaryPart(
       },
       { signal: withDeadline(signal) },
     )
+    const recorder = createModelUsageRecorder(onUsage)
+    recorder.record({ inputTokens: response.usage.input_tokens ?? 0, outputTokens: response.usage.output_tokens ?? 0 })
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)
@@ -317,13 +324,10 @@ export async function generateCompactionSummaryPart(
     if (!text) throw new CompactionGenerationError('The model returned no usable conversation summary.')
     return {
       text,
-      usage: {
-        inputTokens: response.usage.input_tokens ?? 0,
-        outputTokens: response.usage.output_tokens ?? 0,
-      },
+      usage: recorder.snapshot(),
     }
   } catch (error) {
-    if (error instanceof CompactionGenerationError) throw error
+    if (error instanceof CompactionGenerationError || error instanceof UsageRecordingError) throw error
     throw new CompactionGenerationError('The model could not summarize this conversation. Its history was left unchanged.', {
       cause: error,
     })
@@ -387,11 +391,7 @@ export async function generateReply(
 
   let assistantId = ''
   let fullText = ''
-  const usage: TurnUsage = { inputTokens: 0, outputTokens: 0 }
-  const addUsage = (u?: { input_tokens?: number; output_tokens?: number }) => {
-    usage.inputTokens += u?.input_tokens ?? 0
-    usage.outputTokens += u?.output_tokens ?? 0
-  }
+  const usage = createModelUsageRecorder(handlers.onUsage)
   const onStartOnce = (id: string) => {
     if (assistantId) return
     assistantId = id
@@ -441,12 +441,12 @@ export async function generateReply(
         handlers.onDelta(delta)
       })
       const response = await stream.finalMessage()
+      usage.record({ inputTokens: response.usage.input_tokens ?? 0, outputTokens: response.usage.output_tokens ?? 0 })
       onStartOnce(response.id) // safety net if message_start was missed
-      addUsage(response.usage)
 
       const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
       if (toolUses.length === 0) {
-        return { message: completedMessage(fullText), usage, outcome: 'ok' }
+        return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'ok' }
       }
 
       // Observe the over-budget response but execute none of its calls. The
@@ -456,7 +456,7 @@ export async function generateReply(
         const note = `${fullText ? '\n\n' : ''}_(I stopped this turn because the model kept requesting more tools. No further tools were run; try a narrower request.)_`
         for (const c of chunkText(note)) handlers.onDelta(c)
         fullText += note
-        return { message: completedMessage(fullText), usage, outcome: 'fallback', failure: 'tool_loop_limit' }
+        return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'fallback', failure: 'tool_loop_limit' }
       }
 
       // Defense in depth against a non-conformant endpoint: only EXECUTE a tool
@@ -484,6 +484,7 @@ export async function generateReply(
       executedBatches += 1
     }
   } catch (err) {
+    if (err instanceof UsageRecordingError) throw err
     if (signal?.aborted) throw err // the turn was cancelled — let the route persist the partial
     // If prose ALREADY streamed, or a prior batch settled tool effects, the
     // persisted message must CONTINUE that partial turn rather than replace it
@@ -494,14 +495,14 @@ export async function generateReply(
       const note = `${fullText ? '\n\n' : ''}_(I couldn’t finish that turn — the model endpoint became unreachable. Please try again.)_`
       for (const c of chunkText(note)) handlers.onDelta(c)
       fullText += note
-      return { message: completedMessage(fullText), usage, outcome: 'fallback', failure: 'endpoint_unavailable' }
+      return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'fallback', failure: 'endpoint_unavailable' }
     }
-    return fallbackReply(assistantId, handlers)
+    return { ...fallbackReply(assistantId, handlers), usage: usage.snapshot() }
   }
 }
 
-/** Streamed locally when the model endpoint can't be reached. No real tokens were
- *  consumed, so the usage is zero. */
+/** This local fallback consumes no additional tokens. The enclosing operation
+ * retains any completed earlier calls in its separate usage recorder. */
 function fallbackReply(existingId: string, handlers: ReplyHandlers): ReplyResult {
   const id = existingId || `msg_fallback_${Date.now().toString(36)}`
   if (!existingId) handlers.onStart(id)

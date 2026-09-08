@@ -12,6 +12,7 @@
 import type { Agent, Message, ScheduledRun, ScheduledTask } from '../contract/index.ts'
 import { generateReply, type ReplyResult } from './generate.ts'
 import { positiveNumberEnv } from './env.ts'
+import { UsageRecordingError } from './modelUsage.ts'
 import { store, type RoutineExecutionContext } from './store/index.ts'
 
 export interface RoutineRunStore {
@@ -157,7 +158,11 @@ export function createRoutineRunner(
         { id: ctx.sessionId, title: ctx.task.name },
         headlessAgent(ctx.agent),
         executionPrompt(ctx.task),
-        { onStart: () => {}, onDelta: () => {} },
+        {
+          onStart: () => {},
+          onDelta: () => {},
+          onUsage: (usage) => runStore.recordUsage(usage.inputTokens, usage.outputTokens, ctx.tenantId),
+        },
         controller.signal,
         providerConfig,
         undefined,
@@ -168,7 +173,6 @@ export function createRoutineRunner(
       // A non-conformant endpoint may ignore AbortSignal. Shutdown still hands
       // ownership back to restart recovery; it must not settle the durable row.
       if (stopped || controller.signal.aborted) return
-      runStore.recordUsage(result.usage.inputTokens, result.usage.outputTokens, ctx.tenantId)
       runStore.recordGenerationOutcome(result.outcome)
       if (result.outcome !== 'ok') {
         const failure = terminalFailure(result)
@@ -203,11 +207,16 @@ export function createRoutineRunner(
     } catch (error) {
       if (stopped || controller.signal.aborted) return // durable row resumes after restart
       runStore.recordGenerationOutcome('error')
+      // Accounting failure is terminal: the model may already have consumed
+      // tokens, so retrying would launch another paid attempt against an
+      // uncertain meter. UsageRecordingError deliberately exposes only its
+      // sanitized message; never surface its private cause in the run detail.
+      const retryable = !(error instanceof UsageRecordingError)
       retryOrFail(
         ctx,
         'execution_error',
         error instanceof Error ? `Routine execution failed: ${error.message}` : 'Routine execution failed unexpectedly.',
-        true,
+        retryable,
       )
     } finally {
       controllers.delete(key(taskId, runId))

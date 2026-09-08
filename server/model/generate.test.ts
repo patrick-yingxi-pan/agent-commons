@@ -44,6 +44,56 @@ function collect() {
   }
 }
 
+test('each completed endpoint call reports usage before tools and a later cancellation cannot erase it', async () => {
+  const reports: Array<{ inputTokens: number; outputTokens: number }> = []
+  const ac = new AbortController()
+  let dispatched = 0
+  let reportedBeforeEffect = false
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => {
+      dispatched += 1
+      reportedBeforeEffect = reports.length === 1
+      ac.abort()
+      return { status: 200, body: { remaining: 42 } }
+    },
+  }
+  await assert.rejects(generateReply(session, DEFAULT_AGENT, 'Check my usage.', {
+    ...collect().handlers, onUsage: (usage) => reports.push(usage),
+  }, ac.signal, {}, undefined, [], api))
+  assert.equal(dispatched, 1)
+  assert.equal(reportedBeforeEffect, true, 'the completed response was metered before its tool effect')
+  assert.equal(reports.length, 1)
+  assert.ok(reports[0].inputTokens > 0)
+})
+
+test('successful endpoint rounds report exactly the returned total without a final duplicate', async () => {
+  const reports: Array<{ inputTokens: number; outputTokens: number }> = []
+  const result = await generateReply(session, DEFAULT_AGENT, 'Open a workspace and draft the launch assets.', {
+    ...collect().handlers, onUsage: (usage) => reports.push(usage),
+  })
+  assert.equal(result.outcome, 'ok')
+  assert.equal(reports.length, 2, 'one tool response and one final prose response')
+  assert.deepEqual(result.usage, reports.reduce((sum, usage) => ({
+    inputTokens: sum.inputTokens + usage.inputTokens, outputTokens: sum.outputTokens + usage.outputTokens,
+  }), { inputTokens: 0, outputTokens: 0 }))
+})
+
+test('a usage recorder failure stops endpoint execution without provider fallback or tool effects', async () => {
+  let dispatches = 0
+  let reports = 0
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => { dispatches += 1; return { status: 200, body: {} } },
+  }
+  await assert.rejects(generateReply(session, DEFAULT_AGENT, 'Check my usage.', {
+    ...collect().handlers,
+    onUsage: () => { reports += 1; throw new Error('private persistence failure') },
+  }, undefined, {}, undefined, [], api), { name: 'UsageRecordingError' })
+  assert.equal(reports, 1)
+  assert.equal(dispatches, 0)
+})
+
 test('a workspace turn streams prose AND yields a workspace escalation (the tool ran)', async () => {
   const c = collect()
   const { message: msg } = await generateReply(

@@ -10,6 +10,7 @@ import {
   type SessionContext,
 } from '../contract/index.ts'
 import type { ReplyResult } from './generate.ts'
+import { createModelUsageRecorder } from './modelUsage.ts'
 import { createRoutineRunner, type RoutineGenerate, type RoutineRunStore } from './routineRunner.ts'
 import type { RoutineExecutionContext } from './store/index.ts'
 
@@ -134,6 +135,10 @@ function generated(overrides: Partial<ReplyResult> = {}): ReplyResult {
   }
 }
 
+function reportUsage(args: Parameters<RoutineGenerate>, usage = { inputTokens: 12, outputTokens: 8 }): void {
+  args[3].onUsage(usage)
+}
+
 async function settle(state: FakeState, timeoutMs = 250): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (state.context.run.status === 'running' && Date.now() < deadline) {
@@ -147,6 +152,7 @@ test('a recovered durable row executes one model turn with its exact standing co
   let call: Parameters<RoutineGenerate> | undefined
   const generate = (async (...args: Parameters<RoutineGenerate>) => {
     call = args
+    reportUsage(args)
     return generated()
   }) as RoutineGenerate
   const runner = createRoutineRunner(fakeStore(state), generate, { now: () => 1_000, retryBaseMs: 1 })
@@ -169,8 +175,9 @@ test('a recovered durable row executes one model turn with its exact standing co
 test('transient endpoint loss persists a retry cursor, then succeeds on the next attempt', async () => {
   const state = fakeState()
   let calls = 0
-  const generate = (async () => {
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
     calls += 1
+    reportUsage(args)
     return calls === 1
       ? generated({ outcome: 'fallback', failure: 'endpoint_unavailable' })
       : generated()
@@ -190,8 +197,9 @@ test('transient endpoint loss persists a retry cursor, then succeeds on the next
 test('a deterministic tool-loop limit fails once and is never retried', async () => {
   const state = fakeState()
   let calls = 0
-  const generate = (async () => {
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
     calls += 1
+    reportUsage(args)
     return generated({ outcome: 'fallback', failure: 'tool_loop_limit' })
   }) as RoutineGenerate
   const runner = createRoutineRunner(fakeStore(state), generate, { now: () => 1_000, retryBaseMs: 1 })
@@ -207,8 +215,9 @@ test('a deterministic tool-loop limit fails once and is never retried', async ()
 test('a failed connector effect cannot complete a routine from the model prose', async () => {
   const state = fakeState()
   let calls = 0
-  const generate = (async () => {
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
     calls += 1
+    reportUsage(args)
     return generated({
       message: {
         id: 'm-connector-failed',
@@ -246,8 +255,9 @@ test('context/authority refusal and budget exhaustion fail before model I/O', as
       : undefined)
     state.overBudget = scenario === 'budget'
     let calls = 0
-    const generate = (async () => {
+    const generate = (async (...args: Parameters<RoutineGenerate>) => {
       calls += 1
+      reportUsage(args)
       return generated()
     }) as RoutineGenerate
     const runner = createRoutineRunner(fakeStore(state), generate, { now: () => 1_000, retryBaseMs: 1 })
@@ -266,8 +276,9 @@ test('stopping during model I/O leaves the durable row running for restart recov
   const entered = new Promise<void>((resolve) => { started = resolve })
   let release!: () => void
   const held = new Promise<void>((resolve) => { release = resolve })
-  const generate = (async () => {
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
     started()
+    reportUsage(args)
     await held // deliberately ignores AbortSignal: the worker must still fence it
     return generated()
   }) as RoutineGenerate
@@ -280,6 +291,51 @@ test('stopping during model I/O leaves the durable row running for restart recov
   await new Promise((resolve) => setTimeout(resolve, 2))
 
   assert.equal(state.context.run.status, 'running')
+  assert.deepEqual(state.usage, [[12, 8, 'tenant-1']])
   assert.equal(state.failures.length, 0)
   assert.equal(state.completions.length, 0)
+})
+
+test('usage reported before a later generation failure survives the retry', async () => {
+  const state = fakeState()
+  let calls = 0
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
+    calls += 1
+    reportUsage(args)
+    if (calls === 1) throw new Error('late generation failure')
+    return generated()
+  }) as RoutineGenerate
+  const runner = createRoutineRunner(fakeStore(state), generate, { now: () => 1_000, retryBaseMs: 1 })
+  runner.start()
+  await settle(state)
+  runner.stop()
+
+  assert.equal(calls, 2)
+  assert.deepEqual(state.usage, [[12, 8, 'tenant-1'], [12, 8, 'tenant-1']])
+  assert.deepEqual(state.outcomes, ['error', 'ok'])
+  assert.equal(state.completions.length, 1)
+})
+
+test('usage recording failure is terminal and does not leak the private cause or retry paid work', async () => {
+  const state = fakeState()
+  const privateCause = new Error('private disk path')
+  const runStore = fakeStore(state)
+  runStore.recordUsage = () => { throw privateCause }
+  let calls = 0
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
+    calls += 1
+    const recorder = createModelUsageRecorder(args[3].onUsage)
+    recorder.record({ inputTokens: 12, outputTokens: 8 })
+    return generated()
+  }) as RoutineGenerate
+  const runner = createRoutineRunner(runStore, generate, { now: () => 1_000, retryBaseMs: 1 })
+  runner.start()
+  await settle(state)
+  runner.stop()
+
+  assert.equal(calls, 1)
+  assert.deepEqual(state.deferrals, [])
+  assert.equal(state.completions.length, 0)
+  assert.equal(state.failures[0]?.code, 'execution_error')
+  assert.doesNotMatch(state.failures[0]?.detail ?? '', /private disk path/)
 })

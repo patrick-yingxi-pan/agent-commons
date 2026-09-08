@@ -82,6 +82,19 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+The per-call accounting checkpoint closes a demonstrated loss of usage when a
+completed model response was followed by cancellation, failed compaction, or a
+later provider error. Reply, routine and compaction drivers now persist each
+completed call before tools or more model work; returned totals cannot be
+recorded again. Session-provider counts remain character-based estimates, now
+accumulated per completed response rather than only the last round. Failed
+accounting stops the loop and cannot trigger an automatic routine retry.
+Endpoint, route and routine failure-first tests expose the old missing reports
+and retry behavior. JSON and SQLite process-restart tests preserve an exact
+completed-call count after a subsequent provider refusal. Partial streams with
+no complete response, provider invoices and concurrent reservations remain
+separate accounting gaps; subscription ceilings and access policy are unchanged.
+
 The PPTX increment extends direct-file input to bounded slide-text snapshots
 using the existing Office ZIP/XML worker and dependencies. Presentation order
 and original slide numbers are retained; within each slide the import follows

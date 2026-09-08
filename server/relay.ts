@@ -47,6 +47,7 @@ import { positiveNumberEnv } from './env.ts'
 import { attachmentPrompt } from './attachmentInput.ts'
 import { deriveServerSecret } from './auth.ts'
 import { executeToolBatch, toolExecutionLimits, toolLoopLimits } from './toolExecution.ts'
+import { createModelUsageRecorder } from './modelUsage.ts'
 
 /** ── The rendezvous secret ───────────────────────────────────────────────────
  *  High-entropy bearer token, exposed only by its mint/rotate ceremony. Only its
@@ -477,6 +478,7 @@ function relayFallback(
     relationOps: RelationOp[]
     escalation?: EscalationProposal
     toolActivities: ToolActivity[]
+    usage?: { inputTokens: number; outputTokens: number }
   },
 ): ReplyResult {
   const id = `msg_relay_fallback_${Date.now().toString(36)}`
@@ -491,7 +493,7 @@ function relayFallback(
       escalation: state?.escalation,
       toolActivities: state?.toolActivities.length ? state.toolActivities : undefined,
     },
-    usage: { inputTokens: 0, outputTokens: 0 },
+    usage: state?.usage ?? { inputTokens: 0, outputTokens: 0 },
     outcome: 'fallback',
   }
 }
@@ -554,6 +556,7 @@ export async function relayReply(
   ctx.pending = relationOps
   const toolActivities: ToolActivity[] = []
   let escalation: EscalationProposal | undefined
+  const usage = createModelUsageRecorder(handlers.onUsage)
 
   // ONE deadline spans the whole turn — tool rounds share it, so a chatty far
   // session can't stretch a turn to rounds × timeout.
@@ -561,7 +564,12 @@ export async function relayReply(
   const startedAt = Date.now()
   const { maxBatches } = toolLoopLimits()
   let executedBatches = 0
-  const fallback = (content: string) => relayFallback(handlers, content, { relationOps, escalation, toolActivities })
+  const fallback = (content: string) => relayFallback(handlers, content, {
+    relationOps,
+    escalation,
+    toolActivities,
+    usage: usage.snapshot(),
+  })
 
   for (let round = 0; ; round += 1) {
     // Check the one whole-turn deadline BEFORE offering an entry. Otherwise a
@@ -599,11 +607,20 @@ export async function relayReply(
       relay.clear(providerId, offer.entryId)
       return fallback(FALLBACK_TIMEOUT)
     }
-    // An explicit connector error, and an empty/whitespace completion normalised to
-    // one, both fall back — final, no redelivery (§7.6). A refusal is a completion.
-    if (raced.kind === 'error' || (raced.kind === 'completion' && !raced.text.trim())) {
-      return fallback(FALLBACK_DEGENERATE)
-    }
+    // An explicit connector error has no completed model response to meter.
+    if (raced.kind === 'error') return fallback(FALLBACK_DEGENERATE)
+
+    // The connector's accepted response is the model call boundary. Meter every
+    // completed response exactly once before any fallback, tool effect, or prose
+    // streaming can happen.
+    usage.record({
+      inputTokens: estimateTokens(system) + turns.reduce((sum, t) => sum + Math.ceil(turnChars(t) / 4), 0),
+      outputTokens: raced.kind === 'completion' ? estimateTokens(raced.text) : estimateTokens(JSON.stringify(raced.calls)),
+    })
+
+    // An empty/whitespace completion is still a completed response, but falls
+    // back — final, no redelivery (§7.6). A refusal is a completion.
+    if (raced.kind === 'completion' && !raced.text.trim()) return fallback(FALLBACK_DEGENERATE)
 
     if (raced.kind === 'toolCalls') {
       // Relayed calls against a tool-less prompt, or a far session that never
@@ -653,10 +670,7 @@ export async function relayReply(
         escalation,
         toolActivities: toolActivities.length ? toolActivities : undefined,
       },
-      usage: {
-        inputTokens: estimateTokens(system) + turns.reduce((sum, t) => sum + Math.ceil(turnChars(t) / 4), 0),
-        outputTokens: estimateTokens(content),
-      },
+      usage: usage.snapshot(),
       outcome: 'ok',
     }
   }

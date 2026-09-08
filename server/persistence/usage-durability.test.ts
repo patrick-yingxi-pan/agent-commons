@@ -13,6 +13,7 @@ import { readPortableSnapshot, restoreBackendSnapshot } from './portable.ts'
 const directory = mkdtempSync(join(tmpdir(), 'agent-commons-usage-durability-'))
 const storeModule = new URL('../store/index.ts', import.meta.url).href
 const persistenceModule = new URL('./persist.ts', import.meta.url).href
+const generationModule = new URL('../generate.ts', import.meta.url).href
 const start = 1_800_000_000_000
 const hour = 3_600_000
 after(() => rmSync(directory, { recursive: true, force: true }))
@@ -45,6 +46,44 @@ function success(result: ReturnType<typeof boot>) {
 }
 
 for (const backend of ['json', 'sqlite'] as const) {
+  test(`${backend}: a completed summary call remains metered after a later provider failure and restart`, () => {
+    const file = join(directory, `interrupted-model-${backend}`)
+    const first = success(boot(file, backend, start, `
+      const { createServer } = await import('node:http');
+      const { generateCompactionSummaryPart } = await import(${JSON.stringify(generationModule)});
+      let requests = 0;
+      const endpoint = createServer(async (req, res) => {
+        for await (const chunk of req) {}
+        requests += 1;
+        res.writeHead(requests === 1 ? 200 : 400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify(requests === 1 ? {
+          id: 'completed-part', type: 'message', role: 'assistant', model: 'fixture',
+          content: [{ type: 'text', text: 'A complete first summary part.' }],
+          stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 101, output_tokens: 23 }
+        } : { type: 'error', error: { type: 'invalid_request_error', message: 'fixture refusal' } }));
+      });
+      await new Promise(resolve => endpoint.listen(0, '127.0.0.1', resolve));
+      const provider = { baseURL: 'http://127.0.0.1:' + endpoint.address().port };
+      const onUsage = usage => store.recordUsage(usage.inputTokens, usage.outputTokens, 'tenant-alpha');
+      try {
+        await generateCompactionSummaryPart('first', provider, undefined, onUsage);
+        const afterFirst = loadState().usageMeters.find(([id]) => id === 'tenant-alpha');
+        if (afterFirst?.[1].fiveHour.consumed !== 124) throw new Error('Completed call was not durable before continuation');
+        let refused = false;
+        try { await generateCompactionSummaryPart('second', provider, undefined, onUsage); }
+        catch (error) { refused = error.name === 'CompactionGenerationError'; }
+        if (!refused || requests !== 2) throw new Error('Expected one later provider refusal');
+      } finally {
+        endpoint.closeAllConnections();
+        await new Promise(resolve => endpoint.close(resolve));
+      }
+    `))
+    const meter = first.saved.usageMeters.find(([id]) => id === 'tenant-alpha')?.[1]
+    assert.deepEqual(meter, { fiveHour: { start, consumed: 124 }, weekly: { start, consumed: 124 } })
+    const restarted = success(boot(file, backend, start + hour))
+    assert.deepEqual(restarted.saved.usageMeters, first.saved.usageMeters)
+  })
+
   test(`${backend}: exact tenant spend and original window anchors survive full restarts`, () => {
     const file = join(directory, `restart-${backend}`)
     const first = success(boot(file, backend, start, `

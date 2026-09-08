@@ -110,6 +110,7 @@ import {
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId, type ReplySession } from '../generate.ts'
+import { UsageRecordingError } from '../modelUsage.ts'
 import {
   deriveRelayCreationSecret,
   deriveRelayRotationSecret,
@@ -4601,6 +4602,7 @@ export function buildRouter(): Router {
     // The streamed-reply seam both transports share (contract: ReplyHandlers in,
     // ReplyResult out) — the route around the dispatch below is transport-blind.
     const replyHandlers = {
+      onUsage: (usage: { inputTokens: number; outputTokens: number }) => store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId),
       onStart: (id: string) => {
         messageId = id
         emit({ type: 'message.start', sessionId: session.id, turnId: active.id, message: { id, role: 'assistant', content: '' } })
@@ -4667,13 +4669,11 @@ export function buildRouter(): Router {
         catalog: apiCatalog(),
         dispatch: (method: string, path: string, body?: unknown) => apiDispatch(method, path, req.headers, body),
       }
-      const { message, usage, outcome } =
+      const { message, outcome } =
         provider.kind === 'session'
           ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, turnHistory, apiRuntime)
           : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts, apiRuntime, {}, turnHistory)
-      // Meter the real tokens this turn consumed (even ephemeral turns —
-      // they hit the model too), so the composer's plan-usage rings reflect use.
-      store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
+      // Completed calls were already metered, including ephemeral/cancelled work.
       // The model reported `ok` or `fallback` (endpoint degraded); recorded once in `finally`.
       turnOutcome = outcome
       if (message.relationActions?.length) {
@@ -5057,8 +5057,9 @@ export function buildRouter(): Router {
 
     activeCompactions.add(params.id)
     try {
+      const onUsage = (usage: { inputTokens: number; outputTokens: number }) => store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
       const generated = await summarizeConversation(prepared.sourceMessages, async (prompt) => {
-        if (provider.kind !== 'session') return generateCompactionSummaryPart(prompt, providerConfig)
+        if (provider.kind !== 'session') return generateCompactionSummaryPart(prompt, providerConfig, undefined, onUsage)
         const summaryAgent = {
           ...agent,
           systemPrompt: COMPACTION_SYSTEM_PROMPT,
@@ -5069,7 +5070,7 @@ export function buildRouter(): Router {
           { id: readySession.id, title: readySession.title },
           summaryAgent,
           prompt,
-          { onStart: () => {}, onDelta: () => {} },
+          { onStart: () => {}, onDelta: () => {}, onUsage },
           undefined,
           store.relay,
           providerId,
@@ -5080,9 +5081,8 @@ export function buildRouter(): Router {
         return { text: result.message.content, usage: result.usage }
       })
 
-      // The provider consumed these tokens even if the compare-before-commit below
-      // finds that another transcript mutation won the race.
-      store.recordUsage(generated.usage.inputTokens, generated.usage.outputTokens, tenantId)
+      // Each provider response was metered even if reduction or this compare
+      // fails. The returned aggregate is not a second accounting event.
       const compacted = store.applySessionCompaction(prepared, generated.text, {
         agentId: agent.id,
         providerId,
@@ -5094,6 +5094,9 @@ export function buildRouter(): Router {
       if (!compacted) return sendError(res, 'not_found', `No session '${params.id}'`)
       sendJson(res, { ...compacted, compactedMessages: undefined })
     } catch (error) {
+      // Preserve the router's storage-unavailable mapping. The wrapper prevents
+      // model fallback, but must not erase a durable-write failure's identity.
+      if (error instanceof UsageRecordingError && error.cause) throw error.cause
       if (error instanceof ConflictError) return sendError(res, error.code, error.message)
       if (error instanceof CompactionGenerationError) {
         return sendError(res, 'capability_unavailable', error.message)
