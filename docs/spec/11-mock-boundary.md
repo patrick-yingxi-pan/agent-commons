@@ -25,6 +25,12 @@ handoff awaits an unlocked Mac. OCR, SVG/BMP/ICO, other documents, live folder/G
 input, paid-provider acceptance, and manual OS-dialog/native release acceptance
 remain outside this milestone.
 
+Authored sheet and slide saves (REL-16) now persist actual bounded literal values
+under exact artifact identities. The model proposes those values for consent;
+one shared renderer shows them before and after saving. They never borrow seed
+bodies. This is not spreadsheet calculation, native Office export, layout/media
+authoring, or structured routine delivery; those remain required follow-on work.
+
 ## The declared fixtures (L2)
 
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |

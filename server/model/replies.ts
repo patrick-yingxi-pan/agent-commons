@@ -66,7 +66,7 @@ export function plainReplyText(userText: string): string {
   if (/\bdraft\b/.test(t) && /\barticle\b/.test(t)) {
     return 'Here’s a draft for our shared article, **Coordinating Agent Work**:\n\n> A durable conversation keeps context, decisions, and delegated effects together. Shared Projects coordinate many such work streams through explicit roles and a Guardian.\n\nI’ve claimed this section at the project’s Guardian so we don’t collide with the other contributors — refine away.'
   }
-  return 'The model here is a local mock, so free-form chat is canned — but every organizing act is real. Ask me to *open a workspace*, *connect the repo*, *save a draft as a document*, *file this under a project*, or *have a schedule save a digest*.'
+  return 'The model here is a local mock, so free-form chat is canned — but every organizing act is real. Ask me to *open a workspace*, *connect the repo*, *save a document, sheet, or slide deck*, *file this under a project*, or *have a schedule save a digest*.'
 }
 
 /** A deterministic but source-derived stand-in for the real model's compaction

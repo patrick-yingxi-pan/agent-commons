@@ -30,6 +30,17 @@ milestones or address a demonstrated defect.
 
 ## Checkpoint criteria
 
+Structured artifact authoring now uses the same save proposal and exact-ID body
+store as documents. Sheets carry literal rectangular values; slides carry ordered
+titles and bullets. One strict shared parser bounds shape, counts and 20,000 total
+UTF-16 characters before consent or persistence; invalid content is rejected as a
+whole. Consent and saved pages share one renderer, including keyboard-scrollable
+wide tables and wrapping long text. The HTTP/MCP read wall, rename/replay identity,
+JSON/SQLite restart and portable-state validation preserve these actual bodies.
+This is not spreadsheet calculation, native XLSX/PPTX export, arbitrary layout,
+or a cell/slide editing workflow. Those richer authoring/export capabilities and
+structured standing-routine output remain required follow-on work.
+
 Artifact renaming is an owner-only metadata workflow. Names have independent
 revision ordering, while IDs, document bodies, links, filing, grants and immutable
 save provenance remain stable. A routine refresh preserves the owner's display

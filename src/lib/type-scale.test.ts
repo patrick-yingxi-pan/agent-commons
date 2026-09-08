@@ -148,7 +148,9 @@ test('every font family in the UI is one of the declared three', () => {
 })
 
 test('the exemption is a FILE that exists, so it cannot quietly widen', () => {
-  assert.ok(TYPE_SCALE_EXEMPT_FILES.length > 0, 'the exemption list is stated, not implied')
+  assert.deepEqual(TYPE_SCALE_EXEMPT_FILES, [
+    'components/artifactPreview.tsx', 'components/StructuredArtifactView.tsx',
+  ], 'only the existing artifact miniature renderer and its extracted structured portion are exempt')
   for (const rel of TYPE_SCALE_EXEMPT_FILES) {
     // Alive-checked: a stale exemption is a hole in the scan that reads as a
     // rule. If the file moves, this fails rather than silently exempting nothing

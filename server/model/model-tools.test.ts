@@ -21,6 +21,18 @@ test('TOOL_DEFINITIONS: every tool has a name, description, and object input_sch
   assert.equal(TOOL_NAMES.length, 23)
 })
 
+test('save_artifact advertises a document-or-structured-body union', () => {
+  const save = TOOL_DEFINITIONS.find((tool) => tool.name === 'save_artifact')
+  assert.ok(save)
+  assert.equal(save.input_schema.properties.kind.enum?.join(','), 'doc,sheet,slide')
+  assert.equal(save.input_schema.properties.body.oneOf?.length, 3)
+  assert.equal(save.input_schema.properties.body.oneOf?.[1]?.properties?.type.enum?.[0], 'sheet')
+  assert.equal(save.input_schema.properties.body.oneOf?.[2]?.properties?.type.enum?.[0], 'slides')
+  assert.equal(save.input_schema.properties.body.oneOf?.[1]?.properties?.columns.maxItems, 32)
+  assert.equal(save.input_schema.properties.body.oneOf?.[1]?.properties?.rows.maxItems, 200)
+  assert.equal(save.input_schema.properties.body.oneOf?.[2]?.properties?.slides.maxItems, 40)
+})
+
 test('open_workspace builds a workspace escalation with drafted artifacts', () => {
   const e = executeTool('open_workspace', { sources: ['brand-kit/'] }, ctx)
   assert.equal(e.escalation?.kind, 'workspace')
@@ -145,6 +157,49 @@ test('save_artifact refuses blank content and bounds proposal text before it rea
   if (op?.kind !== 'save-artifact') return
   assert.equal(op.artifact.body, bounded.text)
   assert.ok((op.artifact.body?.length ?? Infinity) <= MAX_AUTHORED_DOCUMENT_CHARS)
+})
+
+test('save_artifact proposes bounded structured sheet and slide bodies without applying them', () => {
+  const sheet = executeTool('save_artifact', {
+    name: 'metrics.sheet',
+    kind: 'sheet',
+    body: { type: 'sheet', columns: ['Metric', 'Value'], rows: [['Retention', '42%']] },
+  }, ctx)
+  const sheetOp = sheet.relationOps?.[0]
+  assert.equal(sheetOp?.kind, 'save-artifact')
+  if (sheetOp?.kind === 'save-artifact') {
+    assert.equal(sheetOp.artifact.kind, 'sheet')
+    assert.deepEqual(sheetOp.artifact.body, { type: 'sheet', columns: ['Metric', 'Value'], rows: [['Retention', '42%']] })
+  }
+
+  const slides = executeTool('save_artifact', {
+    name: 'metrics.slides',
+    kind: 'slide',
+    body: { type: 'slides', slides: [{ title: 'Overview', bullets: ['Retention rose'] }] },
+  }, ctx)
+  const slideOp = slides.relationOps?.[0]
+  assert.equal(slideOp?.kind, 'save-artifact')
+  if (slideOp?.kind === 'save-artifact') {
+    assert.equal(slideOp.artifact.kind, 'slide')
+    assert.deepEqual(slideOp.artifact.body, { type: 'slides', slides: [{ title: 'Overview', bullets: ['Retention rose'] }] })
+  }
+})
+
+test('save_artifact does not infer a structured body kind when kind is omitted', () => {
+  const effect = executeTool('save_artifact', {
+    name: 'metrics.sheet',
+    body: { type: 'sheet', columns: ['Metric'], rows: [['Retention']] },
+  }, ctx)
+  assert.equal(effect.relationOps, undefined)
+  assert.match(effect.summary, /proposed nothing/i)
+})
+
+test('save_artifact refuses any supplied kind that is not an exact supported value', () => {
+  const body = { type: 'sheet', columns: ['Metric'], rows: [['Retention']] }
+  for (const kind of [null, 42, '', ' Sheet ', 'spreadsheet', 'slides']) {
+    const effect = executeTool('save_artifact', { name: 'bad-kind.sheet', kind, body }, ctx)
+    assert.equal(effect.relationOps, undefined, `kind ${String(kind)} must not default or alias to a proposal`)
+  }
 })
 
 test('an unknown tool degrades gracefully (no throw, no effect)', () => {

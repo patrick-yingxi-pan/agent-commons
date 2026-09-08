@@ -115,17 +115,36 @@ function matchKeywords(text: string): ToolCall[] {
   }
 
   // ── Save a draft out of this session ──────────────────────────────────────
-  if (/\bsave\b/.test(t) && /\b(artifact|draft|doc|note|recap|summary)\b/.test(t)) {
-    const name = grab(/\bsave\b.*?\bas\s+([\w.-]+)/i) ?? 'session-recap.md'
-    calls.push({
-      name: 'save_artifact',
-      input: {
-        name,
-        body: 'This recap was saved from the current conversation.\n\nReview and refine it from the document page.',
-        meta: 'Document',
-        ...(project ? { project } : {}),
-      },
-    })
+  // Structured bodies stay explicit in the mock just as they must be on the real
+  // tool boundary: `kind` is never inferred by the executor from the body alone.
+  if (/\bsave\b/.test(t) && /\b(artifact|draft|doc|note|recap|summary|sheet|spreadsheet|table|slide|slides|deck|presentation)\b/.test(t)) {
+    const structuredKind = /\b(sheet|spreadsheet|table)\b/.test(t)
+      ? 'sheet'
+      : /\b(slide|slides|deck|presentation)\b/.test(t)
+        ? 'slide'
+        : undefined
+    const name = grab(/\bsave\b.*?\bas\s+([\w.-]+)/i) ??
+      (structuredKind === 'sheet' ? 'session-summary.sheet' : structuredKind === 'slide' ? 'session-summary.slides' : 'session-recap.md')
+    const input = structuredKind === 'sheet'
+      ? {
+          name,
+          kind: 'sheet',
+          body: { type: 'sheet', columns: ['Metric', 'Value'], rows: [['Summary', 'Saved from this conversation']] },
+          meta: 'Sheet',
+        }
+      : structuredKind === 'slide'
+        ? {
+            name,
+            kind: 'slide',
+            body: { type: 'slides', slides: [{ title: 'Summary', bullets: ['Saved from this conversation'] }] },
+            meta: 'Slides',
+          }
+        : {
+            name,
+            body: 'This recap was saved from the current conversation.\n\nReview and refine it from the document page.',
+            meta: 'Document',
+          }
+    calls.push({ name: 'save_artifact', input: { ...input, ...(project ? { project } : {}) } })
   }
 
   // ── Schedule-centric ──────────────────────────────────────────────────────

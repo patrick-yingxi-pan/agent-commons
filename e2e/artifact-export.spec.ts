@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test'
 import type { ArtifactDocumentExport, ArtifactItem } from '../contract/index.ts'
 import { API, newUser } from './social-helpers.ts'
 import { ms } from './budget.ts'
+import { settleArtifactPageRail } from './artifact-page-helpers.ts'
 
 const READER = 'tenant-beta'
 const FOREIGN = 'tenant-growthworks'
@@ -64,9 +65,7 @@ test('owner and granted reader download the current saved Markdown revision', as
     for (const [actor, page] of [['owner', owner.page], ['reader', reader.page]] as const) {
       for (const [width, height] of [[320, 700], [375, 812], [768, 1024], [844, 390], [1280, 800]]) {
         await page.setViewportSize({ width, height })
-        const closeRail = page.locator('button[aria-label="Collapse sidebar"]')
-        if (!await closeRail.evaluate((button) => button.closest('[inert]') !== null)) await closeRail.click()
-        await expect.poll(() => closeRail.evaluate((button) => button.closest('[inert]')?.getBoundingClientRect().width ?? -1)).toBe(0)
+        await settleArtifactPageRail(page)
         const action = page.getByRole('button', { name: 'Download Markdown', exact: true })
         await action.focus()
         await expect(action).toBeInViewport()

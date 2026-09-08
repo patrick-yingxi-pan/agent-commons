@@ -33,6 +33,7 @@ import { SECTION_LABELS } from '../lib/nav'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { renderRich } from '../lib/rich'
 import { TextDiff } from './TextDiff'
+import { StructuredArtifactView } from './StructuredArtifactView'
 
 /** The lead glyph for an op, by the relationship it edits. */
 const RELATION_ICON: Record<string, LucideIcon> = {
@@ -229,7 +230,9 @@ function ProposedBody({ preview }: { preview: RelationContentPreview }) {
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         {open ? 'Hide' : 'Review'} {preview.label}
       </button>
-      {open && <TextDiff current={preview.current} proposed={preview.proposed} />}
+      {open && (preview.structured
+        ? <StructuredArtifactView body={preview.structured} size="compact" />
+        : <TextDiff current={preview.current} proposed={preview.proposed} />)}
     </div>
   )
 }

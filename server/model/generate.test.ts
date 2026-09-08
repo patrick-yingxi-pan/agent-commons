@@ -117,6 +117,30 @@ test('a relation-op turn yields the relation proposal (save-artifact)', async ()
   assert.ok(c.text.length > 0)
 })
 
+test('the endpoint tool loop carries structured sheet and slide saves as proposals only', async () => {
+  for (const [prompt, expectedKind, expectedBody] of [
+    [
+      'Save this as metrics.sheet',
+      'sheet',
+      { type: 'sheet', columns: ['Metric', 'Value'], rows: [['Summary', 'Saved from this conversation']] },
+    ],
+    [
+      'Save this as metrics.slides deck',
+      'slide',
+      { type: 'slides', slides: [{ title: 'Summary', bullets: ['Saved from this conversation'] }] },
+    ],
+  ] as const) {
+    const c = collect()
+    const { message } = await generateReply(session, DEFAULT_AGENT, prompt, c.handlers)
+    const op = message.relationActions?.[0]
+    assert.equal(op?.kind, 'save-artifact')
+    if (op?.kind !== 'save-artifact') continue
+    assert.equal(op.artifact.kind, expectedKind)
+    assert.deepEqual(op.artifact.body, expectedBody)
+    assert.equal(message.escalation, undefined)
+  }
+})
+
 test('a project turn yields a project escalation (create_project, filing this session)', async () => {
   const c = collect()
   const { message: msg } = await generateReply(session, DEFAULT_AGENT, 'Create a project called Auth hardening.', c.handlers)

@@ -93,7 +93,7 @@ export const TYPE_FAMILY = {
   mono: 'font-mono',
 } as const
 
-/** ── The one declared exemption ──────────────────────────────────────────────
+/** ── The one declared role exemption ─────────────────────────────────────────
  *  `components/artifactPreview.tsx` renders a MINIATURE of a document at three
  *  zooms (thumb · compact · full), so its type ladder is the DOCUMENT's, not
  *  the UI's: 8px body under a 9px heading is not a UI size anyone reads, it is
@@ -101,10 +101,15 @@ export const TYPE_FAMILY = {
  *  would not unify anything — it would make the thumbnails illegible while
  *  adding two sizes to the set every other surface has to obey.
  *
- *  The exemption is a FILE, not a pattern, so it cannot quietly widen. A second
- *  file wanting in is a design conversation, not a list edit.
+ *  `components/StructuredArtifactView.tsx` is the extracted sheet/slide portion
+ *  of that same renderer, shared with consent. Its 8/9px sizes remain limited
+ *  to the explicit `thumb` zoom; ordinary consent and full views use UI steps.
+ *  This preserves the existing miniature role, not a new UI type scale.
+ *
+ *  The exemption names exact FILES, not a pattern, so it cannot quietly widen.
+ *  A new role wanting in is a design conversation, not a list edit.
  *
  *  The code measure `leading-[1.7]` on `<pre>` blocks is exempt for the same
  *  shape of reason — a monospace block is set to a line grid, not to the UI's
  *  named leadings — and is allowed only on `font-mono` lines. */
-export const TYPE_SCALE_EXEMPT_FILES = ['components/artifactPreview.tsx'] as const
+export const TYPE_SCALE_EXEMPT_FILES = ['components/artifactPreview.tsx', 'components/StructuredArtifactView.tsx'] as const

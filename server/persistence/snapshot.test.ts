@@ -596,6 +596,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.ok(s.artifactMetadata?.some(([id, metadata]) =>
     id.length > 0 && metadata.name === 'Playground renamed document.md' && metadata.revision === 1),
   'renameArtifact → independent, revisioned display metadata in the portable snapshot')
+  assert.ok(s.artifactBodies?.some(([id, body]) => id.length > 0 && body.type === 'sheet' &&
+    body.rows[0]?.[1] === '=1+1' && body.revision === 0), 'authored sheet values remain literal in portable state')
+  assert.ok(s.artifactBodies?.some(([id, body]) => id.length > 0 && body.type === 'slides' &&
+    body.slides[0]?.bullets[0] === 'Exact authored slide values.' && body.revision === 0), 'authored slide values survive portable state')
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {

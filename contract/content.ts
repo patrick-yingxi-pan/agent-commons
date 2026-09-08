@@ -1,8 +1,8 @@
 /** ── Contract: artifact bodies ─────────────────────────────────────────────
  *  The rendered content of an artifact (a doc's blocks, a sheet's rows, a deck's
- *  slides, a figure's series). The mock backend serves hand-authored bodies; a
- *  real backend would render/extract the actual file. Shared so the server's
- *  payload and the UI's renderer agree on shape. */
+ *  slides, a figure's series). Authored documents, sheets, and slides persist
+ *  real values; seeded demo and unsupported imported-file previews remain
+ *  explicit fixtures. Shared so persistence, consent, and rendering agree. */
 
 export type DocBlock =
   | { h: string } // section heading

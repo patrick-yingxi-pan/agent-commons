@@ -15,6 +15,7 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import { authoredArtifact, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
@@ -10786,15 +10787,21 @@ export const store = {
       shared: projectBefore.shared === true,
       description: projectDescription(projectBefore, graph),
     }
-    // A current document save is one compound durable act: validate and
+    // A current authored save is one compound durable act: validate and
     // normalize its authored body before the graph can mint metadata, then lay
     // the body under the minted id before the single persist below. Historical
     // metadata-only saves remain replayable; new producers always supply body.
-    let authored: AuthoredDocument | undefined
+    let authored: AuthoredArtifact | undefined
     let existingArtifactId: string | undefined
     if (op.kind === 'save-artifact') {
       if (!op.artifact || typeof op.artifact.name !== 'string') {
-        throw new ValidationError('Document name (string) is required.')
+        throw new ValidationError('Artifact name (string) is required.')
+      }
+      if (typeof op.artifact.meta !== 'string') {
+        throw new ValidationError('Artifact meta must be a string.')
+      }
+      if (op.artifact.excerpt !== undefined && typeof op.artifact.excerpt !== 'string') {
+        throw new ValidationError('Artifact excerpt must be a string when supplied.')
       }
       // Replay identity is tenant-scoped. The incoming owner stamp is never
       // trusted: the authenticated caller (or fixed desktop tenant) supplies it
@@ -10803,7 +10810,7 @@ export const store = {
       op = { ...op, ownerTenantId }
       const artifactName = op.artifact.body === undefined ? op.artifact.name : op.artifact.name.trim()
       if (op.artifact.body !== undefined && !artifactName) {
-        throw new ValidationError('Document name must contain text.')
+        throw new ValidationError('Artifact name must contain text.')
       }
       if (artifactName !== op.artifact.name) {
         op = { ...op, artifact: { ...op.artifact, name: artifactName } }
@@ -10811,22 +10818,21 @@ export const store = {
       const saveOp = op
       existingArtifactId = graph.extraArtifacts.find((candidate) => artifactMatchesSave(candidate, saveOp))?.id
       if (op.artifact.body !== undefined) {
-        if (op.artifact.kind !== 'doc') {
-          throw new ValidationError('An authored body is supported only for a document artifact.')
-        }
-        authored = authoredDocument(artifactName, op.artifact.body)
-        if (!authored) throw new ValidationError('Document body must contain text.')
+        authored = authoredArtifact(artifactName, op.artifact.kind, op.artifact.body)
+        if (!authored) throw new ValidationError(op.artifact.kind === 'doc'
+          ? 'Document body must contain text.'
+          : 'Artifact body must match its kind and stay within the structured content limits.')
         if (existingArtifactId) {
           const existingBody = artifactBodies.get(existingArtifactId)
           if (!existingBody || JSON.stringify(existingBody) !== JSON.stringify(authored.body)) {
-            throw new ConflictError(`A document named '${artifactName}' already exists here.`)
+            throw new ConflictError(`An artifact named '${artifactName}' already exists here.`)
           }
         }
         op = {
           ...op,
           artifact: {
             ...op.artifact,
-            body: authored.text,
+            body: authored.draftBody,
             excerpt: op.artifact.excerpt?.trim() || authored.excerpt,
           },
         }

@@ -49,6 +49,7 @@ import {
 import { InlineOperationStatus } from './InlineOperationStatus'
 import { normalizeArtifactName } from '../../contract/index.ts'
 import { HOVER_CUE } from '../lib/hoverReveal'
+import { StructuredArtifactView } from './StructuredArtifactView'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -301,106 +302,8 @@ function DiscussableBlock({
   )
 }
 
-/* ───────────────────────────────── sheet ───────────────────────────────── */
-
-const SHEET = {
-  thumb: { text: 'text-[8px]', cell: 'px-1.5 py-[3px]' },
-  compact: { text: 'text-[11px]', cell: 'px-2.5 py-1' },
-  full: { text: 'text-[12px]', cell: 'px-3 py-1.5' },
-} as const
-
-const HEX = /^#[0-9a-f]{6}$/i
-
-function SheetView({ sheet, size }: { sheet: Extract<ArtifactContent, { type: 'sheet' }>; size: Size }) {
-  const t = SHEET[size]
-  const rows = size === 'thumb' ? sheet.rows.slice(0, 3) : sheet.rows
-  return (
-    <div className={`overflow-hidden rounded-lg border border-line ${t.text}`}>
-      <table className="w-full border-collapse">
-        <thead>
-          <tr className="bg-panel-2">
-            {sheet.columns.map((c, i) => (
-              <th
-                key={i}
-                className={`${t.cell} text-left font-semibold text-ink ${i > 0 ? 'border-l border-line text-right' : ''}`}
-              >
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, ri) => (
-            <tr key={ri} className="border-t border-line">
-              {r.map((c, ci) => (
-                <td
-                  key={ci}
-                  className={`${t.cell} ${ci === 0 ? 'text-ink' : 'border-l border-line text-right tabular-nums text-ink-soft'}`}
-                >
-                  {HEX.test(c) ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <span
-                        className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-line-strong"
-                        style={{ background: c }}
-                      />
-                      <span className="font-mono">{c}</span>
-                    </span>
-                  ) : (
-                    c
-                  )}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {sheet.note && size !== 'thumb' && (
-        <div className="border-t border-line bg-panel/40 px-3 py-1.5 text-[11px] italic text-ink-faint">{sheet.note}</div>
-      )}
-    </div>
-  )
-}
-
-/* ───────────────────────────────── slides ──────────────────────────────── */
-
-function SlidesView({ slides, size }: { slides: Extract<ArtifactContent, { type: 'slides' }>['slides']; size: Size }) {
-  const shown = size === 'thumb' ? slides.slice(0, 1) : slides
-  return (
-    <div className={size === 'thumb' ? '' : 'space-y-3'}>
-      {shown.map((s, i) => (
-        <div
-          key={i}
-          className={`flex w-full flex-col rounded-lg border border-line bg-surface ${
-            size === 'thumb' ? 'h-full p-2.5' : 'aspect-video p-4'
-          }`}
-        >
-          <div
-            className={`font-serif font-semibold leading-snug text-ink ${
-              size === 'thumb' ? 'text-[9px] line-clamp-1' : size === 'compact' ? 'text-[12px]' : 'text-[15px]'
-            }`}
-          >
-            {s.title}
-          </div>
-          <ul className={`mt-1.5 space-y-1 text-ink-soft ${size === 'thumb' ? 'text-[8px]' : 'text-[12px]'}`}>
-            {(size === 'thumb' ? s.bullets.slice(0, 2) : s.bullets).map((b, j) => (
-              <li key={j} className="flex gap-1.5">
-                <span className="mt-[2px] shrink-0 text-accent">•</span>
-                <span className={size === 'thumb' ? 'line-clamp-1' : ''}>{b}</span>
-              </li>
-            ))}
-          </ul>
-          {size !== 'thumb' && (
-            <div className="mt-auto pt-2 text-right text-[10px] text-ink-faint">
-              {i + 1} / {slides.length}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
 /* ───────────────────────────────── figure ──────────────────────────────── */
+
 
 const FIG_H = { thumb: 'h-full', compact: 'h-32', full: 'h-52' } as const
 
@@ -550,8 +453,8 @@ function Scaffold({ kind, name, size, excerpt }: { kind: ArtifactKind; name: str
   }
   if (kind === 'sheet') {
     return (
-      <SheetView
-        sheet={{
+      <StructuredArtifactView
+        body={{
           type: 'sheet',
           columns: ['metric', 'value', 'Δ'],
           rows: [
@@ -565,7 +468,7 @@ function Scaffold({ kind, name, size, excerpt }: { kind: ArtifactKind; name: str
     )
   }
   if (kind === 'slide') {
-    return <SlidesView slides={[{ title: titleFromName(name), bullets: excerpt ? [excerpt] : [] }]} size={size} />
+    return <StructuredArtifactView body={{ type: 'slides', slides: [{ title: titleFromName(name), bullets: excerpt ? [excerpt] : [] }] }} size={size} />
   }
   if (kind === 'email') {
     return (
@@ -660,9 +563,9 @@ export function ArtifactBodyView({
       case 'doc':
         return <DocView doc={lib} size={size} edit={edit} discuss={discuss} />
       case 'sheet':
-        return <SheetView sheet={lib} size={size} />
+        return <StructuredArtifactView body={lib} size={size} />
       case 'slides':
-        return <SlidesView slides={lib.slides} size={size} />
+        return <StructuredArtifactView body={lib} size={size} />
       case 'figure':
         return <FigureView fig={lib} name={name} size={size} />
       default: {

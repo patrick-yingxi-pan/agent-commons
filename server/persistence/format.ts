@@ -43,6 +43,7 @@ import type {
 } from '../../contract/index.ts'
 import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import { parseStructuredArtifactBody } from '../../contract/artifactAuthoring.ts'
 import type { ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import type { ProviderConfig } from '../data/providers.ts'
 import type {
@@ -585,6 +586,19 @@ export interface PersistenceBackend {
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
 export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  // Authored rich bodies retain their exact shape through portable restores.
+  // A revision is storage-owned metadata, not an author-supplied body field.
+  if (state?.artifactBodies !== undefined) {
+    if (!Array.isArray(state.artifactBodies)) return false
+    for (const entry of state.artifactBodies) {
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string') return false
+      const body = entry[1]
+      if (body?.type !== 'sheet' && body?.type !== 'slides') continue
+      const { revision, ...values } = body
+      if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) return false
+      if (!parseStructuredArtifactBody(values)) return false
+    }
+  }
   if (state?.artifactMetadata !== undefined) {
     try { parseArtifactMetadataEntries(state.artifactMetadata) } catch { return false }
   }

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import type { ArtifactItem } from '../contract/index.ts'
 import { API, newUser } from './social-helpers.ts'
 import { ms } from './budget.ts'
+import { settleArtifactPageRail } from './artifact-page-helpers.ts'
 
 const READER = 'tenant-beta'
 const VIEWPORTS = [
@@ -11,14 +12,6 @@ const VIEWPORTS = [
   { width: 844, height: 390 },
   { width: 1280, height: 800 },
 ]
-
-async function exposeArtifactPage(page: import('@playwright/test').Page) {
-  // Resizing can still be animating the previous rail tier. Capture the
-  // explicitly closed, inert rail only after its rendered width reaches zero.
-  const closeRail = page.locator('button[aria-label="Collapse sidebar"]')
-  if (!await closeRail.evaluate((button) => button.closest('[inert]') !== null)) await closeRail.click()
-  await expect.poll(() => closeRail.evaluate((button) => button.closest('[inert]')?.getBoundingClientRect().width ?? -1)).toBe(0)
-}
 
 async function createArtifact(page: import('@playwright/test').Page, name: string): Promise<ArtifactItem> {
   const response = await page.request.post(`${API}/relations/ops`, {
@@ -66,7 +59,7 @@ test('owner rename is discoverable and remains readable to a granted reader at e
     await expect(ownerPage.getByRole('button', { name: 'Download Markdown', exact: true })).toBeDisabled()
     for (const viewport of VIEWPORTS) {
       await owner.page.setViewportSize(viewport)
-      await exposeArtifactPage(owner.page)
+      await settleArtifactPageRail(owner.page)
       await expect(editor).toBeInViewport()
       await owner.page.screenshot({ path: testInfo.outputPath(`artifact-rename-editor-owner-${viewport.width}.png`) })
     }
@@ -77,7 +70,7 @@ test('owner rename is discoverable and remains readable to a granted reader at e
     for (const [role, page] of [['owner', owner.page], ['reader', reader.page]] as const) {
       for (const viewport of VIEWPORTS) {
         await page.setViewportSize(viewport)
-        await exposeArtifactPage(page)
+        await settleArtifactPageRail(page)
         await expect(page.locator(`[data-artifact-page="${artifact.id}"]`).getByRole('heading', { name: renamed, exact: true })).toBeInViewport()
         await expect(page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).resolves.toBe(true)
         await page.screenshot({ path: testInfo.outputPath(`artifact-rename-settled-${role}-${viewport.width}.png`) })

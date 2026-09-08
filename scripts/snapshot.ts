@@ -614,6 +614,16 @@ export async function buildComprehensive(): Promise<PersistedState> {
     const artifact = store.artifactById(editable.id)!
     store.renameArtifact(editable.id, 'Playground renamed document.md', artifact.metadataRevision ?? 0, store.defaultTenantId())
   }
+  // Structured authoring shares the portable body map with documents, but its
+  // values must survive as a real sheet/deck rather than a prose scaffold.
+  store.applyRelationOp({ kind: 'save-artifact', artifact: {
+    name: 'Playground metrics.sheet', kind: 'sheet', meta: 'Sheet',
+    body: { type: 'sheet', columns: ['Metric', 'Value'], rows: [['Portable values', '=1+1']], note: 'Literal values; no calculation.' },
+  } })
+  store.applyRelationOp({ kind: 'save-artifact', artifact: {
+    name: 'Playground briefing.slides', kind: 'slide', meta: 'Slides',
+    body: { type: 'slides', slides: [{ title: 'Portable briefing', bullets: ['Exact authored slide values.'] }] },
+  } })
   // ── Social S6 link grants ── exercise the link-token path through the real
   // mutators: the server mints the token, and a foreign tenant redeems it (the
   // redeemedBy roster is server-private but must survive a restart).

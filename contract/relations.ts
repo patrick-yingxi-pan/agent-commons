@@ -11,6 +11,7 @@
 import type { ArtifactKind, SectionId } from './entities.ts'
 import type { ArtifactItem, ProjectContext, ProjectContextSource, StepTool } from './cowork.ts'
 import type { ProjectRole } from './roles.ts'
+import { authoredArtifact, type StructuredArtifactBody } from './artifactAuthoring.ts'
 
 export type RelationEntity = 'session' | 'project' | 'artifact' | 'context' | 'schedule'
 
@@ -150,12 +151,10 @@ export interface ArtifactDraft {
   kind: ArtifactKind
   meta: string
   excerpt?: string
-  /** Plain authored text for a new document. Optional only for compatibility
-   * with historical metadata-only saves and non-document imported artifacts;
-   * every current direct/model document producer supplies it. The server turns
-   * it into the revisioned structured body in the same durable mutation that
-   * mints the artifact metadata. */
-  body?: string
+  /** Authored document text or literal sheet/slide values. Absence retains
+   * historical metadata-only saves; current authoring supplies the complete
+   * bounded body. Metadata and the revisioned body commit together. */
+  body?: string | StructuredArtifactBody
 }
 
 /** Whether an edit is confirmed each time (an interactive one-off) or approved
@@ -181,7 +180,7 @@ export type RelationOp =
   // Project ↔ Artifact — move an artifact into a project (null = unfile, back to
   // the gallery's "Unfiled" bucket).
   | { kind: 'refile-artifact'; artifactId: string; artifactName: string; projectId: string | null; projectName: string }
-  // Session ↔ Artifact — save an authored document. Optionally files it under a
+  // Session ↔ Artifact — save authored content. Optionally files it under a
   // project (projectId), and optionally cites the session it came from — a user
   // creating one from the Artifacts index passes neither session field. Legacy
   // non-document/metadata-only saves remain readable through ArtifactDraft.
@@ -598,6 +597,8 @@ export interface RelationContentPreview {
   label: string
   current?: string
   proposed: string
+  /** The same validated values rendered after save, not a lossy prose summary. */
+  structured?: StructuredArtifactBody
 }
 export function relationContentPreview(
   op: RelationOp,
@@ -623,10 +624,18 @@ export function relationContentPreview(
           : null
     case 'create-project':
       return op.projectDescription ? { label: 'Description', proposed: op.projectDescription } : null
-    case 'save-artifact':
-      return op.artifact.body?.trim()
-        ? { label: 'Document content', proposed: op.artifact.body }
-        : null
+    case 'save-artifact': {
+      if (typeof op.artifact.body === 'string') {
+        return op.artifact.body.trim() ? { label: 'Document content', proposed: op.artifact.body } : null
+      }
+      const authored = authoredArtifact(op.artifact.name, op.artifact.kind, op.artifact.body)
+      if (!authored || typeof authored.draftBody === 'string') return null
+      return {
+        label: authored.draftBody.type === 'sheet' ? 'Sheet content' : 'Slide content',
+        proposed: JSON.stringify(authored.draftBody, null, 2),
+        structured: authored.draftBody,
+      }
+    }
     default:
       return null
   }

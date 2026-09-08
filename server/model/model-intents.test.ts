@@ -96,6 +96,25 @@ test('keyword matching: free-typed organizing requests pick the right tools', ()
   assert.equal((description?.input as { description?: string })?.description, 'Ship weekly, measure everything.')
 })
 
+test('structured artifact asks emit explicit sheet/slide kinds and bodies', () => {
+  const sheet = matchIntents('Save this as metrics.sheet')
+  assert.equal(sheet.at(0)?.name, 'save_artifact')
+  assert.equal(sheet.at(0)?.input.kind, 'sheet')
+  assert.deepEqual(sheet.at(0)?.input.body, {
+    type: 'sheet',
+    columns: ['Metric', 'Value'],
+    rows: [['Summary', 'Saved from this conversation']],
+  })
+
+  const slides = matchIntents('Save this as metrics.slides deck')
+  assert.equal(slides.at(0)?.name, 'save_artifact')
+  assert.equal(slides.at(0)?.input.kind, 'slide')
+  assert.deepEqual(slides.at(0)?.input.body, {
+    type: 'slides',
+    slides: [{ title: 'Summary', bullets: ['Saved from this conversation'] }],
+  })
+})
+
 test('keyword fallback: Agent Commons management requests pick the right CRUD tools', () => {
   assert.equal(matchIntents('Register a model provider called Local Llama on the llama family').at(0)?.name, 'create_provider')
   assert.equal(matchIntents('Add a system prompt called Deep research').at(0)?.name, 'create_system_prompt')

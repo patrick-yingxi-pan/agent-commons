@@ -16,7 +16,19 @@
 import { ALL_ARTIFACTS, PROJECTS, SCHEDULED_TASKS } from '../data/cowork.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { slug } from '../../contract/ids.ts'
-import { PROJECT_ROLES, authoredDocument, defaultEntry } from '../../contract/index.ts'
+import {
+  MAX_AUTHORED_CELL_CHARS,
+  MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
+  MAX_AUTHORED_LABEL_CHARS,
+  MAX_AUTHORED_SHEET_COLUMNS,
+  MAX_AUTHORED_SHEET_ROWS,
+  MAX_AUTHORED_SLIDES,
+  MAX_AUTHORED_SLIDE_BULLETS,
+  MAX_AUTHORED_STRUCTURE_CHARS,
+  PROJECT_ROLES,
+  authoredArtifact,
+  defaultEntry,
+} from '../../contract/index.ts'
 import type {
   Artifact,
   Connector,
@@ -84,7 +96,19 @@ export interface ToolEffect {
 }
 
 /** A JSON-schema property (the slice the Anthropic `input_schema` needs). */
-type JsonProp = { type: string; description: string; items?: { type: string } }
+type JsonProp = {
+  type?: string
+  description?: string
+  items?: JsonProp
+  oneOf?: JsonProp[]
+  properties?: Record<string, JsonProp>
+  required?: string[]
+  additionalProperties?: boolean
+  enum?: string[]
+  minItems?: number
+  maxItems?: number
+  maxLength?: number
+}
 
 interface ToolSpec {
   name: string
@@ -300,25 +324,72 @@ const TOOLS: ToolSpec[] = [
   },
   {
     name: 'save_artifact',
-    description: 'Save an authored document from this session, optionally filing it under a project. The user reviews its actual content before confirming.',
+    description: 'Save authored document, sheet, or slides from this session, optionally filing it under a project. The user reviews its actual content before confirming.',
     properties: {
       name: { type: 'string', description: 'The artifact file name, e.g. "launch-recap.md".' },
-      body: { type: 'string', description: 'The complete document text to save. Separate editable paragraphs with blank lines.' },
+      kind: { type: 'string', enum: ['doc', 'sheet', 'slide'], description: 'The artifact kind. Omit for a document; never infer the kind from the body.' },
+      body: {
+        description: `The complete document text, or one structured sheet/slides body. Documents are limited to ${MAX_AUTHORED_DOCUMENT_SOURCE_CHARS} characters; structured values are literal, non-calculated data with a ${MAX_AUTHORED_STRUCTURE_CHARS}-character aggregate budget.`,
+        oneOf: [
+          { type: 'string', description: 'Document text.', maxLength: MAX_AUTHORED_DOCUMENT_SOURCE_CHARS },
+          {
+            type: 'object',
+            description: `A bounded, rectangular sheet body: ${MAX_AUTHORED_SHEET_COLUMNS} columns, ${MAX_AUTHORED_SHEET_ROWS} rows, and ${MAX_AUTHORED_STRUCTURE_CHARS} UTF-16 characters total. Values are literal; formulas are not calculated.`,
+            properties: {
+              type: { type: 'string', enum: ['sheet'], description: 'Must be sheet.' },
+              columns: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_COLUMNS, description: `Nonblank column labels (≤${MAX_AUTHORED_LABEL_CHARS} characters each).`, items: { type: 'string', description: 'A nonblank column label.', maxLength: MAX_AUTHORED_LABEL_CHARS } },
+              rows: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_ROWS, description: 'Rows; each row must have exactly the same number of cells as columns.', items: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_COLUMNS, description: 'A rectangular row of literal cell values.', items: { type: 'string', description: `A literal cell value (≤${MAX_AUTHORED_CELL_CHARS} characters).`, maxLength: MAX_AUTHORED_CELL_CHARS } } },
+              note: { type: 'string', description: `Optional literal note (≤${MAX_AUTHORED_CELL_CHARS} characters).`, maxLength: MAX_AUTHORED_CELL_CHARS },
+            },
+            required: ['type', 'columns', 'rows'],
+            additionalProperties: false,
+          },
+          {
+            type: 'object',
+            description: `A bounded slide deck: ${MAX_AUTHORED_SLIDES} slides, ${MAX_AUTHORED_SLIDE_BULLETS} bullets per slide, and ${MAX_AUTHORED_STRUCTURE_CHARS} UTF-16 characters total. Text is literal; no layout or presentation-file generation is implied.`,
+            properties: {
+              type: { type: 'string', enum: ['slides'], description: 'Must be slides.' },
+              slides: {
+                type: 'array',
+                minItems: 1,
+                maxItems: MAX_AUTHORED_SLIDES,
+                description: 'Slides in presentation order.',
+                items: {
+                  type: 'object',
+                  description: 'One slide.',
+                  properties: {
+                    title: { type: 'string', description: `A nonblank slide title (≤${MAX_AUTHORED_LABEL_CHARS} characters).`, maxLength: MAX_AUTHORED_LABEL_CHARS },
+                    bullets: { type: 'array', minItems: 0, maxItems: MAX_AUTHORED_SLIDE_BULLETS, description: 'Literal slide bullets.', items: { type: 'string', description: `A literal bullet (≤${MAX_AUTHORED_CELL_CHARS} characters).`, maxLength: MAX_AUTHORED_CELL_CHARS } },
+                  },
+                  required: ['title', 'bullets'],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ['type', 'slides'],
+            additionalProperties: false,
+          },
+        ],
+      },
       meta: { type: 'string', description: 'A short meta line, e.g. "1 page".' },
       project: { type: 'string', description: 'Optional project to file the new artifact under.' },
     },
     required: ['name', 'body'],
     build: (input, ctx) => {
       const name = str(input.name, 'session-recap.md')
-      const authored = authoredDocument(name, input.body)
-      if (!authored) return { summary: 'No document content was supplied — proposed nothing. Draft the body, then try again.' }
+      // Absence is the only compatibility default. A supplied null, number,
+      // blank, or unknown kind is an explicit malformed request, never a cue to
+      // reinterpret the body as a document.
+      const kind = input.kind === undefined ? 'doc' : input.kind
+      const authored = authoredArtifact(name, kind, input.body)
+      if (!authored) return { summary: 'No valid artifact content was supplied — proposed nothing. Draft the body, then try again.' }
       // An optional-but-NAMED project must still resolve — saving without the
       // project the caller asked for would be a silent normalization (INV-9).
       const project = str(input.project) ? resolveProject(str(input.project), ctx) : undefined
       if (str(input.project) && !project) return noMatch('project', str(input.project))
       const op: RelationOp = {
         kind: 'save-artifact',
-        artifact: { name, kind: 'doc', meta: str(input.meta, 'Document'), body: authored.text },
+        artifact: { name, kind: kind === 'slide' ? 'slide' : kind === 'sheet' ? 'sheet' : 'doc', meta: str(input.meta, kind === 'doc' ? 'Document' : kind === 'sheet' ? 'Sheet' : 'Slides'), body: authored.draftBody },
         sessionId: ctx.session.id,
         sessionTitle: ctx.session.title,
         projectId: project?.id,
