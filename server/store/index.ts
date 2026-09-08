@@ -74,6 +74,7 @@ import type {
 import { randomUUID } from 'node:crypto'
 import {
   applyGraphOp,
+  artifactFromDraft,
   connectorsFor,
   describeCadence,
   discussionTitle,
@@ -1653,8 +1654,8 @@ const publicCommission = (c: Commission): Commission => ({
 /** Project the relation graph to a tenant's view (F2/PD9): a tenant sees only its own
  *  projects/artifacts — seed rows themed per demo account (docs/demo-accounts.md) plus
  *  its created ones — and the join rows that reference an entity it can see. Unstamped
- *  seeds follow the flagship rule (`rowVisibleTo`). Scopes the PROJECT + ARTIFACT axes;
- *  the schedule-only joins are left intact (schedule reads are scoped at the list). */
+ *  seeds follow the flagship rule (`rowVisibleTo`). Routine joins follow their
+ *  own read wall too; an id/name map is private data even without its row. */
 function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGraph {
   const projVisible = (pid: string): boolean => {
     const p = findProject(pid)
@@ -1679,6 +1680,22 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     Object.fromEntries(Object.entries(m).filter(([pid]) => projVisible(pid)))
   const byArtKey = <V>(m: Record<string, V>): Record<string, V> =>
     Object.fromEntries(Object.entries(m).filter(([aid]) => artVisible(aid)))
+  const byScheduleKey = <V>(m: Record<string, V>): Record<string, V> =>
+    Object.fromEntries(Object.entries(m).filter(([id]) => {
+      const task = schedules.find((candidate) => candidate.id === id)
+      return task !== undefined && (rowVisibleTo(task, tenantId) ||
+        grantedTierFor({ kind: 'schedule', id }, tenantId) !== undefined)
+    }))
+  const standingApprovalOwned = (key: string): boolean => {
+    // Historical keys retain old artifact names, so current graph values are
+    // not sufficient. Match a registered stable id; ambiguous legacy ids fail
+    // closed rather than guessing whose approval a prefix belongs to.
+    const matches = schedules.filter((task) =>
+      key === `set-schedule-session:${task.id}` ||
+      key.startsWith(`set-schedule-artifact:${task.id}:`) ||
+      key.startsWith(`schedule-add-tool:${task.id}:`))
+    return matches.length === 1 && rowVisibleTo(matches[0]!, tenantId)
+  }
   return {
     ...g,
     // A SHARED Project (P8) is visible to every tenant so a non-owner can see it exists and
@@ -1699,7 +1716,11 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     // (else the client resolves `artifactProject[id] ?? art.projectId` back to the original
     // project and the unfile silently snaps back in a non-default tenant's own view).
     artifactProject: Object.fromEntries(Object.entries(g.artifactProject).filter(([aid, pid]) => artVisible(aid) && (pid === '' || projVisible(pid)))),
-    scheduleProject: byProjValue(g.scheduleProject),
+    scheduleProject: byScheduleKey(byProjValue(g.scheduleProject)),
+    scheduleArtifact: byScheduleKey(g.scheduleArtifact),
+    scheduleSession: byScheduleKey(g.scheduleSession),
+    scheduleExtraTools: byScheduleKey(g.scheduleExtraTools),
+    standingApprovals: Object.fromEntries(Object.entries(g.standingApprovals).filter(([key]) => standingApprovalOwned(key))),
     projectContexts: byProjKey(g.projectContexts),
     projectInstructions: byProjKey(g.projectInstructions),
     // The description is the PUBLIC "about" (D26): unlike instructions (owner-scoped),
@@ -3301,42 +3322,58 @@ function replaceMap<V>(map: Map<string, V>, entries?: [string, V][]): void {
  *  a graph edit nobody confirmed *this* run, because it was pre-authorized. No
  *  standing approval on the routine → nothing happens.
  *
- *  The routine owns exactly ONE live artifact (keyed by its run-session source +
- *  name), refreshed in place each run rather than appended — the scheduler fires
- *  indefinitely, so appending a fresh artifact per run would grow the persisted
- *  snapshot without bound. The first run mints it; later runs just re-stamp it. */
-function applyStandingEffects(task: ScheduledTask, sessionId: string): void {
-  const artifactName = graph.scheduleArtifact[task.id]
-  if (!artifactName) return
+ *  Exactly one document is bound to the routine's stable id. Its body, synopsis,
+ *  and latest run provenance publish in the enclosing terminal-run transaction;
+ *  user filing and grants remain independent. Never adopt an ordinary authored
+ *  document merely because its display name/source happens to match. */
+function applyStandingEffects(task: ScheduledTask, sessionId: string, artifactName: string, authored: AuthoredDocument, at: number): void {
   const source = `Scheduled run of ${task.name}`
-  const ownerTenantId = defaultTenantId()
+  const ownerTenantId = task.tenantId ?? defaultTenantId()
   const op: RelationOp = {
     kind: 'save-artifact',
-    artifact: { name: artifactName, kind: 'doc', meta: `Saved by ${task.name}` },
+    artifact: { name: artifactName, kind: 'doc', meta: `Saved by ${task.name}`, excerpt: authored.excerpt },
     sessionId,
     sessionTitle: source,
     projectId: task.projectId,
     ownerTenantId,
   }
-  const existing = graph.extraArtifacts.find(
-    (artifact) =>
-      artifact.source === source &&
-      artifact.name === artifactName &&
-      artifact.tenantId === ownerTenantId,
-  )
+  const owned = graph.extraArtifacts.filter((artifact) => artifact.tenantId === ownerTenantId)
+  const runSessions = new Set(task.runs.map((run) => runSessionId(task.id, run.id)))
+  const existing = owned.find((artifact) => artifact.sourceScheduleId === task.id) ??
+    // Upgrade only a metadata-only legacy delivery with an exact retained run
+    // join. Missing/expired provenance cannot confer overwrite authority.
+    owned.find((artifact) => !artifact.sourceScheduleId && artifact.kind === 'doc' &&
+      artifact.name === artifactName && artifact.source === source &&
+      artifact.sourceSessionId !== undefined && runSessions.has(artifact.sourceSessionId) &&
+      !artifactBodies.has(artifact.id))
+  const id = existing?.id ?? mintArtifactId()
+  const delivered: ArtifactItem = {
+    ...artifactFromDraft(op.artifact, id, source, existing?.projectId ?? task.projectId ?? '', at, sessionId, ownerTenantId),
+    sourceScheduleId: task.id,
+  }
   if (existing) {
     graph = {
       ...graph,
-      extraArtifacts: graph.extraArtifacts.map((a) =>
-        a.id === existing.id ? { ...a, editedAt: Date.now(), meta: `Saved by ${task.name}` } : a,
-      ),
+      extraArtifacts: graph.extraArtifacts.map((artifact) => artifact.id === id ? delivered : artifact),
     }
   } else {
-    graph = applyGraphOp(graph, op, mintArtifactId, Date.now())
+    // The interactive reducer's name/source replay guard is not the identity
+    // of a standing delivery. Distinct routines may legitimately share both.
+    graph = {
+      ...graph,
+      extraArtifacts: [delivered, ...graph.extraArtifacts],
+      artifactProject: delivered.projectId
+        ? { ...graph.artifactProject, [id]: delivered.projectId } : graph.artifactProject,
+    }
   }
+  artifactBodies.set(id, {
+    ...authored.body,
+    revision: existing ? (artifactBodies.get(id)?.revision ?? 0) + 1 : 0,
+  })
   graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
-  // A standing (schedule-driven) effect belongs to the default tenant in this prototype
-  // (schedules aren't tenant-scoped yet) — stamped explicitly so the SSE gate is unambiguous.
+  // Readers fetch the body through its read wall; private relation payloads do
+  // not need to carry a second copy of the generated report.
+  emit({ type: 'artifact.changed', artifactId: id })
   emit({ type: 'relation.applied', op, by: 'standing', tenantId: ownerTenantId })
 }
 
@@ -10312,6 +10349,12 @@ export const store = {
       const task = schedules.find((candidate) => candidate.id === taskId)
       const run = task?.runs.find((candidate) => candidate.id === runId)
       if (!task || !run || run.status !== 'running') return undefined
+      const artifactName = graph.scheduleArtifact[task.id]
+      const authored = artifactName ? authoredDocument(artifactName, message.content) : undefined
+      if (artifactName && !authored) {
+        return this.failScheduleRun(taskId, runId, 'execution_error',
+          'The routine returned no document text. Its saved artifact was not changed.', finishedAt)
+      }
       run.status = 'ok'
       run.reachedStep = taskForRun(task, run).steps.length
       run.duration = `${Math.max(0, Math.ceil((finishedAt - run.at) / 1000))}s`
@@ -10327,7 +10370,7 @@ export const store = {
       // second synthesized recap after restart.
       const stamped: Message = { ...message, id: RUN_RECAP_MESSAGE_ID, ...provenance }
       applyMessage(session, stamped, finishedAt)
-      applyStandingEffects(task, session.id)
+      if (artifactName && authored) applyStandingEffects(task, session.id, artifactName, authored, finishedAt)
       emit({ type: 'session.updated', session })
       emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId: session.id, run })
       persist()
@@ -10865,7 +10908,7 @@ export const store = {
    *      unfiling (`projectId:null`) another tenant's session. Sessions are tenant-scoped
    *      (sessionVisibleToTenant); an unknown session has no owner to protect (allowed).
    *  Seed projects/sessions are the default tenant's, so the default caller passes. (The
-   *  artifact/schedule SUBJECT axes await slice 3b, when those entities gain a tenant.) */
+   *  artifact and routine SUBJECT axes are checked independently of a destination.) */
   opDeniedForTenant(op: RelationOp, tenantId: string): boolean {
     // A source-qualified project scope is an admission of a tenant-owned
     // external MCP identity. Keep the source opaque at the wire boundary, but
@@ -10921,6 +10964,13 @@ export const store = {
     // MINTS a new id internally, carries no `artifactId`, so it's naturally exempt here.)
     const aid = (op as { artifactId?: string }).artifactId
     if (aid != null && artifactTenant(aid) !== tenantId) return true
+    // A routine's standing bindings are writes, not shared-reader actions.
+    // Unknown and blank ids have no owner and cannot mint ghost authority.
+    const scheduleId = (op as { scheduleId?: string }).scheduleId
+    if (scheduleId !== undefined) {
+      const task = schedules.find((candidate) => candidate.id === scheduleId)
+      if (!task || !this.scheduleOwnedBy(task, tenantId)) return true
+    }
     const sid = (op as { sessionId?: string }).sessionId
     if (sid) {
       const session = SESSIONS.find((s) => s.id === sid)

@@ -55,6 +55,16 @@ test('artifact creation and grant changes refresh the complete registry and body
   assert.match(eventCase(events, 'relation.applied'), /invalidateForCommonsOp\(e\.op\)/)
 })
 
+test('artifact.changed refreshes report metadata and body for readers without private relation events', () => {
+  const block = eventCase(src('src', 'api', 'events.ts'), 'artifact.changed')
+  for (const key of ['artifacts', 'artifactContent', 'relations', 'commons']) {
+    assert.ok(block.includes(`invalidate(keys.${key})`), `artifact change refreshes ${key}`)
+  }
+  for (const key of ['socialProposals', 'socialProposal', 'ownerProfile', 'search']) {
+    assert.ok(block.includes(`invalidatePrefix(keys.${key}())`), `artifact change refreshes ${key}`)
+  }
+})
+
 test('project.changed re-reads canonical and dependent projections without trusting event prose or owner identity', () => {
   const events = src('src', 'api', 'events.ts')
   const block = eventCase(events, 'project.changed')
@@ -332,6 +342,8 @@ test('the Contexts page routes add/remove through the server commands, not view 
 
 test('the gallery resolves an artifact’s source session by ID first; the mutable title is a seed fallback', () => {
   const view = src('src', 'components', 'SectionView.tsx')
-  assert.match(view, /a\.sourceSessionId && sessions\.some\(\(s\) => s\.id === a\.sourceSessionId\)/)
-  assert.match(view, /sourceSessionOf\(openArtifact\)/, 'the door uses the id-first resolver')
+  const artifactsSection = view.split('function ArtifactsSection(')[1]?.split('\nfunction ')[0]
+  assert.ok(artifactsSection, 'the canonical artifact section is independently inspectable')
+  assert.ok(artifactsSection.includes('artifactSourceSessionId(openArtifact, sessions, sourceSchedules)'), 'the door uses the shared id-first resolver')
+  assert.match(artifactsSection, /const sourceSchedules = useSchedules\(\)\.data/, 'routine source lookup reads the live owner-annotated registry')
 })

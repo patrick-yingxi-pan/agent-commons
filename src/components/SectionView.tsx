@@ -690,6 +690,7 @@ import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
 import { ArtifactDetailPage, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
+import { artifactSourceSessionId } from '../lib/artifactSource'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
@@ -7811,6 +7812,7 @@ function ArtifactsSection({
   const rel = useRelations()
   const artifactsQ = useArtifacts()
   const artifactRelationsQ = useRelationGraph()
+  const sourceSchedules = useSchedules().data ?? []
   const artifacts = rel.allArtifacts()
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
@@ -7829,21 +7831,6 @@ function ArtifactsSection({
     setCreatedDocumentName(null)
     rel.navigate('artifacts', created.id)
   }, [artifacts, createdDocumentName, rel])
-  // Resolve an artifact's producing conversation for "From ‹conversation›": by its
-  // stable `sourceSessionId` when stamped (runtime saves), else by the `source`
-  // TITLE (seed/legacy artifacts — a best-effort fallback: a title is mutable and
-  // not unique). A created/sourceless artifact ("Created here") or an unknown
-  // source has no match and stays a plain label.
-  const sessionIdByTitle = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const s of sessions) if (!m.has(s.title)) m.set(s.title, s.id)
-    return m
-  }, [sessions])
-  const sourceSessionOf = (a: ArtifactItem) =>
-    a.sourceSessionId && sessions.some((s) => s.id === a.sourceSessionId)
-      ? a.sourceSessionId
-      : sessionIdByTitle.get(a.source)
-
   const needle = query.trim().toLowerCase()
   // The SAME list the rail's artifact children show, through the same function
   // (type facet + order), narrowed by this page's own search.
@@ -7912,7 +7899,7 @@ function ArtifactsSection({
   }
 
   if (openArtifact) {
-    const sourceSessionId = sourceSessionOf(openArtifact)
+    const sourceSessionId = artifactSourceSessionId(openArtifact, sessions, sourceSchedules)
     return (
       <AtomicResourcePage>
         <ArtifactDetailPage

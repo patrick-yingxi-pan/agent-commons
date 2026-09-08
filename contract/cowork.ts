@@ -298,6 +298,10 @@ export interface ArtifactItem {
    *  two sessions can share one). Unset on seed/legacy artifacts, which fall back
    *  to a title lookup. */
   sourceSessionId?: string
+  /** Server-owned standing delivery binding. A routine refreshes this one
+   * document across runs and renames; display names never authorize a write.
+   * Absent on independent and legacy artifacts (no inferred write authority). */
+  sourceScheduleId?: string
   /** The project it belongs to (groups the Artifacts index). */
   projectId: string
   /** A one-line synopsis shown in the index and on the artifact page. */

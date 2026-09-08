@@ -157,7 +157,7 @@ test('a standing "save artifact each run" approval saves an artifact unprompted 
   const standingName = 'Standing digest'
   const standingSource = `Scheduled run of ${task.name}`
   // A foreign tenant may use the same human name + source without capturing or
-  // being refreshed by the desktop/default tenant's standing approval.
+  // being refreshed by the routine owner's standing approval.
   store.applyRelationOp(
     {
       kind: 'save-artifact',
@@ -183,7 +183,7 @@ test('a standing "save artifact each run" approval saves an artifact unprompted 
   const op1 = runOnce(task.id)
   assert.ok(op1, 'a relation.applied by:standing fired on the run')
   assert.equal(op1.kind, 'save-artifact', 'the standing effect is the artifact save')
-  assert.equal(op1.ownerTenantId, 'tenant-personal', 'the server stamps the standing effect owner')
+  assert.equal(op1.ownerTenantId, task.tenantId ?? store.defaultTenantId(), 'the routine owns its standing effect')
   assert.equal(
     store.relationGraph().extraArtifacts.length,
     before + 1,

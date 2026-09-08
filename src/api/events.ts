@@ -144,15 +144,19 @@ function route(e: ServerEvent): void {
       // time; refresh their derived `stale` flag when that target moves.
       invalidatePrefix(keys.socialProposals())
       break
-    // An artifact's BODY changed — its owner edited a block, or an
-    // `artifact-patch` proposal landed (social S3). Every rich body projection
-    // reads the one name-keyed library, so a single refetch heals the canonical
-    // page, workspace panel, attachment preview and explicit thumbnails at once
-    // (UI-12). The Artifacts index is deliberately a stored synopsis (UI-31),
-    // not a second rendering of the mutable body.
+    // Body writes include block edits, landed proposals, and routine report
+    // publication. The latter also refreshes the stored synopsis/provenance.
+    // Granted readers receive this hint but not the owner's private relation
+    // event, so all body and metadata projections heal through this one door.
     case 'artifact.changed':
       invalidate(keys.artifactContent)
+      invalidate(keys.artifacts)
+      invalidate(keys.relations)
+      invalidate(keys.commons)
       invalidatePrefix(keys.socialProposals())
+      invalidatePrefix(keys.socialProposal())
+      invalidatePrefix(keys.ownerProfile())
+      invalidatePrefix(keys.search())
       break
     // Agent configuration, publication, or monotonic activity changed. Owner-
     // scoped events stay private at the server gate; directory-scoped events

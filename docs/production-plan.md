@@ -30,6 +30,18 @@ milestones or address a demonstrated defect.
 
 ## Checkpoint criteria
 
+The routine document-delivery checkpoint replaces metadata-only standing saves
+with bounded model-authored report bodies. One stable routine binding preserves
+the document across runs and renames, under the routine's actual tenant. Body
+revision, synopsis, latest-run provenance and terminal status commit together;
+empty/failed output preserves the last good document. Readers refresh metadata
+and body through the artifact read wall without receiving private relation
+payloads. The accompanying authorization fix walls every routine relation write
+and filters foreign routine bindings from the graph. Direct store, route,
+JSON/SQLite restart, failure-publication and live two-reader browser locks cover
+this slice. Rich sheet/slide authoring, external tool execution and signed release
+acceptance remain required, not replaced by this checkpoint.
+
 The Project registry checkpoint extends the canonical discovery boundary to
 authored Projects. The HTTP/MCP list and graph acknowledgements now share one
 viewer projection, including current public prose and distinct org-member /
