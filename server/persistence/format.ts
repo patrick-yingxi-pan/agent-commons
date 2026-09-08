@@ -52,6 +52,7 @@ import type {
 } from '../accounts.ts'
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
+import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { isProjectContextSource } from '../../contract/cowork.ts'
 import { join } from 'node:path'
 
@@ -308,6 +309,9 @@ export interface PersistedState {
    * preferences out of the shared Session row. Additive-optional so older
    * snapshots load with the product default. */
   sessionPreferences?: [string, [string, SessionPreferences][]][]
+  /** Recorded usage and period anchors, tenant-scoped. Absent older snapshots
+   * migrate once from their demo/clean baseline; present malformed data refuses. */
+  usageMeters?: UsageMeterEntries
   schedules: ScheduledTask[]
   /** Legacy/default tenant's context MRU lists. Kept as the canonical default
    * partition for backward compatibility with every pre-tenancy snapshot. */
@@ -499,6 +503,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   bindings: 'mapEntries',
   workspaces: 'mapEntries',
   sessionPreferences: 'mapEntries',
+  usageMeters: 'mapEntries',
   schedules: 'array',
   recents: 'singleton',
   recentsByTenant: 'mapEntries',
@@ -575,6 +580,9 @@ export interface PersistenceBackend {
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
 export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  if (state?.usageMeters !== undefined) {
+    try { parseUsageMeterEntries(state.usageMeters) } catch { return false }
+  }
   if (state?.imageAssets !== undefined) {
     if (!Array.isArray(state.imageAssets)) return false
     try { rehydrateImageAssets(state.imageAssets) } catch { return false }

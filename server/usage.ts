@@ -7,14 +7,13 @@
  *    against the model's context window. Computed per session in `store.usage`.
  *  • **Plan limits** (the two rings: 5-hour, weekly) — rolling meters that
  *    accumulate the model's *reported* token usage (input+output) from every turn
- *    (`store.recordUsage`, fed by the real Messages response). Seeded with a
- *    plausible prior-usage baseline so the gauge reads like a real account
- *    mid-period, then grows as you actually use it; each window resets on its
- *    cadence.
+ *    (`store.recordUsage`, fed by the Messages/relay response). Only the default
+ *    demo tenant gets a prior-usage fixture; clean installs and new tenants start
+ *    at zero. Consumption and period anchors persist together across restarts.
  *
- *  Token counts are an estimate (≈ 4 chars/token — the standard rough rule); a
- *  real backend would meter exactly. The clock is injected so the windows' reset
- *  logic is unit-testable. */
+ *  Context sizes and development-provider counts remain estimates. These local
+ *  counters are not a provider billing ledger or a reservation for unreported
+ *  in-flight spend. The injected clock makes reset boundaries testable. */
 import type { Budget, BudgetWindow, UsageWindow } from '../contract/index.ts'
 import { overBudgetWindow } from '../contract/index.ts'
 // Re-export the shared metering helpers the store also uses, so its import site
@@ -23,6 +22,7 @@ export { CONTEXT_WINDOW, estimateTokens, formatTokens } from '../contract/index.
 
 const HOUR = 3_600_000
 const DAY = 24 * HOUR
+export const MAX_USAGE_STATE_START = 8_640_000_000_000_000 - 7 * DAY
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 interface LimitWindow {
@@ -31,6 +31,38 @@ interface LimitWindow {
   consumed: number
   windowMs: number
   start: number
+}
+
+export interface UsageWindowState { start: number; consumed: number }
+export interface UsageMeterState { fiveHour: UsageWindowState; weekly: UsageWindowState }
+
+export class UsageStateError extends Error {
+  constructor() {
+    super('Invalid usage meter state.')
+    this.name = 'UsageStateError'
+  }
+}
+
+const stateWindow = (value: unknown): value is UsageWindowState => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return false
+  const keys = Object.keys(value)
+  if (keys.length !== 2 || !keys.includes('start') || !keys.includes('consumed')) return false
+  const row = value as Record<string, unknown>
+  return Number.isSafeInteger(row.start) && (row.start as number) >= 0 && (row.start as number) <= MAX_USAGE_STATE_START && Number.isSafeInteger(row.consumed) && (row.consumed as number) >= 0
+}
+
+const validClock = (value: number): boolean => Number.isSafeInteger(value) && value >= 0 && value <= MAX_USAGE_STATE_START
+
+export function parseUsageMeterState(value: unknown): UsageMeterState {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) throw new UsageStateError()
+  const keys = Object.keys(value)
+  if (keys.length !== 2 || !keys.includes('fiveHour') || !keys.includes('weekly')) throw new UsageStateError()
+  const row = value as Record<string, unknown>
+  if (!stateWindow(row.fiveHour) || !stateWindow(row.weekly)) throw new UsageStateError()
+  return {
+    fiveHour: { start: row.fiveHour.start, consumed: row.fiveHour.consumed },
+    weekly: { start: row.weekly.start, consumed: row.weekly.consumed },
+  }
 }
 
 /** When a window next resets — a time-of-day for the 5-hour bucket, a date for
@@ -61,6 +93,8 @@ export interface UsageMeter {
    *  No *spend* mutation (it may roll an expired window forward, like `planLimits()`), so
    *  it's safe to call before a turn. */
   overLimit(budget?: Budget): { label: string; ceiling: number } | null
+  /** Detached rolling-window state for durable persistence; ceilings are code-owned. */
+  snapshot(): UsageMeterState
 }
 
 /** Build the plan-usage meter. `now` is injected so tests can drive the reset
@@ -70,23 +104,26 @@ export interface UsageMeter {
  *  metered per tenant, not globally) passes `seeded=false` so a new tenant starts at
  *  zero consumption rather than inheriting the demo baseline. The ceilings are the same
  *  either way — they're the plan, not the spend. */
-export function createUsageMeter(now: () => number, seeded = true): UsageMeter {
+export function createUsageMeter(now: () => number, seeded = true, persisted?: unknown): UsageMeter {
   const t0 = now()
+  if (!validClock(t0)) throw new RangeError('Usage clock is outside the supported date range.')
   // The 5-hour pair is scaled ×2 from its original 852k/1.2M (same 71% gauge):
   // the old seed left ~348k absolute headroom, which the heaviest test file's
   // ~12 turns consumed almost exactly — so ANY growth of the per-turn metered
   // surface (each new route adds a generated API tool to every turn's estimate)
   // tipped real sends into the 429 limit gate. Same demo face, double margin.
-  const fiveHour: LimitWindow = { label: '5-hour limit', ceiling: 2_400_000, consumed: seeded ? 1_704_000 : 0, windowMs: 5 * HOUR, start: t0 }
-  const weekly: LimitWindow = { label: 'Weekly · all models', ceiling: 24_000_000, consumed: seeded ? 5_760_000 : 0, windowMs: 7 * DAY, start: t0 }
+  const restored = persisted === undefined ? undefined : parseUsageMeterState(persisted)
+  const fiveHour: LimitWindow = { label: '5-hour limit', ceiling: 2_400_000, consumed: restored?.fiveHour.consumed ?? (seeded ? 1_704_000 : 0), windowMs: 5 * HOUR, start: restored?.fiveHour.start ?? t0 }
+  const weekly: LimitWindow = { label: 'Weekly · all models', ceiling: 24_000_000, consumed: restored?.weekly.consumed ?? (seeded ? 5_760_000 : 0), windowMs: 7 * DAY, start: restored?.weekly.start ?? t0 }
   const windows = [fiveHour, weekly]
 
   // Roll a window forward to the current period, zeroing its consumption, if its
   // span has elapsed since it last started.
   const roll = (t: number) => {
+    if (!validClock(t)) throw new RangeError('Usage clock is outside the supported date range.')
     for (const w of windows) {
-      while (t - w.start >= w.windowMs) {
-        w.start += w.windowMs
+      if (t >= w.start && t - w.start >= w.windowMs) {
+        w.start += Math.floor((t - w.start) / w.windowMs) * w.windowMs
         w.consumed = 0
       }
     }
@@ -95,8 +132,17 @@ export function createUsageMeter(now: () => number, seeded = true): UsageMeter {
 
   return {
     record(inputTokens, outputTokens) {
-      const tokens = Math.max(0, inputTokens) + Math.max(0, outputTokens)
-      roll(now())
+      if (!Number.isSafeInteger(inputTokens) || inputTokens < 0 || !Number.isSafeInteger(outputTokens) || outputTokens < 0) throw new RangeError('Usage token counts must be nonnegative safe integers.')
+      const tokens = inputTokens + outputTokens
+      if (!Number.isSafeInteger(tokens)) throw new RangeError('Usage token counts exceed the safe integer range.')
+      const t = now()
+      if (!validClock(t)) throw new RangeError('Usage clock is outside the supported date range.')
+      for (const w of windows) {
+        const expired = t >= w.start && t - w.start >= w.windowMs
+        const current = expired ? 0 : w.consumed
+        if (current > Number.MAX_SAFE_INTEGER - tokens) throw new RangeError('Usage token counts exceed the safe integer range.')
+      }
+      roll(t)
       for (const w of windows) w.consumed += tokens
     },
     planLimits() {
@@ -121,6 +167,10 @@ export function createUsageMeter(now: () => number, seeded = true): UsageMeter {
         if (w.consumed >= ceiling) return { label: w.label, ceiling }
       }
       return null
+    },
+    snapshot() {
+      roll(now())
+      return { fiveHour: { start: fiveHour.start, consumed: fiveHour.consumed }, weekly: { start: weekly.start, consumed: weekly.consumed } }
     },
   }
 }

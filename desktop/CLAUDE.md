@@ -41,6 +41,11 @@ when changing the renderer-facing bridge or setup UI.
 
 ## Verification
 
+The ordinary executable smoke records one provider-reported turn, reads the
+exact durable tenant counters and period anchors from SQLite, and compares them
+after a full app relaunch. This proves restart durability, not provider billing
+accuracy or admission reservations for concurrent/in-flight spend.
+
 Direct PDF selection transfers at most 8 MiB/file and 24 MiB/selection as
 transient path-free bytes to the sandboxed renderer. The lazy worker extracts
 text there; no PDF parser is imported into the native main process. Packaged

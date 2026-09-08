@@ -1,4 +1,6 @@
 import { spawn } from 'node:child_process'
+import assert from 'node:assert/strict'
+import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -21,6 +23,18 @@ const OUTPUT_LIMIT = 16_384
 
 function appendTail(current, chunk) {
   return `${current}${chunk}`.slice(-OUTPUT_LIMIT)
+}
+
+function storedUsage(userDataPath, tenantId) {
+  // Read the actual committed WAL without importing a source-only store or
+  // mutating the running artifact's database through a fixture.
+  const database = new DatabaseSync(join(userDataPath, 'store.db'), { readOnly: true })
+  try {
+    const row = database.prepare('SELECT json FROM map_entries WHERE slice = ? AND key = ?').get('usageMeters', tenantId)
+    return row ? JSON.parse(row.json) : undefined
+  } finally {
+    database.close()
+  }
 }
 
 async function stop(child) {
@@ -271,6 +285,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       const [previousReference] = Object.keys(beforeRotation.entries ?? {})
       if (!previousReference) throw new Error('The packaged provider workflow did not bind its encrypted credential.')
 
+      assert.equal(storedUsage(userDataPath, identity.tenant.id)?.fiveHour.consumed ?? 0, 0, 'a new desktop account has no fictional usage')
       await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Say hello from this saved desktop conversation.')
       await page.getByRole('textbox', { name: 'Message', exact: true }).press('Enter')
       await page.waitForURL(/\/s\/[^/]+$/)
@@ -285,6 +300,9 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (!savedSession.messages?.some((message) => message.role === 'assistant' && message.content.includes('local mock'))) {
         throw new Error('The packaged conversation did not persist its completed provider reply.')
       }
+      const recordedUsage = storedUsage(userDataPath, identity.tenant.id)
+      assert.ok(recordedUsage?.fiveHour.consumed > 0, 'a completed packaged model turn must durably record usage')
+      assert.equal(recordedUsage.weekly.consumed, recordedUsage.fiveHour.consumed, 'both windows record the same first-turn spend')
 
       await closePackagedDesktop(run)
       run = await launchPackagedDesktop(executable, userDataPath)
@@ -321,6 +339,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (JSON.stringify(reopenedSession.messages) !== JSON.stringify(savedSession.messages)) {
         throw new Error('The packaged relaunch changed the saved conversation.')
       }
+      assert.deepEqual(storedUsage(userDataPath, identity.tenant.id), recordedUsage, 'packaged relaunch must preserve exact usage counters and reset anchors')
       await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
 
       await page.goto(`${origin}/models/${encodeURIComponent(created.id)}`)
@@ -348,7 +367,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       throw new Error('A clean packaged app with a protected authentication root must also expose secure provider setup.')
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · OS-encrypted provider create/rotate/delete · signed-in relaunch + personal-token recovery/revocation + saved conversation`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · OS-encrypted provider create/rotate/delete · signed-in relaunch + personal-token recovery/revocation + saved conversation + exact durable usage`,
     )
   } finally {
     await closePackagedDesktop(run)

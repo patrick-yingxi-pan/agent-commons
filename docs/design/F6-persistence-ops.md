@@ -35,9 +35,10 @@ blobs.
 ### 2.2 Durable vs transient (PD5, restated for storage)
 
 - **Durable** (backed up, system of record): the relational entities + graph +
-  registries + audit; object-storage blobs.
+  registries + audit; tenant usage counters and period anchors (PERSIST-26);
+  object-storage blobs.
 - **Transient** (rebuildable, not backed up): reservations, the live runner registry,
-  usage windows, fs catalogs, the session-workspace projection, query caches. The
+  fs catalogs, the session-workspace projection, query caches. The
   prototype already excludes these from `PersistedState` — production keeps that line.
 
 ### 2.3 Migrations

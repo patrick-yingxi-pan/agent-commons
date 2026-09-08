@@ -80,8 +80,12 @@ invalidated, and recomputed:
   `server/workspace.ts`); projected from the session's contexts.
 - **`caps`** — derived from attached context types.
 - **fs catalogs** (CTX-FS) — read live from the source (F-broker / [P2](P2-context-filesystem.md)).
-- **usage windows**, **reservations/guardian ledger**, **live runner registry** —
+- **reservations/guardian ledger**, **live runner registry** —
   transient by design (the prototype already excludes these from `PersistedState`).
+
+Tenant usage counters and period anchors are durable operational state
+(PERSIST-26); only their displayed percentages/reset labels are derived. Restart
+must not reset recorded spend. These counters are not provider billing records.
 
 ### 2.4 Seed → DB transition
 

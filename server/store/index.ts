@@ -114,7 +114,8 @@ import { nonNegativeIntEnv } from '../env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts.ts'
 import { connectorDetail } from '../data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from '../data/artifactContent.ts'
-import { createUsageMeter, estimateTokens, mintBudget } from '../usage.ts'
+import { estimateTokens, mintBudget } from '../usage.ts'
+import { UsageRegistry } from '../usageRegistry.ts'
 import { mintAuthority } from '../authority.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
@@ -1503,26 +1504,16 @@ let messageSeq = 0
 
 // The plan-usage meter (5-hour / weekly windows). Accumulates the model's real
 // token usage from every turn (store.recordUsage); the context-window figure is
-// computed per session in store.usage. Not persisted — usage windows are a live,
-// rolling meter, reseeded on restart (mock semantics).
+// computed per session in store.usage. Period anchors and consumption persist;
+// a restart cannot re-seed spend or move the reset boundary.
 //
 // Usage is metered PER TENANT (F2/PD9): the default tenant owns the seeded demo meter
-// (`usageMeter`, so the gauge on the single-tenant mock reads exactly as before, and its
+// (so the gauge on the single-tenant mock reads exactly as before, and its
 // constant ceilings remain the mint-time cascade root); every other tenant gets its own
-// *fresh* meter, created lazily, so one tenant's spend can't deplete another's window or
+// *fresh* meter on recorded spend, so one tenant's spend can't deplete another's window or
 // leak into another's gauge. `meterFor(t)` resolves the right meter for a caller.
-let usageMeter = createUsageMeter(() => Date.now())
-const tenantMeters = new Map<string, ReturnType<typeof createUsageMeter>>()
-const meterFor = (tenantId?: string): ReturnType<typeof createUsageMeter> => {
-  const t = tenantId ?? defaultTenantId()
-  if (t === defaultTenantId()) return usageMeter
-  let m = tenantMeters.get(t)
-  if (!m) {
-    m = createUsageMeter(() => Date.now(), false) // a new tenant starts at zero consumption
-    tenantMeters.set(t, m)
-  }
-  return m
-}
+const usageRegistry = new UsageRegistry(() => Date.now(), defaultTenantId)
+const meterFor = (tenantId?: string) => usageRegistry.readForTenant(tenantId)
 
 // Generation-outcome counters (F6 PD31 observability): how each turn resolved — `ok` (the
 // model answered), `fallback` (endpoint unreachable/slow → the degraded local reply),
@@ -1974,7 +1965,7 @@ function equivalentBudget(left: Budget | undefined, right: Budget | undefined): 
 function reclampCommissionsOf(agent: Agent): void {
   const provider = resolveProvider(agent.providerId)
   const parentAuthority = agent.authority ?? provider.authority ?? {}
-  const parentWindows = agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings()
+  const parentWindows = agent.budget?.windows ?? provider.plan?.windows ?? usageRegistry.planCeilings()
   for (const c of COMMISSIONS.values()) {
     if (c.agentId !== agent.id) continue
     const authority = c.authority ? clampAuthority(c.authority, parentAuthority) : c.authority
@@ -1991,7 +1982,7 @@ function reclampCommissionsOf(agent: Agent): void {
   }
 }
 function reclampAgentsOf(provider: ModelProvider): void {
-  const parentWindows = provider.plan?.windows ?? usageMeter.planCeilings()
+  const parentWindows = provider.plan?.windows ?? usageRegistry.planCeilings()
   for (const a of WORKER_AGENTS.values()) {
     if (a.providerId !== provider.id) continue
     const authority = a.authority ? clampAuthority(a.authority, provider.authority ?? {}) : a.authority
@@ -2519,6 +2510,7 @@ function snapshot(): PersistedState {
     graph,
     savedContexts: contextRegistry.persistedContexts(),
     mcpConnections: mcpConnectionRegistry.snapshot(),
+    usageMeters: usageRegistry.snapshot(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
     // the providers so a restored one keeps its concrete model id.
     providers: [...MODEL_PROVIDERS.entries()],
@@ -2622,6 +2614,7 @@ function cleanFirstBootState(): PersistedState {
   clean.graph = emptyGraph()
   clean.savedContexts = []
   clean.mcpConnections = { connections: [], retired: [] }
+  clean.usageMeters = []
   clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
   clean.providerConfigs = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]]
   clean.systemPrompts = [[defaultPrompt.id, defaultPrompt]]
@@ -2952,8 +2945,6 @@ function rehydrate(s: PersistedState): void {
   const demoWorld = worldMode === 'demo'
   if (!demoWorld) {
     guardian.clear()
-    usageMeter = createUsageMeter(() => Date.now(), false)
-    tenantMeters.clear()
   }
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
   retiredSessionCreationIds = new Set(
@@ -3106,6 +3097,7 @@ function rehydrate(s: PersistedState): void {
     },
     { demoSeeds: demoWorld, localSeed: demoWorld || NATIVE },
   )
+  usageRegistry.rehydrate(s.usageMeters, demoWorld)
   const knownUsers = new Set(accounts.toPersisted().users.map(([id]) => id))
   rehydrateSessionPreferences(s.sessionPreferences, (userId, sessionId) => {
     if (!knownUsers.has(userId)) return undefined
@@ -3367,7 +3359,12 @@ export const store = {
   initPersistence(): void {
     const loaded = loadState()
     persistEnabled = true
-    if (loaded) rehydrate(loaded)
+    if (loaded) {
+      rehydrate(loaded)
+      // Older stores never recorded usage. Publish the one-time world-appropriate
+      // baseline so even an otherwise read-only restart retains its period anchor.
+      if (loaded.usageMeters === undefined) persist()
+    }
     else if (resolveInitialWorld() === 'clean') {
       // Release first boot: replace every authored-person slice with the minimal
       // product infrastructure, then persist that canonical state. Rehydrate is
@@ -4323,7 +4320,7 @@ export const store = {
     }
     const provider = resolveProvider(input.providerId)
     if (input.authority) mintAuthority(provider.authority, input.authority)
-    if (input.budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), input.budget)
+    if (input.budget) mintBudget(provider.plan?.windows ?? usageRegistry.planCeilings(), input.budget)
     // Stamp the creating tenant (F2/PD9) so listAgents(tenant) scopes it; unset ⇒ shared.
     const agent: Agent = {
       ...input,
@@ -4417,7 +4414,7 @@ export const store = {
     const budget = 'budget' in patch ? patch.budget : current.budget
     const provider = resolveProvider(providerId)
     if (authority) mintAuthority(provider.authority, authority)
-    if (budget) mintBudget(provider.plan?.windows ?? usageMeter.planCeilings(), budget)
+    if (budget) mintBudget(provider.plan?.windows ?? usageRegistry.planCeilings(), budget)
     const next: Agent = {
       ...current,
       label: patch.label ?? current.label,
@@ -4605,7 +4602,7 @@ export const store = {
         return represented
       }
     }
-    if (input.plan) mintBudget(usageMeter.planCeilings(), input.plan)
+    if (input.plan) mintBudget(usageRegistry.planCeilings(), input.plan)
     if (config.baseURL && !config.capabilities) {
       throw new ProviderProbeError('A provider endpoint must pass the conformance probe before it is registered.')
     }
@@ -4703,7 +4700,7 @@ export const store = {
       )
     }
     if (Object.keys(patch).length === 0) return current
-    if (patch.plan) mintBudget(usageMeter.planCeilings(), patch.plan)
+    if (patch.plan) mintBudget(usageRegistry.planCeilings(), patch.plan)
     const next: ModelProvider = {
       ...current,
       ...patch,
@@ -5188,7 +5185,7 @@ export const store = {
     // inherits its provider's there, so that inherited ceiling is the parent.
     if (input.authority) mintAuthority(agent.authority ?? provider.authority, input.authority)
     if (input.grant) {
-      mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), input.grant)
+      mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageRegistry.planCeilings(), input.grant)
     }
     // Role is REQUIRED (INV-9): the funnel never picks one for the caller — the
     // commissioning surface pre-selects the Project's `defaultRole` (else the writer
@@ -5253,7 +5250,7 @@ export const store = {
     const role = clampContributorRole(patch.role ?? commission.role ?? 'writer', commission.tenantId, commission.projectId)
     if (authority) mintAuthority(agent?.authority ?? provider.authority, authority)
     if (grant) {
-      mintBudget(agent?.budget?.windows ?? provider.plan?.windows ?? usageMeter.planCeilings(), grant)
+      mintBudget(agent?.budget?.windows ?? provider.plan?.windows ?? usageRegistry.planCeilings(), grant)
     }
     // The D19 standing flag: present ⇒ apply (normalized), absent ⇒ unchanged. A newly
     // standing Contributor is offered the backlog's still-open items right away — the
@@ -5982,7 +5979,8 @@ export const store = {
    *  against the rolling plan windows. Called by the message route after every
    *  turn — including ephemeral ones, since they consume real tokens. */
   recordUsage(inputTokens: number, outputTokens: number, tenantId?: string): void {
-    meterFor(tenantId).record(inputTokens, outputTokens)
+    usageRegistry.record(inputTokens, outputTokens, tenantId)
+    persist()
   },
   /** Count one turn's outcome (F6 PD31 observability). Called by the message route after
    *  every turn so a degraded model path shows up in `/metrics` instead of being silent. */

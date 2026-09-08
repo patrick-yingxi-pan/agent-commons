@@ -2,7 +2,7 @@
  *  usage snapshot — the composer gauge, made real. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createUsageMeter, estimateTokens, formatTokens, CONTEXT_WINDOW } from './usage.ts'
+import { createUsageMeter, estimateTokens, formatTokens, CONTEXT_WINDOW, MAX_USAGE_STATE_START, parseUsageMeterState, UsageStateError } from './usage.ts'
 import { contextBreakdown, withLiveMessages, type ContextParts } from '../contract/index.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { store } from './store/index.ts'
@@ -111,4 +111,77 @@ test('store.overSpendLimit delegates to the meter (the route gate, D8)', () => {
   // any prior recording (more spend only raises consumed). This is what the route gates on.
   const over = store.overSpendLimit({ windows: [{ label: '5-hour limit', ceiling: 100_000 }] })
   assert.equal(over?.label, '5-hour limit')
+})
+
+test('usage snapshots round-trip without persisting caller-controlled ceilings', () => {
+  let t = 10_000
+  const meter = createUsageMeter(() => t, false)
+  meter.record(120, 30)
+  const snapshot = meter.snapshot()
+  assert.deepEqual(Object.keys(snapshot).sort(), ['fiveHour', 'weekly'])
+  assert.deepEqual(Object.keys(snapshot.fiveHour).sort(), ['consumed', 'start'])
+  const restored = createUsageMeter(() => t, true, snapshot)
+  assert.deepEqual(restored.snapshot(), snapshot)
+  snapshot.fiveHour.consumed = 999_999
+  assert.equal(restored.snapshot().fiveHour.consumed, 150)
+})
+
+test('five-hour and weekly windows roll independently at their own boundaries', () => {
+  let t = 0
+  const meter = createUsageMeter(() => t, false)
+  meter.record(100, 0)
+  t = 5 * 3_600_000
+  assert.equal(meter.snapshot().fiveHour.consumed, 0)
+  assert.equal(meter.snapshot().weekly.consumed, 100)
+  t = 7 * 24 * 3_600_000
+  assert.equal(meter.snapshot().weekly.consumed, 0)
+})
+
+test('large elapsed spans use O(1) rollover and clock rollback never forgives spend', () => {
+  let t = 0
+  const meter = createUsageMeter(() => t, false)
+  meter.record(10, 0)
+  t = 1_000_000_000_000
+  meter.planLimits()
+  assert.equal(meter.snapshot().fiveHour.consumed, 0)
+  const start = meter.snapshot().fiveHour.start
+  t = start - 1
+  meter.record(7, 0)
+  assert.equal(meter.snapshot().fiveHour.start, start)
+  assert.equal(meter.snapshot().fiveHour.consumed, 7)
+})
+
+test('malformed persisted state is rejected before restoration', () => {
+  const valid = { fiveHour: { start: 0, consumed: 1 }, weekly: { start: 0, consumed: 2 } }
+  assert.deepEqual(parseUsageMeterState(valid), valid)
+  for (const invalid of [
+    null,
+    { ...valid, extra: true },
+    { fiveHour: { start: -1, consumed: 1 }, weekly: valid.weekly },
+    { fiveHour: { start: 0, consumed: Number.NaN }, weekly: valid.weekly },
+    { fiveHour: { start: 0, consumed: Number.POSITIVE_INFINITY }, weekly: valid.weekly },
+    { fiveHour: { start: MAX_USAGE_STATE_START + 1, consumed: 0 }, weekly: valid.weekly },
+    { fiveHour: { start: 0, consumed: 1, ceiling: 2 }, weekly: valid.weekly },
+  ]) assert.throws(() => createUsageMeter(() => 0, false, invalid), UsageStateError)
+})
+
+test('usage rejects cumulative overflow and out-of-range clocks without mutating state', () => {
+  const meter = createUsageMeter(() => 0, false, {
+    fiveHour: { start: 0, consumed: Number.MAX_SAFE_INTEGER - 5 },
+    weekly: { start: 0, consumed: Number.MAX_SAFE_INTEGER - 5 },
+  })
+  const before = meter.snapshot()
+  assert.throws(() => meter.record(6, 0), RangeError)
+  assert.deepEqual(meter.snapshot(), before)
+  assert.throws(() => createUsageMeter(() => MAX_USAGE_STATE_START + 1, false), RangeError)
+  assert.throws(() => createUsageMeter(() => -1, false), RangeError)
+})
+
+test('record validates both token inputs before mutating either window', () => {
+  const meter = createUsageMeter(() => 0, false)
+  const before = meter.snapshot()
+  for (const pair of [[-1, 0], [0, -1], [Number.NaN, 0], [0, Number.POSITIVE_INFINITY], [0.5, 0], [Number.MAX_SAFE_INTEGER, 1]]) {
+    assert.throws(() => meter.record(pair[0]!, pair[1]!), RangeError)
+    assert.deepEqual(meter.snapshot(), before)
+  }
 })

@@ -264,6 +264,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /snapshots/)
   assert.match(smoke, /recovery-/)
   assert.match(smoke, /vault\.includes\(smokeSecret\)/)
+  assert.match(smoke, /assert\.deepEqual\(storedUsage\(userDataPath, identity\.tenant\.id\), recordedUsage/,
+    'packaged acceptance proves exact real-turn usage survives relaunch')
   assert.match(smoke, /await smokePackagedAttachments\(\{ executable \}\)/,
     'the ordinary executable and freshly extracted release both run attachment acceptance')
   assert.match(smoke, /await smokePackagedMcpCredentials\(\{ executable \}\)/,

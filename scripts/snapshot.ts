@@ -72,6 +72,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
   const seedArtifacts = store.listArtifacts()
   const seedSchedules = store.listSchedules()
   const seedContexts = store.savedContexts().contexts
+  // Exercise durable metering through the same path as a completed model turn.
+  store.recordUsage(1234, 4321, 'tenant-snapshot-usage')
   const a0 = seedArtifacts[0]
   const a1 = seedArtifacts[1]
 

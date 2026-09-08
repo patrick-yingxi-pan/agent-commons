@@ -36,7 +36,7 @@ const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
 const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
 const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
-const COVERED_SLICES = ['imageAssets'] as const
+const COVERED_SLICES = ['imageAssets', 'usageMeters'] as const
 
 const snapshotImage: ImageSnapshot = {
   mimeType: 'image/png',
@@ -217,6 +217,9 @@ test('build produces a snapshot covering every persisted slice', async () => {
   const g = s.graph
   assert.equal(s.initialWorld, 'demo', 'development snapshot records its authored world')
   for (const slice of COVERED_SLICES) assert.ok(Array.isArray(s[slice]), `${slice} is exercised by the comprehensive snapshot builder`)
+  const usage = s.usageMeters?.find(([tenant]) => tenant === 'tenant-snapshot-usage')?.[1]
+  assert.equal(usage?.fiveHour.consumed, 5555, 'recordUsage → exact durable five-hour consumption')
+  assert.equal(usage?.weekly.consumed, 5555, 'recordUsage → exact durable weekly consumption')
   assert.ok(s.imageAssets?.length, 'the comprehensive snapshot contains a nonempty image asset slice')
   assert.match(s.imageAssets?.[0]?.id ?? '', /^img-[a-f0-9]{64}$/, 'image asset reference is content-addressed')
   assert.equal(s.imageAssets?.[0]?.image.data, snapshotImage.data, 'image asset bytes survive the comprehensive snapshot')

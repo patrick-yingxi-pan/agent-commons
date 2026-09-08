@@ -82,6 +82,29 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+The usage checkpoint replaces restart-reset plan meters with tenant-owned
+durable counters and original period anchors. Existing ceilings and demo gauges
+are unchanged; clean/new accounts start at zero, and older snapshots acquire
+their world-appropriate baseline once. JSON/SQLite restart locks cover exact
+spend, independent five-hour/weekly resets, tenant isolation, invalid-state
+refusal and failed-write fencing. Packaged acceptance now compares a real
+completed fixture-provider turn's exact counters and anchors across relaunch.
+These are local operational counters: provider invoicing, unreported in-flight
+spend and concurrent-call reservations remain separate accounting work, and an
+explicit older backup restores its recorded counters along with other data.
+Intentional regressions proved that removing the usage commit, retaining stale
+tenant meters on rehydrate, admitting malformed usage, or dropping the packaged
+restart assertion each fails its corresponding lock; all were restored.
+Review also removed read amplification: checking a new tenant's gauge or gate
+does not retain an empty meter; its first reported spend establishes the period.
+The store-level lock also failed when read-time retention was reintroduced.
+A second failure-first lock caught rejected first-turn counts retaining an empty
+tenant. Registry recording now validates before publishing any new tenant meter.
+
+Live native MCP inspection/replacement acceptance still needs an approved public
+HTTPS test endpoint. Production loopback remains disabled; the existing native
+MCP smoke's offline seeded catalog is not live discovery evidence.
+
 The legacy SSE resumption increment keeps one logical request through bounded
 read-only GET recovery: at most eight connections, one original deadline and
 cumulative response-byte budget, exact private cursor/session/audience, and no
@@ -94,6 +117,7 @@ call receipts, expired-session handling and actual service acceptance remain.
 Intentional mutations proved the GET cap, shared byte budget, modern no-resume,
 complete-event cursor and server retry locks fail before restoration. The prior
 cancellation checkpoint `ddd2217` is green in GitHub run `34225716157`.
+The resumption checkpoint `cd55070` is green in GitHub run `34228524077`.
 
 The explicit MCP cancellation increment notifies a legacy peer of the exact
 submitted tool/list request when user cancellation wins. The control POST is
