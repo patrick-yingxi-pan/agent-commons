@@ -8,6 +8,7 @@ import type { RelationGraph } from './api.ts'
 import type { ArtifactItem, Project, ProjectContext, ScheduledTask } from './cowork.ts'
 import {
   artifactFromDraft,
+  artifactMatchesSave,
   opKey,
   projectContextMatchesSelector,
   projectContextSelectorIsAmbiguous,
@@ -120,14 +121,9 @@ export function applyGraphOp(
       // Replay guard (the create-project pattern — keep the shared reducer safe for
       // ANY op producer): a second apply of the same save (two clients confirming
       // one pending card before the SSE invalidate lands, distinct request ids)
-      // must not mint a duplicate. Identity = the (name + source) `opAppliedInGraph`
-      // already defines.
-      if (graph.extraArtifacts.some(
-        (a) =>
-          a.name === op.artifact.name &&
-          a.source === source &&
-          (op.ownerTenantId === undefined || a.tenantId === op.ownerTenantId),
-      )) return graph
+      // must not mint a duplicate. Match the immutable save origin and tenant,
+      // as opAppliedInGraph does; an editable display name is not this identity.
+      if (graph.extraArtifacts.some((a) => artifactMatchesSave(a, op))) return graph
       const id = mintArtifactId()
       const pid = op.projectId ?? ''
       // A user-created artifact (no session) cites a neutral source rather than a
@@ -265,15 +261,10 @@ export function opAppliedInGraph(graph: RelationGraph, op: RelationOp): boolean 
     case 'refile-artifact':
       return graph.artifactProject[op.artifactId] === (op.projectId ?? '')
     case 'save-artifact':
-      // The minted id isn't on the op, so match what artifactFromDraft stamped: the
-      // name + the citing source. Same-session re-proposals read applied; a same-name
-      // save from a DIFFERENT session stays pending (distinct source).
-      return graph.extraArtifacts.some(
-        (a) =>
-          a.name === op.artifact.name &&
-          a.source === (op.sessionTitle ?? 'Created here') &&
-          (op.ownerTenantId === undefined || a.tenantId === op.ownerTenantId),
-      )
+      // The minted id isn't on the op, so match the immutable save origin and
+      // tenant stamped by artifactFromDraft, even after a display rename.
+      // A save with a different citing source remains a distinct proposal.
+      return graph.extraArtifacts.some((a) => artifactMatchesSave(a, op))
     case 'scope-context':
       return (graph.projectContexts[op.projectId] ?? []).some((c) => sameProjectContext(c, op.context))
     case 'unscope-context':

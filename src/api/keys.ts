@@ -343,6 +343,7 @@ export const paths = {
     `/fs/content?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   projects: '/projects',
   artifacts: '/artifacts',
+  artifact: (id: string) => `/artifacts/${encodeURIComponent(id)}`,
   artifactExport: (id: string) => `/artifacts/${encodeURIComponent(id)}/export`,
   schedules: '/schedules',
   schedule: (id: string) => `/schedules/${encodeURIComponent(id)}`,

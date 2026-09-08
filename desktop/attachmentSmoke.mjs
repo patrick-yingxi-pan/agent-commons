@@ -246,9 +246,13 @@ export async function smokePackagedAttachments({ executable }) {
       })
       if (!edit.ok) throw new Error(`Markdown artifact edit failed: HTTP ${edit.status}`)
       return { id: artifact.id, editedBody }
-    }, { name: markdownName, body: markdownBody, sessionId: session.id })
+    }, { name: `original-${markdownName}`, body: markdownBody, sessionId: session.id })
     const markdownRoute = `/artifacts/${encodeURIComponent(markdownArtifact.id)}`
     await page.goto(`${origin}${markdownRoute}`)
+    await page.getByRole('button', { name: 'Rename artifact', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Artifact name', exact: true }).fill(markdownName)
+    await page.getByRole('button', { name: 'Save artifact name', exact: true }).click()
+    await expect(page.getByRole('heading', { name: markdownName, exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Download Markdown', exact: true })).toBeVisible()
     const exportPayload = await page.evaluate(async (id) => {
       const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/export`)
@@ -291,7 +295,7 @@ export async function smokePackagedAttachments({ executable }) {
     const downloaded = await readFile(downloadPath)
     assert.deepEqual(downloaded.toString('utf8'), exportPayload.payload.content, 'downloaded Markdown bytes equal the fresh authenticated export content')
     assert.match(downloaded.toString('utf8'), /Edited current saved revision\\\./, 'download preserves escaped Markdown punctuation')
-    console.log('[desktop-markdown-smoke] authenticated fresh export GET · current edited document bytes · test-only packaged download redirect · exact .md file')
+    console.log('[desktop-markdown-smoke] owner rename · authenticated fresh export GET · current edited document bytes · test-only packaged download redirect · exact renamed .md file')
     await page.goto(`${origin}${sessionPath}`)
 
     const calls = await run.app.evaluateHandle(({ dialog, BrowserWindow }, filePaths) => {

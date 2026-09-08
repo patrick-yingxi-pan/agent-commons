@@ -5309,6 +5309,30 @@ export function buildRouter(): Router {
   r.get('/artifacts', ({ req, res, url }) => {
     sendList(res, url, store.listArtifacts(store.identity(req.headers).tenant.id), (a) => a.id)
   })
+  r.get('/artifacts/:id', ({ req, res, params }) => {
+    const artifact = store.listArtifacts(store.identity(req.headers).tenant.id).find((row) => row.id === params.id)
+    if (!artifact) return sendError(res, 'not_found', 'No such artifact')
+    sendJson(res, artifact)
+  })
+  r.patch('/artifacts/:id', idempotent(async ({ req, res, params, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    const artifact = store.artifactById(params.id)
+    if (!artifact || !store.artifactOwnedBy(artifact, tenantId)) return sendError(res, 'not_found', 'No such artifact')
+    const patch = await body<Record<string, unknown>>()
+    if (!patch || typeof patch !== 'object' || Array.isArray(patch) ||
+      Object.keys(patch).some((key) => key !== 'name' && key !== 'expectedRevision') ||
+      typeof patch.name !== 'string' || typeof patch.expectedRevision !== 'number') {
+      return sendError(res, 'bad_request', 'Only name and expectedRevision are accepted and both are required.')
+    }
+    try {
+      const updated = store.renameArtifact(params.id, patch.name, patch.expectedRevision, tenantId)
+      if (!updated) return sendError(res, 'not_found', 'No such artifact')
+      sendJson(res, updated)
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
+  }))
   // A saved document's portable projection is the same read through every
   // access door. It neither exports an unsaved UI draft nor caches authority.
   r.get('/artifacts/:id/export', ({ req, res, params }) => {

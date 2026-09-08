@@ -593,6 +593,9 @@ test('build produces a snapshot covering every persisted slice', async () => {
     ),
     'save-artifact with a body → artifactBodies in the same portable snapshot',
   )
+  assert.ok(s.artifactMetadata?.some(([id, metadata]) =>
+    id.length > 0 && metadata.name === 'Playground renamed document.md' && metadata.revision === 1),
+  'renameArtifact → independent, revisioned display metadata in the portable snapshot')
 
   // ── id counters all advanced (so post-restore mints never collide) ──
   for (const k of ['session', 'message', 'schedule', 'run', 'artifact', 'provider', 'systemPrompt', 'agent', 'commission'] as const) {

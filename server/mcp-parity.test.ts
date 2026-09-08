@@ -144,6 +144,17 @@ test('POLICY: authored artifact listing has identical HTTP and remote-MCP tenanc
   assert.equal(exportDirect.status, 200)
   assert.equal(exportMcp.status, 200)
   assert.deepEqual(exportMcp.body, exportDirect.json, 'all read doors return the same saved Markdown projection')
+  const renamed = await toolCall('patch_artifacts_by_id', {
+    id: created.id, body: { name: `renamed-${created.name}`, expectedRevision: 0 },
+  }, { 'x-tenant-id': owner })
+  assert.equal(renamed.status, 200)
+  const namedDirect = await call('GET', `/artifacts/${created.id}`, undefined, { 'x-tenant-id': audience })
+  const namedMcp = await toolCall('get_artifacts_by_id', { id: created.id }, { 'x-tenant-id': audience })
+  assert.deepEqual(namedMcp.body, namedDirect.json)
+  assert.equal(namedMcp.body.name, `renamed-${created.name}`)
+  assert.equal((await toolCall('patch_artifacts_by_id', {
+    id: created.id, body: { name: 'reader-change.md', expectedRevision: 1 },
+  }, { 'x-tenant-id': audience })).status, 404)
   const hiddenExport = await toolCall('get_artifacts_by_id_export', { id: created.id }, { 'x-tenant-id': 'tenant-growthworks' })
   assert.equal(hiddenExport.status, 404)
 

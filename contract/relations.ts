@@ -648,6 +648,7 @@ export function artifactFromDraft(
   return {
     id,
     name: draft.name,
+    saveOrigin: { name: draft.name, source: sourceTitle },
     kind: draft.kind,
     meta: draft.meta,
     source: sourceTitle,
@@ -659,4 +660,12 @@ export function artifactFromDraft(
     editedAt,
     ...(ownerTenantId === undefined ? {} : { tenantId: ownerTenantId }),
   }
+}
+
+/** Save replay compares immutable provenance, never the mutable display name.
+ * Legacy raw rows still carry their original name/source until projected. */
+export function artifactMatchesSave(artifact: ArtifactItem, op: Extract<RelationOp, { kind: 'save-artifact' }>): boolean {
+  const origin = artifact.saveOrigin ?? artifact
+  return origin.name === op.artifact.name && origin.source === (op.sessionTitle ?? 'Created here') &&
+    (op.ownerTenantId === undefined || artifact.tenantId === op.ownerTenantId)
 }

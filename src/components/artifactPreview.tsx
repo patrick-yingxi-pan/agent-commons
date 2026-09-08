@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowUpRight,
   Box,
@@ -12,6 +12,7 @@ import {
   Plus,
   Presentation,
   Sheet,
+  X,
   type LucideIcon,
 } from 'lucide-react'
 import type { ArtifactKind } from '../types'
@@ -40,7 +41,14 @@ import type { NavLocation } from '../lib/nav'
 import { SectionAction } from './SectionAction'
 import { SHARING_MUTATION_WAIT } from '../controller/grantMutations.ts'
 import { useArtifactDownload } from '../controller/useArtifactDownload.ts'
+import {
+  enqueueArtifactMetadataMutation,
+  isArtifactMetadataMutationHeld,
+  useArtifactMetadataMutationStatus,
+} from '../controller/artifactMetadataMutations.ts'
 import { InlineOperationStatus } from './InlineOperationStatus'
+import { normalizeArtifactName } from '../../contract/index.ts'
+import { HOVER_CUE } from '../lib/hoverReveal'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -764,6 +772,18 @@ export function ArtifactDetailPage({
   Section: MainPageSectionComponent
 }) {
   const Icon = KIND_ICON[artifact.kind]
+  const metadataMutation = useArtifactMetadataMutationStatus()
+  const metadataBusy = isArtifactMetadataMutationHeld(artifact.id) ||
+    (metadataMutation.busy && metadataMutation.activeResourceId === artifact.id)
+  const [editingName, setEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState(artifact.name)
+  const [nameBaseRevision, setNameBaseRevision] = useState(artifact.metadataRevision ?? 0)
+  const nameHintId = useId()
+  const currentArtifactId = useRef(artifact.id)
+  currentArtifactId.current = artifact.id
+  useEffect(() => { setEditingName(false) }, [artifact.id])
+  const normalizedName = normalizeArtifactName(nameDraft)
+  const invalidName = !normalizedName
 
   // The owner's body edit (social S3): which block is open, and its draft. The
   // save goes through the SAME mutator a landed `artifact-patch` runs — the
@@ -813,6 +833,23 @@ export function ArtifactDetailPage({
       }
     : undefined
 
+  const cancelName = () => {
+    if (metadataBusy) return
+    setNameDraft(artifact.name)
+    setEditingName(false)
+  }
+  const saveName = async () => {
+    if (metadataBusy || isArtifactMetadataMutationHeld(artifact.id)) return
+    const next = normalizeArtifactName(nameDraft)
+    if (!next || next === artifact.name) return
+    const outcome = await enqueueArtifactMetadataMutation(
+      artifact.id,
+      { name: next },
+      nameBaseRevision,
+    )
+    if (outcome === 'applied' && currentArtifactId.current === artifact.id) setEditingName(false)
+  }
+
   return (
     <div
       data-artifact-page={artifact.id}
@@ -828,7 +865,66 @@ export function ArtifactDetailPage({
             <Icon size={20} className="shrink-0" />
           </span>
           <div className="min-w-0 flex-1">
-            <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
+            {editingName ? (
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1" aria-busy={metadataBusy}>
+                <h1 className="sr-only">{artifact.name}</h1>
+                <input
+                  autoFocus
+                  disabled={metadataBusy}
+                  value={nameDraft}
+                  onChange={(event) => setNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Escape') cancelName()
+                    if (event.key === 'Enter') void saveName()
+                  }}
+                  aria-label="Artifact name"
+                  aria-invalid={invalidName || undefined}
+                  aria-describedby={invalidName ? nameHintId : undefined}
+                  className={`${PAGE_TITLE_CLASS} min-w-0 max-w-full flex-1 rounded-md border border-accent bg-surface px-1.5 py-0.5 outline-none disabled:opacity-60`}
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveName()}
+                  disabled={metadataBusy || !normalizedName || normalizedName === artifact.name}
+                  aria-label={metadataBusy ? 'Saving artifact name…' : 'Save artifact name'}
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-accent transition hover:bg-accent-tint disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <Check size={13} />
+                </button>
+                {invalidName && (
+                  <span id={nameHintId} className="basis-full text-[11px] text-removed" role="status">
+                    Artifact name must be 1 to 240 characters and cannot contain control characters.
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={cancelName}
+                  disabled={metadataBusy}
+                  aria-label="Cancel artifact rename"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : own ? (
+              <button
+                type="button"
+                disabled={metadataBusy}
+                onClick={() => {
+                  setNameDraft(artifact.name)
+                  setNameBaseRevision(artifact.metadataRevision ?? 0)
+                  setEditingName(true)
+                }}
+                title={metadataBusy ? 'Updating artifact name…' : 'Rename artifact'}
+                aria-label="Rename artifact"
+                className="group flex min-w-0 max-w-full items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
+                <Pencil size={14} className={`shrink-0 text-ink-faint ${HOVER_CUE}`} />
+              </button>
+            ) : (
+              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
+            )}
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-faint">
               {/* S6 — the canonical page should be at least as specific as the humble
                   side panel: show the artifact's own descriptor (meta — "functional spec",
@@ -862,8 +958,8 @@ export function ArtifactDetailPage({
             label="Download Markdown"
             icon={<Download size={14} />}
             onClick={() => { void documentDownload.download() }}
-            disabled={editing !== null || saving || documentDownload.busy}
-            disabledReason={editing !== null || saving ? 'Save or cancel your edit before downloading' : 'Preparing download'}
+            disabled={editing !== null || saving || editingName || metadataBusy || documentDownload.busy}
+            disabledReason={editing !== null || saving || editingName || metadataBusy ? 'Save or cancel your edit before downloading' : 'Preparing download'}
           /> : undefined}
         >
           {documentDownload.notice && <InlineOperationStatus {...documentDownload.notice} />}

@@ -277,6 +277,11 @@ export interface ScheduleTemplate {
 export interface ArtifactItem {
   id: string
   name: string
+  /** Display-name ordering only; document content has its own body revision. */
+  metadataRevision?: number
+  /** Immutable save provenance, stamped by the materializer, never renamed.
+   * Keeps historical save proposals recognized after the display name changes. */
+  saveOrigin?: { name: string; source: string }
   kind: ArtifactKind
   meta: string
   /** The tenant this artifact belongs to — the isolation boundary on the web (F2/PD9).

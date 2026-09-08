@@ -30,6 +30,16 @@ milestones or address a demonstrated defect.
 
 ## Checkpoint criteria
 
+Artifact renaming is an owner-only metadata workflow. Names have independent
+revision ordering, while IDs, document bodies, links, filing, grants and immutable
+save provenance remain stable. A routine refresh preserves the owner's display
+name without changing its standing configuration. Original save proposals remain
+recognized after renaming, including restart replay. Exact read/PATCH doors share
+the HTTP/MCP wall, and late acknowledgements cannot rewind newer name or source
+data. The inline editor holds its draft through conflict or transport loss and
+uses the existing explicit Retry/Dismiss recovery. JSON/SQLite and portable-state
+locks cover the additive metadata slice; deletion retention remains undecided.
+
 The saved-document export checkpoint adds a fresh authorized Markdown download
 to the canonical Content section for documents and draft emails, including
 standing routine reports. It exports the latest saved revision, not an unsaved

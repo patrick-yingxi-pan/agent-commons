@@ -611,6 +611,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
       store.defaultTenantId(),
     )
     store.updateArtifactBlock(editable.id, editable.block, 'Playground body edit — snapshot coverage.')
+    const artifact = store.artifactById(editable.id)!
+    store.renameArtifact(editable.id, 'Playground renamed document.md', artifact.metadataRevision ?? 0, store.defaultTenantId())
   }
   // ── Social S6 link grants ── exercise the link-token path through the real
   // mutators: the server mints the token, and a foreign tenant redeems it (the

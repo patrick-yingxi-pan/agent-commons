@@ -42,6 +42,8 @@ import type {
   WorkItemComment,
 } from '../../contract/index.ts'
 import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
+import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import type { ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import type { ProviderConfig } from '../data/providers.ts'
 import type {
   AccountUser,
@@ -389,6 +391,8 @@ export interface PersistedState {
    *  same-named artifact in another. Additive-optional like `socialProposals`
    *  (a pre-field snapshot loads with every body at its authored text). */
   artifactBodies?: [string, ArtifactContent][]
+  /** Independent display names, ordered by metadata revision rather than body revision. */
+  artifactMetadata?: [string, ArtifactMetadata][]
   /** S5 guardrails — per-viewer mute lists (`[tenantId, names[]]`).
    *  Additive-optional. */
   mutes?: [string, string[]][]
@@ -528,6 +532,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   discussions: 'array',
   socialProposals: 'array',
   artifactBodies: 'mapEntries',
+  artifactMetadata: 'mapEntries',
   mutes: 'mapEntries',
   follows: 'mapEntries',
   discussionReads: 'mapEntries',
@@ -580,6 +585,9 @@ export interface PersistenceBackend {
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
 export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  if (state?.artifactMetadata !== undefined) {
+    try { parseArtifactMetadataEntries(state.artifactMetadata) } catch { return false }
+  }
   if (state?.usageMeters !== undefined) {
     try { parseUsageMeterEntries(state.usageMeters) } catch { return false }
   }
@@ -606,6 +614,19 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     }
     return true
   }
+  const artifactOriginsValid = (graph: unknown): boolean => {
+    if (!record(graph)) return false
+    const artifacts = (graph as { extraArtifacts?: unknown }).extraArtifacts
+    if (!Array.isArray(artifacts)) return false
+    return artifacts.every((artifact) => {
+      if (!record(artifact)) return false
+      const origin = (artifact as { saveOrigin?: unknown }).saveOrigin
+      if (origin === undefined) return true
+      if (!record(origin)) return false
+      const fields = origin as Record<string, unknown>
+      return Object.keys(fields).length === 2 && typeof fields.name === 'string' && typeof fields.source === 'string'
+    })
+  }
   return Boolean(
     state
       && (state.initialWorld === undefined || state.initialWorld === 'demo' || state.initialWorld === 'clean')
@@ -615,6 +636,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       && Array.isArray(state.schedules)
       && record(state.recents)
       && graphContextsValid(state.graph)
+      && artifactOriginsValid(state.graph)
       && record(state.seq),
   )
 }

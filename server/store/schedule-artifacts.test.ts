@@ -143,6 +143,32 @@ test('routine identity prevents ordinary and same-name artifacts from being over
   store.removeSchedule(taskB.id)
 })
 
+test('an owner-chosen report name survives routine refresh without changing its standing configuration', () => {
+  const task = addTask(`named report ${Date.now().toString(36)}`)
+  const configured = `configured-${task.id}.md`
+  approve(task, configured)
+  complete(task, 'First named report.')
+  const owner = task.tenantId!
+  const first = store.listArtifacts(owner).find((artifact) => artifact.sourceScheduleId === task.id)!
+  const origin = first.saveOrigin
+  const beforeConfiguration = store.relationGraph(owner).scheduleArtifact[task.id]
+  const chosen = 'Team weekly review.md'
+  store.renameArtifact(first.id, chosen, 0, owner)
+  store.updateSchedule(task.id, { name: `${task.name} updated` })
+  const secondRun = complete(task, 'Fresh report after the rename.')
+  const rows = store.listArtifacts(owner).filter((artifact) => artifact.sourceScheduleId === task.id)
+  assert.equal(rows.length, 1)
+  assert.equal(rows[0]!.id, first.id)
+  assert.equal(rows[0]!.name, chosen)
+  assert.equal(rows[0]!.metadataRevision, 1)
+  assert.equal(rows[0]!.sourceSessionId, secondRun.sessionId)
+  assert.deepEqual(rows[0]!.saveOrigin, origin)
+  assert.equal(store.relationGraph(owner).scheduleArtifact[task.id], beforeConfiguration)
+  assert.equal(store.artifactContent(owner)[first.id]?.revision, 1)
+  assert.equal(store.exportArtifactDocument(first.id, owner)?.filename, chosen)
+  store.removeSchedule(task.id)
+})
+
 test('foreign same-name artifacts and owner-private body events remain isolated', () => {
   const task = addTask(`private artifact ${Date.now().toString(36)}`)
   const name = `private-output-${task.id}.md`

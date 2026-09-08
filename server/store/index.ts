@@ -14,6 +14,8 @@
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
+import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
 import type {
@@ -75,6 +77,7 @@ import { randomUUID } from 'node:crypto'
 import {
   applyGraphOp,
   artifactFromDraft,
+  artifactMatchesSave,
   documentMarkdown,
   connectorsFor,
   describeCadence,
@@ -1037,6 +1040,11 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
  *  (the S7 lesson). `store.artifactContent(tenantId)` lays these over the
  *  fixture per caller; `artifactBodyOf(id)` is the one resolver. */
 const artifactBodies = new Map<string, ArtifactContent>()
+// Display metadata is independent of authored bytes and immutable save origin.
+// This also lets demo rows be renamed without mutating the fixture library.
+const artifactMetadata = new Map<string, ArtifactMetadata>()
+const artifactWithMetadata = (artifact: ArtifactItem): ArtifactItem =>
+  projectArtifactMetadata(artifact, artifactMetadata.get(artifact.id))
 
 /** An artifact's CURRENT body — the edit if it has one, else the authored seed.
  *  Module-level so the store's methods AND the wire-face builders share one
@@ -1569,8 +1577,10 @@ const tenantIdForName = (name: string): string | undefined => {
 
 /** Resolve an artifact across both homes — seeded (`ALL_ARTIFACTS`) + created
  *  (`graph.extraArtifacts`) — mirroring `findProject`. */
-const findArtifact = (id: string): ArtifactItem | undefined =>
-  baseArtifacts().find((a) => a.id === id) ?? graph.extraArtifacts.find((a) => a.id === id)
+const findArtifact = (id: string): ArtifactItem | undefined => {
+  const artifact = baseArtifacts().find((a) => a.id === id) ?? graph.extraArtifacts.find((a) => a.id === id)
+  return artifact ? artifactWithMetadata(artifact) : undefined
+}
 
 /** Agent-Commons registry visibility (F2/PD9). Unlike CONTENT (sessions/projects/artifacts,
  *  where a seed row belongs to the default tenant and is private to it), a registry entry is
@@ -1709,7 +1719,7 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
       const projected = projectForTenant(p, g, tenantId)
       return projected ? [projected] : []
     }),
-    extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)),
+    extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)).map(artifactWithMetadata),
     sessionProject: byProjValue(g.sessionProject),
     // An artifact→project row needs the artifact visible; the value is gated on project
     // visibility ONLY when it's a real project id — `''` is the reducer's "unfiled"
@@ -2583,6 +2593,7 @@ function snapshot(): PersistedState {
     discussions, // social S2 — anchored threads (talk survives a restart)
     socialProposals, // social S3 — offered changes + the per-subject ledger
     artifactBodies: [...artifactBodies.entries()], // social S3 — edited artifact bodies (id-keyed)
+    artifactMetadata: [...artifactMetadata.entries()],
     mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
     // S7 — the person layer: who each viewer follows, and how far they've read
     // each thread (the DM inbox's unread count).
@@ -2677,6 +2688,7 @@ function cleanFirstBootState(): PersistedState {
   clean.discussions = []
   clean.socialProposals = []
   clean.artifactBodies = []
+  clean.artifactMetadata = []
   clean.mutes = []
   clean.follows = []
   clean.discussionReads = []
@@ -3214,6 +3226,8 @@ function rehydrate(s: PersistedState): void {
   // pre-field snapshot restores with none, i.e. every body at its seed text.
   artifactBodies.clear()
   for (const [id, body] of s.artifactBodies ?? []) artifactBodies.set(id, body)
+  artifactMetadata.clear()
+  for (const [id, metadata] of parseArtifactMetadataEntries(s.artifactMetadata)) artifactMetadata.set(id, metadata)
   // S5 mutes — same restore shape.
   mutes.clear()
   for (const [t, names] of s.mutes ?? []) mutes.set(t, new Set(names))
@@ -3351,6 +3365,7 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, artifactNa
   const delivered: ArtifactItem = {
     ...artifactFromDraft(op.artifact, id, source, existing?.projectId ?? task.projectId ?? '', at, sessionId, ownerTenantId),
     sourceScheduleId: task.id,
+    ...(existing ? { saveOrigin: existing.saveOrigin ?? { name: existing.name, source: existing.source } } : {}),
   }
   if (existing) {
     graph = {
@@ -6000,14 +6015,10 @@ export const store = {
     // artifacts called `notes.md`, and writing an edit under the shared name
     // would show one document's revision inside the other.
     const byName = new Map<string, number>()
-    for (const a of baseArtifacts()) {
-      if (this.artifactVisibleToTenant(a, tenantId)) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
-    }
-    for (const a of graph.extraArtifacts) {
-      if (this.artifactVisibleToTenant(a, tenantId)) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
-    }
-    for (const a of [...baseArtifacts(), ...graph.extraArtifacts]) {
-      if (!this.artifactVisibleToTenant(a, tenantId)) continue
+    const visible = [...baseArtifacts(), ...graph.extraArtifacts].map(artifactWithMetadata)
+      .filter((artifact) => this.artifactVisibleToTenant(artifact, tenantId))
+    for (const a of visible) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
+    for (const a of visible) {
       const body = artifactBodyOf(a.id)
       if (!body) continue
       // Every addressed body has an exact ID, including untouched seeds.
@@ -10111,7 +10122,7 @@ export const store = {
    * Read visibility may widen through grants; ownership never does. */
   listArtifacts(tenantId?: string): ArtifactItem[] {
     const artifacts = [...graph.extraArtifacts, ...baseArtifacts()].map((a) => ({
-      ...a,
+      ...artifactWithMetadata(a),
       projectId: graph.artifactProject[a.id] ?? a.projectId,
     }))
     if (!tenantId) return artifacts
@@ -10127,6 +10138,26 @@ export const store = {
    * same visibility/ownership wall as the complete registry. */
   artifactById(id: string): ArtifactItem | undefined {
     return findArtifact(id)
+  },
+  /** Owner-only display rename. No document byte, filing, sharing, save receipt,
+   * or routine configuration is changed. Publication follows durable commit. */
+  renameArtifact(id: string, name: string, expectedRevision: number, tenantId: string): ArtifactItem | undefined {
+    const artifact = findArtifact(id)
+    if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
+    const normalized = normalizeArtifactName(name)
+    if (normalized === undefined) throw new ValidationError('Choose a name with 1–240 characters and no control characters.')
+    if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      throw new ValidationError('expectedRevision must be a non-negative safe integer.')
+    }
+    const revision = artifact.metadataRevision ?? 0
+    if (expectedRevision !== revision) throw new ConflictError('This artifact name changed elsewhere. Review the latest name before retrying.')
+    if (normalized === artifact.name) return this.listArtifacts(tenantId).find((row) => row.id === id)
+    if (revision === Number.MAX_SAFE_INTEGER) throw new ConflictError('This artifact cannot accept another metadata revision.')
+    artifactMetadata.set(id, { name: normalized, revision: revision + 1, editedAt: Date.now() })
+    graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
+    persist()
+    emit({ type: 'artifact.changed', artifactId: id })
+    return this.listArtifacts(tenantId).find((row) => row.id === id)
   },
   /** Whether an artifact is visible to `tenantId` — read widens through a grant
    *  (SOCIAL-4), ownership stays strict. Without this a shared artifact was
@@ -10770,7 +10801,6 @@ export const store = {
       // here before the tenant-agnostic shared reducer sees the operation.
       const ownerTenantId = tenantId ?? defaultTenantId()
       op = { ...op, ownerTenantId }
-      const source = op.sessionTitle ?? 'Created here'
       const artifactName = op.artifact.body === undefined ? op.artifact.name : op.artifact.name.trim()
       if (op.artifact.body !== undefined && !artifactName) {
         throw new ValidationError('Document name must contain text.')
@@ -10778,12 +10808,8 @@ export const store = {
       if (artifactName !== op.artifact.name) {
         op = { ...op, artifact: { ...op.artifact, name: artifactName } }
       }
-      existingArtifactId = graph.extraArtifacts.find(
-        (candidate) =>
-          candidate.name === artifactName &&
-          candidate.source === source &&
-          candidate.tenantId === ownerTenantId,
-      )?.id
+      const saveOp = op
+      existingArtifactId = graph.extraArtifacts.find((candidate) => artifactMatchesSave(candidate, saveOp))?.id
       if (op.artifact.body !== undefined) {
         if (op.artifact.kind !== 'doc') {
           throw new ValidationError('An authored body is supported only for a document artifact.')
@@ -10892,13 +10918,8 @@ export const store = {
         } else if (op.kind === 'save-artifact') {
           // The reducer unshifts the new artifact to extraArtifacts[0] (its id is minted
           // internally). Stamp the creating tenant so the projection scopes it (F2/PD9).
-          const source = op.sessionTitle ?? 'Created here'
-          const created = graph.extraArtifacts.find(
-            (candidate) =>
-              candidate.name === op.artifact.name &&
-              candidate.source === source &&
-              candidate.tenantId === op.ownerTenantId,
-          )
+          const saveOp = op
+          const created = graph.extraArtifacts.find((candidate) => artifactMatchesSave(candidate, saveOp))
           if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
           if (created && authored && !existingArtifactId) {
             artifactBodies.set(created.id, authored.body)
