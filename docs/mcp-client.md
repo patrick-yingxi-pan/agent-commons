@@ -126,8 +126,23 @@ discovery deliberately retains its stricter external-cancellation behavior,
 so cancelling inspection during cleanup cannot acknowledge a catalog.
 
 This is not yet a fully conforming legacy client. Closing HTTP does not prove
-remote cancellation; legacy cancellation notifications, SSE resumption, and
-the new-session behavior after session expiry still need deliberate integration.
+remote cancellation. Explicit cancellation of a submitted legacy `tools/list`
+or `tools/call` now sends one best-effort `notifications/cancelled` POST naming
+only that request ID, at the same endpoint with the same negotiated version,
+session and explicit bearer. Its independent signal allows delivery after the
+operation's signal aborts, but its budget is at most one second and cannot
+outlive the original transaction deadline. Expired deadlines start no new
+traffic. Neither a notification acknowledgement nor delivery failure changes
+the original error or proves the remote operation stopped or had no effect.
+Pre-submission refusal, a completed response, initialization, notifications,
+DELETE and modern requests never trigger this legacy message. Local peer tests
+cover all three legacy versions and stateless legacy servers; the
+[legacy cancellation rules](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation)
+are separate from releasing a session with DELETE.
+An aborted transaction sends no later DELETE; server-side session expiry remains
+the cleanup fallback, and cancellation delivery is not a session-release receipt.
+
+SSE resumption and the new-session behavior after session expiry still need deliberate integration.
 A later explicit transaction may initialize anew, but this transaction never
 replays an uncertain call. These gaps follow the
 [legacy HTTP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
@@ -186,7 +201,7 @@ including extracted release candidates; helpers never ship in the artifact.
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. JSON Schema 2020-12 validation, executable
-  catalog admission, legacy cancellation/resumption and expired-session handling,
+  catalog admission, legacy SSE resumption and expired-session handling,
   output-schema checking and multi-round input handling remain. The isolated single-call boundary
   above does not replace those requirements.
 - Extend packaged credential acceptance through live inspection/replacement and

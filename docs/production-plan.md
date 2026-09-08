@@ -82,13 +82,23 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+The explicit MCP cancellation increment notifies a legacy peer of the exact
+submitted tool/list request when user cancellation wins. The control POST is
+limited to one second inside the original deadline, cannot replay a tool, and
+cannot replace the original outcome even if notification delivery fails or the
+deadline expires. Completed responses and unsent requests never trigger it.
+This removes a protocol gap; it does not establish remote rollback, enable
+execution, or resolve the pending schema/trust/network choices. Its deadline
+and outcome-preservation regressions were observed failing under intentional
+mutations before restoration.
+
 The MCP session increment shares protocol negotiation, the absolute deadline,
 and private legacy cleanup between read-only discovery and one tool attempt.
 It keeps known tool outcomes when cleanup fails and prevents scope reuse or
 implicit call replay. Review found and fixed a late-cancellation race that
 discarded an already-complete transport response; its regression was watched
 fail first. This remains an unconfigured execution substrate, not a completed
-external-work journey. Legacy cancellation/resumption/expiry behavior, schema
+external-work journey. Legacy SSE resumption/expiry behavior, schema
 semantics, approval, durable receipts and actual service acceptance remain.
 
 The single-call MCP increment adds bounded request/result parsing and modern
@@ -96,7 +106,7 @@ body-derived parameter headers behind an unconfigured protocol boundary. Local
 HTTP/SSE peers cover supported modern/legacy replies, tool errors, malformed
 results, cancellation before/after submission, and refusal without replay or
 continuation. Full schema semantics, per-call approval, durable uncertainty,
-legacy cancellation/resumption/expiry handling and actual model execution remain required. No
+legacy SSE resumption/expiry handling and actual model execution remain required. No
 third-party account or new dependency is involved in this increment.
 Independent review found that the older HTTP request snapshot invoked caller
 serialization hooks. The same strict JSON helper now owns that transport path;

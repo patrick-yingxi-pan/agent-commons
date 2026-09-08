@@ -1,7 +1,8 @@
 /** Ephemeral MCP protocol lifecycle. The session credential never leaves this
  * scope; discovery and a single tool attempt share negotiation and cleanup,
- * not permission. No reconnect, replay, stream resumption or remote request is
- * performed. A future configured adapter still owns policy and durable state. */
+ * not permission. No reconnect, replay, stream resumption or server-initiated
+ * request handling is performed. Bounded legacy cancellation is control traffic;
+ * a future configured adapter still owns policy and durable state. */
 import { randomUUID } from 'node:crypto'
 import { postMcpHttp, McpHttpError, type McpHttpOptions } from './mcpHttpTransport.ts'
 import { isModernMcpErrorCode } from './mcpHttpResponse.ts'
@@ -24,6 +25,7 @@ export class McpSessionError extends Error {
   constructor(code: McpSessionError['code']) { super(`MCP session failed (${code}).`); this.code = code }
 }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
+const MAX_CANCELLATION_MS = 1_000
 const legacy = (version: unknown): version is typeof MCP_LEGACY_VERSIONS[number] => MCP_LEGACY_VERSIONS.some((supported) => supported === version)
 const versions = (value: unknown): string[] => {
   if (!Array.isArray(value) || !value.length || value.length > 16 ||
@@ -58,10 +60,11 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
     let submitted = false
     let active = true
     let toolAttempted = false
-    let rejectStopped!: (error: McpHttpError) => void
-    const stopped = new Promise<never>((_resolve, reject) => { rejectStopped = reject })
-    void stopped.catch(() => {})
-    const stop = () => { rejectStopped(new McpHttpError(timedOut ? 'timeout' : 'cancelled', submitted)); controller.abort() }
+    let cancellationController: AbortController | undefined
+    const stop = () => {
+      controller.abort()
+      if (timedOut) cancellationController?.abort()
+    }
     input.signal?.addEventListener('abort', stop, { once: true })
     const timer = setTimeout(() => { timedOut = true; stop() }, timeoutMs)
     const remaining = () => Math.max(0, Math.floor(timeoutMs - (now() - started)))
@@ -74,6 +77,41 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
     let sessionId: string | undefined
     let serial = 0
     const requestPrefix = randomUUID()
+    const exchange = async (message: Record<string, unknown> | null, options: McpHttpOptions) => {
+      try { return await post(endpoint, message, options) } catch (error) {
+        const failure = timedOut && error instanceof McpHttpError && error.code === 'cancelled'
+          ? new McpHttpError('timeout', error.mayHaveExecuted, error.status, error.recognizedModernError) : error
+        // Only the actual transport knows whether this request was issued and
+        // whether cancellation beat its response. A handshake's submission is
+        // not evidence that a later tool left DNS, and a fulfilled response is
+        // never erased by a late abort. Cancellation is not proof of rollback.
+        const left = remaining()
+        if (error instanceof McpHttpError && error.code === 'cancelled' && error.mayHaveExecuted &&
+          !timedOut && left > 0 && legacy(options.protocolVersion) &&
+          (message?.method === 'tools/list' || message?.method === 'tools/call') &&
+          (typeof message.id === 'string' || Number.isSafeInteger(message.id))) {
+          const cancellation = new AbortController()
+          cancellationController = cancellation
+          // A separate signal can deliver cancellation after the operation's
+          // signal aborted, but never outlive the original transaction budget.
+          const cancellationMs = Math.min(MAX_CANCELLATION_MS, left)
+          const cancellationTimer = setTimeout(() => cancellation.abort(), cancellationMs)
+          try {
+            await post(endpoint, { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: message.id } }, {
+              scope: input.scope, bearerToken: input.bearerToken, protocolVersion: options.protocolVersion,
+              ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+              signal: cancellation.signal, timeoutMs: cancellationMs,
+            })
+          } catch { /* Best effort only: acknowledgement cannot establish the tool's outcome. */ }
+          finally {
+            clearTimeout(cancellationTimer)
+            cancellation.abort()
+            cancellationController = undefined
+          }
+        }
+        throw failure
+      }
+    }
     const send = async (method: string | null, params: Record<string, unknown> = {}) => {
       const left = available(submitted)
       const message = method === null ? null : {
@@ -81,10 +119,10 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
         method, params: { ...params, ...mcpRequestMetadata(protocolVersion) },
       }
       submitted = true
-      return Promise.race([stopped, post(endpoint, message, {
+      return exchange(message, {
         scope: input.scope, bearerToken: input.bearerToken, signal: controller.signal, timeoutMs: left, protocolVersion,
         ...(protocolVersion !== MCP_MODERN_VERSION && sessionId ? { sessionId } : {}),
-      })])
+      })
     }
     let details: McpSessionDetails
     let value: T
@@ -133,7 +171,7 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
       const caller = createMcpToolCaller({ post: (_endpoint, message, callOptions) => {
         if (!active) return Promise.reject(new McpHttpError('cancelled', false))
         const left = available(false)
-        return post(endpoint, message, { ...callOptions, scope: input.scope, bearerToken: input.bearerToken,
+        return exchange(message, { ...callOptions, scope: input.scope, bearerToken: input.bearerToken,
           signal: controller.signal, timeoutMs: left })
       } })
       value = await run({ ...details,
@@ -151,7 +189,7 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
               scope: input.scope, bearerToken: input.bearerToken, signal: controller.signal, timeoutMs: available(false),
             })
           } catch (error) {
-            if (error instanceof McpToolCallError) throw new McpToolCallError(timedOut && error.code === 'cancelled' ? 'timeout' : error.code, error.mayHaveExecuted)
+            if (error instanceof McpToolCallError) throw error
             if (error instanceof McpHttpError) throw new McpToolCallError(error.code, error.mayHaveExecuted)
             throw new McpToolCallError('network', true)
           }
