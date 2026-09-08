@@ -7,22 +7,26 @@ import { request as httpsRequest } from 'node:https'
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { isPublicAddress, parseOutboundEndpoint } from './outboundAddress.ts'
-import { createMcpSseDecoder, MAX_MCP_RESPONSE_BYTES, parseRpcResponse } from './mcpHttpResponse.ts'
+import { createMcpSseDecoder, MAX_MCP_RESPONSE_BYTES, McpResponseError, parseRpcResponse } from './mcpHttpResponse.ts'
 
 export type McpHttpFailure = 'destination' | 'request' | 'timeout' | 'cancelled' | 'network' | 'response' | 'redirect' | 'authentication'
 export class McpHttpError extends Error {
   readonly code: McpHttpFailure
   readonly mayHaveExecuted: boolean
-  constructor(code: McpHttpFailure, mayHaveExecuted: boolean) {
+  readonly status?: number
+  readonly recognizedModernError: boolean
+  constructor(code: McpHttpFailure, mayHaveExecuted: boolean, status?: number, recognizedModernError = false) {
     super(`MCP transport failed (${code}).`)
     this.code = code
     this.mayHaveExecuted = mayHaveExecuted
+    this.status = status
+    this.recognizedModernError = recognizedModernError
   }
 }
 
 interface Address { address: string; family: number }
 interface Reply { status: number; message?: Record<string, unknown>; sessionId?: string }
-interface Options {
+export interface McpHttpOptions {
   scope: 'public' | 'loopback'
   signal?: AbortSignal
   timeoutMs?: number
@@ -43,7 +47,8 @@ export function createMcpHttpTransport({
   http = httpRequest,
   https = httpsRequest,
 } = {}) {
-  return (endpoint: string, message: Record<string, unknown>, options: Options): Promise<Reply> => {
+  // null is the explicit legacy-session DELETE operation, never an RPC body.
+  return (endpoint: string, message: Record<string, unknown> | null, options: McpHttpOptions): Promise<Reply> => {
     options = { ...options }
     let url: URL
     try { url = parseOutboundEndpoint(endpoint, options.scope) } catch { return Promise.reject(new McpHttpError('destination', false)) }
@@ -53,16 +58,29 @@ export function createMcpHttpTransport({
       'Accept-Encoding': 'identity',
     }
     try {
-      message = JSON.parse(JSON.stringify(message)) as Record<string, unknown>
-      if (message.jsonrpc !== '2.0' || typeof message.method !== 'string' || !message.method ||
-        Object.keys(message).some((key) => !['jsonrpc', 'id', 'method', 'params'].includes(key)) ||
-        (message.params !== undefined && (!message.params || typeof message.params !== 'object' || Array.isArray(message.params))) ||
+      message = JSON.parse(JSON.stringify(message)) as Record<string, unknown> | null
+      if (message === null) {
+        if (!options.sessionId) throw new Error()
+        body = new Uint8Array()
+      } else {
+        if (message.jsonrpc !== '2.0' || typeof message.method !== 'string' || !message.method ||
+          Object.keys(message).some((key) => !['jsonrpc', 'id', 'method', 'params'].includes(key)) ||
+          (message.params !== undefined && (!message.params || typeof message.params !== 'object' || Array.isArray(message.params))) ||
           (message.id !== undefined && typeof message.id !== 'string' && !Number.isSafeInteger(message.id))) throw new Error()
-      body = new TextEncoder().encode(JSON.stringify(message))
-      if (body.byteLength > MAX_REQUEST_BYTES) throw new Error()
+        body = new TextEncoder().encode(JSON.stringify(message))
+        if (body.byteLength > MAX_REQUEST_BYTES) throw new Error()
+      }
       if (options.protocolVersion !== undefined) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(options.protocolVersion)) throw new Error()
         headers['MCP-Protocol-Version'] = options.protocolVersion
+      }
+      if (options.protocolVersion === '2026-07-28') {
+        if (!message || options.sessionId !== undefined ||
+          !['server/discover', 'tools/list'].includes(message.method as string)) throw new Error()
+        const params = message.params as Record<string, unknown> | undefined
+        const meta = params?._meta as Record<string, unknown> | undefined
+        if (meta?.['io.modelcontextprotocol/protocolVersion'] !== options.protocolVersion) throw new Error()
+        headers['Mcp-Method'] = message.method as string
       }
       if (options.sessionId !== undefined) {
         if (!safeHeader(options.sessionId, 256)) throw new Error()
@@ -80,6 +98,8 @@ export function createMcpHttpTransport({
     return new Promise((resolveReply, reject) => {
       let settled = false
       let dispatched = false
+      let responseStatus: number | undefined
+      let recognizedModernError = false
       let request: ClientRequest | undefined
       let response: IncomingMessage | undefined
       const finish = (error?: McpHttpFailure, reply?: Reply) => {
@@ -89,7 +109,7 @@ export function createMcpHttpTransport({
         options.signal?.removeEventListener('abort', abort)
         response?.destroy()
         request?.destroy()
-        if (error) reject(new McpHttpError(error, dispatched))
+        if (error) reject(new McpHttpError(error, dispatched, responseStatus, recognizedModernError))
         else resolveReply(reply!)
       }
       const abort = () => finish('cancelled')
@@ -105,7 +125,7 @@ export function createMcpHttpTransport({
           (options.scope === 'public' && !isPublicAddress(row.address)))) return finish('destination')
         const { address, family: pinnedFamily } = addresses[0]!
         const socketOptions: RequestOptions = {
-          method: 'POST', headers, agent: false, autoSelectFamily: false,
+          method: message === null ? 'DELETE' : 'POST', headers, agent: false, autoSelectFamily: false,
           family: pinnedFamily, maxHeaderSize: 16_384,
           rejectUnauthorized: true,
           lookup: (_host, _options, callback) => callback(null, address, pinnedFamily),
@@ -116,11 +136,13 @@ export function createMcpHttpTransport({
           incoming.on('close', () => { if (!settled && !incoming.complete) finish('network') })
           if (settled) { incoming.destroy(); return }
           const status = incoming.statusCode ?? 0
+          responseStatus = status
           if (status >= 300 && status < 400) return finish('redirect')
           if (status === 401 || status === 403) return finish('authentication')
           const sessionId = incoming.headers['mcp-session-id']
           if (sessionId !== undefined && (typeof sessionId !== 'string' || !safeHeader(sessionId, 256))) return finish('response')
           const replyBase = { status, ...(typeof sessionId === 'string' ? { sessionId } : {}) }
+          if (message === null) return [200, 202, 204, 404, 405].includes(status) ? finish(undefined, { status }) : finish('response')
           const acceptResponse = (result: Record<string, unknown>) => {
             if ((status < 200 || status >= 300) && Object.hasOwn(result, 'result')) return finish('response')
             finish(undefined, { ...replyBase, message: result })
@@ -148,7 +170,10 @@ export function createMcpHttpTransport({
                 const final = sse.push(decoded)
                 if (final) acceptResponse(final)
               } else text += decoded
-            } catch { finish('response') }
+            } catch (error) {
+              recognizedModernError = error instanceof McpResponseError && error.recognizedModernError
+              finish('response')
+            }
           })
           incoming.on('end', () => {
             if (settled) return
@@ -156,7 +181,10 @@ export function createMcpHttpTransport({
               const tail = decoder.decode()
               if (sse) { sse.push(tail); sse.end() }
               acceptResponse(parseRpcResponse(text + tail, message.id as string | number, status >= 400))
-            } catch { finish('response') }
+            } catch (error) {
+              recognizedModernError = error instanceof McpResponseError && error.recognizedModernError
+              finish('response')
+            }
           })
         })
         request.on('error', () => finish('network'))

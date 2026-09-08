@@ -239,3 +239,53 @@ test('DNS has the same deadline and a late answer cannot start network work', as
   await new Promise<void>((resolve) => setImmediate(resolve))
   assert.equal(sockets, 0)
 })
+
+test('modern discovery mirrors its method and version without accepting caller-defined headers', async (t) => {
+  let calls = 0
+  const url = await endpoint(t, (req, res) => {
+    calls++
+    assert.equal(req.headers['mcp-method'], 'tools/list')
+    assert.equal(req.headers['mcp-protocol-version'], '2026-07-28')
+    assert.equal(req.headers['mcp-session-id'], undefined)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(success))
+  })
+  const modern = { ...request, params: { _meta: {
+    'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+    'io.modelcontextprotocol/clientCapabilities': {},
+  } } }
+  const options = { ...loopback, protocolVersion: '2026-07-28' }
+  await postMcpHttp(url, modern, options)
+  await assert.rejects(postMcpHttp(url, request, options), failure('request', false))
+  await assert.rejects(postMcpHttp(url, modern, { ...options, sessionId: 'legacy-credential' }), failure('request', false))
+  await assert.rejects(postMcpHttp(url, { ...modern, method: 'tools/call' }, options), failure('request', false))
+  assert.equal(calls, 1, 'only supported discovery metadata reaches the network')
+})
+
+test('explicit legacy session cleanup uses DELETE with no RPC body and no redirects', async (t) => {
+  let calls = 0
+  let status = 204
+  const url = await endpoint(t, (req, res) => {
+    calls++
+    assert.equal(req.method, 'DELETE')
+    assert.equal(req.headers['mcp-session-id'], 'session-to-close')
+    assert.equal(req.headers['content-length'], '0')
+    req.on('data', () => assert.fail('cleanup has no RPC body'))
+    req.on('end', () => { res.writeHead(status, { Location: 'http://127.0.0.1/never-follow' }); res.end() })
+  })
+  const options = { ...loopback, protocolVersion: '2025-11-25', sessionId: 'session-to-close' }
+  for (status of [204, 404, 405]) assert.deepEqual(await postMcpHttp(url, null, options), { status })
+  status = 307
+  await assert.rejects(postMcpHttp(url, null, options), failure('redirect', true))
+  await assert.rejects(postMcpHttp(url, null, loopback), failure('request', false))
+  assert.equal(calls, 4)
+})
+
+test('HTTP error metadata allows an unread request id without relaxing successful response correlation', async (t) => {
+  let status = 400
+  const error = { jsonrpc: '2.0', error: { code: -32022, message: 'unsupported', data: { supported: ['2025-11-25'], requested: '2026-07-28' } } }
+  const url = await endpoint(t, (_req, res) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(error)) })
+  assert.deepEqual((await postMcpHttp(url, request, loopback)).message, error)
+  status = 200
+  await assert.rejects(postMcpHttp(url, request, loopback), failure('response', true))
+})

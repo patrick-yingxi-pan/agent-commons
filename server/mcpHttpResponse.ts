@@ -5,25 +5,38 @@ export const MAX_MCP_RESPONSE_BYTES = 1_048_576
 export const MAX_MCP_SSE_EVENT_BYTES = 262_144
 
 export class McpResponseError extends Error {
-  constructor() { super('The MCP server returned an unsupported or invalid response.') }
+  readonly recognizedModernError: boolean
+  constructor(recognizedModernError = false) {
+    super('The MCP server returned an unsupported or invalid response.')
+    this.recognizedModernError = recognizedModernError
+  }
 }
+
+export const isModernMcpErrorCode = (code: unknown): boolean =>
+  code === -32020 || code === -32021 || code === -32022
+
+const invalidResponse = (row: Record<string, unknown>) =>
+  new McpResponseError(isModernMcpErrorCode((row.error as Record<string, unknown> | undefined)?.code))
 
 export function rpcResponse(value: unknown, expectedId: string | number, allowNullId = false): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new McpResponseError()
   const row = value as Record<string, unknown>
   const hasResult = Object.hasOwn(row, 'result')
   const hasError = Object.hasOwn(row, 'error')
-  if (row.jsonrpc !== '2.0' || (row.id !== expectedId && !(allowNullId && row.id === null && hasError)) ||
-    hasResult === hasError || Object.hasOwn(row, 'method')) throw new McpResponseError()
+  if (row.jsonrpc !== '2.0' || (row.id !== expectedId && !(allowNullId && (row.id === null || !Object.hasOwn(row, 'id')) && hasError)) ||
+    hasResult === hasError || Object.hasOwn(row, 'method')) throw invalidResponse(row)
   if (hasError) {
     const error = row.error as Record<string, unknown> | null
-    if (!error || typeof error !== 'object' || Array.isArray(error) || !Number.isInteger(error.code) || typeof error.message !== 'string') throw new McpResponseError()
+    if (!error || typeof error !== 'object' || Array.isArray(error) || !Number.isInteger(error.code) || typeof error.message !== 'string') throw invalidResponse(row)
   }
   return row
 }
 
 export function parseRpcResponse(text: string, expectedId: string | number, allowNullId = false): Record<string, unknown> {
-  try { return rpcResponse(JSON.parse(text), expectedId, allowNullId) } catch { throw new McpResponseError() }
+  try { return rpcResponse(JSON.parse(text), expectedId, allowNullId) } catch (error) {
+    if (error instanceof McpResponseError) throw error
+    throw new McpResponseError()
+  }
 }
 
 /** Incremental SSE framing: CR, LF and split CRLF are equivalent, UTF-8 is
@@ -43,10 +56,10 @@ export function createMcpSseDecoder(expectedId: string | number) {
     eventBytes = 0
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new McpResponseError()
     const row = value as Record<string, unknown>
-    if (row.jsonrpc !== '2.0') throw new McpResponseError()
+    if (row.jsonrpc !== '2.0') throw invalidResponse(row)
     if (Object.hasOwn(row, 'method')) {
       if (typeof row.method !== 'string' || !row.method.startsWith('notifications/') ||
-        Object.hasOwn(row, 'id') || Object.hasOwn(row, 'result') || Object.hasOwn(row, 'error')) throw new McpResponseError()
+        Object.hasOwn(row, 'id') || Object.hasOwn(row, 'result') || Object.hasOwn(row, 'error')) throw invalidResponse(row)
       return // Progress/log notifications do not become tool results or authority.
     }
     final = rpcResponse(row, expectedId)

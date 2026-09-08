@@ -83,7 +83,7 @@ upgrade requires a deliberate notice and bundle-budget review.
 The next core workflow is a real external MCP connection (MODEL-33). Its
 bounded HTTP/DNS/TLS/JSON/SSE substrate is implemented and tested against local
 protocol peers, but is not exposed through routes or model execution. The full
-[MCP client plan](mcp-client.md) retains negotiation, discovery, secret lifecycle,
+[MCP client plan](mcp-client.md) retains user-facing discovery, secret lifecycle,
 explicit trust and durable uncertain-call recovery as required work. The owner
 has been asked about per-call approval before explicit server trust; no answer
 has been assumed. No real third-party account was contacted during these tests.
@@ -102,6 +102,39 @@ A retry-only pass is a plausible cause, not a proved one. CI now explicitly
 fails flaky tests, keeps first-attempt traces and uploads only failed browser
 artifacts for three days; coverage mismatch also prints the affected lane tails.
 This fixes missing evidence, not the unknown underlying browser failure.
+
+The next run, `34190219926` at `4a10c03`, retained the missing evidence:
+partition 1 failed because the real Word-import journey passed only on retry;
+checks and partition 2 passed. Its first-attempt trace shows a document reload
+while the lazy DOCX worker discovers ZIP/XML dependencies. The optimized React
+dependency hash changes across that reload, and no attachment write occurs.
+The final page has neither a picker nor an attachment. A new cold-cache Vite
+scan regression independently fails because the worker's ZIP dependency is
+absent from the initial scan. The cold-cache browser reproduction also logged
+the optimizer's explicit reload and failed the no-reload assertion. The
+repaired Vite scan includes `index.html` and all source worker entries. Its
+cold-scan lock and the browser journey now pass; the journey always owns a
+fresh cache and a strict, shard-derived UI port. Runtime parser loading remains
+lazy. No timeout or retry policy was widened.
+
+This MCP increment adds a read-only discovery transaction with the
+current metadata flow and three supported legacy initialization versions. It
+uses one deadline, bounded pagination and an inert catalog snapshot, and closes
+legacy sessions when possible. Wrong-id modern errors cannot trigger a false
+legacy fallback; cancellation closes live sockets. These are tested protocol
+boundaries, not a completed connection feature: routes, credential custody,
+user inspection, semantic schema validation, approval and execution remain
+required. Release fulfilment is still unconfigured.
+
+The combined discovery/cold-import checkpoint passed all five verifier lanes in
+147.1 seconds: 2,727 Node tests, typechecking, the production build and all 292
+browser tests. The 47 focused MCP checks also pass. Regression proofs included
+malformed modern JSON/SSE error recognition, version selection, cursor loops,
+legacy cleanup, and the actual cold-cache browser reload. An initial full run
+caught the added context rule exceeding its index budget; the historical prose
+was condensed without removing rules, and the complete gate was rerun green.
+Hosted CI confirmation belongs to the new pushed revision; the preceding failed
+run is not retroactively marked healthy.
 
 The PDF text increment uses exactly pinned PDF.js as a renderer-only lazy
 parser, rather than hand-parsing an adversarial document format. It saves

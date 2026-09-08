@@ -30,16 +30,45 @@ After a request is submitted, a transport failure reports `mayHaveExecuted`.
 This is conservative uncertainty, not proof of success or failure. The future
 adapter must durably retain that uncertainty rather than blindly replaying a
 write. An HTTP error cannot carry a successful tool result through this seam.
+Explicit legacy-session cleanup uses a body-free DELETE to the same validated
+endpoint; it cannot follow redirects or expand the destination scope.
 
 Pure framing/address tests and real loopback HTTP/SSE/TLS tests cover this
 substrate. The tests fixture only the remote peer; they do not demonstrate a
 user connection, paid provider, third-party account, or completed integration.
 
+## Implemented read-only discovery transaction
+
+`server/mcpDiscovery.ts` inspects a configured endpoint in memory. Current
+servers receive `server/discover` and paginated `tools/list` with per-request
+metadata and mirrored method/version headers. Legacy-shaped HTTP refusals or an
+explicitly advertised compatible version can select initialization-based
+2025-11-25, 2025-06-18 or 2025-03-26 behavior. A recognizable modern error cannot
+silently downgrade, even if its response id is invalid. Authentication and
+network failures never trigger another handshake. Deprecated 2024 HTTP+SSE is
+not adopted.
+
+The entire transaction has one 30-second deadline (bounded internal overrides),
+eight pages, 128 unique tools and a 512 KiB cumulative catalog budget. Duplicate
+tools, cursor loops, oversized or malformed pages reject the complete catalog.
+Legacy sessions are released after inspection when possible; the result reports
+unconfirmed or server-managed cleanup without exposing the session credential.
+Cancellation closes active I/O and never starts a later page.
+
+`server/mcpCatalog.ts` snapshots and bounds presentation fields and schema JSON
+(64 KiB, depth 32, 4,096 nodes per schema). It does **not** yet validate JSON
+Schema dialect semantics or authorize calls. Remote instructions, icons, links,
+`$ref` and tool annotations remain inert data. Extra protocol metadata is not
+mistaken for an invalid tool definition. Real HTTP peer tests cover both eras;
+no route, saved connection, picker or model runtime uses this client yet.
+
 ## Required next work
 
-- Version negotiation and schemas: the [2026-07-28 transport revision](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http)
-  changes sessions and metadata. The substrate is not a complete implementation
-  of that revision or of the [legacy initialized transport](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports).
+- Full schema validation and execution messages: discovery supports the
+  [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
+  and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
+  but is not a complete MCP client. JSON Schema 2020-12 validation, header
+  parameter annotations, tool results and multi-round input handling remain.
 - A tenant-owned configured endpoint, connection consent, secret lifecycle,
   reconnect/disconnect and revocation, with desktop and hosted boundaries.
 - Bounded real tool discovery, stable identities and schemas, inspected by the

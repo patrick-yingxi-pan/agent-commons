@@ -17,6 +17,11 @@ declare const process: { env: Record<string, string | undefined> }
 export default defineConfig({
   base: '/',
   plugins: [react(), tailwindcss(), bundleBudgetPlugin(), thirdPartyNoticesPlugin()],
+  // The HTML crawl does not follow ?worker entries. Scan those graphs too:
+  // discovering their packages on first use can change common dependency
+  // chunks and reload the page, aborting an in-flight document selection.
+  // This affects development pre-bundling only; production stays lazy.
+  optimizeDeps: { entries: ['index.html', 'src/**/*.worker.ts'] },
   build: {
     rollupOptions: {
       output: {

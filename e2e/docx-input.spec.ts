@@ -1,5 +1,9 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Page, type Request } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
+import { createServer, type ViteDevServer } from 'vite'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
 import { assertWcag22Aa } from './accessibility-helpers'
@@ -26,6 +30,45 @@ async function selectFiles(page: Page, files: Array<{ name: string; mimeType: st
   await picker.getByRole('button', { name: /Add files from this computer/ }).click()
   await (await choosing).setFiles(files)
   return picker
+}
+
+async function startColdUiServer(apiBaseUrl: string): Promise<{ baseUrl: string; close: () => Promise<void> }> {
+  const cacheDir = await mkdtemp(`${tmpdir()}/agent-commons-docx-vite-`)
+  let server: ViteDevServer | undefined
+  try {
+    server = await createServer({
+      configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)),
+      cacheDir,
+      server: {
+        host: '127.0.0.1',
+        // Vite 6 treats port 0 as its 5173 default. Keep this stack on a
+        // shard-derived test port, and fail rather than borrow a neighbour.
+        port: Number(new URL(apiBaseUrl).port) + 100,
+        strictPort: true,
+        watch: null,
+        proxy: {
+          '/api': { target: apiBaseUrl, changeOrigin: true },
+        },
+      },
+    })
+    await server.listen()
+    const address = server.httpServer?.address()
+    if (!address || typeof address === 'string') throw new Error('Cold Vite server did not expose a TCP address.')
+    let closed = false
+    return {
+      baseUrl: `http://127.0.0.1:${address.port}`,
+      close: async () => {
+        if (closed) return
+        closed = true
+        await server?.close()
+        await rm(cacheDir, { recursive: true, force: true })
+      },
+    }
+  } catch (error) {
+    await server?.close().catch(() => {})
+    await rm(cacheDir, { recursive: true, force: true })
+    throw error
+  }
 }
 
 async function createSession(page: Page, firstMessage: string) {
@@ -68,7 +111,7 @@ async function settledPreview(page: Page) {
   })).toBe(true)
 }
 
-test('a real Word document projects body text, reaches the model, survives reload and detaches', async ({ page, browser }) => {
+test('a real Word document projects body text, reaches the model, survives reload and detaches', async ({ page, browser, baseURL }) => {
   test.setTimeout(ms(90_000))
   await useDocxUsagePartition(page)
   const { endpoint, session } = await createEndpointSession(page)
@@ -78,8 +121,18 @@ test('a real Word document projects body text, reaches the model, survives reloa
     '<w:p><w:r><w:t>paragraph</w:t></w:r></w:p>' +
     '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>cell one</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>cell two</w:t></w:r></w:p></w:tc></w:tr></w:tbl>' +
     '<w:del><w:r><w:delText>must not appear</w:delText></w:r></w:del>'
+  let coldUi: Awaited<ReturnType<typeof startColdUiServer>> | undefined
+  const mainFrameNavigations: string[] = []
+  const onMainFrameNavigation = (request: Request) => {
+    if (request.isNavigationRequest() && request.resourceType() === 'document' && request.frame() === page.mainFrame()) {
+      mainFrameNavigations.push(request.url())
+    }
+  }
   try {
-    await page.goto(`/s/${session.id}`)
+    if (!baseURL) throw new Error('The E2E base URL is required for the cold UI proxy.')
+    coldUi = await startColdUiServer(baseURL)
+    await page.goto(`${coldUi.baseUrl}/s/${session.id}`)
+    page.on('request', onMainFrameNavigation)
     const parserRequests: string[] = []
     page.on('request', (request) => { if (/docx/i.test(request.url()) && /worker/.test(request.url())) parserRequests.push(request.url()) })
     await selectFiles(page, [{ name: 'research.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ bodyXml, entries: {
@@ -87,6 +140,8 @@ test('a real Word document projects body text, reaches the model, survives reloa
       'word/comments.xml': '<comments>comment must not appear</comments>',
     } }) }])
     await expect(page.locator('[data-document-import="ready"]')).toBeVisible({ timeout: ms(20_000) })
+    expect(mainFrameNavigations, 'DOCX import must not reload the main frame').toEqual([])
+    page.off('request', onMainFrameNavigation)
     await page.keyboard.press('Escape')
     const preview = page.locator('[data-attachment-preview]')
     await expect(preview).toContainText(marker)
@@ -163,7 +218,10 @@ test('a real Word document projects body text, reaches the model, survives reloa
     await expect(page.locator('[data-turn]').filter({ hasText: 'No supplied attachment text.' })).toBeVisible({ timeout: ms(20_000) })
     expect(endpoint.seen.at(-1)).not.toContain(marker)
   } finally {
-    await new Promise<void>((resolve) => endpoint.server.close(() => resolve()))
+    page.off('request', onMainFrameNavigation)
+    try { await coldUi?.close() } finally {
+      await new Promise<void>((resolve) => endpoint.server.close(() => resolve()))
+    }
   }
 })
 

@@ -12,6 +12,22 @@ const response = (id: string | number = 7) => ({ jsonrpc: '2.0', id, result: { o
 const frame = (value: unknown, separator = '\n') => `data: ${JSON.stringify(value)}${separator}${separator}`
 const throwsResponse = (fn: () => unknown) => assert.throws(fn, McpResponseError)
 
+test('malformed modern errors retain their no-downgrade signal through JSON and SSE framing', () => {
+  for (const code of [-32020, -32021, -32022]) {
+    for (const shape of [
+      { jsonrpc: '2.0', id: 'wrong' },
+      { jsonrpc: '1.0', id: 7 },
+      { jsonrpc: '2.0', method: 'notifications/progress' },
+    ]) {
+      const value = { ...shape, error: { code, message: 'not a legacy endpoint' } }
+      for (const parse of [
+        () => parseRpcResponse(JSON.stringify(value), 7),
+        () => createMcpSseDecoder(7).push(frame(value)),
+      ]) assert.throws(parse, (error: unknown) => error instanceof McpResponseError && error.recognizedModernError)
+    }
+  }
+})
+
 test('JSON responses require strict correlation and exactly one result or error', () => {
   const ok = response(17)
   assert.deepEqual(rpcResponse(ok, 17), ok)

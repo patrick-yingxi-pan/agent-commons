@@ -86,6 +86,7 @@ running preview.
 | E2E-V71 | verification | Sharing guidance remains visible and contained across the viewport ladder, including while a note is filled; the field's accessible description points to that persistent explanation. | [`../src/components/GrantsPanelContent.tsx`](../src/components/GrantsPanelContent.tsx) | [`social-sharing.spec.ts`](social-sharing.spec.ts) | refines E2E-V1; requires COMPONENT-E41 |
 | E2E-O1 | operations | E2E boots an isolated remote-backend stack on 5183/5184 with a pinned local model endpoint; every shard reset removes its exact live store and atomic recovery companions without touching neighbours. | [`../playwright.config.ts`](../playwright.config.ts) · [`wipe-store.mjs`](wipe-store.mjs) | [`../tests/e2e-wipe-store.test.ts`](../tests/e2e-wipe-store.test.ts) · [`../tests/verify-plan.test.ts`](../tests/verify-plan.test.ts) | requires E2E-V1 |
 | E2E-O2 | operations | Each browser shard owns a separate artifact directory, so worker cleanup cannot delete a sibling's active trace resources. Opt-in first-failure tracing retains diagnostic evidence from the same full verifier plan without adding retries or widening timing budgets; normal runs keep their lower-overhead tracing policy. | [`../playwright.config.ts`](../playwright.config.ts) | [`../tests/verify-plan.test.ts`](../tests/verify-plan.test.ts) | requires E2E-V1; refines ROOT-V2 |
+| E2E-O3 | operations | Document-worker dependencies are included in the cold-cache Vite optimizer scan (`index.html` plus `src/**/*.worker.ts`), so the first lazy PDF/DOCX selection cannot trigger a dependency reload or race the rendered picker. | [`../vite.config.ts`](../vite.config.ts) | [`../tests/vite-dependencies.test.ts`](../tests/vite-dependencies.test.ts) · [`docx-input.spec.ts`](docx-input.spec.ts) | requires E2E-O1; refines E2E-V1 |
 <!-- context-rules:end -->
 ## Details
 `npm run e2e` needs the browser once: `npx playwright install chromium`. It
@@ -107,12 +108,9 @@ down). The store/route suites lock the logic; the E2E locks the wiring. Anchor s
 - `e2e/panel-preferences.spec.ts` — two isolated browser contexts prove the
   reader's close/open intent comes from the server and reconciles live, not
   from shared localStorage.
-- **The social layer — three specs, one walk each**, sharing setup through
-  `e2e/social-helpers.ts`. They were one 1,611-line file until it measured 26%
-  of the whole E2E suite; because a lane can never be shorter than its longest
-  spec, that one file set a floor no sharding could beat (see
-  `scripts/verifyPlan.mjs`). The tests are unchanged and were already
-  independent — no constant was shared between any two of them.
+- **The social layer — three independent specs** share setup through
+  `e2e/social-helpers.ts`. Keep independent walks split: the longest spec sets
+  the minimum shard time (see `scripts/verifyPlan.mjs`).
   - `e2e/social-sharing.spec.ts` — publish → the audience's Commons card → one
     root thread across card and entity page → an offered change landing as L1
     in the merged Changes panel; the `/shared/:token` link-redeem door; the
