@@ -48,3 +48,16 @@ test('third-party workflow actions are immutable and checkout leaves no push cre
   assert.match(workflow, /uses: actions\/checkout@[a-f0-9]{40}[^\n]*\n\s*with:\s*\n\s*persist-credentials: false/)
   assert.match(workflow, /uses: actions\/setup-node@[a-f0-9]{40}[^\n]*\n\s*with:\s*\n\s*node-version: 26\s*\n\s*cache: npm/)
 })
+
+test('failed browser CI preserves first-attempt evidence under bounded retention', () => {
+  assert.match(workflow, /name: Verify \$\{\{ matrix\.label \}\}[\s\S]*?E2E_TRACE: '1'/)
+  const retention = workflow.slice(workflow.indexOf('- name: Preserve failed browser evidence'))
+  assert.ok(retention.startsWith('- name: Preserve failed browser evidence'))
+  assert.match(retention, /if: failure\(\) && matrix\.lane == 'e2e'/)
+  assert.match(retention, /uses: actions\/upload-artifact@[a-f0-9]{40}/)
+  assert.match(retention, /name: browser-failure-\$\{\{ matrix\.e2e_part \}\}/)
+  assert.match(retention, /path: test-results\/shard-\*/)
+  assert.match(retention, /retention-days: 3/)
+  assert.match(retention, /include-hidden-files: false/)
+  assert.doesNotMatch(retention, /path: (?:\.|out|\.data)(?:\s|\/|$)/)
+})

@@ -288,6 +288,13 @@ recordWeights(results)
 const wall = ((Date.now() - started) / 1000).toFixed(1)
 const serial = (results.reduce((s, r) => s + r.ms, 0) / 1000).toFixed(1)
 const coverage = failed.length === 0 ? e2eCoverage(results) : { note: '', shortfall: null }
+if (coverage.shortfall) {
+  process.stdout.write(`\ncoverage mismatch diagnostics (${coverage.shortfall}):\n`)
+  for (const lane of results.filter((r) => r.name.startsWith('e2e'))) {
+    process.stdout.write(`\n${lane.name} output (coverage mismatch)\n`)
+    process.stdout.write(`${lane.out.split('\n').slice(-80).join('\n')}\n`)
+  }
+}
 process.stdout.write(
   // Nothing selected: the refusal above already said so, and a summary here
   // would follow it with "all 0 lanes green" — the exact sentence that guard

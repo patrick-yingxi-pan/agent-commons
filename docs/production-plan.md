@@ -80,6 +80,29 @@ upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
 
+The next core workflow is a real external MCP connection (MODEL-33). Its
+bounded HTTP/DNS/TLS/JSON/SSE substrate is implemented and tested against local
+protocol peers, but is not exposed through routes or model execution. The full
+[MCP client plan](mcp-client.md) retains negotiation, discovery, secret lifecycle,
+explicit trust and durable uncertain-call recovery as required work. The owner
+has been asked about per-call approval before explicit server trust; no answer
+has been assumed. No real third-party account was contacted during these tests.
+This substrate checkpoint passed the full five-lane verifier with all 292
+browser tests. Focused regressions were observed failing for unsafe resolved
+addresses, mismatched response IDs, success-shaped HTTP errors, CRLF byte-budget
+undercounting, and environment-disabled TLS verification before their fixes.
+The CI coverage-output test executes both intact and deliberately degraded
+temporary runner copies; no real browser failure is claimed repaired by it.
+
+Word revision `809274a` passed the full local verifier, but GitHub run
+`34188381547` failed its browser coverage gate at 145 passes against 146 expected
+in partition 1/2; checks and partition 2/2 passed. The successful Playwright exit
+caused the runner to hide its output, and no browser artifacts were retained.
+A retry-only pass is a plausible cause, not a proved one. CI now explicitly
+fails flaky tests, keeps first-attempt traces and uploads only failed browser
+artifacts for three days; coverage mismatch also prints the affected lane tails.
+This fixes missing evidence, not the unknown underlying browser failure.
+
 The PDF text increment uses exactly pinned PDF.js as a renderer-only lazy
 parser, rather than hand-parsing an adversarial document format. It saves
 bounded extracted text and explicit outcomes, never original PDF bytes. The

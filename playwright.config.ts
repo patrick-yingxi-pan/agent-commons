@@ -66,6 +66,7 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1, // the mock backend is a single shared store — serialize
   forbidOnly: !!process.env.CI,
+  failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
   use: {

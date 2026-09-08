@@ -10,7 +10,7 @@
  *  by a real defect in the first cut of the runner (2026-08-11 review). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +21,81 @@ test('full verification can retain first-failure browser traces without enabling
   const config = stripComments(readFileSync(join(ROOT, 'playwright.config.ts'), 'utf8'))
   assert.match(config, /trace: process\.env\.E2E_TRACE === '1' \? 'retain-on-failure' : 'on-first-retry'/)
   assert.match(config, /retries: process\.env\.CI \? 1 : 0/, 'diagnostics do not change the first-attempt local gate')
+})
+
+test('CI rejects flaky E2E retries and exposes lane tails on coverage mismatch', () => {
+  const config = stripComments(readFileSync(join(ROOT, 'playwright.config.ts'), 'utf8'))
+  assert.match(config, /failOnFlakyTests:\s*!\!process\.env\.CI/, 'a test that only passes on retry is a CI failure')
+
+  const runner = stripComments(readFileSync(join(ROOT, 'scripts', 'verify.mjs'), 'utf8'))
+  assert.match(runner, /coverage\.shortfall/, 'the runner has an explicit coverage-mismatch branch')
+  assert.match(
+    runner,
+    /coverage mismatch[\s\S]{0,800}lane\.out|lane\.out[\s\S]{0,800}coverage mismatch/,
+    'coverage mismatches print the relevant E2E lane output rather than only a count',
+  )
+  assert.match(runner, /if \(failed\.length > 0 \|\| coverage\.shortfall\) process\.exitCode = 1/)
+})
+
+test('coverage mismatch emits the E2E lane tail and exits nonzero', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'verify-coverage-'))
+  try {
+    mkdirSync(join(tmp, 'scripts'))
+    mkdirSync(join(tmp, 'e2e'))
+    mkdirSync(join(tmp, 'tests'))
+    mkdirSync(join(tmp, 'bin'))
+    const runnerPath = join(tmp, 'scripts', 'verify.mjs')
+    const runnerSource = readFileSync(join(ROOT, 'scripts', 'verify.mjs'), 'utf8')
+    for (const file of ['verify.mjs', 'verifyPlan.mjs', 'hostSpeed.mjs']) {
+      writeFileSync(join(tmp, 'scripts', file), file === 'verify.mjs' ? runnerSource : readFileSync(join(ROOT, 'scripts', file)))
+    }
+    writeFileSync(join(tmp, 'package.json'), JSON.stringify({ scripts: { test: 'node --test "tests/**/*.test.ts"' } }))
+    // The fake runner deliberately reports no passing tests for a manifest that
+    // declares one. This exercises the real verifier process and its exit code,
+    // without booting a browser or touching the repository's .data cache.
+    writeFileSync(join(tmp, 'e2e', 'fixture.spec.ts'), "test('fixture coverage subject', () => {})\n")
+    writeFileSync(join(tmp, 'bin', 'npx'), '#!/bin/sh\nprintf "fixture lane tail\\n0 passed\\n"\n', { mode: 0o755 })
+
+    const fixtureEnv = { ...process.env, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, E2E_SHARDS: '1' }
+    delete fixtureEnv.VERIFY_E2E_PART
+    delete fixtureEnv.VERIFY_E2E_PARTS
+    const run = (source: string) => {
+      writeFileSync(runnerPath, source)
+      try {
+        const output = execFileSync(process.execPath, [runnerPath, 'e2e'], {
+          cwd: tmp,
+          env: fixtureEnv,
+          encoding: 'utf8',
+          timeout: 5_000,
+        })
+        return { status: 0, output }
+      } catch (error: any) {
+        return {
+          status: error.status ?? 1,
+          output: `${error.stdout ?? ''}${error.stderr ?? ''}`,
+        }
+      }
+    }
+    const result = run(runnerSource)
+    assert.equal(result.status, 1, 'a coverage shortfall remains a verification failure')
+    assert.match(result.output, /coverage mismatch diagnostics \(0 of 1\)/)
+    assert.match(result.output, /e2e output \(coverage mismatch\)/)
+    assert.match(result.output, /fixture lane tail/, 'the lane tail is not swallowed when the lane itself exits 0')
+
+    // Watch the executable assertion distinguish the diagnostic block itself:
+    // remove only that block from the temporary copy and prove its output is
+    // absent, while the shortfall still fails. The production copy above is
+    // never modified.
+    const diagnosticStart = runnerSource.indexOf('if (coverage.shortfall) {')
+    const diagnosticEnd = runnerSource.indexOf('}\nprocess.stdout.write(', diagnosticStart)
+    assert.ok(diagnosticStart >= 0 && diagnosticEnd > diagnosticStart, 'fixture mutation found the diagnostic block')
+    const withoutDiagnostics = `${runnerSource.slice(0, diagnosticStart)}${runnerSource.slice(diagnosticEnd + 2)}`
+    const degraded = run(withoutDiagnostics)
+    assert.equal(degraded.status, 1)
+    assert.doesNotMatch(degraded.output, /coverage mismatch diagnostics/)
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
 })
 
 test('parallel Playwright shards write artifacts to shard-qualified output directories', () => {

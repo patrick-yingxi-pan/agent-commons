@@ -27,6 +27,9 @@ procedure so the always-loaded map stays small.
   browser traces in shard-owned directories under `test-results/` without adding
   local retries or extending timeouts; ordinary runs keep their lower-overhead
   trace policy.
+  CI explicitly fails retry-only passes and retains first-attempt browser traces
+  from failed jobs for three days. A coverage mismatch prints lane tails even
+  when Playwright exited successfully; do not treat a retry as a repaired defect.
 
 ## Review UI changes
 

@@ -5,6 +5,9 @@
 
 declare module 'node:http' {
   export interface IncomingMessage {
+    statusCode?: number
+    complete: boolean
+    destroy(error?: Error): void
     url?: string
     method?: string
     headers: Record<string, string | string[] | undefined>
@@ -13,6 +16,23 @@ declare module 'node:http' {
     on(event: 'error', cb: (err: unknown) => void): void
     on(event: 'close', cb: () => void): void
   }
+  export interface ClientRequest {
+    end(body?: Uint8Array): void
+    destroy(error?: Error): void
+    on(event: 'error', callback: (error: unknown) => void): void
+    on(event: 'upgrade', callback: (response: IncomingMessage, socket: { destroy(): void }) => void): void
+  }
+  export interface RequestOptions {
+    method: string
+    headers: Record<string, string>
+    agent: false
+    autoSelectFamily: boolean
+    family: number
+    maxHeaderSize: number
+    rejectUnauthorized: true
+    lookup(host: string, options: unknown, callback: (error: Error | null, address: string, family: number) => void): void
+  }
+  export function request(url: URL, options: RequestOptions, callback: (response: IncomingMessage) => void): ClientRequest
   export interface ServerResponse {
     writeHead(status: number, headers?: Record<string, string>): ServerResponse
     setHeader(name: string, value: string | number | string[]): void
@@ -36,6 +56,16 @@ declare module 'node:http' {
   export function createServer(
     handler: (req: IncomingMessage, res: ServerResponse) => void,
   ): Server
+}
+
+declare module 'node:https' {
+  export { request } from 'node:http'
+}
+declare module 'node:dns/promises' {
+  export function lookup(host: string, options: { all: true; verbatim: true }): Promise<Array<{ address: string; family: number }>>
+}
+declare module 'node:net' {
+  export function isIP(address: string): 0 | 4 | 6
 }
 
 declare module 'node:fs' {
