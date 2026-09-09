@@ -653,6 +653,10 @@ import {
   CONTRIBUTION_FIELD_MAX,
   CHANGE_ENTRY_KINDS,
   MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
+  authoredArtifact,
+  normalizeArtifactName,
+  type CreateArtifactRequest,
+  type StructuredArtifactBody,
   AUDIT_CHANNEL_LABEL,
   type EnvelopeHarness,
   type ChangeEntryKind,
@@ -689,6 +693,8 @@ import {
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
 import { ArtifactDetailPage, KIND_ICON, KIND_LABEL } from './artifactPreview'
+import { StructuredArtifactFields } from './StructuredArtifactEditor'
+import { enqueueArtifactCreation, heldArtifactCreation, useArtifactCreationStatus, type ArtifactCreationResult } from '../controller/artifactCreationMutations'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { artifactSourceSessionId } from '../lib/artifactSource'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
@@ -7805,9 +7811,7 @@ function ArtifactsSection({
   onOpenSession: (id: string) => void
 }) {
   const [query, setQuery] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [creatingArtifact, setCreatingArtifact] = useState(false)
-  const [createdDocumentName, setCreatedDocumentName] = useState<string | null>(null)
+  const [creating, setCreating] = useState(() => heldArtifactCreation() !== null)
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
   const artifactsQ = useArtifacts()
@@ -7817,20 +7821,6 @@ function ArtifactsSection({
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
 
-  // `applyOp` resolves after the authoritative graph enters the cache, but
-  // React may publish that graph on the render after its promise continuation.
-  // Hold the acknowledged name until the minted id is visible, then open the
-  // canonical page through the pane-local navigation funnel. Replaying the
-  // same sessionless save opens the existing Created-here document.
-  useEffect(() => {
-    if (!createdDocumentName) return
-    const created = artifacts.find(
-      (artifact) => artifact.name === createdDocumentName && artifact.source === 'Created here',
-    )
-    if (!created) return
-    setCreatedDocumentName(null)
-    rel.navigate('artifacts', created.id)
-  }, [artifacts, createdDocumentName, rel])
   const needle = query.trim().toLowerCase()
   // The SAME list the rail's artifact children show, through the same function
   // (type facet + order), narrowed by this page's own search.
@@ -7861,28 +7851,6 @@ function ArtifactsSection({
   // The open artifact IS this section's detail page now, so it records a view
   // like every other one (only when it actually resolved).
   useRecordView('artifact', openArtifact?.id)
-
-  // Create an artifact straight from the index (no session): a sessionless
-  // save-artifact op, optionally filed under a project. Server-owned + persisted
-  // via the same /relations/ops path. The dialog closes only after the server
-  // acknowledges the stable id-bearing graph snapshot.
-  const createArtifact = (draft: { name: string; body: string }, projectId: string | null) => {
-    if (creatingArtifact) return
-    const project = projectId ? projects.find((p) => p.id === projectId) : undefined
-    setCreatingArtifact(true)
-    void rel.applyOp({
-      kind: 'save-artifact',
-      artifact: { name: draft.name, kind: 'doc', meta: 'Document', body: draft.body },
-      projectId: project?.id,
-      projectName: project?.name,
-    }).then((outcome) => {
-      setCreatingArtifact(false)
-      if (outcome === 'applied') {
-        setCreating(false)
-        setCreatedDocumentName(draft.name)
-      }
-    })
-  }
 
   // Assign an artifact to a project (or unfile it, projectId null) — re-files via
   // the relation graph, re-grouping the index live for every client. Only
@@ -7959,7 +7927,7 @@ function ArtifactsSection({
           mirrorsRailFor="artifacts"
           onRailInvoke={() => setCreating(true)}
         >
-          New document
+          New artifact
         </PageActionButton>
       </PageHeader>
       <SearchBox value={query} onChange={setQuery} placeholder="Search artifacts…" mirrorsRailFor="artifacts" />
@@ -7980,11 +7948,12 @@ function ArtifactsSection({
       />
 
       {creating && (
-        <NewDocumentDialog
+        <NewArtifactDialog
           projects={projects}
-          busy={creatingArtifact}
-          waitingForRecovery={creatingArtifact && !!rel.mutation.error}
-          onCreate={createArtifact}
+          onCreated={(id) => {
+            setCreating(false)
+            rel.navigate('artifacts', id)
+          }}
           onClose={() => setCreating(false)}
         />
       )}
@@ -7992,76 +7961,144 @@ function ArtifactsSection({
   )
 }
 
-/** Direct creation is intentionally one honest authoring workflow: a document
- * with real content. Sheets, images, slides and email remain valid imported or
- * generated artifact kinds, but a format picker that minted only metadata made
- * five promises this surface could not keep. */
-function NewDocumentDialog({
+/** Every offered format authors a real, bounded body. Format switching retains
+ * each independent draft; creation and saved correction share the same fields. */
+function NewArtifactDialog({
   projects,
-  busy,
-  waitingForRecovery,
-  onCreate,
+  onCreated,
   onClose,
 }: {
   projects: Project[]
-  busy: boolean
-  waitingForRecovery: boolean
-  onCreate: (draft: { name: string; body: string }, projectId: string | null) => void
+  onCreated: (id: string) => void
   onClose: () => void
 }) {
-  const [name, setName] = useState('')
-  const [body, setBody] = useState('')
-  const [projectId, setProjectId] = useState<string | null>(null)
+  const mutation = useArtifactCreationStatus()
+  const held = heldArtifactCreation()
+  const identity = useMe().data
+  const [initial] = useState(() => held?.intent.request)
+  const [draftName, setName] = useState(initial?.name ?? '')
+  const [draftKind, setKind] = useState<CreateArtifactRequest['kind']>(initial?.kind ?? 'doc')
+  const [draftBody, setBody] = useState(typeof initial?.body === 'string' ? initial.body : '')
+  const [draftSheet, setSheet] = useState<StructuredArtifactBody>(initial?.kind === 'sheet' && typeof initial.body !== 'string' ? initial.body : { type: 'sheet', columns: [''], rows: [['']] })
+  const [draftSlides, setSlides] = useState<StructuredArtifactBody>(initial?.kind === 'slide' && typeof initial.body !== 'string' ? initial.body : { type: 'slides', slides: [{ title: '', bullets: [] }] })
+  const [draftProjectId, setProjectId] = useState<string | null>(initial?.projectId ?? null)
+  // A second open pane sees the actual held request, not its unrelated local
+  // draft wearing a false Creating label. Unsubmitted format drafts stay local.
+  const heldRequest = held?.intent.request
+  const name = heldRequest?.name ?? draftName
+  const kind = heldRequest?.kind ?? draftKind
+  const body = typeof heldRequest?.body === 'string' ? heldRequest.body : draftBody
+  const sheet = heldRequest?.kind === 'sheet' && typeof heldRequest.body !== 'string' ? heldRequest.body : draftSheet
+  const slides = heldRequest?.kind === 'slide' && typeof heldRequest.body !== 'string' ? heldRequest.body : draftSlides
+  const projectId = heldRequest ? heldRequest.projectId ?? null : draftProjectId
+  const [error, setError] = useState<string | null>(null)
+  const tenantId = identity?.tenant.id
+  const busy = held !== null
+  const waitingForRecovery = busy && !!mutation.error
+  const mounted = useRef(false)
+  const followed = useRef<Promise<ArtifactCreationResult> | null>(null)
+  const createdCallback = useRef(onCreated)
+  createdCallback.current = onCreated
+  const follow = (result: Promise<ArtifactCreationResult>) => {
+    followed.current = result
+    void result.then((settled) => {
+      if (!mounted.current || followed.current !== result) return
+      followed.current = null
+      if (settled.outcome === 'applied') createdCallback.current(settled.artifactId)
+      else setError('Creation was not completed. Your draft is ready to review.')
+    }, () => {
+      if (mounted.current && followed.current === result) {
+        followed.current = null
+        setError('Creation could not start. Your draft is still here; try again. If this persists, copy your draft before reloading.')
+      }
+    })
+  }
+  useEffect(() => {
+    mounted.current = true
+    const pending = heldArtifactCreation()
+    if (pending) follow(pending.result)
+    return () => { mounted.current = false }
+  }, [])
+  const helpId = useId()
   const close = busy ? () => {} : onClose
-  const canCreate = name.trim().length > 0 && body.trim().length > 0 && !busy
+  const normalizedName = normalizeArtifactName(name)
+  const authored = normalizedName && authoredArtifact(normalizedName, kind, kind === 'doc' ? body : kind === 'sheet' ? sheet : slides)
+  const canFileProject = projectId === null || projects.some((project) => project.id === projectId && project.own === true)
+  const canCreate = !!authored && !!tenantId && canFileProject && !busy
   const submit = () => {
-    if (canCreate) onCreate({ name: name.trim(), body: body.trim() }, projectId)
+    if (canCreate && authored && normalizedName && tenantId) {
+      setError(null)
+      follow(enqueueArtifactCreation({ tenantId, sourceUserId: identity?.via === 'session' ? identity.user.id : null, request: { name: normalizedName, kind, body: authored.draftBody, projectId } }))
+    }
   }
 
   return (
     <FormDialog
-      title="New document"
+      title="New artifact"
       icon={<FileText size={18} className="text-cap-workspace" />}
-      submitLabel={waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : 'Create document'}
+      submitLabel={waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : `Create ${KIND_LABEL[kind].toLowerCase()}`}
       submitIcon={<Plus size={15} />}
       canSubmit={canCreate}
       onSubmit={submit}
       onClose={close}
       busy={busy}
+      error={error}
     >
       <FormField label="Name">
         <input
           value={name}
           disabled={busy}
           onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. launch-brief.md"
+          placeholder={kind === 'doc' ? 'e.g. launch-brief.md' : kind === 'sheet' ? 'e.g. launch-metrics.xlsx' : 'e.g. launch-review.pptx'}
+          aria-invalid={name.length > 0 && !normalizedName}
           className={FORM_INPUT_CLASS}
         />
+        {name.length > 0 && !normalizedName && <span role="alert" className="mt-1 block text-[11px] text-removed">Use 1–240 characters without control characters.</span>}
       </FormField>
-      <FormField label="Content">
+      <FormField label="Format">
+        <select value={kind} disabled={busy} onChange={(event) => {
+          const value = event.target.value
+          if (value === 'doc' || value === 'sheet' || value === 'slide') setKind(value)
+        }} className={FORM_INPUT_CLASS}>
+          <option value="doc">Document</option>
+          <option value="sheet">Sheet</option>
+          <option value="slide">Slides</option>
+        </select>
+      </FormField>
+      {kind === 'doc' ? <FormField label="Content">
         <textarea
           value={body}
           disabled={busy}
           onChange={(e) => setBody(e.target.value)}
           maxLength={MAX_AUTHORED_DOCUMENT_SOURCE_CHARS}
+          aria-describedby={helpId}
           rows={9}
           placeholder="Write the document. Separate paragraphs with a blank line."
-          className="w-full resize-y rounded-md border border-line bg-surface px-3 py-2 text-[13px] leading-relaxed text-ink outline-none transition placeholder:text-ink-faint focus:border-co"
+          className={`${FORM_INPUT_CLASS} resize-y leading-relaxed`}
         />
-        <span className="mt-1 block text-[11px] text-ink-faint">
+        <span id={helpId} className="mt-1 block text-[11px] text-ink-faint">
           Blank lines become independently editable paragraphs. The index synopsis is derived from this content. About 20,000
           characters maximum.
         </span>
-      </FormField>
+      </FormField> : <fieldset className="min-w-0 space-y-2" aria-describedby={helpId}>
+        <legend className="mb-1.5 text-[12px] font-medium text-ink-soft">Content</legend>
+        <p id={helpId} className="text-[11px] text-ink-faint">
+          {kind === 'sheet' ? 'Name each column and enter literal values. Formulas are not calculated.' : 'Give each slide a title, then add optional bullets.'}
+          {' '}Up to 20,000 characters across this content.
+        </p>
+        <StructuredArtifactFields body={kind === 'sheet' ? sheet : slides} onChange={kind === 'sheet' ? setSheet : setSlides} disabled={busy} />
+        {normalizedName && !authored && <p role="status" className="text-[11px] text-ink-faint">Complete the required labels and keep the content within its size limits to create.</p>}
+      </fieldset>}
       <FormField label="Project" optional>
         <select
           value={projectId ?? ''}
           disabled={busy}
           onChange={(e) => setProjectId(e.target.value || null)}
-          className="w-full rounded-md border border-line bg-surface px-3 py-2 text-[13px] text-ink outline-none transition focus:border-co"
+          className={FORM_INPUT_CLASS}
         >
           <option value="">No project</option>
-          {projects.map((p) => (
+          {!canFileProject && <option value={projectId ?? ''} disabled>Previously selected project (unavailable)</option>}
+          {projects.filter((project) => project.own === true).map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>

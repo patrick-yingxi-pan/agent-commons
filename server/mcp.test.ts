@@ -76,6 +76,14 @@ test('tools/call: mutation retry identities are bounded and invalid values fail 
   const listed = await rpc('tools/list')
   const edit = listed.json.result.tools.find((tool: any) => tool.name === 'patch_artifacts_by_id_content')
   assert.equal(edit.inputSchema.properties.idempotencyKey.type, 'string')
+  const create = listed.json.result.tools.find((tool: any) => tool.name === 'post_artifacts')
+  assert.ok(create.inputSchema.required.includes('idempotencyKey'), 'intrinsic Artifact creation advertises its mandatory logical identity')
+  assert.equal(create.annotations.idempotentHint, true, 'its mandatory stable key makes exact retries safe')
+  const missingCreateKey = await rpc('tools/call', {
+    name: 'post_artifacts',
+    arguments: { body: { name: 'missing-key.md', kind: 'doc', body: 'Must not create.' } },
+  })
+  assert.equal(missingCreateKey.json.error.code, -32602)
   const invalidType = await rpc('tools/call', {
     name: 'patch_artifacts_by_id_content',
     arguments: { id: 'missing', body: {}, idempotencyKey: 7 },
@@ -262,6 +270,14 @@ test('curated body examples: every key is a real mutation route, the spine is co
     'DELETE /schedules/:id example applies',
   )
   assert.equal(
+    (await toolCall('post_artifacts', {
+      ...ex('POST /artifacts'),
+      idempotencyKey: `mcp-direct-artifact-example-${Date.now()}`,
+    }, seam)).status,
+    201,
+    'POST /artifacts example creates under its required logical identity',
+  )
+  assert.equal(
     (await toolCall('patch_artifacts_by_id_content', { id: 'a1', ...ex('PATCH /artifacts/:id/content') }, seam)).status,
     200,
     'PATCH /artifacts/:id/content example applies',
@@ -270,7 +286,7 @@ test('curated body examples: every key is a real mutation route, the spine is co
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 13, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 14, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

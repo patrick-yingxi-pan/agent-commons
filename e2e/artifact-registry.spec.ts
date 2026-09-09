@@ -14,8 +14,8 @@ test('authored document stays unique and a live grant opens and closes its canon
   const body = 'An authored document shared from the canonical artifact registry.'
   try {
     await owner.page.goto('/artifacts')
-    await owner.page.getByRole('button', { name: 'New document' }).click()
-    const dialog = owner.page.getByRole('dialog', { name: 'New document' })
+    await owner.page.getByRole('button', { name: 'New artifact' }).click()
+    const dialog = owner.page.getByRole('dialog', { name: 'New artifact' })
     await dialog.getByLabel('Name').fill(name)
     await dialog.getByLabel('Content').fill(body)
     await dialog.getByRole('button', { name: 'Create document' }).click()

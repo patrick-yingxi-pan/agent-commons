@@ -40,7 +40,7 @@ export function StructuredArtifactEditor({ body, latestBody, onSave, onCancel, s
 
   return (
     <div className="space-y-3" data-structured-artifact-editor={draft.type}>
-      {draft.type === 'sheet' ? <SheetEditor body={draft} onChange={update} disabled={saving} /> : <SlidesEditor body={draft} onChange={update} disabled={saving} />}
+      <StructuredArtifactFields body={draft} onChange={update} disabled={saving} />
       <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
         <button type="button" data-inline-action className={buttonClass} disabled={saving || !valid} onClick={() => void onSave(draft)}>
           <Save size={13} /> {saving ? 'Saving…' : 'Save changes'}
@@ -59,6 +59,18 @@ export function StructuredArtifactEditor({ body, latestBody, onSave, onCancel, s
       )}
     </div>
   )
+}
+
+/** Controlled fields shared by creation and correction. The enclosing workflow
+ * owns draft lifetime and its single submit/cancel pair. */
+export function StructuredArtifactFields({ body, onChange, disabled = false }: {
+  body: StructuredArtifactBody
+  onChange: (body: StructuredArtifactBody) => void
+  disabled?: boolean
+}) {
+  return body.type === 'sheet'
+    ? <SheetEditor body={body} onChange={onChange} disabled={disabled} />
+    : <SlidesEditor body={body} onChange={onChange} disabled={disabled} />
 }
 
 function SheetEditor({

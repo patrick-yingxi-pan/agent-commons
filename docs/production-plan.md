@@ -33,6 +33,12 @@ updated PowerPoint download were exercised. The review caught a split-line Add
 bullet glyph/label; the shared inline-action style and failure-first UI-147 locks
 now cover every structural add control.
 
+Direct-authoring review on 2026-09-09 inspected the shared New artifact form and
+slide fields with Ada active. The preview safety gate refused a persistent test
+save, so the unsaved review form was cancelled and no sample row was added to
+that workspace. Ada remains signed in on Artifacts with all six accounts
+stacked; isolated browser and packaged tests provide creation/relaunch evidence.
+
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
@@ -42,6 +48,32 @@ now cover every structural add control.
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 
 ## Checkpoint criteria
+
+The direct-authoring checkpoint extends New artifact to Document, Sheet,
+and Slides. All three create real content without requiring a model proposal;
+structured creation reuses the saved editor fields and keeps per-format drafts
+independent. Direct creation has an account-scoped durable request identity,
+allowing distinct same-name artifacts without weakening model-save replay.
+One held form and shell recovery keep the submitted request until exact server
+truth; a late result cannot navigate an unmounted originating form. The source
+account is frozen at activation and checked before effects, including when a
+different tab changes the shared sign-in cookie. The full verifier passed all
+five lanes, including 337 browser tests, with first-attempt trace retention.
+The responsive sweep covered 135/135 cells with zero violations or skips;
+all 142 sweep, 15 creation-form and 84 saved-editor captures were individually
+reviewed, with no confirmed visual findings after exact-file rechecks.
+Packaged unsigned arm64 acceptance passed exact document/sheet/slides creation,
+same-name identity separation, malformed-payload retry, and canonical-body
+recovery across a full relaunch, alongside the existing vault/input/export
+checks. Signing/notarization and native Intel acceptance remain separate gates.
+
+The next core implementation milestone is one remote HTTPS MCP tool called from
+an interactive conversation through explicit owner approval, stable catalog and
+argument identity, and a durable bounded result/uncertain-execution receipt.
+Every call requires approval initially; uncertain execution is never replayed
+automatically. Broader trust, local transports, and standing execution remain
+required later work, not omissions. A real third-party acceptance target and any
+policy that waives per-call approval require an explicit owner decision.
 
 Structured artifact authoring now uses the same save proposal and exact-ID body
 store as documents. Sheets carry literal rectangular values; slides carry ordered

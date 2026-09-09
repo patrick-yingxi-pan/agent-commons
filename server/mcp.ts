@@ -70,6 +70,13 @@ export function mcpToolRoutes(router: Router): ApiOperation[] {
   })
 }
 
+/** Artifact creation's key is its durable row identity, not an optional replay
+ * optimization. Keep the generated schema and protocol validation aligned with
+ * that route-owned requirement. */
+function requiresIdempotencyKey(operation: ApiOperation): boolean {
+  return operation.method === 'POST' && operation.pattern === '/artifacts'
+}
+
 function toolDefinition(t: ApiOperation) {
   const properties: Record<string, unknown> = {}
   for (const p of t.params) properties[p] = { type: 'string', description: `Path parameter :${p}` }
@@ -83,7 +90,7 @@ function toolDefinition(t: ApiOperation) {
       type: 'string',
       minLength: 1,
       maxLength: IDEMPOTENCY_KEY_MAX_LENGTH,
-      description: `Optional bounded retry identity for this mutation (maximum ${IDEMPOTENCY_KEY_MAX_LENGTH} characters).`,
+      description: `${requiresIdempotencyKey(t) ? 'Required logical identity' : 'Optional bounded retry identity'} for this mutation (maximum ${IDEMPOTENCY_KEY_MAX_LENGTH} characters).`,
     }
     const example = API_BODY_EXAMPLES.get(`${t.method} ${t.pattern}`)
     properties.body = {
@@ -103,7 +110,7 @@ function toolDefinition(t: ApiOperation) {
     inputSchema: {
       type: 'object',
       properties,
-      required: t.params,
+      required: requiresIdempotencyKey(t) ? [...t.params, 'idempotencyKey'] : t.params,
       additionalProperties: false,
     },
     // MCP tool annotations, derived MECHANICALLY from the operation shape (so
@@ -113,7 +120,7 @@ function toolDefinition(t: ApiOperation) {
       title: `${t.method} ${API_BASE_PATH}${t.pattern}`,
       readOnlyHint: t.method === 'GET',
       destructiveHint: t.method === 'DELETE',
-      idempotentHint: t.method !== 'POST',
+      idempotentHint: t.method !== 'POST' || requiresIdempotencyKey(t),
       openWorldHint: false, // every tool acts on THIS workspace, nothing beyond it
     },
   }
@@ -143,6 +150,7 @@ export const MCP_CORE_TOOLS: readonly string[] = [
   'post_sessions_by_id_messages',
   'get_projects',
   'get_artifacts',
+  'post_artifacts',
   'get_artifact_content',
   'get_saved_contexts',
   'get_schedules',
@@ -210,7 +218,7 @@ export const MCP_UI_COPY = {
 const SHARED_INSTRUCTIONS = [
   'Every tool is one HTTP operation of this workspace, dispatched through the same route table, auth wall, and tenancy checks as the web UI (access-parity INV-11) — the three access methods (UI, in-app session, MCP) differ in form, never in capability or policy.',
   'Tool results are the JSON {status, body} of the underlying HTTP response; the send-message tool returns the reply stream as a parsed event array.',
-  'Mutation tools accept an optional idempotencyKey argument separate from body. Reuse it for one logical retry, not a new edit; it reaches the route’s ordinary bounded replay policy. Outer transport keys are not forwarded, and durable restart replay depends on the underlying route.',
+  'Mutation tools accept an idempotencyKey argument separate from body; direct Artifact creation requires it because the key owns the durable row identity, while other mutations leave it optional. Reuse it for one logical retry, not a new edit. Outer transport keys are not forwarded, and durable restart replay depends on the underlying route.',
   "Connecting with ?toolset=core on the endpoint URL lists only the curated everyday subset (sessions, messages, projects, artifacts, schedules, search, usage) — tools/call still accepts the full catalog either way, so any operation remains callable by name.",
   'Tool annotations mark reads (readOnlyHint) and deletes (destructiveHint) mechanically; where a mutation has a curated body example it rides in the input schema (properties.body.examples) — bodies follow the HTTP contract, and a malformed one is refused, never guessed at.',
   'For live push, keep the Mcp-Session-Id this initialize returned and open GET /mcp with it (SSE): ambient workspace events arrive as notifications/message frames, and subscribed resources signal notifications/resources/updated.',
@@ -509,6 +517,9 @@ export function registerMcp(router: Router): void {
         }
       }
       let innerKey: string | undefined
+      if (requiresIdempotencyKey(tool) && !Object.hasOwn(args, 'idempotencyKey')) {
+        return sendRpc(res, rpcError(id, -32602, 'Missing required idempotencyKey for Artifact creation.'))
+      }
       if (tool.method !== 'GET' && Object.hasOwn(args, 'idempotencyKey')) {
         const candidate = args.idempotencyKey
         if (typeof candidate !== 'string' || candidate.trim().length === 0 || candidate.length > IDEMPOTENCY_KEY_MAX_LENGTH) {

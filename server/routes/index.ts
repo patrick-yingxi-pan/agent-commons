@@ -17,6 +17,7 @@ import type {
   ReplyStreamEvent,
   CreateCommissionRequest,
   DeleteCommissionRequest,
+  CreateArtifactRequest,
   CreateProjectRequest,
   CreateGrantRequest,
   OpenDiscussionRequest,
@@ -97,6 +98,7 @@ import { userPrincipal } from '../identity.ts'
 import { accounts, type StoredOrgInvite } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store/index.ts'
+import { artifactCreationId } from '../artifactCreationIdentity.ts'
 import {
   IDEMPOTENCY_KEY_MAX_LENGTH,
   IdempotencyCache,
@@ -5275,6 +5277,53 @@ export function buildRouter(): Router {
       throw err
     }
   }))
+  // Direct human/remote authoring gets an intrinsic exact creation identity.
+  // The in-app model keeps using its consent-gated save-artifact relation op;
+  // it cannot self-authorize this direct write capability.
+  r.intrinsicPost('/artifacts', 'the in-app session proposes Artifact saves through relation consent cards; it never executes direct authoring', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
+    const identity = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    if (!idempotencyKey?.trim()) {
+      return sendError(res, 'bad_request', 'Idempotency-Key is required for Artifact creation.')
+    }
+    if (idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      return sendError(res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+    }
+    const logicalId = artifactCreationId(identity.tenant.id, idempotencyKey)
+    const represented = store.getArtifactCreation(logicalId, identity.tenant.id)
+    // Durable exact identity wins before a changed Retry body is consumed: a
+    // lost acknowledgement can return current renamed/refiled truth after restart.
+    if (typeof represented === 'object') return sendJson(res, represented)
+    if (represented === 'invalid') {
+      return sendError(res, 'bad_request', 'This Artifact creation identity is not valid for this account.')
+    }
+
+    const input = await body<CreateArtifactRequest>()
+    const allowedFields = new Set(['name', 'kind', 'body', 'projectId'])
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+      Object.keys(input).some((field) => !allowedFields.has(field)) ||
+      typeof input.name !== 'string' || !['doc', 'sheet', 'slide'].includes(input.kind) ||
+      !Object.hasOwn(input, 'body')) {
+      return sendError(res, 'bad_request', 'name, kind, and body are required for Artifact creation.')
+    }
+    if (input.projectId !== undefined && input.projectId !== null &&
+      (typeof input.projectId !== 'string' || !input.projectId.trim())) {
+      return sendError(res, 'bad_request', 'projectId must be a non-empty string, null, or absent.')
+    }
+    try {
+      const created = store.createArtifact(input, identity.tenant.id, logicalId)
+      if (!created) return sendError(res, 'not_found', 'No such Project')
+      if (created === 'invalid') {
+        return sendError(res, 'bad_request', 'This Artifact creation identity is not valid for this account.')
+      }
+      sendJson(res, created, 201)
+    } catch (error) {
+      if (error instanceof ValidationError) return sendError(res, error.code, error.message)
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
+  })
   r.get('/artifacts', ({ req, res, url }) => {
     sendList(res, url, store.listArtifacts(store.identity(req.headers).tenant.id), (a) => a.id)
   })

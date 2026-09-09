@@ -269,6 +269,20 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /vault\.includes\(smokeSecret\)/)
   assert.match(smoke, /assert\.deepEqual\(storedUsage\(userDataPath, identity\.tenant\.id\), recordedUsage/,
     'packaged acceptance proves exact real-turn usage survives relaunch')
+  for (const contract of [
+    "'idempotency-key': definition.key",
+    "kind: 'doc'",
+    "kind: 'sheet'",
+    "kind: 'slide'",
+    'Same-name direct artifact keys did not remain distinct.',
+    'A changed-payload Retry did not recover the exact direct Artifact.',
+    'Direct Artifact creation did not expose each exact canonical body.',
+    'The packaged relaunch changed a direct Artifact body.',
+    'The packaged relaunch could not recover the exact keyed direct Artifact.',
+  ]) {
+    assert.match(smoke, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      `packaged smoke must prove intrinsic keyed Artifact creation: ${contract}`)
+  }
   assert.match(smoke, /await smokePackagedAttachments\(\{ executable \}\)/,
     'the ordinary executable and freshly extracted release both run attachment acceptance')
   assert.match(smoke, /await smokePackagedMcpCredentials\(\{ executable \}\)/,

@@ -25,7 +25,7 @@ export interface CompositeFeatureSpec {
 export const COMPOSITE_FEATURES: Record<SectionId, CompositeFeatureSpec> = {
   commons: {},
   projects: { primaryAction: 'New project', search: 'Search projects', fold: true },
-  artifacts: { primaryAction: 'New document', search: 'Search artifacts', fold: true },
+  artifacts: { primaryAction: 'New artifact', search: 'Search artifacts', fold: true },
   contexts: { primaryAction: 'Add context', search: 'Search contexts', fold: true },
   models: { primaryAction: 'New provider', fold: true },
   agents: { primaryAction: 'New agent', fold: true },

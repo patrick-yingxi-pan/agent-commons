@@ -12,6 +12,7 @@ import type { ArtifactKind, SectionId } from './entities.ts'
 import type { ArtifactItem, ProjectContext, ProjectContextSource, StepTool } from './cowork.ts'
 import type { ProjectRole } from './roles.ts'
 import { authoredArtifact, type StructuredArtifactBody } from './artifactAuthoring.ts'
+import { isArtifactCreationId } from './artifactCreation.ts'
 
 export type RelationEntity = 'session' | 'project' | 'artifact' | 'context' | 'schedule'
 
@@ -674,6 +675,10 @@ export function artifactFromDraft(
 /** Save replay compares immutable provenance, never the mutable display name.
  * Legacy raw rows still carry their original name/source until projected. */
 export function artifactMatchesSave(artifact: ArtifactItem, op: Extract<RelationOp, { kind: 'save-artifact' }>): boolean {
+  // Direct keyed authoring has an intrinsic creation identity. Its immutable
+  // saveOrigin is provenance only and must never let a later conversational
+  // save with the same name/source adopt or overwrite that exact-ID resource.
+  if (isArtifactCreationId(artifact.id)) return false
   const origin = artifact.saveOrigin ?? artifact
   return origin.name === op.artifact.name && origin.source === (op.sessionTitle ?? 'Created here') &&
     (op.ownerTenantId === undefined || artifact.tenantId === op.ownerTenantId)

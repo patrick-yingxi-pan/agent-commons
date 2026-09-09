@@ -81,7 +81,7 @@ test('the page action is one complete, palette-driven control role', () => {
   const uses = (section.match(/<PageActionButton\b/g) ?? []).length
   assert.ok(uses >= 7, `every page/hub creation door shares the component (found ${uses})`)
   assert.ok(!section.includes('PrimaryButton'), 'the former neutral page-button fork is gone')
-  for (const label of ['New project', 'New document', 'Add context', 'New provider', 'New routine', 'New dispatch', 'New agent', 'New prompt']) {
+  for (const label of ['New project', 'New artifact', 'Add context', 'New provider', 'New routine', 'New dispatch', 'New agent', 'New prompt']) {
     assert.match(
       section,
       new RegExp(`<PageActionButton[\\s\\S]{0,260}${label}[\\s\\S]{0,80}</PageActionButton>`),

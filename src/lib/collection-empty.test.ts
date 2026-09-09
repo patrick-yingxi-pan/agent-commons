@@ -9,7 +9,7 @@ test('collection empty copy distinguishes first use from a filtered miss', () =>
   assert.equal(collectionEmptyCopy('sessions', 4), 'No sessions match these filters.')
   assert.equal(
     collectionEmptyCopy('artifacts', 0),
-    'No artifacts yet — choose New document or save work from a conversation.',
+    'No artifacts yet — choose New artifact or save work from a conversation.',
   )
   assert.equal(collectionEmptyCopy('artifacts', 1), 'No artifacts match.')
   assert.equal(collectionEmptyCopy('routines', 0), 'No routines yet — choose New routine to begin.')

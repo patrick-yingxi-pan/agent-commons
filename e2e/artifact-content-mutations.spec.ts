@@ -73,7 +73,7 @@ test('a stale body edit loads the other device change and retries one held draft
   expect(docBlockText(landed.blocks[local.index]!)).toBe(localText)
 })
 
-test('New document persists authored content and reopens it after reload', async ({ page }) => {
+test('New artifact creates a document whose authored content reopens after reload', async ({ page }) => {
   test.setTimeout(ms(30_000))
   const stamp = Date.now().toString(36)
   const name = `release-note-${stamp}.md`
@@ -81,8 +81,8 @@ test('New document persists authored content and reopens it after reload', async
   const second = 'This content belongs to the document, not only its index synopsis.'
 
   await page.goto('/artifacts')
-  await page.getByRole('button', { name: 'New document' }).click()
-  const dialog = page.getByRole('dialog', { name: 'New document' })
+  await page.getByRole('button', { name: 'New artifact' }).click()
+  const dialog = page.getByRole('dialog', { name: 'New artifact' })
   await dialog.getByLabel('Name').fill(name)
   await dialog.getByLabel('Content').fill(`${first}\n\n${second}`)
   await dialog.getByRole('button', { name: 'Create document' }).click()

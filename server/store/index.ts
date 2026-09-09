@@ -20,6 +20,7 @@ import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
 import { authoredArtifact, parseStructuredArtifactBody, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
+import { isArtifactCreationId, type CreateArtifactRequest, type CreateArtifactResponse } from '../../contract/artifactCreation.ts'
 import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
 import type {
@@ -6336,6 +6337,74 @@ export const store = {
     const project = projected.extraProjects.find((candidate) => candidate.id === projectId)
     if (!project) throw new ConflictError('The new Project could not be projected to its creator.')
     return { project, graph: projected }
+  },
+  /** Read the current representation of one keyed direct creation. The route
+   * derives `id` from its authenticated tenant + logical key before accepting a
+   * retry body, so this exact lookup is the durable acknowledgement boundary. */
+  getArtifactCreation(id: string, tenantId: string): CreateArtifactResponse | 'invalid' | undefined {
+    if (!isArtifactCreationId(id)) return 'invalid'
+    const artifact = findArtifact(id)
+    if (!artifact) return undefined
+    if (!this.artifactOwnedBy(artifact, tenantId)) return 'invalid'
+    const represented = this.listArtifacts(tenantId).find((candidate) => candidate.id === id)
+    if (!represented || represented.own !== true) return 'invalid'
+    return { artifact: represented, graph: projectGraphForTenant(graph, tenantId) }
+  },
+  /** Create one human/remote-authored Artifact under an exact keyed identity.
+   * This intentionally does not enter save-artifact's provenance replay guard:
+   * separate direct submissions may share a name, source, kind, and Project.
+   * Row, body, filing and graph revision share one durable snapshot; the one
+   * scoped artifact event refreshes all corresponding reader projections. */
+  createArtifact(
+    input: CreateArtifactRequest,
+    tenantId: string,
+    logicalId: string,
+  ): CreateArtifactResponse | 'invalid' | undefined {
+    if (!isArtifactCreationId(logicalId)) return 'invalid'
+    const represented = this.getArtifactCreation(logicalId, tenantId)
+    if (represented !== undefined) return represented
+
+    const name = normalizeArtifactName(input?.name)
+    if (!name) throw new ValidationError('Artifact name must be 1 to 240 characters and cannot contain control characters.')
+    const authored = authoredArtifact(name, input?.kind, input?.body)
+    if (!authored) throw new ValidationError(input?.kind === 'doc'
+      ? 'Document body must contain text.'
+      : 'Artifact body must match its kind and stay within the structured content limits.')
+    if (input.projectId !== undefined && input.projectId !== null &&
+      (typeof input.projectId !== 'string' || !input.projectId.trim())) {
+      throw new ValidationError('projectId must be a non-empty string, null, or absent.')
+    }
+    const projectId = input.projectId ?? ''
+    if (projectId) {
+      const project = findProject(projectId)
+      if (!project || !tenantWritesAs(tenantId, projectTenant(projectId))) return undefined
+    }
+
+    const at = Date.now()
+    const meta = input.kind === 'doc' ? 'Document' : input.kind === 'sheet' ? 'Sheet' : 'Slides'
+    const artifact = artifactFromDraft(
+      { name, kind: input.kind, meta, body: authored.draftBody, excerpt: authored.excerpt },
+      logicalId,
+      'Created here',
+      projectId,
+      at,
+      undefined,
+      tenantId,
+    )
+    graph = {
+      ...graph,
+      revision: (graph.revision ?? 0) + 1,
+      extraArtifacts: [artifact, ...graph.extraArtifacts],
+      artifactProject: projectId
+        ? { ...graph.artifactProject, [logicalId]: projectId }
+        : graph.artifactProject,
+    }
+    artifactBodies.set(logicalId, authored.body)
+    persist()
+    emit({ type: 'artifact.changed', artifactId: logicalId })
+    const created = this.getArtifactCreation(logicalId, tenantId)
+    if (!created || created === 'invalid') throw new ConflictError('The new Artifact could not be projected to its creator.')
+    return created
   },
   /** Complete seeded + authored registry, using the graph's same viewer face.
    * Prose overlays are current; membership continues to live in relation maps. */

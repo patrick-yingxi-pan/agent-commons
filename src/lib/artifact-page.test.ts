@@ -30,16 +30,14 @@ test('the artifact surface carries page grammar and no modal grammar', () => {
   assert.doesNotMatch(page, /useFocusTrap/, 'a main page must not trap keyboard focus like a popup')
 })
 
-test('direct creation is an authored document workflow, not a cosmetic format picker', () => {
+test('direct creation opens the real authored Artifact workflow and its canonical page', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
-  assert.match(section, />\s*New document\s*</, 'the action names the object users can actually author')
-  assert.match(section, /<FormDialog[\s\S]*title="New document"/, 'creation reuses the viewport-safe shared form shell')
-  assert.match(section, /label="Content"/, 'the document body is a required first-class field')
-  assert.match(section, /maxLength=\{MAX_AUTHORED_DOCUMENT_SOURCE_CHARS\}/, 'the form exposes the canonical source bound')
-  assert.doesNotMatch(section, /const KINDS: ArtifactKind\[\]/, 'unsupported cosmetic type selection is gone')
-  assert.match(section, /body: body\.trim\(\)/, 'the authored body crosses the relation mutation boundary')
-  assert.match(section, /setCreatedDocumentName\(draft\.name\)/, 'acknowledged creation waits for the server-minted document id')
-  assert.match(section, /rel\.navigate\('artifacts', created\.id\)/, 'the minted document opens through the pane-local canonical navigation funnel')
+  assert.match(section, />\s*New artifact\s*</, 'the action names the document/sheet/deck capability it opens')
+  assert.match(section, /<NewArtifactDialog/, 'creation has one dedicated authored form')
+  assert.match(section, /onCreated=\{\(id\) => \{[\s\S]*rel\.navigate\('artifacts', id\)/,
+    'acknowledged creation opens the exact server-owned identity through canonical pane navigation')
+  assert.doesNotMatch(section, /setCreatedDocumentName|applyOp\(\{[\s\S]*kind: 'save-artifact'/,
+    'direct creation no longer borrows name/source relation replay semantics')
 })
 
 test('every addressed artifact body consumer refuses display-name fallback', () => {

@@ -17,7 +17,7 @@ export const API_VERSION = 'v1'
  *  first successful (tenant, key) response; creation routes whose key derives the
  *  durable row identity may instead return that row's current representation, so a
  *  retry cannot duplicate, overwrite, or resurrect it. Honoured on non-streaming
- *  create routes (`POST /sessions`, `/sessions/:id/fork`, `/projects`, `/dispatch`, `/schedules`,
+ *  create routes (`POST /sessions`, `/sessions/:id/fork`, `/projects`, `/artifacts`, `/dispatch`, `/schedules`,
  *  `/relations/ops`, `/sessions/:id/tool-activities/:activityId`) and revision-checked `PATCH /sessions/:id`,
  *  `PATCH /schedules/:id`, `PATCH /artifacts/:id/content`, and
  *  `DELETE /sessions/:id`. */

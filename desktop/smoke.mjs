@@ -233,6 +233,50 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       return response.json()
     })
     if (!token.token || token.identity.user.id !== identity.user.id) throw new Error('The smoke token has the wrong identity.')
+    const directArtifacts = await page.evaluate(async () => {
+      const name = 'Packaged direct output'
+      const definitions = [
+        { key: 'packaged-artifact-document', kind: 'doc', body: 'A direct packaged document.' },
+        { key: 'packaged-artifact-sheet', kind: 'sheet', body: { type: 'sheet', columns: ['Metric', 'Value'], rows: [['Launch', '=SUM(A1:A2)']] } },
+        { key: 'packaged-artifact-slides', kind: 'slide', body: { type: 'slides', slides: [{ title: 'Packaged launch', bullets: ['Direct creation'] }] } },
+      ]
+      const created = []
+      for (const definition of definitions) {
+        const response = await fetch('/api/v1/artifacts', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'idempotency-key': definition.key },
+          body: JSON.stringify({ name, kind: definition.kind, body: definition.body }),
+        })
+        if (response.status !== 201) throw new Error(`direct ${definition.kind} creation returned ${response.status}`)
+        const payload = await response.json()
+        if (payload.artifact?.name !== name || payload.artifact?.kind !== definition.kind) {
+          throw new Error(`direct ${definition.kind} creation returned the wrong Artifact`)
+        }
+        created.push({ ...definition, name, id: payload.artifact.id })
+      }
+      if (new Set(created.map(({ id }) => id)).size !== created.length) {
+        throw new Error('Same-name direct artifact keys did not remain distinct.')
+      }
+      const retry = await fetch('/api/v1/artifacts', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'idempotency-key': definitions[1].key },
+        body: '{"changed":',
+      })
+      const represented = await retry.json()
+      if (retry.status !== 200 || represented.artifact?.id !== created[1].id) {
+        throw new Error('A changed-payload Retry did not recover the exact direct Artifact.')
+      }
+      const contentsResponse = await fetch('/api/v1/artifact-content')
+      const contents = await contentsResponse.json()
+      if (!contentsResponse.ok || created.some(({ id, name, kind, body }) => JSON.stringify(contents[id]) !== JSON.stringify(
+        kind === 'doc'
+          ? { type: 'doc', title: name, blocks: [{ p: body }], revision: 0 }
+          : { ...body, revision: 0 },
+      ))) {
+        throw new Error('Direct Artifact creation did not expose each exact canonical body.')
+      }
+      return created
+    })
     const rootPath = join(userDataPath, AUTH_ROOT_FILE)
     const encryptedRoot = await readFile(rootPath, 'utf8')
     const ciphertext = JSON.parse(encryptedRoot).ciphertext
@@ -326,6 +370,37 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
         return response.json()
       })
       if (recoveredToken.session?.token !== token.token) throw new Error('The relaunched app could not recover its exact original token.')
+      const reopenedDirectArtifacts = await page.evaluate(async (created) => {
+        const [artifactsResponse, contentsResponse] = await Promise.all([
+          fetch('/api/v1/artifacts'),
+          fetch('/api/v1/artifact-content'),
+        ])
+        const artifacts = await artifactsResponse.json()
+        const contents = await contentsResponse.json()
+        if (!artifactsResponse.ok || !contentsResponse.ok) throw new Error('Relaunched direct Artifact reads failed.')
+        for (const { id, name, kind, body } of created) {
+          const artifact = artifacts.find((candidate) => candidate.id === id)
+          if (artifact?.name !== name || artifact?.kind !== kind) {
+            throw new Error('The packaged relaunch lost an exact direct Artifact row.')
+          }
+          const expectedBody = kind === 'doc'
+            ? { type: 'doc', title: name, blocks: [{ p: body }], revision: 0 }
+            : { ...body, revision: 0 }
+          if (JSON.stringify(contents[id]) !== JSON.stringify(expectedBody)) {
+            throw new Error('The packaged relaunch changed a direct Artifact body.')
+          }
+        }
+        const retry = await fetch('/api/v1/artifacts', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'idempotency-key': created[1].key },
+          body: '{"changed":',
+        })
+        const represented = await retry.json()
+        return { status: retry.status, id: represented.artifact?.id }
+      }, directArtifacts)
+      if (reopenedDirectArtifacts.status !== 200 || reopenedDirectArtifacts.id !== directArtifacts[1].id) {
+        throw new Error('The packaged relaunch could not recover the exact keyed direct Artifact.')
+      }
       const revoked = await page.evaluate(async (id) => {
         const response = await fetch(`/api/v1/auth/tokens/${id}`, { method: 'DELETE' })
         return response.status
@@ -367,7 +442,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       throw new Error('A clean packaged app with a protected authentication root must also expose secure provider setup.')
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · OS-encrypted provider create/rotate/delete · signed-in relaunch + personal-token recovery/revocation + saved conversation + exact durable usage`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · direct document/sheet/slides creation + keyed relaunch recovery · OS-encrypted provider create/rotate/delete · signed-in relaunch + personal-token recovery/revocation + saved conversation + exact durable usage`,
     )
   } finally {
     await closePackagedDesktop(run)

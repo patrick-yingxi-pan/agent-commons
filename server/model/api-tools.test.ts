@@ -45,6 +45,7 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     .map((op) => `${op.method} ${op.pattern}`)
     .sort()
   assert.deepEqual(intrinsic, [
+    'POST /artifacts',
     'POST /image-assets',
     'POST /projects',
     'POST /relations/ops',
@@ -64,6 +65,7 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     assert.equal(op?.access.kind, 'form', `${mustBeForm} stays form-only`)
   }
   const { byName } = deriveApiTools(catalog)
+  assert.ok(!byName.has('api__post_artifacts'), 'the in-app model cannot self-authorize direct Artifact creation')
   assert.ok(byName.has('api__get_admin_users'), 'maintainer reads are present and rely on the same route wall')
   assert.ok(byName.has('api__post_admin_users_by_id_deactivate'), 'maintainer mutations are consent-gated, not hidden')
 })
