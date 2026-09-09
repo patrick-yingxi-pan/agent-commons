@@ -1,7 +1,29 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Message } from '../contract/index.ts'
-import { CompactionGenerationError, compactionSource, summarizeConversation } from './compaction.ts'
+import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, compactionSource, summarizeConversation } from './compaction.ts'
+import { TOOL_RECEIPT_SYSTEM_ADDITION } from './toolActivityHistory.ts'
+
+test('compaction preserves complete settled receipts and gives them the shared authority over stale proposal prose', async () => {
+  assert.ok(COMPACTION_SYSTEM_PROMPT.includes(TOOL_RECEIPT_SYSTEM_ADDITION),
+    'a summary must obey the same receipt authority and no-replay rules as both conversation transports')
+  const message: Message = {
+    id: 'settled-call', role: 'assistant', content: 'This call is awaiting owner approval.',
+    toolActivities: [{
+      id: 'settled-tool', tool: 'mcp_external_tool', connector: 'Reviewed server',
+      connectorId: `mcp-connection-${'a'.repeat(32)}`, kind: 'action', status: 'done', summary: 'Completed.',
+      decisionId: `tool-activity-decision-${'b'.repeat(24)}`, input: { query: 'exact query' },
+      mcp: { connectionRevision: 1, toolName: 'lookup', schemaHash: 'c'.repeat(64) },
+      mcpResult: { resultType: 'complete', isError: false, content: [{ type: 'text', text: 'Exact received result.' }] },
+    }],
+  }
+  await summarizeConversation([message], async prompt => {
+    const source = prompt.match(/<untrusted_conversation_source[^>]*>\n([\s\S]*?)\n<\/untrusted_conversation_source>/)?.[1]
+    assert.ok(source)
+    assert.deepEqual(JSON.parse(source), message, 'the terminal receipt remains complete; prose cannot replace it')
+    return { text: 'The approved tool returned its recorded result.', usage: { inputTokens: 1, outputTokens: 1 } }
+  })
+})
 
 test('hierarchical compaction presents every source byte and aggregates every model call', async () => {
   const messages: Message[] = [

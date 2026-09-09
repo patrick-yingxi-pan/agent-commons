@@ -2,6 +2,7 @@
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
+import { messageHistoryText } from '../toolActivityHistory.ts'
 import { exportArtifact } from './artifactExport.ts'
 import { updateArtifactContent } from './artifactContent.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
@@ -179,6 +180,7 @@ import { LimitError } from '../limit.ts'
 import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { executeConnectorActivity } from '../connectorRuntime.ts'
+import { executeApprovedMcpActivity } from '../mcpExecution.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, SELF_PROJECT_HOLDER, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
@@ -4188,6 +4190,7 @@ export function buildRouter(): Router {
     try {
       out = store.forkSession(params.id, atMessageId, tenantId, { logicalId: logicalSessionId })
     } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
       if (error instanceof ValidationError) return sendError(res, 'bad_request', error.message)
       throw error
     }
@@ -4538,8 +4541,9 @@ export function buildRouter(): Router {
     // endpoint transport is out of scope here.
     const historySource = reusePersistedUser ? (known?.messages ?? []).slice(0, -1) : (known?.messages ?? [])
     const turnHistory = historySource
-      .filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content.trim().length > 0)
-      .map((m) => ({ role: m.role, text: m.content }))
+      .filter((m) => m.role === 'user' || m.role === 'assistant')
+      .map((m) => ({ role: m.role, text: messageHistoryText(m) }))
+      .filter((m) => m.text.trim().length > 0)
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the
     // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
@@ -4661,6 +4665,7 @@ export function buildRouter(): Router {
       // this turn (server/model/connectorTools.ts derives them; non-connector
       // contexts are ignored). Only what's attached is reachable — on either transport.
       const contexts = store.sessionContexts(params.id)
+      const externalMcpConnections = store.mcpConnections(tenantId)
       // The transport dispatch (docs/delegated-cognition-provider.md §6.5): dial-out
       // Messages (`generateReply`, N providers, zero provider code) vs the rendezvous
       // relay (`relayReply` — the user's own session answers over the framed mailbox,
@@ -4677,8 +4682,8 @@ export function buildRouter(): Router {
       }
       const { message, outcome } =
         provider.kind === 'session'
-          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, turnHistory, apiRuntime)
-          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts, apiRuntime, {}, turnHistory)
+          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, turnHistory, apiRuntime, externalMcpConnections)
+          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts, apiRuntime, { externalMcpConnections }, turnHistory)
       // Completed calls were already metered, including ephemeral/cancelled work.
       // The model reported `ok` or `fallback` (endpoint degraded); recorded once in `finally`.
       turnOutcome = outcome
@@ -4873,11 +4878,13 @@ export function buildRouter(): Router {
     })
   })
 
-  // Confirm / decline a proposed connector ACTION (P6 §2.1, PD43 — the consent gate for
-  // connector/MCP writes). A read is attempted at generation time; an action only takes effect
-  // here, on the user's approval, and is audited. Tenant-guarded like the other by-id
-  // session routes (a foreign tenant can't confirm another's pending write).
+  // Confirm / decline a proposed connector ACTION (P6 §2.1, PD43). Legacy
+  // first-party connector reads execute during generation; their writes arrive
+  // here. Every external MCP call is modeled as an action and arrives here only
+  // for explicit per-call approval. Tenant-guarded like the other by-id session
+  // routes (a foreign tenant can't confirm another's pending write).
   r.intrinsicPost('/sessions/:id/tool-activities/:activityId', 'consent resolution is intrinsic host control; a model must never confirm its own proposal', async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     if (denyForeignSession(req, res, params.id)) return
     const who = store.identity(req.headers)
     const session = store.getSession(params.id)
@@ -4923,6 +4930,9 @@ export function buildRouter(): Router {
     const pending = store.getToolActivity(params.id, params.activityId)
     try {
       if (pending?.kind === 'action' && pending.status === 'proposed') {
+        if (pending.mcp && !logicalDecisionId) {
+          return sendError(res, 'bad_request', 'An external MCP tool decision requires an Idempotency-Key')
+        }
         // A consent record cannot authorize erasing itself. Direct conversation
         // deletion remains available through its dedicated reviewed workflow.
         if (
@@ -4937,6 +4947,48 @@ export function buildRouter(): Router {
         }
         claimed = true
         if (decision === 'confirm') {
+          if (pending.mcp) {
+            const running = store.beginMcpToolActivityExecution(
+              params.id,
+              params.activityId,
+              logicalDecisionId!,
+              who.tenant.id,
+            )
+            if (!running || running === 'invalid') {
+              return sendError(res, running === 'invalid' ? 'bad_request' : 'not_found',
+                running === 'invalid'
+                  ? 'This MCP decision identity is not valid for this conversation and activity'
+                  : `No tool activity '${params.activityId}' on session '${params.id}'`)
+            }
+            store.releaseToolActivity(params.id, params.activityId)
+            claimed = false
+            let outcome: Awaited<ReturnType<typeof executeApprovedMcpActivity>>
+            try {
+              outcome = await executeApprovedMcpActivity(store, params.id, who.tenant.id, running)
+            } catch {
+              // The durable running receipt already owns this attempt. An
+              // unexpected adapter failure cannot justify a replay or leave an
+              // in-process row running until the next server restart.
+              outcome = {
+                status: 'uncertain',
+                summary: 'The MCP server may have accepted this call, but no valid result was received. It will not be run again automatically.',
+              }
+            }
+            const activity = store.settleMcpToolActivityExecution(
+              params.id,
+              params.activityId,
+              logicalDecisionId!,
+              who.tenant.id,
+              { status: outcome.status, summary: outcome.summary, ...('result' in outcome && outcome.result ? { result: outcome.result } : {}) },
+            )
+            if (!activity || activity === 'invalid') {
+              return sendError(res, activity === 'invalid' ? 'conflict' : 'not_found',
+                activity === 'invalid'
+                  ? 'This MCP execution no longer matches its durable running receipt'
+                  : `No tool activity '${params.activityId}' on session '${params.id}'`)
+            }
+            return sendJson(res, activity)
+          }
           if (pending.op) {
             // The derived receipt is the INNER operation's disjoint retry key.
             // Each target route then supplies its declared guarantee: durable
@@ -5019,7 +5071,13 @@ export function buildRouter(): Router {
     if (turns.bySession(params.id)) {
       return sendError(res, 'conflict', 'Wait for the current reply to finish before compacting this conversation.')
     }
-    const prepared = store.prepareSessionCompaction(params.id)
+    let prepared: ReturnType<typeof store.prepareSessionCompaction>
+    try {
+      prepared = store.prepareSessionCompaction(params.id)
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
     if (!prepared) return sendError(res, 'not_found', `No session '${params.id}'`)
     if (prepared.kind === 'noop') {
       const acknowledged = logicalCompactionId
@@ -5138,7 +5196,7 @@ export function buildRouter(): Router {
   }))
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
-  registerMcpConnectionRoutes(r)
+  registerMcpConnectionRoutes(r, accountTransitionSourceMatches)
   r.get('/saved-contexts', ({ req, res }) => {
     sendJson(res, store.savedContexts(store.identity(req.headers).tenant.id))
   })

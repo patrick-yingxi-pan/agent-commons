@@ -9,7 +9,7 @@ import { useAgents, useProviders } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { ClaudeMark } from './ClaudeMark'
 import { RelationActionCard } from './RelationActionCard'
-import { ToolActivityCard } from './ToolActivityCard'
+import { DeferredToolActivityCard } from './DeferredToolActivityCard'
 import { LocusGutter } from './LocusGutter'
 import { DRAFT_ID } from '../data/liveSession'
 
@@ -130,7 +130,7 @@ function TurnMessageRow({
             {renderRich(message.content)}
           </div>
           {message.toolActivities && message.toolActivities.length > 0 && (
-            <ToolActivityCard activities={message.toolActivities} sessionId={sessionId} />
+            <DeferredToolActivityCard activities={message.toolActivities} sessionId={sessionId} />
           )}
           {message.escalation && <EscalationOutcome escalation={message.escalation} />}
           {message.relationActions && message.relationActions.length > 0 && (

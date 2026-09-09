@@ -272,6 +272,15 @@ export function matchIntents(userText: string): ToolCall[] {
  *  connector (its slug appears) — never a guess — and among that connector's tools
  *  prefers the one whose action words the message also mentions. Returns [] otherwise. */
 export function matchConnectorTools(userText: string, availableToolNames: string[]): ToolCall[] {
+  const externalTools = availableToolNames.filter((name) => name.startsWith('mcp_external_'))
+  // Deterministic development-model affordance for the external MCP browser
+  // journey. It can only select the sole external capability the backend
+  // actually declared for this session, and the prompt must explicitly ask for
+  // that class of tool; no connection label or tool authority is invented here.
+  if (externalTools.length === 1 && /\buse\s+(?:the\s+)?attached\s+external\s+mcp\s+tool\b/i.test(userText)) {
+    const query = userText.match(/\bquery\s+["“]([^"”]+)["”]/i)?.[1]
+    return [{ name: externalTools[0]!, input: { ...(query ? { query } : {}) } }]
+  }
   const connectorTools = availableToolNames.filter((n) => n.startsWith('mcp__') || n.startsWith('connector__'))
   if (!connectorTools.length) return []
   const t = userText.toLowerCase()

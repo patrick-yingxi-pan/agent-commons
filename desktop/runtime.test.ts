@@ -221,6 +221,10 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/node_modules/@anthropic-ai/sdk/client.mjs'), false)
   assert.equal(ignoreFromPackage('/node_modules/@zip.js'), false)
   assert.equal(ignoreFromPackage('/node_modules/@zip.js/zip.js/lib/zip-core-custom.js'), false)
+  for (const module of ['ajv', 'fast-deep-equal', 'fast-uri', 'json-schema-traverse', 'require-from-string']) {
+    assert.equal(ignoreFromPackage(`/node_modules/${module}/package.json`), false, `${module} is in the isolated schema worker's closure`)
+  }
+  assert.equal(ignoreFromPackage('/server/mcpSchemaWorker.mjs'), false)
   assert.equal(ignoreFromPackage('/node_modules/saxes/package.json'), true)
   assert.equal(ignoreFromPackage('/node_modules/json-schema-to-ts/package.json'), false)
   assert.equal(ignoreFromPackage('/node_modules/react/package.json'), true)
@@ -238,6 +242,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smokePaths.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/mcpCredentialSmoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/mcpSchemaSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmokeFixture.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
@@ -287,6 +292,21 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'the ordinary executable and freshly extracted release both run attachment acceptance')
   assert.match(smoke, /await smokePackagedMcpCredentials\(\{ executable \}\)/,
     'the ordinary executable and freshly extracted release both prove real OS-backed MCP credential reconciliation')
+  assert.match(smoke, /await smokePackagedMcpSchema\(\{ executable \}\)/,
+    'the ordinary executable and freshly extracted release both prove the isolated schema worker loads from ASAR')
+
+  const schemaSmoke = readFileSync(new URL('./mcpSchemaSmoke.mjs', import.meta.url), 'utf8')
+  for (const contract of [
+    'utilityProcess.fork',
+    "join(await app.evaluate(({ app }) => app.getAppPath()), 'server', 'mcpSchema.ts')",
+    'utilityProcess.fork(input.driverPath, [input.modulePath]',
+    "code: 'invalid_value'",
+    "code: 'cancelled'",
+    "code: 'unavailable'",
+    "code: 'limit'",
+  ]) assert.ok(schemaSmoke.includes(contract), `packaged schema smoke must contain ${contract}`)
+  assert.doesNotMatch(schemaSmoke, /await import\('node:path'\)/,
+    'Playwright main-process evaluation has no dynamic-import callback; compute the shipped path in the host')
 
   const attachmentSmoke = readFileSync(new URL('./attachmentSmoke.mjs', import.meta.url), 'utf8')
   for (const contract of [

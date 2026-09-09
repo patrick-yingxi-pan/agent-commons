@@ -55,12 +55,12 @@ export function McpConnectionCreateDialog({ onClose }: { onClose: () => void }) 
   const deviceAvailable = desktopMcpCredentialsAvailable() && catalog.data?.capabilities.deviceBearerCredentials === true
   return <McpFormDialog title="Add an MCP server" onClose={onClose}>
     <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
-      Save a server, then inspect its tool catalog. Tool execution is not available yet.
+      Save a server, then inspect its tool catalog. Admitted tools can be attached to conversations, where every call requires approval.
     </p>
     <form className="mt-4 space-y-3" onSubmit={event => {
       event.preventDefault()
       if (!me || !label.trim() || !endpoint.trim()) return
-      void enqueueMcpConnectionMutation({ kind: 'create', tenantId: me.tenant.id, request: {
+      void enqueueMcpConnectionMutation({ kind: 'create', tenantId: me.tenant.id, sourceUserId: me.via === 'session' ? me.user.id : null, request: {
         creationId: crypto.randomUUID(), label: label.trim(), endpoint: endpoint.trim(), authentication,
       } })
       onClose()
@@ -107,7 +107,7 @@ function McpInspectionDialog({ connection, onClose }: { connection: McpConnectio
   const close = () => { if (!busy) onClose() }
   return <McpFormDialog title="Inspect MCP server" onClose={close}>
     <p className="mt-2 break-words text-[13px] leading-relaxed text-ink-soft [overflow-wrap:anywhere]">
-      Contact {connection.label} and replace its saved catalog. Server descriptions are untrusted metadata. No tools will run.
+      Contact {connection.label} and replace its saved catalog. Server descriptions are untrusted metadata. No tool runs during inspection.
     </p>
     <form className="mt-4 space-y-3" onSubmit={async event => {
       event.preventDefault()
@@ -117,12 +117,13 @@ function McpInspectionDialog({ connection, onClose }: { connection: McpConnectio
       try {
         let credentialReference: string | undefined
         if (token) {
-          const { binding } = await getMcpConnectionCredentialBinding(connection.id, me.tenant.id)
+          const sourceUserId = me.via === 'session' ? me.user.id : null
+          const { binding } = await getMcpConnectionCredentialBinding(connection.id, me.tenant.id, sourceUserId)
           if (generation !== accountGeneration() || !mounted.current) return
           credentialReference = await provisionDesktopMcpCredential(binding, token)
           if (generation !== accountGeneration() || !mounted.current) return
         }
-        void enqueueMcpConnectionMutation({ kind: 'inspect', tenantId: me.tenant.id, id: connection.id, reviewed: connection,
+        void enqueueMcpConnectionMutation({ kind: 'inspect', tenantId: me.tenant.id, sourceUserId: me.via === 'session' ? me.user.id : null, id: connection.id, reviewed: connection,
           request: { expectedRevision: connection.revision, operationId: crypto.randomUUID(), ...(credentialReference ? { credentialReference } : {}) } })
         setToken(''); onClose()
       } catch {
@@ -176,7 +177,7 @@ export function McpConnectionDetail({ id, onBack, backTo }: { id: string; onBack
           <button disabled={held || !me || !canInspect} title={!canInspect ? 'Secure desktop credentials are unavailable.' : undefined}
             className={affirmativeClass} onClick={() => setInspect(connection)}>{connection.inspectedAt === null ? 'Inspect catalog' : connection.status === 'disconnected' ? 'Reconnect and inspect' : 'Refresh catalog'}</button>
           {connection.status === 'connected' && <button disabled={held || !me} className={secondaryClass} onClick={() => {
-            if (me) void enqueueMcpConnectionMutation({ kind: 'disconnect', tenantId: me.tenant.id, id, expectedRevision: connection.revision, reviewed: connection })
+            if (me) void enqueueMcpConnectionMutation({ kind: 'disconnect', tenantId: me.tenant.id, sourceUserId: me.via === 'session' ? me.user.id : null, id, expectedRevision: connection.revision, reviewed: connection })
           }}>Disconnect</button>}
           <button disabled={held || !me} className={secondaryClass} onClick={() => setRemove(connection)}>Remove</button>
         </div>
@@ -184,7 +185,7 @@ export function McpConnectionDetail({ id, onBack, backTo }: { id: string; onBack
       {held && <p role="status" className="mb-3 text-[12px] text-ink-soft">{mutation.error ? 'Waiting for recovery. Use Retry or Dismiss above.' : 'Updating this server…'}</p>}
       {list.data?.capabilities.credentialCleanupPending && <div className="mb-4 space-y-2 text-[12px] text-warn-text">
         <p>Device credential cleanup is pending. Disconnected credentials cannot be used, but encrypted copies may remain on this Mac.</p>
-        <button disabled={held || !me} className={secondaryClass} onClick={() => { if (me) void enqueueMcpConnectionMutation({ kind: 'cleanup', tenantId: me.tenant.id, id, reviewed: connection }) }}>Retry credential cleanup</button>
+        <button disabled={held || !me} className={secondaryClass} onClick={() => { if (me) void enqueueMcpConnectionMutation({ kind: 'cleanup', tenantId: me.tenant.id, sourceUserId: me.via === 'session' ? me.user.id : null, id, reviewed: connection }) }}>Retry credential cleanup</button>
       </div>}
       <ResourcePageSection title="Tool catalog" summary={`${connection.tools.length} tools`}><McpCatalogBody connection={connection} /></ResourcePageSection>
     </AtomicResourcePage>
@@ -194,7 +195,7 @@ export function McpConnectionDetail({ id, onBack, backTo }: { id: string; onBack
       confirmLabel="Remove server" onCancel={() => setRemove(null)} onConfirm={() => {
         const reviewed = remove
         setRemove(null)
-        if (me) void enqueueMcpConnectionMutation({ kind: 'remove', tenantId: me.tenant.id, id, expectedRevision: reviewed.revision, reviewed: reviewed })?.then(outcome => {
+        if (me) void enqueueMcpConnectionMutation({ kind: 'remove', tenantId: me.tenant.id, sourceUserId: me.via === 'session' ? me.user.id : null, id, expectedRevision: reviewed.revision, reviewed: reviewed })?.then(outcome => {
           if (outcome === 'applied' && mounted.current) onBack()
         })
       }} />}

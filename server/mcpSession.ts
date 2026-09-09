@@ -21,7 +21,7 @@ export interface McpSessionDetails {
 interface McpSession extends McpSessionDetails {
   listTools(params?: { cursor?: string }): Promise<Record<string, unknown>>
   restartExpiredSession(): Promise<void>
-  callTool(invocation: McpToolInvocation): Promise<McpToolResult>
+  callTool(invocation: McpToolInvocation, options?: Pick<McpHttpOptions, 'beforeDispatch'>): Promise<McpToolResult>
 }
 export class McpSessionError extends Error {
   readonly code: 'protocol' | 'unsupported_version' | 'tools_unavailable' | 'input_required' | 'session_expired'
@@ -234,12 +234,13 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
             throw error
           }
         },
-        callTool: async (invocation) => {
+        callTool: async (invocation, callOptions = {}) => {
           if (!active || toolAttempted || listPhase !== 'ready') throw new McpToolCallError('request', false)
           toolAttempted = true
           try {
             return await caller(endpoint, { ...invocation, protocolVersion, ...(sessionId ? { sessionId } : {}) }, {
               scope: input.scope, bearerToken: input.bearerToken, signal: controller.signal, timeoutMs: available(false),
+              ...callOptions,
             })
           } catch (error) {
             if (error instanceof McpToolCallError) throw error

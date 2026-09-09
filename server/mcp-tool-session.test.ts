@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { once } from 'node:events'
+import { EventEmitter, once } from 'node:events'
 import test from 'node:test'
 import { MCP_LEGACY_VERSIONS, MCP_MODERN_VERSION } from './mcpProtocol.ts'
 import { McpToolCallError } from './mcpToolCall.ts'
-import { McpHttpError } from './mcpHttpTransport.ts'
+import { createMcpHttpTransport, McpHttpError } from './mcpHttpTransport.ts'
 import { createMcpToolSession } from './mcpToolSession.ts'
 
 type Body = Record<string, any>
@@ -316,4 +316,100 @@ test('invalid input and pre-aborted calls perform zero network I/O', async () =>
   const controller = new AbortController(); controller.abort()
   await assert.rejects(session('http://127.0.0.1:1/mcp', { tool, arguments: {} }, { ...scope, signal: controller.signal }), (error: unknown) => { assertCallError(error, 'cancelled', false); return true })
   assert.equal(calls, 0)
+})
+
+test('reviewed protocol and final authority guard run after handshake but before tools/call', async () => {
+  const methods: string[] = []
+  let authorized = false
+  const session = createMcpToolSession({ post: async (_endpoint, message) => {
+    methods.push(message?.method ?? 'DELETE')
+    if (message?.method === 'server/discover') return { status: 200, message: modernDiscovery(message.id) }
+    assert.equal(authorized, true)
+    return { status: 200, message: complete(message?.id) }
+  } })
+  const result = await session('https://example.com/mcp', { tool, arguments: {} }, {
+    scope: 'public', expectedProtocolVersion: MCP_MODERN_VERSION,
+    beforeCall: () => { assert.deepEqual(methods, ['server/discover']); authorized = true },
+  })
+  assert.equal(result.result.isError, false)
+  assert.deepEqual(methods, ['server/discover', 'tools/call'])
+
+  const mismatchMethods: string[] = []
+  const mismatch = createMcpToolSession({ post: async (_endpoint, message) => {
+    mismatchMethods.push(message?.method ?? 'DELETE')
+    return { status: 200, message: modernDiscovery(message?.id) }
+  } })
+  await assert.rejects(mismatch('https://example.com/mcp', { tool, arguments: {} }, {
+    scope: 'public', expectedProtocolVersion: MCP_LEGACY_VERSIONS[0],
+  }), (error: unknown) => { assertCallError(error, 'unsupported_version', false); return true })
+  assert.deepEqual(mismatchMethods, ['server/discover'])
+})
+
+test('a non-conforming rejected async preflight guard is observed without sending a tool', async () => {
+  const methods: string[] = []
+  const session = createMcpToolSession({ post: async (_endpoint, message) => {
+    methods.push(message?.method ?? 'DELETE')
+    return { status: 200, message: message?.method === 'server/discover'
+      ? modernDiscovery(message.id) : complete(message?.id) }
+  } })
+  await assert.rejects(session('https://example.com/mcp', { tool, arguments: {} }, {
+    scope: 'public', beforeCall: async () => { throw new Error('late refusal') },
+  }), (error: unknown) => { assertCallError(error, 'network', false); return true })
+  assert.deepEqual(methods, ['server/discover'])
+})
+
+test('final authority guard runs after held DNS and prevents tools/call submission', async () => {
+  const methods: string[] = []
+  let releaseDns!: () => void
+  let enteredDns!: () => void
+  const heldDns = new Promise<void>((resolve) => { releaseDns = resolve })
+  const dnsEntered = new Promise<void>((resolve) => { enteredDns = resolve })
+  let resolutions = 0
+  const transport = createMcpHttpTransport({
+    resolve: async () => {
+      resolutions += 1
+      if (resolutions === 2) {
+        enteredDns()
+        await heldDns
+      }
+      return [{ address: '93.184.216.34', family: 4 }]
+    },
+    https: (_url, _options, callback) => {
+      const outgoing = new EventEmitter() as any
+      outgoing.destroy = () => {}
+      outgoing.end = (encoded: Uint8Array) => {
+        const request = JSON.parse(Buffer.from(encoded).toString()) as Body
+        methods.push(request.method)
+        const incoming = new EventEmitter() as any
+        incoming.statusCode = 200
+        incoming.headers = { 'content-type': 'application/json' }
+        incoming.complete = true
+        incoming.destroy = () => {}
+        callback(incoming)
+        queueMicrotask(() => {
+          incoming.emit('data', Buffer.from(JSON.stringify(
+            request.method === 'server/discover' ? modernDiscovery(request.id) : complete(request.id),
+          )))
+          incoming.emit('end')
+        })
+      }
+      return outgoing
+    },
+  })
+  const session = createMcpToolSession({ post: transport })
+  let authorized = true
+  let guardChecks = 0
+  const pending = session('https://example.com/mcp', { tool, arguments: {} }, {
+    scope: 'public', expectedProtocolVersion: MCP_MODERN_VERSION,
+    beforeCall: () => {
+      guardChecks += 1
+      if (!authorized) throw new McpToolCallError('request', false)
+    },
+  })
+  await dnsEntered
+  authorized = false
+  releaseDns()
+  await assert.rejects(pending, (error: unknown) => { assertCallError(error, 'request', false); return true })
+  assert.equal(guardChecks, 2, 'authority is checked after negotiation and again at the transport dispatch edge')
+  assert.deepEqual(methods, ['server/discover'], 'revocation during DNS prevents tools/call from reaching the peer')
 })

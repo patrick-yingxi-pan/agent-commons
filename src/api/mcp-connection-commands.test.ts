@@ -41,11 +41,13 @@ test('MCP mutation responses retain cleanup pending, including removed:false ack
     jsonResponse({ removed: false, credentialCleanup: 'complete' }),
   ]
   const methods: string[] = []
+  const principals: Array<string | null> = []
   globalThis.fetch = async (_input, init) => {
     methods.push(init?.method ?? 'GET')
+    principals.push(new Headers(init?.headers).get('X-Account-Transition-Source'))
     return responses.shift()!
   }
-  const intent = { kind: 'remove' as const, tenantId: 'mcp-tenant', id: view.id, expectedRevision: view.revision }
+  const intent = { kind: 'remove' as const, tenantId: 'mcp-tenant', sourceUserId: 'mcp-user', id: view.id, expectedRevision: view.revision }
   await assert.rejects(
     applyMcpConnectionMutation(intent, 'remove-once'),
     (error: unknown) => error instanceof McpCredentialCleanupPendingError,
@@ -54,6 +56,7 @@ test('MCP mutation responses retain cleanup pending, including removed:false ack
   await applyMcpConnectionMutation(intent, 'remove-retry')
   assert.equal(peek<McpConnectionListResponse>(keys.mcpConnections)?.capabilities.credentialCleanupPending, false)
   assert.deepEqual(methods, ['DELETE', 'DELETE'])
+  assert.deepEqual(principals, ['session:mcp-user', 'session:mcp-user'])
 })
 
 test('acknowledged removal holds the reviewed row through pending cleanup and retries the exact act', async (t) => {

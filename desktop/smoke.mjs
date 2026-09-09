@@ -12,6 +12,7 @@ import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { AUTH_ROOT_FILE } from './authRoot.mjs'
 import { smokePackagedAttachments } from './attachmentSmoke.mjs'
 import { smokePackagedMcpCredentials } from './mcpCredentialSmoke.mjs'
+import { smokePackagedMcpSchema } from './mcpSchemaSmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
@@ -454,6 +455,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   // neither reuse that profile nor compete with its single-instance lock.
   await smokePackagedAttachments({ executable })
   await smokePackagedMcpCredentials({ executable })
+  await smokePackagedMcpSchema({ executable })
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await smokePackagedDesktop()

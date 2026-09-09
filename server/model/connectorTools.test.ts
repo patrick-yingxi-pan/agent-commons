@@ -78,6 +78,16 @@ test('matchConnectorTools only fires when the connector is named and tools are p
   assert.deepEqual(matchConnectorTools('write a file via filesystem', []), [], 'no connector tools declared ⇒ no call')
 })
 
+test('the development model selects only one explicitly requested declared external MCP tool', () => {
+  const external = `mcp_external_${'a'.repeat(48)}`
+  assert.deepEqual(
+    matchConnectorTools('Use the attached external MCP tool with query “approval-e2e”.', [external]),
+    [{ name: external, input: { query: 'approval-e2e' } }],
+  )
+  assert.deepEqual(matchConnectorTools('Use an external tool.', [external]), [])
+  assert.deepEqual(matchConnectorTools('Use the attached external MCP tool.', [external, `mcp_external_${'b'.repeat(48)}`]), [])
+})
+
 test('runConnectorTool runs a READ through the injected fixture runtime; unknown → undefined', async () => {
   const { bindings } = deriveConnectorTools([slack])
   const activity = await runConnectorTool('connector__slack__list', bindings, 'act-1', {}, fixtureConnectorRuntime)

@@ -195,6 +195,33 @@ test('declining a proposed connector action marks it declined + records no audit
   assert.equal(store.listAuditLog().filter((e) => e.capability === 'connector.write').length, before, 'a declined action records no audit')
 })
 
+test('a durable running external MCP receipt replays without dispatch and a different receipt is refused', async () => {
+  const s = store.createSession('external MCP running replay')
+  const activityId = `external-running-${Date.now()}`
+  const key = `external-running-key-${Date.now()}`
+  store.appendMessage(s.id, {
+    id: store.mintMessageId('assistant'), role: 'assistant', content: 'Awaiting the external result.',
+    toolActivities: [{
+      id: activityId, tool: 'mcp__saved__write', connector: 'Saved MCP',
+      connectorId: 'mcp-connection-cccccccccccccccccccccccccccccccc', kind: 'action', status: 'proposed',
+      summary: 'Proposed', input: { value: 'exact' },
+      mcp: { connectionRevision: 1, toolName: 'write', schemaHash: 'c'.repeat(64) },
+    }],
+  })
+  const receipt = toolActivityDecisionId(store.defaultTenantId(), s.id, activityId, key)
+  const running = store.beginMcpToolActivityExecution(s.id, activityId, receipt, store.defaultTenantId())
+  assert.equal(typeof running, 'object')
+
+  const replay = await call('POST', `/sessions/${s.id}/tool-activities/${activityId}`, { decision: 'confirm' }, { 'idempotency-key': key })
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.status, 'running')
+  assert.equal(replay.json.decisionId, receipt)
+
+  const redirected = await call('POST', `/sessions/${s.id}/tool-activities/${activityId}`, { decision: 'confirm' }, { 'idempotency-key': `${key}-other` })
+  assert.equal(redirected.status, 400)
+  assert.equal(store.getToolActivity(s.id, activityId)?.status, 'running')
+})
+
 test('an attached connector the message does NOT name drives no tool activity', async () => {
   const s = store.createSession('connector attached but unnamed')
   store.attachContext(s.id, { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' })

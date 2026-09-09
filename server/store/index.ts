@@ -76,6 +76,7 @@ import type {
   SocialEntityRef,
   SocialEntityKind,
   ToolActivity,
+  McpToolResult,
   UsageSnapshot,
 } from '../../contract/index.ts'
 import { randomUUID } from 'node:crypto'
@@ -186,6 +187,9 @@ import {
   type McpInspectionOperation,
 } from '../mcpConnections.ts'
 import { isExternalMcpId, type McpConnectionView } from '../../contract/mcpConnections.ts'
+import { parseMcpToolResult } from '../mcpToolResult.ts'
+import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
+import { messageHistoryText } from '../toolActivityHistory.ts'
 import {
   getSessionPreferences as viewerSessionPreferences,
   persistedSessionPreferences,
@@ -222,6 +226,21 @@ const EPOCH = `e${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toSt
 
 const COMPACTION_KEEP_RECENT = 4
 const MAX_COMPACTION_SUMMARY_CHARS = 16_000
+const MAX_MCP_EXECUTION_SUMMARY_CHARS = 4_000
+
+type McpExecutionSettlement = {
+  status: 'done' | 'failed' | 'uncertain'
+  summary: string
+  result?: McpToolResult
+}
+
+function isMcpExecutionSettlement(value: unknown): value is McpExecutionSettlement {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const candidate = value as Record<string, unknown>
+  if (candidate.status !== 'done' && candidate.status !== 'failed' && candidate.status !== 'uncertain') return false
+  return typeof candidate.summary === 'string' && candidate.summary.trim().length > 0 &&
+    candidate.summary.length <= MAX_MCP_EXECUTION_SUMMARY_CHARS
+}
 
 /** Message bodies can change without advancing session metadataRevision (relation
  * verdicts and tool outcomes are transcript state), so the compaction CAS covers the
@@ -229,6 +248,18 @@ const MAX_COMPACTION_SUMMARY_CHARS = 16_000
 function compactionState(session: Session): string {
   return JSON.stringify({ messages: session.messages ?? [], compactedMessages: session.compactedMessages ?? [] })
 }
+
+type UnresolvedExternalMcpStatus = 'proposed' | 'running'
+function hasExternalMcpActivity(messages: readonly Message[], statuses: ReadonlySet<UnresolvedExternalMcpStatus>): boolean {
+  return messages.some((message) => message.toolActivities?.some((activity) =>
+    !!activity.mcp && isExternalMcpId(activity.connectorId) &&
+    (activity.status === 'proposed' || activity.status === 'running') && statuses.has(activity.status)))
+}
+const pendingExternalMcp = new Set<UnresolvedExternalMcpStatus>(['proposed', 'running'])
+const runningExternalMcp = new Set<UnresolvedExternalMcpStatus>(['running'])
+const unresolvedMcpConflict = () => new ConflictError(
+  'Resolve proposed MCP tool requests and wait for running MCP tools before changing this conversation history.',
+)
 
 // Which backend variant this process is: the default mock behaves like a NATIVE
 // sidecar (it can touch the OS); `BACKEND=remote` makes it behave like a remote
@@ -3019,7 +3050,7 @@ function retractOrphanedBells(): void {
  *  seed containers are mutated in place (SESSIONS / schedules are imported / fixed
  *  bindings), the rest reassigned, and the id counters restored so freshly minted
  *  ids continue past the persisted ones. */
-function rehydrate(s: PersistedState): void {
+function rehydrate(s: PersistedState): boolean {
   // The snapshot owns its world after first boot. Missing means historical demo;
   // the current environment must never reinterpret an established database.
   worldMode = s.initialWorld ?? 'demo'
@@ -3028,6 +3059,18 @@ function rehydrate(s: PersistedState): void {
     guardian.clear()
   }
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
+  const interruptedMcp: Array<{ tenantId: string; connector: string }> = []
+  for (const session of SESSIONS) {
+    for (const message of session.messages ?? []) {
+      for (const activity of message.toolActivities ?? []) {
+        if (activity.status !== 'running' || !activity.mcp) continue
+        activity.status = 'uncertain'
+        activity.summary = 'The server restarted while this MCP call was running. It may have completed and will not be run again automatically.'
+        activity.failure = { code: 'connector_unavailable', retryable: false }
+        interruptedMcp.push({ tenantId: session.tenantId ?? defaultTenantId(), connector: activity.connector })
+      }
+    }
+  }
   retiredSessionCreationIds = new Set(
     (s.retiredSessionCreationIds ?? []).filter(isSessionCreationId),
   )
@@ -3200,6 +3243,17 @@ function rehydrate(s: PersistedState): void {
   // Restore the audit counter past the persisted ids (fall back to the trail length so a
   // pre-field snapshot's freshly minted ids never collide with restored ones).
   auditSeq = s.seq.audit ?? auditLog.length
+  for (const recovered of interruptedMcp) {
+    auditLog.push({
+      id: `audit-${(auditSeq += 1)}`,
+      tenantId: recovered.tenantId,
+      channel: 'proxy',
+      capability: 'mcp.call',
+      target: recovered.connector,
+      outcome: 'uncertain',
+      at: Date.now(),
+    })
+  }
   // Dispatch counter (fall back to the seed counter for a pre-field snapshot).
   dispatchSeq = s.seq.dispatch ?? dispatchSeq
   // D19 open work — restore the backlog (empty for a pre-field snapshot); counter falls
@@ -3329,6 +3383,7 @@ function rehydrate(s: PersistedState): void {
   // were (or one whose 'running' run was just swept to 'failed' above) can miss a
   // row or its recap — re-materialize through the same funnel, idempotently.
   materializeRunSessions()
+  return interruptedMcp.length > 0
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -3460,10 +3515,10 @@ export const store = {
     const loaded = loadState()
     persistEnabled = true
     if (loaded) {
-      rehydrate(loaded)
+      const recoveredMcpExecution = rehydrate(loaded)
       // Older stores never recorded usage. Publish the one-time world-appropriate
       // baseline so even an otherwise read-only restart retains its period anchor.
-      if (loaded.usageMeters === undefined) persist()
+      if (loaded.usageMeters === undefined || recoveredMcpExecution) persist()
     }
     else if (resolveInitialWorld() === 'clean') {
       // Release first boot: replace every authored-person slice with the minimal
@@ -4064,11 +4119,10 @@ export const store = {
    *  pending API or connector action here BEFORE executing it on confirm. */
   getToolActivity(sessionId: string, activityId: string): ToolActivity | undefined {
     const session = SESSIONS.find((s) => s.id === sessionId)
-    for (const m of session?.messages ?? []) {
-      const act = m.toolActivities?.find((a) => a.id === activityId)
-      if (act) return act
-    }
-    return undefined
+    const matches = (session?.messages ?? [])
+      .flatMap((message) => message.toolActivities ?? [])
+      .filter((activity) => activity.id === activityId)
+    return matches.length === 1 ? matches[0] : undefined
   },
   /** Exact durable acknowledgement for a keyed tool-consent verdict. The
    * containing Session is both the persistence container and private tenant
@@ -4083,14 +4137,101 @@ export const store = {
     if (!isToolActivityDecisionId(decisionId)) return 'invalid'
     const session = SESSIONS.find((candidate) => candidate.id === sessionId)
     if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
-    const activity = this.getToolActivity(sessionId, activityId)
-    if (!activity) return undefined
-    if (activity.decisionId === undefined) {
-      return activity.kind === 'action' && activity.status === 'proposed' ? undefined : 'invalid'
+    const candidates = [
+      ...(session.messages ?? []).flatMap((message) => message.toolActivities ?? [])
+        .filter((activity) => activity.id === activityId)
+        .map((activity) => ({ activity, archived: false })),
+      ...(session.compactedMessages ?? []).flatMap((message) => message.toolActivities ?? [])
+        .filter((activity) => activity.id === activityId && !!activity.mcp && isExternalMcpId(activity.connectorId))
+        .map((activity) => ({ activity, archived: true })),
+    ]
+    const exact = candidates.filter(({ activity }) => activity.decisionId === decisionId)
+    if (exact.length > 1) return 'invalid'
+    if (exact.length === 1) {
+      const { activity, archived } = exact[0]!
+      const represented = decision === 'confirm'
+        ? (!archived && activity.status === 'running') || activity.status === 'done' || activity.status === 'failed' || activity.status === 'uncertain'
+        : activity.status === 'declined'
+      return activity.kind === 'action' && represented ? activity : 'invalid'
     }
-    if (activity.decisionId !== decisionId) return 'invalid'
-    const expectedStatus = decision === 'confirm' ? 'done' : 'declined'
-    return activity.kind === 'action' && activity.status === expectedStatus ? activity : 'invalid'
+    if (candidates.length > 1) return 'invalid'
+    const candidate = candidates[0]
+    if (!candidate) return undefined
+    return !candidate.archived && candidate.activity.kind === 'action' && candidate.activity.status === 'proposed' &&
+      candidate.activity.decisionId === undefined ? undefined : 'invalid'
+  },
+  /** Persist external execution intent before any credential or network await.
+   * The receipt then owns every in-process and post-restart replay. */
+  beginMcpToolActivityExecution(
+    sessionId: string,
+    activityId: string,
+    decisionId: string,
+    tenantId: string,
+  ): ToolActivity | 'invalid' | undefined {
+    if (!isToolActivityDecisionId(decisionId)) return 'invalid'
+    const represented = this.getToolActivityDecision(sessionId, activityId, decisionId, tenantId, 'confirm')
+    if (typeof represented === 'object' || represented === 'invalid') return represented
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
+    const activity = this.getToolActivity(sessionId, activityId)
+    if (!activity || activity.kind !== 'action' || activity.status !== 'proposed' || !activity.mcp ||
+        !isExternalMcpId(activity.connectorId) || activity.op || activity.decisionId !== undefined) return 'invalid'
+    return commitMutationBatch(() => {
+      activity.status = 'running'
+      activity.decisionId = decisionId
+      activity.summary = 'Running the approved MCP tool…'
+      delete activity.failure
+      delete activity.mcpResult
+      persist()
+      emit({ type: 'session.updated', session })
+      return activity
+    })
+  },
+  /** Settle the one durable external call. Only its matching running receipt may
+   * land a result, so a late worker cannot overwrite restart uncertainty. */
+  settleMcpToolActivityExecution(
+    sessionId: string,
+    activityId: string,
+    decisionId: string,
+    tenantId: string,
+    outcome: unknown,
+  ): ToolActivity | 'invalid' | undefined {
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
+    const exactRunning = (session.messages ?? [])
+      .flatMap((message) => message.toolActivities ?? [])
+      .filter((activity) => activity.id === activityId && activity.decisionId === decisionId &&
+        activity.kind === 'action' && !!activity.mcp && activity.status === 'running')
+    if (exactRunning.length !== 1 || !isToolActivityDecisionId(decisionId)) return 'invalid'
+    const activity = exactRunning[0]!
+    if (!isMcpExecutionSettlement(outcome)) return 'invalid'
+    let result: McpToolResult | undefined
+    try { result = outcome.result === undefined ? undefined : parseMcpToolResult(outcome.result, MCP_MODERN_VERSION) }
+    catch { return 'invalid' }
+    if (outcome.status === 'done' && (!result || result.isError)) return 'invalid'
+    if (outcome.status === 'failed' && result !== undefined && !result.isError) return 'invalid'
+    if (outcome.status === 'uncertain' && result !== undefined) return 'invalid'
+    return commitMutationBatch(() => {
+      activity.status = outcome.status
+      activity.summary = outcome.summary
+      if (result) activity.mcpResult = result
+      else delete activity.mcpResult
+      activity.failure = outcome.status === 'failed'
+        ? { code: 'connector_failed', retryable: false }
+        : outcome.status === 'uncertain'
+          ? { code: 'connector_unavailable', retryable: false }
+          : undefined
+      this.recordAudit({
+        tenantId,
+        channel: 'proxy',
+        capability: 'mcp.call',
+        target: activity.connector,
+        outcome: outcome.status === 'done' ? 'fulfilled' : outcome.status,
+      })
+      persist()
+      emit({ type: 'session.updated', session })
+      return activity
+    })
   },
   /** Claim a proposed action for execution — the synchronous gate that makes a
    *  confirm's execute-then-resolve sequence single-shot. The route's dispatch
@@ -4149,12 +4290,19 @@ export const store = {
     const session = SESSIONS.find((s) => s.id === sessionId)
     if (!session?.messages) return undefined
     if (options.tenantId && !this.sessionOwnedBy(session, options.tenantId)) return undefined
+    const matches = session.messages
+      .flatMap((message) => message.toolActivities ?? [])
+      .filter((activity) => activity.id === activityId)
+    if (matches.length > 1) return 'invalid'
     for (const m of session.messages) {
       const act = m.toolActivities?.find((a) => a.id === activityId)
       if (!act) continue
       if (act.kind !== 'action' || act.status !== 'proposed') {
         return options.logicalId ? 'invalid' : act // legacy callers retain idempotent finality
       }
+      // External MCP execution is a durable two-phase transition. It may never
+      // cross the legacy execute-then-resolve connector shortcut.
+      if (decision === 'confirm' && act.mcp) return 'invalid'
       // A connector action without a settled runtime result must stay open.
       // This prevents an internal caller from manufacturing `done` from the
       // development fixture or a generic string after the consent click.
@@ -4312,6 +4460,7 @@ export const store = {
     const cut = msgs.findIndex((m) => m.id === atMessageId)
     if (cut < 0) return undefined
     const taken = structuredClone(msgs.slice(0, cut + 1))
+    if (hasExternalMcpActivity(taken, pendingExternalMcp)) throw unresolvedMcpConflict()
     return commitMutationBatch(() => {
       const fork = mintSession({
         id: options.logicalId ?? `sess-${(sessionSeq += 1)}`,
@@ -5710,6 +5859,9 @@ export const store = {
         `This conversation changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
       )
     }
+    if (hasExternalMcpActivity(SESSIONS[i]!.messages ?? [], runningExternalMcp)) {
+      throw new ConflictError('Wait for the running MCP tool to finish before deleting this conversation.')
+    }
     const [removed] = SESSIONS.splice(i, 1)
     if (isSessionCreationId(id)) retiredSessionCreationIds.add(id)
     sessionContextBindings.delete(id)
@@ -5755,6 +5907,15 @@ export const store = {
    *  replaces it). Broadcasts `session.contexts.changed`; returns the new list. */
   attachContext(sessionId: string, ctx: SessionContext): SessionContext[] {
     const list = sessionContextBindings.get(sessionId) ?? []
+    if (isExternalMcpId(ctx.id)) {
+      if (ctx.type !== 'mcp') throw new ValidationError('An external MCP connection must be attached as MCP context.')
+      const alreadyAttached = list.some((candidate) => candidate.id === ctx.id && candidate.type === 'mcp')
+      const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+      const tenantId = session?.tenantId ?? defaultTenantId()
+      if (!alreadyAttached && this.mcpConnection(ctx.id, tenantId)?.execution !== 'approval-required') {
+        throw new ValidationError('Inspect and connect this MCP server before attaching it.')
+      }
+    }
     const next = [...list.filter((c) => c.id !== ctx.id), ctx]
     sessionContextBindings.set(sessionId, next)
     emit({ type: 'session.contexts.changed', sessionId, contexts: next })
@@ -5783,6 +5944,16 @@ export const store = {
     workspace: SessionWorkspace,
   ): SessionContextState {
     let contexts = sessionContextBindings.get(sessionId) ?? []
+    const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
+    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+    const tenantId = session?.tenantId ?? defaultTenantId()
+    for (const operation of operations) {
+      if (operation.action !== 'attach' || !isExternalMcpId(operation.context.id)) continue
+      if (operation.context.type !== 'mcp') throw new ValidationError('An external MCP connection must be attached as MCP context.')
+      if (!originalContextIds.has(operation.context.id) && this.mcpConnection(operation.context.id, tenantId)?.execution !== 'approval-required') {
+        throw new ValidationError('Inspect and connect this MCP server before attaching it.')
+      }
+    }
     for (const operation of operations) {
       if (operation.action === 'detach') {
         contexts = contexts.filter((context) => context.id !== operation.contextId)
@@ -5802,8 +5973,8 @@ export const store = {
     sessionWorkspaces.set(sessionId, workspace)
     pruneSessionPreferences(sessionId, workspace)
     emit({ type: 'session.contexts.changed', sessionId, contexts })
-    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
-    if (session) emit({ type: 'session.updated', session })
+    const updatedSession = SESSIONS.find((candidate) => candidate.id === sessionId)
+    if (updatedSession) emit({ type: 'session.updated', session: updatedSession })
     persist()
     return { contexts, workspace }
   },
@@ -5920,8 +6091,8 @@ export const store = {
     return true
   },
   /** Public MCP connection projection. Endpoint and credential references are
-   * intentionally absent; discovery metadata is presentation-only until a
-   * future execution adapter is wired. */
+   * intentionally absent; execution readiness is a code-owned projection of
+   * the connected inspection's admitted tool hashes. */
   mcpConnections(tenantId: string): McpConnectionView[] {
     return mcpConnectionRegistry.list(tenantId)
   },
@@ -5992,9 +6163,14 @@ export const store = {
     if (isExternalMcpId(connector.id)) {
       const connection = this.mcpConnection(connector.id, tenantId)
       if (!connection) throw new McpConnectionError('missing')
+      const executable = connection.execution === 'approval-required'
       return {
-        blurb: 'This is a saved external MCP catalog. Inspection does not enable tool execution.',
-        access: ['Tool execution is not available yet. Inspecting a catalog does not approve any tool calls.'],
+        blurb: executable
+          ? 'This saved external MCP catalog has admitted tools. Every call still requires explicit approval.'
+          : 'This saved external MCP catalog currently has no admitted executable tools.',
+        access: [executable
+          ? 'Admitted tools require explicit approval before every call.'
+          : 'Tool execution is unavailable until the connection is inspected and at least one tool is admitted.'],
         itemsLabel: 'Inspected tools',
         items: connection.tools.map(tool => ({ label: tool.name, ...(tool.description ? { meta: tool.description } : {}) })),
       }
@@ -6189,6 +6365,7 @@ export const store = {
     const session = SESSIONS.find((s) => s.id === sessionId)
     if (!session) return undefined
     const msgs = session.messages ?? []
+    if (hasExternalMcpActivity(msgs, pendingExternalMcp)) throw unresolvedMcpConflict()
     if (msgs.length <= COMPACTION_KEEP_RECENT + 1) return { kind: 'noop', session: this.getSession(sessionId)! }
     const older = msgs.slice(0, msgs.length - COMPACTION_KEEP_RECENT)
     const olderReal = older.filter((m) => m.compactedFrom == null)
@@ -6247,6 +6424,7 @@ export const store = {
       }
       if (session.compactionReceiptIds?.includes(receipt.logicalId)) return this.getSession(plan.sessionId)
     }
+    if (hasExternalMcpActivity(session.messages ?? [], pendingExternalMcp)) throw unresolvedMcpConflict()
     if (compactionState(session) !== plan.expectedState) {
       throw new ConflictError('This conversation changed while its summary was being prepared. Nothing was archived; retry from the latest turns.')
     }
@@ -6276,7 +6454,7 @@ export const store = {
   usage(sessionId?: string, tenantId?: string): UsageSnapshot {
     let messageTokens = 0
     const session = sessionId ? SESSIONS.find((s) => s.id === sessionId) : undefined
-    for (const m of session?.messages ?? []) messageTokens += estimateTokens(m.content)
+    for (const m of session?.messages ?? []) messageTokens += estimateTokens(messageHistoryText(m))
     // System tools + system prompt are computed from the *actual* request the
     // backend sends — both injected eagerly — so they're real loaded categories.
     const agent = resolveAgent(session?.agentId)

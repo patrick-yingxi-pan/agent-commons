@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { runSessionId, type ArtifactItem, type ScheduledRun, type ScheduledTask } from '../contract/index.ts'
 import { createServer, type Server } from 'node:http'
 import { API, newUser, openSection } from './social-helpers.ts'
+import { settleArtifactPageRail } from './artifact-page-helpers.ts'
 import { ms } from './budget.ts'
 
 const VIEWPORTS = [
@@ -183,11 +184,8 @@ test('scheduled runs persist one real artifact and refresh already-open owner an
     for (const viewport of VIEWPORTS) {
       for (const [role, user] of [['owner', owner], ['reader', reader]] as const) {
         await user.page.setViewportSize(viewport)
-        const closeRail = user.page.locator('button[aria-label="Collapse sidebar"]')
-        if (!await closeRail.evaluate((button) => button.closest('[inert]') !== null)) await closeRail.click()
+        await settleArtifactPageRail(user.page)
         await expect(user.page.getByRole('button', { name: 'Expand sidebar', exact: true })).toBeVisible()
-        await expect.poll(() => user.page.locator('button[aria-label="Collapse sidebar"]').evaluate(
-          (button) => button.closest('[inert]')?.getBoundingClientRect().width ?? -1)).toBe(0)
         await user.page.locator(artifactPage).scrollIntoViewIfNeeded()
         await expect(user.page.locator(artifactPage).getByText(fixture.replies[1]!, { exact: false })).toBeVisible()
         expect(await user.page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)

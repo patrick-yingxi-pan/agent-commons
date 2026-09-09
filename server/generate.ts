@@ -13,7 +13,8 @@ import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, Relatio
 import { attachmentPrompt } from './attachmentInput.ts'
 import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
 import { TOOL_DEFINITIONS, type ToolContext } from './model/tools.ts'
-import { deriveConnectorTools } from './model/connectorTools.ts'
+import { deriveConnectorTools, EXTERNAL_CATALOG_LIMIT_MESSAGE } from './model/connectorTools.ts'
+import { TOOL_RECEIPT_DATA_LABEL, TOOL_RECEIPT_SYSTEM_ADDITION } from './toolActivityHistory.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
@@ -21,6 +22,7 @@ import { executeToolBatch, toolLoopLimits } from './toolExecution.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, type CompactionPartResult } from './compaction.ts'
 import type { ImageSnapshot } from '../contract/imageInput.ts'
 import { createModelUsageRecorder, UsageRecordingError, type ModelUsageHandler } from './modelUsage.ts'
+import type { McpConnectionView } from '../contract/mcpConnections.ts'
 
 /** The default provider's model (docs/agent-commons.md, D9): used when a turn's
  *  Agent resolves to a provider that declares no concrete model of its own — so the
@@ -271,6 +273,8 @@ export interface ReplyResult {
 }
 
 export interface ReplyExecutionOptions {
+  /** Caller-owned connection snapshots; routines deliberately omit this. */
+  externalMcpConnections?: readonly McpConnectionView[]
   /** Context actions already approved as part of a headless routine. Ordinary
    *  interactive turns omit this and preserve per-action confirmation. */
   standingApprovedContextIds?: ReadonlySet<string>
@@ -364,14 +368,17 @@ export async function generateReply(
   // currently exists — so "commission the agent I just made" resolves.
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
   const input = attachmentPrompt(text, session.attachments, session.images, session.supportsImages !== false)
-  const system = [systemPrompt(session, agent), input.systemAddition].filter(Boolean).join('\n\n')
   // The Agent's tool allowlist — a subset of the catalog (the default carries all).
   const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
   // P6: an attached connector/MCP contributes callable tools too — derived from the
   // session's context bindings (server/model/connectorTools.ts) and appended to the
   // request. Only *attached* contexts yield tools, so the model can't reach one the
   // user didn't add (authority is structural).
-  const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts, execution)
+  const { definitions: connectorDefs, bindings: connectorBindings, externalUnavailable } = deriveConnectorTools(connectorContexts, execution)
+  const system = [systemPrompt(session, agent), input.systemAddition,
+    externalUnavailable ? EXTERNAL_CATALOG_LIMIT_MESSAGE : '',
+    history.some(turn => turn.text.includes(TOOL_RECEIPT_DATA_LABEL)) ? TOOL_RECEIPT_SYSTEM_ADDITION : '',
+  ].filter(Boolean).join('\n\n')
   // Capability-gated, never identity-gated: a probed non-tool-use provider gets no
   // `tools` param at all (a strict endpoint would reject it), so the tool-use loop —
   // and with it the consent-gated proposals — degrades away for turns on it. An

@@ -5,6 +5,7 @@ import {
   parseMcpConnectionState, McpConnectionError, MAX_MCP_CONNECTIONS_PER_TENANT,
 } from './mcpConnections.ts'
 import { MCP_MODERN_VERSION } from './mcpDiscovery.ts'
+import { admitMcpCatalog, mcpToolSchemaHash } from './mcpToolAdmission.ts'
 
 const id = mcpConnectionCreationId('owner', 'logical-key')
 const setup = { id, label: 'Research', endpoint: 'https://mcp.example/tools', authentication: 'device-bearer' as const }
@@ -12,6 +13,30 @@ const ref = `MCP_DESKTOP_${'A'.repeat(32)}`
 const discovery = { protocolVersion: MCP_MODERN_VERSION, cleanup: 'not-needed' as const,
   tools: [{ name: 'lookup', description: 'Remote description', inputSchema: { type: 'object', properties: { query: { type: 'string' } } } }] }
 const fails = (code: McpConnectionError['code']) => (error: unknown) => error instanceof McpConnectionError && error.code === code
+
+test('only current locally admitted schema hashes expose approval-required tools, including after restart', async () => {
+  const registry = createMcpConnectionRegistry()
+  registry.create(setup, 'owner')
+  const schemaAdmission = await admitMcpCatalog(discovery.tools)
+  const view = registry.commitInspection(id, 'owner', 0, { ...discovery, schemaAdmission }, 123, ref)
+  assert.equal(view.execution, 'approval-required')
+  assert.deepEqual(view.executableTools, ['lookup'])
+  const saved = registry.snapshot()
+  registry.rehydrate(saved)
+  assert.deepEqual(registry.view(id, 'owner'), view)
+  const oldPolicy = structuredClone(saved)
+  oldPolicy.connections[0].inspection.schemaAdmission.version = 2
+  registry.rehydrate(oldPolicy)
+  assert.equal(registry.view(id, 'owner').execution, 'unavailable')
+  assert.deepEqual(registry.view(id, 'owner').executableTools, [])
+  assert.equal(registry.view(id, 'owner').tools.length, 1, 'inert catalog remains inspectable')
+  const mismatch = structuredClone(saved)
+  mismatch.connections[0].inspection.schemaAdmission.hashes = [mcpToolSchemaHash({ ...discovery.tools[0], name: 'different' })]
+  assert.throws(() => registry.rehydrate(mismatch), fails('invalid'))
+  registry.rehydrate(saved)
+  assert.equal(registry.disconnect(id, 'owner', 1).execution, 'unavailable')
+  assert.deepEqual(registry.view(id, 'owner').executableTools, [])
+})
 
 test('inspection acknowledgement identity survives restart and disconnect without exposing its private fingerprint', () => {
   const registry = createMcpConnectionRegistry()

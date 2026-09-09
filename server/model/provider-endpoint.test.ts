@@ -18,6 +18,7 @@ import { COMPACTION_SYSTEM_PROMPT } from '../compaction.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import type { Attachment } from '../../contract/entities.ts'
+import { messageHistoryText, TOOL_RECEIPT_SYSTEM_ADDITION } from '../toolActivityHistory.ts'
 
 let mock: Server
 let recorder: Server
@@ -89,6 +90,43 @@ function collect() {
     },
   }
 }
+
+test('endpoint transport declares attached inspected external tools as proposals and carries durable result truth on the next turn', async () => {
+  const id = `mcp-connection-${'c'.repeat(32)}`
+  const tool = { name: 'lookup', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false } }
+  const connection = { id, label: 'External review', revision: 2, status: 'connected', authentication: 'none', inspectedAt: 1, protocolVersion: '2026-07-28', tools: [tool], execution: 'approval-required', executableTools: ['lookup'] }
+  const contexts = [{ id, type: 'mcp', label: 'External review', scope: '*' }]
+  const model = 'external-mcp-wire-proof'
+  const provider = { baseURL: recorderUrl, model, capabilities: { toolUse: true } }
+  const output = await generateReply(session, DEFAULT_AGENT, 'Use the attached external MCP tool with query "wire-exact".', collect().handlers,
+    undefined, provider, undefined, contexts, undefined, { externalMcpConnections: [connection] })
+  assert.equal(output.outcome, 'ok')
+  assert.equal(output.message.toolActivities.length, 1)
+  const activity = output.message.toolActivities[0]
+  assert.equal(activity.status, 'proposed')
+  assert.match(activity.id, /^mcp-activity-[a-f0-9-]{36}$/)
+  assert.deepEqual(activity.input, { query: 'wire-exact' })
+  assert.equal(activity.mcp.toolName, 'lookup')
+  const request = seen.find(hit => hit.body?.model === model)
+  assert.ok(request)
+  assert.deepEqual(request.body.tools.find(entry => entry.name.startsWith('mcp_external_')).input_schema, tool.inputSchema)
+  const continuation = seen.filter(hit => hit.body?.model === model).at(-1).body.messages
+  const wireCall = continuation.flatMap(turn => Array.isArray(turn.content) ? turn.content : []).find(block => block.type === 'tool_use')
+  const wireResult = continuation.flatMap(turn => Array.isArray(turn.content) ? turn.content : []).find(block => block.type === 'tool_result')
+  assert.ok(wireCall && wireResult)
+  assert.equal(wireResult.tool_use_id, wireCall.id, 'wire correlation retains the provider call id')
+  assert.notEqual(activity.id, wireCall.id, 'wire correlation cannot choose durable consent identity')
+  const settled = { ...output.message, toolActivities: [{ ...activity, status: 'uncertain', decisionId: 'exact-approved-call', summary: 'The server may have accepted the call. It will not be retried.' }] }
+  const history = [{ role: 'assistant', text: messageHistoryText(settled) }]
+  const nextModel = 'external-mcp-history-proof'
+  await generateReply(session, DEFAULT_AGENT, 'Explain what remains unknown.', collect().handlers,
+    undefined, { ...provider, model: nextModel }, undefined, contexts, undefined, { externalMcpConnections: [connection] }, history)
+  const next = seen.find(hit => hit.body?.model === nextModel)
+  assert.ok(next)
+  assert.equal(next.body.messages[0].content, history[0].text)
+  assert.match(next.body.messages[0].content, /"status":"uncertain"/)
+  assert.ok(next.body.system.includes(TOOL_RECEIPT_SYSTEM_ADDITION))
+})
 
 test('a turn on a provider with its own endpoint reaches THAT endpoint, carrying its model id and credential', async () => {
   const providerB: ProviderConfig = {

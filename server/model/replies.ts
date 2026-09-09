@@ -46,6 +46,9 @@ export function finalReplyText(toolNames: string[], toolResults: string[] = []):
   if (toolNames.some((n) => n.startsWith('mcp__') || n.startsWith('connector__'))) {
     return 'I used the connected tools you attached — results, and any writes awaiting your confirmation, are on the card above.'
   }
+  if (toolNames.some((n) => n.startsWith('mcp_external_'))) {
+    return 'The external MCP call is shown below. It will run only if the conversation owner approves this exact call.'
+  }
   // Generated API tools (access-parity INV-11, the in-app leg): reads already ran as
   // you; a mutation is only proposed on the card and waits for your confirmation.
   if (toolNames.some((n) => n.startsWith('api__'))) {

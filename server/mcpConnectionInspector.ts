@@ -4,6 +4,7 @@
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import { discoverMcpTools, type McpDiscovery } from './mcpDiscovery.ts'
 import { McpConnectionError, mcpConnectionEndpoint, type PrivateMcpConnection, type McpInspectionOperation } from './mcpConnections.ts'
+import { admitMcpCatalog, McpSchemaAdmissionError } from './mcpToolAdmission.ts'
 
 import type { McpCredentialBinding } from '../contract/mcpConnections.ts'
 export type { McpCredentialBinding } from '../contract/mcpConnections.ts'
@@ -94,7 +95,13 @@ export function createMcpConnectionInspector({
       const discovery = await Promise.race([discover(endpoint, { scope, bearerToken, signal: controller.signal,
         timeoutMs: Math.max(1, Math.floor(timeoutMs - (performance.now() - started))) }), stopped])
       ensureCurrent()
-      return store.commitMcpInspection(id, tenantId, expectedRevision, discovery, now(), credentialReference, operation)
+      const schemaAdmission = await Promise.race([admitMcpCatalog(discovery.tools, { signal: controller.signal }), stopped])
+      ensureCurrent()
+      return store.commitMcpInspection(id, tenantId, expectedRevision, { ...discovery, schemaAdmission }, now(), credentialReference, operation)
+    } catch (error) {
+      if (stopReason) throw stopReason
+      if (error instanceof McpSchemaAdmissionError) throw new McpInspectionError(error.code === 'cancelled' ? 'cancelled' : 'busy')
+      throw error
     } finally {
       clearTimeout(timer)
       signal?.removeEventListener('abort', cancelled)

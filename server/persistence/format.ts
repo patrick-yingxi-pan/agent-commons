@@ -57,6 +57,8 @@ import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { isProjectContextSource } from '../../contract/cowork.ts'
+import { parseMcpToolResult } from '../mcpToolResult.ts'
+import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
 import { join } from 'node:path'
 
 /** On-disk schema version. A supported older snapshot migrates forward; an
@@ -612,8 +614,67 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   if (state?.mcpConnections !== undefined) {
     try { parseMcpConnectionState(state.mcpConnections) } catch { return false }
   }
-  const record = (value: unknown) =>
+  const record = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value)
+  const exactJsonEqual = (left: unknown, right: unknown): boolean => {
+    if (Object.is(left, right)) return true
+    if (Array.isArray(left) || Array.isArray(right)) {
+      return Array.isArray(left) && Array.isArray(right) && left.length === right.length &&
+        left.every((entry, index) => exactJsonEqual(entry, right[index]))
+    }
+    if (!record(left) || !record(right)) return false
+    const leftKeys = Object.keys(left).sort()
+    const rightKeys = Object.keys(right).sort()
+    return leftKeys.length === rightKeys.length && leftKeys.every((key, index) =>
+      key === rightKeys[index] && exactJsonEqual(left[key], right[key]))
+  }
+  const mcpResultValid = (value: unknown): boolean => {
+    try { return exactJsonEqual(parseMcpToolResult(value, MCP_MODERN_VERSION), value) }
+    catch { return false }
+  }
+  const mcpActivitiesValid = (sessions: unknown): boolean => {
+    if (!Array.isArray(sessions)) return false
+    for (const session of sessions) {
+      if (!record(session)) return false
+      const activeMessages = session.messages
+      const compactedMessages = session.compactedMessages
+      if (activeMessages !== undefined && !Array.isArray(activeMessages)) return false
+      if (compactedMessages !== undefined && !Array.isArray(compactedMessages)) return false
+      for (const message of [...(activeMessages ?? []), ...(compactedMessages ?? [])]) {
+        if (!record(message) || message.toolActivities === undefined) continue
+        if (!Array.isArray(message.toolActivities)) return false
+        for (const activity of message.toolActivities) {
+          if (!record(activity)) return false
+          if (activity.mcp === undefined) {
+            if (activity.status === 'running' || activity.status === 'uncertain' || activity.mcpResult !== undefined) return false
+            continue
+          }
+          const anchor = activity.mcp
+          if (!record(anchor) || Object.keys(anchor).some((key) => !['connectionRevision', 'toolName', 'schemaHash'].includes(key)) ||
+              !Number.isSafeInteger(anchor.connectionRevision) || typeof anchor.connectionRevision !== 'number' || anchor.connectionRevision < 0 ||
+              typeof anchor.toolName !== 'string' || anchor.toolName.length < 1 || Array.from(anchor.toolName).length > 128 ||
+              typeof anchor.schemaHash !== 'string' || !/^[a-f0-9]{64}$/.test(anchor.schemaHash) ||
+              typeof activity.connectorId !== 'string' || !activity.connectorId.startsWith('mcp-connection-') ||
+              activity.kind !== 'action' || activity.op !== undefined) return false
+          const status = activity.status
+          const decision = activity.decisionId
+          const receipt = typeof decision === 'string' && /^tool-activity-decision-[a-f0-9]{24}$/.test(decision)
+          if (decision !== undefined && !receipt) return false
+          if ((status === 'running' || status === 'done' || status === 'uncertain' || status === 'declined') && !receipt) return false
+          if (status === 'proposed' && (decision !== undefined || activity.mcpResult !== undefined)) return false
+          if (status === 'running' && activity.mcpResult !== undefined) return false
+          if (status === 'uncertain' && activity.mcpResult !== undefined) return false
+          if (status === 'done' && (!mcpResultValid(activity.mcpResult) || (activity.mcpResult as { isError?: unknown }).isError !== false)) return false
+          if (activity.mcpResult !== undefined && status !== 'done' && status !== 'failed') return false
+          if (status === 'failed' && activity.mcpResult !== undefined && !receipt) return false
+          if (status === 'failed' && activity.mcpResult !== undefined &&
+              (!mcpResultValid(activity.mcpResult) || (activity.mcpResult as { isError?: unknown }).isError !== true)) return false
+          if (!['proposed', 'running', 'done', 'failed', 'uncertain', 'declined'].includes(String(status))) return false
+        }
+      }
+    }
+    return true
+  }
   const graphContextsValid = (graph: unknown): boolean => {
     if (!record(graph)) return false
     const projectContexts = (graph as { projectContexts?: unknown }).projectContexts
@@ -645,6 +706,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     state
       && (state.initialWorld === undefined || state.initialWorld === 'demo' || state.initialWorld === 'clean')
       && Array.isArray(state.sessions)
+      && mcpActivitiesValid(state.sessions)
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)
       && Array.isArray(state.schedules)

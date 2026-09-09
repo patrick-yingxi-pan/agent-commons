@@ -7,8 +7,11 @@ import { mcpHttpSignal } from './mcpConnectionReads.ts'
 /** Validate the exact ceremony audience before passing a token to the host.
  * Keeping this with provisioning leaves credential-only code off the initial
  * catalog-read path; ordinary connection reads never request the endpoint. */
-export async function getMcpConnectionCredentialBinding(id: string, tenantId: string): Promise<McpCredentialBindingResponse> {
-  const result = await apiGet<McpCredentialBindingResponse>(paths.mcpConnectionCredentialBinding(id), { signal: mcpHttpSignal() })
+export async function getMcpConnectionCredentialBinding(id: string, tenantId: string, sourceUserId: string | null = null): Promise<McpCredentialBindingResponse> {
+  const result = await apiGet<McpCredentialBindingResponse>(paths.mcpConnectionCredentialBinding(id), {
+    expectedSessionUserId: sourceUserId,
+    signal: mcpHttpSignal(),
+  })
   const binding = result?.binding
   const invalid = () => new Error('The MCP credential binding did not match the requested audience.')
   if (!binding || typeof binding !== 'object' || Array.isArray(binding) ||

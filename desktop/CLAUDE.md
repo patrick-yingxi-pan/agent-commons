@@ -7,7 +7,8 @@ Owns the near-term native application shell. Product behavior remains in the
 shared UI/server contract; the shell owns only process lifecycle, trusted-window
 policy, OS user-data placement, user-mediated native selection, the OS-encrypted
 provider-credential adapter, the MCP credential vault/IPC lifecycle, and packaging.
-MCP inspection is wired; external tool execution remains unavailable.
+MCP inspection and per-call approved execution use the shared backend. Combined
+real-service/native execution acceptance remains a separate release gate.
 
 ## Read path
 
@@ -86,6 +87,10 @@ phase proves real OS-backed token replacement/relaunch, secret exclusion,
 durable disconnect despite a real vault-write failure, explicit cleanup Retry,
 and unrelated provisional preservation. Its offline catalog fixture does not
 prove live inspection/execution. It runs on extracted releases, outside ASAR.
+The separate schema phase imports the validator from the packaged ASAR in a
+real Electron utility process and proves valid/invalid values, bounded regex
+termination, cancellation and worker-capacity recovery. Its helper is excluded
+from the shipped archive and grants no production IPC authority.
 The verified unpacked application remains an unsigned developer artifact. A public
 macOS direct download must instead pass credential-gated
 `npm run desktop:release:mac` once on each native architecture and then

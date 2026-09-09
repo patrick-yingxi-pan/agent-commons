@@ -1,12 +1,14 @@
 /** Strict, bounded JSON snapshots at the untrusted MCP seam. Never invokes
  * getters/toJSON, silently drops values, or retains caller-owned references. */
-export type McpJsonValue = null | boolean | number | string | McpJsonValue[] | { [key: string]: McpJsonValue }
+import type { McpJsonValue } from '../contract/mcpExecution.ts'
+export type { McpJsonValue } from '../contract/mcpExecution.ts'
 export class McpJsonError extends Error {
-  constructor() { super('Invalid or oversized MCP JSON.'); this.name = 'McpJsonError' }
+  readonly code: 'invalid' | 'limit'
+  constructor(code: McpJsonError['code'] = 'invalid') { super('Invalid or oversized MCP JSON.'); this.name = 'McpJsonError'; this.code = code }
 }
 
 export function snapshotMcpJson(value: unknown, limits: { maxBytes: number; maxDepth: number; maxNodes: number }): McpJsonValue {
-  const reject = (): never => { throw new McpJsonError() }
+  const reject = (code: McpJsonError['code'] = 'invalid'): never => { throw new McpJsonError(code) }
   if (['maxBytes', 'maxDepth', 'maxNodes'].some((key) => {
     const limit = limits[key as keyof typeof limits]
     return !Number.isSafeInteger(limit) || limit < 1
@@ -15,14 +17,14 @@ export function snapshotMcpJson(value: unknown, limits: { maxBytes: number; maxD
   const encoder = new TextEncoder()
   let bytes = 0
   let nodes = 0
-  const charge = (size: number) => { bytes += size; if (bytes > limits.maxBytes) reject() }
+  const charge = (size: number) => { bytes += size; if (bytes > limits.maxBytes) reject('limit') }
   const quote = (text: string) => {
     // Every UTF-16 unit costs at least one byte when represented in JSON.
-    if (text.length > limits.maxBytes - bytes) reject()
+    if (text.length > limits.maxBytes - bytes) reject('limit')
     charge(encoder.encode(JSON.stringify(text)).byteLength)
   }
   const visit = (item: unknown, depth: number): McpJsonValue => {
-    if (++nodes > limits.maxNodes || depth > limits.maxDepth) reject()
+    if (++nodes > limits.maxNodes || depth > limits.maxDepth) reject('limit')
     if (item === null) { charge(4); return null }
     if (typeof item === 'string') { quote(item); return item }
     if (typeof item === 'boolean') { charge(item ? 4 : 5); return item }
@@ -34,7 +36,7 @@ export function snapshotMcpJson(value: unknown, limits: { maxBytes: number; maxD
     if (typeof item !== 'object' || !item) return reject()
     if (Object.getOwnPropertySymbols(item).length) reject()
     if (Array.isArray(item)) {
-      if (item.length > limits.maxNodes - nodes) reject()
+      if (item.length > limits.maxNodes - nodes) reject('limit')
       // Sparse arrays, accessors and custom properties are not JSON values.
       const keys = Object.getOwnPropertyNames(item)
       if (keys.length !== item.length + 1) reject()
@@ -49,7 +51,7 @@ export function snapshotMcpJson(value: unknown, limits: { maxBytes: number; maxD
     }
     if (Object.getPrototypeOf(item) !== Object.prototype && Object.getPrototypeOf(item) !== null) reject()
     const keys = Object.getOwnPropertyNames(item)
-    if (keys.length > limits.maxNodes - nodes) reject()
+    if (keys.length > limits.maxNodes - nodes) reject('limit')
     charge(2 + Math.max(0, keys.length - 1))
     const result: { [key: string]: McpJsonValue } = {}
     for (const key of keys) {
@@ -61,5 +63,5 @@ export function snapshotMcpJson(value: unknown, limits: { maxBytes: number; maxD
     }
     return result
   }
-  try { return visit(value, 1) } catch { return reject() }
+  try { return visit(value, 1) } catch (error) { if (error instanceof McpJsonError) throw error; return reject() }
 }

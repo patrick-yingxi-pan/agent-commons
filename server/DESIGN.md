@@ -40,8 +40,13 @@ doc-lint and cross-layer locks with no single module to belong to.
   generation seam and the existing **`@zip.js/zip.js`** library solely to write
   bounded generated XLSX/PPTX parts. Reusing its stored-entry writer avoids a second
   archive implementation; it never parses uploads or launches workers. The
-  Office input parsers remain renderer-worker-only. Other server code stays
-  dependency-free, with its Node declarations in `server/node.d.ts`.
+  Office input parsers remain renderer-worker-only. **Ajv** is the deliberate
+  third dependency: complete JSON Schema 2020-12 semantics are preferable to a
+  bespoke partial validator for untrusted external tools. It is imported only
+  by a short-lived worker with strict input, memory, concurrency and wall-clock
+  bounds; compilation never blocks the service event loop and references never
+  fetch network resources. Other server code stays dependency-free, with its
+  Node declarations in `server/node.d.ts`.
 - **Strict core, convenient edge (INV-9).** An absent request field must mean
   something fixed (inherit / complete-set constant / minimal-risk none), or be
   refused with `ValidationError` → 400 — never resolved to a mutable entity or

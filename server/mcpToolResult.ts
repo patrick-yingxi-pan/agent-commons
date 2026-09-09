@@ -1,5 +1,20 @@
 import { MCP_LEGACY_VERSIONS, MCP_MODERN_VERSION, isMcpProtocolVersion } from './mcpProtocol.ts'
 import { snapshotMcpJson, type McpJsonValue } from './mcpJson.ts'
+import type {
+  McpToolAudioContent,
+  McpToolContent,
+  McpToolImageContent,
+  McpToolResult,
+} from '../contract/mcpExecution.ts'
+export type {
+  McpToolAudioContent,
+  McpToolContent,
+  McpToolImageContent,
+  McpToolResourceContent,
+  McpToolResourceLinkContent,
+  McpToolResult,
+  McpToolTextContent,
+} from '../contract/mcpExecution.ts'
 
 export { MCP_MODERN_VERSION as MCP_TOOL_RESULT_MODERN_VERSION, MCP_LEGACY_VERSIONS as MCP_TOOL_RESULT_LEGACY_VERSIONS }
 export const MCP_TOOL_RESULT_MAX_BYTES = 1_048_576
@@ -15,26 +30,6 @@ export class McpToolResultError extends Error {
     this.name = 'McpToolResultError'
     this.code = code
   }
-}
-
-export type McpToolTextContent = { type: 'text'; text: string; annotations?: McpJsonValue }
-export type McpToolImageContent = { type: 'image'; data: string; mimeType: string; annotations?: McpJsonValue }
-export type McpToolAudioContent = { type: 'audio'; data: string; mimeType: string; annotations?: McpJsonValue }
-export type McpToolResourceLinkContent = {
-  type: 'resource_link'; uri: string; name: string; title?: string; description?: string; mimeType?: string; size?: number; annotations?: McpJsonValue
-}
-export type McpToolResourceContent = {
-  type: 'resource';
-  resource: { uri: string; mimeType?: string; text: string; annotations?: McpJsonValue } | { uri: string; mimeType?: string; blob: string; annotations?: McpJsonValue };
-  annotations?: McpJsonValue
-}
-export type McpToolContent = McpToolTextContent | McpToolImageContent | McpToolAudioContent | McpToolResourceLinkContent | McpToolResourceContent
-export interface McpToolResult {
-  resultType: 'complete'
-  content: McpToolContent[]
-  isError: boolean
-  structuredContent?: McpJsonValue
-  _meta?: McpJsonValue
 }
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)

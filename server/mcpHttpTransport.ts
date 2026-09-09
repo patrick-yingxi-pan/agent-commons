@@ -41,6 +41,9 @@ export interface McpHttpOptions {
   /** Required for modern tools/call. Headers are derived from this reviewed
    * schema and the actual body, never supplied as arbitrary caller headers. */
   toolInputSchema?: Record<string, unknown>
+  /** Synchronous final authority fence after DNS admission and immediately
+   * before the initial POST is constructed. Never runs for DELETE or SSE GET. */
+  beforeDispatch?: () => void
 }
 const MAX_REQUEST_BYTES = 65_536
 const DEFAULT_TIMEOUT_MS = 10_000
@@ -196,6 +199,19 @@ export function createMcpHttpTransport({
             lookup: (_host, _options, callback) => callback(null, address, pinnedFamily),
           }
           try {
+            if (!resume && message !== null) {
+              try {
+                const guardResult: unknown = options.beforeDispatch?.()
+                if (guardResult !== null && (typeof guardResult === 'object' || typeof guardResult === 'function') &&
+                  typeof (guardResult as { then?: unknown }).then === 'function') {
+                  // This fence must complete synchronously at the socket edge.
+                  // Observe a rejected promise without ever treating it as permission.
+                  void Promise.resolve(guardResult).catch(() => {})
+                  return finish('request')
+                }
+              } catch { return finish('request') }
+              if (!live()) return
+            }
             currentRequest = (url.protocol === 'https:' ? https : http)(url, socketOptions, (incoming) => {
               currentResponse = incoming
               incoming.on('error', () => recover('network'))

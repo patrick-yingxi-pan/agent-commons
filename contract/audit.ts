@@ -12,8 +12,8 @@
 export const AUDIT_CHANNELS = ['proxy', 'project-effect', 'host-invoke'] as const
 export type AuditChannel = (typeof AUDIT_CHANNELS)[number]
 
-/** Whether the effect was performed or refused — the detective signal. */
-export type AuditOutcome = 'fulfilled' | 'denied'
+/** Honest terminal knowledge about the effect — the detective signal. */
+export type AuditOutcome = 'fulfilled' | 'denied' | 'failed' | 'uncertain'
 
 export interface AuditEntry {
   id: string

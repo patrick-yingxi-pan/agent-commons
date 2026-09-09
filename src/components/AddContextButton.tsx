@@ -50,9 +50,11 @@ import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
+import { useMcpConnections } from '../api/mcpConnectionHooks.ts'
 import { apiGet } from '../api/client'
 import { paths } from '../api/keys'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
+import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { RecentOverflowList, type OverflowRow } from './RecentOverflowList'
 import {
   CONNECTOR_OPTIONS,
@@ -270,7 +272,8 @@ function WorkflowBody({
   // their live id from the label; folders tag their workspace artifacts).
   const hasGitHubConnector = connectors.some((c) => c.id === GITHUB_CONNECTOR_ID)
   const addedConnectorIds = connectors.filter((c) => c.kind !== 'mcp').map((c) => c.id)
-  const addedMcpIds = connectors.filter((c) => c.kind === 'mcp').map((c) => c.id.replace(/^mcp-/, ''))
+  const addedMcpIds = connectors.filter((c) => c.kind === 'mcp')
+    .map((c) => isExternalMcpId(c.id) ? c.id : c.id.replace(/^mcp-/, ''))
   const addedFileIds = attachments.filter((a) => a.kind === 'file').map((a) => a.id)
   const addedPhotoIds = attachments.filter((a) => a.kind === 'photo').map((a) => a.id)
   const addedRepoIds = repos.map((r) => r.id)
@@ -314,32 +317,64 @@ function WorkflowBody({
     )
   }
   if (type === 'mcp') {
-    return (
-      <ListPicker
-        type="mcp"
-        maxRows={maxRows}
-        options={MCP_OPTIONS}
-        connectedLabel="Connected"
-        browseLabel="Add an MCP server…"
-        browseTitle="MCP Registry"
-        location={['MCP Registry']}
-        rowIcon={<Server size={16} />}
-        browseIcon={<Server size={15} />}
-        rowMeta={(m) => m.meta}
-        toContext={(m) => ({
-          kind: 'mcp',
-          connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' },
-        })}
-        addedIds={addedMcpIds}
-        onAdd={onAttach}
-        onClose={onClose}
-      />
-    )
+    return <McpPicker maxRows={maxRows} addedIds={addedMcpIds} onAdd={onAttach} onClose={onClose} />
   }
   if (type === 'files') {
     return <FilesPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
   }
   return <PhotosPicker onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
+}
+
+/** External connections come from the tenant-owned registry, not the fixture
+ * catalog. Only the server's current execution posture makes one attachable;
+ * the opaque connection id crosses the ordinary atomic context funnel intact. */
+function McpPicker({
+  maxRows,
+  addedIds,
+  onAdd,
+  onClose,
+}: {
+  maxRows: number
+  addedIds: readonly string[]
+  onAdd: (ctx: AddedContext) => void
+  onClose: () => void
+}) {
+  const registry = useMcpConnections()
+  const external = (registry.data?.connections ?? [])
+    .filter((connection) => connection.status === 'connected' && connection.execution === 'approval-required')
+    .map((connection) => ({
+      id: connection.id,
+      label: connection.label,
+      meta: `${connection.executableTools?.length ?? 0} tools · Approval required for every call`,
+      external: true,
+    }))
+  const options = [
+    ...external,
+    ...MCP_OPTIONS.map((option) => ({ ...option, external: false })),
+  ]
+  return <ListPicker
+    type="mcp"
+    maxRows={maxRows}
+    options={options}
+    authoritativeIds={external.map((connection) => connection.id)}
+    connectedLabel="Available"
+    browseLabel="Add an MCP server…"
+    browseTitle="MCP Registry"
+    location={['MCP Registry']}
+    rowIcon={<Server size={16} />}
+    browseIcon={<Server size={15} />}
+    rowMeta={(m) => m.meta}
+    toContext={(m) => m.external ? ({
+      kind: 'mcp',
+      connector: { id: m.id, label: m.label, kind: 'mcp' },
+    }) : ({
+      kind: 'mcp',
+      connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' },
+    })}
+    addedIds={addedIds}
+    onAdd={onAdd}
+    onClose={onClose}
+  />
 }
 
 /* ------------------------------------------------------------------ Browse --
@@ -541,6 +576,7 @@ function ListPicker<T extends { id: string; label: string }>({
   type,
   maxRows,
   options,
+  authoritativeIds = [],
   connectedLabel,
   browseLabel,
   browseTitle,
@@ -556,6 +592,8 @@ function ListPicker<T extends { id: string; label: string }>({
   type: ContextTypeId
   maxRows: number
   options: readonly T[]
+  /** Registry-owned ready rows do not depend on local recency to be reusable. */
+  authoritativeIds?: readonly string[]
   connectedLabel: string
   browseLabel: string
   browseTitle: string
@@ -585,8 +623,9 @@ function ListPicker<T extends { id: string; label: string }>({
     (useSavedContexts().data?.contexts ?? []).filter((c) => c.kind === type).map((c) => [c.id, c.status]),
   )
   const byId = new Map(options.map((o) => [o.id, o]))
-  const connected = recentIds.map((id) => byId.get(id)).filter(Boolean) as T[]
-  const rest = options.filter((o) => !recentIds.includes(o.id))
+  const availableIds = [...new Set([...authoritativeIds, ...recentIds])]
+  const connected = availableIds.map((id) => byId.get(id)).filter(Boolean) as T[]
+  const rest = options.filter((o) => !availableIds.includes(o.id))
 
   // Attach without closing, so multiple can be stacked. The row flips to ✓ Added
   // off the live attached state (addedIds). Promotion into the quick list happens

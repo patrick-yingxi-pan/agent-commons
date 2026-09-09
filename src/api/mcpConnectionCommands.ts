@@ -5,7 +5,8 @@ import type {
   McpConnectionRemovalResult,
   McpConnectionView,
 } from '../../contract/mcpConnections.ts'
-import { apiDelete, apiPost } from './client.ts'
+import { AccountSwitchedError, apiDelete, apiPost } from './client.ts'
+import { accountGeneration, activeAccount } from './account.ts'
 import { paths } from './keys.ts'
 import type { McpConnectionMutationIntent } from './mcpConnectionIntent.ts'
 import {
@@ -37,6 +38,13 @@ export class McpCredentialCleanupUncertainError extends Error {
   }
 }
 
+function assertScope(intent: McpConnectionMutationIntent, issuedGeneration: number): void {
+  const account = activeAccount()
+  if (issuedGeneration !== accountGeneration() || (account && account.tenantId !== intent.tenantId)) {
+    throw new AccountSwitchedError('MCP connection identity changed')
+  }
+}
+
 function cleanupReconciliationError(idempotencyKey: string): Error {
   return cleanupIsKnownPending(idempotencyKey)
     ? new McpCredentialCleanupPendingError()
@@ -55,13 +63,20 @@ export async function applyMcpConnectionMutation(
   intent: McpConnectionMutationIntent,
   idempotencyKey: string,
 ): Promise<void> {
+  const issuedGeneration = accountGeneration()
+  assertScope(intent, issuedGeneration)
+  const options = () => ({
+    idempotencyKey,
+    expectedSessionUserId: intent.sourceUserId,
+    signal: mcpHttpSignal(MCP_MUTATION_TIMEOUT_MS),
+  })
   if (intent.kind === 'create') {
-    const result = await apiPost<McpConnectionCreateResult>(paths.mcpConnections, intent.request, { idempotencyKey, signal: mcpHttpSignal(MCP_MUTATION_TIMEOUT_MS) })
+    const result = await apiPost<McpConnectionCreateResult>(paths.mcpConnections, intent.request, options())
     rememberConnection(result.connection)
     return
   }
   if (intent.kind === 'inspect') {
-    const result = await apiPost<McpConnectionMutationResult>(paths.mcpConnectionInspect(intent.id), intent.request, { idempotencyKey, signal: mcpHttpSignal(MCP_MUTATION_TIMEOUT_MS) })
+    const result = await apiPost<McpConnectionMutationResult>(paths.mcpConnectionInspect(intent.id), intent.request, options())
     if (result.connection.id !== intent.id) throw new Error('The MCP inspection acknowledgement addressed a different connection.')
     rememberConnection(result.connection)
     rememberCredentialCleanup(result.credentialCleanup)
@@ -74,7 +89,7 @@ export async function applyMcpConnectionMutation(
     const result = await apiPost<McpConnectionMutationResult>(
       paths.mcpConnectionDisconnect(intent.id),
       { expectedRevision: intent.expectedRevision } satisfies McpConnectionLifecycleRequest,
-      { idempotencyKey, signal: mcpHttpSignal(MCP_MUTATION_TIMEOUT_MS) },
+      options(),
     )
     if (result.connection.id !== intent.id) throw new Error('The MCP disconnect acknowledgement addressed a different connection.')
     rememberConnection(result.connection)
@@ -88,7 +103,7 @@ export async function applyMcpConnectionMutation(
     const result = await apiDelete<McpConnectionRemovalResult>(
       paths.mcpConnection(intent.id),
       { expectedRevision: intent.expectedRevision } satisfies McpConnectionLifecycleRequest,
-      { idempotencyKey, signal: mcpHttpSignal(MCP_MUTATION_TIMEOUT_MS) },
+      options(),
     )
     // Both removed:true and removed:false are authoritative absence
     // acknowledgements for the public row. The reviewed row remains held by
@@ -100,7 +115,7 @@ export async function applyMcpConnectionMutation(
     if (result.credentialCleanup === 'pending') throw new McpCredentialCleanupPendingError()
     return
   }
-  const result = await apiPost<McpConnectionMutationResult>(paths.mcpConnectionCleanup(intent.id), {}, { idempotencyKey, signal: mcpHttpSignal(MCP_MUTATION_TIMEOUT_MS) })
+  const result = await apiPost<McpConnectionMutationResult>(paths.mcpConnectionCleanup(intent.id), {}, options())
   if (result.connection.id !== intent.id) throw new Error('The MCP cleanup acknowledgement addressed a different connection.')
   rememberConnection(result.connection)
   rememberCredentialCleanup(result.credentialCleanup)
@@ -118,7 +133,9 @@ export async function reconcileMcpConnectionMutation(
   cause?: unknown,
 ): Promise<boolean> {
   if (intent.kind === 'create') {
+    const issuedGeneration = accountGeneration()
     const expectedId = await mcpConnectionCreationId(intent.tenantId, intent.request.creationId)
+    assertScope(intent, issuedGeneration)
     try {
       const result = await getMcpConnection(expectedId)
       rememberConnection(result)

@@ -7,6 +7,11 @@ const SHIPPED_ROOTS = new Set(['contract', 'connector', 'desktop', 'dist', 'node
 const DESKTOP_RUNTIME_PACKAGES = new Set([
   '@anthropic-ai/sdk',
   '@zip.js/zip.js',
+  'ajv',
+  'fast-deep-equal',
+  'fast-uri',
+  'json-schema-traverse',
+  'require-from-string',
   '@babel/runtime',
   '@stablelib/base64',
   'fast-sha256',
@@ -62,6 +67,7 @@ export function ignoreFromPackage(path) {
       'desktop/smoke.mjs',
       'desktop/smokePaths.mjs',
       'desktop/mcpCredentialSmoke.mjs',
+      'desktop/mcpSchemaSmoke.mjs',
       'desktop/attachmentSmoke.mjs',
       'desktop/attachmentSmokeFixture.mjs',
     ].includes(normalized)
@@ -79,7 +85,8 @@ export default {
   asar: true,
   // A runtime allowlist is stricter than package-manager pruning: frontend
   // dependencies are build inputs. The server's SDK closure and the bounded
-  // values-only Office ZIP writer belong in the installed application.
+  // values-only Office ZIP writer and isolated schema validator belong in the
+  // installed application; no renderer imports the validator.
   prune: false,
   ignore: ignoreFromPackage,
   extendInfo: {

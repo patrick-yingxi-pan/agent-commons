@@ -2,11 +2,12 @@
 
 The product's inbound MCP door is described in [mcp-access.md](mcp-access.md).
 This document covers the separate client boundary for user-added external MCP
-servers. The full connect → inspect → attach → approve → execute workflow is
-not implemented yet. The tenant-owned save → inspect → refresh/disconnect →
-remove workflow now has routes, a Contexts page, and native credential wiring.
-Tool attachment, semantic schema validation, approval, and release execution
-remain unfinished; release fulfilment stays `unconfigured`.
+servers. The interactive connect → inspect → attach → approve → execute workflow
+now has a real bounded HTTP adapter. Every external call requires fresh owner
+approval; tool names, annotations and standing routine grants never waive it.
+OAuth, local transports, multi-round input handling, standing trust and real
+third-party acceptance remain required. Other release connector adapters remain
+`unconfigured`; this MCP path cannot borrow development fixture capabilities.
 
 ## Implemented transport substrate
 
@@ -32,9 +33,9 @@ Request JSON is snapshotted before serialization (depth 40, 8,192 nodes for the
 complete RPC envelope), without invoking caller getters or `toJSON` hooks.
 
 After a request is submitted, a transport failure reports `mayHaveExecuted`.
-This is conservative uncertainty, not proof of success or failure. The future
-adapter must durably retain that uncertainty rather than blindly replaying a
-write. An HTTP error cannot carry a successful tool result through this seam.
+This is conservative uncertainty, not proof of success or failure. The approved
+executor durably retains it and never automatically repeats the call. An HTTP
+error cannot carry a successful tool result through this seam.
 Explicit legacy-session cleanup uses a body-free DELETE to the same validated
 endpoint; it cannot follow redirects or expand the destination scope.
 Outgoing headers have a combined 32 KiB ceiling, including the explicit bearer;
@@ -101,12 +102,13 @@ Real HTTP peers cover bare and correlated legacy 404s; deterministic clock and
 state-machine tests lock limits, cancellation and private credential retirement.
 
 `server/mcpCatalog.ts` snapshots and bounds presentation fields and schema JSON
-(64 KiB, depth 32, 4,096 nodes per schema). It does **not** yet validate JSON
-Schema dialect semantics or authorize calls. Remote instructions, icons, links,
+(64 KiB, depth 32, 4,096 nodes per schema). This presentation parser does not
+validate dialect semantics or authorize calls; the separate admission phase below
+validates schemas. Remote instructions, icons, links,
 `$ref` and tool annotations remain inert data. Extra protocol metadata is not
 mistaken for an invalid tool definition. Real HTTP peer tests cover both eras.
 
-## Implemented single-call protocol boundary (not connected to execution)
+## Implemented single-call protocol boundary
 
 `server/mcpToolCall.ts` sends exactly one explicit `tools/call` using a supplied
 protocol version and, for legacy peers, the surrounding caller-owned initialized
@@ -114,7 +116,8 @@ session. It does not reuse discovery's already-released session, initialize a
 new one, downgrade, refresh a catalog, replay, or continue an input-required
 call. Read-only legacy response resumption is owned by the HTTP transport above.
 `server/mcpProtocol.ts` owns the shared versions and request metadata.
-No product route, model transport, or release runtime is wired to this caller.
+Only the separately approved executor below supplies product authority to this
+caller; protocol support itself grants none.
 
 The preflight snapshots arguments (48 KiB, depth 32, 4,096 nodes) and the reviewed
 schema without invoking getters or serialization hooks. This is structural
@@ -125,8 +128,8 @@ names are bounded, token-safe and case-insensitively unique; values follow the
 protocol's UTF-8/base64 sentinel rules. Non-static annotations, incompatible
 primitive values and header-budget overflow fail before network work. `$ref`
 is never resolved; data in schema examples/defaults is not treated as a schema.
-Executable catalog admission must still exclude individually invalid HTTP tool
-definitions rather than exposing them as callable tools.
+The separate executable catalog admission phase excludes individually invalid
+HTTP tool definitions rather than exposing them as callable tools.
 
 `server/mcpToolResult.ts` snapshots the entire result before interpretation
 (1 MiB, depth 32, 16,384 nodes, 128 content blocks). It retains supported text,
@@ -183,10 +186,10 @@ the cleanup fallback, and cancellation delivery is not a session-release receipt
 
 Read-only catalog renewal above is separate from execution recovery. A later
 explicit tool transaction may initialize anew, but this transaction never
-replays an uncertain call. Safe execution recovery still needs durable receipts
-and an explicit product policy. These boundaries follow the
+replays an uncertain call. Product-owned receipts below now retain execution
+uncertainty across restart. These boundaries follow the
 [legacy HTTP lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports)
-and do not authorize product execution.
+and do not themselves authorize product execution.
 
 ## Implemented connection lifecycle and native custody
 
@@ -203,6 +206,11 @@ enumerate, discard, or resolve secrets. The owner-only credential-binding form
 returns the exact server audience for that ceremony, with `no-store`; ordinary
 connection reads omit both endpoint and credential reference. The renderer
 validates the returned connection, tenant and endpoint before native provision.
+First-party lifecycle commands and the private binding ceremony carry the frozen
+initiating sign-in. Cross-tab cookie drift is refused before reading private
+bindings or applying a connection mutation; read-only result reconciliation does
+not silently retarget the initiating account. A failed lazy runtime load remains
+recoverable and is never cached permanently as a rejected import.
 
 After durable state loads, startup awaits an acknowledged binding sync before
 accepting HTTP or creating a renderer window. Initial synchronization errors
@@ -235,28 +243,92 @@ the app is stopped; this does not prove live replacement inspection, contact an
 external server, or demonstrate execution. It runs as part of `desktop:smoke`,
 including extracted release candidates; helpers never ship in the artifact.
 
+## Interactive tool approval and execution
+
+Inspection now admits input and optional output schemas through JSON Schema
+2020-12 validation. Ajv runs only in a short-lived worker, with 64 KiB/depth
+32/4,096-node schemas, 1 MiB/depth 32/16,384-node values, a two-second default
+deadline and four live workers maximum. The slot remains held until the worker
+actually terminates. Worker memory/code/stack are bounded; environment and
+runtime arguments are empty. Values are never coerced, defaulted or mutated;
+format is an annotation, not an assertion. Only the default/explicit 2020-12
+dialect and its supported vocabularies are admitted. Local references resolve
+without network reads, preserving nested resource bases and decoded pointer-token
+identity without applying a selected target's relative ID twice. Explicitly
+referenced annotation objects receive the same semantic admission as ordinary
+schema positions; unreferenced data remains inert. Unresolved references, async extensions and unsupported
+required vocabularies fail closed. Remote schema compilation never blocks the
+service event loop. These choices follow the [MCP schema requirements](https://modelcontextprotocol.io/specification/2026-07-28/basic/index)
+and [Ajv's untrusted-schema guidance](https://ajv.js.org/security.html).
+
+Each valid tool receives a code-owned schema-policy hash. Invalid individual
+schemas or modern header definitions remain inspectable metadata but are absent
+from `executableTools`; cancellation or worker-capacity failure refuses the whole
+inspection rather than publishing a partial capability set. Legacy saved
+inspections require Refresh catalog to acquire current admission. Disconnected
+rows remain visible on existing conversation chips but cannot be newly attached
+or contribute tools. Model wire names hash connection ID and raw tool name;
+descriptions, labels and annotations cannot alias authority. The combined external
+model catalog is bounded to 128 definitions/512 KiB; an oversized set is refused
+as a whole with an explicit model-side disclosure.
+
+Both provider transports propose the exact validated arguments. Confirm pins
+the containing owner, connection revision, raw tool identity and schema hash,
+then durably commits `running` plus its opaque decision receipt before any
+credential or network wait. Credentials resolve for one exact private audience;
+connection and attachment authority are rechecked after negotiation and after
+DNS resolution, directly before the one `tools/call` POST. A changed protocol, catalog, connection or attachment
+cannot redirect the approved call. Results are shape- and output-schema-checked,
+stored with the activity, and displayed as escaped text/structured JSON. Media
+and resource links remain inert descriptors; neither a result nor metadata grants
+permission to fetch or execute another resource.
+
+Confirmed success is `done`; a valid tool `isError` is `failed` with its result;
+known pre-submission refusal is `failed` without a result. Post-submission failure
+or an invalid/unconfirmed result is `uncertain`. All are terminal for that
+approval, never a Retry invitation. Exact decision reconciliation can read a
+running or terminal receipt without resubmitting the external call. After
+compaction, the existing full Session read may reconcile only an exact terminal
+external-MCP receipt from the archive; ordinary activity lookup remains active-only,
+so archived proposed or running state cannot become a new approval door. Restart
+converts interrupted `running` receipts to `uncertain` and saves that recovery
+before HTTP admission. A new attempt needs a new proposal and new approval.
+The conversation audit distinguishes failed and uncertain effects from success.
+
+An unresolved approval remains part of the execution transaction rather than
+ordinary historical prose. A conversation with a running external call cannot
+be deleted until that call settles. Compaction refuses proposed or running
+external calls both before model work and again at commit, and a fork refuses a
+copied prefix containing either state. These walls retain the one actionable
+consent card and running receipt; once the activity is terminal, the normal
+delete, compaction, and branching workflows are available again.
+
+Later endpoint and Session turns use the same bounded receipt projection instead
+of retaining only the assistant's obsolete proposal prose. Identity, lifecycle
+and known submission (not sent, result received, or unknown) survive output-budget
+omission; omitted content is explicitly unknown. Binary
+media and private metadata are not model-history text. Full receipts remain in
+the saved conversation and its compaction archive, where terminal receipts retain
+exact lost-response acknowledgement and nonterminal rows retain no execution authority.
+
 ## Required next work
 
-- Full schema validation and execution messages: discovery supports the
+- Complete protocol execution: discovery supports the
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
-  but is not a complete MCP client. JSON Schema 2020-12 validation, executable
-  catalog admission and execution-specific expiry recovery,
-  output-schema checking and multi-round input handling remain. The isolated single-call boundary
-  above does not replace those requirements.
+  but is not a complete MCP client. Execution-specific expiry recovery and
+  multi-round input handling remain. The bounded single-call workflow does not
+  replace those requirements or imply standing/unattended trust.
 - Extend packaged credential acceptance through live inspection/replacement and
   interrupted acknowledgement; native queue/unit and browser fixtures cover
   these seams separately but cannot replace the combined OS-backed path.
-- Attach inspected tools with stable identities and validated schemas;
-  remote descriptions and annotations remain untrusted.
-- An approved tool policy and durable execution/uncertainty receipts shared by
-  both model transports, later confirmation and unattended routines.
-- Browser and packaged acceptance of the whole journey, including tenant walls,
-  restart, secret exclusion, cancellation and failure recovery.
+- Explicit server trust and unattended policy, OAuth and local transports.
+- Third-party and combined packaged acceptance of the whole journey, including
+  tenant walls, restart, secret exclusion, cancellation and failure recovery.
 
-The owner has been asked whether all external calls should require approval
-until explicit server trust. No answer has been inferred. MCP annotations and
-tool names alone must not become the authority to execute a call.
+Per-call approval is the conservative initial workflow, not an inferred owner
+decision to trust a server. Any policy waiving that approval still requires an
+explicit owner decision. MCP annotations and tool names are never authority.
 
 Network mechanics follow [Node's HTTP request contract](https://nodejs.org/api/http.html#httprequesturl-options-callback).
 Address exclusions were checked against the IANA [IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry)

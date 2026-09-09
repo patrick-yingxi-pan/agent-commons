@@ -73,18 +73,21 @@ test('contract/ + server/ use only erasable TypeScript (no enum / namespace / pa
   assert.deepEqual(offenders, [], `non-erasable syntax breaks the type-stripping Node runtime: ${offenders.join('; ')}`)
 })
 
-test('the server runtime imports only its intentional model client and export-only ZIP writer', () => {
+test('the server runtime imports only its model client, export-only ZIP writer, and isolated schema validator', () => {
   const externals = new Set<string>()
-  for (const file of filesUnder('server')) {
+  for (const file of filesUnder('server', ['.ts', '.tsx', '.mjs', '.cjs'])) {
     const src = stripComments(read(file))
     for (const match of src.matchAll(/(?:\bfrom\s+|^\s*import\s+|\bimport\s*\()'([^']+)'/gm)) {
       const specifier = match[1]
       if (!specifier.startsWith('.') && !specifier.startsWith('node:')) externals.add(specifier)
+      if (specifier.startsWith('ajv') || specifier === 'fast-uri' || specifier === 'json-schema-traverse') {
+        assert.equal(file, join(ROOT, 'server/mcpSchemaWorker.mjs'), 'untrusted schemas and their references resolve only in the terminable worker')
+      }
     }
   }
   assert.deepEqual(
     [...externals].sort(),
-    ['@anthropic-ai/sdk', '@zip.js/zip.js/lib/zip-core-custom.js'],
+    ['@anthropic-ai/sdk', '@zip.js/zip.js/lib/zip-core-custom.js', 'ajv/dist/2020.js', 'fast-uri', 'json-schema-traverse'],
     'server runtime dependencies are a deliberate boundary; add one only with an explicit invariant update',
   )
 })

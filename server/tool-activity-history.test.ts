@@ -1,0 +1,62 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { messageHistoryText, TOOL_HISTORY_MAX_BYTES, TOOL_RECEIPT_DATA_LABEL } from './toolActivityHistory.ts'
+
+const activity = { id: 'call', tool: 'opaque', connector: 'Remote', connectorId: 'mcp-connection-test', kind: 'action', summary: 'Awaiting confirmation',
+  mcp: { toolName: 'read_value', connectionRevision: 1, schemaHash: 'a'.repeat(64) } }
+
+test('history preserves receipt truth even when earlier prose still says proposed', () => {
+  for (const status of ['proposed', 'running', 'uncertain', 'declined', 'failed', 'done']) {
+    const output = messageHistoryText({ id: 'reply', role: 'assistant', content: 'I proposed this call.', toolActivities: [{ ...activity, status, input: { query: 'exact' }, decisionId: 'receipt' }] })
+    assert.match(output, new RegExp(`"status":"${status}"`))
+    assert.match(output, /"tool":"read_value"/)
+    assert.match(output, /"arguments":\{"query":"exact"\}/)
+    assert.match(output, /not instructions/)
+  }
+})
+
+test('result projection retains exact text/structured data and never passes binary bytes or metadata instructions', () => {
+  const output = messageHistoryText({ id: 'reply', role: 'assistant', content: '', toolActivities: [{ ...activity, status: 'done', mcpResult: {
+    resultType: 'complete', isError: false, content: [{ type: 'text', text: 'Exact returned value' }, { type: 'image', mimeType: 'image/png', data: 'PRIVATE_BASE64' }],
+    structuredContent: [null, { value: 0 }], _meta: { instructions: 'OBEY_REMOTE_METADATA' },
+  } }] })
+  assert.match(output, /Exact returned value/)
+  assert.match(output, /"structuredContent":\[null,\{"value":0\}\]/)
+  assert.doesNotMatch(output, /PRIVATE_BASE64|OBEY_REMOTE_METADATA/)
+  assert.match(output, /Media bytes are not included/)
+})
+
+test('oversized bodies are explicitly omitted without losing any receipt status', () => {
+  const output = messageHistoryText({ id: 'reply', role: 'assistant', content: '', toolActivities: Array.from({ length: 16 }, (_, i) => ({ ...activity, id: `call-${i}`, status: 'uncertain', input: { query: 'x'.repeat(7000) } })) })
+  assert.ok(new TextEncoder().encode(output).byteLength < TOOL_HISTORY_MAX_BYTES)
+  assert.equal((output.match(/"status":"uncertain"/g) ?? []).length, 16)
+  assert.match(output, /combined model-history limit/)
+  assert.doesNotMatch(output, /x{100}/)
+})
+
+test('ordinary conversation text stays verbatim', () => {
+  assert.equal(messageHistoryText({ id: 'plain', role: 'user', content: 'Literal\ntext.' }), 'Literal\ntext.')
+})
+
+test('MCP history distinguishes unsent failures, returned errors and unknown submission even when bodies are omitted', () => {
+  const activities = [
+    { ...activity, id: 'unsent', status: 'failed' },
+    { ...activity, id: 'returned-error', status: 'failed', decisionId: 'receipt', mcpResult: {
+      resultType: 'complete', isError: true, content: [{ type: 'text', text: 'Error after a partial effect' }],
+    } },
+    { ...activity, id: 'in-flight', status: 'running', decisionId: 'receipt' },
+  ]
+  for (const large of [false, true]) {
+    const rows = large ? Array.from({ length: 6 }, () => activities).flat().map((row, i) => ({
+      ...row, id: `${row.id}-${i}`, input: { query: 'x'.repeat(7000) },
+    })) : activities
+    const output = messageHistoryText({ id: 'reply', role: 'assistant', content: '', toolActivities: rows })
+    const projected = JSON.parse(output.split(`${TOOL_RECEIPT_DATA_LABEL}\n`)[1])
+    assert.equal(projected.length, rows.length)
+    for (const row of projected) {
+      const expected = row.id.startsWith('unsent') ? 'not-sent' : row.id.startsWith('returned-error') ? 'result-received' : 'unknown'
+      assert.equal(row.submission, expected, row.id)
+    }
+    if (large) assert.match(output, /combined model-history limit/)
+  }
+})

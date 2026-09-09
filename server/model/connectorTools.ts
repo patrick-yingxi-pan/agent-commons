@@ -13,7 +13,11 @@
  *  fixture runtime while release profiles fail closed until a real adapter exists. */
 import type { Connector, ToolActivity } from '../../contract/entities.ts'
 import type { SessionContext } from '../../contract/contexts.ts'
-import { isExternalMcpId } from '../../contract/mcpConnections.ts'
+import { isExternalMcpId, type McpConnectionView } from '../../contract/mcpConnections.ts'
+import { createHash, randomUUID } from 'node:crypto'
+import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
+import { snapshotMcpToolInvocation } from '../mcpToolCall.ts'
+import { validateMcpSchema } from '../mcpSchema.ts'
 import { connectorDetail, type ConnectorDetail } from '../data/connectorDetails.ts'
 import { acceptConnectorInput, invokeConnectorRuntime, type ConnectorToolRuntime } from '../connectorRuntime.ts'
 
@@ -21,7 +25,7 @@ import { acceptConnectorInput, invokeConnectorRuntime, type ConnectorToolRuntime
 export interface ConnectorToolDef {
   name: string
   description: string
-  input_schema: { type: 'object'; properties: Record<string, never>; required: string[] }
+  input_schema: { type: 'object'; [key: string]: unknown }
 }
 
 /** Execution binding for a derived tool — how to turn a call into a `ToolActivity`. */
@@ -34,6 +38,8 @@ interface ToolBinding {
    *  contexts in its authored workflow. Interactive turns omit this and keep
    *  action tools proposal-only. */
   standingApproved: boolean
+  /** Exact inspected authority, never a development fixture or standing grant. */
+  mcp?: { anchor: NonNullable<ToolActivity['mcp']>; inputSchema: Record<string, unknown> }
 }
 
 /** What `deriveConnectorTools` returns: the definitions to declare + the bindings the
@@ -41,7 +47,9 @@ interface ToolBinding {
 export interface DerivedConnectorTools {
   definitions: ConnectorToolDef[]
   bindings: Map<string, ToolBinding>
+  externalUnavailable?: boolean
 }
+export const EXTERNAL_CATALOG_LIMIT_MESSAGE = 'Attached external MCP tools exceed the bounded catalog capacity and are unavailable for this turn. Ask the user to attach fewer MCP servers; do not claim tools were called.'
 
 /** Only connector / MCP contexts contribute model tools (a folder/repo/file is
  *  surfaced through the built-in resource tools, not here). */
@@ -87,7 +95,7 @@ function connectorResult(detail: ConnectorDetail): string {
  *  contexts ⇒ same definitions + bindings (so tests and the wire are stable). */
 export function deriveConnectorTools(
   contexts: SessionContext[],
-  options: { standingApprovedContextIds?: ReadonlySet<string> } = {},
+  options: { standingApprovedContextIds?: ReadonlySet<string>; externalMcpConnections?: readonly McpConnectionView[] } = {},
 ): DerivedConnectorTools {
   const definitions: ConnectorToolDef[] = []
   const bindings = new Map<string, ToolBinding>()
@@ -96,7 +104,7 @@ export function deriveConnectorTools(
   for (const ctx of contexts) {
     if (!isConnectorContext(ctx)) continue
     // A saved external connection cannot borrow fixture capabilities through
-    // a label or a caller-supplied kind. Real execution awaits its own adapter.
+    // a label or a caller-supplied kind. Its separately admitted path follows.
     if (isExternalMcpId(ctx.id)) continue
     const detail = connectorDetail(asConnector(ctx))
     const s = slug(ctx.label) || ctx.id
@@ -129,7 +137,33 @@ export function deriveConnectorTools(
       })
     }
   }
-  return { definitions, bindings }
+  const externalDefinitions: ConnectorToolDef[] = []
+  const externalBindings = new Map<string, ToolBinding>()
+  let bytes = 0
+  for (const context of contexts) {
+    if (context.type !== 'mcp' || !isExternalMcpId(context.id)) continue
+    const connection = options.externalMcpConnections?.find(row => row.id === context.id)
+    if (!connection || connection.status !== 'connected' || connection.execution !== 'approval-required') continue
+    for (const tool of connection.tools) {
+      if (!connection.executableTools?.includes(tool.name)) continue
+      const name = `mcp_external_${createHash('sha256').update(JSON.stringify([connection.id, tool.name])).digest('hex').slice(0, 48)}`
+      if (externalBindings.has(name)) continue
+      const exact = snapshotMcpToolInvocation({ tool, arguments: {} })
+      const definition: ConnectorToolDef = { name,
+        description: `${tool.name} — via ${connection.label}. External server; every call proposes exact arguments for owner approval.\n${tool.description ?? ''}`,
+        input_schema: exact.tool.inputSchema as ConnectorToolDef['input_schema'] }
+      bytes += new TextEncoder().encode(JSON.stringify(definition)).byteLength
+      // Do not partially expose an oversized set and leave the model guessing
+      // which attached tools it can use. The caller discloses this refusal.
+      if (externalDefinitions.length >= 128 || bytes > 524_288) return { definitions, bindings, externalUnavailable: true }
+      externalDefinitions.push(definition)
+      externalBindings.set(name, { connectorId: connection.id, connectorLabel: connection.label,
+        kind: 'action', developmentFixtureSummary: '', standingApproved: false,
+        mcp: { anchor: { connectionRevision: connection.revision, toolName: tool.name, schemaHash: mcpToolSchemaHash(tool) }, inputSchema: exact.tool.inputSchema } })
+    }
+  }
+  for (const [name, binding] of externalBindings) bindings.set(name, binding)
+  return { definitions: [...definitions, ...externalDefinitions], bindings }
 }
 
 /** The bare tool name for display / prose — drop the `mcp__slug__` / `connector__slug__`
@@ -152,6 +186,18 @@ export async function runConnectorTool(
 ): Promise<ToolActivity | undefined> {
   const b = bindings.get(name)
   if (!b) return undefined
+  if (b.mcp) {
+    // Provider call ids correlate wire results, not durable user consent. A
+    // provider may reuse one across turns after the earlier call is archived.
+    const base: ToolActivity = { id: `mcp-activity-${randomUUID()}`, tool: name, connector: b.connectorLabel, connectorId: b.connectorId,
+      kind: 'action', mcp: { ...b.mcp.anchor }, summary: '' }
+    let exactInput: Record<string, unknown>
+    try { exactInput = snapshotMcpToolInvocation({ tool: { name: b.mcp.anchor.toolName, inputSchema: b.mcp.inputSchema }, arguments: input }).arguments }
+    catch { return { ...base, status: 'failed', summary: 'The external tool arguments are invalid. No call was proposed or sent.', failure: { code: 'connector_failed', retryable: false } } }
+    const accepted = await validateMcpSchema(b.mcp.inputSchema, { value: exactInput }, { signal })
+    if (!accepted.ok) return { ...base, status: 'failed', summary: 'The external tool arguments could not be validated. No call was proposed or sent.', failure: { code: 'connector_failed', retryable: false } }
+    return { ...base, input: exactInput, status: 'proposed', summary: `Proposed: ${b.mcp.anchor.toolName} on ${b.connectorLabel} — awaiting owner approval for this call only.` }
+  }
   const acceptedInput = acceptConnectorInput(input)
   const base = {
     id,

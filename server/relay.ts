@@ -40,7 +40,9 @@ import type {
 } from '../contract/index.ts'
 import { systemPrompt, type ReplyHandlers, type ReplyResult, type ReplySession } from './generate.ts'
 import { TOOL_DEFINITIONS, type ToolContext } from './model/tools.ts'
-import { deriveConnectorTools } from './model/connectorTools.ts'
+import { deriveConnectorTools, EXTERNAL_CATALOG_LIMIT_MESSAGE } from './model/connectorTools.ts'
+import { TOOL_RECEIPT_DATA_LABEL, TOOL_RECEIPT_SYSTEM_ADDITION } from './toolActivityHistory.ts'
+import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv } from './env.ts'
@@ -517,6 +519,7 @@ export async function relayReply(
   connectorContexts: SessionContext[] = [],
   history: RelayPromptTurn[] = [],
   api?: ApiToolRuntime,
+  externalMcpConnections?: readonly McpConnectionView[],
 ): Promise<ReplyResult> {
   // The turn's callable surface — the exact list `generateReply` declares: the
   // Agent's allowlist plus the session's attached connector/MCP tools (P6;
@@ -526,7 +529,7 @@ export async function relayReply(
   // the wire's `inputSchema` so the contract stays SDK-shape-free.
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
   const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
-  const { definitions: connectorDefs, bindings: connectorBindings } = deriveConnectorTools(connectorContexts)
+  const { definitions: connectorDefs, bindings: connectorBindings, externalUnavailable } = deriveConnectorTools(connectorContexts, { externalMcpConnections })
   const apiDefs = api ? deriveApiTools(api.catalog).definitions : []
   const tools: RelayToolDefinition[] = [...agentTools, ...connectorDefs, ...apiDefs].map((t) => ({
     name: t.name,
@@ -534,7 +537,10 @@ export async function relayReply(
     inputSchema: t.input_schema as unknown as Record<string, unknown>,
   }))
   const input = attachmentPrompt(text, session.attachments, session.images, relay.supportsImages(providerId) && session.supportsImages !== false)
-  const system = [systemPrompt(session, agent), input.systemAddition].filter(Boolean).join('\n\n')
+  const system = [systemPrompt(session, agent), input.systemAddition,
+    externalUnavailable ? EXTERNAL_CATALOG_LIMIT_MESSAGE : '',
+    history.some(turn => turn.text?.includes(TOOL_RECEIPT_DATA_LABEL)) ? TOOL_RECEIPT_SYSTEM_ADDITION : '',
+  ].filter(Boolean).join('\n\n')
   // Content-address the near-invariant parts once per turn (v3 framing dedupe):
   // delivery strips whichever bodies the pulling connector already holds.
   const systemHash = hashRelayContent(system)

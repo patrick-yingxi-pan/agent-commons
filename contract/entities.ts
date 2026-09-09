@@ -10,6 +10,7 @@
 /** Capability is conversation state, not application identity. A conversation
  *  may carry chat, workspace, and repository capability at the same time. */
 import type { SessionContext } from './contexts.ts'
+import type { McpToolExecutionAnchor, McpToolResult } from './mcpExecution.ts'
 
 export type Capability = 'chat' | 'workspace' | 'repo'
 
@@ -189,17 +190,25 @@ export interface ToolActivity {
   /** The attached connector/MCP this tool came from — its label + id, for the card. */
   connector: string
   connectorId: string
-  /** Whether the call read data or took an action (a write). A read needs no consent;
-   *  an action is gated. */
+  /** Legacy reads run without consent; actions are gated. Every external MCP
+   * call uses the action gate, regardless of an untrusted read-only hint. */
   kind: 'read' | 'action'
-  /** Lifecycle: `done` = executed; `proposed` = an action awaiting consent;
-   *  `declined` = the user said no; `failed` = the runtime accepted no result.
-   *  Absent is treated as `done` (back-compat with the read-only slice). */
-  status?: 'done' | 'proposed' | 'declined' | 'failed'
+  /** Lifecycle: `done` = a valid result was received; `proposed` = awaiting
+   * consent; `running` = approval durably landed before an external attempt;
+   * `declined` = the user said no; `failed` = a known terminal failure;
+   * `uncertain` = the external call may have executed but no valid result is
+   * known. Running/uncertain calls are never replayed automatically. Absent is
+   * treated as `done` (back-compat with the read-only slice). */
+  status?: 'done' | 'proposed' | 'running' | 'declined' | 'failed' | 'uncertain'
   /** Opaque durable acknowledgement for a first-party consent decision. Present
    *  only after a keyed Confirm / Decline lands; the containing Session remains
    *  the private tenant authority, so no raw account identity crosses the wire. */
   decisionId?: string
+  /** Immutable reviewed authority for an external MCP call. The connection's
+   * private endpoint and credential reference never enter the public row. */
+  mcp?: McpToolExecutionAnchor
+  /** Bounded, inert result returned by a completed external MCP call. */
+  mcpResult?: McpToolResult
   /** The one-line result (a done read/action) or proposed effect (a pending action),
    *  shown on the card and — when done — fed back to the model. */
   summary: string

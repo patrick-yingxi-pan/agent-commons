@@ -43,7 +43,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | Bounded MCP transport/discovery now composes with tenant-owned lifecycle routes, a Contexts setup/catalog/recovery workflow, exact inspection receipts, and provision-only OS-encrypted desktop credentials. Startup reconciles persisted bindings before admission; disconnect/removal cleanup is independently retryable. Browser protocol fixtures and focused packaged OS-storage acceptance prove these boundaries, not third-party tool execution. Schema semantics, attachment, approval, call receipts, and model execution remain required; release fulfilment is still unconfigured. Repository content/git and some imported artifact renderers remain declared fixtures. |
+| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. OAuth, local transports, standing trust, MRTR and third-party acceptance remain required. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 
@@ -67,13 +67,27 @@ same-name identity separation, malformed-payload retry, and canonical-body
 recovery across a full relaunch, alongside the existing vault/input/export
 checks. Signing/notarization and native Intel acceptance remain separate gates.
 
-The next core implementation milestone is one remote HTTPS MCP tool called from
-an interactive conversation through explicit owner approval, stable catalog and
-argument identity, and a durable bounded result/uncertain-execution receipt.
-Every call requires approval initially; uncertain execution is never replayed
-automatically. Broader trust, local transports, and standing execution remain
-required later work, not omissions. A real third-party acceptance target and any
-policy that waives per-call approval require an explicit owner decision.
+The current core checkpoint builds one remote HTTPS MCP tool called from an
+interactive conversation through explicit owner approval, stable catalog and
+argument identity, and a durable bounded result/uncertain-execution receipt
+(MODEL-36). Both model transports share exact attachment, schema declarations,
+argument validation and inert outcome history. Every call requires approval;
+the running receipt commits before credential or network work, and an interrupted
+call becomes durable uncertainty on restart rather than being replayed. Catalog
+schemas compile in bounded, cancellable workers; no remote references are fetched.
+Unsupported tools remain inspectable but cannot become model capabilities.
+Conversation lifecycle preserves unresolved external work: deletion waits for a
+running call, while summarization and copied fork history require proposed or
+running calls to be resolved first. These guards protect the original durable
+receipt instead of creating a second execution or an orphaned approval card.
+Focused protocol, model, route-race and persistence tests accompany the workflow.
+Checkpoint acceptance requires the complete verifier, responsive surface/account
+matrix, packaged executable smoke and adversarial final diff review. The native
+schema phase exercises the actual ASAR validator, including deadlines,
+cancellation and capacity recovery; it is not combined third-party execution
+acceptance. Broader trust, local transports and standing execution remain required
+later work, not omissions. A real third-party acceptance target and any policy
+that waives per-call approval require an explicit owner decision.
 
 Structured artifact authoring now uses the same save proposal and exact-ID body
 store as documents. Sheets carry literal rectangular values; slides carry ordered

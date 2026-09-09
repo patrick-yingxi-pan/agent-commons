@@ -15,7 +15,7 @@ import { createMcpConnectionRegistry, mcpConnectionCreationId } from './mcpConne
 import { createMcpConnectionInspector } from './mcpConnectionInspector.ts'
 import { MCP_MODERN_VERSION } from './mcpDiscovery.ts'
 
-test('authenticated discovery uses the exact private credential and survives a registry/vault restart without granting execution', async (t) => {
+test('authenticated discovery uses the exact private credential and survives a registry/vault restart without executing any tool', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'agent-commons-mcp-integration-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const key = randomBytes(32)
@@ -77,7 +77,8 @@ test('authenticated discovery uses the exact private credential and survives a r
   })
   const connection = await inspector()(id, 'owner', 0, { credentialReference: reference })
   assert.equal(connection.tools[0].name, 'inspect')
-  assert.equal(connection.execution, 'unavailable')
+  assert.equal(connection.execution, 'approval-required')
+  assert.deepEqual(connection.executableTools, ['inspect'])
   assert.deepEqual(calls, ['server/discover', 'tools/list'])
   assert.doesNotMatch(JSON.stringify(connection), /integration-outbound-bearer|127\.0\.0\.1|MCP_DESKTOP/)
   const serialized = JSON.stringify(registry.snapshot())

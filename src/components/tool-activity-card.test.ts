@@ -17,6 +17,30 @@ test('connector consent previews the exact persisted arguments', () => {
   assert.ok(source.includes('JSON.stringify(a.input, null, 1)'), 'the preview reads the persisted input verbatim')
 })
 
+test('external MCP calls always show exact one-shot approval identity', () => {
+  assert.match(source, /const mcp = a\.mcp/)
+  assert.match(source, /mcp\.toolName/,
+    'the reviewed raw tool name is displayed instead of a routing-name derivation')
+  assert.match(source, /externalMcp && \(a\.status === 'proposed' \|\| held !== null\)/,
+    'every external MCP call is approval-gated independently of read/action annotations')
+  assert.match(source, /Approval applies only to this call/)
+  assert.match(source, /confirm: 'Run tool'/)
+})
+
+test('external MCP results are inert and uncertainty cannot imply success or replay', () => {
+  assert.match(source, /function McpResultBody/)
+  assert.match(source, /JSON\.stringify\(result\.structuredContent, null, 2\)/)
+  assert.match(source, /Media omitted/)
+  assert.doesNotMatch(source, /dangerouslySetInnerHTML|<img|<audio|href=\{.*mcp/i)
+  assert.match(source, /displayStatus === 'uncertain'/)
+  assert.match(source, /may have run, but no result was confirmed/)
+  assert.match(source, /won.t be retried automatically/)
+  assert.doesNotMatch(source, /uncertain[\s\S]{0,500}Retry/,
+    'a post-submission uncertain execution never offers replay from the card')
+  assert.match(source, /a\.mcpResult\?\.isError/,
+    'a server-reported tool error cannot receive the successful result face')
+})
+
 test('tool consent is one exact shell-owned decision with monotonic conversation recovery', () => {
   const card = stripComments(read(join(ROOT, 'src', 'components', 'ToolActivityCard.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'toolActivityDecisionCommands.ts')))
@@ -33,7 +57,7 @@ test('tool consent is one exact shell-owned decision with monotonic conversation
     'there is no best-effort component command left to bypass the acknowledgement owner')
   assert.match(card, /useToolActivityDecisionStatus\(\)/)
   assert.match(card, /heldToolActivityDecisionIntent\(sessionId, a\.id\)/)
-  assert.match(card, /enqueueToolActivityDecision\(\{ tenantId, sessionId, activityId: a\.id, decision \}\)/)
+  assert.match(card, /enqueueToolActivityDecision\(\{ tenantId, sourceUserId, sessionId, activityId: a\.id, decision \}\)/)
   assert.match(card, /a\.status === 'proposed' \|\| held !== null/,
     'ambient terminal state cannot hide an uncertain local consent decision')
   assert.match(card, /data-tool-activity-decision=\{held \? 'held' : 'ready'\}/)
@@ -42,12 +66,28 @@ test('tool consent is one exact shell-owned decision with monotonic conversation
   assert.match(card, /mutation\.activeResourceId === resourceId \? mutation\.error : null/,
     'a shell-owned failure still explains itself beside the exact source card')
 
-  assert.match(commands, /apiPost<ToolActivity>[\s\S]*\{ idempotencyKey \}/)
-  assert.match(commands, /activity\.decisionId === expectedId[\s\S]*activity\.status === expectedStatus/)
+  assert.match(commands, /apiPost<ToolActivity>[\s\S]*\{ idempotencyKey, expectedSessionUserId: intent\.sourceUserId \}/,
+    'the approval POST names the frozen first-party session principal')
+  assert.match(commands, /const issuedGeneration = accountGeneration\(\)[\s\S]*await toolActivityDecisionId[\s\S]*assertScope\(intent, issuedGeneration\)/,
+    'the account scope is rechecked after asynchronous receipt hashing and before submission')
+  assert.match(commands, /activity\.decisionId === expectedId[\s\S]*expectedDecisionStatus\(activity, intent\.decision\)/)
+  assert.match(commands, /activity\.kind === 'action'/,
+    'an MCP marker alone cannot turn a malformed read row into a consent acknowledgement')
+  assert.match(commands, /confirmedMcpStatuses[\s\S]*'running'[\s\S]*'done'[\s\S]*'failed'[\s\S]*'uncertain'/,
+    'an exact external confirmation receipt may settle before or after the one-shot call')
+  assert.match(commands, /decision === 'decline'[\s\S]*activity\.status === 'declined'/,
+    'decline never reconciles against an execution-shaped terminal state')
   assert.match(commands, /apiGet<Session>\(paths\.session\(intent\.sessionId\)\)/,
     'reconciliation reads the complete authoritative transcript for an older unresolved card')
+  assert.match(commands, /session\.compactedMessages[\s\S]*candidate\.status === 'done'[\s\S]*candidate\.status === 'failed'[\s\S]*candidate\.status === 'uncertain'[\s\S]*candidate\.status === 'declined'/,
+    'archive reconciliation accepts terminal receipts without reopening proposed or running consent')
   assert.match(facade, /const existing = heldDecisions\.get\(key\)[\s\S]*existing\.intent\.decision === input\.decision/)
   assert.match(facade, /intentId: crypto\.randomUUID\(\)/)
+  assert.match(card, /sourceUserId = identity\?\.via === 'session' \? identity\.user\.id : null/)
+  assert.match(facade, /createRetryableRuntimeLoader<Runtime>/,
+    'a failed lazy import can be retried instead of being cached forever')
+  assert.match(facade, /Couldn.t load the tool decision controller\. Retry safely or Dismiss\./,
+    'lazy-load failure remains a visible held decision')
   assert.match(facade, /onAccountSwitch\([\s\S]*heldDecisions\.clear\(\)/)
   assert.match(runtime, /createAcknowledgedActionMutationController/)
   assert.match(runtime, /candidate\.id === activity\.id \? activity : candidate/,
@@ -73,7 +113,8 @@ test('tool consent is one exact shell-owned decision with monotonic conversation
   const storeEnd = store.indexOf('  sessionWorkspace(', storeStart)
   assert.ok(storeStart >= 0 && storeEnd > storeStart)
   const storeSlice = store.slice(storeStart, storeEnd)
-  assert.match(storeSlice, /activity\.decisionId !== decisionId[\s\S]*expectedStatus/)
+  assert.match(storeSlice, /const exact = candidates\.filter[\s\S]*exact\.length > 1[\s\S]*activity\.status === 'running'[\s\S]*activity\.status === 'uncertain'/,
+    'exact receipt identity wins across active and archived rows without accepting ambiguous duplicates')
   assert.match(storeSlice, /return commitMutationBatch\(\(\) => \{[\s\S]*act\.decisionId = options\.logicalId[\s\S]*recordAudit[\s\S]*persist\(\)[\s\S]*emit\(/,
     'receipt, terminal status, audit, persistence, and publication share one fail-closed commit')
   assert.match(notice, /kind="tool-activity-decision"/)

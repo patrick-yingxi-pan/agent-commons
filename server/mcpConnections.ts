@@ -6,6 +6,7 @@ import { EXTERNAL_MCP_ID_PREFIX, mcpConnectionContext, type McpConnectionView } 
 import type { SavedContext } from '../contract/contexts.ts'
 import { parseOutboundEndpoint } from './outboundAddress.ts'
 import { parseMcpToolsPage } from './mcpCatalog.ts'
+import { MCP_SCHEMA_ADMISSION_VERSION, mcpToolSchemaHash, type McpSchemaAdmission } from './mcpToolAdmission.ts'
 import { MCP_LEGACY_VERSIONS, MCP_MODERN_VERSION, type McpDiscovery } from './mcpDiscovery.ts'
 
 export const MAX_MCP_CONNECTIONS_PER_TENANT = 64
@@ -72,12 +73,17 @@ export interface McpConnectionSetup {
 }
 
 function publicView(row: PrivateMcpConnection): McpConnectionView {
+  const admitted = row.inspection?.schemaAdmission
+  const executableTools = row.connected && admitted?.version === MCP_SCHEMA_ADMISSION_VERSION
+    ? row.inspection!.tools.filter(tool => admitted.hashes.includes(mcpToolSchemaHash(tool))).map(tool => tool.name)
+    : []
   return {
     id: row.id, label: row.label, revision: row.revision, authentication: row.authentication,
     status: row.connected ? 'connected' : row.inspection ? 'disconnected' : 'unverified',
     protocolVersion: row.inspection?.protocolVersion ?? null,
     inspectedAt: row.inspection?.inspectedAt ?? null,
-    tools: structuredClone(row.inspection?.tools ?? []), execution: 'unavailable',
+    tools: structuredClone(row.inspection?.tools ?? []), execution: executableTools.length ? 'approval-required' : 'unavailable',
+    ...(admitted ? { executableTools } : {}),
     inspectionOperationId: row.inspectionOperation?.id ?? null,
   }
 }
@@ -93,10 +99,23 @@ function checkedInspection(value: unknown): PrivateMcpConnection['inspection'] {
       typeof value.cleanup !== 'string' ||
       !['not-needed', 'released', 'server-managed', 'unconfirmed'].includes(value.cleanup)) fail('invalid')
   const { tools } = parseMcpToolsPage({ tools: value.tools })
+  let schemaAdmission: McpSchemaAdmission | undefined
+  if (value.schemaAdmission !== undefined) {
+    const admission = value.schemaAdmission
+    if (!object(admission) || Object.keys(admission).some(key => key !== 'version' && key !== 'hashes') ||
+        !Number.isSafeInteger(admission.version) || typeof admission.version !== 'number' || admission.version < 1 ||
+        !Array.isArray(admission.hashes) || admission.hashes.length > tools.length ||
+        admission.hashes.some(hash => typeof hash !== 'string' || !/^[a-f0-9]{64}$/.test(hash)) ||
+        new Set(admission.hashes).size !== admission.hashes.length) fail('invalid')
+    const currentHashes = new Set(tools.map(mcpToolSchemaHash))
+    if (admission.hashes.some(hash => !currentHashes.has(hash as string))) fail('invalid')
+    schemaAdmission = { version: admission.version, hashes: admission.hashes as string[] }
+  }
   // Retain only catalog/protocol facts. Remote instructions and server-supplied
   // identity are unnecessary to this authoritative saved-connection record.
   return { tools, protocolVersion: value.protocolVersion as string,
-    cleanup: value.cleanup as McpDiscovery['cleanup'], inspectedAt: value.inspectedAt as number }
+    cleanup: value.cleanup as McpDiscovery['cleanup'], inspectedAt: value.inspectedAt as number,
+    ...(schemaAdmission ? { schemaAdmission } : {}) }
 }
 
 /** Strict, detached additive-slice admission. Absence alone means an old empty
@@ -128,7 +147,7 @@ export function parseMcpConnectionState(value: unknown): McpConnectionState {
     const endpoint = mcpConnectionEndpoint(entry.endpoint, true).endpoint
     if (endpoint !== entry.endpoint) fail('invalid')
     if (entry.inspection !== undefined && (!object(entry.inspection) || Object.keys(entry.inspection).some(key =>
-      !['protocolVersion', 'tools', 'cleanup', 'inspectedAt'].includes(key)))) fail('invalid')
+      !['protocolVersion', 'tools', 'cleanup', 'inspectedAt', 'schemaAdmission'].includes(key)))) fail('invalid')
     const inspection = entry.inspection === undefined ? undefined : checkedInspection(entry.inspection)
     const inspectionOperation = entry.inspectionOperation === undefined ? undefined : checkedOperation(entry.inspectionOperation)
     if (inspectionOperation && !inspection) fail('invalid')

@@ -271,6 +271,18 @@ test('DNS has the same deadline and a late answer cannot start network work', as
   assert.equal(sockets, 0)
 })
 
+test('an async pre-dispatch guard cannot silently authorize a POST', async () => {
+  let sockets = 0
+  const transport = createMcpHttpTransport({
+    resolve: async () => [{ address: '93.184.216.34', family: 4 }],
+    https: () => { sockets += 1; throw new Error('must not dispatch') },
+  })
+  await assert.rejects(transport('https://example.com/mcp', request, {
+    scope: 'public', beforeDispatch: (async () => {}) as () => void,
+  }), failure('request', false))
+  assert.equal(sockets, 0)
+})
+
 test('modern discovery mirrors its method and version without accepting caller-defined headers', async (t) => {
   let calls = 0
   const url = await endpoint(t, (req, res) => {

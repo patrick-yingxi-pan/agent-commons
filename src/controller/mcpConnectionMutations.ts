@@ -11,6 +11,7 @@ import {
 } from '../api/mcpConnectionIntent.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
 import { IDLE_REVISIONED_MUTATION, type RevisionedMutationOutcome } from './revisionedMutationCore.ts'
+import { createRetryableRuntimeLoader, createRuntimeLoadFailureTracker } from './retryableRuntimeLoader.ts'
 
 export type { McpConnectionMutationInput, McpConnectionMutationIntent } from '../api/mcpConnectionIntent.ts'
 export { mcpConnectionMutationResourceId } from '../api/mcpConnectionIntent.ts'
@@ -18,6 +19,9 @@ export { mcpConnectionMutationResourceId } from '../api/mcpConnectionIntent.ts'
 interface HeldMcpMutation {
   intent: McpConnectionMutationIntent
   result: Promise<RevisionedMutationOutcome>
+  settle: (outcome: RevisionedMutationOutcome) => void
+  issuedGeneration: number
+  loading: boolean
 }
 
 const statusStore = createMutationStatusStore()
@@ -60,17 +64,45 @@ const freezeIntent = (intent: McpConnectionMutationIntent): McpConnectionMutatio
 
 type Runtime = typeof import('./mcpConnectionMutationRuntime.ts')
 let runtime: Runtime | null = null
-let runtimePromise: Promise<Runtime> | null = null
-const loadRuntime = (): Promise<Runtime> => {
-  runtimePromise ??= import('./mcpConnectionMutationRuntime.ts').then((loaded) => {
-    runtime = loaded
-    return loaded
-  })
-  return runtimePromise
+const loadRuntime = createRetryableRuntimeLoader<Runtime>(
+  () => import('./mcpConnectionMutationRuntime.ts'),
+  (loaded) => { runtime = loaded },
+)
+const loadFailures = createRuntimeLoadFailureTracker()
+
+const publishLoadFailure = (): void => {
+  statusStore.publish(loadFailures.status(
+    held.size,
+    'Couldn’t load the MCP connection controller. Retry safely or Dismiss.',
+  ))
+}
+
+const activateHeldMutation = (resourceId: string, entry: HeldMcpMutation): void => {
+  if (entry.loading || held.get(resourceId) !== entry) return
+  entry.loading = true
+  statusStore.publish({ busy: true, error: null, retryable: false, activeResourceId: resourceId, pendingCount: held.size })
+  void loadRuntime().then(
+    (loaded) => {
+      entry.loading = false
+      if (entry.issuedGeneration !== accountGeneration || held.get(resourceId) !== entry) {
+        entry.settle('discarded')
+        return
+      }
+      void loaded.enqueueMcpConnectionMutationRuntime(entry.intent).then(entry.settle)
+    },
+    () => {
+      entry.loading = false
+      if (entry.issuedGeneration !== accountGeneration || held.get(resourceId) !== entry) return
+      loadFailures.fail(resourceId)
+      publishLoadFailure()
+    },
+  )
 }
 
 onAccountSwitch(() => {
   accountGeneration += 1
+  loadFailures.clear()
+  for (const entry of held.values()) entry.settle('discarded')
   held.clear()
   heldViews.clear()
   publishHeldViews()
@@ -103,27 +135,41 @@ export function enqueueMcpConnectionMutation(
   const existing = held.get(resourceId)
   if (existing) return existing.result
   const issuedGeneration = accountGeneration
-  const result = loadRuntime().then((loaded) =>
-    issuedGeneration === accountGeneration
-      ? loaded.enqueueMcpConnectionMutationRuntime(intent)
-      : 'discarded' as const,
-  )
-  held.set(resourceId, { intent, result })
+  let settle!: (outcome: RevisionedMutationOutcome) => void
+  const result = new Promise<RevisionedMutationOutcome>((resolve) => { settle = resolve })
+  const entry = { intent, result, settle, issuedGeneration, loading: false }
+  held.set(resourceId, entry)
   if (intent.kind !== 'create' && intent.reviewed) heldViews.set(intent.id, intent.reviewed)
-  statusStore.refresh()
+  if (loadFailures.active()) publishLoadFailure()
+  else statusStore.refresh()
   publishHeldViews()
-  void result.finally(() => {
+  if (!loadFailures.active()) activateHeldMutation(resourceId, entry)
+  void result.then(() => {
     if (issuedGeneration !== accountGeneration) return
     if (held.get(resourceId)?.result !== result) return
     held.delete(resourceId)
+    loadFailures.remove(resourceId, held.keys())
     if (intent.kind !== 'create') heldViews.delete(intent.id)
-    statusStore.refresh()
+    if (!runtime) publishLoadFailure()
+    else statusStore.refresh()
     publishHeldViews()
   })
   return result
 }
 
-export const retryMcpConnectionMutation = (): void => { runtime?.retryMcpConnectionMutationRuntime() }
-export const discardMcpConnectionMutation = (): void => { runtime?.discardMcpConnectionMutationRuntime() }
+export const retryMcpConnectionMutation = (): void => {
+  if (runtime) runtime.retryMcpConnectionMutationRuntime()
+  else {
+    loadFailures.retry()
+    for (const [resourceId, entry] of held) activateHeldMutation(resourceId, entry)
+  }
+}
+export const discardMcpConnectionMutation = (): void => {
+  if (runtime) runtime.discardMcpConnectionMutationRuntime()
+  else {
+    const resourceId = loadFailures.active()
+    if (resourceId) held.get(resourceId)?.settle('discarded')
+  }
+}
 export const useMcpConnectionMutationStatus = statusStore.useStatus
 export const clearMcpConnectionMutations = (): void => { runtime?.clearMcpConnectionMutations() }

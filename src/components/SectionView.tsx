@@ -8535,7 +8535,7 @@ function ContextsSection({
           title="Contexts"
           subtitle={selectedLabel ?? (
             <>
-              Manage saved contexts and inspect external MCP servers. External server catalogs do not enable tool execution yet.
+              Manage saved contexts and inspect external MCP servers. Inspect a server, attach its admitted tools to a conversation, then approve each call before it runs.
             </>
           )}
         >

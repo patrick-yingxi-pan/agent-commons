@@ -18,6 +18,7 @@ import { store } from './store/index.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import { deriveRelayCreationSecret, deriveRelayRotationSecret, hashRelaySecret, relayReply, RelayRuntime } from './relay.ts'
 import { UsageRecordingError } from './modelUsage.ts'
+import { messageHistoryText, TOOL_RECEIPT_SYSTEM_ADDITION } from './toolActivityHistory.ts'
 
 const PROVIDER_BODY = { label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' }
 const auth = (secret: string) => ({ authorization: `Bearer ${secret}` })
@@ -48,6 +49,39 @@ function frames(body: string): Array<Record<string, any>> {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+test('Session transport shares exact external-tool approval and durable outcome framing', async () => {
+  const relay = new RelayRuntime(() => {})
+  const providerId = 'external-mcp-relay-provider'
+  const id = `mcp-connection-${'d'.repeat(32)}`
+  const tool = { name: 'lookup', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] } }
+  const connection = { id, label: 'External review', revision: 2, status: 'connected', authentication: 'none', inspectedAt: 1, protocolVersion: '2026-07-28', tools: [tool], execution: 'approval-required', executableTools: ['lookup'] }
+  const history = [{ role: 'assistant', text: messageHistoryText({ id: 'earlier', role: 'assistant', content: 'Earlier proposal.', toolActivities: [{ id: 'earlier-call', tool: 'lookup', connector: 'External review', connectorId: id, kind: 'action', status: 'uncertain', summary: 'No trustworthy result.', decisionId: 'earlier-receipt' }] }) }]
+  const reply = relayReply({ id: 'external-mcp-session', title: 'External MCP' }, DEFAULT_AGENT, 'Use the attached tool.',
+    { onStart() {}, onDelta() {} }, undefined, relay, providerId, undefined,
+    [{ id, type: 'mcp', label: 'External review', scope: '*' }], history, undefined, [connection])
+  const first = await relay.poll(providerId).result
+  assert.ok('entryId' in first)
+  assert.ok(first.prompt.system.includes(TOOL_RECEIPT_SYSTEM_ADDITION))
+  assert.equal(first.prompt.messages[0].text, history[0].text)
+  const declaration = first.prompt.tools.find(entry => entry.name.startsWith('mcp_external_'))
+  assert.ok(declaration)
+  assert.deepEqual(declaration.inputSchema, tool.inputSchema)
+  relay.submit(providerId, first.entryId, { kind: 'toolCalls', calls: [{ id: 'external-relayed-call', name: declaration.name, input: { query: 'relay-exact' } }] })
+  const second = await relay.poll(providerId).result
+  assert.ok('entryId' in second)
+  const result = second.prompt.messages.find(turn => turn.toolResults)?.toolResults[0]
+  assert.ok(result)
+  assert.equal(result.toolCallId, 'external-relayed-call', 'relay correlation retains its wire call id')
+  assert.match(result.content, /awaiting their confirmation; not executed yet/)
+  relay.submit(providerId, second.entryId, { kind: 'completion', text: 'Approval is required.' })
+  const completed = await reply
+  assert.equal(completed.outcome, 'ok')
+  assert.equal(completed.message.toolActivities[0].status, 'proposed')
+  assert.match(completed.message.toolActivities[0].id, /^mcp-activity-[a-f0-9-]{36}$/)
+  assert.notEqual(completed.message.toolActivities[0].id, 'external-relayed-call')
+  assert.deepEqual(completed.message.toolActivities[0].input, { query: 'relay-exact' })
+})
 
 /** Env override scoped to one test (values are read per call server-side). */
 async function withEnv(vars: Record<string, string>, run: () => Promise<void>) {

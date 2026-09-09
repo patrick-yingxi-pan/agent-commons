@@ -22,8 +22,11 @@ export interface McpConnectionView {
    * identity so replay acknowledges current truth without granting access. */
   inspectionOperationId?: string | null
   tools: McpDiscoveredTool[]
-  /** Inspection does not yet enable the unfinished tool-execution adapter. */
-  execution: 'unavailable'
+  /** Current local schema admission permits proposals, never unattended calls. */
+  execution: 'unavailable' | 'approval-required'
+  /** Raw names admitted under this version's schema policy. Metadata for other
+   * tools remains inspectable but cannot contribute model capabilities. */
+  executableTools?: string[]
 }
 
 export interface McpConnectionCreateRequest {

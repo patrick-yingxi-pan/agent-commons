@@ -26,16 +26,21 @@ test('credential binding reads reject another audience or malformed data before 
       headers: { 'Content-Type': 'application/json', 'x-resolved-tenant': binding.tenantId },
     })
     await assert.rejects(async () => {
-      const result = await getMcpConnectionCredentialBinding(binding.connectionId, binding.tenantId)
+      const result = await getMcpConnectionCredentialBinding(binding.connectionId, binding.tenantId, 'user-a')
       await provisionDesktopMcpCredential(result.binding, 'token-value', scope)
     }, /credential binding/)
     assert.equal(provisions, 0, 'a malformed audience cannot receive the token')
   }
-  globalThis.fetch = async () => new Response(JSON.stringify({ binding }), {
-    headers: { 'Content-Type': 'application/json', 'x-resolved-tenant': binding.tenantId },
-  })
-  const result = await getMcpConnectionCredentialBinding(binding.connectionId, binding.tenantId)
+  let principal: string | null = null
+  globalThis.fetch = async (_input, init) => {
+    principal = new Headers(init?.headers).get('X-Account-Transition-Source')
+    return new Response(JSON.stringify({ binding }), {
+      headers: { 'Content-Type': 'application/json', 'x-resolved-tenant': binding.tenantId },
+    })
+  }
+  const result = await getMcpConnectionCredentialBinding(binding.connectionId, binding.tenantId, 'user-a')
   assert.deepEqual(result, { binding })
+  assert.equal(principal, 'session:user-a')
   await provisionDesktopMcpCredential(result.binding, 'token-value', scope)
   assert.equal(provisions, 1, 'the exact validated audience can be provisioned')
 })

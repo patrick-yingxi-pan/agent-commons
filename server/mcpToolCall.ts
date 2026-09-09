@@ -47,7 +47,7 @@ export function snapshotMcpToolInvocation(invocation: McpToolInvocation): McpToo
 }
 
 export function createMcpToolCaller({ post = postMcpHttp } = {}) {
-  return async (endpoint: string, call: McpToolCall, options: Pick<McpHttpOptions, 'scope' | 'bearerToken' | 'signal' | 'timeoutMs'>) => {
+  return async (endpoint: string, call: McpToolCall, options: Pick<McpHttpOptions, 'scope' | 'bearerToken' | 'signal' | 'timeoutMs' | 'beforeDispatch'>) => {
     const input = { ...options }
     if (input.signal?.aborted) throw new McpToolCallError('cancelled', false)
     let request: Record<string, unknown>
@@ -74,6 +74,7 @@ export function createMcpToolCaller({ post = postMcpHttp } = {}) {
       // timer that would mislabel DNS cancellation as an uncertain effect.
       reply = await post(endpoint, request, {
         scope: input.scope, bearerToken: input.bearerToken, signal: input.signal, timeoutMs: input.timeoutMs,
+        beforeDispatch: input.beforeDispatch,
         protocolVersion, ...(sessionId !== undefined ? { sessionId } : {}),
         ...(protocolVersion === MCP_MODERN_VERSION ? { toolInputSchema: schema } : {}),
       })

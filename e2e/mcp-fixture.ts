@@ -21,6 +21,8 @@ export interface McpFixture {
   url: string
   calls: string[]
   authorization: string[]
+  toolCalls: Array<{ name: string; arguments: Record<string, unknown> }>
+  setToolBehavior(behavior: 'success' | 'error' | 'uncertain'): void
   server: ReturnType<typeof createServer>
   close(): Promise<void>
 }
@@ -91,13 +93,18 @@ export async function startMcpFixture(options: {
   empty?: boolean
   fail?: boolean
   expectedBearer?: string
+  toolBehavior?: 'success' | 'error' | 'uncertain'
+  resultResourceName?: string
+  resultMimeType?: string
 } = {}): Promise<McpFixture> {
   const calls: string[] = []
   const authorization: string[] = []
+  const toolCalls: Array<{ name: string; arguments: Record<string, unknown> }> = []
+  let toolBehavior = options.toolBehavior ?? 'success'
   const server = createServer(async (request: IncomingMessage, response: ServerResponse) => {
     const chunks: Buffer[] = []
     for await (const chunk of request) chunks.push(Buffer.from(chunk))
-    let body: { id?: string; method?: string }
+    let body: { id?: string; method?: string; params?: { name?: unknown; arguments?: unknown } }
     try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as typeof body } catch {
       response.writeHead(400, { 'content-type': 'application/json' }); response.end('{}'); return
     }
@@ -112,7 +119,38 @@ export async function startMcpFixture(options: {
     const tool = {
       name: options.toolName ?? 'inspect_records',
       description: options.description ?? 'Read-only fixture catalog entry.',
-      inputSchema: { type: 'object', properties: { query: { type: 'string' } } },
+      inputSchema: {
+        type: 'object',
+        properties: { query: { type: 'string', maxLength: 256 } },
+        required: ['query'],
+        additionalProperties: false,
+      },
+    }
+    if (body.method === 'tools/call') {
+      const name = typeof body.params?.name === 'string' ? body.params.name : ''
+      const args = body.params?.arguments && typeof body.params.arguments === 'object' && !Array.isArray(body.params.arguments)
+        ? body.params.arguments as Record<string, unknown>
+        : {}
+      toolCalls.push({ name, arguments: structuredClone(args) })
+      if (toolBehavior === 'uncertain') {
+        response.destroy()
+        return
+      }
+      const result = toolBehavior === 'error'
+        ? { resultType: 'complete', isError: true, content: [{ type: 'text', text: 'Fixture rejected the requested operation.' }] }
+        : {
+            resultType: 'complete',
+            isError: false,
+            content: [
+              { type: 'text', text: `Fixture result for ${String(args.query ?? '')}.` },
+              { type: 'image', data: 'AA==', mimeType: 'image/png' },
+              { type: 'resource_link', uri: 'https://fixture.example/report', name: options.resultResourceName ?? 'Fixture report', mimeType: options.resultMimeType ?? 'text/plain', size: 42 },
+            ],
+            structuredContent: { matched: 1, query: args.query ?? null },
+          }
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }))
+      return
     }
     const result = body.method === 'server/discover'
       ? { supportedVersions: ['2026-07-28'], capabilities: { tools: {} }, _meta: {
@@ -129,7 +167,8 @@ export async function startMcpFixture(options: {
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('MCP fixture did not bind a TCP port')
   return {
-    url: `http://127.0.0.1:${address.port}/mcp`, calls, authorization, server,
+    url: `http://127.0.0.1:${address.port}/mcp`, calls, authorization, toolCalls, server,
+    setToolBehavior: behavior => { toolBehavior = behavior },
     close: async () => { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())) },
   }
 }

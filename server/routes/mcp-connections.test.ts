@@ -8,6 +8,7 @@ import {
   mcpRuntimeCapabilities,
 } from '../mcpRuntime.ts'
 import { MCP_MODERN_VERSION } from '../mcpDiscovery.ts'
+import { store } from '../store/index.ts'
 
 const suffix = `${Date.now().toString(36)}-${Math.random().toString(16).slice(2)}`
 const owner = `mcp-route-owner-${suffix}`
@@ -25,6 +26,11 @@ after(() => {
 
 function auth(tenantId: string) {
   return { 'x-tenant-id': tenantId }
+}
+
+const sessionCookie = (response: { headers: Record<string, string> }): string => {
+  const token = response.headers['set-cookie']?.match(/uw_session=([^;,]+)/)?.[1] ?? ''
+  return `uw_session=${token}`
 }
 
 function createBody(creationId: string, endpoint = publicEndpoint, authentication: 'none' | 'device-bearer' = 'none') {
@@ -77,6 +83,50 @@ test('list/create are tenant-scoped and foreign detail reads are existence-hidde
   const foreignList = await call('GET', '/mcp-connections', undefined, auth(foreign))
   assert.equal(ownList.json.connections.some((row: { id: string }) => row.id === connection.id), true)
   assert.equal(foreignList.json.connections.some((row: { id: string }) => row.id === connection.id), false)
+})
+
+test('a stale browser account source refuses every private connection ceremony before effects', async () => {
+  let credentialResolutions = 0
+  configureMcpRuntime({
+    deviceBearerAvailable: true,
+    allowLoopback: true,
+    resolveCredential: async () => { credentialResolutions += 1; return 'must-not-be-resolved' },
+    synchronizeBindings: async () => ({ available: true }),
+  })
+
+  const maya = await call('POST', '/auth/login', {
+    email: 'maya@growthworks.example', password: 'maya-demo-password',
+  })
+  assert.equal(maya.status, 200)
+  const cookie = sessionCookie(maya)
+  const tenantId = 'tenant-growthworks'
+  const created = await call('POST', '/mcp-connections', createBody(
+    `stale-source-existing-${suffix}`, 'http://127.0.0.1:9/mcp', 'device-bearer',
+  ), { cookie })
+  assert.equal(created.status, 200)
+  const id = created.json.connection.id
+  const before = store.mcpConnections(tenantId)
+  const events: unknown[] = []
+  const unsubscribe = store.subscribe(event => events.push(event))
+  const stale = { cookie, 'x-account-transition-source': 'session:user-ada' }
+
+  const attempts = [
+    call('POST', '/mcp-connections', createBody(`stale-source-new-${suffix}`), stale),
+    call('POST', `/mcp-connections/${id}/inspect`, {
+      ...inspectionBody(`stale-source-inspect-${suffix}`), credentialReference: `MCP_DESKTOP_${'A'.repeat(32)}`,
+    }, stale),
+    call('POST', `/mcp-connections/${id}/disconnect`, { expectedRevision: 0 }, stale),
+    call('DELETE', `/mcp-connections/${id}`, { expectedRevision: 0 }, stale),
+    call('POST', `/mcp-connections/${id}/credential-cleanup`, {}, stale),
+    call('GET', `/mcp-connections/${id}/credential-binding`, undefined, stale),
+  ]
+  const rejected = await Promise.all(attempts)
+  unsubscribe()
+
+  assert.deepEqual(rejected.map(response => response.status), [409, 409, 409, 409, 409, 409])
+  assert.deepEqual(store.mcpConnections(tenantId), before, 'no row or revision changes under the cookie-selected account')
+  assert.equal(credentialResolutions, 0, 'inspection is refused before credential or endpoint I/O')
+  assert.deepEqual(events, [], 'no private ceremony publishes an event')
 })
 
 test('route normalizers reject unknown fields, whitespace keys, raw URL credentials, fragments, and malformed lifecycle bodies', async () => {

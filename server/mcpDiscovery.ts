@@ -3,6 +3,7 @@
 import { postMcpHttp, McpHttpError, type McpHttpOptions } from './mcpHttpTransport.ts'
 import { parseMcpToolsPage, type McpDiscoveredTool } from './mcpCatalog.ts'
 import { createMcpSession, McpSessionError, type McpSessionCleanup } from './mcpSession.ts'
+import type { McpSchemaAdmission } from './mcpToolAdmission.ts'
 
 export { MCP_MODERN_VERSION, MCP_LEGACY_VERSIONS } from './mcpProtocol.ts'
 export const MAX_MCP_DISCOVERY_PAGES = 8
@@ -18,6 +19,8 @@ export interface McpDiscovery {
   serverInfo?: { name: string; version: string; title?: string }
   tools: McpDiscoveredTool[]
   cleanup: McpSessionCleanup
+  /** Local validation stamp, never populated from a remote response. */
+  schemaAdmission?: McpSchemaAdmission
 }
 
 export function createMcpDiscovery({ post = postMcpHttp, now = () => performance.now() } = {}) {
