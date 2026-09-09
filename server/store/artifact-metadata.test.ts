@@ -41,11 +41,24 @@ test('renameArtifact advances metadata only and preserves body, filing, provenan
   assert.deepEqual(store.artifactContent(tenant)[row.id], beforeBody, 'rename does not rewrite document bytes')
   assert.equal(store.artifactContent(tenant)[row.id]?.revision, beforeRevision, 'body revision is independent')
 
-  const bodyEdited = store.updateArtifactBlock(row.id, 0, 'Body changed after rename.', beforeRevision)
+  const renamedAt = next?.editedAt ?? row.editedAt
+  const realNow = Date.now
+  Date.now = () => renamedAt + 1_000
+  let bodyEdited
+  try {
+    bodyEdited = store.updateArtifactBlock(row.id, 0, 'Body changed after rename.', beforeRevision)
+  } finally {
+    Date.now = realNow
+  }
   assert.ok(bodyEdited)
-  assert.equal(store.listArtifacts(tenant).find((artifact) => artifact.id === row.id)?.metadataRevision, 1)
+  const afterBodyEdit = store.listArtifacts(tenant).find((artifact) => artifact.id === row.id)
+  assert.equal(afterBodyEdit?.name, renamed, 'body edit preserves the independently chosen display name')
+  assert.equal(afterBodyEdit?.metadataRevision, 1, 'body edit does not advance name ordering')
+  assert.equal(afterBodyEdit?.editedAt, renamedAt + 1_000, 'body edit advances the canonical artifact timestamp')
   assert.equal(store.artifactContent(tenant)[row.id]?.revision, beforeRevision + 1)
-  assert.equal(store.renameArtifact(row.id, `${renamed}-again.md`, 1, tenant)?.metadataRevision, 2)
+  const renamedAgain = store.renameArtifact(row.id, `${renamed}-again.md`, 1, tenant)
+  assert.equal(renamedAgain?.metadataRevision, 2)
+  assert.equal(renamedAgain?.editedAt, afterBodyEdit?.editedAt, 'a clock-back rename cannot rewind newer body recency')
 
   assert.throws(() => store.renameArtifact(row.id, 'stale.md', 0, tenant), ConflictError)
   assert.throws(() => store.renameArtifact(row.id, '', 2, tenant), ValidationError)

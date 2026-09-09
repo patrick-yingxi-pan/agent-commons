@@ -24,12 +24,14 @@ async function restore(artifactId: string, block: number, text: string) {
   assert.equal(restored.status, 200, 'test restores the authored prose for later suites')
 }
 
-test('artifact body PATCH refuses a stale revision and replays one logical retry', async () => {
+test('artifact body PATCH refuses a stale revision and replays one logical retry', async (t) => {
   const { artifact, body, block, text: original } = await editableArtifact()
   const revision = body.revision ?? 0
   const firstText = `${original} Revision-safe.`
   const secondText = `${original} Rebased.`
   const headers = { 'idempotency-key': `artifact-body-${artifact.id}-${revision}-${Date.now()}` }
+  const editNow = artifact.editedAt + 1_000
+  t.mock.method(Date, 'now', () => editNow)
 
   try {
     const first = await call('PATCH', `/artifacts/${artifact.id}/content`, {
@@ -39,6 +41,9 @@ test('artifact body PATCH refuses a stale revision and replays one logical retry
     }, headers)
     assert.equal(first.status, 200)
     assert.equal(first.json.revision, revision + 1)
+    const afterFirst = ((await call('GET', '/artifacts')).json as ArtifactItem[]).find((row) => row.id === artifact.id)
+    assert.ok(afterFirst)
+    assert.equal(afterFirst.editedAt, editNow, 'the canonical artifact row reflects the accepted body edit')
 
     const replay = await call('PATCH', `/artifacts/${artifact.id}/content`, {
       block,
@@ -47,6 +52,8 @@ test('artifact body PATCH refuses a stale revision and replays one logical retry
     }, headers)
     assert.equal(replay.status, 200)
     assert.equal(replay.json.revision, revision + 1, 'the same logical retry advances once')
+    const afterReplay = ((await call('GET', '/artifacts')).json as ArtifactItem[]).find((row) => row.id === artifact.id)
+    assert.equal(afterReplay?.editedAt, afterFirst.editedAt, 'the same logical retry does not invent another edit time')
 
     const stale = await call('PATCH', `/artifacts/${artifact.id}/content`, {
       block,

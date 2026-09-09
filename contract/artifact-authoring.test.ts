@@ -69,3 +69,13 @@ test('document compatibility and consent projections use the same canonical auth
     assert.equal(preview?.label, kind === 'sheet' ? 'Sheet content' : 'Slide content')
   }
 })
+
+test('document authoring refuses names outside the shared artifact metadata boundary', () => {
+  for (const name of ['', '   ', 'bad\u0000name.md', `${'x'.repeat(241)}.md`]) {
+    assert.equal(
+      authoredArtifact(name, 'doc', 'A valid document body.'),
+      undefined,
+      `invalid document name must be rejected whole: ${JSON.stringify(name)}`,
+    )
+  }
+})

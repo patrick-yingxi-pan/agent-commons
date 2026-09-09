@@ -72,6 +72,27 @@ test('tools/list: generated from the route table, with path params as required s
   assert.ok(!byName.has('post_mcp'), 'the endpoint does not expose itself')
 })
 
+test('tools/call: mutation retry identities are bounded and invalid values fail at the MCP protocol door', async () => {
+  const listed = await rpc('tools/list')
+  const edit = listed.json.result.tools.find((tool: any) => tool.name === 'patch_artifacts_by_id_content')
+  assert.equal(edit.inputSchema.properties.idempotencyKey.type, 'string')
+  const invalidType = await rpc('tools/call', {
+    name: 'patch_artifacts_by_id_content',
+    arguments: { id: 'missing', body: {}, idempotencyKey: 7 },
+  })
+  assert.equal(invalidType.json.error.code, -32602)
+  const blank = await rpc('tools/call', {
+    name: 'patch_artifacts_by_id_content',
+    arguments: { id: 'missing', body: {}, idempotencyKey: '   ' },
+  })
+  assert.equal(blank.json.error.code, -32602)
+  const oversized = await rpc('tools/call', {
+    name: 'patch_artifacts_by_id_content',
+    arguments: { id: 'missing', body: {}, idempotencyKey: 'x'.repeat(201) },
+  })
+  assert.equal(oversized.json.error.code, -32602)
+})
+
 test('tool annotations derive mechanically from the operation shape (read-only / destructive / closed-world)', async () => {
   const r = await rpc('tools/list')
   const byName = new Map<string, any>(r.json.result.tools.map((t: any) => [t.name, t]))

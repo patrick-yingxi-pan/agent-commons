@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-09-08. The standing goal remains production readiness for Agent
+Reviewed 2026-09-09. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -26,6 +26,13 @@ Older checkpoint notes below describe the Mac lock at that time; it no longer
 blocks shared preview review. Manual native OS-dialog and Excel-application
 acceptance remain separate, unverified checks.
 
+Shared editor review resumed on 2026-09-09 after the Mac became available. A
+fresh tab preserves all six stacked accounts with Ada active, a desktop/light
+viewport, and the edited `production-review.Q1.slides` artifact. Save and the
+updated PowerPoint download were exercised. The review caught a split-line Add
+bullet glyph/label; the shared inline-action style and failure-first UI-147 locks
+now cover every structural add control.
+
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
@@ -43,9 +50,25 @@ UTF-16 characters before consent or persistence; invalid content is rejected as 
 whole. Consent and saved pages share one renderer, including keyboard-scrollable
 wide tables and wrapping long text. The HTTP/MCP read wall, rename/replay identity,
 JSON/SQLite restart and portable-state validation preserve these actual bodies.
-This is not spreadsheet calculation, arbitrary layout,
-or a cell/slide editing workflow. Those richer authoring/export capabilities and
-structured standing-routine output remain required follow-on work.
+Owners can now correct a saved sheet or slide deck on its canonical page. One
+local draft holds literal headers/cells/note or ordered titles/bullets, including
+structural add/remove and slide reorder controls. Save replaces the complete
+body against the revision reviewed when editing opened; Cancel leaves saved
+content unchanged. Conflicts keep the draft beside the latest saved version:
+explicit Retry replaces that version, while Dismiss keeps the draft editable.
+Readers remain read-only, account changes clear held intent, and downloads wait
+for the edit to finish. Prose and structured edits update the existing Edited
+timestamp through one body commit, without advancing independent name ordering.
+JSON/SQLite preserve edited bodies, timestamps and revisions without changing
+names, grants or immutable save provenance. New slides begin without invented
+blank bullets; explicitly authored blank values remain lossless. Spreadsheet calculation,
+arbitrary layout/styling and structured standing-routine output remain required.
+
+Adversarial review closed two follow-on gaps: accepted body acknowledgements
+refresh artifact metadata even when ambient sync is unavailable, and all new
+authored names share the metadata validation boundary. Older invalid names stay
+readable and can be renamed; edits and proposal landing cannot synthesize an
+invalid metadata row that would prevent the next JSON/SQLite restart.
 
 Saved slides now export editable PowerPoint files through explicit `format=pptx`
 on the same read-authorized artifact export door. The fixed 16:9 design uses
@@ -60,7 +83,7 @@ redundancy was removed after that limit test failed on unnecessarily large XML.
 Independent package/layout validation and six individually reviewed imported
 renders supplement behavioral and browser locks. These checks do not establish
 native PowerPoint application acceptance or fidelity to arbitrary imported decks.
-Richer slide editing, styling, spreadsheet calculation, external execution and
+Arbitrary slide styling/layout, spreadsheet calculation, external execution and
 signed-release acceptance remain required, not replaced by these export paths.
 
 Saved sheets now have a real XLSX download through the existing artifact export
@@ -99,8 +122,8 @@ standing routine reports. It exports the latest saved revision, not an unsaved
 editor or retained body cache. Browser retry/revocation checks and an actual
 packaged Electron download complement serializer, identity and HTTP/MCP locks.
 Addressed body/proposal readers now use exact IDs, preventing metadata-only rows
-from borrowing demo text through a matching filename. Rich sheet/slide editing,
-External tools and signed release remain required.
+from borrowing demo text through a matching filename. Rich sheet/slide layout,
+external tools and signed release remain required.
 Legacy demo workspace previews receive explicit code-owned seed-ID projections
 behind the live session read wall, never a generic filename fallback.
 Artifact removal awaits the owner's recoverable-Trash versus permanent-deletion

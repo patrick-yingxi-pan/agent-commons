@@ -28,7 +28,10 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
         retryable: true,
       }
     }
-    if (error.status === 400 || error.status === 404) {
+    if (error.status === 400) {
+      return { message: `${error.message} Dismiss the change to review your draft.`, retryable: false }
+    }
+    if (error.status === 404) {
       return { message: 'That document edit is no longer valid. Dismiss it and review the latest version.', retryable: false }
     }
     if (error.status === 401 || error.status === 403) {

@@ -43,7 +43,7 @@
  *  Transport hardening (MCP spec, DNS rebinding) is shared by every route in
  *  `server/http/origin.ts`; MCP has no private policy branch. */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { formOnly, type Router } from './http/router.ts'
 import { BASE_HEADERS, headerValue } from './http/respond.ts'
 import { positiveNumberEnv } from './env.ts'
@@ -52,6 +52,7 @@ import { IMAGE_UPLOAD_BODY_BYTES } from '../contract/imageAssets.ts'
 import { API_BODY_EXAMPLES, catalogOf, pathFor, toolNameFor, type ApiOperation } from './apiSurface.ts'
 import { dispatch } from './http/dispatch.ts'
 import { store } from './store/index.ts'
+import { IDEMPOTENCY_KEY_MAX_LENGTH } from './idempotency.ts'
 
 export { toolNameFor } // re-exported for the parity test (the shared stem lives in apiSurface.ts)
 
@@ -78,6 +79,12 @@ function toolDefinition(t: ApiOperation) {
     additionalProperties: { type: ['string', 'number', 'boolean'] },
   }
   if (t.method !== 'GET') {
+    properties.idempotencyKey = {
+      type: 'string',
+      minLength: 1,
+      maxLength: IDEMPOTENCY_KEY_MAX_LENGTH,
+      description: `Optional bounded retry identity for this mutation (maximum ${IDEMPOTENCY_KEY_MAX_LENGTH} characters).`,
+    }
     const example = API_BODY_EXAMPLES.get(`${t.method} ${t.pattern}`)
     properties.body = {
       type: 'object',
@@ -110,6 +117,10 @@ function toolDefinition(t: ApiOperation) {
       openWorldHint: false, // every tool acts on THIS workspace, nothing beyond it
     },
   }
+}
+
+function innerIdempotencyKey(toolName: string, target: URL, key: string): string {
+  return `mcp:${createHash('sha256').update(JSON.stringify(['mcp', toolName, `${target.pathname}${target.search}`, key])).digest('hex')}`
 }
 
 /** The CORE toolset — a curated PRESENTATION subset for `tools/list` when the
@@ -199,6 +210,7 @@ export const MCP_UI_COPY = {
 const SHARED_INSTRUCTIONS = [
   'Every tool is one HTTP operation of this workspace, dispatched through the same route table, auth wall, and tenancy checks as the web UI (access-parity INV-11) — the three access methods (UI, in-app session, MCP) differ in form, never in capability or policy.',
   'Tool results are the JSON {status, body} of the underlying HTTP response; the send-message tool returns the reply stream as a parsed event array.',
+  'Mutation tools accept an optional idempotencyKey argument separate from body. Reuse it for one logical retry, not a new edit; it reaches the route’s ordinary bounded replay policy. Outer transport keys are not forwarded, and durable restart replay depends on the underlying route.',
   "Connecting with ?toolset=core on the endpoint URL lists only the curated everyday subset (sessions, messages, projects, artifacts, schedules, search, usage) — tools/call still accepts the full catalog either way, so any operation remains callable by name.",
   'Tool annotations mark reads (readOnlyHint) and deletes (destructiveHint) mechanically; where a mutation has a curated body example it rides in the input schema (properties.body.examples) — bodies follow the HTTP contract, and a malformed one is refused, never guessed at.',
   'For live push, keep the Mcp-Session-Id this initialize returned and open GET /mcp with it (SSE): ambient workspace events arrive as notifications/message frames, and subscribed resources signal notifications/resources/updated.',
@@ -488,10 +500,21 @@ export function registerMcp(router: Router): void {
       const args = msg.params?.arguments ?? {}
       const tool = mcpToolRoutes(router).find((t) => t.name === name)
       if (!tool) return sendRpc(res, rpcError(id, -32602, `Unknown tool: ${String(name)}`))
+      if (!args || typeof args !== 'object' || Array.isArray(args)) {
+        return sendRpc(res, rpcError(id, -32602, 'Tool arguments must be an object.'))
+      }
       for (const p of tool.params) {
         if (typeof args[p] !== 'string' || args[p] === '') {
           return sendRpc(res, rpcError(id, -32602, `Missing required path parameter: ${p}`))
         }
+      }
+      let innerKey: string | undefined
+      if (tool.method !== 'GET' && Object.hasOwn(args, 'idempotencyKey')) {
+        const candidate = args.idempotencyKey
+        if (typeof candidate !== 'string' || candidate.trim().length === 0 || candidate.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+          return sendRpc(res, rpcError(id, -32602, `idempotencyKey must be a non-blank string of at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`))
+        }
+        innerKey = candidate
       }
       // pathFor encodes every segment (the `rest` tail per-segment), so an
       // arg carrying `?`/`#`/`..` can't rewrite the inner URL.
@@ -504,7 +527,9 @@ export function registerMcp(router: Router): void {
       const ms = timeoutMs()
       let timer: ReturnType<typeof setTimeout> | undefined
       const outcome = await Promise.race([
-        dispatch(router, tool.method, inner, req.headers, tool.method === 'GET' ? undefined : args.body),
+        dispatch(router, tool.method, inner, req.headers, tool.method === 'GET' ? undefined : args.body, innerKey
+          ? { idempotencyKey: innerIdempotencyKey(tool.name, inner, innerKey) }
+          : undefined),
         new Promise<'timeout'>((resolveTimeout) => {
           timer = setTimeout(() => resolveTimeout('timeout'), ms)
           timer.unref?.()

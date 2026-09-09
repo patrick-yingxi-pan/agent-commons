@@ -335,6 +335,20 @@ export async function smokePackagedAttachments({ executable }) {
     await page.getByRole('button', { name: 'Save artifact name', exact: true }).click()
     await expect(page.getByRole('heading', { name: sheetName, exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Download XLSX', exact: true })).toBeVisible()
+    // Exercise the canonical owner editor before exporting. The response below
+    // is the authorized body read that the export must reflect, rather than a
+    // fixture-side copy of the edited value.
+    await page.getByRole('button', { name: 'Edit sheet', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true }).fill('café edited ✅')
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Edit sheet', exact: true })).toBeVisible()
+    const editedSheetRead = await page.evaluate(async (id) => {
+      const response = await fetch('/api/v1/artifact-content')
+      return { status: response.status, body: (await response.json())[id] }
+    }, sheetArtifact.id)
+    assert.equal(editedSheetRead.status, 200, 'authorized structured body read succeeds after owner edit')
+    assert.equal(editedSheetRead.body.revision, 1, 'owner edit advances the structured body revision once')
+    assert.equal(editedSheetRead.body.rows[1][1], 'café edited ✅', 'authorized body read contains the saved literal cell')
     const xlsxExport = await page.evaluate(async (id) => {
       const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/export?format=xlsx`)
       return { status: response.status, payload: await response.json() }
@@ -344,7 +358,7 @@ export async function smokePackagedAttachments({ executable }) {
     assert.equal(xlsxExport.payload.filename, sheetName)
     assert.equal(xlsxExport.payload.mediaType, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     assert.equal(xlsxExport.payload.encoding, 'base64')
-    assert.ok(Number.isSafeInteger(xlsxExport.payload.revision))
+    assert.equal(xlsxExport.payload.revision, editedSheetRead.body.revision, 'export revision matches the authorized edited body')
     const xlsxBytes = Buffer.from(xlsxExport.payload.content, 'base64')
     assert.equal(xlsxBytes.subarray(0, 2).toString('hex'), '504b', 'XLSX export is a ZIP package')
     const xlsxReader = new ZipReader(new Uint8ArrayReader(xlsxBytes))
@@ -365,6 +379,7 @@ export async function smokePackagedAttachments({ executable }) {
     assert.match(sharedStringsXml, /Literal formula text/)
     assert.match(sharedStringsXml, /=SUM\(A1:A2\)/, 'formula-looking text survives as a shared literal cell')
     assert.match(sharedStringsXml, /caf/, 'Unicode literal cell survives export')
+    assert.match(sharedStringsXml, /edited/, 'export contains the edited authorized cell')
     assert.doesNotMatch(`${sheetXml}\n${sharedStringsXml}`, /<f(?:\s|>)/, 'XLSX export contains no formula nodes')
     const xlsxDownloadDirectory = join(fixtureRoot, 'xlsx-download')
     const xlsxDownloadPath = join(xlsxDownloadDirectory, sheetName)
@@ -434,6 +449,17 @@ export async function smokePackagedAttachments({ executable }) {
     await page.getByRole('button', { name: 'Save artifact name', exact: true }).click()
     await expect(page.getByRole('heading', { name: presentationName, exact: true })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Download PowerPoint', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Edit slides', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Slide 1 title', exact: true }).fill('Launch plan edited')
+    await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Edit slides', exact: true })).toBeVisible()
+    const editedPresentationRead = await page.evaluate(async (id) => {
+      const response = await fetch('/api/v1/artifact-content')
+      return { status: response.status, body: (await response.json())[id] }
+    }, presentationArtifact.id)
+    assert.equal(editedPresentationRead.status, 200, 'authorized slide body read succeeds after owner edit')
+    assert.equal(editedPresentationRead.body.revision, 1, 'slide edit advances the structured body revision once')
+    assert.equal(editedPresentationRead.body.slides[0].title, 'Launch plan edited', 'authorized body read contains the saved slide title')
     const pptxExport = await page.evaluate(async (id) => {
       const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/export?format=pptx`)
       return { status: response.status, payload: await response.json() }
@@ -443,7 +469,7 @@ export async function smokePackagedAttachments({ executable }) {
     assert.equal(pptxExport.payload.filename, presentationName)
     assert.equal(pptxExport.payload.mediaType, 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
     assert.equal(pptxExport.payload.encoding, 'base64')
-    assert.ok(Number.isSafeInteger(pptxExport.payload.revision))
+    assert.equal(pptxExport.payload.revision, editedPresentationRead.body.revision, 'PPTX revision matches the authorized edited body')
     const pptxBytes = Buffer.from(pptxExport.payload.content, 'base64')
     assert.equal(pptxBytes.subarray(0, 2).toString('hex'), '504b', 'PPTX export is a ZIP package')
     const pptxReader = new ZipReader(new Uint8ArrayReader(pptxBytes))
@@ -466,7 +492,7 @@ export async function smokePackagedAttachments({ executable }) {
     assert.doesNotMatch(pptxXml, /TargetMode="External"|vbaProject|externalLink/iu, 'PPTX package contains no external relationships or macros')
     const slide1 = pptxParts.get('ppt/slides/slide1.xml')
     const slide2 = pptxParts.get('ppt/slides/slide2.xml')
-    assert.match(slide1, /Launch plan/)
+    assert.match(slide1, /Launch plan edited/)
     assert.match(slide1, /Literal first bullet/)
     assert.match(slide1, /Second bullet/)
     assert.ok(slide1.indexOf('Literal first bullet') < slide1.indexOf('Second bullet'), 'first slide bullets retain source order')

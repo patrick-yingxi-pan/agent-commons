@@ -169,6 +169,17 @@ model sees one valid payload instead of guessing shapes off refusals. The
 routes stay the validation authority; a malformed body is refused, never
 guessed at (INV-9).
 
+**Mutation retries:** non-GET tools accept an optional `idempotencyKey` argument
+(a nonblank string of at most 200 characters), separate from `body`. Reuse it for
+one logical mutation, not a new edit. The door scopes its hashed inner identity
+to the tool and exact path/query, then uses the route's ordinary idempotency
+middleware. The outer HTTP key is never forwarded. Completed-response replay is
+bounded and process-local unless the route also owns a durable receipt; this is
+not a blanket restart-safe exactly-once guarantee. For artifact content edits,
+send either the existing prose block body or `{content, expectedRevision}` for a
+complete sheet/deck; `content` excludes server revision metadata. Missing/stale
+preconditions and reader writes meet the same HTTP validation and owner walls.
+
 **Sessions and live push:** `initialize` returns an `Mcp-Session-Id` header
 (POSTs work without it — it's only required where state lives). `GET /mcp`
 with the id opens the server→client SSE stream: it refuses anonymous callers

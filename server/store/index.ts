@@ -18,7 +18,7 @@ import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { sheetXlsx } from '../artifactXlsx.ts'
 import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
-import { authoredArtifact, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
+import { authoredArtifact, parseStructuredArtifactBody, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
@@ -1049,6 +1049,27 @@ const artifactBodies = new Map<string, ArtifactContent>()
 const artifactMetadata = new Map<string, ArtifactMetadata>()
 const artifactWithMetadata = (artifact: ArtifactItem): ArtifactItem =>
   projectArtifactMetadata(artifact, artifactMetadata.get(artifact.id))
+
+/** Commit one accepted body replacement together with the artifact row's shared
+ * edit timestamp. The metadata overlay already owns that timestamp durably;
+ * retaining its current name revision keeps body and rename CAS independent.
+ * Publish only after the snapshot commits, matching the rename funnel. */
+function commitArtifactBodyEdit(artifact: ArtifactItem, updated: ArtifactContent): ArtifactContent {
+  // Older snapshots admitted names outside today's metadata contract. Keep
+  // those rows readable/renameable, but never persist an invalid name overlay.
+  if (normalizeArtifactName(artifact.name) !== artifact.name) {
+    throw new ValidationError('Rename this artifact to a valid name before editing its content.')
+  }
+  artifactBodies.set(artifact.id, updated)
+  artifactMetadata.set(artifact.id, {
+    name: artifact.name,
+    revision: artifact.metadataRevision ?? 0,
+    editedAt: Math.max(Date.now(), artifact.editedAt),
+  })
+  persist()
+  emit({ type: 'artifact.changed', artifactId: artifact.id })
+  return updated
+}
 
 /** An artifact's CURRENT body — the edit if it has one, else the authored seed.
  *  Module-level so the store's methods AND the wire-face builders share one
@@ -6069,6 +6090,24 @@ export const store = {
   artifactBlockText(artifactId: string, block: number): string | undefined {
     return artifactBlockTextOf(artifactId, block)
   },
+  /** Commit a reviewed complete sheet/deck draft. The acting tenant, original
+   * kind, literal-body bounds and mandatory body revision all precede effects.
+   * Metadata, immutable save origin and sharing remain independent. */
+  updateStructuredArtifactContent(artifactId: string, content: unknown, expectedRevision: number, tenantId: string): ArtifactContent | undefined {
+    const artifact = findArtifact(artifactId)
+    if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
+    const body = artifactBodyOf(artifactId)
+    const next = parseStructuredArtifactBody(content)
+    if (!body || !next || body.type !== next.type ||
+      (artifact.kind === 'sheet' ? next.type !== 'sheet' : artifact.kind !== 'slide' || next.type !== 'slides') ||
+      !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return undefined
+    const revision = body.revision ?? 0
+    if (revision !== expectedRevision || revision >= Number.MAX_SAFE_INTEGER) {
+      throw new ConflictError(`This artifact changed elsewhere (expected revision ${expectedRevision}, current revision ${revision}).`)
+    }
+    const updated: ArtifactContent = { ...next, revision: revision + 1 }
+    return commitArtifactBodyEdit(artifact, updated)
+  },
   /** Rewrite ONE addressed prose block — the artifact layer's first real write
    *  path, and the ONE mutator behind both doors: the owner's own editor and a
    *  landed `artifact-patch` proposal. Landing must never be a parallel write
@@ -6101,10 +6140,9 @@ export const store = {
     if (!next) return undefined
     const blocks = body.blocks.map((b, i) => (i === block ? withDocBlockText(b, next) : b))
     const updated: ArtifactContent = { ...body, blocks, revision: currentRevision + 1 }
-    artifactBodies.set(artifactId, updated)
-    emit({ type: 'artifact.changed', artifactId })
-    persist()
-    return updated
+    const artifact = findArtifact(artifactId)
+    if (!artifact) return undefined
+    return commitArtifactBodyEdit(artifact, updated)
   },
 
   // ── Usage (the composer gauge: context window + plan limit windows) ──
@@ -8660,6 +8698,10 @@ export const store = {
     // became strict. Re-check at effect time so review never turns that legacy
     // row into a 500 or a partially applied definition.
     if (p.delta.kind === 'schedule-patch' && !isSchedulePatch(p.delta.patch)) return 'inapplicable'
+    if (p.delta.kind === 'artifact-patch') {
+      const artifact = findArtifact(p.subject.id)
+      if (!artifact || normalizeArtifactName(artifact.name) !== artifact.name) return 'inapplicable'
+    }
     if (socialProposalIsStale(p)) return 'stale'
     return commitMutationBatch(() => {
       // Landing runs the REAL mutator for every applying kind — the same call the
@@ -10179,7 +10221,11 @@ export const store = {
     if (expectedRevision !== revision) throw new ConflictError('This artifact name changed elsewhere. Review the latest name before retrying.')
     if (normalized === artifact.name) return this.listArtifacts(tenantId).find((row) => row.id === id)
     if (revision === Number.MAX_SAFE_INTEGER) throw new ConflictError('This artifact cannot accept another metadata revision.')
-    artifactMetadata.set(id, { name: normalized, revision: revision + 1, editedAt: Date.now() })
+    artifactMetadata.set(id, {
+      name: normalized,
+      revision: revision + 1,
+      editedAt: Math.max(Date.now(), artifact.editedAt),
+    })
     graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
     persist()
     emit({ type: 'artifact.changed', artifactId: id })
@@ -10833,9 +10879,9 @@ export const store = {
       // here before the tenant-agnostic shared reducer sees the operation.
       const ownerTenantId = tenantId ?? defaultTenantId()
       op = { ...op, ownerTenantId }
-      const artifactName = op.artifact.body === undefined ? op.artifact.name : op.artifact.name.trim()
-      if (op.artifact.body !== undefined && !artifactName) {
-        throw new ValidationError('Artifact name must contain text.')
+      const artifactName = op.artifact.body === undefined ? op.artifact.name : normalizeArtifactName(op.artifact.name)
+      if (artifactName === undefined) {
+        throw new ValidationError('Artifact name must be 1 to 240 characters and cannot contain control characters.')
       }
       if (artifactName !== op.artifact.name) {
         op = { ...op, artifact: { ...op.artifact, name: artifactName } }

@@ -22,7 +22,7 @@ import type { SocialEntityRef } from '../../contract/index.ts'
 import { docBlockText } from '../../contract/index.ts'
 import { LocusGutter } from './LocusGutter'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
-import { useArtifactContent, useFsText, fsContentUrl } from '../api'
+import { onAccountSwitch, useArtifactContent, useFsText, fsContentUrl } from '../api'
 import { updateArtifactBlock } from '../controller/artifactContentMutations'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
@@ -50,6 +50,12 @@ import { InlineOperationStatus } from './InlineOperationStatus'
 import { normalizeArtifactName } from '../../contract/index.ts'
 import { HOVER_CUE } from '../lib/hoverReveal'
 import { StructuredArtifactView } from './StructuredArtifactView'
+import { StructuredArtifactEditor } from './StructuredArtifactEditor'
+import {
+  isStructuredArtifactMutationHeld,
+  updateStructuredArtifactContent,
+  useStructuredArtifactMutationStatus,
+} from '../controller/structuredArtifactMutations'
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -684,7 +690,10 @@ export function ArtifactDetailPage({
   const nameHintId = useId()
   const currentArtifactId = useRef(artifact.id)
   currentArtifactId.current = artifact.id
-  useEffect(() => { setEditingName(false) }, [artifact.id])
+  const [editingStructured, setEditingStructured] = useState(false)
+  const [structuredBaseRevision, setStructuredBaseRevision] = useState(0)
+  useEffect(() => { setEditingName(false); setEditingStructured(false) }, [artifact.id])
+  useEffect(() => onAccountSwitch(() => setEditingStructured(false)), [])
   const normalizedName = normalizeArtifactName(nameDraft)
   const invalidName = !normalizedName
 
@@ -695,6 +704,12 @@ export function ArtifactDetailPage({
   const [draft, setDraft] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const artifactContent = useArtifactContent()
+  const structuredMutation = useStructuredArtifactMutationStatus()
+  const structuredBody = artifactContent.data?.[artifact.id]
+  const editableStructuredBody = structuredBody?.type === 'sheet' || structuredBody?.type === 'slides' ? structuredBody : undefined
+  const structuredBusy = isStructuredArtifactMutationHeld(artifact.id) ||
+    (structuredMutation.busy && structuredMutation.activeResourceId === artifact.id)
   const [sharing, setSharing] = useState(false)
   const [sharingHeld, setSharingHeld] = useState(false)
   const downloadFormat = artifact.kind === 'sheet' ? 'xlsx' : artifact.kind === 'slide' ? 'pptx' : artifact.kind === 'doc' || artifact.kind === 'email' ? 'markdown' : null
@@ -752,6 +767,15 @@ export function ArtifactDetailPage({
       nameBaseRevision,
     )
     if (outcome === 'applied' && currentArtifactId.current === artifact.id) setEditingName(false)
+  }
+  const startStructuredEdit = () => {
+    if (!own || !editableStructuredBody || structuredBusy) return
+    setStructuredBaseRevision(editableStructuredBody.revision ?? 0)
+    setEditingStructured(true)
+  }
+  const saveStructured = async (next: Extract<typeof editableStructuredBody, { type: 'sheet' | 'slides' }>) => {
+    const outcome = await updateStructuredArtifactContent(artifact.id, next, structuredBaseRevision)
+    if (outcome === 'applied' && currentArtifactId.current === artifact.id) setEditingStructured(false)
   }
 
   return (
@@ -858,26 +882,44 @@ export function ArtifactDetailPage({
         <Section
           title="Content"
           summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
-          actions={downloadFormat ? <SectionAction
-            label={downloadFormat === 'xlsx' ? 'Download XLSX' : downloadFormat === 'pptx' ? 'Download PowerPoint' : 'Download Markdown'}
-            icon={<Download size={14} />}
-            onClick={() => { void artifactDownload.download() }}
-            disabled={editing !== null || saving || editingName || metadataBusy || artifactDownload.busy}
-            disabledReason={editing !== null || saving || editingName || metadataBusy ? 'Save or cancel your edit before downloading' : 'Preparing download'}
-          /> : undefined}
+          actions={<div className="flex flex-wrap items-center gap-1.5">
+            {own && editableStructuredBody && <SectionAction
+              label={editingStructured ? 'Cancel editing' : editableStructuredBody.type === 'sheet' ? 'Edit sheet' : 'Edit slides'}
+              icon={editingStructured ? <X size={14} /> : <Pencil size={14} />}
+              onClick={editingStructured ? () => setEditingStructured(false) : startStructuredEdit}
+              disabled={structuredBusy}
+              disabledReason={structuredBusy ? 'Finish the current structure edit first' : undefined}
+            />}
+            {downloadFormat && <SectionAction
+              label={downloadFormat === 'xlsx' ? 'Download XLSX' : downloadFormat === 'pptx' ? 'Download PowerPoint' : 'Download Markdown'}
+              icon={<Download size={14} />}
+              onClick={() => { void artifactDownload.download() }}
+              disabled={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy || artifactDownload.busy}
+              disabledReason={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy ? 'Save or cancel your edit before downloading' : 'Preparing download'}
+            />}
+          </div>}
         >
           {artifactDownload.notice && <InlineOperationStatus {...artifactDownload.notice} />}
-          <ArtifactBodyView
-            kind={artifact.kind}
-            name={artifact.name}
-            artifactId={artifact.id}
-            size="full"
-            excerpt={artifact.excerpt}
-            edit={edit}
-            // The canonical page is the artifact's READING surface, so it is
-            // the one place a block carries its own thread (social S2).
-            discuss={{ kind: 'artifact', id: artifact.id }}
-          />
+          {own && editingStructured && editableStructuredBody ? (
+            <StructuredArtifactEditor
+              body={editableStructuredBody}
+              latestBody={structuredMutation.activeResourceId === artifact.id && structuredMutation.error ? editableStructuredBody : undefined}
+              showLatest={structuredMutation.activeResourceId === artifact.id && Boolean(structuredMutation.error)}
+              saving={structuredBusy}
+              onSave={saveStructured}
+              onCancel={() => setEditingStructured(false)}
+            />
+          ) : <ArtifactBodyView
+              kind={artifact.kind}
+              name={artifact.name}
+              artifactId={artifact.id}
+              size="full"
+              excerpt={artifact.excerpt}
+              edit={edit}
+              // The canonical page is the artifact's READING surface, so it is
+              // the one place a block carries its own thread (social S2).
+              discuss={{ kind: 'artifact', id: artifact.id }}
+            />}
         </Section>
         {/* Improvements (social S3) — the generic ProposalsPanel, the third
             social primitive on the one canonical surface. An artifact could be

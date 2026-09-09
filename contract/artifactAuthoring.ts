@@ -88,11 +88,12 @@ export function parseStructuredArtifactBody(value: unknown): StructuredArtifactB
 /** One proposal/store boundary with the established document behavior intact.
  * Kind must be explicit for structured content; no filename/type guessing. */
 export function authoredArtifact(name: string, kind: unknown, raw: unknown): AuthoredArtifact | undefined {
+  if (!normalizeArtifactName(name)) return undefined
   if (kind === 'doc') {
     const document = authoredDocument(name, raw)
     return document && { body: document.body, draftBody: document.text, excerpt: document.excerpt }
   }
-  if ((kind !== 'sheet' && kind !== 'slide') || !normalizeArtifactName(name)) return undefined
+  if (kind !== 'sheet' && kind !== 'slide') return undefined
   const structured = parseStructuredArtifactBody(raw)
   if (!structured || (kind === 'sheet' ? structured.type !== 'sheet' : structured.type !== 'slides')) return undefined
   const excerpt = structured.type === 'sheet'

@@ -950,6 +950,17 @@ export function acceptArtifactContent(artifactId: string, incoming: ArtifactCont
     [artifactId]: accepted,
     ...(artifact && uniqueName ? { [artifact.name]: accepted } : {}),
   }))
+  // The PATCH acknowledgement owns same-client freshness too; SSE is advisory
+  // and may be recovering. Keep the accepted body in place while asynchronously
+  // re-reading only projections derived from the artifact row/timestamp. Cache
+  // invalidation never awaits or propagates a follow-up read failure here.
+  invalidate(keys.artifacts)
+  invalidate(keys.relations)
+  invalidate(keys.commons)
+  invalidatePrefix(keys.socialProposals())
+  invalidatePrefix(keys.socialProposal())
+  invalidatePrefix(keys.ownerProfile())
+  invalidatePrefix(keys.search())
   return accepted
 }
 

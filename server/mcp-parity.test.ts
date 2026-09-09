@@ -293,6 +293,77 @@ test('POLICY: PPTX artifact export has identical HTTP and remote-MCP read walls'
   assert.equal(revokedMcp.status, 404)
 })
 
+test('POLICY: structured artifact edits have identical HTTP and remote-MCP owner/CAS walls', async () => {
+  const stamp = Date.now().toString(36)
+  const owner = 'tenant-personal'
+  const audience = 'tenant-beta'
+  const name = `mcp-structured-edit-${stamp}.csv`
+  const original = { type: 'sheet', columns: ['Name', 'Value'], rows: [['Ada', '1']] }
+  const edited = { type: 'sheet', columns: ['Name', 'Value'], rows: [['Edited Ada', '2']] }
+  const saved = await call('POST', '/relations/ops', {
+    op: { kind: 'save-artifact', artifact: { name, kind: 'sheet', meta: 'Sheet', body: original } },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `mcp-structured-create-${stamp}` })
+  assert.equal(saved.status, 200)
+  const artifact = (saved.json.extraArtifacts as Array<{ id: string; name: string }>).find((row) => row.name === name)
+  assert.ok(artifact)
+  const grant = await call('POST', '/grants', {
+    subject: { kind: 'artifact', id: artifact.id }, audience: { kind: 'org', orgId: audience }, tier: 'view',
+  }, { 'x-tenant-id': owner })
+  assert.equal(grant.status, 200)
+
+  const key = `mcp-structured-edit-${stamp}`
+  const directEdit = await call('PATCH', `/artifacts/${artifact.id}/content`, { content: edited, expectedRevision: 0 }, { 'x-tenant-id': owner, 'idempotency-key': key })
+  assert.equal(directEdit.status, 200)
+  const httpReplay = await call('PATCH', `/artifacts/${artifact.id}/content`, { content: edited, expectedRevision: 0 }, { 'x-tenant-id': owner, 'idempotency-key': key })
+  assert.equal(httpReplay.status, 200)
+  assert.deepEqual(httpReplay.json, directEdit.json, 'HTTP replays the same owner edit receipt')
+  const mcpKey = `mcp-structured-edit-remote-${stamp}`
+  const mcpArgs = { id: artifact.id, body: { content: edited, expectedRevision: 1 }, idempotencyKey: mcpKey }
+  const mcpEdit = await toolCall('patch_artifacts_by_id_content', mcpArgs, { 'x-tenant-id': owner, 'idempotency-key': `outer-${stamp}` })
+  assert.equal(mcpEdit.status, 200)
+  const outerRetry = await toolCall('patch_artifacts_by_id_content', { id: artifact.id, body: { content: edited, expectedRevision: 1 } }, { 'x-tenant-id': owner, 'idempotency-key': `outer-${stamp}` })
+  assert.equal(outerRetry.status, 409, 'the outer MCP transport key never aliases the inner product mutation')
+  const mcpReplay = await toolCall('patch_artifacts_by_id_content', mcpArgs, { 'x-tenant-id': owner })
+  assert.equal(mcpReplay.status, 200)
+  assert.deepEqual(mcpReplay.body, mcpEdit.body, 'remote MCP replays the same owner edit receipt')
+
+  const changed = { type: 'sheet', columns: ['Name', 'Value'], rows: [['Stale', '9']] }
+  const directStale = await call('PATCH', `/artifacts/${artifact.id}/content`, { content: changed, expectedRevision: 0 }, { 'x-tenant-id': owner })
+  const mcpStale = await toolCall('patch_artifacts_by_id_content', { id: artifact.id, body: { content: changed, expectedRevision: 0 } }, { 'x-tenant-id': owner })
+  assert.equal(directStale.status, 409)
+  assert.equal(mcpStale.status, directStale.status)
+  assert.deepEqual(mcpStale.body, directStale.json, 'HTTP and MCP expose the same stale-CAS error')
+
+  const renamed = `mcp-structured-renamed-${stamp}.csv`
+  const nameEdit = await toolCall('patch_artifacts_by_id', {
+    id: artifact.id, body: { name: renamed, expectedRevision: 0 }, idempotencyKey: mcpKey,
+  }, { 'x-tenant-id': owner })
+  assert.equal(nameEdit.status, 200, 'the same raw retry key is scoped to the MCP tool and path')
+  assert.equal(nameEdit.body.name, renamed)
+
+  const secondName = `mcp-structured-second-${stamp}.csv`
+  const secondSaved = await call('POST', '/relations/ops', {
+    op: { kind: 'save-artifact', artifact: { name: secondName, kind: 'sheet', meta: 'Sheet', body: original } },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `mcp-structured-second-create-${stamp}` })
+  assert.equal(secondSaved.status, 200)
+  const second = (secondSaved.json.extraArtifacts as Array<{ id: string; name: string }>).find((row) => row.name === secondName)
+  assert.ok(second)
+  const secondEdit = await toolCall('patch_artifacts_by_id_content', {
+    id: second.id, body: { content: edited, expectedRevision: 0 }, idempotencyKey: mcpKey,
+  }, { 'x-tenant-id': owner })
+  assert.equal(secondEdit.status, 200, 'the same raw retry key is scoped to the artifact path as well')
+  assert.deepEqual(secondEdit.body.rows, edited.rows)
+
+  const directReader = await call('PATCH', `/artifacts/${artifact.id}/content`, { content: edited, expectedRevision: 2 }, { 'x-tenant-id': audience })
+  const mcpReader = await toolCall('patch_artifacts_by_id_content', { id: artifact.id, body: { content: edited, expectedRevision: 2 } }, { 'x-tenant-id': audience })
+  assert.equal(directReader.status, 404)
+  assert.equal(mcpReader.status, 404)
+  assert.deepEqual(mcpReader.body, directReader.json, 'grant-only readers cannot edit through either door')
+
+  const foreign = await toolCall('patch_artifacts_by_id_content', { id: artifact.id, body: { content: original, expectedRevision: 2 }, idempotencyKey: mcpKey }, { 'x-tenant-id': 'tenant-growthworks' })
+  assert.equal(foreign.status, 404)
+})
+
 test('POLICY: authored projects are discoverable identically through HTTP and remote MCP', async () => {
   const tenant = 'tenant-mcp-project-registry'
   const name = `MCP canonical project ${Date.now()}`
