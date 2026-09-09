@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron, expect } from '@playwright/test'
+import { TextWriter, Uint8ArrayReader, ZipReader } from '@zip.js/zip.js'
 import { exactLoopbackOrigin } from './runtime.mjs'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
@@ -296,6 +297,106 @@ export async function smokePackagedAttachments({ executable }) {
     assert.deepEqual(downloaded.toString('utf8'), exportPayload.payload.content, 'downloaded Markdown bytes equal the fresh authenticated export content')
     assert.match(downloaded.toString('utf8'), /Edited current saved revision\\\./, 'download preserves escaped Markdown punctuation')
     console.log('[desktop-markdown-smoke] owner rename · authenticated fresh export GET · current edited document bytes · test-only packaged download redirect · exact renamed .md file')
+
+    // XLSX export is a renderer download, not a native bridge. Create a real
+    // structured sheet through the authenticated relation seam, rename it via
+    // the canonical page, and inspect the downloaded ZIP/XML so formula-looking
+    // user text remains a literal cell rather than becoming executable formula
+    // markup. This intentionally uses the same isolated packaged Electron
+    // process and download redirect as the Markdown acceptance above.
+    const sheetName = `native-sheet-${Date.now().toString(36)}.xlsx`
+    const sheetBody = {
+      type: 'sheet',
+      columns: ['Label', 'Value'],
+      rows: [['Literal formula text', '=SUM(A1:A2)'], ['Unicode', 'café ☀️']],
+      note: 'No formula calculation in export smoke.',
+    }
+    const sheetArtifact = await page.evaluate(async ({ name, body, sessionId }) => {
+      const apply = await fetch('/api/v1/relations/ops', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `native-xlsx-${name}` },
+        body: JSON.stringify({ op: {
+          kind: 'save-artifact',
+          artifact: { name, kind: 'sheet', meta: 'Sheet', body },
+          sessionId,
+          sessionTitle: 'Native XLSX Smoke',
+        } }),
+      })
+      if (!apply.ok) throw new Error(`XLSX artifact creation failed: HTTP ${apply.status}`)
+      const artifactsResponse = await fetch('/api/v1/artifacts')
+      if (!artifactsResponse.ok) throw new Error(`XLSX artifact listing failed: HTTP ${artifactsResponse.status}`)
+      const artifact = (await artifactsResponse.json()).find((candidate) => candidate.name === name)
+      if (!artifact) throw new Error('XLSX artifact was not returned by the authenticated registry')
+      return { id: artifact.id, originalName: artifact.name }
+    }, { name: `original-${sheetName}`, body: sheetBody, sessionId: session.id })
+    const sheetRoute = `/artifacts/${encodeURIComponent(sheetArtifact.id)}`
+    await page.goto(`${origin}${sheetRoute}`)
+    await page.getByRole('button', { name: 'Rename artifact', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Artifact name', exact: true }).fill(sheetName)
+    await page.getByRole('button', { name: 'Save artifact name', exact: true }).click()
+    await expect(page.getByRole('heading', { name: sheetName, exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Download XLSX', exact: true })).toBeVisible()
+    const xlsxExport = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/export?format=xlsx`)
+      return { status: response.status, payload: await response.json() }
+    }, sheetArtifact.id)
+    assert.equal(xlsxExport.status, 200, 'fresh authenticated XLSX export GET succeeds')
+    assert.equal(xlsxExport.payload.artifactId, sheetArtifact.id)
+    assert.equal(xlsxExport.payload.filename, sheetName)
+    assert.equal(xlsxExport.payload.mediaType, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    assert.equal(xlsxExport.payload.encoding, 'base64')
+    assert.ok(Number.isSafeInteger(xlsxExport.payload.revision))
+    const xlsxBytes = Buffer.from(xlsxExport.payload.content, 'base64')
+    assert.equal(xlsxBytes.subarray(0, 2).toString('hex'), '504b', 'XLSX export is a ZIP package')
+    const xlsxReader = new ZipReader(new Uint8ArrayReader(xlsxBytes))
+    let sheetXml = ''
+    let sharedStringsXml = ''
+    try {
+      const entries = await xlsxReader.getEntries()
+      const worksheet = entries.find((entry) => entry.filename === 'xl/worksheets/sheet1.xml')
+      const sharedStrings = entries.find((entry) => entry.filename === 'xl/sharedStrings.xml')
+      assert.ok(worksheet, 'XLSX package contains its first worksheet')
+      assert.ok(sharedStrings, 'XLSX package contains its shared strings table')
+      sheetXml = await worksheet.getData(new TextWriter())
+      sharedStringsXml = await sharedStrings.getData(new TextWriter())
+    } finally {
+      await xlsxReader.close()
+    }
+    assert.match(sheetXml, /t="s"/, 'worksheet stores cells as shared-string references')
+    assert.match(sharedStringsXml, /Literal formula text/)
+    assert.match(sharedStringsXml, /=SUM\(A1:A2\)/, 'formula-looking text survives as a shared literal cell')
+    assert.match(sharedStringsXml, /caf/, 'Unicode literal cell survives export')
+    assert.doesNotMatch(`${sheetXml}\n${sharedStringsXml}`, /<f(?:\s|>)/, 'XLSX export contains no formula nodes')
+    const xlsxDownloadDirectory = join(fixtureRoot, 'xlsx-download')
+    const xlsxDownloadPath = join(xlsxDownloadDirectory, sheetName)
+    await mkdir(xlsxDownloadDirectory, { recursive: true })
+    const xlsxDownloadDone = await run.app.evaluateHandle(({ session }, { trustedOrigin, target }) => ({
+      done: new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve({ state: 'timed-out', filename: '' }), 30_000)
+        session.defaultSession.once('will-download', (event, item, contents) => {
+          let downloadOrigin = ''
+          try { downloadOrigin = new URL(contents.getURL()).origin } catch {}
+          if (downloadOrigin !== trustedOrigin) {
+            event.preventDefault()
+            clearTimeout(timeout)
+            resolve({ state: 'unexpected-origin', filename: '' })
+            return
+          }
+          item.setSavePath(target)
+          item.once('done', (_event, state) => {
+            clearTimeout(timeout)
+            resolve({ state, filename: item.getFilename() })
+          })
+        })
+      }),
+    }), { trustedOrigin: origin, target: xlsxDownloadPath })
+    await page.getByRole('button', { name: 'Download XLSX', exact: true }).click()
+    const xlsxDownloadResult = await xlsxDownloadDone.evaluate((holder) => holder.done)
+    await xlsxDownloadDone.dispose()
+    assert.deepEqual(xlsxDownloadResult, { state: 'completed', filename: sheetName }, 'Electron completed the packaged XLSX download with the expected filename')
+    const downloadedXlsx = await readFile(xlsxDownloadPath)
+    assert.deepEqual(downloadedXlsx, xlsxBytes, 'downloaded XLSX bytes equal the fresh authenticated export content')
+    assert.equal(downloadedXlsx.subarray(0, 2).toString('hex'), '504b', 'downloaded XLSX remains a ZIP package')
+    console.log('[desktop-xlsx-export-smoke] owner rename · authenticated literal sheet export · ZIP worksheet without formula nodes · exact renamed .xlsx download')
     await page.goto(`${origin}${sessionPath}`)
 
     const calls = await run.app.evaluateHandle(({ dialog, BrowserWindow }, filePaths) => {

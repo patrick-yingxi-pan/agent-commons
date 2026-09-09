@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { AccountSwitchedError, ApiRequestError, readArtifactDocumentExport } from '../api'
-import { downloadText } from '../lib/downloadText.ts'
+import { AccountSwitchedError, ApiRequestError, readArtifactExport } from '../api'
+import type { ArtifactExportFormat } from '../../contract/index.ts'
+import { downloadBlob } from '../lib/downloadText.ts'
+import { decodeArtifactSpreadsheetExport } from '../lib/artifactSpreadsheetExport.ts'
 
 type Notice = { tone: 'status' | 'alert'; message: string }
 
 /** One fresh, abortable read per activation. Never export the retained body
  * cache: a displayed document can be stale or its read grant revoked. */
-export function useArtifactDownload(artifactId: string) {
+export function useArtifactDownload(artifactId: string, format: ArtifactExportFormat = 'markdown') {
   const active = useRef<AbortController | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<Notice | null>(null)
@@ -14,7 +16,7 @@ export function useArtifactDownload(artifactId: string) {
     setBusy(false)
     setNotice(null)
     return () => { active.current?.abort(); active.current = null }
-  }, [artifactId])
+  }, [artifactId, format])
 
   const download = async () => {
     if (active.current) return
@@ -25,17 +27,24 @@ export function useArtifactDownload(artifactId: string) {
     setBusy(true)
     setNotice(null)
     try {
-      const file = await readArtifactDocumentExport(artifactId, controller.signal)
+      const file = await readArtifactExport(artifactId, format, controller.signal)
       if (controller.signal.aborted || active.current !== controller) return
       if (file.artifactId !== artifactId) throw new Error('Unexpected document identity')
-      downloadText(file)
-      setNotice({ tone: 'status', message: 'Markdown download requested. It contains the latest saved text.' })
+      if (format === 'xlsx') {
+        if (!('encoding' in file)) throw new Error('Unexpected spreadsheet export')
+        downloadBlob(decodeArtifactSpreadsheetExport(file, artifactId))
+        setNotice({ tone: 'status', message: 'XLSX download requested. Saved values are exported as text.' })
+      } else {
+        if (typeof file.content !== 'string' || file.mediaType !== 'text/markdown;charset=utf-8') throw new Error('Unexpected Markdown export')
+        downloadBlob({ content: file.content, filename: file.filename, mediaType: file.mediaType })
+        setNotice({ tone: 'status', message: 'Markdown download requested. It contains the latest saved text.' })
+      }
     } catch (error) {
       if (active.current !== controller || error instanceof AccountSwitchedError) return
       const message = timedOut ? 'The download request timed out. Try again.'
-        : error instanceof ApiRequestError && error.status === 404 ? 'This document is no longer available to this account.'
-        : error instanceof ApiRequestError && error.code === 'capability_unavailable' ? 'This artifact has no saved document content to download as Markdown.'
-        : 'Could not download this document. Check your connection and try again.'
+        : error instanceof ApiRequestError && error.status === 404 ? `This ${format === 'xlsx' ? 'sheet' : 'document'} is no longer available to this account.`
+        : error instanceof ApiRequestError && error.code === 'capability_unavailable' ? `This artifact has no saved ${format === 'xlsx' ? 'sheet content to download as XLSX' : 'document content to download as Markdown'}.`
+        : `Could not download this ${format === 'xlsx' ? 'sheet' : 'document'}. Check your connection and try again.`
       setNotice({ tone: 'alert', message })
     } finally {
       clearTimeout(timer)

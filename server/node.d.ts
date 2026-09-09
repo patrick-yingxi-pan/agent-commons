@@ -156,6 +156,7 @@ interface Buffer extends Uint8Array {
 declare const Buffer: {
   concat(list: Uint8Array[]): Buffer
   from(data: string, encoding?: string): Buffer
+  from(data: Uint8Array): Buffer
   isBuffer(v: unknown): v is Buffer
 }
 

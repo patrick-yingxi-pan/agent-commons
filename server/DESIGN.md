@@ -36,11 +36,12 @@ doc-lint and cross-layer locks with no single module to belong to.
 
 ## Architecture and contract semantics
 
-- **Few runtime dependencies.** The server carries a single, intentional
-  dependency — **`@anthropic-ai/sdk`**, the Messages client behind the
-  generation seam (below). Don't add others without good reason; the rest of
-  `server/` stays dependency-free (it even hand-rolls its Node types in
-  `server/node.d.ts`).
+- **Few runtime dependencies.** The server uses **`@anthropic-ai/sdk`** at the
+  generation seam and the existing **`@zip.js/zip.js`** library solely to write
+  bounded generated XLSX parts. Reusing its stored-entry writer avoids a second
+  archive implementation; it never parses uploads or launches workers. The
+  Office input parsers remain renderer-worker-only. Other server code stays
+  dependency-free, with its Node declarations in `server/node.d.ts`.
 - **Strict core, convenient edge (INV-9).** An absent request field must mean
   something fixed (inherit / complete-set constant / minimal-risk none), or be
   refused with `ValidationError` → 400 — never resolved to a mutable entity or
@@ -52,8 +53,8 @@ doc-lint and cross-layer locks with no single module to belong to.
 ## Model boundary — real Anthropic Messages and tools
 
 (Not an in-process fake.) `server/generate.ts` calls an
-Anthropic-compatible endpoint via `@anthropic-ai/sdk` — the one accepted server
-dependency — declaring the resource-manipulation tools (`server/model/tools.ts`)
+Anthropic-compatible endpoint via `@anthropic-ai/sdk`, declaring the
+resource-manipulation tools (`server/model/tools.ts`)
 and running the **bounded tool-use loop** as one growing Messages document:
 model → `tool_use` → backend executes → `tool_result` → another dependent batch
 or final prose. Endpoint and Session-provider transports share the executed-

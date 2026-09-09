@@ -15,6 +15,7 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import { sheetXlsx } from '../artifactXlsx.ts'
 import { authoredArtifact, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
@@ -6039,6 +6040,18 @@ export const store = {
     const body = artifactBodyOf(artifactId)
     if ((artifact.kind !== 'doc' && artifact.kind !== 'email') || body?.type !== 'doc') return null
     return { artifactId, ...documentMarkdown(artifact.name, body) }
+  },
+  async exportArtifactSpreadsheet(artifactId: string, tenantId: string) {
+    const artifact = findArtifact(artifactId)
+    if (!artifact || !this.artifactVisibleToTenant(artifact, tenantId)) return undefined
+    const body = artifactBodyOf(artifactId)
+    if (artifact.kind !== 'sheet' || body?.type !== 'sheet') return null
+    // Take one saved revision before the async writer yields; never mix rows
+    // from different reads or borrow the compatibility name-keyed library.
+    const exported = await sheetXlsx(artifact.name, structuredClone(body))
+    const current = findArtifact(artifactId)
+    if (!current || !this.artifactVisibleToTenant(current, tenantId)) return undefined
+    return { artifactId, ...exported }
   },
   /** The text an addressed block carries right now — see `artifactBlockTextOf`. */
   artifactBlockText(artifactId: string, block: number): string | undefined {

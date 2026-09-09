@@ -6,6 +6,7 @@ export const DESKTOP_BUNDLE_ID = 'com.agentcommons.desktop'
 const SHIPPED_ROOTS = new Set(['contract', 'connector', 'desktop', 'dist', 'node_modules', 'scripts', 'server'])
 const DESKTOP_RUNTIME_PACKAGES = new Set([
   '@anthropic-ai/sdk',
+  '@zip.js/zip.js',
   '@babel/runtime',
   '@stablelib/base64',
   'fast-sha256',
@@ -77,8 +78,8 @@ export default {
   icon: fileURLToPath(new URL('./assets/icon', import.meta.url)),
   asar: true,
   // A runtime allowlist is stricter than package-manager pruning: frontend
-  // dependencies are build inputs, while only the server's Anthropic SDK
-  // closure belongs in the installed application.
+  // dependencies are build inputs. The server's SDK closure and the bounded
+  // values-only Office ZIP writer belong in the installed application.
   prune: false,
   ignore: ignoreFromPackage,
   extendInfo: {

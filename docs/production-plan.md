@@ -20,10 +20,16 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
+Shared-browser handoff was restored on 2026-09-08: all six demo accounts are
+stacked and Ada is active on a saved sheet after exercising its XLSX download.
+Older checkpoint notes below describe the Mac lock at that time; it no longer
+blocks shared preview review. Manual native OS-dialog and Excel-application
+acceptance remain separate, unverified checks.
+
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff still awaits an unlocked Mac. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Bounded MCP transport/discovery now composes with tenant-owned lifecycle routes, a Contexts setup/catalog/recovery workflow, exact inspection receipts, and provision-only OS-encrypted desktop credentials. Startup reconciles persisted bindings before admission; disconnect/removal cleanup is independently retryable. Browser protocol fixtures and focused packaged OS-storage acceptance prove these boundaries, not third-party tool execution. Schema semantics, attachment, approval, call receipts, and model execution remain required; release fulfilment is still unconfigured. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
@@ -37,9 +43,29 @@ UTF-16 characters before consent or persistence; invalid content is rejected as 
 whole. Consent and saved pages share one renderer, including keyboard-scrollable
 wide tables and wrapping long text. The HTTP/MCP read wall, rename/replay identity,
 JSON/SQLite restart and portable-state validation preserve these actual bodies.
-This is not spreadsheet calculation, native XLSX/PPTX export, arbitrary layout,
+This is not spreadsheet calculation, native PPTX export, arbitrary layout,
 or a cell/slide editing workflow. Those richer authoring/export capabilities and
 structured standing-routine output remain required follow-on work.
+
+Saved sheets now have a real XLSX download through the existing artifact export
+read. Explicit `format=xlsx` selects a values-only workbook; omission retains
+Markdown compatibility. Headers, rows, empty strings, leading zeros, Unicode,
+formula-looking text and the optional note retain literal string meaning, without
+type inference or formula execution. Shared strings, wrapped cells, fitted widths,
+a frozen header and filtering keep ordinary workbooks readable; Excel's own
+409-point row ceiling can limit visible text without truncating stored cells.
+Exact identity and current access are checked before serialization and again
+after its async work. Browser and packaged downloads use the same portable API.
+Independent workbook import/render supplements ZIP/XML and HTTP/MCP locks.
+The bundled renderer does not faithfully display Xstring escapes or numeric-looking
+literal text. A separate openpyxl read verifies the exact values, string types,
+text formatting, frozen header and filter; contract tests cover all UTF-16 edge
+cases. Actual Excel application acceptance remains unverified.
+
+This checkpoint passes the complete five-lane verifier (324 browser tests), real
+unsigned packaged-Electron acceptance, and the separate 135/135-cell responsive
+sweep with zero violations or skips. The packaged download is compared byte for
+byte with the authenticated API export; this is not evidence of a signed release.
 
 Artifact renaming is an owner-only metadata workflow. Names have independent
 revision ordering, while IDs, document bodies, links, filing, grants and immutable
@@ -57,8 +83,8 @@ standing routine reports. It exports the latest saved revision, not an unsaved
 editor or retained body cache. Browser retry/revocation checks and an actual
 packaged Electron download complement serializer, identity and HTTP/MCP locks.
 Addressed body/proposal readers now use exact IDs, preventing metadata-only rows
-from borrowing demo text through a matching filename. Native Office export,
-rich sheet/slide authoring, external tools and signed release remain required.
+from borrowing demo text through a matching filename. Rich sheet/slide editing,
+PowerPoint export, external tools and signed release remain required.
 Legacy demo workspace previews receive explicit code-owned seed-ID projections
 behind the live session read wall, never a generic filename fallback.
 Artifact removal awaits the owner's recoverable-Trash versus permanent-deletion

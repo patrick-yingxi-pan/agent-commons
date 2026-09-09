@@ -219,6 +219,9 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(packagerConfig.icon, /desktop\/assets\/icon$/)
   assert.equal(packagerConfig.extendInfo.NSAppTransportSecurity.NSAllowsArbitraryLoads, false)
   assert.equal(ignoreFromPackage('/node_modules/@anthropic-ai/sdk/client.mjs'), false)
+  assert.equal(ignoreFromPackage('/node_modules/@zip.js'), false)
+  assert.equal(ignoreFromPackage('/node_modules/@zip.js/zip.js/lib/zip-core-custom.js'), false)
+  assert.equal(ignoreFromPackage('/node_modules/saxes/package.json'), true)
   assert.equal(ignoreFromPackage('/node_modules/json-schema-to-ts/package.json'), false)
   assert.equal(ignoreFromPackage('/node_modules/react/package.json'), true)
   assert.equal(ignoreFromPackage('/node_modules/.vite/deps/react.js'), true)
@@ -270,6 +273,19 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'the ordinary executable and freshly extracted release both run attachment acceptance')
   assert.match(smoke, /await smokePackagedMcpCredentials\(\{ executable \}\)/,
     'the ordinary executable and freshly extracted release both prove real OS-backed MCP credential reconciliation')
+
+  const attachmentSmoke = readFileSync(new URL('./attachmentSmoke.mjs', import.meta.url), 'utf8')
+  for (const contract of [
+    "artifact: { name, kind: 'sheet', meta: 'Sheet', body }",
+    "format=xlsx",
+    "Download XLSX",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "<f(?:\\s|>)",
+    "exact renamed .xlsx download",
+  ]) {
+    assert.match(attachmentSmoke, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
+      `packaged attachment smoke must prove XLSX export contract: ${contract}`)
+  }
 
   const packaging = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')
   assert.match(packaging, /electronChecksums/)

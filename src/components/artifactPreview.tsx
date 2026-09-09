@@ -697,7 +697,8 @@ export function ArtifactDetailPage({
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [sharingHeld, setSharingHeld] = useState(false)
-  const documentDownload = useArtifactDownload(artifact.id)
+  const downloadFormat = artifact.kind === 'sheet' ? 'xlsx' : artifact.kind === 'doc' || artifact.kind === 'email' ? 'markdown' : null
+  const artifactDownload = useArtifactDownload(artifact.id, downloadFormat ?? 'markdown')
   const edit: DocEdit | undefined = own
     ? {
         index: editing,
@@ -857,15 +858,15 @@ export function ArtifactDetailPage({
         <Section
           title="Content"
           summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
-          actions={(artifact.kind === 'doc' || artifact.kind === 'email') ? <SectionAction
-            label="Download Markdown"
+          actions={downloadFormat ? <SectionAction
+            label={downloadFormat === 'xlsx' ? 'Download XLSX' : 'Download Markdown'}
             icon={<Download size={14} />}
-            onClick={() => { void documentDownload.download() }}
-            disabled={editing !== null || saving || editingName || metadataBusy || documentDownload.busy}
+            onClick={() => { void artifactDownload.download() }}
+            disabled={editing !== null || saving || editingName || metadataBusy || artifactDownload.busy}
             disabledReason={editing !== null || saving || editingName || metadataBusy ? 'Save or cancel your edit before downloading' : 'Preparing download'}
           /> : undefined}
         >
-          {documentDownload.notice && <InlineOperationStatus {...documentDownload.notice} />}
+          {artifactDownload.notice && <InlineOperationStatus {...artifactDownload.notice} />}
           <ArtifactBodyView
             kind={artifact.kind}
             name={artifact.name}

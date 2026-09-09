@@ -8,6 +8,19 @@ export interface ArtifactDocumentExport {
   revision: number
 }
 
+export type ArtifactExportFormat = 'markdown' | 'xlsx'
+export const XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+/** A saved values-only workbook, not a formula calculation or original upload. */
+export interface ArtifactSpreadsheetExport {
+  artifactId: string
+  filename: string
+  mediaType: typeof XLSX_MEDIA_TYPE
+  encoding: 'base64'
+  content: string
+  revision: number
+}
+export type ArtifactExport = ArtifactDocumentExport | ArtifactSpreadsheetExport
+
 type DocumentBody = Extract<ArtifactContent, { type: 'doc' }>
 
 const MAX_FILENAME_STEM_CODE_POINTS = 96
@@ -70,7 +83,8 @@ function utf8ByteLength(text: string): number {
   return new TextEncoder().encode(text).byteLength
 }
 
-function portableFilename(name: string): string {
+export function artifactExportFilename(name: string, format: ArtifactExportFormat): string {
+  const extension = format === 'xlsx' ? 'xlsx' : 'md'
   const leaf = normalizeText(name).split(/[\\/]/u).at(-1) ?? ''
   const clean = leaf.replace(CONTROL_OR_BIDI, '').replace(PORTABLE_FILENAME_PUNCTUATION, '_')
   const withoutExtension = clean.replace(/\.[^.]*$/u, '').replace(/[. ]+$/u, '')
@@ -79,8 +93,8 @@ function portableFilename(name: string): string {
     .reduce((stem, char) => utf8ByteLength(`${stem}${char}`) <= MAX_FILENAME_STEM_BYTES ? `${stem}${char}` : stem, '')
     .trim()
   let stem = bounded || 'artifact'
-  if (WINDOWS_RESERVED.test(`${stem}.md`)) stem = `_${stem}`
-  return `${stem}.md`
+  if (WINDOWS_RESERVED.test(`${stem}.${extension}`)) stem = `_${stem}`
+  return `${stem}.${extension}`
 }
 
 export function documentMarkdown(
@@ -88,7 +102,7 @@ export function documentMarkdown(
   body: DocumentBody,
 ): Omit<ArtifactDocumentExport, 'artifactId'> {
   return {
-    filename: portableFilename(name),
+    filename: artifactExportFilename(name, 'markdown'),
     mediaType: 'text/markdown;charset=utf-8',
     content: [`# ${literalInline(body.title, 'entity')}`, ...body.blocks.map(blockMarkdown)].join('\n\n') + '\n',
     revision: body.revision ?? 0,

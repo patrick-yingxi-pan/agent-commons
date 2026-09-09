@@ -214,8 +214,9 @@ entities.
 behavior in spec pillar 11 (`docs/spec/11-mock-boundary.md`).
 
 ### F-16 · Dependencies stay few and deliberate
-The server keeps its single dependency; UI deps are minimal; adding one
-requires a stated reason in the commit.
+The server keeps its intentional model client and export-only ZIP writer;
+UI deps are minimal. Widening a runtime dependency requires a stated reason
+and an explicit boundary-lock update.
 **Detection:** `node --test tests/contract-boundaries.test.ts`; diff on
 `package.json`.
 **Fix:** hand-roll or justify (INV-7).

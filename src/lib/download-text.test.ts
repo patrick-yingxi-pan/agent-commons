@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { downloadText } from './downloadText.ts'
+import { downloadBlob, downloadText } from './downloadText.ts'
 
 test('text download uses a disposable Blob and named anchor, with bounded URL cleanup even on failure', (t) => {
   const events: string[] = []
@@ -35,6 +35,12 @@ test('text download uses a disposable Blob and named anchor, with bounded URL cl
     assert.deepEqual(events, ['append', 'click', 'remove'])
     cleanup!()
     assert.equal(events.at(-1), 'revoke:blob:export')
+    const workbook = new Uint8Array([0x50, 0x4b, 0x03, 0x04])
+    downloadBlob({ content: workbook, filename: 'sheet.xlsx', mediaType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    assert.equal(blob?.type, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    assert.equal(blob?.size, workbook.byteLength)
+    assert.equal(anchor.download, 'sheet.xlsx')
+    cleanup!()
     shouldThrow = true
     assert.throws(() => downloadText(file), /download refused/)
     assert.equal(events.at(-1), 'remove')

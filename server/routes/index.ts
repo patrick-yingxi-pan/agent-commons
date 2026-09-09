@@ -2,6 +2,7 @@
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
+import { exportArtifact } from './artifactExport.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
   ApplyOpRequest,
@@ -5333,14 +5334,7 @@ export function buildRouter(): Router {
       throw error
     }
   }))
-  // A saved document's portable projection is the same read through every
-  // access door. It neither exports an unsaved UI draft nor caches authority.
-  r.get('/artifacts/:id/export', ({ req, res, params }) => {
-    const exported = store.exportArtifactDocument(params.id, store.identity(req.headers).tenant.id)
-    if (exported === undefined) return sendError(res, 'not_found', 'No such artifact')
-    if (exported === null) return sendError(res, 'capability_unavailable', 'This artifact has no saved document content to export as Markdown.')
-    sendJson(res, exported)
-  })
+  r.get('/artifacts/:id/export', exportArtifact)
   r.get('/schedules', ({ req, res }) => {
     sendJson(res, store.listSchedules(store.identity(req.headers).tenant.id))
   })

@@ -1,8 +1,9 @@
 import type { ArtifactDocumentExport } from '../../contract/index.ts'
 
-/** Request the browser's normal save flow. No native path or persistent file
- * authority crosses this boundary, and success does not assert a disk save. */
-export function downloadText(file: Pick<ArtifactDocumentExport, 'content' | 'mediaType' | 'filename'>): void {
+export type DownloadBlobDescriptor = { filename: string; mediaType: string; content: BlobPart }
+
+/** Shared browser save flow for text and binary exports. */
+export function downloadBlob(file: DownloadBlobDescriptor): void {
   const url = URL.createObjectURL(new Blob([file.content], { type: file.mediaType }))
   const anchor = document.createElement('a')
   try {
@@ -13,8 +14,12 @@ export function downloadText(file: Pick<ArtifactDocumentExport, 'content' | 'med
     anchor.click()
   } finally {
     anchor.remove()
-    // Chromium may consume the URL after click returns. A bounded grace period
-    // releases its retained bytes without racing that handoff.
     setTimeout(() => URL.revokeObjectURL(url), 30_000)
   }
+}
+
+/** Request the browser's normal save flow. No native path or persistent file
+ * authority crosses this boundary, and success does not assert a disk save. */
+export function downloadText(file: Pick<ArtifactDocumentExport, 'content' | 'mediaType' | 'filename'>): void {
+  downloadBlob(file)
 }

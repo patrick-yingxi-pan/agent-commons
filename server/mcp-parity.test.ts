@@ -195,6 +195,52 @@ test('POLICY: authored artifact listing has identical HTTP and remote-MCP tenanc
   assert.equal(revokedBody.body[created.id], undefined, 'MCP revocation removes the authored body projection')
 })
 
+test('POLICY: XLSX artifact export has identical HTTP and remote-MCP read walls', async () => {
+  const stamp = Date.now().toString(36)
+  const owner = 'tenant-personal'
+  const audience = 'tenant-beta'
+  const name = `mcp-${stamp}.xlsx`
+  const body = { type: 'sheet', columns: ['Name', 'Value'], rows: [['Ada', '=1+1']] }
+  const saved = await call('POST', '/relations/ops', {
+    op: { kind: 'save-artifact', artifact: { name, kind: 'sheet', meta: 'Sheet', body } },
+  }, { 'x-tenant-id': owner, 'idempotency-key': `mcp-xlsx-${stamp}` })
+  assert.equal(saved.status, 200)
+  const artifact = (saved.json.extraArtifacts as Array<{ id: string; name: string }>).find((row) => row.name === name)
+  assert.ok(artifact)
+  const grant = await call('POST', '/grants', {
+    subject: { kind: 'artifact', id: artifact.id }, audience: { kind: 'org', orgId: audience }, tier: 'view',
+  }, { 'x-tenant-id': owner })
+  assert.equal(grant.status, 200)
+
+  const directOwner = await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, { 'x-tenant-id': owner })
+  const mcpOwner = await toolCall('get_artifacts_by_id_export', { id: artifact.id, query: { format: 'xlsx' } }, { 'x-tenant-id': owner })
+  assert.equal(directOwner.status, 200)
+  assert.equal(mcpOwner.status, 200)
+  assert.deepEqual(mcpOwner.body, directOwner.json, 'owner receives identical XLSX bytes through both doors')
+
+  const directReader = await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, { 'x-tenant-id': audience })
+  const mcpReader = await toolCall('get_artifacts_by_id_export', { id: artifact.id, query: { format: 'xlsx' } }, { 'x-tenant-id': audience })
+  assert.equal(directReader.status, 200)
+  assert.deepEqual(mcpReader.body, directReader.json, 'granted reader receives identical XLSX bytes through both doors')
+
+  const directForeign = await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, { 'x-tenant-id': 'tenant-growthworks' })
+  const mcpForeign = await toolCall('get_artifacts_by_id_export', { id: artifact.id, query: { format: 'xlsx' } }, { 'x-tenant-id': 'tenant-growthworks' })
+  assert.equal(directForeign.status, 404)
+  assert.equal(mcpForeign.status, 404)
+
+  const omittedDirect = await call('GET', `/artifacts/${artifact.id}/export`, undefined, { 'x-tenant-id': owner })
+  const markdownMcp = await toolCall('get_artifacts_by_id_export', { id: artifact.id, query: { format: 'markdown' } }, { 'x-tenant-id': owner })
+  assert.equal(omittedDirect.status, 409, 'sheet default remains the Markdown capability boundary')
+  assert.equal(markdownMcp.status, omittedDirect.status)
+  assert.deepEqual(markdownMcp.body, omittedDirect.json)
+
+  assert.equal((await call('DELETE', `/grants/${grant.json.id}`, undefined, { 'x-tenant-id': owner })).status, 200)
+  const revokedDirect = await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, { 'x-tenant-id': audience })
+  const revokedMcp = await toolCall('get_artifacts_by_id_export', { id: artifact.id, query: { format: 'xlsx' } }, { 'x-tenant-id': audience })
+  assert.equal(revokedDirect.status, 404)
+  assert.equal(revokedMcp.status, 404)
+})
+
 test('POLICY: authored projects are discoverable identically through HTTP and remote MCP', async () => {
   const tenant = 'tenant-mcp-project-registry'
   const name = `MCP canonical project ${Date.now()}`

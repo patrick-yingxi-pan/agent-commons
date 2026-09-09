@@ -14,6 +14,7 @@ import assert from 'node:assert/strict'
 import { ROOT, filesUnder, read, stripComments, concatSource } from './helpers/source.ts'
 import { join } from 'node:path'
 import { resolveConfig } from 'vite'
+import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
 test('production assets are root-absolute so the SPA fallback can boot nested canonical URLs', async () => {
@@ -72,7 +73,7 @@ test('contract/ + server/ use only erasable TypeScript (no enum / namespace / pa
   assert.deepEqual(offenders, [], `non-erasable syntax breaks the type-stripping Node runtime: ${offenders.join('; ')}`)
 })
 
-test('the server runtime imports only its one intentional external dependency', () => {
+test('the server runtime imports only its intentional model client and export-only ZIP writer', () => {
   const externals = new Set<string>()
   for (const file of filesUnder('server')) {
     const src = stripComments(read(file))
@@ -83,7 +84,7 @@ test('the server runtime imports only its one intentional external dependency', 
   }
   assert.deepEqual(
     [...externals].sort(),
-    ['@anthropic-ai/sdk'],
+    ['@anthropic-ai/sdk', '@zip.js/zip.js/lib/zip-core-custom.js'],
     'server runtime dependencies are a deliberate boundary; add one only with an explicit invariant update',
   )
 })
@@ -178,6 +179,17 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
     for (const file of filesUnder(directory, ['.ts', '.tsx', '.mjs'])) {
       const relative = file.slice(ROOT.length + 1)
       if (officeOwned.has(relative)) continue
+      if (relative === 'server/artifactXlsx.ts') {
+        const writer = stripComments(read(file))
+        assert.ok(writer.includes("import { ZipWriter, TextReader, Uint8ArrayWriter } from '@zip.js/zip.js/lib/zip-core-custom.js'"))
+        assert.doesNotMatch(writer, /\b(?:ZipReader|fetch|XMLHttpRequest|WebSocket|importScripts|readFile|saxes)\b/)
+        assert.ok(writer.includes('level: 0, useWebWorkers: false'))
+        continue
+      }
+      if (relative === 'desktop/attachmentSmoke.mjs') {
+        assert.equal(ignoreFromPackage(`/${relative}`), true, 'acceptance ZIP parsing never ships in the native runtime')
+        continue
+      }
       assert.doesNotMatch(stripComments(read(file)), /\bfrom\s+['"](?:@zip\.js\/zip\.js|saxes|[^'"]*(?:officePackage|docxExtraction|docxText|xlsxExtraction|xlsxText|pptxExtraction|pptxText))/, `${relative} cannot import Office parsing outside its workers`)
     }
   }
