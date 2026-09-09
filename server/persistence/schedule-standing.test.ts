@@ -93,7 +93,7 @@ for (const backend of ['json', 'sqlite'] as const) {
       console.log(JSON.stringify({ taskId: task.id, runId: queued.id, persisted }));
     `))
     assert.deepEqual(first.persisted, {
-      artifactName: 'prior.md',
+      artifact: { name: 'prior.md', kind: 'doc' },
       tools: [{ id: 'slack', label: 'Slack', tone: 'connector' }],
     }, `${backend}: the queued authority is detached and durable`)
 
@@ -164,7 +164,7 @@ for (const backend of ['json', 'sqlite'] as const) {
         saveState(state);
         console.log(JSON.stringify({ standing: run.execution.standing ?? 'absent' }));
       `))
-      assert.deepEqual(prepared.standing, legacy ? 'absent' : { artifactName: null, tools: [] })
+      assert.deepEqual(prepared.standing, legacy ? 'absent' : { artifact: null, tools: [] })
       const result = ok(boot(file, backend, `
         let calls = 0;
         const runner = createRoutineRunner(store, async (...args) => { calls += 1; return (${fakeSuccess})(...args); }, { retryBaseMs: 1 });
@@ -289,7 +289,7 @@ for (const backend of ['json', 'sqlite'] as const) {
         originalGrantsAfter: store.listGrants({ kind: 'artifact', id: original.id }, 'tenant-standing-owner'),
       }));
     `))
-    assert.deepEqual(recreated.frozen, { artifactName: null, tools: [] })
+    assert.deepEqual(recreated.frozen, { artifact: null, tools: [] })
     assert.deepEqual(recreated.contexts, [], `${backend}: recreated runs inherit no retired tool context`)
     assert.deepEqual(recreated.afterUnapproved, [{ id: removed.retained.id }], `${backend}: no retired output authority is inferred`)
     assert.equal(recreated.artifacts.length, 2)
@@ -352,7 +352,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(cleaned.victimArtifact.sourceScheduleId, undefined)
     assert.deepEqual(cleaned.victimBody?.blocks, [{ p: 'Legacy retained body.' }])
     assert.equal(cleaned.victimGrants.length, 1)
-    assert.equal(cleaned.graph.scheduleArtifact['live-standing-id'], 'live-retained.md')
+    assert.deepEqual(cleaned.graph.scheduleArtifact['live-standing-id'], { name: 'live-retained.md', kind: 'doc' })
     assert.equal(cleaned.graph.scheduleSession['live-standing-id'], 'Live session')
     assert.deepEqual(cleaned.graph.scheduleExtraTools['live-standing-id'], [{ id: 'slack', label: 'Slack', tone: 'connector' }])
     assert.ok(Object.keys(cleaned.graph.standingApprovals).some((key) => key.includes('live-standing-id')))
@@ -390,7 +390,7 @@ for (const backend of ['json', 'sqlite'] as const) {
       }));
     `))
     assert.equal(recreated.revisionBeforeRecreate, cleaned.revision, `${backend}: cleanup survived another restart before recreation`)
-    assert.deepEqual(recreated.frozen, { artifactName: null, tools: [] })
+    assert.deepEqual(recreated.frozen, { artifact: null, tools: [] })
     assert.deepEqual(recreated.contexts, [])
     assert.deepEqual(recreated.afterUnapproved, [{ id: prepared.victimArtifactId }])
     assert.equal(recreated.artifacts.length, 2)
@@ -415,6 +415,10 @@ test('a malformed present standing snapshot fails core-state admission', () => {
       null,
       {},
       { artifactName: 42, tools: [] },
+      { artifact: { name: 'report', kind: 'spreadsheet' }, tools: [] },
+      { artifact: { name: 'report', kind: 'sheet', extra: true }, tools: [] },
+      { artifactName: { name: 'report', kind: 'sheet' }, tools: [] },
+      { artifact: null, artifactName: null, tools: [] },
       { artifactName: null, tools: 'slack' },
       { artifactName: null, tools: [{ id: 'slack', label: 'Slack', tone: 'connector', unexpected: true }] },
     ];
@@ -423,6 +427,6 @@ test('a malformed present standing snapshot fails core-state admission', () => {
     delete absent.standing;
     console.log(JSON.stringify({ admitted, legacyAbsent: hasCorePersistedShape({ ...state, schedules: state.schedules.map(candidate => candidate.id !== task.id ? candidate : { ...candidate, runs: candidate.runs.map(run => run.id !== queued.id ? run : { ...run, execution: absent }) }) }) }));
   `))
-  assert.deepEqual(result.admitted, [false, false, false, false, false])
+  assert.deepEqual(result.admitted, [false, false, false, false, false, false, false, false, false])
   assert.equal(result.legacyAbsent, true, 'absence alone retains legacy compatibility')
 })

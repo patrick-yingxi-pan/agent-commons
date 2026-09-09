@@ -77,7 +77,7 @@ const LIVE_RESOLUTION: Array<{ tool: string; input: Record<string, unknown>; exp
   { tool: 'link_schedule_project', input: { schedule: 'Nightly vibe digest', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
   { tool: 'set_artifact_source', input: { artifact: 'vibe-outline.md', context: 'kit/' }, expect: (op) => assert.equal(op.artifactId, 'art-x') },
   { tool: 'set_schedule_session', input: { schedule: 'Nightly vibe digest' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
-  { tool: 'set_schedule_artifact', input: { schedule: 'Nightly vibe digest', artifact: 'd.md' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
+  { tool: 'set_schedule_artifact', input: { schedule: 'Nightly vibe digest', artifact: 'd.md', artifactKind: 'doc' }, expect: (op) => { assert.equal(op.scheduleId, 'sch-x'); assert.equal(op.artifactKind, 'doc') } },
   { tool: 'schedule_add_tool', input: { schedule: 'Nightly vibe digest', tool: 'My Custom MCP' }, expect: (op) => assert.equal(op.scheduleId, 'sch-x') },
   { tool: 'commission_agent', input: { agent: 'Scout', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.projectId, 'p-vibe-coding-guide') },
   { tool: 'uncommission_agent', input: { agent: 'Scout', project: 'Vibe Coding Guide' }, expect: (op) => assert.equal(op.commissionId, 'com-1') },

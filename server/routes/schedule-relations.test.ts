@@ -27,7 +27,7 @@ function operations(task: { id: string; name: string; cadence: string }, project
   return [
     { kind: 'link-schedule-project', scheduleId: task.id, scheduleName: task.name, projectId, projectName: 'Schedule relation project' },
     { kind: 'set-schedule-session', scheduleId: task.id, scheduleName: task.name, cadence: task.cadence, sessionLabel: 'Fresh scheduled session' },
-    { kind: 'set-schedule-artifact', scheduleId: task.id, scheduleName: task.name, cadence: task.cadence, artifactName: 'schedule-relation-output.md' },
+    { kind: 'set-schedule-artifact', scheduleId: task.id, scheduleName: task.name, cadence: task.cadence, artifactName: 'schedule-relation-output.md', artifactKind: 'doc' as const },
     { kind: 'schedule-add-tool', scheduleId: task.id, scheduleName: task.name, cadence: task.cadence, tool: { id: 'schedule-relation-tool', label: 'Schedule relation tool', tone: 'connector' as const } },
   ]
 }
@@ -117,4 +117,119 @@ test('every schedule relation op is owner-only, hides foreign/granted/unknown id
   const readerAfterUnlink = await call('GET', '/relations', undefined, { 'x-tenant-id': READER })
   assert.equal(Object.prototype.hasOwnProperty.call(readerAfterUnlink.json.scheduleProject, task.id), true, 'granted reader sees the explicit unfiled schedule relation')
   assert.equal(readerAfterUnlink.json.scheduleProject[task.id], null)
+})
+
+test('standing artifact approval accepts every explicit format only for the routine owner', async () => {
+  for (const kind of ['doc', 'sheet', 'slide'] as const) {
+    const task = await createRoutine()
+    try {
+      const artifactName = `${kind} standing output`
+      const op = {
+        kind: 'set-schedule-artifact' as const,
+        scheduleId: task.id,
+        scheduleName: task.name,
+        cadence: task.cadence,
+        artifactName,
+        artifactKind: kind,
+      }
+      const applied = await call('POST', '/relations/ops', { op }, { 'x-tenant-id': OWNER, ...key() })
+      assert.equal(applied.status, 200)
+      assert.deepEqual(applied.json.scheduleArtifact[task.id], { name: artifactName, kind })
+
+      const grant = await call('POST', '/grants', {
+        subject: { kind: 'schedule', id: task.id },
+        audience: { kind: 'org', orgId: READER },
+        tier: 'view',
+      }, { 'x-tenant-id': OWNER })
+      assert.equal(grant.status, 200)
+
+      for (const caller of [READER, FOREIGN]) {
+        const before = structuredClone(store.relationGraph(OWNER))
+        const refused = await call('POST', '/relations/ops', {
+          op: { ...op, artifactName: `${artifactName} hostile` },
+        }, { 'x-tenant-id': caller, ...key() })
+        assert.equal(refused.status, 404, `${caller} cannot approve a ${kind} output for another tenant's routine`)
+        assert.deepEqual(store.relationGraph(OWNER), before)
+      }
+    } finally {
+      store.removeSchedule(task.id)
+    }
+  }
+})
+
+test('malformed standing artifact format or name is rejected before graph effects', async () => {
+  const task = await createRoutine()
+  try {
+    const base = {
+      kind: 'set-schedule-artifact',
+      scheduleId: task.id,
+      scheduleName: task.name,
+      cadence: task.cadence,
+      artifactName: 'Valid output',
+      artifactKind: 'doc',
+    }
+    for (const malformed of [
+      { ...base, artifactKind: 'pdf' },
+      { ...base, artifactKind: null },
+      { ...base, artifactKind: 1 },
+      { ...base, artifactName: '' },
+      { ...base, artifactName: ' padded output ' },
+      { ...base, artifactName: 'line\nbreak' },
+    ]) {
+      const before = structuredClone(store.relationGraph(OWNER))
+      const refused = await call('POST', '/relations/ops', { op: malformed }, {
+        'x-tenant-id': OWNER,
+        ...key(),
+      })
+      assert.equal(refused.status, 400)
+      assert.deepEqual(store.relationGraph(OWNER), before, 'invalid approval cannot alter graph or standing grant state')
+    }
+  } finally {
+    store.removeSchedule(task.id)
+  }
+})
+
+test('an approved route cannot switch the format of an existing routine artifact', async () => {
+  const task = await createRoutine()
+  try {
+    const approved = await call('POST', '/relations/ops', {
+      op: {
+        kind: 'set-schedule-artifact',
+        scheduleId: task.id,
+        scheduleName: task.name,
+        cadence: task.cadence,
+        artifactName: 'Stable routine output',
+        artifactKind: 'doc',
+      },
+    }, { 'x-tenant-id': OWNER, ...key() })
+    assert.equal(approved.status, 200)
+    const run = store.runSchedule(task.id)!
+    const finished = store.completeScheduleRun(task.id, run.id, {
+      id: 'route-format-result',
+      role: 'assistant',
+      content: 'Keep this document body.',
+    }, { agentId: 'test-agent', providerId: 'test-provider' })!
+    assert.equal(finished.status, 'ok')
+    const artifact = store.listArtifacts(OWNER).find((row) => row.sourceScheduleId === task.id)!
+    assert.ok(artifact)
+    const bodyBefore = structuredClone(store.artifactContent(OWNER)[artifact.id])
+    const graphBefore = structuredClone(store.relationGraph(OWNER))
+
+    const refused = await call('POST', '/relations/ops', {
+      op: {
+        kind: 'set-schedule-artifact',
+        scheduleId: task.id,
+        scheduleName: task.name,
+        cadence: task.cadence,
+        artifactName: 'Changed format',
+        artifactKind: 'sheet',
+      },
+    }, { 'x-tenant-id': OWNER, ...key() })
+    assert.equal(refused.status, 409)
+    assert.deepEqual(store.relationGraph(OWNER), graphBefore, 'the exact standing grant remains intact')
+    assert.equal(store.listArtifacts(OWNER).find((row) => row.id === artifact.id)?.kind, 'doc')
+    assert.deepEqual(store.artifactContent(OWNER)[artifact.id], bodyBefore)
+  } finally {
+    store.removeSchedule(task.id)
+  }
 })

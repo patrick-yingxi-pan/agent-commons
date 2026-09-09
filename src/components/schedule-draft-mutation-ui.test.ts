@@ -16,6 +16,7 @@ test('every routine draft editor closes only after acknowledgement and survives 
   const page = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))
   const detail = between(view, 'function ScheduledDetail(', 'function PromptCard(')
   const prompt = between(view, 'function PromptCard(', "type RailState = 'idle'")
+  const workflow = between(view, 'function WorkflowCard(', 'function StepsEditor(')
   const steps = between(view, 'function StepsEditor(', 'function StepToolPicker(')
   const cadence = between(view, 'function CadenceEditor(', 'function ModelPanel(')
   const delivery = between(view, 'function DeliveryPanel(', 'function ContextToolsPanel(')
@@ -53,6 +54,10 @@ test('every routine draft editor closes only after acknowledgement and survives 
     'a held child draft cannot be folded out of the tree')
   assert.match(view, /<FoldSection[\s\S]*title="Workflow"[\s\S]*heldOpen=\{draftHeld\}/,
     'the workflow section connects its draft hold to the shared fold primitive')
+  assert.match(workflow, /task\.own === true && !editing/,
+    'only the routine owner receives the workflow edit action')
+  assert.match(workflow, /editing && task\.own === true \?/,
+    'only the routine owner can render the workflow editor')
   assert.match(view, /<FoldSection[\s\S]*title="Schedule"[\s\S]*heldOpen=\{draftHeld\}/,
     'the schedule section connects its draft hold to the shared fold primitive')
   assert.match(prompt, /heldOpen=\{busy\}/, 'the instruction cannot fold away while its draft is uncertain')

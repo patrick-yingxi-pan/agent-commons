@@ -65,12 +65,36 @@ retained output; restart coverage observes the cleanup before invalidation.
 Startup also prunes orphan approvals and retired write bindings left by older
 versions, persisting that recovery before request admission; live routines and
 saved report content remain intact.
-This is a prerequisite for structured routine output, not completion of Sheets
-or Slides generation. That next workflow should use the existing guarded model
-loop and strict authored-body contract, with an explicit output kind and no
-filename inference or prose-to-JSON shortcut. The artifact identity policy for
-an explicitly approved format change remains a product decision before that
-change ships; all formats remain required.
+Structured routine output now extends that boundary to Document, Sheet and
+Slides. The existing conversation approval names the format and output; queued
+runs freeze both. Documents retain the bounded prose path, while sheets/slides
+submit one validated literal body through the existing guarded model loop.
+Failed, missing, duplicate or revoked output cannot replace the last good body.
+Same-format refresh preserves identity, independent sharing/filing and user
+names. Changing an already-published output's format refuses before altering
+the grant until the outstanding identity-policy decision is resolved; the
+conversion workflow remains required, not dropped. Browser acceptance uses a
+test-owned Messages endpoint and is not paid-provider or signed-release proof.
+Final review tightened current queue snapshots to object-or-null output specs;
+bare names remain compatible only at the explicit legacy graph/snapshot doors.
+The 135-cell responsive sweep passed without violations or skips. The additional
+three-format owner/reader review exposed a misleading Workflow edit affordance
+for shared readers; the owner-only rendering and browser absence/presence locks
+now complement the existing server authorization wall. Shared preview review
+left all six demo accounts stacked with Ada active and added no test artifacts
+to that workspace. All ten targeted routine browser tests passed, including
+all three output formats, owner/reader live refresh, and acknowledged editing.
+Unsigned arm64 packaging and executable smoke passed with OS-backed credential
+and authentication relaunch, managed backups, direct artifact creation/exports,
+native attachments and packaged MCP schema checks. The complete repository
+verifier remains mandatory before push; this is not signed/notarized or native
+Intel release evidence.
+The additional 120-capture output matrix was individually reviewed; regenerated
+owner/reader workflow and list captures close the reader edit finding and the
+short-viewport capture-readiness gap. The full browser run passed all 344 tests,
+but its coverage guard rejected a dynamic three-case declaration counted as one.
+Those cases now use three explicit declarations over one shared test body, so
+the manifest remains exact without weakening the verifier.
 
 The dependency audit is no longer blocked: on 2026-09-09 the development-only
 Browserslist and baseline-browser-mapping findings were resolved with compatible

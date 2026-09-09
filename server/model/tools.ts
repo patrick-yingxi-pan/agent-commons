@@ -17,17 +17,10 @@ import { ALL_ARTIFACTS, PROJECTS, SCHEDULED_TASKS } from '../data/cowork.ts'
 import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { slug } from '../../contract/ids.ts'
 import {
-  MAX_AUTHORED_CELL_CHARS,
-  MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
-  MAX_AUTHORED_LABEL_CHARS,
-  MAX_AUTHORED_SHEET_COLUMNS,
-  MAX_AUTHORED_SHEET_ROWS,
-  MAX_AUTHORED_SLIDES,
-  MAX_AUTHORED_SLIDE_BULLETS,
-  MAX_AUTHORED_STRUCTURE_CHARS,
   PROJECT_ROLES,
   authoredArtifact,
   defaultEntry,
+  parseScheduledArtifactSpec,
 } from '../../contract/index.ts'
 import type {
   Artifact,
@@ -40,6 +33,7 @@ import type {
   RelationOp,
   StepTool,
 } from '../../contract/index.ts'
+import { authoredArtifactBodySchema, type ArtifactBodySchema } from '../routineArtifact.ts'
 
 /** The session a tool runs against — its id + title, for ops that file/save out
  *  of "this session". */
@@ -96,19 +90,7 @@ export interface ToolEffect {
 }
 
 /** A JSON-schema property (the slice the Anthropic `input_schema` needs). */
-type JsonProp = {
-  type?: string
-  description?: string
-  items?: JsonProp
-  oneOf?: JsonProp[]
-  properties?: Record<string, JsonProp>
-  required?: string[]
-  additionalProperties?: boolean
-  enum?: string[]
-  minItems?: number
-  maxItems?: number
-  maxLength?: number
-}
+type JsonProp = ArtifactBodySchema
 
 interface ToolSpec {
   name: string
@@ -328,49 +310,7 @@ const TOOLS: ToolSpec[] = [
     properties: {
       name: { type: 'string', description: 'The artifact file name, e.g. "launch-recap.md".' },
       kind: { type: 'string', enum: ['doc', 'sheet', 'slide'], description: 'The artifact kind. Omit for a document; never infer the kind from the body.' },
-      body: {
-        description: `The complete document text, or one structured sheet/slides body. Documents are limited to ${MAX_AUTHORED_DOCUMENT_SOURCE_CHARS} characters; structured values are literal, non-calculated data with a ${MAX_AUTHORED_STRUCTURE_CHARS}-character aggregate budget.`,
-        oneOf: [
-          { type: 'string', description: 'Document text.', maxLength: MAX_AUTHORED_DOCUMENT_SOURCE_CHARS },
-          {
-            type: 'object',
-            description: `A bounded, rectangular sheet body: ${MAX_AUTHORED_SHEET_COLUMNS} columns, ${MAX_AUTHORED_SHEET_ROWS} rows, and ${MAX_AUTHORED_STRUCTURE_CHARS} UTF-16 characters total. Values are literal; formulas are not calculated.`,
-            properties: {
-              type: { type: 'string', enum: ['sheet'], description: 'Must be sheet.' },
-              columns: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_COLUMNS, description: `Nonblank column labels (≤${MAX_AUTHORED_LABEL_CHARS} characters each).`, items: { type: 'string', description: 'A nonblank column label.', maxLength: MAX_AUTHORED_LABEL_CHARS } },
-              rows: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_ROWS, description: 'Rows; each row must have exactly the same number of cells as columns.', items: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_COLUMNS, description: 'A rectangular row of literal cell values.', items: { type: 'string', description: `A literal cell value (≤${MAX_AUTHORED_CELL_CHARS} characters).`, maxLength: MAX_AUTHORED_CELL_CHARS } } },
-              note: { type: 'string', description: `Optional literal note (≤${MAX_AUTHORED_CELL_CHARS} characters).`, maxLength: MAX_AUTHORED_CELL_CHARS },
-            },
-            required: ['type', 'columns', 'rows'],
-            additionalProperties: false,
-          },
-          {
-            type: 'object',
-            description: `A bounded slide deck: ${MAX_AUTHORED_SLIDES} slides, ${MAX_AUTHORED_SLIDE_BULLETS} bullets per slide, and ${MAX_AUTHORED_STRUCTURE_CHARS} UTF-16 characters total. Text is literal; no layout or presentation-file generation is implied.`,
-            properties: {
-              type: { type: 'string', enum: ['slides'], description: 'Must be slides.' },
-              slides: {
-                type: 'array',
-                minItems: 1,
-                maxItems: MAX_AUTHORED_SLIDES,
-                description: 'Slides in presentation order.',
-                items: {
-                  type: 'object',
-                  description: 'One slide.',
-                  properties: {
-                    title: { type: 'string', description: `A nonblank slide title (≤${MAX_AUTHORED_LABEL_CHARS} characters).`, maxLength: MAX_AUTHORED_LABEL_CHARS },
-                    bullets: { type: 'array', minItems: 0, maxItems: MAX_AUTHORED_SLIDE_BULLETS, description: 'Literal slide bullets.', items: { type: 'string', description: `A literal bullet (≤${MAX_AUTHORED_CELL_CHARS} characters).`, maxLength: MAX_AUTHORED_CELL_CHARS } },
-                  },
-                  required: ['title', 'bullets'],
-                  additionalProperties: false,
-                },
-              },
-            },
-            required: ['type', 'slides'],
-            additionalProperties: false,
-          },
-        ],
-      },
+      body: authoredArtifactBodySchema(),
       meta: { type: 'string', description: 'A short meta line, e.g. "1 page".' },
       project: { type: 'string', description: 'Optional project to file the new artifact under.' },
     },
@@ -541,16 +481,22 @@ const TOOLS: ToolSpec[] = [
   },
   {
     name: 'set_schedule_artifact',
-    description: 'Have a recurring schedule save (overwrite) an artifact each run — e.g. a digest. A standing approval. Edits the artifact ↔ schedule relation.',
+    description: 'Have a recurring schedule save (overwrite) one explicitly named Document, Sheet, or Slides artifact each run. A standing approval. Edits the artifact ↔ schedule relation.',
     properties: {
       schedule: { type: 'string', description: 'The schedule, e.g. "Triage new GitHub issues".' },
       artifact: { type: 'string', description: 'The artifact it saves each run, e.g. "triage-digest.md".' },
+      artifactKind: { type: 'string', enum: ['doc', 'sheet', 'slide'], description: 'The exact output kind: doc, sheet, or slide.' },
     },
-    required: ['schedule'],
+    required: ['schedule', 'artifact', 'artifactKind'],
     build: (input, ctx) => {
       const s = resolveSchedule(str(input.schedule), ctx)
       if (!s) return noMatch('schedule', str(input.schedule))
-      return { relationOps: [{ kind: 'set-schedule-artifact', scheduleId: s.id, scheduleName: s.name, cadence: s.cadence, artifactName: str(input.artifact, 'digest.md') }], summary: `Proposed having ${s.name} save ${str(input.artifact, 'a digest')} each run; awaiting confirmation.` }
+      const artifact = parseScheduledArtifactSpec({ name: input.artifact, kind: input.artifactKind })
+      if (!artifact) return { summary: 'No valid artifact name and kind were supplied — proposed nothing. Name one Document, Sheet, or Slides output explicitly.' }
+      return {
+        relationOps: [{ kind: 'set-schedule-artifact', scheduleId: s.id, scheduleName: s.name, cadence: s.cadence, artifactName: artifact.name, artifactKind: artifact.kind }],
+        summary: `Proposed having ${s.name} save ${artifact.name} as ${artifact.kind} each run; awaiting confirmation.`,
+      }
     },
   },
   {

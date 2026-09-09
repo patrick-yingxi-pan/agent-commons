@@ -10,6 +10,8 @@
  *  consent, while connector contexts authored into the routine carry standing
  *  approval. */
 import type { Agent, Message, ScheduledRun, ScheduledTask } from '../contract/index.ts'
+import type { ScheduledArtifactSpec } from '../contract/scheduledArtifact.ts'
+import { createRoutineArtifactCapture } from './routineArtifact.ts'
 import { generateReply, type ReplyResult } from './generate.ts'
 import { positiveNumberEnv } from './env.ts'
 import { UsageRecordingError } from './modelUsage.ts'
@@ -26,6 +28,7 @@ export interface RoutineRunStore {
     message: Message,
     provenance: { agentId: string; providerId: string; modelId?: string },
     finishedAt?: number,
+    structuredOutput?: unknown,
   ): ScheduledRun | undefined
   failScheduleRun(
     taskId: string,
@@ -46,12 +49,16 @@ export interface RoutineRunnerOptions {
   retryBaseMs?: number
 }
 
-function executionPrompt(task: ScheduledTask): string {
+function executionPrompt(task: ScheduledTask, output?: ScheduledArtifactSpec | null): string {
   const workflow = task.steps.map((step, index) => `${index + 1}. ${step.action} — use ${step.tool.label}`).join('\n')
   return [
     task.prompt,
     workflow ? `Workflow to complete:\n${workflow}` : '',
-    `Deliver the final result for: ${task.delivery.target}.`,
+    output && output.kind !== 'doc'
+      ? `Produce the standing-approved ${output.kind === 'sheet' ? 'Sheet' : 'Slides'} named ${JSON.stringify(output.name)}. Submit its complete literal content exactly once with submit_routine_artifact, then give a brief run recap. The tool captures a candidate; the server saves it only after this run succeeds. Do not serialize the artifact as prose or claim a failed submission was saved.`
+      : output
+        ? `Write the complete Document text for the standing-approved output named ${JSON.stringify(output.name)} as your final response.`
+        : `Deliver the final result for: ${task.delivery.target}.`,
   ].filter(Boolean).join('\n\n')
 }
 
@@ -139,6 +146,12 @@ export function createRoutineRunner(
       retryOrFail(ctx, ctx.blocked.code, ctx.blocked.detail, false)
       return
     }
+    const output = ctx.run.execution?.standing?.artifact
+    if (output && output.kind !== 'doc' && ctx.providerConfig.capabilities?.toolUse === false) {
+      retryOrFail(ctx, 'model_unavailable',
+        'This routine’s structured output requires a provider with tool use. Choose a compatible provider; its saved artifact was not changed.', false)
+      return
+    }
     const over = runStore.overSpendLimit(ctx.agent.budget, ctx.tenantId)
     if (over) {
       retryOrFail(
@@ -153,11 +166,12 @@ export function createRoutineRunner(
     const controller = new AbortController()
     controllers.set(key(taskId, runId), controller)
     try {
+      const routineArtifact = output && output.kind !== 'doc' ? createRoutineArtifactCapture(output) : undefined
       const providerConfig = { ...ctx.providerConfig, ...(ctx.modelId ? { model: ctx.modelId } : {}) }
       const result = await generate(
         { id: ctx.sessionId, title: ctx.task.name },
         headlessAgent(ctx.agent),
-        executionPrompt(ctx.task),
+        executionPrompt(ctx.task, output),
         {
           onStart: () => {},
           onDelta: () => {},
@@ -168,7 +182,7 @@ export function createRoutineRunner(
         undefined,
         ctx.contexts,
         undefined,
-        { standingApprovedContextIds: ctx.approvedContextIds, effort: ctx.task.effort },
+        { standingApprovedContextIds: ctx.approvedContextIds, effort: ctx.task.effort, routineArtifact },
       )
       // A non-conformant endpoint may ignore AbortSignal. Shutdown still hands
       // ownership back to restart recovery; it must not settle the durable row.
@@ -197,12 +211,18 @@ export function createRoutineRunner(
         )
         return
       }
+      if (routineArtifact && (routineArtifact.failure || !routineArtifact.result)) {
+        retryOrFail(ctx, 'execution_error',
+          'The routine did not submit exactly one valid artifact in the approved format. Its saved artifact was not changed.', false)
+        return
+      }
       runStore.completeScheduleRun(
         taskId,
         runId,
         result.message,
         { agentId: ctx.agent.id, providerId: ctx.provider.id, ...(ctx.modelId ? { modelId: ctx.modelId } : {}) },
         now(),
+        routineArtifact?.result,
       )
     } catch (error) {
       if (stopped || controller.signal.aborted) return // durable row resumes after restart

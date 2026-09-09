@@ -8,6 +8,7 @@ import type { SessionWorkspace } from './entities.ts'
 import type { FsSource } from './fs.ts'
 import type { Identity } from './identity.ts'
 import type { Project, ScheduledTask } from './cowork.ts'
+import type { ScheduledArtifactSpec } from './scheduledArtifact.ts'
 
 /** The API version segment. One UI, one contract version, three backends. */
 export const API_VERSION = 'v1'
@@ -341,8 +342,8 @@ export interface RelationGraph {
   projectDescriptions: Record<string, string>
   /** artifact id → the context label it derives from. */
   artifactSource: Record<string, string>
-  /** schedule id → the artifact name it now saves each run. */
-  scheduleArtifact: Record<string, string>
+  /** schedule id → explicit standing output. Strings are legacy Documents. */
+  scheduleArtifact: Record<string, string | ScheduledArtifactSpec>
   /** schedule id → a session label it now opens each run. */
   scheduleSession: Record<string, string>
   /** schedule id → extra tool-contexts it now uses each run. */

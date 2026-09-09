@@ -4,6 +4,7 @@
  *  (server/data/cowork.ts). */
 import type { ArtifactKind } from './entities.ts'
 import type { ProjectRole } from './roles.ts'
+import type { ScheduledArtifactSpec } from './scheduledArtifact.ts'
 
 /** A scheduled run that belongs to a project (shown in the project's right-hand
  *  panel). Mirrors the shape of the global ScheduledTask but scoped to one
@@ -142,7 +143,7 @@ export interface ScheduledDelivery {
 /** Queue-time intent, never a substitute for live permission. Null/empty mean
  * no standing output/tool approval; later grants apply only to the next run. */
 export interface ScheduledStanding {
-  artifactName: string | null
+  artifact: ScheduledArtifactSpec | null
   tools: StepTool[]
 }
 
@@ -314,7 +315,7 @@ export interface ArtifactItem {
    *  to a title lookup. */
   sourceSessionId?: string
   /** Server-owned standing delivery binding. A routine refreshes this one
-   * document across runs and renames; display names never authorize a write.
+   * artifact across runs and renames; display names never authorize a write.
    * Absent on independent and legacy artifacts (no inferred write authority). */
   sourceScheduleId?: string
   /** The project it belongs to (groups the Artifacts index). */

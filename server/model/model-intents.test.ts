@@ -87,6 +87,7 @@ test('keyword matching: free-typed organizing requests pick the right tools', ()
   assert.equal(save?.name, 'save_artifact')
   assert.match(String(save?.input.body), /current conversation/, 'the mock exercises an authored save, not metadata only')
   assert.equal(matchIntents('Have the “Triage new GitHub issues” schedule save a digest each run').at(0)?.name, 'set_schedule_artifact')
+  assert.equal(matchIntents('Have the “Triage new GitHub issues” schedule save a digest each run').at(0)?.input.artifactKind, 'doc')
   assert.equal(matchIntents('attach Linear to this session').at(0)?.name, 'attach_context')
   assert.equal(matchIntents('file this under the Growth experiments project').at(0)?.name, 'file_session')
   assert.equal(matchIntents('create a project called Q3 Planning').at(0)?.name, 'create_project')
@@ -94,6 +95,35 @@ test('keyword matching: free-typed organizing requests pick the right tools', ()
   const description = matchIntents('Write a description for the Insights dashboard saying “Ship weekly, measure everything.”').at(0)
   assert.equal(description?.name, 'set_project_description')
   assert.equal((description?.input as { description?: string })?.description, 'Ship weekly, measure everything.')
+})
+
+test('scheduled artifact intents use explicit format words, never filename suffixes', () => {
+  const sheet = matchIntents('Have the “Triage new GitHub issues” schedule save a sheet named metrics.sheet each run').at(0)
+  assert.equal(sheet?.name, 'set_schedule_artifact')
+  assert.equal(sheet?.input.artifact, 'metrics.sheet')
+  assert.equal(sheet?.input.artifactKind, 'sheet')
+  const slides = matchIntents('Have the “Triage new GitHub issues” schedule save slides named metrics.slides each run').at(0)
+  assert.equal(slides?.input.artifact, 'metrics.slides')
+  assert.equal(slides?.input.artifactKind, 'slide')
+  const suffixOnly = matchIntents('Have the “Triage new GitHub issues” schedule save metrics.sheet each run').at(0)
+  assert.equal(suffixOnly?.input.artifactKind, 'doc')
+  const filenameWord = matchIntents('Have the “Triage new GitHub issues” schedule save spreadsheet-report.md each run').at(0)
+  assert.equal(filenameWord?.input.artifactKind, 'doc')
+  const titleWord = matchIntents('Have the “Sheet cleanup” schedule save a digest each run').at(0)
+  assert.equal(titleWord?.input.artifactKind, 'doc')
+  const titleVerb = matchIntents('Have the “Save a sheet nightly” schedule save a digest each run').at(0)
+  assert.equal(titleVerb?.input.artifactKind, 'doc')
+  assert.equal(titleVerb?.input.artifact, 'digest')
+})
+
+test('the structured routine fixture supplies body only through the dedicated tool', () => {
+  const call = matchIntents('Produce the standing-approved Sheet named "metrics.sheet". Submit its complete literal content exactly once with submit_routine_artifact.').at(0)
+  assert.equal(call?.name, 'submit_routine_artifact')
+  assert.deepEqual(call?.input, {
+    body: { type: 'sheet', columns: ['Result', 'Value'], rows: [['Status', 'Complete']] },
+  })
+  assert.equal(Object.hasOwn(call?.input ?? {}, 'name'), false)
+  assert.equal(Object.hasOwn(call?.input ?? {}, 'kind'), false)
 })
 
 test('structured artifact asks emit explicit sheet/slide kinds and bodies', () => {

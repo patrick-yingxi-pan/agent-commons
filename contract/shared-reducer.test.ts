@@ -359,10 +359,35 @@ test("attach-context is a no-op on the graph (it's a live-session effect, applie
 })
 
 test("standing schedule ops record a standing approval keyed by opKey (the daemon's later authority)", () => {
-  const op = { kind: 'set-schedule-artifact', scheduleId: 's-1', scheduleName: 'Digest', cadence: 'Daily', artifactName: 'Digest' }
+  const op = { kind: 'set-schedule-artifact' as const, scheduleId: 's-1', scheduleName: 'Digest', cadence: 'Daily', artifactName: 'Digest' }
   const g = applyGraphOp(emptyGraph(), op, mintIds())
-  assert.equal(g.scheduleArtifact['s-1'], 'Digest')
+  assert.deepEqual(g.scheduleArtifact['s-1'], { name: 'Digest', kind: 'doc' })
   assert.equal(g.standingApprovals[opKey(op)], true, 'the op is marked as a standing approval')
+  assert.equal(opKey(op), 'set-schedule-artifact:s-1:Digest', 'legacy proposals retain their durable key')
+})
+
+test('new schedule artifact ops persist an explicit kind with distinct consent identity and copy', () => {
+  for (const [kind, label] of [['doc', 'Document'], ['sheet', 'Sheet'], ['slide', 'Slides']] as const) {
+    const op = { kind: 'set-schedule-artifact' as const, scheduleId: `s-${kind}`, scheduleName: 'Digest', cadence: 'Daily', artifactName: 'report.data', artifactKind: kind }
+    const graph = applyGraphOp(emptyGraph(), op, mintIds())
+    assert.deepEqual(graph.scheduleArtifact[op.scheduleId], { name: 'report.data', kind })
+    assert.equal(opKey(op), `set-schedule-output:${JSON.stringify([op.scheduleId, 'report.data', kind])}`)
+    assert.match(describeOp(op).text, new RegExp(`save ${label}`))
+  }
+})
+
+test('the schedule artifact reducer refuses malformed explicit kind instead of guessing from the name', () => {
+  const graph = emptyGraph()
+  const malformed = { kind: 'set-schedule-artifact', scheduleId: 's-bad', scheduleName: 'Digest', cadence: 'Daily', artifactName: 'report.xlsx', artifactKind: 'spreadsheet' }
+  assert.equal(applyGraphOp(graph, malformed as never, mintIds()), graph)
+  assert.equal(applyGraphOp(graph, { ...malformed, artifactKind: undefined } as never, mintIds()), graph)
+})
+
+test('explicit schedule output consent keys cannot collide with legacy suffixes or delimiters', () => {
+  const legacy = { kind: 'set-schedule-artifact' as const, scheduleId: 'routine:a', scheduleName: 'Digest', cadence: 'Daily', artifactName: 'Report:sheet' }
+  const explicit = { ...legacy, artifactName: 'Report', artifactKind: 'sheet' as const }
+  assert.notEqual(opKey(legacy), opKey(explicit))
+  assert.notEqual(opKey(explicit), opKey({ ...explicit, scheduleId: 'routine', artifactName: 'a:Report' }))
 })
 
 test('schedule-add-tool appends a tool to the routine toolbox once (dedup by id) and marks it standing', () => {

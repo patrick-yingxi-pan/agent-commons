@@ -14,6 +14,7 @@ import {
   projectContextSelectorIsAmbiguous,
   type RelationOp,
 } from './relations.ts'
+import { parseScheduledArtifactSpec } from './scheduledArtifact.ts'
 
 function sameProjectContext(a: ProjectContext, b: ProjectContext): boolean {
   if (a.source?.kind === 'mcp' || b.source?.kind === 'mcp') {
@@ -185,12 +186,15 @@ export function applyGraphOp(
         scheduleSession: { ...graph.scheduleSession, [op.scheduleId]: op.sessionLabel },
         standingApprovals: { ...graph.standingApprovals, [opKey(op)]: true },
       }
-    case 'set-schedule-artifact':
+    case 'set-schedule-artifact': {
+      const artifact = parseScheduledArtifactSpec({ name: op.artifactName, kind: Object.hasOwn(op, 'artifactKind') ? op.artifactKind : 'doc' })
+      if (!artifact) return graph
       return {
         ...graph,
-        scheduleArtifact: { ...graph.scheduleArtifact, [op.scheduleId]: op.artifactName },
+        scheduleArtifact: { ...graph.scheduleArtifact, [op.scheduleId]: artifact },
         standingApprovals: { ...graph.standingApprovals, [opKey(op)]: true },
       }
+    }
     case 'schedule-add-tool': {
       const cur = graph.scheduleExtraTools[op.scheduleId] ?? []
       const tools = cur.some((t) => t.id === op.tool.id) ? cur : [...cur, op.tool]

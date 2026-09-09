@@ -13,6 +13,7 @@ import { generateCompactionSummaryPart, generateReply, systemPrompt, type ReplyS
 import { summarizeConversation } from '../compaction.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import type { ApiToolRuntime } from './apiTools.ts'
+import { createRoutineArtifactCapture } from '../routineArtifact.ts'
 
 let server: Server
 const session: ReplySession = { id: 'auth-refactor', title: 'Refactor auth middleware' }
@@ -139,6 +140,34 @@ test('the endpoint tool loop carries structured sheet and slide saves as proposa
     assert.deepEqual(op.artifact.body, expectedBody)
     assert.equal(message.escalation, undefined)
   }
+})
+
+test('the genuine Messages tool loop captures one standing-approved structured routine body', async () => {
+  const capture = createRoutineArtifactCapture({ name: 'weekly-metrics.sheet', kind: 'sheet' })
+  const c = collect()
+  const result = await generateReply(
+    session,
+    { ...DEFAULT_AGENT, tools: [] },
+    'Produce the standing-approved Sheet named "weekly-metrics.sheet". Submit its complete literal content exactly once with submit_routine_artifact, then give a brief run recap.',
+    c.handlers,
+    undefined,
+    {},
+    undefined,
+    [],
+    undefined,
+    { routineArtifact: capture },
+  )
+  assert.equal(result.outcome, 'ok')
+  assert.deepEqual(capture.result, {
+    type: 'sheet',
+    columns: ['Result', 'Value'],
+    rows: [['Status', 'Complete']],
+  })
+  assert.equal(capture.failure, undefined)
+  assert.equal(result.message.relationActions, undefined)
+  assert.equal(result.message.toolActivities, undefined)
+  assert.ok(result.message.content.length > 0, 'the second endpoint round returned a recap')
+  assert.equal(result.message.content, c.text)
 })
 
 test('a project turn yields a project escalation (create_project, filing this session)', async () => {

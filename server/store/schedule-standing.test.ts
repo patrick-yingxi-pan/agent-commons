@@ -24,12 +24,12 @@ test('a late artifact approval cannot adopt an already queued run', () => {
   const task = taskSeed()
   try {
     const run = store.runSchedule(task.id)!
-    assert.deepEqual(run.execution?.standing, { artifactName: null, tools: [] })
+    assert.deepEqual(run.execution?.standing, { artifact: null, tools: [] })
     approve(task, 'Next run only.md')
     assert.equal(finish(task, run.id).status, 'ok')
     assert.equal(store.listArtifacts('tenant-personal').some((artifact) => artifact.sourceScheduleId === task.id), false)
     const next = store.runSchedule(task.id)!
-    assert.equal(next.execution?.standing?.artifactName, 'Next run only.md')
+    assert.deepEqual(next.execution?.standing?.artifact, { name: 'Next run only.md', kind: 'doc' })
     assert.equal(finish(task, next.id).status, 'ok')
     assert.equal(store.listArtifacts('tenant-personal').filter((artifact) => artifact.sourceScheduleId === task.id).length, 1)
   } finally { store.removeSchedule(task.id) }
@@ -45,7 +45,7 @@ test('changing a queued delivery fails before model work and again before public
     const run = store.runSchedule(task.id)!
     assert.equal(store.routineExecutionContext(task.id, run.id)?.blocked, undefined)
     approve(task, 'Replacement.md')
-    assert.equal(run.execution?.standing?.artifactName, 'Original.md')
+    assert.deepEqual(run.execution?.standing?.artifact, { name: 'Original.md', kind: 'doc' })
     assert.equal(store.routineExecutionContext(task.id, run.id)?.blocked?.code, 'authority_denied')
     const events: string[] = []
     const unsubscribe = store.subscribe((event) => { if (event.type === 'artifact.changed' || event.type === 'relation.applied') events.push(event.type) })
@@ -105,12 +105,11 @@ test('a frozen extra-tool id cannot resolve to a different same-label connection
   } finally { store.removeSchedule(task.id) }
 })
 
-test('invalid standing artifact names refuse queuing before any new run or artifact', () => {
+test('invalid standing artifact names refuse approval before any new run or artifact', () => {
   const task = taskSeed()
   try {
     for (const name of ['', ' Report.md ', 'Bad\nname', 'x'.repeat(241)]) {
-      approve(task, name)
-      assert.throws(() => store.runSchedule(task.id), /standing approvals are invalid/)
+      assert.throws(() => approve(task, name), /valid name/)
       assert.equal(task.runs.length, 0)
       assert.equal(store.listArtifacts('tenant-personal').some((artifact) => artifact.sourceScheduleId === task.id), false)
     }

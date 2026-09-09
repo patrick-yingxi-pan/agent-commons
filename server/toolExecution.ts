@@ -20,6 +20,14 @@ import { nonNegativeIntEnv, positiveNumberEnv } from './env.ts'
 import { runApiTool, type ApiToolRuntime } from './model/apiTools.ts'
 import { runConnectorTool, type DerivedConnectorTools } from './model/connectorTools.ts'
 import { executeTool, type ToolContext, type ToolEffect } from './model/tools.ts'
+import {
+  ROUTINE_ARTIFACT_TOOL_NAME,
+  commitRoutineArtifact,
+  poisonRepeatedRoutineArtifact,
+  stageRoutineArtifact,
+  type RoutineArtifactCapture,
+  type StagedRoutineArtifact,
+} from './routineArtifact.ts'
 
 const DEFAULT_MAX_TOOL_CALLS = 16
 const HARD_MAX_TOOL_CALLS = 64
@@ -85,6 +93,8 @@ export interface ToolBatchOptions {
   toolActivities: ToolActivity[]
   /** A prior relay round may already have proposed an escalation. */
   escalation?: EscalationProposal
+  /** Server-owned sink for one standing-approved structured routine output. */
+  routineArtifact?: RoutineArtifactCapture
   signal?: AbortSignal
   /** Optional whole-turn deadline (the relay transport owns one across rounds).
    *  Each local tool deadline is clamped to the remaining turn budget. */
@@ -105,6 +115,7 @@ interface PendingEffect {
   /** Built-in tools may consume an earlier proposal while chaining. Run them
    *  against a private copy and publish that copy only after settlement. */
   chainedRelations?: RelationOp[]
+  routineArtifact?: StagedRoutineArtifact
 }
 
 type Settlement<T> = { kind: 'done'; value: T } | { kind: 'failed' } | { kind: 'timeout' } | { kind: 'cancelled' }
@@ -165,6 +176,18 @@ const asInput = (input: unknown): Record<string, unknown> =>
 /** Resolve one declared call without mutating the turn accumulators. The caller
  *  commits the returned effect only after `settle` reports success. */
 async function invoke(call: ModelToolCall, options: ToolBatchOptions, signal: AbortSignal): Promise<PendingEffect> {
+  if (call.name === ROUTINE_ARTIFACT_TOOL_NAME && options.routineArtifact) {
+    const staged = stageRoutineArtifact(options.routineArtifact, call.input)
+    return staged.status === 'candidate'
+      ? { content: 'Accepted the structured routine output candidate. Give a brief run recap.', routineArtifact: staged }
+      : {
+          content: staged.status === 'duplicate'
+            ? 'The routine output was submitted more than once; this run cannot publish an artifact.'
+            : 'The routine output did not match its approved name, kind, or bounded body schema; this run cannot publish an artifact.',
+          isError: true,
+          routineArtifact: staged,
+        }
+  }
   const activity = await runConnectorTool(
     call.name,
     options.connectorBindings,
@@ -209,6 +232,9 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
     const call = calls[index]
     if (options.signal?.aborted) throw new ToolExecutionCancelledError()
     if (index >= limits.maxCalls) {
+      if (call.name === ROUTINE_ARTIFACT_TOOL_NAME && options.routineArtifact && options.declaredNames.has(call.name)) {
+        poisonRepeatedRoutineArtifact(options.routineArtifact)
+      }
       results.push({
         callId: call.id,
         content: `Tool batch limit reached; '${call.name}' was not executed. Continue with the completed results or ask the user to split the request.`,
@@ -227,6 +253,9 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
 
     const remainingTurnMs = options.deadlineAt === undefined ? limits.timeoutMs : options.deadlineAt - Date.now()
     if (remainingTurnMs <= 0) {
+      if (call.name === ROUTINE_ARTIFACT_TOOL_NAME && options.routineArtifact) {
+        poisonRepeatedRoutineArtifact(options.routineArtifact)
+      }
       results.push({
         callId: call.id,
         content: `Tool '${call.name}' did not run because the turn deadline was reached.`,
@@ -258,6 +287,9 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
     if (pending.chainedRelations) options.relationOps.splice(0, options.relationOps.length, ...pending.chainedRelations)
     if (pending.effect?.relationOps) options.relationOps.push(...pending.effect.relationOps)
     if (pending.effect?.escalation) escalation = pending.effect.escalation
+    if (pending.routineArtifact && options.routineArtifact) {
+      commitRoutineArtifact(options.routineArtifact, pending.routineArtifact)
+    }
     results.push({
       callId: call.id,
       content: pending.content,

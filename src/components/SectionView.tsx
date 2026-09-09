@@ -14315,9 +14315,14 @@ function ScheduledRow({
 /** The row's at-a-glance pipeline: the step tools joined by chevrons, capped by
  *  the delivery target. Collapses the middle to "+N" past four steps. */
 function MiniPipeline({ task }: { task: ScheduledTask }) {
+  const rel = useRelations()
   const tools = task.steps.map((s) => s.tool)
   const shown = tools.length > 4 ? tools.slice(0, 3) : tools
   const overflow = tools.length - shown.length
+  const artifactDelivery = rel.scheduleArtifactFor(task.id)
+  const sessionDelivery = rel.scheduleSessionFor(task.id)
+  const deliveryTarget = artifactDelivery?.name ?? sessionDelivery
+  const ArtifactDeliveryIcon = artifactDelivery ? KIND_ICON[artifactDelivery.kind] : null
   return (
     <div className="mt-1 hidden items-center gap-1 @sm:flex">
       {shown.map((t, i) => (
@@ -14333,7 +14338,18 @@ function MiniPipeline({ task }: { task: ScheduledTask }) {
         </>
       )}
       <ChevronRight size={11} className="text-ink-faint" />
-      <PipeNode tool={task.delivery.tool} />
+      {artifactDelivery && ArtifactDeliveryIcon ? (
+        <span
+          title={`${KIND_LABEL[artifactDelivery.kind]} · ${deliveryTarget}`}
+          aria-label={`${KIND_LABEL[artifactDelivery.kind]} · ${deliveryTarget}`}
+          className="flex h-5 min-w-0 max-w-40 items-center gap-1 rounded bg-panel-2 px-1 text-[10px] font-medium text-ink-soft"
+        >
+          <ArtifactDeliveryIcon size={12} className="shrink-0" />
+          <span className="truncate">{KIND_LABEL[artifactDelivery.kind]} · {deliveryTarget}</span>
+        </span>
+      ) : (
+        <PipeNode tool={task.delivery.tool} />
+      )}
     </div>
   )
 }
@@ -14546,6 +14562,7 @@ function ScheduledDetail({
   onRemove: () => void
 }) {
   useRecordView('schedule', task.id)
+  const rel = useRelations()
   // Editing the routine name is a per-action entity edit; the delivery + notify
   // settings live in DeliveryPanel below.
   const [editingName, setEditingName] = useState(false)
@@ -14574,7 +14591,14 @@ function ScheduledDetail({
   // done by opening its session from the run history, which carries the full
   // thread + its own run switcher.
   const shownRun = running ? null : (task.runs[0] ?? null)
-  const DeliveryIcon = stepToolIcon(task.delivery.tool.id)
+  const artifactDelivery = rel.scheduleArtifactFor(task.id)
+  const artifactDeliveryTarget = artifactDelivery?.name
+  const DeliveryIcon = artifactDelivery
+    ? KIND_ICON[artifactDelivery.kind]
+    : stepToolIcon(task.delivery.tool.id)
+  const deliveryLabel = artifactDelivery
+    ? `${KIND_LABEL[artifactDelivery.kind]} · ${artifactDeliveryTarget}`
+    : task.delivery.tool.label
 
   // The Sharing stub's source — the roster the section itself renders, never a
   // second fact about it (the project page's stub got that wrong first).
@@ -14600,7 +14624,11 @@ function ScheduledDetail({
       <header className={`${PAGE_HEADER_CLASS} ${SECTION_REVEAL_GROUP}`}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft">
+          <span
+            title={deliveryLabel}
+            aria-label={deliveryLabel}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft"
+          >
             <DeliveryIcon size={20} />
           </span>
           <div className="min-w-0">
@@ -14949,9 +14977,15 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
   const reached = run ? run.reachedStep : 0
   const failedAt = run && run.status === 'failed' ? run.reachedStep : -1
   // A standing "save X / open a session each run" edit overrides where the
-  // terminal node delivers, so the rail matches the "Delivers to" panel.
-  const overrideTarget = rel.scheduleArtifactFor(task.id) ?? rel.scheduleSessionFor(task.id)
+  // terminal node delivers, so the rail matches the "Delivers to" panel. An
+  // artifact carries its own format: never label or draw it as the base
+  // connector merely because that connector remains in the routine definition.
+  const artifactDelivery = rel.scheduleArtifactFor(task.id)
+  const sessionDelivery = rel.scheduleSessionFor(task.id)
+  const overrideTarget = artifactDelivery?.name ?? sessionDelivery
   const deliveryTarget = overrideTarget ?? task.delivery.target
+  const deliveryLabel = artifactDelivery ? KIND_LABEL[artifactDelivery.kind] : task.delivery.tool.label
+  const ArtifactDeliveryIcon = artifactDelivery ? KIND_ICON[artifactDelivery.kind] : null
 
   const stepState = (i: number): RailState => {
     if (running) return 'running'
@@ -14972,7 +15006,7 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
       heldOpen={draftHeld}
       summary={`${countLabel(task.steps.length, 'step')} · ${task.trigger}`}
       actions={
-        !editing ? (
+        task.own === true && !editing ? (
           <SectionAction label="Edit steps" icon={<Pencil size={13} />} onClick={() => setEditing(true)} />
         ) : undefined
       }
@@ -14985,7 +15019,7 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
           <span className="min-w-0 truncate text-[13px] text-ink">{task.trigger}</span>
         </div>
 
-        {editing ? (
+        {editing && task.own === true ? (
           <StepsEditor task={task} onHeldChange={setDraftHeld} onClose={() => setEditing(false)} />
         ) : (
           <div className="relative">
@@ -14998,14 +15032,21 @@ function WorkflowCard({ task, run, running }: { task: ScheduledTask; run: Schedu
               </RailRow>
             ))}
 
-            <RailRow state={deliveredState} connect={false} delivery marker={<ToolGlyph tool={task.delivery.tool} size={14} />}>
+            <RailRow
+              state={deliveredState}
+              connect={false}
+              delivery
+              marker={ArtifactDeliveryIcon
+                ? <ArtifactDeliveryIcon size={14} />
+                : <ToolGlyph tool={task.delivery.tool} size={14} />}
+            >
               <div className="rounded-lg bg-accent-tint px-3 py-2.5">
                 <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-accent-strong">
                   <SendHorizontal size={12} />
                   Deliver
                 </div>
                 <div className="mt-1 text-[13px] font-medium text-ink">
-                  {task.delivery.tool.label} · {deliveryTarget}
+                  {deliveryLabel} · {deliveryTarget}
                 </div>
                 {!overrideTarget && task.delivery.note && (
                   <p className="mt-0.5 text-[12px] text-ink-soft">{task.delivery.note}</p>
@@ -15334,7 +15375,9 @@ function RunRow({
  *  The notify-on-failure toggle (also a routine field) lives here too. */
 function DeliveryPanel({ task }: { task: ScheduledTask }) {
   const rel = useRelations()
-  const override = rel.scheduleArtifactFor(task.id) ?? rel.scheduleSessionFor(task.id)
+  const artifactDelivery = rel.scheduleArtifactFor(task.id)
+  const sessionDelivery = rel.scheduleSessionFor(task.id)
+  const override = artifactDelivery?.name ?? sessionDelivery
   const preApproved = !!override
   const notifyOnFail = task.notifyOnFailure ?? true
 
@@ -15375,7 +15418,12 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
     )
   }
 
-  const DeliveryIcon = stepToolIcon(task.delivery.tool.id)
+  const DeliveryIcon = artifactDelivery
+    ? KIND_ICON[artifactDelivery.kind]
+    : stepToolIcon(task.delivery.tool.id)
+  const deliveryLabel = artifactDelivery
+    ? KIND_LABEL[artifactDelivery.kind]
+    : task.delivery.tool.label
   const displayTarget = override ?? task.delivery.target
 
   return (
@@ -15447,7 +15495,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
             </span>
             <div className="min-w-0">
               <div className="truncate text-[13px] font-medium text-ink">{displayTarget}</div>
-              <div className="truncate text-[11px] text-ink-faint">{task.delivery.tool.label}</div>
+              <div className="truncate text-[11px] text-ink-faint">{deliveryLabel}</div>
             </div>
           </div>
           {preApproved ? (

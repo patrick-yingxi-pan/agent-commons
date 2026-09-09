@@ -33,6 +33,13 @@ test('save_artifact advertises a document-or-structured-body union', () => {
   assert.equal(save.input_schema.properties.body.oneOf?.[2]?.properties?.slides.maxItems, 40)
 })
 
+test('set_schedule_artifact requires an explicit output name and kind', () => {
+  const tool = TOOL_DEFINITIONS.find((row) => row.name === 'set_schedule_artifact')
+  assert.ok(tool)
+  assert.deepEqual(tool.input_schema.required, ['schedule', 'artifact', 'artifactKind'])
+  assert.deepEqual(tool.input_schema.properties.artifactKind.enum, ['doc', 'sheet', 'slide'])
+})
+
 test('open_workspace builds a workspace escalation with drafted artifacts', () => {
   const e = executeTool('open_workspace', { sources: ['brand-kit/'] }, ctx)
   assert.equal(e.escalation?.kind, 'workspace')
@@ -89,7 +96,7 @@ const RELATION_CASES: Array<{ tool: string; input: Record<string, unknown>; kind
   { tool: 'link_schedule_project', input: { schedule: 'Triage new GitHub issues', project: 'Insights dashboard' }, kind: 'link-schedule-project' },
   { tool: 'set_artifact_source', input: { artifact: 'insights-onepager.md', context: 'brand-kit/' }, kind: 'set-artifact-source' },
   { tool: 'set_schedule_session', input: { schedule: 'Daily AI news briefing' }, kind: 'set-schedule-session' },
-  { tool: 'set_schedule_artifact', input: { schedule: 'Triage new GitHub issues', artifact: 'd.md' }, kind: 'set-schedule-artifact' },
+  { tool: 'set_schedule_artifact', input: { schedule: 'Triage new GitHub issues', artifact: 'd.md', artifactKind: 'doc' }, kind: 'set-schedule-artifact', check: (op) => assert.equal((op as any).artifactKind, 'doc') },
   { tool: 'schedule_add_tool', input: { schedule: 'Daily AI news briefing', tool: 'Slack' }, kind: 'schedule-add-tool' },
 ]
 
@@ -199,6 +206,18 @@ test('save_artifact refuses any supplied kind that is not an exact supported val
   for (const kind of [null, 42, '', ' Sheet ', 'spreadsheet', 'slides']) {
     const effect = executeTool('save_artifact', { name: 'bad-kind.sheet', kind, body }, ctx)
     assert.equal(effect.relationOps, undefined, `kind ${String(kind)} must not default or alias to a proposal`)
+  }
+})
+
+test('set_schedule_artifact never defaults or infers output authority', () => {
+  for (const input of [
+    { schedule: 'Triage new GitHub issues' },
+    { schedule: 'Triage new GitHub issues', artifact: 'metrics.sheet' },
+    { schedule: 'Triage new GitHub issues', artifact: 'metrics.sheet', artifactKind: 'spreadsheet' },
+  ]) {
+    const effect = executeTool('set_schedule_artifact', input, ctx)
+    assert.equal(effect.relationOps, undefined)
+    assert.match(effect.summary, /proposed nothing/i)
   }
 })
 

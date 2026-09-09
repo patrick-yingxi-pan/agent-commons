@@ -13,6 +13,7 @@ import type { ArtifactItem, ProjectContext, ProjectContextSource, StepTool } fro
 import type { ProjectRole } from './roles.ts'
 import { authoredArtifact, type StructuredArtifactBody } from './artifactAuthoring.ts'
 import { isArtifactCreationId } from './artifactCreation.ts'
+import { parseScheduledArtifactSpec, type ScheduledArtifactKind } from './scheduledArtifact.ts'
 
 export type RelationEntity = 'session' | 'project' | 'artifact' | 'context' | 'schedule'
 
@@ -211,7 +212,7 @@ export type RelationOp =
   // Session ↔ Schedule — have a schedule open a fresh session each run (standing).
   | { kind: 'set-schedule-session'; scheduleId: string; scheduleName: string; cadence: string; sessionLabel: string }
   // Artifact ↔ Schedule — have a schedule save/overwrite an artifact each run (standing).
-  | { kind: 'set-schedule-artifact'; scheduleId: string; scheduleName: string; cadence: string; artifactName: string }
+  | { kind: 'set-schedule-artifact'; scheduleId: string; scheduleName: string; cadence: string; artifactName: string; /** Absent on legacy proposals and means Document. */ artifactKind?: ScheduledArtifactKind }
   // Context ↔ Schedule — add a tool/connector the schedule uses each run (standing).
   | { kind: 'schedule-add-tool'; scheduleId: string; scheduleName: string; cadence: string; tool: StepTool }
   // ── Agent Commons CRUD (docs/agent-commons.md, D6/D9/D10/D7) ────────────────
@@ -287,7 +288,9 @@ export function opKey(op: RelationOp): string {
     case 'set-schedule-session':
       return `set-schedule-session:${op.scheduleId}`
     case 'set-schedule-artifact':
-      return `set-schedule-artifact:${op.scheduleId}:${op.artifactName}`
+      return Object.hasOwn(op, 'artifactKind')
+        ? `set-schedule-output:${JSON.stringify([op.scheduleId, op.artifactName, op.artifactKind])}`
+        : `set-schedule-artifact:${op.scheduleId}:${op.artifactName}`
     case 'schedule-add-tool':
       return `schedule-add-tool:${op.scheduleId}:${op.tool.id}`
     case 'create-provider':
@@ -469,14 +472,17 @@ export function describeOp(op: RelationOp): OpDescription {
         relationId: 'session-schedule',
         approval: 'standing',
       }
-    case 'set-schedule-artifact':
+    case 'set-schedule-artifact': {
+      const artifact = parseScheduledArtifactSpec({ name: op.artifactName, kind: Object.hasOwn(op, 'artifactKind') ? op.artifactKind : 'doc' })
+      const format = artifact?.kind === 'sheet' ? 'Sheet' : artifact?.kind === 'slide' ? 'Slides' : artifact?.kind === 'doc' ? 'Document' : 'Artifact'
       return {
-        text: `Have the **${op.scheduleName}** schedule save **${op.artifactName}** each run`,
-        done: `Saves ${op.artifactName} every run`,
+        text: `Have the **${op.scheduleName}** schedule save ${format} **${op.artifactName}** each run`,
+        done: `Saves ${format} ${op.artifactName} every run`,
         section: 'scheduled',
         relationId: 'artifact-schedule',
         approval: 'standing',
       }
+    }
     case 'schedule-add-tool':
       return {
         text: `Let the **${op.scheduleName}** schedule use **${op.tool.label}** each run`,

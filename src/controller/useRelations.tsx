@@ -12,6 +12,10 @@ import type {
   StepTool,
 } from '../types'
 import { emptyGraph, opAppliedInGraph } from '../../contract/index.ts'
+import {
+  parseScheduledArtifactSpec,
+  type ScheduledArtifactSpec,
+} from '../../contract/scheduledArtifact.ts'
 import { registryRows } from '../lib/registryRows.ts'
 import { OWNER_SECTION } from '../lib/paneNav'
 import {
@@ -75,7 +79,7 @@ export interface RelationsValue {
   // ── Schedules ──
   scheduleProjectId: (schedId: string) => string | null
   schedulesForProject: (pid: string) => ScheduledTask[]
-  scheduleArtifactFor: (schedId: string) => string | undefined
+  scheduleArtifactFor: (schedId: string) => ScheduledArtifactSpec | undefined
   scheduleSessionFor: (schedId: string) => string | undefined
   scheduleExtraToolsFor: (schedId: string) => StepTool[]
   isStandingApproved: (key: string) => boolean
@@ -235,7 +239,7 @@ export function RelationsProvider({
       artifactSourceFor: (aid) => graph.artifactSource[aid],
       scheduleProjectId,
       schedulesForProject: (pid) => schedules.filter((t) => scheduleProjectId(t.id) === pid),
-      scheduleArtifactFor: (schedId) => graph.scheduleArtifact[schedId],
+      scheduleArtifactFor: (schedId) => parseScheduledArtifactSpec(graph.scheduleArtifact[schedId]),
       scheduleSessionFor: (schedId) => graph.scheduleSession[schedId],
       scheduleExtraToolsFor: (schedId) => graph.scheduleExtraTools[schedId] ?? [],
       isStandingApproved: (key) => !!graph.standingApprovals[key],

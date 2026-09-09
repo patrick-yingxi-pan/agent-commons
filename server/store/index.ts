@@ -16,6 +16,7 @@
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseScheduleStanding, pruneOrphanScheduleStanding, scheduleApprovalKeyMatches, scheduleStandingFailure } from '../scheduleStanding.ts'
+import { parseScheduledArtifactSpec, type ScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
 import { sheetXlsx } from '../artifactXlsx.ts'
 import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
@@ -30,7 +31,6 @@ import type {
   Artifact,
   ArtifactContent,
   ArtifactContentLibrary,
-  AuthoredDocument,
   ArtifactItem,
   ArtifactKind,
   Capabilities,
@@ -120,7 +120,7 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from '../fs.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../../contract/index.ts'
-import { authoredDocument, fsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
+import { fsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity.ts'
 import { nonNegativeIntEnv } from '../env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts.ts'
@@ -3079,6 +3079,13 @@ function rehydrate(s: PersistedState): boolean {
   // them from `nextAttemptAt` after rehydrate.
   for (const task of schedules) {
     for (const run of task.runs) {
+      // Older durable runs used `{ artifactName, tools }`. Snapshot admission
+      // validates both shapes; runtime owns only the detached canonical form so
+      // a resumed attempt never executes against legacy object semantics.
+      if (run.execution && Object.hasOwn(run.execution, 'standing')) {
+        const standing = parseScheduleStanding(run.execution.standing)
+        if (standing) run.execution.standing = standing
+      }
       if (run.status === 'running' && run.id.startsWith('run-live-') && run.maxAttempts === undefined) {
         run.status = 'failed'
         run.duration = run.duration === '—' ? '0s' : run.duration
@@ -3418,16 +3425,16 @@ function replaceMap<V>(map: Map<string, V>, entries?: [string, V][]): void {
  *  a graph edit nobody confirmed *this* run, because it was pre-authorized. No
  *  standing approval on the routine → nothing happens.
  *
- *  Exactly one document is bound to the routine's stable id. Its body, synopsis,
+ *  Exactly one artifact is bound to the routine's stable id. Its body, synopsis,
  *  and latest run provenance publish in the enclosing terminal-run transaction;
  *  user filing and grants remain independent. Never adopt an ordinary authored
  *  document merely because its display name/source happens to match. */
-function applyStandingEffects(task: ScheduledTask, sessionId: string, artifactName: string, authored: AuthoredDocument, at: number): void {
+function applyStandingEffects(task: ScheduledTask, sessionId: string, spec: ScheduledArtifactSpec, authored: AuthoredArtifact, at: number): void {
   const source = `Scheduled run of ${task.name}`
   const ownerTenantId = task.tenantId ?? defaultTenantId()
   const op: RelationOp = {
     kind: 'save-artifact',
-    artifact: { name: artifactName, kind: 'doc', meta: `Saved by ${task.name}`, excerpt: authored.excerpt },
+    artifact: { name: spec.name, kind: spec.kind, meta: `Saved by ${task.name}`, excerpt: authored.excerpt },
     sessionId,
     sessionTitle: source,
     projectId: task.projectId,
@@ -3438,13 +3445,14 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, artifactNa
   const existing = owned.find((artifact) => artifact.sourceScheduleId === task.id) ??
     // Upgrade only a metadata-only legacy delivery with an exact retained run
     // join. Missing/expired provenance cannot confer overwrite authority.
-    owned.find((artifact) => !artifact.sourceScheduleId && artifact.kind === 'doc' &&
-      artifact.name === artifactName && artifact.source === source &&
+    owned.find((artifact) => spec.kind === 'doc' && !artifact.sourceScheduleId && artifact.kind === 'doc' &&
+      artifact.name === spec.name && artifact.source === source &&
       artifact.sourceSessionId !== undefined && runSessions.has(artifact.sourceSessionId) &&
       !artifactBodies.has(artifact.id))
   const id = existing?.id ?? mintArtifactId()
   const delivered: ArtifactItem = {
-    ...artifactFromDraft(op.artifact, id, source, existing?.projectId ?? task.projectId ?? '', at, sessionId, ownerTenantId),
+    ...artifactFromDraft(op.artifact, id, source, existing?.projectId ?? task.projectId ?? '',
+      existing ? Math.max(at, existing.editedAt) : at, sessionId, ownerTenantId),
     sourceScheduleId: task.id,
     ...(existing ? { saveOrigin: existing.saveOrigin ?? { name: existing.name, source: existing.source } } : {}),
   }
@@ -3472,6 +3480,18 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, artifactNa
   // not need to carry a second copy of the generated report.
   emit({ type: 'artifact.changed', artifactId: id })
   emit({ type: 'relation.applied', op, by: 'standing', tenantId: ownerTenantId })
+}
+
+/** Format conversion needs a separate identity policy. Until that is chosen,
+ * refuse it without altering either the existing output or its standing grant.
+ * Check again at execution/publication to cover older stores and late changes. */
+function scheduleArtifactFormatFailure(task: ScheduledTask, spec: ScheduledArtifactSpec | null | undefined): string | undefined {
+  if (!spec) return undefined
+  const existing = graph.extraArtifacts.find((artifact) => artifact.sourceScheduleId === task.id &&
+    (artifact.tenantId ?? defaultTenantId()) === (task.tenantId ?? defaultTenantId()))
+  return existing && existing.kind !== spec.kind
+    ? 'This routine already has a saved artifact in a different format. Keep its current format for now; its saved artifact was not changed.'
+    : undefined
 }
 
 export const store = {
@@ -10553,8 +10573,11 @@ export const store = {
       if (inFlight) return inFlight
       const startedAt = options?.startedAt ?? Date.now()
       const binding = scheduleBindingChoice(task)
+      const rawArtifact = graph.scheduleArtifact[task.id]
+      const artifact = rawArtifact === undefined ? null : parseScheduledArtifactSpec(rawArtifact)
+      if (artifact === undefined) throw new ValidationError('The routine’s standing approvals are invalid. Update them before starting a run.')
       const standing = parseScheduleStanding({
-        artifactName: graph.scheduleArtifact[task.id] ?? null,
+        artifact,
         tools: graph.scheduleExtraTools[task.id] ?? [],
       })
       if (!standing) throw new ValidationError('The routine’s standing approvals are invalid. Update them before starting a run.')
@@ -10657,7 +10680,8 @@ export const store = {
       }
     }
 
-    const standingFailure = scheduleStandingFailure(task.id, run.execution?.standing, graph)
+    const standingFailure = scheduleStandingFailure(task.id, run.execution?.standing, graph) ??
+      scheduleArtifactFormatFailure(task, run.execution?.standing?.artifact)
     if (standingFailure) {
       return {
         task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
@@ -10741,18 +10765,22 @@ export const store = {
     message: Message,
     provenance: { agentId: string; providerId: string; modelId?: string },
     finishedAt = Date.now(),
+    structuredOutput?: unknown,
   ): ScheduledRun | undefined {
     return commitMutationBatch(() => {
       const task = schedules.find((candidate) => candidate.id === taskId)
       const run = task?.runs.find((candidate) => candidate.id === runId)
       if (!task || !run || run.status !== 'running') return undefined
-      const standingFailure = scheduleStandingFailure(task.id, run.execution?.standing, graph)
+      const standingFailure = scheduleStandingFailure(task.id, run.execution?.standing, graph) ??
+        scheduleArtifactFormatFailure(task, run.execution?.standing?.artifact)
       if (standingFailure) return this.failScheduleRun(taskId, runId, 'authority_denied', standingFailure, finishedAt)
-      const artifactName = run.execution?.standing?.artifactName
-      const authored = artifactName ? authoredDocument(artifactName, message.content) : undefined
-      if (artifactName && !authored) {
+      const spec = run.execution?.standing?.artifact
+      const authored = spec ? authoredArtifact(spec.name, spec.kind, spec.kind === 'doc' ? message.content : structuredOutput) : undefined
+      if (spec && !authored) {
         return this.failScheduleRun(taskId, runId, 'execution_error',
-          'The routine returned no document text. Its saved artifact was not changed.', finishedAt)
+          spec.kind === 'doc'
+            ? 'The routine returned no document text. Its saved artifact was not changed.'
+            : 'The routine did not return valid structured content in the approved format. Its saved artifact was not changed.', finishedAt)
       }
       run.status = 'ok'
       run.reachedStep = taskForRun(task, run).steps.length
@@ -10769,7 +10797,7 @@ export const store = {
       // second synthesized recap after restart.
       const stamped: Message = { ...message, id: RUN_RECAP_MESSAGE_ID, ...provenance }
       applyMessage(session, stamped, finishedAt)
-      if (artifactName && authored) applyStandingEffects(task, session.id, artifactName, authored, finishedAt)
+      if (spec && authored) applyStandingEffects(task, session.id, spec, authored, finishedAt)
       emit({ type: 'session.updated', session })
       emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId: session.id, run })
       persist()
@@ -11111,6 +11139,15 @@ export const store = {
    *   • Every other op is a relationship-graph edit, applied by the pure reducer.
    *  All three broadcast `relation.applied` and persist. */
   applyRelationOp(op: RelationOp, tenantId?: string): RelationGraph {
+    if (op.kind === 'set-schedule-artifact') {
+      const spec = parseScheduledArtifactSpec({ name: op.artifactName,
+        kind: Object.hasOwn(op, 'artifactKind') ? op.artifactKind : 'doc' })
+      if (!spec) throw new ValidationError('The routine output must have a valid name and an explicit supported format.')
+      const scheduleId = op.scheduleId
+      const task = schedules.find((candidate) => candidate.id === scheduleId)
+      const failure = task && scheduleArtifactFormatFailure(task, spec)
+      if (failure) throw new ConflictError(failure)
+    }
     if (op.kind === 'scope-context' && op.context.source !== undefined && !isProjectContextSource(op.context.source)) {
       throw new ValidationError('This context source is malformed.')
     }

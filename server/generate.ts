@@ -19,6 +19,7 @@ import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
 import { positiveNumberEnv, nonNegativeIntEnv } from './env.ts'
 import { executeToolBatch, toolLoopLimits } from './toolExecution.ts'
+import { routineArtifactToolDefinition, type RoutineArtifactCapture } from './routineArtifact.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, type CompactionPartResult } from './compaction.ts'
 import type { ImageSnapshot } from '../contract/imageInput.ts'
 import { createModelUsageRecorder, UsageRecordingError, type ModelUsageHandler } from './modelUsage.ts'
@@ -281,6 +282,8 @@ export interface ReplyExecutionOptions {
   /** Provider-declared effort for this turn. The Messages wire uses lowercase
    *  tokens; an endpoint that advertises an extension receives its token too. */
   effort?: string
+  /** One server-owned standing output capture for a queued sheet/slide run. */
+  routineArtifact?: RoutineArtifactCapture
 }
 
 /** Prior active-context turns for an endpoint-backed conversation. This is the
@@ -390,7 +393,10 @@ export async function generateReply(
   // run as them; mutations only propose), so like connector tools they are
   // structural, not part of the Agent's curated proposal-tool grant.
   const apiDefs = api ? deriveApiTools(api.catalog).definitions : []
-  const tools = supportsTools ? [...agentTools, ...connectorDefs, ...apiDefs] : []
+  const routineArtifactDefs = execution.routineArtifact
+    ? [routineArtifactToolDefinition(execution.routineArtifact)]
+    : []
+  const tools = supportsTools ? [...agentTools, ...routineArtifactDefs, ...connectorDefs, ...apiDefs] : []
   const toolsParam = supportsTools ? { tools } : {}
   const userContent: Anthropic.MessageParam['content'] = input.images?.length
     ? [...input.images.map((image) => ({ type: 'image' as const, source: { type: 'base64' as const, media_type: image.mimeType, data: image.data } })), { type: 'text', text: input.userText }]
@@ -477,6 +483,7 @@ export async function generateReply(
         relationOps,
         toolActivities,
         escalation,
+        routineArtifact: execution.routineArtifact,
         signal,
       })
       escalation = executed.escalation

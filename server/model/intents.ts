@@ -7,6 +7,7 @@
  *  backend's job (server/model/tools.ts) — this only picks the calls, exactly
  *  as the model does. */
 import { TOOL_NAMES } from './tools.ts'
+import { ROUTINE_ARTIFACT_TOOL_NAME } from '../routineArtifact.ts'
 
 export interface ToolCall {
   name: string
@@ -23,6 +24,23 @@ function matchKeywords(text: string): ToolCall[] {
 
   const project = grab(/\b(?:project|under|into)\s+(?:the\s+)?["“]?([A-Za-z0-9 ][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:[.,!]|$)/i)
   const hasSchedule = /\bschedul/.test(t)
+
+  // Deterministic endpoint fixture for the server-owned structured routine
+  // capture. Authority (name/kind) is absent from the call and remains in the
+  // backend's capture port; the model supplies only the literal body.
+  if (/\bsubmit_routine_artifact\b/.test(t)) {
+    if (/\bstanding-approved sheet\b/.test(t)) {
+      calls.push({
+        name: ROUTINE_ARTIFACT_TOOL_NAME,
+        input: { body: { type: 'sheet', columns: ['Result', 'Value'], rows: [['Status', 'Complete']] } },
+      })
+    } else if (/\bstanding-approved slides\b/.test(t)) {
+      calls.push({
+        name: ROUTINE_ARTIFACT_TOOL_NAME,
+        input: { body: { type: 'slides', slides: [{ title: 'Routine result', bullets: ['Completed successfully'] }] } },
+      })
+    }
+  }
 
   // ── Agent Commons CRUD (D6/D9/D10/D7) ──────────────────────────────────────
   // A faithful pattern match for the management requests Claude turns into the Agent
@@ -117,7 +135,7 @@ function matchKeywords(text: string): ToolCall[] {
   // ── Save a draft out of this session ──────────────────────────────────────
   // Structured bodies stay explicit in the mock just as they must be on the real
   // tool boundary: `kind` is never inferred by the executor from the body alone.
-  if (/\bsave\b/.test(t) && /\b(artifact|draft|doc|note|recap|summary|sheet|spreadsheet|table|slide|slides|deck|presentation)\b/.test(t)) {
+  if (!hasSchedule && /\bsave\b/.test(t) && /\b(artifact|draft|doc|note|recap|summary|sheet|spreadsheet|table|slide|slides|deck|presentation)\b/.test(t)) {
     const structuredKind = /\b(sheet|spreadsheet|table)\b/.test(t)
       ? 'sheet'
       : /\b(slide|slides|deck|presentation)\b/.test(t)
@@ -161,8 +179,21 @@ function matchKeywords(text: string): ToolCall[] {
       const tool = grab(/\buse\s+([A-Za-z][A-Za-z ]*?)(?:\s+each|\s+every|[.,!]|$)/i) ?? 'Slack'
       calls.push({ name: 'schedule_add_tool', input: { schedule, tool } })
     } else if (/\b(save|digest|artifact|report|output|write)\b/.test(t)) {
-      const artifact = grab(/\bsave\s+(?:a\s+)?([\w.-]+)/i) ?? 'digest.md'
-      calls.push({ name: 'set_schedule_artifact', input: { schedule, artifact } })
+      const outputText = text.replace(schedule, '')
+      const explicitFormat = outputText.match(
+        /\b(?:save|write|output)\s+(?:an?\s+)?(document|doc|sheet|spreadsheet|slide|slides|deck|presentation)(?=\s|[,!?]|$)/i,
+      )?.[1]?.toLowerCase()
+      const artifact = outputText.match(/\b(?:save|write|output)\s+(?:an?\s+)?(?:document|doc|sheet|spreadsheet|slides?|deck|presentation)\s+named\s+([\w.-]+)/i)?.[1] ??
+        outputText.match(/\bsave\s+(?:a\s+)?([\w.-]+)/i)?.[1] ?? 'digest.md'
+      // The format token must directly qualify the output verb. Words in the
+      // routine title or filename (including .sheet/.slides suffixes) are data,
+      // never format authority. An unqualified digest remains a Document.
+      const artifactKind = explicitFormat === 'sheet' || explicitFormat === 'spreadsheet'
+        ? 'sheet'
+        : explicitFormat === 'slide' || explicitFormat === 'slides' || explicitFormat === 'deck' || explicitFormat === 'presentation'
+          ? 'slide'
+          : 'doc'
+      calls.push({ name: 'set_schedule_artifact', input: { schedule, artifact, artifactKind } })
     }
   }
 
@@ -256,7 +287,7 @@ function matchKeywords(text: string): ToolCall[] {
   // The curated catalog plus the generated API tools (api__…, INV-11): the mock
   // emits only names the backend really declares — api__ calls are validated by
   // the backend's own declared-names guard (generate.ts), same as a real model's.
-  return calls.filter((c) => (TOOL_NAMES as string[]).includes(c.name) || c.name.startsWith('api__'))
+  return calls.filter((c) => (TOOL_NAMES as string[]).includes(c.name) || c.name === ROUTINE_ARTIFACT_TOOL_NAME || c.name.startsWith('api__'))
 }
 
 /** Decide a turn's tool calls from its keyword patterns. Returns [] when

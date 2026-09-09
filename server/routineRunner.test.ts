@@ -13,6 +13,7 @@ import type { ReplyResult } from './generate.ts'
 import { createModelUsageRecorder } from './modelUsage.ts'
 import { createRoutineRunner, type RoutineGenerate, type RoutineRunStore } from './routineRunner.ts'
 import type { RoutineExecutionContext } from './store/index.ts'
+import { stageRoutineArtifact, commitRoutineArtifact } from './routineArtifact.ts'
 
 const agent: Agent = {
   id: 'agent-routine',
@@ -54,6 +55,7 @@ interface FakeState {
   context: RoutineExecutionContext
   deferrals: number[]
   completions: Message[]
+  outputs: unknown[]
   failures: Array<{ code: NonNullable<ScheduledRun['failureCode']>; detail: string }>
   usage: Array<[number, number, string | undefined]>
   outcomes: string[]
@@ -84,6 +86,7 @@ function fakeState(blocked?: RoutineExecutionContext['blocked']): FakeState {
     },
     deferrals: [],
     completions: [],
+    outputs: [],
     failures: [],
     usage: [],
     outcomes: [],
@@ -109,9 +112,10 @@ function fakeStore(state: FakeState): RoutineRunStore {
       state.deferrals.push(nextAttemptAt)
       return context.run
     },
-    completeScheduleRun: (_taskId, _runId, message) => {
+    completeScheduleRun: (_taskId, _runId, message, _provenance, _at, output) => {
       context.run.status = 'ok'
       state.completions.push(message)
+      state.outputs.push(output)
       return context.run
     },
     failScheduleRun: (_taskId, _runId, code, detail) => {
@@ -138,6 +142,117 @@ function generated(overrides: Partial<ReplyResult> = {}): ReplyResult {
 function reportUsage(args: Parameters<RoutineGenerate>, usage = { inputTokens: 12, outputTokens: 8 }): void {
   args[3].onUsage(usage)
 }
+
+function withStructuredOutput(state: FakeState, kind: 'sheet' | 'slide' = 'sheet'): void {
+  const task = state.context.task
+  state.context.run.execution = {
+    definitionRevision: 0, trigger: task.trigger, prompt: task.prompt, steps: task.steps, delivery: task.delivery,
+    agentId: state.context.agent.id, providerId: state.context.provider.id,
+    standing: { artifact: { name: 'Approved output', kind }, tools: [] },
+  }
+}
+
+test('structured routine output refuses a known tool-less provider before paid generation', async () => {
+  const state = fakeState()
+  withStructuredOutput(state)
+  state.context.providerConfig = { capabilities: { toolUse: false } }
+  let calls = 0
+  const runner = createRoutineRunner(fakeStore(state), (async () => { calls += 1; return generated() }) as RoutineGenerate)
+  runner.start()
+  await settle(state)
+  runner.stop()
+  assert.equal(calls, 0)
+  assert.equal(state.failures[0]?.code, 'model_unavailable')
+  assert.match(state.failures[0]?.detail ?? '', /tool use/i)
+  assert.deepEqual(state.completions, [])
+  assert.deepEqual(state.usage, [])
+  assert.deepEqual(state.deferrals, [])
+})
+
+for (const kind of ['sheet', 'slide'] as const) {
+  test(`a successful prose reply is not a valid ${kind} output`, async () => {
+    const state = fakeState()
+    withStructuredOutput(state, kind)
+    let call: Parameters<RoutineGenerate> | undefined
+    const runner = createRoutineRunner(fakeStore(state), (async (...args: Parameters<RoutineGenerate>) => {
+      call = args
+      reportUsage(args)
+      return generated()
+    }) as RoutineGenerate)
+    runner.start()
+    await settle(state)
+    runner.stop()
+    assert.deepEqual(call?.[9]?.routineArtifact?.spec, { name: 'Approved output', kind })
+    assert.match(call?.[2] ?? '', /submit_routine_artifact/)
+    assert.equal(state.failures[0]?.code, 'execution_error')
+    assert.match(state.failures[0]?.detail ?? '', /saved artifact was not changed/i)
+    assert.deepEqual(state.completions, [])
+    assert.equal(state.usage.length, 1, 'failed output still accounts for consumed model tokens')
+    assert.deepEqual(state.deferrals, [], 'malformed output is not blindly retried')
+  })
+}
+
+const sheetOutput = { type: 'sheet', columns: ['Status'], rows: [['Ready']] }
+
+function submitOutput(args: Parameters<RoutineGenerate>, body: unknown = sheetOutput): void {
+  const capture = args[9]?.routineArtifact
+  assert.ok(capture, 'the runner declared its frozen output capture')
+  commitRoutineArtifact(capture, stageRoutineArtifact(capture, { body }))
+}
+
+test('one valid captured body reaches the terminal store alongside, not instead of, the run recap', async () => {
+  const state = fakeState()
+  withStructuredOutput(state)
+  let calls = 0
+  const runner = createRoutineRunner(fakeStore(state), (async (...args: Parameters<RoutineGenerate>) => {
+    calls += 1
+    submitOutput(args)
+    return generated()
+  }) as RoutineGenerate)
+  runner.start()
+  await settle(state)
+  runner.stop()
+  assert.equal(calls, 1, 'structured output uses the one existing generation loop')
+  assert.deepEqual(state.outputs, [sheetOutput])
+  assert.equal(state.completions[0]?.content, 'The briefing is ready.')
+})
+
+test('a candidate from a fallback attempt cannot survive into the retry', async () => {
+  const state = fakeState()
+  withStructuredOutput(state)
+  let calls = 0
+  const runner = createRoutineRunner(fakeStore(state), (async (...args: Parameters<RoutineGenerate>) => {
+    calls += 1
+    if (calls === 1) {
+      submitOutput(args)
+      return generated({ outcome: 'fallback', failure: 'endpoint_unavailable' })
+    }
+    assert.equal(args[9]?.routineArtifact?.result, undefined, 'each attempt owns a fresh capture')
+    return generated()
+  }) as RoutineGenerate, { now: () => 1_000, retryBaseMs: 1 })
+  runner.start()
+  await settle(state)
+  runner.stop()
+  assert.equal(calls, 2)
+  assert.deepEqual(state.completions, [])
+  assert.equal(state.failures[0]?.code, 'execution_error')
+})
+
+test('a poisoned capture cannot be masked by successful final prose', async () => {
+  const state = fakeState()
+  withStructuredOutput(state)
+  const runner = createRoutineRunner(fakeStore(state), (async (...args: Parameters<RoutineGenerate>) => {
+    submitOutput(args)
+    submitOutput(args)
+    return generated()
+  }) as RoutineGenerate)
+  runner.start()
+  await settle(state)
+  runner.stop()
+  assert.deepEqual(state.outputs, [])
+  assert.equal(state.failures[0]?.code, 'execution_error')
+  assert.deepEqual(state.deferrals, [])
+})
 
 async function settle(state: FakeState, timeoutMs = 250): Promise<void> {
   const deadline = Date.now() + timeoutMs

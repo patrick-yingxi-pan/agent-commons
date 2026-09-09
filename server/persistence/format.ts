@@ -57,6 +57,7 @@ import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
+import { parseScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
 import { isProjectContextSource } from '../../contract/cowork.ts'
 import { parseMcpToolResult } from '../mcpToolResult.ts'
 import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
@@ -690,6 +691,11 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     }
     return true
   }
+  const graphScheduleArtifactsValid = (graph: unknown): boolean => {
+    if (!record(graph)) return false
+    const artifacts = (graph as { scheduleArtifact?: unknown }).scheduleArtifact
+    return record(artifacts) && Object.values(artifacts).every((artifact) => parseScheduledArtifactSpec(artifact) !== undefined)
+  }
   const artifactOriginsValid = (graph: unknown): boolean => {
     if (!record(graph)) return false
     const artifacts = (graph as { extraArtifacts?: unknown }).extraArtifacts
@@ -719,6 +725,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       }))
       && record(state.recents)
       && graphContextsValid(state.graph)
+      && graphScheduleArtifactsValid(state.graph)
       && artifactOriginsValid(state.graph)
       && record(state.seq),
   )
