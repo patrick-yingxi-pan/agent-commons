@@ -2,6 +2,7 @@ import { test, expect, type Locator, type Page } from '@playwright/test'
 import type { Session } from '../contract/index.ts'
 import { assertWcag22Aa } from './accessibility-helpers.ts'
 import { ms } from './budget.ts'
+import { tierFor } from '../src/lib/viewport.ts'
 import { proxyMcpApi, startMcpFixture, startMcpRouterStack, type McpRouterStack } from './mcp-fixture.ts'
 
 const VIEWPORTS = [
@@ -71,9 +72,15 @@ async function requestExternalCall(page: Page, query: string) {
 async function closeMcpDetailPane(page: Page) {
   const detail = page.locator('[data-mcp-connection]:visible, [data-mcp-catalog]:visible').first()
   if (!await detail.isVisible()) return
-  if (await page.locator('[data-overlay-dock]').isVisible()) {
-    await page.locator('[data-overlay-dock]').getByTitle('Close', { exact: true }).click()
+  // A resize first changes browser geometry, then the React layout. Choose the
+  // expected tier and await its chrome, never branch on the stale wide DOM.
+  const tier = tierFor(page.viewportSize()!.width)
+  const dock = page.locator('[data-overlay-dock]')
+  if (tier !== 'wide') {
+    await expect(dock).toHaveAttribute('data-overlay-dock', tier)
+    await dock.getByTitle('Close', { exact: true }).click()
   } else {
+    await expect(dock).toHaveCount(0)
     await detail.click({ position: { x: 8, y: 8 } })
     const strip = page.locator('[data-mini-rail]')
     const chrome = await strip.isVisible() ? strip : page.getByRole('complementary')
@@ -134,11 +141,42 @@ async function proxyReadOnlySession(page: Page, stack: McpRouterStack, sessionId
   })
 }
 
+test('the in-process router restores ambient state when setup fails', async () => {
+  const previousAuth = process.env.AUTH_GATE
+  const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL
+  const previousModelPort = process.env.MODEL_PORT
+  process.env.AUTH_GATE = 'ambient-auth'
+  process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1'
+  process.env.MODEL_PORT = '1'
+  try {
+    await expect(startMcpRouterStack({ deviceBearerAvailable: true })).rejects.toThrow('configuration is invalid')
+    expect(process.env.AUTH_GATE).toBe('ambient-auth')
+    expect(process.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:1')
+    expect(process.env.MODEL_PORT).toBe('1')
+  } finally {
+    if (previousAuth === undefined) delete process.env.AUTH_GATE
+    else process.env.AUTH_GATE = previousAuth
+    if (previousModelBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
+    else process.env.ANTHROPIC_BASE_URL = previousModelBaseUrl
+    if (previousModelPort === undefined) delete process.env.MODEL_PORT
+    else process.env.MODEL_PORT = previousModelPort
+  }
+})
+
 test('an attached HTTPS MCP tool requires owner approval and persists its inert result', async ({ page }) => {
   test.setTimeout(ms(120_000))
-  const fixture = await startMcpFixture({ label: 'Execution fixture' })
-  const stack = await startMcpRouterStack()
+  const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL
+  const previousModelPort = process.env.MODEL_PORT
+  // The in-process router must use Playwright's shard-owned model even when a
+  // caller supplies a dead ambient endpoint. This is the CI shape: webServer.env
+  // is intentionally scoped to the child stack, not inherited by this worker.
+  process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:1'
+  process.env.MODEL_PORT = '1'
+  let fixture: Awaited<ReturnType<typeof startMcpFixture>> | undefined
+  let stack: Awaited<ReturnType<typeof startMcpRouterStack>> | undefined
   try {
+    fixture = await startMcpFixture({ label: 'Execution fixture' })
+    stack = await startMcpRouterStack()
     await proxyMcpApi(page, stack)
     const connectionId = await inspectExecutionFixture(page, fixture.url, 'Execution fixture')
     await captureContextsGuidance(page)
@@ -182,7 +220,25 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
     await expect(page.locator('[data-mcp-tool-status="declined"]').filter({ hasText: 'inspect_records' }).last())
       .toContainText('the external tool was not run')
     expect(fixture.toolCalls).toHaveLength(1)
-  } finally { await fixture.close(); await stack.close() }
+  } finally {
+    try {
+      await page.unrouteAll({ behavior: 'wait' })
+      await fixture?.close()
+    } finally {
+      try {
+        await stack?.close()
+        if (stack) {
+          expect(process.env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:1')
+          expect(process.env.MODEL_PORT).toBe('1')
+        }
+      } finally {
+        if (previousModelBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
+        else process.env.ANTHROPIC_BASE_URL = previousModelBaseUrl
+        if (previousModelPort === undefined) delete process.env.MODEL_PORT
+        else process.env.MODEL_PORT = previousModelPort
+      }
+    }
+  }
 })
 
 test('known MCP errors and post-submission uncertainty stay durable without replay', async ({ page }) => {

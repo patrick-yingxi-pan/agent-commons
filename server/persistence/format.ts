@@ -56,6 +56,7 @@ import type {
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
+import { parseScheduleStanding } from '../scheduleStanding.ts'
 import { isProjectContextSource } from '../../contract/cowork.ts'
 import { parseMcpToolResult } from '../mcpToolResult.ts'
 import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
@@ -710,6 +711,12 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)
       && Array.isArray(state.schedules)
+      && state.schedules.every((task) => record(task) && Array.isArray(task.runs) && task.runs.every((run) => {
+        if (!record(run)) return false
+        if (run.execution === undefined) return true
+        if (!record(run.execution)) return false
+        return !Object.hasOwn(run.execution, 'standing') || parseScheduleStanding(run.execution.standing) !== undefined
+      }))
       && record(state.recents)
       && graphContextsValid(state.graph)
       && artifactOriginsValid(state.graph)

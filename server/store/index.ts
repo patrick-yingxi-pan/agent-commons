@@ -15,6 +15,7 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import { parseScheduleStanding, pruneOrphanScheduleStanding, scheduleApprovalKeyMatches, scheduleStandingFailure } from '../scheduleStanding.ts'
 import { sheetXlsx } from '../artifactXlsx.ts'
 import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
@@ -1758,10 +1759,7 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     // Historical keys retain old artifact names, so current graph values are
     // not sufficient. Match a registered stable id; ambiguous legacy ids fail
     // closed rather than guessing whose approval a prefix belongs to.
-    const matches = schedules.filter((task) =>
-      key === `set-schedule-session:${task.id}` ||
-      key.startsWith(`set-schedule-artifact:${task.id}:`) ||
-      key.startsWith(`schedule-add-tool:${task.id}:`))
+    const matches = schedules.filter((task) => scheduleApprovalKeyMatches(key, task.id))
     return matches.length === 1 && rowVisibleTo(matches[0]!, tenantId)
   }
   return {
@@ -3383,7 +3381,9 @@ function rehydrate(s: PersistedState): boolean {
   // were (or one whose 'running' run was just swept to 'failed' above) can miss a
   // row or its recap — re-materialize through the same funnel, idempotently.
   materializeRunSessions()
-  return interruptedMcp.length > 0
+  const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
+  graph = standingRecovery.graph
+  return interruptedMcp.length > 0 || standingRecovery.changed
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -3515,10 +3515,12 @@ export const store = {
     const loaded = loadState()
     persistEnabled = true
     if (loaded) {
-      const recoveredMcpExecution = rehydrate(loaded)
+      const recoveredState = rehydrate(loaded)
       // Older stores never recorded usage. Publish the one-time world-appropriate
       // baseline so even an otherwise read-only restart retains its period anchor.
-      if (loaded.usageMeters === undefined || recoveredMcpExecution) persist()
+      // Execution uncertainty and orphan standing-authority cleanup likewise
+      // commit before the server admits requests, even without a later write.
+      if (loaded.usageMeters === undefined || recoveredState) persist()
     }
     else if (resolveInitialWorld() === 'clean') {
       // Release first boot: replace every authored-person slice with the minimal
@@ -10551,6 +10553,11 @@ export const store = {
       if (inFlight) return inFlight
       const startedAt = options?.startedAt ?? Date.now()
       const binding = scheduleBindingChoice(task)
+      const standing = parseScheduleStanding({
+        artifactName: graph.scheduleArtifact[task.id] ?? null,
+        tools: graph.scheduleExtraTools[task.id] ?? [],
+      })
+      if (!standing) throw new ValidationError('The routine’s standing approvals are invalid. Update them before starting a run.')
       const run: ScheduledRun = {
         id: options?.manualRunId ?? `run-live-${(runSeq += 1)}`,
         status: 'running',
@@ -10567,6 +10574,7 @@ export const store = {
           prompt: task.prompt,
           steps: structuredClone(task.steps),
           delivery: structuredClone(task.delivery),
+          standing,
           agentId: binding.agent.id,
           providerId: binding.provider.id,
           ...(binding.modelId ? { modelId: binding.modelId } : {}),
@@ -10649,22 +10657,34 @@ export const store = {
       }
     }
 
-    const referenced = [...executionTask.steps.map((step) => step.tool), executionTask.delivery.tool, ...(graph.scheduleExtraTools[task.id] ?? [])]
-      .filter((tool) => tool.tone === 'connector' || tool.tone === 'mcp')
+    const standingFailure = scheduleStandingFailure(task.id, run.execution?.standing, graph)
+    if (standingFailure) {
+      return {
+        task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
+        agent, provider, providerConfig, modelId, contexts: [], approvedContextIds: new Set(),
+        blocked: { code: 'authority_denied', detail: standingFailure },
+      }
+    }
+    const referenced = [
+      ...[...executionTask.steps.map((step) => step.tool), executionTask.delivery.tool].map((tool) => ({ tool, exactId: false })),
+      ...(run.execution?.standing?.tools ?? []).map((tool) => ({ tool, exactId: true })),
+    ].filter(({ tool }) => tool.tone === 'connector' || tool.tone === 'mcp')
     const contexts: SessionContext[] = []
     const missing: string[] = []
     const denied: string[] = []
     const effectiveAuthority = intersectAuthority(provider.authority ?? {}, agent.authority ?? {})
-    for (const tool of referenced) {
-      if (contexts.some((context) => context.id === tool.id || context.label.toLowerCase() === tool.label.toLowerCase())) continue
+    for (const { tool, exactId } of referenced) {
       const compatible = contextRegistry.snapshot(tenantId).contexts.filter((context) =>
         tool.tone === 'mcp' ? context.kind === 'mcp' : context.kind === 'connector')
+      // Authored legacy workflow rows retain their historical label lookup;
+      // a frozen standing grant is always an exact identity, never a label.
       const saved = compatible.find((context) => context.id === tool.id) ??
-        compatible.find((context) => context.label.toLowerCase() === tool.label.toLowerCase())
+        (exactId ? undefined : compatible.find((context) => context.label.toLowerCase() === tool.label.toLowerCase()))
       if (!saved || saved.status !== 'connected') {
         missing.push(tool.label)
         continue
       }
+      if (contexts.some((context) => context.id === saved.id)) continue
       if (!authorityAdmits(effectiveAuthority, 'connectors', saved.id) &&
           !authorityAdmits(effectiveAuthority, 'connectors', saved.label)) {
         denied.push(saved.label)
@@ -10726,7 +10746,9 @@ export const store = {
       const task = schedules.find((candidate) => candidate.id === taskId)
       const run = task?.runs.find((candidate) => candidate.id === runId)
       if (!task || !run || run.status !== 'running') return undefined
-      const artifactName = graph.scheduleArtifact[task.id]
+      const standingFailure = scheduleStandingFailure(task.id, run.execution?.standing, graph)
+      if (standingFailure) return this.failScheduleRun(taskId, runId, 'authority_denied', standingFailure, finishedAt)
+      const artifactName = run.execution?.standing?.artifactName
       const authored = artifactName ? authoredDocument(artifactName, message.content) : undefined
       if (artifactName && !authored) {
         return this.failScheduleRun(taskId, runId, 'execution_error',
@@ -11002,20 +11024,51 @@ export const store = {
         delete sessionProject[session.id]
         graphChanged = true
       }
-      const scheduleProject = { ...graph.scheduleProject }
-      if (Object.prototype.hasOwnProperty.call(scheduleProject, gone.id)) {
-        delete scheduleProject[gone.id]
+      const removeRoutineKey = <T>(map: Record<string, T>): Record<string, T> => {
+        if (!Object.hasOwn(map, gone.id)) return map
         graphChanged = true
+        const next = { ...map }
+        delete next[gone.id]
+        return next
       }
+      const scheduleProject = removeRoutineKey(graph.scheduleProject)
+      const scheduleArtifact = removeRoutineKey(graph.scheduleArtifact)
+      const scheduleSession = removeRoutineKey(graph.scheduleSession)
+      const scheduleExtraTools = removeRoutineKey(graph.scheduleExtraTools)
+      const standingApprovals = Object.fromEntries(Object.entries(graph.standingApprovals).filter(([key]) => {
+        // Historical labels remain in keys. Preserve another live routine's
+        // ambiguous legacy key rather than claiming its authority for this one.
+        const owned = scheduleApprovalKeyMatches(key, gone.id) &&
+          !schedules.some((task) => scheduleApprovalKeyMatches(key, task.id))
+        if (owned) graphChanged = true
+        return !owned
+      }))
+      const detachedArtifacts: string[] = []
+      const owner = gone.tenantId ?? defaultTenantId()
+      const extraArtifacts = graph.extraArtifacts.map((artifact) => {
+        if (artifact.sourceScheduleId !== gone.id || (artifact.tenantId ?? defaultTenantId()) !== owner) return artifact
+        // The output remains an independent resource with its original run
+        // provenance. Only its deleted routine's overwrite binding disappears.
+        const { sourceScheduleId: _binding, ...independent } = artifact
+        detachedArtifacts.push(artifact.id)
+        graphChanged = true
+        return independent
+      })
       if (graphChanged) {
         graph = {
           ...graph,
           sessionProject,
           scheduleProject,
+          scheduleArtifact,
+          scheduleSession,
+          scheduleExtraTools,
+          standingApprovals,
+          extraArtifacts,
           revision: (graph.revision ?? 0) + 1,
         }
       }
 
+      for (const artifactId of detachedArtifacts) emit({ type: 'artifact.changed', artifactId })
       // Open run panes need the definitive gone signal; schedule.changed alone
       // only refreshes routine projections and cannot identify every run session.
       for (const session of removedSessions) emit({ type: 'session.removed', session })

@@ -5,6 +5,14 @@ import { sendError } from '../server/http/respond.ts'
 import type { Router } from '../server/http/router.ts'
 import type { Page } from '@playwright/test'
 
+const TEST_MODEL_PORT = 8830 + Number(process.env.E2E_SHARD ?? 0)
+const TEST_MODEL_BASE_URL = `http://127.0.0.1:${TEST_MODEL_PORT}`
+
+function restoreEnv(name: 'AUTH_GATE' | 'ANTHROPIC_BASE_URL' | 'MODEL_PORT', value: string | undefined) {
+  if (value === undefined) delete process.env[name]
+  else process.env[name] = value
+}
+
 /** Only the event stream is intentionally absent in this request/ack fixture.
  * Ordinary HTTP failures remain loud rather than silently hanging a route. */
 export async function proxyMcpApi(page: Page, stack: { url: string }) {
@@ -45,42 +53,68 @@ export async function startMcpRouterStack(options: {
   resolveCredential?: (reference: string, binding: { tenantId: string; connectionId: string; endpoint: string }) => Promise<string>
 } = {}): Promise<McpRouterStack> {
   const previousAuth = process.env.AUTH_GATE
+  const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL
+  const previousModelPort = process.env.MODEL_PORT
   const previousRuntime = mcpRuntimeConfiguration()
   let cleanupAvailable = options.cleanupAvailable ?? true
+  let restored = false
+  const restoreProcessState = () => {
+    if (restored) return
+    restored = true
+    configureMcpRuntime(previousRuntime)
+    restoreEnv('AUTH_GATE', previousAuth)
+    restoreEnv('ANTHROPIC_BASE_URL', previousModelBaseUrl)
+    restoreEnv('MODEL_PORT', previousModelPort)
+  }
   // The browser harness impersonates the seeded default tenant through the
   // same dev identity seam as the normal E2E stack; do not enable the real
   // sign-in wall in this in-memory test process.
   process.env.AUTH_GATE = 'off'
-  configureMcpRuntime({
-    deviceBearerAvailable: options.deviceBearerAvailable ?? false,
-    allowLoopback: true,
-    resolveCredential: options.resolveCredential,
-    synchronizeBindings: async () => ({ available: cleanupAvailable }),
-  })
-  const { buildRouter } = await import('../server/routes/index.ts')
-  const router = buildRouter()
-  const server = createServer(async (request, response) => {
-    const raw = request.url ?? '/'
-    const url = new URL(raw, 'http://127.0.0.1')
-    if (url.pathname.startsWith('/api/v1/')) url.pathname = url.pathname.slice('/api/v1'.length)
-    const handled = await router.handle(request, response, url)
-    if (!handled && !response.writableEnded) sendError(response, 'not_found', `No route ${request.method} ${url.pathname}`)
-  })
-  server.listen(0, '127.0.0.1')
-  await once(server, 'listening')
-  const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('MCP router stack did not bind a TCP port')
-  return {
-    url: `http://127.0.0.1:${address.port}`,
-    router, server,
-    setCleanupAvailable: available => { cleanupAvailable = available },
-    close: async () => {
-      server.closeAllConnections()
-      await new Promise<void>((resolve) => server.close(() => resolve()))
-      configureMcpRuntime(previousRuntime)
-      if (previousAuth === undefined) delete process.env.AUTH_GATE
-      else process.env.AUTH_GATE = previousAuth
-    },
+  // `playwright.config.ts` gives these values to its webServer child, not to
+  // this test-worker process. Pin the router built below to that same
+  // shard-owned mock so an ambient developer endpoint cannot mask a missing
+  // model in CI (and an ambient production endpoint can never receive E2E data).
+  process.env.MODEL_PORT = String(TEST_MODEL_PORT)
+  process.env.ANTHROPIC_BASE_URL = TEST_MODEL_BASE_URL
+  let server: ReturnType<typeof createServer> | undefined
+  try {
+    configureMcpRuntime({
+      deviceBearerAvailable: options.deviceBearerAvailable ?? false,
+      allowLoopback: true,
+      resolveCredential: options.resolveCredential,
+      synchronizeBindings: async () => ({ available: cleanupAvailable }),
+    })
+    const { buildRouter } = await import('../server/routes/index.ts')
+    const router = buildRouter()
+    server = createServer(async (request, response) => {
+      const raw = request.url ?? '/'
+      const url = new URL(raw, 'http://127.0.0.1')
+      if (url.pathname.startsWith('/api/v1/')) url.pathname = url.pathname.slice('/api/v1'.length)
+      const handled = await router.handle(request, response, url)
+      if (!handled && !response.writableEnded) sendError(response, 'not_found', `No route ${request.method} ${url.pathname}`)
+    })
+    server.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('MCP router stack did not bind a TCP port')
+    return {
+      url: `http://127.0.0.1:${address.port}`,
+      router, server,
+      setCleanupAvailable: available => { cleanupAvailable = available },
+      close: async () => {
+        try {
+          server!.closeAllConnections()
+          await new Promise<void>((resolve) => server!.close(() => resolve()))
+        } finally {
+          restoreProcessState()
+        }
+      },
+    }
+  } catch (error) {
+    server?.closeAllConnections()
+    server?.close()
+    restoreProcessState()
+    throw error
   }
 }
 

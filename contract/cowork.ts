@@ -139,6 +139,13 @@ export interface ScheduledDelivery {
   note?: string
 }
 
+/** Queue-time intent, never a substitute for live permission. Null/empty mean
+ * no standing output/tool approval; later grants apply only to the next run. */
+export interface ScheduledStanding {
+  artifactName: string | null
+  tools: StepTool[]
+}
+
 /** The authored definition frozen when a durable run is queued. Later routine
  *  edits apply to the next run; live registry/authority/budget state is still
  *  resolved at each attempt so revocation remains immediate. */
@@ -148,6 +155,9 @@ export interface ScheduledExecution {
   prompt: string
   steps: WorkflowStep[]
   delivery: ScheduledDelivery
+  /** Absent only on legacy jobs: current graph state cannot reconstruct their
+   * historical approvals, so no standing authority may be inferred from it. */
+  standing?: ScheduledStanding
   agentId: string
   providerId: string
   modelId?: string

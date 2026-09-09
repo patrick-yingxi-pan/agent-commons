@@ -49,6 +49,46 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 
 ## Checkpoint criteria
 
+The next routine-output increment first closes a demonstrated queued-intent
+defect: execution froze the routine definition but read standing artifact and
+extra-tool choices from the live graph. New runs now persist those choices
+before dispatch; additional approvals apply only to future runs, and changed
+approvals fail before execution and again at publication. Legacy queued work
+cannot infer standing authority from a newer graph. JSON/SQLite restart and
+direct store tests preserve the last good document; intentional bypasses of
+the approval fence and snapshot admission each failed their new locks.
+Final review also found deletion leaving standing graph approvals behind.
+Deleting a routine now clears those choices and detaches only its write binding
+from saved artifacts, preserving their content, names, sharing and original run
+provenance. Same-ID recreation cannot inherit the old approvals or overwrite
+retained output; restart coverage observes the cleanup before invalidation.
+Startup also prunes orphan approvals and retired write bindings left by older
+versions, persisting that recovery before request admission; live routines and
+saved report content remain intact.
+This is a prerequisite for structured routine output, not completion of Sheets
+or Slides generation. That next workflow should use the existing guarded model
+loop and strict authored-body contract, with an explicit output kind and no
+filename inference or prose-to-JSON shortcut. The artifact identity policy for
+an explicitly approved format change remains a product decision before that
+change ships; all formats remain required.
+
+The dependency audit is no longer blocked: on 2026-09-09 the development-only
+Browserslist and baseline-browser-mapping findings were resolved with compatible
+lockfile updates. Both production-only and full dependency audits reported zero
+vulnerabilities, and a clean Node 26 install completed. The complete verifier and
+native packaging remain the checkpoint gates; an audit does not substitute for
+runtime evidence or guarantee the absence of undisclosed vulnerabilities.
+
+CI on the preceding MCP revision exposed a test-isolation defect: the in-process
+MCP browser router did not inherit the shard's model endpoint, so a shared local
+development model masked its fallback to port 8788. The fixture must pin its
+test-owned endpoint independently of ambient configuration, with a deliberately
+invalid ambient endpoint proving that regression. Increasing retries or timing
+budgets is not a remedy; the corrected complete verifier remains a release gate.
+The same review exposed a responsive capture race: pane controls were selected
+from the previous layout immediately after resize. MCP captures now await the
+requested overlay tier (or its absence on desktop) before choosing Close.
+
 The direct-authoring checkpoint extends New artifact to Document, Sheet,
 and Slides. All three create real content without requiring a model proposal;
 structured creation reuses the saved editor fields and keeps per-format drafts
