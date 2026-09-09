@@ -282,9 +282,16 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "<f(?:\\s|>)",
     "exact renamed .xlsx download",
+    "artifact: { name, kind: 'slide', meta: 'Slides', body }",
+    "format=pptx",
+    "Download PowerPoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "ppt/slides/slide1.xml",
+    "vbaProject|externalLink",
+    "exact renamed .pptx download",
   ]) {
     assert.match(attachmentSmoke, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
-      `packaged attachment smoke must prove XLSX export contract: ${contract}`)
+      `packaged attachment smoke must prove Office export contract: ${contract}`)
   }
 
   const packaging = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')

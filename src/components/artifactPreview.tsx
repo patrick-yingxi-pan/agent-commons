@@ -697,7 +697,7 @@ export function ArtifactDetailPage({
   const [saving, setSaving] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [sharingHeld, setSharingHeld] = useState(false)
-  const downloadFormat = artifact.kind === 'sheet' ? 'xlsx' : artifact.kind === 'doc' || artifact.kind === 'email' ? 'markdown' : null
+  const downloadFormat = artifact.kind === 'sheet' ? 'xlsx' : artifact.kind === 'slide' ? 'pptx' : artifact.kind === 'doc' || artifact.kind === 'email' ? 'markdown' : null
   const artifactDownload = useArtifactDownload(artifact.id, downloadFormat ?? 'markdown')
   const edit: DocEdit | undefined = own
     ? {
@@ -859,7 +859,7 @@ export function ArtifactDetailPage({
           title="Content"
           summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
           actions={downloadFormat ? <SectionAction
-            label={downloadFormat === 'xlsx' ? 'Download XLSX' : 'Download Markdown'}
+            label={downloadFormat === 'xlsx' ? 'Download XLSX' : downloadFormat === 'pptx' ? 'Download PowerPoint' : 'Download Markdown'}
             icon={<Download size={14} />}
             onClick={() => { void artifactDownload.download() }}
             disabled={editing !== null || saving || editingName || metadataBusy || artifactDownload.busy}

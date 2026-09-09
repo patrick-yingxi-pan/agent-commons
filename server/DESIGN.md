@@ -38,7 +38,7 @@ doc-lint and cross-layer locks with no single module to belong to.
 
 - **Few runtime dependencies.** The server uses **`@anthropic-ai/sdk`** at the
   generation seam and the existing **`@zip.js/zip.js`** library solely to write
-  bounded generated XLSX parts. Reusing its stored-entry writer avoids a second
+  bounded generated XLSX/PPTX parts. Reusing its stored-entry writer avoids a second
   archive implementation; it never parses uploads or launches workers. The
   Office input parsers remain renderer-worker-only. Other server code stays
   dependency-free, with its Node declarations in `server/node.d.ts`.

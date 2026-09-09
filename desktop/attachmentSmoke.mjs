@@ -397,6 +397,112 @@ export async function smokePackagedAttachments({ executable }) {
     assert.deepEqual(downloadedXlsx, xlsxBytes, 'downloaded XLSX bytes equal the fresh authenticated export content')
     assert.equal(downloadedXlsx.subarray(0, 2).toString('hex'), '504b', 'downloaded XLSX remains a ZIP package')
     console.log('[desktop-xlsx-export-smoke] owner rename · authenticated literal sheet export · ZIP worksheet without formula nodes · exact renamed .xlsx download')
+
+    // PPTX export is likewise a renderer download, not a native bridge. Create
+    // a real structured slide deck through the authenticated relation seam,
+    // rename it on the canonical page, and inspect its generated package for
+    // ordered literal title/bullet text without external or macro parts.
+    const presentationName = `native-slides-${Date.now().toString(36)}.Q1.pptx`
+    const presentationBody = {
+      type: 'slides',
+      slides: [
+        { title: 'Launch plan', bullets: ['Literal first bullet', 'Second bullet'] },
+        { title: 'Close', bullets: ['No external links or macros'] },
+      ],
+    }
+    const presentationArtifact = await page.evaluate(async ({ name, body, sessionId }) => {
+      const apply = await fetch('/api/v1/relations/ops', {
+        method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': `native-pptx-${name}` },
+        body: JSON.stringify({ op: {
+          kind: 'save-artifact',
+          artifact: { name, kind: 'slide', meta: 'Slides', body },
+          sessionId,
+          sessionTitle: 'Native PPTX Smoke',
+        } }),
+      })
+      if (!apply.ok) throw new Error(`PPTX artifact creation failed: HTTP ${apply.status}`)
+      const artifactsResponse = await fetch('/api/v1/artifacts')
+      if (!artifactsResponse.ok) throw new Error(`PPTX artifact listing failed: HTTP ${artifactsResponse.status}`)
+      const artifact = (await artifactsResponse.json()).find((candidate) => candidate.name === name)
+      if (!artifact) throw new Error('PPTX artifact was not returned by the authenticated registry')
+      return { id: artifact.id }
+    }, { name: `original-${presentationName}`, body: presentationBody, sessionId: session.id })
+    const presentationRoute = `/artifacts/${encodeURIComponent(presentationArtifact.id)}`
+    await page.goto(`${origin}${presentationRoute}`)
+    await page.getByRole('button', { name: 'Rename artifact', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Artifact name', exact: true }).fill(presentationName)
+    await page.getByRole('button', { name: 'Save artifact name', exact: true }).click()
+    await expect(page.getByRole('heading', { name: presentationName, exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Download PowerPoint', exact: true })).toBeVisible()
+    const pptxExport = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/export?format=pptx`)
+      return { status: response.status, payload: await response.json() }
+    }, presentationArtifact.id)
+    assert.equal(pptxExport.status, 200, 'fresh authenticated PPTX export GET succeeds')
+    assert.equal(pptxExport.payload.artifactId, presentationArtifact.id)
+    assert.equal(pptxExport.payload.filename, presentationName)
+    assert.equal(pptxExport.payload.mediaType, 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    assert.equal(pptxExport.payload.encoding, 'base64')
+    assert.ok(Number.isSafeInteger(pptxExport.payload.revision))
+    const pptxBytes = Buffer.from(pptxExport.payload.content, 'base64')
+    assert.equal(pptxBytes.subarray(0, 2).toString('hex'), '504b', 'PPTX export is a ZIP package')
+    const pptxReader = new ZipReader(new Uint8ArrayReader(pptxBytes))
+    const pptxParts = new Map()
+    try {
+      const entries = await pptxReader.getEntries()
+      for (const entry of entries) {
+        if (entry.directory) continue
+        pptxParts.set(entry.filename, await entry.getData(new TextWriter()))
+      }
+    } finally {
+      await pptxReader.close()
+    }
+    const partNames = [...pptxParts.keys()]
+    assert.ok(pptxParts.has('ppt/presentation.xml'), 'PPTX package contains presentation metadata')
+    assert.ok(pptxParts.has('ppt/slides/slide1.xml'), 'PPTX package contains the first slide')
+    assert.ok(pptxParts.has('ppt/slides/slide2.xml'), 'PPTX package contains the second slide')
+    assert.ok(partNames.every((name) => !/vbaProject|externalLink|\.bin$/iu.test(name)), 'PPTX package contains no macro or external-link parts')
+    const pptxXml = [...pptxParts.values()].join('\n')
+    assert.doesNotMatch(pptxXml, /TargetMode="External"|vbaProject|externalLink/iu, 'PPTX package contains no external relationships or macros')
+    const slide1 = pptxParts.get('ppt/slides/slide1.xml')
+    const slide2 = pptxParts.get('ppt/slides/slide2.xml')
+    assert.match(slide1, /Launch plan/)
+    assert.match(slide1, /Literal first bullet/)
+    assert.match(slide1, /Second bullet/)
+    assert.ok(slide1.indexOf('Literal first bullet') < slide1.indexOf('Second bullet'), 'first slide bullets retain source order')
+    assert.match(slide2, /Close/)
+    assert.match(slide2, /No external links or macros/)
+    const pptxDownloadDirectory = join(fixtureRoot, 'pptx-download')
+    const pptxDownloadPath = join(pptxDownloadDirectory, presentationName)
+    await mkdir(pptxDownloadDirectory, { recursive: true })
+    const pptxDownloadDone = await run.app.evaluateHandle(({ session }, { trustedOrigin, target }) => ({
+      done: new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve({ state: 'timed-out', filename: '' }), 30_000)
+        session.defaultSession.once('will-download', (event, item, contents) => {
+          let downloadOrigin = ''
+          try { downloadOrigin = new URL(contents.getURL()).origin } catch {}
+          if (downloadOrigin !== trustedOrigin) {
+            event.preventDefault()
+            clearTimeout(timeout)
+            resolve({ state: 'unexpected-origin', filename: '' })
+            return
+          }
+          item.setSavePath(target)
+          item.once('done', (_event, state) => {
+            clearTimeout(timeout)
+            resolve({ state, filename: item.getFilename() })
+          })
+        })
+      }),
+    }), { trustedOrigin: origin, target: pptxDownloadPath })
+    await page.getByRole('button', { name: 'Download PowerPoint', exact: true }).click()
+    const pptxDownloadResult = await pptxDownloadDone.evaluate((holder) => holder.done)
+    await pptxDownloadDone.dispose()
+    assert.deepEqual(pptxDownloadResult, { state: 'completed', filename: presentationName }, 'Electron completed the packaged PPTX download with the expected filename')
+    const downloadedPptx = await readFile(pptxDownloadPath)
+    assert.deepEqual(downloadedPptx, pptxBytes, 'downloaded PPTX bytes equal the fresh authenticated export content')
+    assert.equal(downloadedPptx.subarray(0, 2).toString('hex'), '504b', 'downloaded PPTX remains a ZIP package')
+    console.log('[desktop-pptx-export-smoke] owner rename · authenticated literal slide export · ordered slide ZIP without external or macro parts · exact renamed .pptx download')
     await page.goto(`${origin}${sessionPath}`)
 
     const calls = await run.app.evaluateHandle(({ dialog, BrowserWindow }, filePaths) => {

@@ -52,6 +52,7 @@ test('canonical generated filenames support dotted/unicode leaves and a large va
   const payload = `PK\u0003\u0004${'x'.repeat(2 * 1024 * 1024 - 4)}`
   const decoded = decodeArtifactSpreadsheetExport(file({ content: btoa(payload) }), artifactId)
   assert.equal((decoded.content as Uint8Array).byteLength, payload.length)
-  assert.throws(() => decodeArtifactSpreadsheetExport(file({ content: btoa(`${payload}x`) }), artifactId), /Invalid spreadsheet ZIP/)
-  assert.throws(() => decodeArtifactSpreadsheetExport(file({ content: btoa(`${payload}xxxx`) }), artifactId), /Invalid spreadsheet encoding/)
+  assert.throws(() => decodeArtifactSpreadsheetExport(file({ content: btoa(`${payload}x`) }), artifactId), /Invalid office ZIP/)
+  assert.throws(() => decodeArtifactSpreadsheetExport(file({ content: btoa(`${payload}xxxx`) }), artifactId), /Invalid office encoding/)
+  assert.throws(() => decodeArtifactSpreadsheetExport(file({ content: 'AAAA ' }), artifactId), /Invalid office encoding/)
 })

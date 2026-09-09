@@ -43,9 +43,25 @@ UTF-16 characters before consent or persistence; invalid content is rejected as 
 whole. Consent and saved pages share one renderer, including keyboard-scrollable
 wide tables and wrapping long text. The HTTP/MCP read wall, rename/replay identity,
 JSON/SQLite restart and portable-state validation preserve these actual bodies.
-This is not spreadsheet calculation, native PPTX export, arbitrary layout,
+This is not spreadsheet calculation, arbitrary layout,
 or a cell/slide editing workflow. Those richer authoring/export capabilities and
 structured standing-routine output remain required follow-on work.
+
+Saved slides now export editable PowerPoint files through explicit `format=pptx`
+on the same read-authorized artifact export door. The fixed 16:9 design uses
+native title and bullet objects, 32-point headings and 24-point body text. Dense
+content continues onto marked pages instead of shrinking or dropping words;
+no cover, images, external relationships or macros are invented. Source order,
+literal Unicode and whitespace remain, with CR/CRLF mapped to native line breaks.
+XML-illegal control units refuse the complete export without changing saved text.
+The shared Office decoder now has separate XLSX (2 MiB) and PPTX (8 MiB) ceilings;
+maximum accepted hard-break content exercises the PPTX size bound. Empty run
+redundancy was removed after that limit test failed on unnecessarily large XML.
+Independent package/layout validation and six individually reviewed imported
+renders supplement behavioral and browser locks. These checks do not establish
+native PowerPoint application acceptance or fidelity to arbitrary imported decks.
+Richer slide editing, styling, spreadsheet calculation, external execution and
+signed-release acceptance remain required, not replaced by these export paths.
 
 Saved sheets now have a real XLSX download through the existing artifact export
 read. Explicit `format=xlsx` selects a values-only workbook; omission retains
@@ -84,7 +100,7 @@ editor or retained body cache. Browser retry/revocation checks and an actual
 packaged Electron download complement serializer, identity and HTTP/MCP locks.
 Addressed body/proposal readers now use exact IDs, preventing metadata-only rows
 from borrowing demo text through a matching filename. Rich sheet/slide editing,
-PowerPoint export, external tools and signed release remain required.
+External tools and signed release remain required.
 Legacy demo workspace previews receive explicit code-owned seed-ID projections
 behind the live session read wall, never a generic filename fallback.
 Artifact removal awaits the owner's recoverable-Trash versus permanent-deletion

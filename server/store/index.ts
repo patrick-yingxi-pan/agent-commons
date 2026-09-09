@@ -16,6 +16,8 @@
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { sheetXlsx } from '../artifactXlsx.ts'
+import { slidesPptx } from '../artifactPptx.ts'
+import { hasPowerPointText } from '../artifactPptxLayout.ts'
 import { authoredArtifact, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
@@ -6049,6 +6051,16 @@ export const store = {
     // Take one saved revision before the async writer yields; never mix rows
     // from different reads or borrow the compatibility name-keyed library.
     const exported = await sheetXlsx(artifact.name, structuredClone(body))
+    const current = findArtifact(artifactId)
+    if (!current || !this.artifactVisibleToTenant(current, tenantId)) return undefined
+    return { artifactId, ...exported }
+  },
+  async exportArtifactPresentation(artifactId: string, tenantId: string) {
+    const artifact = findArtifact(artifactId)
+    if (!artifact || !this.artifactVisibleToTenant(artifact, tenantId)) return undefined
+    const body = artifactBodyOf(artifactId)
+    if (artifact.kind !== 'slide' || body?.type !== 'slides' || !hasPowerPointText(body)) return null
+    const exported = await slidesPptx(artifact.name, structuredClone(body))
     const current = findArtifact(artifactId)
     if (!current || !this.artifactVisibleToTenant(current, tenantId)) return undefined
     return { artifactId, ...exported }

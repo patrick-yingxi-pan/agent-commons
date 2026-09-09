@@ -8,8 +8,9 @@ export interface ArtifactDocumentExport {
   revision: number
 }
 
-export type ArtifactExportFormat = 'markdown' | 'xlsx'
+export type ArtifactExportFormat = 'markdown' | 'xlsx' | 'pptx'
 export const XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+export const PPTX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 /** A saved values-only workbook, not a formula calculation or original upload. */
 export interface ArtifactSpreadsheetExport {
   artifactId: string
@@ -19,7 +20,11 @@ export interface ArtifactSpreadsheetExport {
   content: string
   revision: number
 }
-export type ArtifactExport = ArtifactDocumentExport | ArtifactSpreadsheetExport
+/** Editable saved slide text. Dense content may use continuation slides. */
+export interface ArtifactPresentationExport extends Omit<ArtifactSpreadsheetExport, 'mediaType'> {
+  mediaType: typeof PPTX_MEDIA_TYPE
+}
+export type ArtifactExport = ArtifactDocumentExport | ArtifactSpreadsheetExport | ArtifactPresentationExport
 
 type DocumentBody = Extract<ArtifactContent, { type: 'doc' }>
 
@@ -84,7 +89,7 @@ function utf8ByteLength(text: string): number {
 }
 
 export function artifactExportFilename(name: string, format: ArtifactExportFormat): string {
-  const extension = format === 'xlsx' ? 'xlsx' : 'md'
+  const extension = format === 'markdown' ? 'md' : format
   const leaf = normalizeText(name).split(/[\\/]/u).at(-1) ?? ''
   const clean = leaf.replace(CONTROL_OR_BIDI, '').replace(PORTABLE_FILENAME_PUNCTUATION, '_')
   const withoutExtension = clean.replace(/\.[^.]*$/u, '').replace(/[. ]+$/u, '')

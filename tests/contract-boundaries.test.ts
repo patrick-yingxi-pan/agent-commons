@@ -179,7 +179,7 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
     for (const file of filesUnder(directory, ['.ts', '.tsx', '.mjs'])) {
       const relative = file.slice(ROOT.length + 1)
       if (officeOwned.has(relative)) continue
-      if (relative === 'server/artifactXlsx.ts') {
+      if (relative === 'server/artifactXlsx.ts' || relative === 'server/artifactPptx.ts') {
         const writer = stripComments(read(file))
         assert.ok(writer.includes("import { ZipWriter, TextReader, Uint8ArrayWriter } from '@zip.js/zip.js/lib/zip-core-custom.js'"))
         assert.doesNotMatch(writer, /\b(?:ZipReader|fetch|XMLHttpRequest|WebSocket|importScripts|readFile|saxes)\b/)

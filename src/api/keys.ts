@@ -344,7 +344,7 @@ export const paths = {
   projects: '/projects',
   artifacts: '/artifacts',
   artifact: (id: string) => `/artifacts/${encodeURIComponent(id)}`,
-  artifactExport: (id: string, format?: 'xlsx') => {
+  artifactExport: (id: string, format?: 'xlsx' | 'pptx') => {
     const path = `/artifacts/${encodeURIComponent(id)}/export`
     return format ? `${path}?format=${format}` : path
   },
