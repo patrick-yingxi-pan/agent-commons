@@ -12,9 +12,11 @@ import { useMe } from '../api/hooks'
 import { enqueueArtifactCreation, heldArtifactCreation, useArtifactCreationStatus, type ArtifactCreationResult } from '../controller/artifactCreationMutations'
 import { ArtifactDocumentImport } from './ArtifactDocumentImport.tsx'
 import { ArtifactPresentationImport } from './ArtifactPresentationImport.tsx'
+import { ArtifactSheetImport } from './ArtifactSheetImport.tsx'
 import { StructuredArtifactFields } from './StructuredArtifactEditor'
 import { useArtifactDocumentImport } from '../lib/useArtifactDocumentImport.ts'
 import { useArtifactPresentationImport } from '../lib/useArtifactPresentationImport.ts'
+import { useArtifactSheetImport } from '../lib/useArtifactSheetImport.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { KIND_LABEL } from './artifactPreview'
@@ -52,6 +54,7 @@ export function NewArtifactDialog({
   const busy = held !== null
   const documentImport = useArtifactDocumentImport(draftKind === 'doc' && !busy)
   const presentationImport = useArtifactPresentationImport(draftKind === 'slide' && !busy)
+  const sheetImport = useArtifactSheetImport(draftKind === 'sheet' && !busy)
   const documentBodyId = useId()
   const documentBodyRef = useRef<HTMLTextAreaElement>(null)
   const structuredFieldsRef = useRef<HTMLFieldSetElement>(null)
@@ -85,7 +88,7 @@ export function NewArtifactDialog({
   const normalizedName = normalizeArtifactName(name)
   const authored = normalizedName && authoredArtifact(normalizedName, kind, kind === 'doc' ? body : kind === 'sheet' ? sheet : slides)
   const canFileProject = projectId === null || projects.some((project) => project.id === projectId && project.own === true)
-  const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && !presentationImport.reviewing && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
+  const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && !presentationImport.reviewing && !sheetImport.reviewing && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
   const submit = () => {
     if (canCreate && authored && normalizedName && tenantId) {
       setError(null)
@@ -122,6 +125,7 @@ export function NewArtifactDialog({
           if (value === 'doc' || value === 'sheet' || value === 'slide') {
             documentImport.discard()
             presentationImport.discard()
+            sheetImport.discard()
             setKind(value)
           }
         }} className={FORM_INPUT_CLASS}>
@@ -130,6 +134,13 @@ export function NewArtifactDialog({
           <option value="slide">Slides</option>
         </select>
       </FormField>
+      {kind === 'sheet' && <ArtifactSheetImport intake={sheetImport}
+        hasContent={sheet.type === 'sheet' && (sheet.columns.length > 1 || sheet.rows.length > 1 || sheet.columns.some(Boolean) || sheet.rows.some((row) => row.some(Boolean)) || !!sheet.note)}
+        disabled={busy} onUse={() => sheetImport.accept((candidate) => {
+          setSheet(candidate.body)
+          setName((current) => current.trim() ? current : candidate.name)
+          structuredFieldsRef.current?.querySelector('textarea')?.focus()
+        })} />}
       {kind === 'slide' && <ArtifactPresentationImport intake={presentationImport}
         hasContent={slides.type === 'slides' && (slides.slides.length > 1 || slides.slides.some((slide) => slide.title.length > 0 || slide.bullets.length > 0))}
         disabled={busy} onUse={() => presentationImport.accept((candidate) => {

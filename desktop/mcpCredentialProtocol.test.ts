@@ -88,9 +88,12 @@ test('binding announcements are bounded, authoritative metadata and never contai
 test('MCP binding synchronization is acknowledged and host snapshots are serialized', async () => {
   const port = new FakePort()
   const runtime = installMcpCredentialRuntime(port as any, { timeoutMs: 50 })
+  const firstRequestSent = new Promise<unknown>((resolve) => {
+    const postMessage = port.postMessage.bind(port)
+    port.postMessage = (message: unknown) => { postMessage(message); resolve(message) }
+  })
   const first = runtime.synchronizeBindings([{ reference, binding }])
-  await new Promise<void>((resolve) => setImmediate(resolve))
-  const firstRequest = port.sent.at(-1) as any
+  const firstRequest = await firstRequestSent as any
   assert.equal(firstRequest.type, MCP_CREDENTIAL_SYNC)
   port.emit('message', { data: { type: MCP_CREDENTIAL_SYNC_RESULT, requestId: firstRequest.requestId, available: true } })
   assert.deepEqual(await first, { available: true })
@@ -99,21 +102,32 @@ test('MCP binding synchronization is acknowledged and host snapshots are seriali
   const child = new FakePort()
   const seen: unknown[] = []
   let release!: () => void
+  let firstStarted!: () => void
+  const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve })
   const host = createMcpCredentialHost(child as any, {
     resolve: async () => 'unused',
     onSynchronizeBindings: async (snapshot) => {
       seen.push(snapshot)
-      if (seen.length === 1) await new Promise<void>((resolve) => { release = resolve })
+      if (seen.length === 1) {
+        firstStarted()
+        await new Promise<void>((resolve) => { release = resolve })
+      }
       return true
     },
     timeoutMs: 50,
   })
   child.emit('message', { type: MCP_CREDENTIAL_SYNC, requestId: 1, bindings: [{ reference, binding }] })
   child.emit('message', { type: MCP_CREDENTIAL_SYNC, requestId: 2, bindings: [{ reference: `MCP_DESKTOP_${'B'.repeat(32)}`, binding: { ...binding, connectionId: 'mcp-2' } }] })
-  await new Promise<void>((resolve) => setImmediate(resolve))
+  await firstStartedPromise
   assert.deepEqual(seen, [[{ reference, binding }]])
+  const secondAcknowledged = new Promise<void>((resolve) => {
+    child.postMessage = (message: unknown) => {
+      child.sent.push(message)
+      if ((message as { requestId?: unknown }).requestId === 2) resolve()
+    }
+  })
   release()
-  await new Promise<void>((resolve) => setImmediate(resolve))
+  await secondAcknowledged
   assert.deepEqual(seen, [
     [{ reference, binding }],
     [{ reference: `MCP_DESKTOP_${'B'.repeat(32)}`, binding: { ...binding, connectionId: 'mcp-2' } }],

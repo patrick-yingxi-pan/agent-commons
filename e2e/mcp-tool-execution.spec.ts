@@ -125,21 +125,52 @@ async function captureContextsGuidance(page: Page) {
 }
 
 async function proxyReadOnlySession(page: Page, stack: McpRouterStack, sessionId: string) {
+  const pending = new Set<Promise<void>>()
   await page.route('**/api/v1/**', async route => {
-    const url = new URL(route.request().url())
-    if (url.pathname === '/api/v1/events') return route.abort()
-    const { origin: _origin, ...headers } = route.request().headers()
-    const response = await route.fetch({ url: `${stack.url}${url.pathname}${url.search}`, headers })
-    if (route.request().method() === 'GET' && url.pathname === '/api/v1/sessions' && url.search === '') {
-      const rows = await response.json() as Session[]
-      await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(
-        rows.map(session => session.id === sessionId ? { ...session, own: false } : session),
-      ) })
-      return
-    }
-    await route.fulfill({ response })
+    const work = (async () => {
+      const url = new URL(route.request().url())
+      if (url.pathname === '/api/v1/events') {
+        await route.abort()
+        return
+      }
+      const { origin: _origin, ...headers } = route.request().headers()
+      const response = await route.fetch({ url: `${stack.url}${url.pathname}${url.search}`, headers })
+      if (route.request().method() === 'GET' && url.pathname === '/api/v1/sessions' && url.search === '') {
+        const rows = await response.json() as Session[]
+        await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(
+          rows.map(session => session.id === sessionId ? { ...session, own: false } : session),
+        ) })
+        return
+      }
+      await route.fulfill({ response })
+    })()
+    pending.add(work)
+    try { await work } finally { pending.delete(work) }
   })
+  return async () => {
+    await drainReadOnlyProxy(() => page.unroute('**/api/v1/**'), pending)
+  }
 }
+
+async function drainReadOnlyProxy(unroute: () => Promise<void>, pending: ReadonlySet<Promise<void>>) {
+  await unroute()
+  await Promise.all([...pending])
+}
+
+test('read-only proxy disposal waits for an in-flight handler to release', async () => {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  const pending = new Set<Promise<void>>([held])
+  let unrouted = false
+  let disposed = false
+  const disposal = drainReadOnlyProxy(async () => { unrouted = true }, pending).then(() => { disposed = true })
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  expect(unrouted).toBe(true)
+  expect(disposed).toBe(false)
+  release()
+  await disposal
+  expect(disposed).toBe(true)
+})
 
 test('the in-process router restores ambient state when setup fails', async () => {
   const previousAuth = process.env.AUTH_GATE
@@ -194,15 +225,18 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
     await captureMcpState(page, proposed, 'owner-approval')
 
     const reader = await page.context().newPage()
+    let disposeReaderProxy = async () => {}
     try {
-      await proxyReadOnlySession(reader, stack, session.id)
+      disposeReaderProxy = await proxyReadOnlySession(reader, stack, session.id)
       await reader.goto(`/s/${session.id}`)
       const readOnly = reader.locator('[data-mcp-tool-status="proposed"]').filter({ hasText: 'inspect_records' }).last()
       await expect(readOnly).toContainText('Only the conversation owner can approve or decline this call.')
       await expect(readOnly.getByRole('button', { name: 'Run tool', exact: true })).toBeDisabled()
       await expect(readOnly.getByRole('button', { name: 'Decline', exact: true })).toBeDisabled()
       await captureMcpState(reader, readOnly, 'read-only-approval')
-    } finally { await reader.close() }
+    } finally {
+      try { await disposeReaderProxy() } finally { await reader.close() }
+    }
 
     await proposed.getByRole('button', { name: 'Run tool', exact: true }).click()
     const done = page.locator('[data-mcp-tool-status="done"]').filter({ hasText: 'inspect_records' }).last()

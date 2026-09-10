@@ -41,6 +41,10 @@ those remain required work. ADAPT-35 imports actual text/PDF/DOCX text into a
 reviewed Document draft; ADAPT-36 additionally maps actual visible PPTX slide
 boundaries into editable title/bullet outlines. Neither borrows seeded content,
 preserves rich Office fidelity, nor saves before explicit adoption and Create.
+ADAPT-37 maps actual CSV/TSV records into editable literal Sheets with an explicit
+first-row header choice; it does not infer spreadsheet types, calculate formulas
+or determine XLSX workbook identity. Saved bodies and XLSX exports use the same
+canonical authored-artifact boundary, never fixture content.
 
 Saved authored Documents and draft emails also export through the authenticated
 boundary as bounded DOCX projections of the current saved text snapshot. The

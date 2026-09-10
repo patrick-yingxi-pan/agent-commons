@@ -20,7 +20,43 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The latest runtime-admission checkpoint closes a demonstrated New artifact
+The current checkpoint adds CSV/TSV-to-Sheet import through the existing bounded
+local reader and shared review/adoption ceremony. Quoting and literal values are
+preserved; first-row column names versus generated headers are an explicit review
+choice. Malformed, ragged or oversized input is rejected without partial adoption.
+Only normal keyed Create saves; canonical correction, sharing and XLSX export
+remain the same workflow. This is progress on file-based spreadsheet authoring,
+not a replacement for required XLSX workbook tabs, formulas or rich Office fidelity.
+Intentionally breaking doubled-quote handling, the Create-during-review guard,
+and real draft adoption each failed their locks before restoration. The final
+complete five-lane verifier passed all 373 browser tests, the complete Node
+suite, type checking and the production build under unchanged byte budgets.
+The frozen-tree responsive sweep passed 135/135 cells with zero violations or
+skips. All 137 fresh sweep originals and 40 focused import/replacement/error
+and owner/reader/foreign originals were individually reviewed at full resolution
+with no remaining findings. Focused review also proves keyboard horizontal scrolling inside the
+named sheet preview at 320 px without page or dialog overflow; a partly visible
+last column was not a clipping defect. Header-error copy now quotes the actual
+checkbox label. The shared preview remains on Artifacts in light desktop mode,
+with all six demo accounts stacked and Ada active.
+
+Unsigned arm64 packaging and every executable smoke phase passed. The new
+native CSV/TSV checks cover real text reading and IPC, explicit header mapping
+and adoption, exact saved identities/bodies, and a full app relaunch after the
+source files are deleted. Native picker results are still simulated by this
+harness; actual OS-dialog, signing/notarization, Intel and paid-provider
+acceptance are not claimed.
+
+The first complete run exposed two existing test races: a 50 ms credential
+test timeout competed with `setImmediate`, and a read-only MCP proxy could
+close its page while `route.fetch` was unfinished. Protocol send/start/ack
+signals now replace scheduler waits in that credential test. The MCP proxy
+unroutes and drains pending handlers before page closure, preserving errors
+and always closing the reader. Deliberately removing that drain failed its
+new regression test immediately; restoration passed. These repairs changed no
+product policy, retries or timeout budgets.
+
+The preceding runtime-admission checkpoint closes a demonstrated New artifact
 failure: the form now waits for both the lazy dialog module and the actual
 shared creation runtime before mounting fields, so a rejected runtime remains
 closeable/reloadable and cannot start a mutation during admission. The new
@@ -71,6 +107,7 @@ Existing credential, relaunch, backup, input and schema checks remain green.
 Picker results are simulated where recorded by the native harness; this is not
 actual OS-dialog, signing/notarization, Intel or paid-provider acceptance.
 The Word checkpoint at `1ce88ca` passed GitHub run `34453295428`.
+The runtime-admission checkpoint at `fa59100` passed GitHub run `34458055885`.
 
 The first complete plan passed all 368 browser tests but caught a source-lock
 literal being interpreted as a real suite-relative import; the assertion now

@@ -11,6 +11,7 @@ import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
 import { pptxFixture } from '../tests/helpers/pptxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
+import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 
 const TIMEOUT_MS = 30_000
 const DIAGNOSTIC_TIMEOUT_MS = 2_000
@@ -350,7 +351,11 @@ export async function smokePackagedAttachments({ executable }) {
     importedPresentation.id = savedPresentation.artifact.id
     console.log('[desktop-artifact-presentation-import-smoke] any-format native dialog result · real PPTX reader + IPC · reviewed visible-slide outline · explicit adoption · exact saved titles and bullets')
 
-    await Promise.all([...importedDocuments.map(({ path }) => rm(path)), rm(importedPresentation.path)])
+    const importedSheets = await runArtifactSheetImportSmoke({
+      page, app: run.app, origin, fixtureRoot, openArtifactImportDialog, chooseNativeArtifactFile,
+    })
+
+    await Promise.all([...importedDocuments.map(({ path }) => rm(path)), rm(importedPresentation.path), ...importedSheets.map(({ path }) => rm(path))])
     console.log('[desktop-artifact-import-smoke] real native reader + IPC · text/PDF/DOCX review · explicit adoption · saved document bodies')
 
     // Markdown export is a renderer download, not a native bridge. Create a real
@@ -792,6 +797,20 @@ export async function smokePackagedAttachments({ executable }) {
     }, importedPresentation.id)
     assert.deepEqual(restoredPresentationBody, importedPresentation.body)
     console.log('[desktop-artifact-presentation-import-smoke] exact saved slide identity + body survive full relaunch without source PPTX')
+    for (const imported of importedSheets) {
+      await page.goto(`${origin}/artifacts/${encodeURIComponent(imported.id)}`)
+      await expect(page.getByRole('heading', { name: imported.name, exact: true })).toBeVisible()
+      const restoredSheet = await page.evaluate(async (id) => {
+        const response = await fetch('/api/v1/artifact-content')
+        if (!response.ok) throw new Error('Restored sheet read failed.')
+        return (await response.json())[id]
+      }, imported.id)
+      assert.deepEqual(restoredSheet, imported.body)
+      const sheetPreview = page.locator('[data-structured-artifact-body="sheet"]')
+      await expect(sheetPreview).toContainText(imported.body.columns[0])
+      await expect(sheetPreview).toContainText(imported.body.rows[0][0])
+    }
+    console.log('[desktop-artifact-sheet-import-smoke] exact saved sheet identities + bodies survive full relaunch without source CSV/TSV files')
     console.log('[desktop-artifact-import-smoke] exact saved document identities + rendered bodies survive full relaunch without source files')
     await page.goto(`${origin}${sessionPath}`)
     await inspectPair(page, ids)

@@ -64,6 +64,26 @@ test('New artifact authors every supported format through the shared bounded fie
   ]) assert.match(fields, new RegExp(bound), `${bound} is enforced by the shared fields`)
 })
 
+test('sheet intake requires explicit valid header mapping and adoption before creating', () => {
+  const section = creationSource()
+  const hook = stripComments(read(join(ROOT, 'src/lib/useArtifactSheetImport.ts')))
+  const surface = stripComments(read(join(ROOT, 'src/components/ArtifactSheetImport.tsx')))
+  assert.ok(section.includes('!sheetImport.reviewing'), 'Create cannot bypass a pending sheet review')
+  assert.ok(section.includes('sheetImport.discard()'), 'format changes explicitly discard sheet review')
+  assert.ok(section.includes('sheetImport.accept((candidate) => {'))
+  assert.ok(section.includes('setSheet(candidate.body)'))
+  assert.ok(hook.includes("useArtifactFileImport(enabled ? 'sheet' : null, reviewArtifactSheetImport)"))
+  assert.ok(hook.includes("if (mapping?.status !== 'ready') return"), 'invalid header interpretation cannot adopt or discard the review')
+  assert.ok(hook.includes('intake.accept('), 'adoption reuses the account and operation fence')
+  assert.ok(surface.includes('<ArtifactImportReview '))
+  assert.ok(surface.includes('<CheckboxRow '))
+  assert.ok(surface.includes('First row contains column names'))
+  assert.ok(surface.includes('<StructuredArtifactView body={mapping.body}'))
+  assert.ok(surface.includes('aria-label="Imported sheet" tabIndex={0}'))
+  assert.ok(surface.includes('Replace sheet with imported sheet'))
+  assert.ok(surface.includes("disabled={disabled || mapping?.status === 'error'}"))
+})
+
 test('one global held creation owns recovery and only a still-mounted dialog follows its exact id', () => {
   const section = creationSource()
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'artifactCreationMutations.ts')))

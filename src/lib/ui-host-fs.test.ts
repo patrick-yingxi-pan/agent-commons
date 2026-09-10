@@ -84,7 +84,7 @@ test('native document selection uses existing authority and rejects before media
   assert.deepEqual(calls, ['any'], 'already cancelled work never opens a native chooser')
 })
 
-for (const mode of ['document', 'slides'] as const) test(`browser ${mode} chooser is single-select and abort releases its late selection handlers`, async () => {
+for (const mode of ['document', 'slides', 'sheet'] as const) test(`browser ${mode} chooser is single-select and abort releases its late selection handlers`, async () => {
   const previous = globalThis.document
   const controller = new AbortController()
   const listeners = new Map<string, () => void>()
@@ -105,6 +105,50 @@ for (const mode of ['document', 'slides'] as const) test(`browser ${mode} choose
     assert.equal(input.onchange, null)
     assert.equal(listeners.size, 0)
   } finally { globalThis.document = previous }
+})
+
+test('sheet intake preserves whole CSV/TSV text and rejects unsupported or multiple sources before reading', async () => {
+  let reads = 0
+  const unreadable = (name: string) => ({ name, size: 10, slice() { reads++; throw new Error('unexpected read') } }) as unknown as File
+  for (const files of [[unreadable('book.xlsx')], [unreadable('image.png')], [unreadable('one.csv'), unreadable('two.tsv')]]) {
+    const picked = await readDroppedFiles(dropped(files), 'sheet')
+    assert.equal(picked.length, files.length)
+    assert.ok(picked.every((file) => file.text === undefined && file.documentImport === undefined))
+  }
+  assert.equal(reads, 0)
+  for (const name of ['source.CSV', 'source.tsv']) {
+    const text = 'exact,\"quoted\"\r\n001\t=1+1'
+    const [file] = await readDroppedFiles(dropped([new File([text], name)]), 'sheet')
+    assert.equal(file.text, text)
+    assert.equal(file.kind, 'file')
+  }
+  const [oversized] = await readDroppedFiles(dropped([{ name: 'large.csv', size: 256 * 1024 + 1, slice() { throw new Error('must not read') } } as unknown as File]), 'sheet')
+  assert.equal(oversized.text, undefined)
+  const [invalid] = await readDroppedFiles(dropped([new File([Uint8Array.of(0xc3, 0x28)], 'invalid.csv')]), 'sheet')
+  assert.equal(invalid.text, undefined)
+})
+
+test('native sheet intake narrows existing one-shot authority before any Office extraction', async () => {
+  const calls: unknown[] = []
+  let byteReads = 0
+  let files = [{ name: 'wrong.xlsx', kind: 'file' as const, sizeBytes: 1,
+    get xlsxBytes() { byteReads++; throw new Error('must not extract') },
+  }]
+  const scope: DesktopBridgeScope = { agentCommonsDesktop: { context: {
+    pickFiles: async (accept) => { calls.push(accept); return { status: 'selected', files } },
+    pickFolder: async () => ({ status: 'cancelled' }),
+  } } }
+  const [unsupported] = await pickUiHostFiles('sheet', scope)
+  assert.equal(byteReads, 0)
+  assert.equal(unsupported.text, undefined)
+  files = [{ name: 'source.tsv', kind: 'file', sizeBytes: 7, text: 'A\tB\n1\t2' }] as unknown as typeof files
+  const [selected] = await pickUiHostFiles('sheet', scope)
+  assert.equal(selected.text, 'A\tB\n1\t2')
+  assert.deepEqual(Object.keys(selected).sort(), ['id', 'kind', 'name', 'text'])
+  const aborted = new AbortController()
+  aborted.abort()
+  assert.deepEqual(await pickUiHostFiles('sheet', scope, aborted.signal), [])
+  assert.deepEqual(calls, ['any', 'any'])
 })
 function installImageGlobals() {
   const previousBitmap = globalThis.createImageBitmap

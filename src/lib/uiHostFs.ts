@@ -26,6 +26,7 @@ import type { ImageSnapshot } from '../../contract/imageInput.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
 import { IMAGE_MAX_CONTAINER_BYTES } from '../../contract/imageInput.ts'
 import { isArtifactDocumentFileName } from './artifactDocumentImport.ts'
+import { isArtifactSheetFileName } from './artifactSheetImport.ts'
 
 /** Local intake: bounded text or a transient normalized image, later replaced
  * by its server-owned reference before entering conversation context. */
@@ -66,10 +67,11 @@ export function uiHostKind(name: string): ArtifactKind {
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
 const isImportableImage = (name: string) => IMPORTABLE_IMAGE_EXTS.has(extOf(name))
-type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides'
+type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides' | 'sheet'
 function rejectedArtifactSelection(files: readonly { name: string }[], accept: UiHostFileAccept): boolean {
-  if (accept !== 'document' && accept !== 'slides') return false
-  return files.length !== 1 || !(accept === 'document' ? isArtifactDocumentFileName(files[0].name) : isPptxFileName(files[0].name))
+  if (accept === 'any' || accept === 'image') return false
+  const matches = accept === 'document' ? isArtifactDocumentFileName : accept === 'slides' ? isPptxFileName : isArtifactSheetFileName
+  return files.length !== 1 || !matches(files[0].name)
 }
 
 function previewBytes(url: string): Uint8Array {

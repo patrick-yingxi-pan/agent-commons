@@ -46,7 +46,10 @@ when changing the renderer-facing bridge or setup UI.
 ## Verification
 
 The packaged attachment phase also imports text, PDF and DOCX into saved
-Documents and PPTX into saved Slides through the built New artifact form. Only the native dialog result
+Documents, PPTX into saved Slides, and CSV/TSV into saved Sheets through the
+built New artifact form. [`artifactSheetImportSmoke.mjs`](artifactSheetImportSmoke.mjs)
+keeps first-row/headerless mapping and exact saved identity/body checks separate
+from the attachment driver; it is excluded from the shipped package. Only the native dialog result
 is a fixture; reader/IPC, extraction, review, explicit adoption and keyed
 creation stay real. It verifies exact canonical bodies and reuses its existing
 full app relaunch after deleting the source files. This is not actual OS-dialog

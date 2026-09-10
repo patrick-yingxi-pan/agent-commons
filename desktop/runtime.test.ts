@@ -245,6 +245,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/mcpSchemaSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmokeFixture.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/artifactSheetImportSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/authRoot.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/nativeRecovery.mjs'), false)
