@@ -1473,9 +1473,11 @@ export function buildRouter(): Router {
   // provider an Agent still binds (409). In-memory for now (no cross-restart persistence).
   // Tenant-scoped (F2/PD9): the shared seeded provider(s) plus the caller's own created ones.
   r.get('/providers', ({ req, res }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     sendJson(res, store.listProviders(store.identity(req.headers).tenant.id))
   })
   r.aliasGet('/providers/:id', 'GET /providers', 'the by-id provider read is a focused projection of the provider collection visible in the UI', ({ req, res, params }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     // `listProviders(tenant).find`, not `store.getProvider` — the latter falls back to the
     // default for an unknown id (the resolve-for-a-turn contract), which would mask a
     // 404 here. The scoped read also makes another tenant's provider a 404 (no existence leak).
@@ -1484,6 +1486,7 @@ export function buildRouter(): Router {
     sendJson(res, provider)
   })
   r.post('/providers', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const tenantId = store.identity(req.headers).tenant.id
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     if (idempotencyKey && idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {

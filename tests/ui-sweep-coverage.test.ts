@@ -23,6 +23,18 @@ import { CELLS, SECTIONS, createLedger } from '../scripts/ui-sweep-ledger.mjs'
 const read = (p: string) => readAbs(join(ROOT, p))
 const SWEEP = read('scripts/ui-sweep.mjs')
 
+test('canonical artifact coverage waits for its actual surface instead of a fixed startup tick', () => {
+  const start = SWEEP.indexOf("cell = at('artifact-page')")
+  const end = SWEEP.indexOf("cell = at('profile-detail')", start)
+  assert.ok(start >= 0 && end > start)
+  const artifact = SWEEP.slice(start, end)
+  assert.match(artifact, /artifactPage\.waitFor\(\{ state: 'visible', timeout: 8000 \}\)/,
+    'a cold lazy artifact page gets the same bounded readiness check as the workspace')
+  assert.doesNotMatch(artifact, /artifactPage\.isVisible\(\)/,
+    'a one-shot visibility sample must not turn delayed rendering into a coverage hole')
+  assert.ok(artifact.indexOf('artifactPage.waitFor') < artifact.indexOf('await shot'))
+})
+
 // ── the ledger: what a green run is allowed to mean ─────────────────────────
 
 test('a cell the sweep never reached closes as a COVERAGE violation', () => {

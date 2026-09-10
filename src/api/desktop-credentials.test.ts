@@ -51,7 +51,7 @@ test('the provider dialog switches only credential entry—not the provider HTTP
   const source = readFileSync(new URL('../components/SectionView.tsx', import.meta.url), 'utf8')
   const commands = readFileSync(new URL('./commands.ts', import.meta.url), 'utf8')
   const creationCommands = readFileSync(new URL('./providerCreationCommands.ts', import.meta.url), 'utf8')
-  const creationRuntime = readFileSync(new URL('../controller/providerCreationMutationRuntime.ts', import.meta.url), 'utf8')
+  const creationRuntime = readFileSync(new URL('../controller/providerCreationMutations.ts', import.meta.url), 'utf8')
   const start = source.indexOf('function ProviderDialog(')
   const end = source.indexOf('/** System prompts', start)
   const dialog = source.slice(start, end)

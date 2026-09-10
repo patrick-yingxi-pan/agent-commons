@@ -146,6 +146,7 @@ async function waitForServer(url, ms, alive = () => true) {
 }
 
 let stack = null
+let stackLog = ''
 function killStack() {
   const child = stack
   stack = null
@@ -210,14 +211,13 @@ async function bootStack() {
       SERVER_WATCH: 'off',
     },
   })
-  let log = ''
   const keep = (chunk) => {
-    log = (log + chunk).slice(-4000)
+    stackLog = (stackLog + chunk).slice(-4000)
   }
   stack.stdout.on('data', keep)
   stack.stderr.on('data', keep)
   stack.on('exit', (code) => {
-    if (stack) console.error(`ui-sweep: the stack exited early (${code})\n${log}`)
+    if (stack) console.error(`ui-sweep: the stack exited early (${code})\n${stackLog}`)
     stack = null
   })
   // Wait on the API, not the UI. Vite answers `/` the moment it binds, while the
@@ -227,7 +227,7 @@ async function bootStack() {
   // sweep of the ANONYMOUS world with nothing in the log to say so. `/me` is an
   // open front-door route: 200 means both processes are up.
   if (!(await waitForServer(`${BASE}/api/v1/me`, 120_000, () => stack !== null))) {
-    console.error(`ui-sweep: the stack never came up at ${BASE}\n${log}`)
+    console.error(`ui-sweep: the stack never came up at ${BASE}\n${stackLog}`)
     killStack()
     process.exit(2)
   }
@@ -504,6 +504,20 @@ const browser = await chromium.launch()
 for (const vp of VIEWPORTS) {
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height } })
   const page = await ctx.newPage()
+  // Keep bounded lifecycle evidence: a navigation can destroy evaluate()'s
+  // context, and its first-line error alone cannot distinguish product routing
+  // from Vite reloading. Never record request bodies, headers, or URL queries.
+  const lifecycle = []
+  const recordLifecycle = (event) => {
+    lifecycle.push(`${new Date().toISOString()} ${event}`)
+    if (lifecycle.length > 40) lifecycle.shift()
+  }
+  page.on('console', (message) => {
+    if (message.text().startsWith('[vite]')) recordLifecycle(message.text())
+  })
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame()) recordLifecycle(`navigate ${new URL(frame.url()).pathname}`)
+  })
   page.on('pageerror', (e) => note(`${vp.name}/*`, 'pageerror', firstLine(e)))
   const at = (name) => `${vp.name}/${name}`
 
@@ -733,7 +747,8 @@ for (const vp of VIEWPORTS) {
     if (ids.artifactId) {
       if (await goTo(page, `/artifacts/${ids.artifactId}`, cell)) {
         const artifactPage = page.locator(`[data-artifact-page="${ids.artifactId}"]`)
-        if (await artifactPage.isVisible().catch(() => false)) {
+        const ready = await artifactPage.waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)
+        if (ready) {
           if (await page.locator('[role="dialog"]:visible').count()) {
             note(cell, 'UI-29', 'the canonical artifact URL rendered a dialog instead of the pane main page')
           }
@@ -776,6 +791,7 @@ for (const vp of VIEWPORTS) {
     } else unreachable(cell, 'the signed-in account has no namespace name')
   } catch (e) {
     note(`${vp.name}/*`, 'COVERAGE', `the column aborted: ${firstLine(e)}`)
+    console.error(`ui-sweep: ${vp.name} lifecycle diagnostics\n${e?.stack ?? e}\n${lifecycle.join('\n')}\n${stackLog}`)
   } finally {
     // The ledger closes the column: silence about a cell is a violation, not a pass.
     for (const v of ledger.close(vp.name)) note(v.cell, v.invariant, v.detail)

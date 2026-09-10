@@ -10,6 +10,7 @@ import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
 import { readModelPreferences } from './modelPreferences.ts'
+import { fetchProviderRegistry } from './providerRegistry.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
 import type {
@@ -192,7 +193,12 @@ export function useRunners(): QueryState<Runner[]> {
 /** The registered Model providers (docs/agent-commons.md, D9) — the cognition
  *  sources an Agent binds. Account-scoped, referenceable by id; one seeded for now. */
 export function useProviders(): QueryState<ModelProvider[]> {
-  return useQuery(keys.providers, () => apiGet<ModelProvider[]>(paths.providers))
+  // Provider reads are account-scoped and need a resolved /me identity to
+  // capture the source header. Gate the first fetch so bootstrap cannot turn
+  // an unresolved identity into a permanent query error; resetAll still
+  // revalidates this key after an established account transition.
+  const identity = useMe()
+  return useQuery(keys.providers, fetchProviderRegistry, identity.data !== undefined)
 }
 
 /** The system-prompt library (docs/agent-commons.md, D10) — reusable, target-family-

@@ -124,7 +124,8 @@ import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
 import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
-import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { useBoundedDialog } from '../lib/useBoundedDialog.ts'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
@@ -9482,6 +9483,7 @@ function FormDialog({
   children: ReactNode
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  useBoundedDialog(dialogRef)
   const close = () => {
     if (!busy) onClose()
   }
@@ -9494,7 +9496,7 @@ function FormDialog({
   return createPortal(
     <div
       data-form-dialog={kind}
-      className="fixed inset-0 z-50 flex justify-center overflow-y-auto px-4 py-4 sm:pt-[8dvh]"
+      className={BOUNDED_DIALOG_LAYER_CLASS}
       onMouseDown={close}
       role="dialog"
       aria-modal="true"
@@ -9504,8 +9506,9 @@ function FormDialog({
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
+        data-bounded-dialog="resource-form"
         onMouseDown={(e) => e.stopPropagation()}
-        className={`relative flex h-fit max-h-[calc(100dvh-2rem)] w-[460px] max-w-full flex-col sm:max-h-[84dvh] ${DIALOG_SURFACE_CLASS}`}
+        className={`w-[460px] ${BOUNDED_DIALOG_PANEL_CLASS} ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
           <div className="flex items-center gap-2">
@@ -9523,7 +9526,7 @@ function FormDialog({
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        <div className={`space-y-4 p-5 ${BOUNDED_DIALOG_BODY_CLASS}`}>
           <fieldset disabled={fieldsDisabled} className="contents">
             {children}
           </fieldset>

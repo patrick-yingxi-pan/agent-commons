@@ -5,9 +5,10 @@ import type { ModelProvider } from '../../contract/index.ts'
 import { API_BASE, invalidate, keys, useProviders } from '../api'
 import { bootstrapPrompt } from '../lib/connectorInstall.ts'
 import { SOFT_BUTTON_CLASS } from '../lib/button.ts'
-import { DIALOG_SURFACE_CLASS } from '../lib/dialog.ts'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog.ts'
 import { SCRIM_CLASS } from '../lib/scrim.ts'
 import { useFocusTrap } from '../lib/useFocusTrap.ts'
+import { useBoundedDialog } from '../lib/useBoundedDialog.ts'
 import { CopyButton } from './CopyButton.tsx'
 import { Spinner } from './Spinner.tsx'
 
@@ -59,6 +60,7 @@ export function RelaySecretPanel({
 }) {
   const [tookLine, setTookLine] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
+  useBoundedDialog(dialogRef)
   const live = useProviders().data?.find((candidate) => candidate.id === provider.id)
   // A pre-rotation relay may still be cached as online for a render. It cannot
   // prove the NEW credential arrived until the list also represents this exact
@@ -78,19 +80,20 @@ export function RelaySecretPanel({
   const connectorUrl = `${relayUrl}/connector`
   const prompt = bootstrapPrompt(relayUrl, secret)
   return createPortal(
-    <div className="fixed inset-0 z-50 flex justify-center px-4 pt-[14dvh]" onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Connect your session">
+    <div className={BOUNDED_DIALOG_LAYER_CLASS} onMouseDown={guardedClose} role="dialog" aria-modal="true" aria-label="Connect your session">
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
+        data-bounded-dialog="session-secret"
         onMouseDown={(event) => event.stopPropagation()}
-        className={`relative flex h-fit w-[520px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
+        className={`w-[520px] ${BOUNDED_DIALOG_PANEL_CLASS} ${DIALOG_SURFACE_CLASS}`}
       >
-        <div className="flex items-center gap-2 border-b border-line px-5 py-3.5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-line px-5 py-3.5">
           <KeyRound size={18} className="text-ink-soft" />
           <span className="text-[15px] font-semibold text-ink">Connect your session</span>
           <RelayBadge />
         </div>
-        <div className="p-5">
+        <div className={`p-5 ${BOUNDED_DIALOG_BODY_CLASS}`}>
           <p className="text-[15px] font-semibold leading-snug text-ink">Paste into the session that will do the thinking</p>
           <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">
             Works in any agent — it fetches the setup guide and installs itself (MCP), or drives the relay protocol directly.

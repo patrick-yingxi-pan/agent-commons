@@ -48,3 +48,19 @@ test('model preference saving is ready before a picker accepts intent', () => {
   assert.match(facade, /createRevisionedMutationController/,
     'one ready controller owns held intent and explicit network Retry')
 })
+
+test('global search stays behind an announced, dismissible lazy boundary', () => {
+  const app = stripComments(read(join(ROOT, 'src', 'App.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredSearchPanel.tsx')))
+  assert.doesNotMatch(app, /import\s+\{\s*SearchPanel\s*\}/, 'SearchPanel must stay out of the boot graph')
+  assert.match(app, /DeferredSearchPanel/, 'App renders the guarded search door')
+  assert.match(deferred, /lazy\(\(\)\s*=>\s*import\('\.\/SearchPanel\.tsx'\)/, 'search owns one dynamic import boundary')
+  assert.match(deferred, /data-search-loading/, 'loading has a stable browser seam')
+  assert.match(deferred, /role=\{failed \? 'alert' : 'status'\}/, 'failure and loading are announced')
+  assert.match(deferred, /getDerivedStateFromError/, 'failure is contained')
+  assert.match(deferred, /data-search-load-error/, 'failure has a stable browser seam')
+  assert.match(deferred, /window\.location\.reload\(\)/, 'failure offers explicit reload')
+  assert.match(deferred, /onClose/, 'loading and failure retain a close door')
+  assert.match(deferred, /useFocusTrap\(dialogRef, onClose, \{ initialFocus: closeRef \}\)/,
+    'late loading failure cannot arm Enter to reload unsent work')
+})

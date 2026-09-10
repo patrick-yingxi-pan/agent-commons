@@ -14,3 +14,12 @@
  *  this string owns only the surface. */
 export const DIALOG_SURFACE_CLASS =
   'overflow-hidden rounded-xl bg-surface shadow-2xl ring-1 ring-line-strong'
+
+/** Forms and credential ceremonies keep their header/footer inside the dynamic
+ * viewport. Only the body yields to scrolling; callers choose the panel width.
+ * Pair all three classes and stamp the panel with data-bounded-dialog. */
+export const BOUNDED_DIALOG_LAYER_CLASS =
+  'fixed inset-0 z-50 flex justify-center overflow-y-auto px-4 py-4 sm:pt-[8dvh]'
+export const BOUNDED_DIALOG_PANEL_CLASS =
+  'relative flex h-fit max-h-[calc(var(--dialog-viewport-height,100dvh)-2rem)] max-w-full flex-col sm:max-h-[calc(var(--dialog-viewport-height,100dvh)-16dvh)]'
+export const BOUNDED_DIALOG_BODY_CLASS = 'min-h-0 flex-1 overflow-y-auto'

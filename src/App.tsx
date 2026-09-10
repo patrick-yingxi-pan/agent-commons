@@ -13,7 +13,7 @@ import { useRailSplit } from './controller/useRailSplit'
 import { useShellRoutes } from './controller/useShellRoutes'
 import { hostsSession, paneLocationPath, setMainSplitScope, type MainPaneContent } from './lib/mainSplit'
 import { setRailSplitScope, type RailViewRoot } from './lib/railSplit'
-import { SearchPanel } from './components/SearchPanel'
+import { DeferredSearchPanel } from './components/DeferredSearchPanel'
 import {
   keys,
   onSessionRemoved,
@@ -729,7 +729,7 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
       </div>
 
       {searchOpen && (
-        <SearchPanel
+        <DeferredSearchPanel
           sessions={sessions}
           onSelectSession={openSession}
           onOpenSection={openSection}

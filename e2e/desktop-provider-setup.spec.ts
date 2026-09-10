@@ -3,6 +3,7 @@
  * utility path; this browser lane injects that exact narrow face so the shared
  * dialog can be exhaustively measured at every canonical viewport. */
 import { test, expect } from '@playwright/test'
+import { join } from 'node:path'
 import { providerCreationId } from '../server/providerCreationIdentity.ts'
 import { ms } from './budget.ts'
 
@@ -15,6 +16,7 @@ const VIEWPORTS = [
   { width: 844, height: 390 },
   { width: 1280, height: 800 },
 ]
+const REVIEW_DIR = join(process.cwd(), '.data', 'provider-onboarding-review')
 
 test('desktop provider setup keeps its OS-encrypted key face reachable at every viewport', async ({ page }) => {
   test.setTimeout(ms(90_000))
@@ -40,7 +42,7 @@ test('desktop provider setup keeps its OS-encrypted key face reachable at every 
   await page.getByRole('button', { name: 'New provider', exact: true }).click()
 
   const dialog = page.getByRole('dialog', { name: 'New provider' })
-  const panel = dialog.locator(':scope > div').nth(1)
+  const panel = dialog.locator('[data-bounded-dialog]')
   const body = panel.locator(':scope > div').nth(1)
   const footer = panel.locator(':scope > div').nth(2)
   const key = page.getByPlaceholder('Paste API key', { exact: true })
@@ -64,6 +66,10 @@ test('desktop provider setup keeps its OS-encrypted key face reachable at every 
     await expect(key, `${viewport.width}x${viewport.height} API key after body scroll`).toBeVisible()
     await expect(page.getByText('Encrypted for your OS account', { exact: false })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeVisible()
+    await page.screenshot({
+      path: join(REVIEW_DIR, `native-new-provider-${viewport.width}x${viewport.height}.png`),
+      fullPage: false,
+    })
   }
 })
 

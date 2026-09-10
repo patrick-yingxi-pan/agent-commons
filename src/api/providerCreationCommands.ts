@@ -4,7 +4,7 @@ import { apiGet, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { providerCreationId } from './providerCreationIdentity.ts'
-import type { ProviderCreationIntent } from './providerCreationRevision.ts'
+import { assertProviderCreationSource, type ProviderCreationIntent } from './providerCreationRevision.ts'
 
 const results = new Map<string, CreatedProvider>()
 
@@ -14,6 +14,7 @@ function publicProvider(provider: CreatedProvider): ModelProvider {
 }
 
 function remember(intent: ProviderCreationIntent, provider: CreatedProvider): void {
+  assertProviderCreationSource(intent)
   results.set(intent.intentId, provider)
   const row = publicProvider(provider)
   const cached = peek<ModelProvider[]>(keys.providers)
@@ -46,11 +47,16 @@ export async function applyProviderCreation(
   intent: ProviderCreationIntent,
   idempotencyKey: string,
 ): Promise<void> {
+  assertProviderCreationSource(intent)
+  const expectedId = await providerCreationId(intent.tenantId, idempotencyKey)
+  assertProviderCreationSource(intent)
   const provider = await apiPost<CreatedProvider>(
     paths.providers,
     requestFor(intent),
-    { idempotencyKey },
+    { idempotencyKey, expectedSessionUserId: intent.sourceUserId },
   )
+  assertProviderCreationSource(intent)
+  if (provider.id !== expectedId) throw new Error('Unexpected provider creation identity.')
   remember(intent, provider)
 }
 
@@ -62,8 +68,11 @@ export async function reconcileProviderCreation(
   intent: ProviderCreationIntent,
   idempotencyKey: string,
 ): Promise<boolean> {
+  assertProviderCreationSource(intent)
   const expectedId = await providerCreationId(intent.tenantId, idempotencyKey)
-  const incoming = await apiGet<ModelProvider[]>(paths.providers)
+  assertProviderCreationSource(intent)
+  const incoming = await apiGet<ModelProvider[]>(paths.providers, { expectedSessionUserId: intent.sourceUserId })
+  assertProviderCreationSource(intent)
   const represented = incoming.find((provider) => provider.id === expectedId)
   const current = peek<ModelProvider[]>(keys.providers)
   if (!current) setData(keys.providers, incoming)
@@ -81,8 +90,9 @@ export async function reconcileProviderCreation(
     const recovered = await apiPost<CreatedProvider>(
       paths.providers,
       requestFor(intent),
-      { idempotencyKey },
+      { idempotencyKey, expectedSessionUserId: intent.sourceUserId },
     )
+    assertProviderCreationSource(intent)
     if (recovered.id !== expectedId || !recovered.secret) return false
     remember(intent, recovered)
   } else {

@@ -1,10 +1,30 @@
-/** Tiny eager facade for acknowledgement-owned provider onboarding. */
+/** Provider onboarding is ready before its form accepts a credential or intent. */
 import type { CreateProviderRequest, CreatedProvider } from '../../contract/index.ts'
-import { onAccountSwitch } from '../api'
-import type { ProviderCreationIntent } from '../api/providerCreationRevision.ts'
+import { AccountSwitchedError, ApiRequestError } from '../api/client.ts'
+import { onAccountSwitch } from '../api/account.ts'
 import {
-  IDLE_REVISIONED_MUTATION,
-  type RevisionedMutationOutcome,
+  assertProviderCreationSource,
+  captureProviderCreationSource,
+  providerCreationResourceId,
+  type ProviderCreationIntent,
+} from '../api/providerCreationRevision.ts'
+import {
+  applyProviderCreation,
+  clearProviderCreationResults,
+  peekProviderCreationResult,
+  reconcileProviderCreation,
+  takeProviderCreationResult,
+} from '../api/providerCreationCommands.ts'
+import { bindDesktopCredential, discardDesktopCredential, provisionDesktopCredential } from '../api/desktopCredentials.ts'
+import { createAcknowledgedActionMutationController } from './acknowledgedActionMutationCore.ts'
+import {
+  bindProviderCreationCredential,
+  discardProviderCreationCredential,
+  prepareProviderCreationCredential,
+} from './providerCreationCredentialCore.ts'
+import type {
+  RevisionedMutationFailure,
+  RevisionedMutationOutcome,
 } from './revisionedMutationCore.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
 
@@ -14,59 +34,98 @@ export interface ProviderCreationMutationResult {
 }
 
 const statusStore = createMutationStatusStore()
-let accountGeneration = 0
-let heldCount = 0
-export const publishProviderCreationStatus = statusStore.publish
-
-type Runtime = typeof import('./providerCreationMutationRuntime.ts')
-let runtime: Runtime | null = null
-let runtimePromise: Promise<Runtime> | null = null
-const loadRuntime = (): Promise<Runtime> => {
-  runtimePromise ??= import('./providerCreationMutationRuntime.ts').then((loaded) => {
-    runtime = loaded
-    return loaded
-  })
-  return runtimePromise
+const credentials = {
+  provision: provisionDesktopCredential,
+  bind: bindDesktopCredential,
+  discard: discardDesktopCredential,
 }
 
-onAccountSwitch(() => {
-  accountGeneration += 1
-  heldCount = 0
-  if (runtime) runtime.clearProviderCreations()
-  else statusStore.publish(IDLE_REVISIONED_MUTATION)
+const definitelyUnapplied = (error: unknown): boolean =>
+  error instanceof ApiRequestError && [400, 401, 403, 404, 409].includes(error.status)
+
+function describeFailure(error: unknown): RevisionedMutationFailure {
+  if (error instanceof AccountSwitchedError) {
+    return { message: 'That provider belonged to the previous account. Dismiss it to continue.', retryable: false }
+  }
+  if (error instanceof ApiRequestError) {
+    if ([400, 404, 409].includes(error.status)) return { message: error.message, retryable: false }
+    if ([401, 403].includes(error.status)) {
+      return { message: 'You no longer have permission to create this provider. Dismiss it to continue.', retryable: false }
+    }
+    if (error.status === 429) {
+      return { message: 'Provider creation is temporarily rate-limited. Retry shortly.', retryable: true }
+    }
+  }
+  return {
+    message: 'Couldn’t confirm the provider. Retry safely or Dismiss after an authoritative check.',
+    retryable: true,
+  }
+}
+
+// A browser may cache a rejected module URL. One ready queue owns saving and
+// recovery; neither is deferred until after the user has submitted the form.
+const controller = createAcknowledgedActionMutationController<ProviderCreationIntent, undefined>({
+  resourceId: providerCreationResourceId,
+  snapshot: () => undefined,
+  mutate: async (intent, idempotencyKey) => {
+    assertProviderCreationSource(intent)
+    await prepareProviderCreationCredential(intent, credentials)
+    try {
+      assertProviderCreationSource(intent)
+    } catch (error) {
+      // This attempt has not submitted; an older uncertain attempt still may
+      // use the same key. Only never-submitted references are known unused.
+      if (!intent.uncertainSubmission) await discardProviderCreationCredential(intent, credentials)
+      throw error
+    }
+    try {
+      await applyProviderCreation(intent, idempotencyKey)
+    } catch (error) {
+      if (!definitelyUnapplied(error)) intent.uncertainSubmission = true
+      else if (!intent.uncertainSubmission) await discardProviderCreationCredential(intent, credentials)
+      throw error
+    }
+    assertProviderCreationSource(intent)
+    const provider = peekProviderCreationResult(intent.intentId)
+    if (provider) await bindProviderCreationCredential(intent, provider.id, credentials)
+  },
+  reconcile: async (intent, _baseline, idempotencyKey) => {
+    const realized = await reconcileProviderCreation(intent, idempotencyKey)
+    assertProviderCreationSource(intent)
+    const provider = realized ? peekProviderCreationResult(intent.intentId) : undefined
+    if (provider) await bindProviderCreationCredential(intent, provider.id, credentials)
+    return realized
+  },
+  describeFailure,
+  setStatus: statusStore.publish,
+  mintIdempotencyKey: (intent) => intent.intentId,
 })
 
-export const isProviderCreationHeld = (): boolean => heldCount > 0
+onAccountSwitch(() => {
+  controller.clearAll()
+  clearProviderCreationResults()
+})
 
-export function enqueueProviderCreation(input: {
+export async function enqueueProviderCreation(input: {
   tenantId: string
   request: CreateProviderRequest
   deviceSecret?: string
 }): Promise<ProviderCreationMutationResult> {
-  const issuedGeneration = accountGeneration
   const intent: ProviderCreationIntent = {
     ...input,
+    ...captureProviderCreationSource(input.tenantId),
+    request: structuredClone(input.request),
     intentId: crypto.randomUUID(),
   }
-  heldCount += 1
-  statusStore.refresh()
-  const result = loadRuntime().then((loaded) =>
-    issuedGeneration === accountGeneration
-      ? loaded.enqueueProviderCreationRuntime(intent)
-      : { outcome: 'discarded' as const },
-  )
   // Dismiss and account switching both release the visible intent, but neither
   // can prove a transport-aborted server request is no longer in flight. Keep
-  // any uncertain provisional reference for startup reconciliation; only a
-  // definitive HTTP refusal is allowed to delete it in the runtime.
-  void result.finally(() => {
-    if (issuedGeneration !== accountGeneration) return
-    heldCount = Math.max(0, heldCount - 1)
-    statusStore.refresh()
-  })
-  return result
+  // any uncertain provisional reference for startup reconciliation; cleanup
+  // requires proven non-application, not merely an abandoned response.
+  const outcome = await controller.enqueue(intent)
+  const provider = outcome === 'applied' ? takeProviderCreationResult(intent.intentId) : undefined
+  return { outcome, ...(provider ? { provider } : {}) }
 }
 
-export const retryProviderCreation = (): void => { runtime?.retryProviderCreationRuntime() }
-export const discardProviderCreation = (): void => { runtime?.discardProviderCreationRuntime() }
+export const retryProviderCreation = controller.retry
+export const discardProviderCreation = controller.discard
 export const useProviderCreationStatus = statusStore.useStatus

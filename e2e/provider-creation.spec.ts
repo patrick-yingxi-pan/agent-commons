@@ -1,8 +1,36 @@
 /** Rendered acknowledgement and one-time-secret recovery for provider onboarding. */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
+import { join } from 'node:path'
 import type { Identity, ModelProvider } from '../contract/index.ts'
 import { providerCreationId } from '../server/providerCreationIdentity.ts'
 import { ms } from './budget.ts'
+
+const VIEWPORTS = [
+  { width: 320, height: 700 },
+  { width: 375, height: 812 },
+  { width: 768, height: 1024 },
+  { width: 844, height: 390 },
+  { width: 1280, height: 800 },
+]
+const REVIEW_DIR = join(process.cwd(), '.data', 'provider-onboarding-review')
+
+const capture = (page: Page, name: string) =>
+  page.screenshot({ path: join(REVIEW_DIR, `${name}.png`), fullPage: false })
+
+async function expectContainedDialog(page: Page, dialog: Locator) {
+  const viewport = page.viewportSize()!
+  const workspace = await page.locator('[data-popover-viewport]').boundingBox()
+  const panel = dialog.locator('[data-bounded-dialog]')
+  const footer = panel.locator(':scope > div').last()
+  for (const element of [panel, footer]) {
+    const box = await element.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(7)
+    expect(box!.y).toBeGreaterThanOrEqual((workspace?.y ?? 0) + 7)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width - 7)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height - 7)
+  }
+}
 
 async function tenantId(page: Page): Promise<string> {
   const response = await page.request.get('/api/v1/me')
@@ -54,12 +82,31 @@ test('provider fields stay held and Retry preserves one logical create identity'
   await expect(dialog.getByLabel('Name')).toHaveValue(label)
   await expect(dialog.getByLabel('Name')).toBeDisabled()
 
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await expectContainedDialog(page, dialog)
+    await capture(page, `session-held-${viewport.width}x${viewport.height}`)
+  }
+
   await failed.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Connect your session' })).toBeVisible()
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    const reveal = page.getByRole('dialog', { name: 'Connect your session' })
+    await expect(reveal).toBeVisible()
+    await expectContainedDialog(page, reveal)
+    await capture(page, `session-reveal-${viewport.width}x${viewport.height}`)
+  }
   expect(keys[0]).not.toBe('')
   expect(keys[1]).toBe(keys[0])
   const expectedId = providerCreationId(await tenantId(page), keys[0]!)
   expect((await providers(page)).filter((provider) => provider.id === expectedId)).toHaveLength(1)
+  await page.setViewportSize({ width: 844, height: 390 })
+  const reveal = page.getByRole('dialog', { name: 'Connect your session' })
+  await reveal.getByRole('button', { name: 'Copy bootstrap prompt', exact: true }).click()
+  await expect(reveal.getByRole('button', { name: 'Done', exact: true })).toBeEnabled()
+  await reveal.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(reveal).toHaveCount(0)
 })
 
 test('a committed Session provider with a lost response recovers its secret without duplication', async ({ page }) => {
@@ -93,4 +140,23 @@ test('a committed Session provider with a lost response recovers its secret with
   const expectedId = providerCreationId(await tenantId(page), keys[0]!)
   expect((await providers(page)).filter((provider) => provider.id === expectedId)).toHaveLength(1)
   await expect(page.locator('[data-provider-creation="failed"]')).toHaveCount(0)
+})
+
+test('Session provider creation is ready when the New provider form is usable', async ({ page }) => {
+  test.setTimeout(ms(45_000))
+  const label = `Ready relay ${Date.now().toString(36)}`
+  const pageErrors: Error[] = []
+  const runtimeRequests: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error))
+
+  const dialog = await openSessionProviderDialog(page, label)
+  await page.route('**/src/controller/providerCreationMutationRuntime.ts*', async (route) => {
+    runtimeRequests.push(route.request().url())
+    await route.abort()
+  })
+
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Connect your session' })).toBeVisible()
+  expect(pageErrors).toHaveLength(0)
+  expect(runtimeRequests).toHaveLength(0)
 })

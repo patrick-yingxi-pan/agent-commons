@@ -20,7 +20,52 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint closes a desktop first-conversation continuity defect:
+The current checkpoint completes the provider-onboarding failure path needed
+for a reliable first conversation. The form now loads its saving/recovery
+controller before accepting intent. A real browser module failure previously
+stranded Create; consolidating the queue removes that late dependency.
+Each activation freezes its user, tenant and account generation before native
+credential provisioning. The native continuation, HTTP create/recovery and
+ordinary provider-registry refresh all retain that source. Server-side source
+checks precede collection/by-ID reads, registration and one-time-secret replay, so a
+cookie changed in another tab cannot redirect intent or populate an old viewer's
+cache with the new viewer's private registry.
+
+Credential cleanup now distinguishes a never-submitted key from a possibly
+committed submission. After any uncertain attempt, even a later definitive
+refusal cannot prove the earlier request did not use the key; startup
+reconciliation retains that responsibility. Failure-first tests exposed both
+the delayed-native account-switch POST and this refused-retry cleanup defect.
+Shared form/secret-dialog layout also reserves the live workspace below shell
+notices and scrolls only its body, keeping titles and footer actions reachable.
+The browser locks observed the short-window footer overflow and narrow recovery
+banner overlap before their fixes.
+
+Current checkpoint acceptance passed the complete five-lane verifier: 3,396 Node
+tests and 356 browser tests, type checking and production build, with startup
+budgets unchanged. The final frozen-tree responsive sweep covered 135/135 cells
+with zero violations or skips. Its 137 fresh originals are distinct from five
+historical captures; fifteen provider-state and ten search-state originals cover
+the additional ceremonies at every canonical viewport. All 162 current originals
+were individually inspected at full resolution with no remaining visual findings.
+Search display now sits behind a local announced loading/failure boundary to
+make room for the ready safety path. Failure initially focused Reload; a
+failure-first browser lock now requires safe Close focus, trapped Tab, dismissal
+and actual full-navigation recovery from a rejected module URL.
+Unsigned arm64 packaging and executable smoke passed again on the final code,
+including OS-encrypted credential lifecycle, personal defaults/sign-in/token
+recovery across a different-origin relaunch, managed backups, artifact creation
+and exports, native-reader/IPC input fixtures, and the isolated MCP schema worker.
+These fixture-driven native checks do not replace actual OS-dialog acceptance.
+Earlier browser/sweep runs were rejected for coverage gaps or extra document
+reloads during edits. The final unchanged run passed without retries or extended
+budgets; the harness now retains bounded reload/navigation diagnostics and waits
+for the canonical artifact subject under its existing readiness deadline.
+No artifact-removal policy is inferred: recoverable Trash versus permanent
+deletion is awaiting the owner's decision. Signing, notarization, native Intel,
+external-service and paid-provider acceptance gates remain open below.
+
+The preceding checkpoint closed a desktop first-conversation continuity defect:
 the native host deliberately selects a fresh loopback origin on relaunch, while
 personal model defaults previously lived only in that origin's browser storage.
 Provider, model, effort and mode choices now belong to one revisioned user-and-
@@ -42,7 +87,7 @@ The same real-browser failure-injection audit remains required for other lazy
 action runtimes: resetting a JavaScript Promise in unit tests alone does not
 prove recovery from a rejected browser module URL.
 
-Checkpoint acceptance on 2026-09-10 passed the complete five-lane verifier,
+That checkpoint's acceptance on 2026-09-10 passed the complete five-lane verifier,
 including 353 browser tests under unchanged startup bundle budgets. The final
 responsive sweep covered 135/135 cells with zero violations or skips; timestamps
 distinguished its 137 fresh captures from five historical files. An additional
@@ -58,9 +103,9 @@ export, input and MCP schema-worker checks also passed. This is not signing,
 notarization, native Intel, paid-provider or complete actual OS-dialog evidence.
 
 Current shared-browser handoff leaves all six demo accounts stacked with Ada
-active on Customize in a desktop/light viewport. Viewer-relative inspection
-covered Ada, Grace and Maya without changing their model choices or adding test
-resources; Ada's Acid Plum palette and three overrides remain intact. Older
+active on Models in a desktop/light viewport. Viewer-relative inspection
+covered Ada, Grace and Maya's New provider forms without saving any provider or
+changing their model choices; Ada's Acid Plum palette and three overrides remain intact. Older
 checkpoint notes below describe earlier handoff surfaces and the Mac lock at
 that time; it no longer blocks shared preview review. Native OS-dialog acceptance
 has since advanced as recorded below; Excel-application acceptance remains a

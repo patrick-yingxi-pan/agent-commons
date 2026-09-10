@@ -14,6 +14,10 @@ procedure so the always-loaded map stays small.
 - Run `npm run ui:sweep` separately from the full verifier: its isolated
   5193/5194 stack overlaps the verifier's second browser shard. Never enable
   server reuse to mask this collision; wait for the first command to finish.
+- Keep the whole tree unchanged during browser acceptance, including tests,
+  scripts and documentation. Vite can reload after watched-file changes outside
+  the product modules; a code-only freeze is insufficient. Apply review findings
+  between runs, then verify the final revision without edits or relaxed retries.
 - Pull requests and pushes to `main` run that complete verifier plan again in
   GitHub Actions on Node 26. The checks lane and two deterministic E2E manifest
   partitions run through the verifier on isolated hosts; their union is the
