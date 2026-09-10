@@ -9,6 +9,7 @@ import { apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
+import { readModelPreferences } from './modelPreferences.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
 import type {
@@ -76,6 +77,12 @@ export function useCapabilities(): QueryState<Capabilities> {
  *  the single local user ("You" · Personal); on the web it's the IdP principal + org. */
 export function useMe(): QueryState<Identity> {
   return useQuery(keys.me, () => apiGet<Identity>(paths.me))
+}
+
+export function useViewerModelPreferences(): QueryState<import('../../contract/index.ts').ViewerModelPreferences> {
+  const identity = useMe().data
+  const key = identity ? keys.modelPreferences(identity.user.id, identity.tenant.id) : 'viewer-model-preferences:unresolved'
+  return useQuery(key, () => readModelPreferences(identity!), identity !== undefined)
 }
 
 /** Whether unrequested server changes are reaching this client. The stream

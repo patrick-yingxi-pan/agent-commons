@@ -21,6 +21,9 @@ test('a blocked fresh draft hands off to the canonical Models form and returns o
     'only a carried draft entry earns automatic setup')
   assert.match(models, /modelSetupRequired\(providersQ\.data\)[\s\S]*setEditing\('new'\)/,
     'that entry opens the existing provider form instead of duplicating it')
-  assert.match(models, /modelProviderAvailable\(created\)[\s\S]*saveModelPrefs\([\s\S]*onBack\(\)/,
-    'only a runnable created provider is selected before returning to the draft')
+  const handoff = models.slice(models.indexOf('const providerCreated ='), models.indexOf("const [filter] = useSectionFilter('models')"))
+  assert.match(handoff, /modelProviderAvailable\(created\)[\s\S]*updateModelPreferences\([\s\S]*outcome !== 'applied'[\s\S]*onBack\(\)/,
+    'only a runnable provider with an acknowledged personal preference returns to the draft')
+  assert.match(handoff, /!setupMounted\.current.*!fromDraftRef\.current.*providerIdRef\.current/,
+    'a delayed preference save cannot pull a departed Models surface back to the draft')
 })

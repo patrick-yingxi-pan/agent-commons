@@ -55,6 +55,17 @@ test('clampLeft mirrors shiftIntoSpan for self-positioned menus', () => {
   assert.equal(clampLeft(-40, 208, 400), POPOVER_MARGIN)
 })
 
+test('anchored popovers reserve live workspace space below shell recovery notices', () => {
+  const app = stripComments(read(join(ROOT, 'src/App.tsx')))
+  const hook = stripComments(read(join(ROOT, 'src/lib/usePopoverShift.ts')))
+  assert.match(app, /<ShellMutationNotices\s*\/>[\s\S]*<div data-popover-viewport/)
+  assert.match(hook, /el\.closest<HTMLElement>\('\[data-popover-viewport\]'\)/)
+  assert.match(hook, /Math\.max\(0, bounds\?\.top \?\? 0\)/)
+  assert.match(hook, /shiftIntoSpan\(r\.top - top, r\.bottom - top, height\)/)
+  assert.match(hook, /if \(viewport\) ro\.observe\(viewport\)/,
+    'pending/error/cleared banners change available height while the menu stays open')
+})
+
 /* ── 2 · the cue carries the clamp, and the two constants agree ─────────────── */
 
 test('POPOVER_SURFACE is the anchored-surface chrome with a viewport width clamp', () => {

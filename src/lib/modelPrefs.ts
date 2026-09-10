@@ -1,31 +1,10 @@
-/** ── Default model+effort preference ────────────────────────────────────────
- *  The composer's model/effort choice is a sticky manual setting persisted in
- *  localStorage (no adaptive guessing). The Customize page's "Default model" edits
- *  the SAME setting, so the two share one source of truth — change it in either
- *  place and new sessions start there. This module owns the shape, the storage key,
- *  and the (pure, testable) parse; load/save are the thin localStorage wrappers.
- *
- *  The pref stores a two-level **pick** (lib/models `ModelPick`) plus an effort
- *  LABEL — all registry-relative and all optional (absence = inherit: the default
- *  provider / its configured model / its pre-selected effort). A stale pick — a
- *  deleted provider, a model its catalog dropped — degrades at use: the pickers
- *  resolve against the live registry and the send-path sanitizes before writing. */
-import type { ModelPick } from './models'
+/** Pure model-preference projection. The server's viewer-scoped record is the
+ * authority; an unscoped browser blob cannot establish which person chose it.
+ * Legacy parsers remain for explicit import/compatibility tests, never boot. */
+import { DEFAULT_MODEL_PREFERENCES, type ModelPreferences } from '../../contract/modelPreferences.ts'
 
-export interface ModelPrefs extends ModelPick {
-  /** Preferred effort LABEL within the active vocabulary (provider-local, e.g.
-   *  'High') — resolved against the live levels at use (`resolveEffort`). */
-  effort?: string
-  /** Orthogonal modes — run as a multi-agent workflow / faster Opus streaming. */
-  ultracode: boolean
-  fast: boolean
-}
-
-export const DEFAULT_MODEL_PREFS: ModelPrefs = { effort: 'High', ultracode: false, fast: false }
-
-const STORAGE_KEY = 'claude-ui.composer.modelEffort.v2'
-/** The pre-catalog shape ('opus'/'high' + defaultProviderId) — migrated on load. */
-const LEGACY_STORAGE_KEY = 'claude-ui.composer.modelEffort.v1'
+export type ModelPrefs = ModelPreferences
+export const DEFAULT_MODEL_PREFS = DEFAULT_MODEL_PREFERENCES
 const LEGACY_MODEL_IDS: Record<string, string> = {
   opus: 'claude-opus-4-8',
   sonnet: 'claude-sonnet-4-6',
@@ -66,25 +45,18 @@ export function migrateLegacyPrefs(raw: string | null): ModelPrefs | undefined {
   }
 }
 
-export function loadModelPrefs(): ModelPrefs {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return parseModelPrefs(raw)
-    const migrated = migrateLegacyPrefs(localStorage.getItem(LEGACY_STORAGE_KEY))
-    if (migrated) {
-      saveModelPrefs(migrated) // one-time upgrade; v1 stays behind for old builds
-      return migrated
-    }
-    return DEFAULT_MODEL_PREFS
-  } catch {
-    return DEFAULT_MODEL_PREFS
+export function applyModelPreferencePatch(current: ModelPrefs, patch: Partial<ModelPrefs>): ModelPrefs {
+  const next = { ...current, ...patch }
+  return {
+    ...(next.providerId !== undefined ? { providerId: next.providerId } : {}),
+    ...(next.modelId !== undefined ? { modelId: next.modelId } : {}),
+    ...(next.effort !== undefined ? { effort: next.effort } : {}),
+    ultracode: next.ultracode,
+    fast: next.fast,
   }
 }
 
-export function saveModelPrefs(prefs: ModelPrefs): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(prefs))
-  } catch {
-    /* ignore quota / privacy-mode errors */
-  }
+export function sameModelPreferences(a: ModelPrefs, b: ModelPrefs): boolean {
+  return a.providerId === b.providerId && a.modelId === b.modelId && a.effort === b.effort &&
+    a.ultracode === b.ultracode && a.fast === b.fast
 }

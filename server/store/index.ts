@@ -78,7 +78,9 @@ import type {
   SocialEntityKind,
   ToolActivity,
   McpToolResult,
+  ModelPreferences,
   UsageSnapshot,
+  ViewerModelPreferences,
 } from '../../contract/index.ts'
 import { randomUUID } from 'node:crypto'
 import {
@@ -199,6 +201,12 @@ import {
   removeSessionPreferences,
   setSessionPreferences as writeSessionPreferences,
 } from '../sessionPreferences.ts'
+import {
+  getModelPreferences as viewerModelPreferences,
+  persistedModelPreferences,
+  rehydrateModelPreferences,
+  setModelPreferences as writeModelPreferences,
+} from '../modelPreferences.ts'
 
 /** An ambient-event subscriber. `seq` is the event's global sequence number
  *  (server/eventlog.ts — the SSE `id:` field that makes the stream resumable);
@@ -2612,6 +2620,7 @@ function snapshot(): PersistedState {
     workspaces: [...sessionWorkspaces.entries()],
     imageAssets: imageAssets.snapshot(),
     sessionPreferences: persistedSessionPreferences(),
+    modelPreferences: persistedModelPreferences(),
     schedules,
     recents: persistedContextRecents.defaultRecents,
     recentsByTenant: persistedContextRecents.tenantRecents,
@@ -2717,6 +2726,7 @@ function cleanFirstBootState(): PersistedState {
   clean.bindings = []
   clean.workspaces = []
   clean.sessionPreferences = []
+  clean.modelPreferences = []
   clean.schedules = []
   clean.recents = { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] }
   clean.recentsByTenant = []
@@ -3227,6 +3237,7 @@ function rehydrate(s: PersistedState): boolean {
     { demoSeeds: demoWorld, localSeed: demoWorld || NATIVE },
   )
   usageRegistry.rehydrate(s.usageMeters, demoWorld)
+  rehydrateModelPreferences(s.modelPreferences)
   const knownUsers = new Set(accounts.toPersisted().users.map(([id]) => id))
   rehydrateSessionPreferences(s.sessionPreferences, (userId, sessionId) => {
     if (!knownUsers.has(userId)) return undefined
@@ -4432,6 +4443,27 @@ export const store = {
       if (error instanceof Error) throw new ValidationError(error.message)
       throw error
     }
+  },
+
+  /** Personal composer intent is scoped by both active namespace and person.
+   * References remain preferences only; send-time registry validation owns
+   * execution authority. */
+  modelPreferences(tenantId: string, userId: string): ViewerModelPreferences {
+    return viewerModelPreferences(tenantId, userId)
+  },
+  setModelPreferences(
+    tenantId: string,
+    userId: string,
+    expectedTenantId: string,
+    expectedUserId: string,
+    expectedRevision: number,
+    preferences: ModelPreferences,
+  ): ViewerModelPreferences {
+    const result = writeModelPreferences(
+      tenantId, userId, expectedTenantId, expectedUserId, expectedRevision, preferences,
+    )
+    if (result.changed) persist()
+    return result.value
   },
 
   /** Mint a server-owned message id. The conversation is the system of record, so

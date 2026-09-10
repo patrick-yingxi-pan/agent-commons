@@ -262,6 +262,18 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /getByPlaceholder\('Paste API key'/)
   assert.match(smoke, /Connect a model to begin/)
   assert.match(smoke, /first-run model handoff/)
+  assert.match(smoke, /viewer-preferences\/model/,
+    'packaged first-run setup must verify its personal model preference through the shipped API')
+  assert.match(smoke, /origin === firstOrigin/,
+    'the packaged relaunch must exercise preference recovery on a different loopback origin')
+  assert.match(smoke, /retiredOrigin\.listen\(Number\(new URL\(firstOrigin\)\.port\), '127\.0\.0\.1', resolve\)/,
+    'a test-only listener prevents legal ephemeral-port reuse from making the restart gate flaky')
+  assert.match(smoke, /finally\s*\{\s*await new Promise\(\(resolve\) => retiredOrigin\.close\(resolve\)\)/,
+    'the test-owned old-origin reservation is released even when relaunch fails')
+  assert.match(smoke, /JSON\.stringify\(reopenedPreference\) !== JSON\.stringify\(configuredPreference\)/,
+    'packaged acceptance compares the exact personal preference across relaunch')
+  assert.match(smoke, /The packaged relaunch lost its configured provider on a fresh draft/,
+    'packaged acceptance proves a fresh composer uses the durable provider, not only a saved Session binding')
   assert.match(smoke, /getByRole\('button', \{ name: 'Remove provider'/,
     'packaged cleanup must cross the product confirmation/controller path')
   assert.match(smoke, /agentCommonsDesktop\.data\.createBackup/)

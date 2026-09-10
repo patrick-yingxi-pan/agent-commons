@@ -34,3 +34,17 @@ test('tool activity UI loads only for transcripts that contain tool activity', (
   assert.doesNotMatch(source, /Nothing was approved/,
     'a display failure cannot claim that historical or already-running activity was never approved')
 })
+
+test('model preference saving is ready before a picker accepts intent', () => {
+  const readDoor = stripComments(read(join(ROOT, 'src', 'api', 'modelPreferences.ts')))
+  const facade = stripComments(read(join(ROOT, 'src', 'controller', 'modelPreferences.ts')))
+
+  assert.doesNotMatch(readDoor, /(?:import|export)[^\n]*modelPreferenceCommands/,
+    'the initial preference read door must not statically reach write transport')
+  assert.match(facade, /import\s+\{[^}]*patchModelPreferences[^}]*\}\s+from\s+'\.\.\/api\/modelPreferenceCommands\.ts'/,
+    'saving is available before an accepted preference edit, not behind a failure-cached URL')
+  assert.doesNotMatch(facade, /import\(/,
+    'resetting a Promise alone cannot recover a browser-cached dynamic-import rejection')
+  assert.match(facade, /createRevisionedMutationController/,
+    'one ready controller owns held intent and explicit network Retry')
+})

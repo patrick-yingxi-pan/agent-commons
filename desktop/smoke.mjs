@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
@@ -320,6 +321,21 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       })
       const created = providers.find((provider) => provider.label === 'Packaged credential smoke')
       if (!created || !/^provider-/.test(created.id)) throw new Error('The packaged provider workflow did not create its provider.')
+      const configuredPreference = await page.evaluate(async () => {
+        const response = await fetch('/api/v1/viewer-preferences/model')
+        if (!response.ok) throw new Error(`packaged model preference read returned ${response.status}`)
+        return response.json()
+      })
+      if (
+        configuredPreference.userId !== identity.user.id ||
+        configuredPreference.tenantId !== identity.tenant.id ||
+        !Number.isSafeInteger(configuredPreference.revision) ||
+        configuredPreference.revision < 1 ||
+        configuredPreference.preferences?.providerId !== created.id
+      ) {
+        throw new Error('The packaged first-run handoff did not durably select its exact personal model provider.')
+      }
+      await expect(page.getByRole('button', { name: 'Model and effort' })).toContainText(created.label)
       if (JSON.stringify(providers).includes(smokeSecret) || providers.some((provider) => provider.config || provider.apiKeyEnv)) {
         throw new Error('A packaged provider read exposed write-only credential configuration.')
       }
@@ -349,9 +365,23 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       assert.ok(recordedUsage?.fiveHour.consumed > 0, 'a completed packaged model turn must durably record usage')
       assert.equal(recordedUsage.weekly.consumed, recordedUsage.fiveHour.consumed, 'both windows record the same first-turn spend')
 
+      const firstOrigin = origin
       await closePackagedDesktop(run)
-      run = await launchPackagedDesktop(executable, userDataPath)
+      // A port-zero allocation may legally reuse the previous port. Occupy it
+      // only in this test while launching B so the different-origin proof is
+      // deterministic without changing production origin policy.
+      const retiredOrigin = createServer((socket) => socket.destroy())
+      try {
+        await new Promise((resolve, reject) => {
+          retiredOrigin.once('error', reject)
+          retiredOrigin.listen(Number(new URL(firstOrigin).port), '127.0.0.1', resolve)
+        })
+        run = await launchPackagedDesktop(executable, userDataPath)
+      } finally {
+        await new Promise((resolve) => retiredOrigin.close(resolve))
+      }
       ;({ origin, page } = run)
+      if (origin === firstOrigin) throw new Error('The packaged relaunch did not exercise a different loopback origin.')
       const reopenedIdentity = await page.evaluate(async () => (await fetch('/api/v1/me')).json())
       if (reopenedIdentity.via !== 'session' || reopenedIdentity.user.id !== identity.user.id) {
         throw new Error('The packaged relaunch lost its signed-in account.')
@@ -371,6 +401,20 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
         return response.json()
       })
       if (recoveredToken.session?.token !== token.token) throw new Error('The relaunched app could not recover its exact original token.')
+      const reopenedPreference = await page.evaluate(async () => {
+        const response = await fetch('/api/v1/viewer-preferences/model')
+        if (!response.ok) throw new Error(`relaunched model preference read returned ${response.status}`)
+        return response.json()
+      })
+      if (JSON.stringify(reopenedPreference) !== JSON.stringify(configuredPreference)) {
+        throw new Error('The packaged relaunch changed the exact personal model preference.')
+      }
+      await page.goto(`${origin}/`)
+      await page.getByRole('heading', { name: 'What should we work on?' }).waitFor()
+      await expect(page.getByRole('button', { name: 'Model and effort' })).toContainText(created.label)
+      if (await page.getByPlaceholder('Reply to Claude…').isDisabled()) {
+        throw new Error('The packaged relaunch lost its configured provider on a fresh draft.')
+      }
       const reopenedDirectArtifacts = await page.evaluate(async (created) => {
         const [artifactsResponse, contentsResponse] = await Promise.all([
           fetch('/api/v1/artifacts'),
@@ -443,7 +487,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       throw new Error('A clean packaged app with a protected authentication root must also expose secure provider setup.')
     }
     console.log(
-      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff · native context picker · daily recovery + managed portable backup · built renderer · direct document/sheet/slides creation + keyed relaunch recovery · OS-encrypted provider create/rotate/delete · signed-in relaunch + personal-token recovery/revocation + saved conversation + exact durable usage`,
+      `[desktop-smoke] ready ${origin} · isolated SQLite · first-run model handoff + different-origin personal default recovery · native context picker · daily recovery + managed portable backup · built renderer · direct document/sheet/slides creation + keyed relaunch recovery · OS-encrypted provider create/rotate/delete · signed-in relaunch + personal-token recovery/revocation + saved conversation + exact durable usage`,
     )
   } finally {
     await closePackagedDesktop(run)

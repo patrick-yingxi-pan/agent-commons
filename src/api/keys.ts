@@ -7,6 +7,7 @@ export const keys = {
   capabilities: 'capabilities',
   /** The current principal + tenant (design F2 / P1 §4 — "Identity from /v1/me"). */
   me: 'me',
+  modelPreferences: (userId: string, tenantId: string) => `viewer-model-preferences:${JSON.stringify([tenantId, userId])}`,
   /** The accounts signed in on this browser (§12 — the switcher's instant hops). */
   authAccounts: 'auth-accounts',
   /** The caller's org seats + pending invitations (FWD-6 — orgs as namespaces). */
@@ -124,6 +125,7 @@ export const keys = {
 }
 
 export const paths = {
+  modelPreferences: '/viewer-preferences/model',
   imageAssets: '/image-assets',
   imageAssetContent: (id: string) => `/image-assets/${encodeURIComponent(id)}/content`,
   capabilities: '/capabilities',

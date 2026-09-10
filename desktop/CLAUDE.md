@@ -46,8 +46,11 @@ when changing the renderer-facing bridge or setup UI.
 
 The ordinary executable smoke records one provider-reported turn, reads the
 exact durable tenant counters and period anchors from SQLite, and compares them
-after a full app relaunch. This proves restart durability, not provider billing
-accuracy or admission reservations for concurrent/in-flight spend.
+after a full app relaunch. The first-run setup also saves an exact personal
+model-preference record; after relaunch at a different loopback origin, a fresh
+draft must show that provider and a writable composer without browser-storage
+migration. This proves restart durability, not provider billing accuracy or
+admission reservations for concurrent/in-flight spend.
 
 Direct PDF selection transfers at most 8 MiB/file and 24 MiB/selection as
 transient path-free bytes to the sandboxed renderer. The lazy worker extracts

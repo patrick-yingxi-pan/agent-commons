@@ -60,6 +60,7 @@ import { parseScheduleStanding } from '../scheduleStanding.ts'
 import { parseScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
 import { isProjectContextSource } from '../../contract/cowork.ts'
 import { parseMcpToolResult } from '../mcpToolResult.ts'
+import { parsePersistedModelPreferences, type PersistedModelPreferences } from '../modelPreferences.ts'
 import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
 import { join } from 'node:path'
 
@@ -316,6 +317,9 @@ export interface PersistedState {
    * preferences out of the shared Session row. Additive-optional so older
    * snapshots load with the product default. */
   sessionPreferences?: [string, [string, SessionPreferences][]][]
+  /** Per-namespace, per-person model composer intent. Scope fields are supplied
+   * by authenticated reads; nested storage keys avoid trusting duplicated JSON. */
+  modelPreferences?: PersistedModelPreferences
   /** Recorded usage and period anchors, tenant-scoped. Absent older snapshots
    * migrate once from their demo/clean baseline; present malformed data refuses. */
   usageMeters?: UsageMeterEntries
@@ -512,6 +516,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   bindings: 'mapEntries',
   workspaces: 'mapEntries',
   sessionPreferences: 'mapEntries',
+  modelPreferences: 'mapEntries',
   usageMeters: 'mapEntries',
   schedules: 'array',
   recents: 'singleton',
@@ -615,6 +620,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   }
   if (state?.mcpConnections !== undefined) {
     try { parseMcpConnectionState(state.mcpConnections) } catch { return false }
+  }
+  if (state?.modelPreferences !== undefined) {
+    try { parsePersistedModelPreferences(state.modelPreferences) } catch { return false }
   }
   const record = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value)

@@ -1,7 +1,7 @@
 /** ── The one model-picker funnel (form follows function) ──────────────────────
  *  Three surfaces pick a model — the composer's Model control, a routine's model
  *  picker, and Customize's "Default model" — and they must be the SAME menu:
- *  src/components/ModelPickerMenu.tsx renders provider → model → effort entirely
+ *  src/components/ModelPickerMenuBody.tsx renders provider → model → effort entirely
  *  from the live provider registry — each provider's OWN catalog
  *  (`ModelProvider.models`), never a client constant (spec MODEL-13's "registered
  *  once, pickable everywhere", now including the default provider's models).
@@ -34,11 +34,24 @@ test('all three model pickers render through the shared menu', () => {
   assert.ok((section.match(/<ModelPickerMenu/g) ?? []).length >= 2, 'SectionView renders both its pickers through it')
 })
 
+test('the shared catalog loads on demand with local loading and explicit failure recovery', () => {
+  const source = stripComments(read(join(ROOT, 'src/components/ModelPickerMenu.tsx')))
+  assert.doesNotMatch(source, /import\s+\{\s*ModelPickerMenuBody\s*\}\s+from/,
+    'the catalog body must not join the closed composer startup graph')
+  assert.match(source, /lazy\(\(\)\s*=>\s*import\('\.\/ModelPickerMenuBody'\)/)
+  assert.match(source, /<Suspense fallback=\{<div role="status" data-model-picker-loading/)
+  assert.match(source, /getDerivedStateFromError[\s\S]*role="alert" data-model-picker-load-error/)
+  assert.match(source, /Copy any unsent text before reloading\./)
+  assert.match(source, /window\.location\.reload\(\)/,
+    'a stale deployment can recover with fresh asset URLs')
+  assert.match(source, /export function OnlineDot\(/, 'closed toolbar liveness stays eager')
+})
+
 test('unattended routines bind structured endpoint choices and exclude Session providers', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   const routine = section.slice(section.indexOf('function ModelPanel('), section.indexOf('function DispatchView('))
   assert.ok(routine.includes('endpointOnly'), 'the routine picker excludes foreground Session providers')
-  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenu.tsx')))
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenuBody.tsx')))
   assert.ok(menu.includes("candidate.kind !== 'session'"), 'legacy kind absence remains an endpoint, not an empty picker')
   assert.ok(routine.includes('setAgentId(event.currentTarget.value)'), 'the routine stages an explicit Agent id')
   assert.ok(routine.includes('providerId: pick.providerId'), 'Apply writes an explicit provider id')
@@ -53,7 +66,7 @@ test('unattended routines bind structured endpoint choices and exclude Session p
 })
 
 test('the shared menu reads the LIVE provider registry, not a snapshot constant', () => {
-  const src = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenu.tsx')))
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenuBody.tsx')))
   assert.match(src, /useProviders\(\)/, 'the registry hook feeds the menu directly')
   // The model rows are the selected provider's own catalog, projected through the
   // shared pure helpers — not a local list.
@@ -86,7 +99,7 @@ test('the API-endpoint provider form collects and sends the connection it claims
 
 test('composer and provider surfaces project the server-computed execution posture', () => {
   const conversation = stripComments(read(join(ROOT, 'src', 'components', 'ConversationView.tsx')))
-  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenu.tsx')))
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenuBody.tsx')))
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   assert.ok(conversation.includes('composerExecutionState('), 'the selected provider gates composition')
   assert.ok(conversation.includes('executionState={execution}'), 'the exact same resolved decision feeds the composer explanation')

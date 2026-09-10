@@ -11,6 +11,11 @@ const MODEL_PORT = 8830 + Number(process.env.E2E_SHARD ?? 0)
 
 test('a clean draft connects a verified model and returns ready for its first conversation', async ({ page }) => {
   test.setTimeout(ms(90_000))
+  const identityStamp = Date.now().toString(36)
+  await page.context().setExtraHTTPHeaders({
+    'x-user-id': `user-first-run-model-${identityStamp}`,
+    'x-tenant-id': `tenant-first-run-model-${identityStamp}`,
+  })
 
   // Development intentionally serves runnable mock providers. Change only the
   // read projection of pre-existing entries to the release posture; a provider
@@ -69,15 +74,53 @@ test('a clean draft connects a verified model and returns ready for its first co
 
   await page.getByPlaceholder('e.g. Anthropic (prod)', { exact: true }).fill(FIRST_PROVIDER)
   await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(`http://127.0.0.1:${MODEL_PORT}`)
+  let releasePreference!: () => void
+  const preferenceGate = new Promise<void>((resolve) => { releasePreference = resolve })
+  await page.route('**/api/v1/viewer-preferences/model', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue()
+    await preferenceGate
+    await route.continue()
+  })
   await page.getByRole('button', { name: 'Create', exact: true }).click()
 
   // A successful probe selects the new provider for fresh drafts and follows
-  // the carried Back edge. The draft was never materialized during setup.
+  // the carried Back edge only after its personal preference is durable. The
+  // draft was never materialized during setup.
   await expect(dialog).toBeHidden()
+  await expect(page).toHaveURL(/\/models$/)
+  await expect(page.locator('[data-revisioned-mutation="model-preferences"][data-mutation-status="pending"]'))
+    .toContainText('Saving model preference…')
+  releasePreference()
+  await page.unrouteAll({ behavior: 'wait' })
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible()
   const composer = page.getByPlaceholder('Reply to Claude…')
   await expect(composer).toBeEnabled()
+
+  // The setup handoff is not merely a browser-origin preference. Packaged
+  // desktop relaunches on a fresh loopback port, so the exact viewer choice
+  // must already be durable before the form takes us back to the draft.
+  const durablePreference = await page.request.get('/api/v1/viewer-preferences/model')
+  expect(durablePreference.ok()).toBeTruthy()
+  const providersResponse = await page.request.get('/api/v1/providers')
+  expect(providersResponse.ok()).toBeTruthy()
+  const createdProvider = ((await providersResponse.json()) as Array<{ id: string; label: string }>)
+    .find((provider) => provider.label === FIRST_PROVIDER)
+  expect(createdProvider).toBeTruthy()
+  expect((await durablePreference.json()).preferences).toMatchObject({
+    providerId: createdProvider!.id,
+    ultracode: false,
+    fast: false,
+  })
+
+  // Remove every origin-local hint and reconstruct the page. The same explicit
+  // provider must still make the untouched draft executable; no localStorage
+  // migration is allowed to be the authority for this result.
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible()
+  await expect(page.getByPlaceholder('Reply to Claude…')).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Model and effort' })).toContainText(FIRST_PROVIDER)
 
   await composer.fill(FIRST_MESSAGE)
   await composer.press('Enter')

@@ -20,11 +20,51 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-Shared-browser handoff was restored on 2026-09-08: all six demo accounts are
-stacked and Ada is active on a saved sheet after exercising its XLSX download.
-Older checkpoint notes below describe the Mac lock at that time; it no longer
-blocks shared preview review. Native OS-dialog acceptance has since advanced as
-recorded below; Excel-application acceptance remains a separate unverified check.
+The current checkpoint closes a desktop first-conversation continuity defect:
+the native host deliberately selects a fresh loopback origin on relaunch, while
+personal model defaults previously lived only in that origin's browser storage.
+Provider, model, effort and mode choices now belong to one revisioned user-and-
+workspace server record, persisted through both JSON and SQLite. Setup waits
+for that exact acknowledgement before returning to the draft; Customize and
+the composer share the same held choice and explicit recovery. Saved sessions
+retain their own routing, and tenant-wide registry defaults remain a separate
+concept. Unowned legacy browser preferences are not automatically imported.
+Sparse Retry preserves unrelated newer settings, and account-scope mismatches
+cannot silently write another viewer's defaults. The workspace waits for its
+own preference read and offers a full Reload when the initial identity crosses.
+This is required desktop workflow continuity, not cross-device polish; live
+hosted preference synchronization remains future work. The model catalog loads
+on demand under the unchanged bundle budgets. Preference saving is ready with
+the workspace: browser failure injection proved that resetting a lazy-import
+Promise could not clear the browser's rejected module URL. Removing that extra
+boundary avoids accepting edits that depend on a failed code download.
+The same real-browser failure-injection audit remains required for other lazy
+action runtimes: resetting a JavaScript Promise in unit tests alone does not
+prove recovery from a rejected browser module URL.
+
+Checkpoint acceptance on 2026-09-10 passed the complete five-lane verifier,
+including 353 browser tests under unchanged startup bundle budgets. The final
+responsive sweep covered 135/135 cells with zero violations or skips; timestamps
+distinguished its 137 fresh captures from five historical files. An additional
+31 individually reviewed captures cover model preferences, held/error/recovered
+choices and lazy catalog loading/failure. This review caught recovery notices
+covering the top of a picker on narrow and short screens. The shared popover
+funnel now measures the available workspace below shell notices and observes
+its live size; source and browser locks were watched fail before the fix.
+Unsigned arm64 packaging and executable smoke passed, including exact personal
+default recovery and a usable fresh draft after a full relaunch on a deliberately
+different loopback origin. Existing OS-backed credential, backup, artifact
+export, input and MCP schema-worker checks also passed. This is not signing,
+notarization, native Intel, paid-provider or complete actual OS-dialog evidence.
+
+Current shared-browser handoff leaves all six demo accounts stacked with Ada
+active on Customize in a desktop/light viewport. Viewer-relative inspection
+covered Ada, Grace and Maya without changing their model choices or adding test
+resources; Ada's Acid Plum palette and three overrides remain intact. Older
+checkpoint notes below describe earlier handoff surfaces and the Mac lock at
+that time; it no longer blocks shared preview review. Native OS-dialog acceptance
+has since advanced as recorded below; Excel-application acceptance remains a
+separate unverified check.
 
 The [2026-09-10 native-context review](acceptance/native-context-2026-09-10.md)
 used the unsigned arm64 packaged app and actual macOS Files, Photos, and Folder
@@ -58,7 +98,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 
-## Checkpoint criteria
+## Earlier checkpoint evidence
 
 The next routine-output increment first closes a demonstrated queued-intent
 defect: execution froze the routine definition but read standing artifact and

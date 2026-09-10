@@ -36,7 +36,7 @@ const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
 const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
 const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
-const COVERED_SLICES = ['imageAssets', 'usageMeters'] as const
+const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences'] as const
 
 const snapshotImage: ImageSnapshot = {
   mimeType: 'image/png',
@@ -220,6 +220,15 @@ test('build produces a snapshot covering every persisted slice', async () => {
   const usage = s.usageMeters?.find(([tenant]) => tenant === 'tenant-snapshot-usage')?.[1]
   assert.equal(usage?.fiveHour.consumed, 5555, 'recordUsage → exact durable five-hour consumption')
   assert.equal(usage?.weekly.consumed, 5555, 'recordUsage → exact durable weekly consumption')
+  const modelPreferences = s.modelPreferences
+    ?.find(([tenant]) => tenant === 'tenant-snapshot-preferences')?.[1]
+    .find(([user]) => user === 'user-snapshot-preferences')?.[1]
+  assert.deepEqual(modelPreferences, {
+    revision: 1,
+    preferences: {
+      providerId: 'provider-snapshot', modelId: 'model-snapshot', effort: 'High', ultracode: true, fast: false,
+    },
+  }, 'setModelPreferences → exact durable personal model intent')
   assert.ok(s.imageAssets?.length, 'the comprehensive snapshot contains a nonempty image asset slice')
   assert.match(s.imageAssets?.[0]?.id ?? '', /^img-[a-f0-9]{64}$/, 'image asset reference is content-addressed')
   assert.equal(s.imageAssets?.[0]?.image.data, snapshotImage.data, 'image asset bytes survive the comprehensive snapshot')

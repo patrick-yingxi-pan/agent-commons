@@ -91,7 +91,7 @@ import {
   type ModelPick,
 } from '../lib/models'
 import { modelProviderAvailable, modelSetupRequired } from '../lib/modelExecution'
-import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
+import { updateModelPreferences, useModelPreferences } from '../controller/modelPreferences'
 import {
   PALETTES,
   THEME_AXIS_GROUPS,
@@ -10484,7 +10484,14 @@ function ModelsSection({
   // page usable; a later successful endpoint creation still completes the handoff.
   const setupReturn = useRef(false)
   const setupOpened = useRef(false)
+  const setupMounted = useRef(true)
+  useEffect(() => {
+    setupMounted.current = true
+    return () => { setupMounted.current = false }
+  }, [])
   const fromDraft = backTo?.kind === 'session' && backTo.sessionId === DRAFT_ID
+  const fromDraftRef = useRef(fromDraft)
+  fromDraftRef.current = fromDraft
   useEffect(() => {
     if (providerId || setupOpened.current || !fromDraft || providersQ.data === undefined) return
     if (!modelSetupRequired(providersQ.data)) return
@@ -10498,10 +10505,11 @@ function ModelsSection({
     // drain loop must come online first. Only a provider that can answer now may
     // become the new-draft pick and return through the carried Back edge.
     if (!setupReturn.current || !modelProviderAvailable(created)) return
-    const prefs = loadModelPrefs()
-    saveModelPrefs({ ...prefs, providerId: created.id, modelId: undefined })
-    setupReturn.current = false
-    onBack()
+    void updateModelPreferences({ providerId: created.id, modelId: undefined }).then((outcome) => {
+      if (outcome !== 'applied' || !setupReturn.current || !setupMounted.current || !fromDraftRef.current || providerIdRef.current) return
+      setupReturn.current = false
+      onBack()
+    })
   }
   const [filter] = useSectionFilter('models')
   // The same list the rail's provider children show — kind facet (the shared
@@ -16302,30 +16310,21 @@ function ThemeAxisControl({
   )
 }
 
-/** The "Default model" setting — reads & writes the SAME persisted preference the
- *  composer's model control uses (lib/modelPrefs), so changing it here changes what
- *  new sessions start with. The shared ModelPickerMenu, so any registered
- *  provider — and any model from its own catalog — is a valid default too (a
- *  fresh draft starts on it; a later-deleted provider or dropped model degrades
- *  back to the inherit default at send). */
+/** Customize and the composer share one personal, server-durable default.
+ *  Saved references are intent, not execution authority: the existing live
+ *  registry and send-time policy still resolve or refuse stale selections. */
 function DefaultModelCard() {
-  const [prefs, setPrefs] = useState<ModelPrefs>(loadModelPrefs)
+  const { preferences: prefs, held } = useModelPreferences()
   const [open, setOpen] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
   const providers = useProviders().data ?? []
-  // Stale-pref tolerance: a pick whose provider/model is gone renders (and
-  // behaves) as the inherit default rather than a dangling name — the display
-  // resolves against the live registry.
+  // Resolve display from the live registry without rewriting stored references
+  // merely because a catalog is loading or a provider is temporarily absent.
   const pick: ModelPick = { providerId: prefs.providerId, modelId: prefs.modelId }
 
-  const commit = (next: ModelPrefs) => {
-    setPrefs(next)
-    saveModelPrefs(next)
-  }
-
   return (
-    <Card title="Default model" desc="What new sessions and the composer start with.">
+    <Card title="Default model" desc="Your starting model for new sessions in this workspace. Saved across app restarts.">
       <div ref={ref} className="relative">
         <button
           onClick={() => setOpen((o) => !o)}
@@ -16347,16 +16346,16 @@ function DefaultModelCard() {
             <ModelPickerMenu
               pick={pick}
               effort={prefs.effort}
+              disabled={held}
               onPickModel={(next) =>
-                commit({
-                  ...prefs,
+                void updateModelPreferences({
                   providerId: next.providerId,
                   modelId: next.modelId,
                   ...(isOpusModel(next.modelId) ? {} : { fast: false }),
                 })
               }
-              onPickEffort={(e) => commit({ ...prefs, effort: e })}
-              onPickProvider={(providerId) => commit({ ...prefs, providerId, modelId: undefined })}
+              onPickEffort={(effort) => { void updateModelPreferences({ effort }) }}
+              onPickProvider={(providerId) => { void updateModelPreferences({ providerId, modelId: undefined }) }}
             />
           </div>
         )}

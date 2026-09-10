@@ -68,12 +68,13 @@ import type {
   DeleteSessionRequest,
   DeleteSystemPromptRequest,
   UpdateSessionPreferencesRequest,
+  UpdateModelPreferencesRequest,
   UpdateSessionContextStateRequest,
   OpsSummary,
   TokenMintRecovery,
   TokenMintRequest,
 } from '../../contract/index.ts'
-import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus, isProjectContextSource } from '../../contract/index.ts'
+import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus, isProjectContextSource, parseUpdateModelPreferencesRequest } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { IMAGE_UPLOAD_BODY_BYTES } from '../../contract/imageAssets.ts'
 import { timingSafeEqual } from 'node:crypto'
@@ -4302,6 +4303,32 @@ export function buildRouter(): Router {
       sendJson(res, store.setSessionPreferences(store.identity(req.headers).user.id, params.id, input.panelFocus))
     } catch (error) {
       if (error instanceof ValidationError) return sendError(res, 'bad_request', error.message)
+      throw error
+    }
+  })
+  // Personal model-picker posture is UI intent, not a model/MCP capability.
+  // Both scope coordinates are echoed and pinned so an async save cannot land
+  // in a different active account or namespace after a cookie switch.
+  r.uiFormGet('/viewer-preferences/model', 'personal model-picker preference; not a shared workspace capability', ({ req, res }) => {
+    const identity = store.identity(req.headers)
+    sendJson(res, store.modelPreferences(identity.tenant.id, identity.user.id))
+  })
+  r.uiFormPatch('/viewer-preferences/model', 'personal model-picker preference; not a shared workspace capability', async ({ req, res, body }) => {
+    const input = parseUpdateModelPreferencesRequest(await body<UpdateModelPreferencesRequest>())
+    if (!input) return sendError(res, 'bad_request', 'expectedTenantId, expectedUserId, expectedRevision, and valid preferences are required')
+    const identity = store.identity(req.headers)
+    try {
+      sendJson(res, store.setModelPreferences(
+        identity.tenant.id,
+        identity.user.id,
+        input.expectedTenantId,
+        input.expectedUserId,
+        input.expectedRevision,
+        input.preferences,
+      ))
+    } catch (error) {
+      if (error instanceof ConflictError) return sendError(res, error.code, error.message)
+      if (error instanceof ValidationError) return sendError(res, error.code, error.message)
       throw error
     }
   })

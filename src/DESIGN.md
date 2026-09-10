@@ -442,6 +442,17 @@ flagged the caller's **default** (`isDefault`, set via the one shared
 (spec MODEL-15), governed by invariant **INV-9** (*strict core, convenient edge*:
 an absent request field must mean something fixed, or be refused — full statement
 in [`docs/spec/09-design-invariants.md`](../docs/spec/09-design-invariants.md)).
+That registry shortcut is distinct from the personal model preference: setup,
+Customize and the composer share a revisioned server record scoped by **user
+and workspace**, containing provider, model, effort and orthogonal modes.
+Only an explicit selection writes it; mounting a conversation never does.
+Workspace hydration waits for this read before constructing fresh drafts, so
+Electron's changing loopback origin cannot reset the selected starting model.
+Held edits remain visible and disabled through explicit Retry/Dismiss; Retry
+rebases only touched fields. Existing conversation routing stays independent.
+Legacy unscoped browser blobs are not automatically imported: their owner
+cannot be established, so each user explicitly selects a durable preference.
+
 The rule's general form is
 invariant **UI-12** (`docs/ui-invariants.md`): every displayed datum reads a LIVE
 source and has a SYNC path — no seed-mirror reads (the rail's project menus once

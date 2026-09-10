@@ -6,7 +6,7 @@ import { Spinner } from './Spinner'
 import { SECONDARY_BUTTON_CLASS, SOLID_BUTTON_CLASS } from '../lib/button'
 
 type AppBootstrapScreenProps =
-  | { status: 'loading' | 'error' | 'asset-error'; onRetry: () => void }
+  | { status: 'loading' | 'error' | 'asset-error' | 'account-changed'; onRetry: () => void }
   | { status: 'shared-loading' }
   | { status: 'shared-error'; onRetry: () => void; onExit: () => void }
   | { status: 'shared-unavailable'; onExit: () => void }
@@ -15,6 +15,7 @@ type AppBootstrapScreenProps =
 export function AppBootstrapScreen(props: AppBootstrapScreenProps) {
   const { status } = props
   const loading = status === 'loading' || status === 'shared-loading'
+  const accountChanged = status === 'account-changed' || status === 'shared-account-changed'
   return (
     <div
       data-testid="app-bootstrap"
@@ -42,7 +43,7 @@ export function AppBootstrapScreen(props: AppBootstrapScreenProps) {
                   ? 'Couldn’t open shared item'
                   : status === 'shared-unavailable'
                     ? 'This share link is no longer available'
-                    : status === 'shared-account-changed'
+                    : accountChanged
                       ? 'Your signed-in account changed'
                       : 'Couldn’t open Agent Commons'}
             </h1>
@@ -55,6 +56,8 @@ export function AppBootstrapScreen(props: AppBootstrapScreenProps) {
                     ? 'It may have been replaced, removed, or typed incorrectly.'
                     : status === 'shared-account-changed'
                       ? 'Reload to open this link with the account that is signed in now.'
+                    : status === 'account-changed'
+                      ? 'Reload to continue with the account that is signed in now.'
                 : 'We couldn’t reach the server. Check your connection, then try again.'}
             </p>
             <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
@@ -64,7 +67,7 @@ export function AppBootstrapScreen(props: AppBootstrapScreenProps) {
                   onClick={props.onRetry}
                   className={`inline-flex items-center justify-center ${SOLID_BUTTON_CLASS} px-4 py-2 text-[13px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/35`}
                 >
-                  {status === 'asset-error' || status === 'shared-account-changed' ? 'Reload' : 'Try again'}
+                  {status === 'asset-error' || accountChanged ? 'Reload' : 'Try again'}
                 </button>
               )}
               {'onExit' in props && (

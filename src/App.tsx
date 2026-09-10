@@ -36,6 +36,7 @@ import { NO_PENDING_FOCUS } from './lib/focusContext'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SyncHealthNotice } from './components/SyncHealthNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
+import { ModelPreferencesGate } from './components/ModelPreferencesGate'
 import { SharedLinkGate } from './components/SharedLinkGate'
 import { SkipToMain } from './components/SkipToMain'
 import { sharedLinkAddress } from './lib/sharedLink.ts'
@@ -135,7 +136,9 @@ export default function App() {
       address={sharedLinkAddress(window.location.pathname)}
       expectedSessionUserId={resolvedIdentity.via === 'session' ? resolvedIdentity.user.id : undefined}
     >
-      <Workspace instanceAdmin={resolvedIdentity.instanceAdmin === true} />
+      <ModelPreferencesGate key={`${resolvedIdentity.user.id}:${resolvedIdentity.tenant.id}`}>
+        <Workspace instanceAdmin={resolvedIdentity.instanceAdmin === true} />
+      </ModelPreferencesGate>
     </SharedLinkGate>
   )
 }
@@ -551,7 +554,7 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
         <ShellMutationNotices />
       </Suspense>
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div data-popover-viewport className="relative flex min-h-0 flex-1 flex-col">
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim
             behind it dims and dismisses (FWD-3). */}
         {railOverlay && leftOpen && (

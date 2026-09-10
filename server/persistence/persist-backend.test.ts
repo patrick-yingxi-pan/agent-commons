@@ -31,6 +31,7 @@ const sample: PersistedState = {
   bindings: [['s1', [{ id: 'c1', type: 'repo', label: 'r', scope: '*' }]]] as unknown as PersistedState['bindings'],
   workspaces: [['s1', { workspaces: [], repos: [], connectors: [], attachments: [] }]] as unknown as PersistedState['workspaces'],
   sessionPreferences: [['user-a', [['s1', { panelFocus: null }]]]],
+  modelPreferences: [['tenant-a', [['user-a', { revision: 1, preferences: { effort: 'High', ultracode: false, fast: true } }]]]],
   schedules: [], // present-but-empty array must round-trip as [], not vanish
   recents: { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] } as unknown as PersistedState['recents'],
   recentsByTenant: [['tenant-b', { files: [], photos: [], folder: [], repo: ['repo-b'], connector: [], mcp: [] }]],
@@ -215,6 +216,7 @@ test('SQLite omits absent optional slices (no phantom keys)', () => {
   assert.ok(!('auditLog' in loaded), 'an absent optional slice is not resurrected')
   assert.ok(!('providers' in loaded), 'an absent optional slice is not resurrected')
   assert.ok(!('sessionPreferences' in loaded), 'an absent additive preference slice keeps the legacy default')
+  assert.ok(!('modelPreferences' in loaded), 'absent personal model preferences keep their legacy default')
   assert.deepStrictEqual(loaded, JSON.parse(JSON.stringify(minimal)))
   db.close()
 })

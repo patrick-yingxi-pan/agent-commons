@@ -81,6 +81,7 @@ test('a clean first boot contains infrastructure but no fictional user world, an
   assert.equal(stored.initialWorld, 'clean')
   for (const rows of [
     stored.sessions,
+    stored.modelPreferences,
     stored.schedules,
     stored.savedContexts,
     stored.dispatch,

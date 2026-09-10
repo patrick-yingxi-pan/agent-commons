@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ChevronDown, Workflow, Zap } from 'lucide-react'
 import {
   displayModelLabel,
@@ -9,7 +9,8 @@ import {
   resolveEffort,
   type ModelPick,
 } from '../lib/models'
-import { loadModelPrefs, saveModelPrefs, type ModelPrefs } from '../lib/modelPrefs'
+import type { ModelPrefs } from '../lib/modelPrefs'
+import { updateModelPreferences, useModelPreferences } from '../controller/modelPreferences'
 import { useProviders } from '../api'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
@@ -21,8 +22,8 @@ import { ModelPickerMenu, OnlineDot } from './ModelPickerMenu'
  *  registry (each provider's own catalog) — and what a pick MEANS here is
  *  session wiring: both levels write the session row (`providerId` + `modelId`)
  *  through `onSelectModel`, so the turn genuinely routes there. The same pick is
- *  mirrored into the shared "default model" preference (lib/modelPrefs), so the
- *  Customize page edits the same setting. */
+ *  mirrored through the personal model-preference controller, so Customize
+ *  edits the same server-durable, user-and-workspace-scoped setting. */
 type Config = ModelPrefs
 
 /** An orthogonal on/off mode (Ultracode, Fast output) — visually distinct from
@@ -82,7 +83,7 @@ export function ModelEffortControl({
   onSelectModel?: (pick: ModelPick) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [config, setConfig] = useState<Config>(loadModelPrefs)
+  const { preferences: config, held } = useModelPreferences()
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
 
@@ -93,14 +94,9 @@ export function ModelEffortControl({
 
   const { ultracode, fast } = config
   const effort = resolveEffort(levels, config.effort)
-  const update = (patch: Partial<Config>) => setConfig((c) => ({ ...c, ...patch }))
+  const update = (patch: Partial<Config>) => { void updateModelPreferences(patch) }
   const onDefaultProvider = !pick?.providerId
   const opus = isOpusModel(model?.id)
-
-  // Remember the last-used config as the default (shared with the Customize page).
-  useEffect(() => {
-    saveModelPrefs(config)
-  }, [config])
 
   return (
     <div ref={wrapRef} className="relative">
@@ -141,6 +137,7 @@ export function ModelEffortControl({
           className={`absolute bottom-full right-0 z-20 mb-2 w-[320px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           <ModelPickerMenu
+            disabled={held}
             pick={pick ?? {}}
             effort={config.effort}
             // Both pick levels are gated on the write path together: with no
@@ -165,6 +162,7 @@ export function ModelEffortControl({
               subtitle="Run as a multi-agent workflow — combines with any effort"
               hint="An orthogonal mode, independent of the effort level above. Ultracode changes how the turn runs — fanning it out into a multi-agent workflow — and can be combined with any effort level."
               on={ultracode}
+              disabled={held}
               onToggle={() => update({ ultracode: !ultracode })}
             />
             <ToggleRow
@@ -173,7 +171,7 @@ export function ModelEffortControl({
               subtitle={opus ? 'Opus, with faster streaming' : 'Available on Opus models'}
               hint="An orthogonal mode, independent of the effort level above. Fast output speeds up Opus token streaming and can be combined with any effort level."
               on={fast && opus}
-              disabled={!opus}
+              disabled={held || !opus}
               onToggle={() => update({ fast: !fast })}
             />
           </ModelPickerMenu>

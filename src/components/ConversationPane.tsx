@@ -17,7 +17,7 @@ import { navLocationOfLoc } from '../lib/paneHistory'
 import { useSessions, useSchedules, useProviders, keys, peek } from '../api'
 import { runSessionId } from '../../contract/ids.ts'
 import { pickedModel, pickedProvider, type ModelPick } from '../lib/models'
-import { loadModelPrefs } from '../lib/modelPrefs'
+import { useModelPreferences } from '../controller/modelPreferences'
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
@@ -51,6 +51,7 @@ export function ConversationPane({
   const isDraft = sessionId === DRAFT_ID
   const providersQ = useProviders()
   const providers = providersQ.data ?? []
+  const { preferences } = useModelPreferences()
   const relations = useRelations()
   const needsModelSetup = isDraft && providersQ.data !== undefined && modelSetupRequired(providersQ.data)
 
@@ -74,10 +75,11 @@ export function ConversationPane({
   // from the Customize default prefs, WRITABLE (the composer's picker), and
   // read at dispatch by the funnel. The usage strip resolves it against the
   // live registry (identity + context window; absent = honest unknown).
-  const [draftPick, setDraftPick] = useState<ModelPick>(() => {
-    const prefs = loadModelPrefs()
-    return { providerId: prefs.providerId, modelId: prefs.modelId }
-  })
+  const [localDraftPick, setDraftPick] = useState<ModelPick | null>(null)
+  const draftPick: ModelPick = localDraftPick ?? {
+    providerId: preferences.providerId,
+    modelId: preferences.modelId,
+  }
   const draftPickRef = useRef(draftPick)
   draftPickRef.current = draftPick
   const draftModelRef = useMemo(() => {

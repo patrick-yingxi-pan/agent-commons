@@ -74,6 +74,14 @@ export async function buildComprehensive(): Promise<PersistedState> {
   const seedContexts = store.savedContexts().contexts
   // Exercise durable metering through the same path as a completed model turn.
   store.recordUsage(1234, 4321, 'tenant-snapshot-usage')
+  store.setModelPreferences(
+    'tenant-snapshot-preferences',
+    'user-snapshot-preferences',
+    'tenant-snapshot-preferences',
+    'user-snapshot-preferences',
+    0,
+    { providerId: 'provider-snapshot', modelId: 'model-snapshot', effort: 'High', ultracode: true, fast: false },
+  )
   const a0 = seedArtifacts[0]
   const a1 = seedArtifacts[1]
 
