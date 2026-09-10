@@ -25,12 +25,17 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
+        // Keep shared primitives in their own explicit chunk. Otherwise Rollup
+        // folds FormDialog back into SectionPane, making its lazy form import
+        // the entire navigation module through that shared-shell back edge.
+        onlyExplicitManualChunks: true,
         /** Stable framework chunks improve cross-release caching and keep one
          * physical file from monopolising parse/evaluation. The bundle-budget
          * plugin still sums these into the cold graph, so this cannot hide boot
          * cost behind cosmetic chunk names. */
         manualChunks(id) {
           const path = id.split('\\').join('/')
+          if (path.endsWith('/src/components/FormDialog.tsx')) return 'resource-form'
           if (/\/node_modules\/(?:react|react-dom|scheduler)\//.test(path)) return 'vendor-react'
           if (/\/node_modules\/(?:framer-motion|motion-dom|motion-utils)\//.test(path)) return 'vendor-motion'
         },

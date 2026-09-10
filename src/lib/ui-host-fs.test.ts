@@ -23,6 +23,44 @@ test('document-only selections reject multiple or unsupported files before readi
   assert.equal(selected[0].text, 'whole text')
 })
 
+test('slide-only selections reject multiple or unsupported files before reading bytes', async () => {
+  let reads = 0
+  const file = (name: string) => ({ name, size: 10, slice: () => { reads++; throw new Error('unexpected read') } }) as unknown as File
+  for (const files of [[file('one.pptx'), file('two.pptx')], [file('notes.txt')], [file('book.xlsx')], [file('photo.png')]]) {
+    const picked = await readDroppedFiles(dropped(files), 'slides')
+    assert.equal(picked.length, files.length)
+    assert.ok(picked.every((entry) => entry.text === undefined && entry.presentation === undefined && entry.documentImport === undefined && entry.imageInput === undefined))
+  }
+  assert.equal(reads, 0)
+  const oversized = await readDroppedFiles(dropped([{ name: 'large.pptx', size: MAX_PPTX_FILE_BYTES + 1, slice() { throw new Error('unexpected read') } } as unknown as File]), 'slides')
+  assert.deepEqual(oversized[0].documentImport, { format: 'pptx', status: 'file-too-large' })
+  assert.equal(oversized[0].presentation, undefined)
+})
+
+test('native slide intake narrows existing authority and never trusts a supplied structural snapshot', async () => {
+  let byteReads = 0
+  const calls: unknown[] = []
+  let files = [{ name: 'book.xlsx', kind: 'file' as const, sizeBytes: 1,
+    get xlsxBytes() { byteReads++; return new Uint8Array(1) },
+  }]
+  const scope = { agentCommonsDesktop: { context: {
+    pickFiles: async (accept: unknown) => { calls.push(accept); return { status: 'selected' as const, files } },
+    pickFolder: async () => ({ status: 'cancelled' as const }),
+  } } }
+  const unsupported = await pickUiHostFiles('slides', scope)
+  assert.equal(byteReads, 0)
+  assert.equal(unsupported[0].documentImport, undefined)
+  files = [{ name: 'missing.pptx', kind: 'file', sizeBytes: 1, text: 'forged', presentation: { slides: ['forged'] } }] as unknown as typeof files
+  const missing = await pickUiHostFiles('slides', scope)
+  assert.deepEqual(missing[0].documentImport, { format: 'pptx', status: 'unavailable' })
+  assert.equal(missing[0].presentation, undefined)
+  assert.equal(missing[0].text, undefined)
+  const controller = new AbortController()
+  controller.abort()
+  assert.deepEqual(await pickUiHostFiles('slides', scope, controller.signal), [])
+  assert.deepEqual(calls, ['any', 'any'], 'the renderer has no new native mode or reusable file authority')
+})
+
 test('native document selection uses existing authority and rejects before media extraction', async () => {
   let byteReads = 0
   const calls: unknown[] = []
@@ -46,7 +84,7 @@ test('native document selection uses existing authority and rejects before media
   assert.deepEqual(calls, ['any'], 'already cancelled work never opens a native chooser')
 })
 
-test('browser document chooser is single-select and abort releases its late selection handlers', async () => {
+for (const mode of ['document', 'slides'] as const) test(`browser ${mode} chooser is single-select and abort releases its late selection handlers`, async () => {
   const previous = globalThis.document
   const controller = new AbortController()
   const listeners = new Map<string, () => void>()
@@ -58,7 +96,7 @@ test('browser document chooser is single-select and abort releases its late sele
   }
   globalThis.document = { createElement: () => input } as unknown as Document
   try {
-    const pending = pickUiHostFiles('document', {}, controller.signal)
+    const pending = pickUiHostFiles(mode, {}, controller.signal)
     assert.equal(input.type, 'file')
     assert.equal(input.multiple, false)
     assert.equal(listeners.has('cancel'), true)

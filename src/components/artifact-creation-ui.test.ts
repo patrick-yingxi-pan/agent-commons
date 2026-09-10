@@ -3,24 +3,45 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
+const creationSource = () => stripComments(read(join(ROOT, 'src/components/SectionView.tsx'))) + '\n' +
+  stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
+
 test('document intake is review-only, bounded, account-fenced and shares picker recovery', () => {
-  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const section = creationSource()
   const surface = stripComments(read(join(ROOT, 'src/components/ArtifactDocumentImport.tsx')))
-  const hook = stripComments(read(join(ROOT, 'src/lib/useArtifactDocumentImport.ts')))
+  const hook = stripComments(read(join(ROOT, 'src/lib/useArtifactFileImport.ts')))
+  const frame = stripComments(read(join(ROOT, 'src/components/ArtifactImportReview.tsx')))
   assert.ok(section.includes('!documentImport.reviewing'), 'Create cannot publish while an import is reading or awaiting review')
   assert.ok(section.includes("body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS"), 'programmatic input never bypasses the source ceiling')
   assert.ok(section.includes('setName((current) => current.trim() ? current : candidate.name)'), 'an import suggestion cannot overwrite a typed name')
   assert.ok(surface.includes('readOnly value={state.text}'), 'candidate preview is separate from the editable draft')
   assert.ok(surface.includes('Replace content with imported text'), 'replacement requires a named action')
-  assert.ok(surface.includes('<UiHostLoadNotice '), 'import and conversation attachments share actual chunk recovery')
+  assert.ok(surface.includes('<ArtifactImportReview '), 'document intake uses the common review frame')
+  assert.ok(frame.includes('<UiHostLoadNotice '), 'all artifact imports and conversation attachments share actual chunk recovery')
   assert.ok(hook.includes('current.generation === accountGeneration()'), 'extraction results retain their source generation')
   assert.ok(hook.includes('current.generation !== accountGeneration()'), 'review adoption rechecks source generation')
   assert.ok(hook.includes('operation.current === current'), 'superseded imports cannot clear a newer review')
   assert.ok(hook.includes('onAccountSwitch(discard)'), 'account changes discard unsaved private candidate text')
+  assert.ok(hook.includes('modeRef.current === current.mode'), 'format changes fence pending extraction immediately')
+  assert.ok(hook.includes('modeRef.current !== current.mode'), 'adoption rechecks the active format')
+})
+
+test('presentation intake adopts structured source only through the common local review lifetime', () => {
+  const section = creationSource()
+  const surface = stripComments(read(join(ROOT, 'src/components/ArtifactPresentationImport.tsx')))
+  const hook = stripComments(read(join(ROOT, 'src/lib/useArtifactPresentationImport.ts')))
+  assert.ok(section.includes('!presentationImport.reviewing'))
+  assert.ok(section.includes('presentationImport.accept((candidate) => {'))
+  assert.ok(section.includes('setSlides(candidate.body)'))
+  assert.ok(surface.includes('<ArtifactImportReview '))
+  assert.ok(surface.includes('<StructuredArtifactView body={state.body}'))
+  assert.ok(surface.includes('aria-label="Imported slides" tabIndex={0}'))
+  assert.ok(surface.includes('Replace slides with imported slides'))
+  assert.ok(hook.includes('useArtifactFileImport('))
 })
 
 test('New artifact authors every supported format through the shared bounded field/parser contract', () => {
-  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const section = creationSource()
   const fields = stripComments(read(join(ROOT, 'src', 'components', 'StructuredArtifactEditor.tsx')))
 
   assert.match(section, /title="New artifact"/, 'the form names the complete authored capability')
@@ -32,7 +53,7 @@ test('New artifact authors every supported format through the shared bounded fie
     'all three formats pass the one strict authored-body canonicalizer before submission')
   assert.match(section, /<StructuredArtifactFields body=\{kind === 'sheet' \? sheet : slides\}/,
     'creation uses the same structured field component as correction')
-  const creation = section.slice(section.indexOf('function NewArtifactDialog('), section.indexOf('function ArtifactPreviewRow('))
+  const creation = stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
   assert.match(creation, /projects\.filter\(\(project\) => project\.own === true\)\.map\(/,
     'optional filing offers only projects whose server projection grants owner acts')
   assert.match(fields, /<StructuredArtifactFields body=\{draft\}/,
@@ -44,7 +65,7 @@ test('New artifact authors every supported format through the shared bounded fie
 })
 
 test('one global held creation owns recovery and only a still-mounted dialog follows its exact id', () => {
-  const section = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  const section = creationSource()
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'artifactCreationMutations.ts')))
   const runtime = stripComments(read(join(ROOT, 'src', 'controller', 'artifactCreationMutationRuntime.ts')))
   const notice = stripComments(read(join(ROOT, 'src', 'components', 'ArtifactCreationMutationNotice.tsx')))
@@ -68,4 +89,18 @@ test('one global held creation owns recovery and only a still-mounted dialog fol
     'activation freezes the signed-in source before a shared-cookie change in another tab')
   assert.match(notice, /kind="artifact-create"/, 'uncertainty has one shell recovery surface')
   assert.equal((shell.match(/<ArtifactCreationMutationNotice \/>/g) ?? []).length, 1)
+})
+
+test('artifact creation loads before accepting draft input and shares the bounded form shell', () => {
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredNewArtifactDialog.tsx')))
+  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const form = stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
+  assert.ok(section.includes('DeferredNewArtifactDialog as NewArtifactDialog'))
+  assert.ok(deferred.includes("import('./NewArtifactDialog.tsx')"))
+  assert.ok(deferred.includes('<FormDialog title="New artifact"'))
+  assert.ok(deferred.includes('data-artifact-form-load='))
+  assert.ok(deferred.includes('window.location.reload()'))
+  assert.ok(form.includes("from './FormDialog.tsx'"))
+  assert.doesNotMatch(form, /from ['"]\.\/SectionView/)
+  assert.doesNotMatch(deferred, /<input|<textarea/)
 })

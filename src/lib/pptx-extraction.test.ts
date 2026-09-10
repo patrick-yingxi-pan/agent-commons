@@ -1,7 +1,8 @@
 import { deflateRawSync } from 'node:zlib'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { extractPptx } from './pptxExtraction.ts'
+import { extractPresentation, extractPptx } from './pptxExtraction.ts'
+import { MAX_PRESENTATION_PARAGRAPHS } from '../../contract/presentationImport.ts'
 import { MAX_PPTX_ENTRIES, MAX_PPTX_FILE_BYTES, MAX_PPTX_PART_BYTES, MAX_PPTX_TEXT_BYTES } from '../../contract/pptxImport.mjs'
 import { pptxFixture as sharedPptxFixture } from '../../tests/helpers/pptxFixture.mjs'
 
@@ -133,4 +134,42 @@ test('text and package bounds never return partial ready text', async () => {
   assert.equal((await extractPptx(pptxFixture({ entries: extra }))).documentImport.status, 'structure-limit')
   const tooManySlides = Array.from({ length: 129 }, (_, index) => ({ body: shape(`slide ${index + 1}`) }))
   assert.equal((await extractPptx(pptxFixture({ slides: tooManySlides }))).documentImport.status, 'structure-limit')
+})
+
+test('structural extraction preserves visible order, source boundaries, tables, hidden slides and visible empty slides', async () => {
+  const result = await extractPresentation(pptxFixture({ slides: [
+    { body: `${shape('Slide 42: authored marker')}${shape('second')}${table([['A', 'B']])}` },
+    { body: shape('hidden slide'), show: 'false' },
+    { body: '<p:sp><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>   </a:t></a:r></a:p></p:txBody></p:sp>' },
+  ] }))
+  assert.deepEqual(result, {
+    documentImport: { format: 'pptx', status: 'ready' },
+    presentation: {
+      totalSlides: 3,
+      hiddenSlides: 1,
+      slides: [
+        { sourceSlide: 1, paragraphs: ['Slide 42: authored marker', 'second', 'A\tB'] },
+        { sourceSlide: 3, paragraphs: ['   '] },
+      ],
+    },
+  })
+})
+
+test('structural extraction returns no-text without a partial snapshot', async () => {
+  const result = await extractPresentation(pptxFixture({ slides: [{ body: shape('   ') }, { body: shape('hidden'), show: 'false' }] }))
+  assert.deepEqual(result, { documentImport: { format: 'pptx', status: 'no-text' } })
+  assert.equal((await extractPresentation(new Uint8Array(MAX_PPTX_FILE_BYTES + 1))).documentImport.status, 'file-too-large')
+  assert.equal((await extractPresentation(pptxFixture({ slides: [{ body: shape('x'.repeat(MAX_PPTX_TEXT_BYTES + 1)) }] }))).documentImport.status, 'text-limit')
+})
+
+test('structural paragraph floods and excessive UTF-8 text reject the whole deck', async () => {
+  const paragraphs = '<a:p><a:r><a:t>x</a:t></a:r></a:p>'.repeat(MAX_PRESENTATION_PARAGRAPHS + 1)
+  const body = `<p:sp><p:txBody>${paragraphs}</p:txBody></p:sp>`
+  assert.deepEqual(await extractPresentation(pptxFixture({ slides: [{ body }] })), { documentImport: { format: 'pptx', status: 'structure-limit' } })
+  assert.deepEqual(await extractPresentation(pptxFixture({ slides: [{ body: shape('é'.repeat(MAX_PPTX_TEXT_BYTES / 2 + 1)) }] })), { documentImport: { format: 'pptx', status: 'text-limit' } })
+})
+
+test('structural extraction fails closed for malformed and unsupported packages', async () => {
+  assert.equal((await extractPresentation(new TextEncoder().encode('not a ZIP'))).documentImport.status, 'invalid')
+  assert.equal((await extractPresentation(Uint8Array.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]))).documentImport.status, 'unsupported')
 })

@@ -3,6 +3,7 @@ import { ms } from './budget.ts'
 import { assertWcag22Aa } from './accessibility-helpers.ts'
 
 const FILE_MODULE = /\/src\/lib\/uiHostFs(?:\.ts)?(?:\?|$)/
+const ARTIFACT_FORM_MODULE = /\/src\/components\/NewArtifactDialog(?:\.tsx)?(?:\?|$)/
 const VIEWPORTS = [{ width: 320, height: 700 }, { width: 375, height: 812 }, { width: 768, height: 1024 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]
 
 async function openDialog(page: Page) {
@@ -32,6 +33,103 @@ async function finishPick(page: Page, index: number, text: string | null) {
     })
   }, { index, text })
 }
+
+async function captureArtifactFormState(page: Page, state: 'loading' | 'error') {
+  const dialog = page.getByRole('dialog', { name: 'New artifact', exact: true })
+  const marker = dialog.locator(`[data-artifact-form-load="${state === 'error' ? 'failed' : 'loading'}"]`)
+  await expect(marker).toBeVisible()
+  await expect.poll(async () => {
+    const panel = dialog.locator('[data-bounded-dialog="resource-form"]')
+    const box = await panel.boundingBox()
+    const viewport = page.viewportSize()
+    return !!box && !!viewport && box.x >= 7 && box.y >= 7
+      && box.x + box.width <= viewport.width - 7
+      && box.y + box.height <= viewport.height - 7
+  }).toBe(true)
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await assertWcag22Aa(page, `Artifact form ${state} ${page.viewportSize()!.width}x${page.viewportSize()!.height}`)
+  await page.screenshot({ path: `.data/artifact-import-review/form-${state}-${page.viewportSize()!.width}x${page.viewportSize()!.height}.png`, fullPage: false })
+}
+
+test('deferred artifact form stays inert while loading, fences late rejection, and recovers by full reload', async ({ page }) => {
+  test.setTimeout(ms(90_000))
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let requestCount = 0
+  let routeFinished!: () => void
+  const routeComplete = new Promise<void>((resolve) => { routeFinished = resolve })
+  await page.route(ARTIFACT_FORM_MODULE, async (route) => {
+    requestCount++
+    if (requestCount === 1) {
+      await held
+      try { await route.abort() } finally { routeFinished() }
+      return
+    }
+    await route.continue()
+  })
+
+  await page.goto('/artifacts')
+  await expect(page.getByRole('button', { name: 'New artifact', exact: true })).toBeVisible()
+  expect(requestCount, 'artifact form chunk is absent from section boot').toBe(0)
+  await page.getByRole('button', { name: 'New artifact', exact: true }).click()
+  const loading = page.getByRole('dialog', { name: 'New artifact', exact: true })
+  await expect(loading.locator('[data-artifact-form-load="loading"]')).toBeVisible()
+  await expect(loading.getByRole('status')).toContainText('Loading artifact form')
+  await expect(loading.getByRole('button', { name: 'Loading…', exact: true })).toBeDisabled()
+  await expect(loading.getByLabel('Name', { exact: true })).toHaveCount(0)
+  await expect(loading.getByLabel('Content', { exact: true })).toHaveCount(0)
+  const close = loading.getByRole('button', { name: 'Close', exact: true })
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(loading.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await captureArtifactFormState(page, 'loading')
+  }
+  await loading.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(loading).toHaveCount(0)
+  release()
+  await routeComplete
+  await expect(loading).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'New artifact', exact: true }).click()
+  const failed = page.getByRole('dialog', { name: 'New artifact', exact: true })
+  await expect(failed.locator('[data-artifact-form-load="failed"]')).toBeVisible()
+  await expect(failed.getByRole('alert')).toContainText('Copy any unsent workspace text before reloading')
+  await expect(failed.getByLabel('Name', { exact: true })).toHaveCount(0)
+  await expect(failed.getByLabel('Content', { exact: true })).toHaveCount(0)
+  await expect(failed.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(failed.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(failed.getByRole('button', { name: 'Reload app', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(failed.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await captureArtifactFormState(page, 'error')
+  }
+
+  await failed.getByRole('button', { name: 'Reload app', exact: true }).click()
+  await expect(failed).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'New artifact', exact: true })).toBeVisible()
+  const recovered = await openDialog(page)
+  await expect(recovered.getByLabel('Name', { exact: true })).toBeVisible()
+  expect(requestCount).toBe(2)
+  const stamp = Date.now().toString(36)
+  const name = `deferred-recovered-${stamp}.md`
+  const content = `Recovered artifact ${stamp}.`
+  await recovered.getByLabel('Name', { exact: true }).fill(name)
+  await recovered.getByLabel('Content', { exact: true }).fill(content)
+  await recovered.getByRole('button', { name: 'Create document', exact: true }).click()
+  await expect(recovered).toHaveCount(0)
+  await expect(page).toHaveURL(/\/artifacts\/[^/]+$/)
+  await expect(page.locator('[data-artifact-page]').getByText(content, { exact: true })).toBeVisible()
+  await page.reload()
+  await expect(page.locator('[data-artifact-page]').getByText(content, { exact: true })).toBeVisible()
+})
 
 test('artifact import loads before activation and a real chunk failure recovers only through explicit reload', async ({ page }) => {
   test.setTimeout(ms(90_000))
@@ -90,7 +188,9 @@ test('native-shaped cancellation, supersession, format change and close fence la
     await page.setViewportSize(viewport)
     const cancel = dialog.getByRole('button', { name: 'Cancel import', exact: true })
     await cancel.focus()
-    await cancel.evaluate((element) => element.scrollIntoView({ block: 'center' }))
+    // Resizing also updates the bounded dialog's scrollport. Use Playwright's
+    // layout-stable scrolling rather than sampling that resize in raw DOM code.
+    await cancel.scrollIntoViewIfNeeded()
     await expect(cancel).toBeInViewport({ ratio: 1 })
     await expect.poll(() => dialog.locator('[data-form-fields]').evaluate((fields) => {
       const boxes = Array.from(fields.children).map((field) => field.getBoundingClientRect())

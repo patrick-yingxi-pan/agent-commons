@@ -144,6 +144,7 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
     ['docx', 'docxImport.ts'],
     ['xlsx', 'xlsxImport.ts'],
     ['pptx', 'pptxImport.ts'],
+    ['pptx-presentation', 'presentationImport.ts'],
   ] as const
   for (const [format, intakeName] of pipelines) {
     const intake = stripComments(read(join(ROOT, 'src/lib', intakeName)))
@@ -160,6 +161,13 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
   assert.ok(officeWorker.includes('extractDocx(') && officeWorker.includes('extractXlsx('))
   assert.ok(officeWorker.includes("value.format === 'docx'") && officeWorker.includes("value.format === 'xlsx'"))
   assert.ok(officeWorker.includes('extractPptx(') && officeWorker.includes("value.format === 'pptx'"))
+  assert.ok(officeWorker.includes('extractPresentation(') && officeWorker.includes("value.format === 'pptx-presentation'"))
+  const presentation = stripComments(read(join(ROOT, 'src/lib/presentationImport.ts')))
+  assert.ok(presentation.includes('acceptedResult: parsePresentationImportResult'), 'worker data passes the shared closed structural validator')
+  const mapping = stripComments(read(join(ROOT, 'src/lib/artifactPresentationImport.ts')))
+  assert.ok(mapping.includes('parsePresentationSnapshot(file.presentation)'), 'authoring maps real source structure, never flattened attachment text')
+  assert.ok(mapping.includes('parseStructuredArtifactBody({ type: \'slides\', slides })'), 'imports reuse the ordinary authored-body contract')
+  assert.doesNotMatch(mapping, /file\.text/)
 
   const officePackage = stripComments(read(join(ROOT, 'src/lib/officePackage.ts')))
   assert.ok(officePackage.includes("from '@zip.js/zip.js/lib/zip-core-custom.js'"))

@@ -24,8 +24,8 @@ test('MCP create, inspect, and remove dialogs remain usable across the viewport 
   test.setTimeout(ms(120_000))
   const fixture = await startMcpFixture({ description: 'Form-layout catalog fixture.' })
   const stack = await startMcpRouterStack()
+  const disposeProxy = await proxyMcpApi(page, stack)
   try {
-    await proxyMcpApi(page, stack)
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize(viewport)
       const label = `MCP form ${viewport.width}x${viewport.height}`
@@ -55,7 +55,7 @@ test('MCP create, inspect, and remove dialogs remain usable across the viewport 
       await remove.getByRole('button', { name: 'Remove server', exact: true }).click()
       await expect(page).toHaveURL(/\/contexts$/)
     }
-  } finally { await fixture.close(); await stack.close() }
+  } finally { await disposeProxy(); await fixture.close(); await stack.close() }
 })
 
 test('MCP empty catalog is truthful and a failed inspection can be dismissed or retried successfully', async ({ page }) => {
@@ -65,8 +65,8 @@ test('MCP empty catalog is truthful and a failed inspection can be dismissed or 
   const failed = await startMcpFixture(failureMode)
   const stack = await startMcpRouterStack()
   let releaseInspection: (() => void) | undefined
+  const disposeProxy = await proxyMcpApi(page, stack)
   try {
-    await proxyMcpApi(page, stack)
     await page.goto('/contexts')
     const add = async (label: string, endpoint: string) => {
       await page.getByRole('button', { name: 'Add context', exact: true }).click()
@@ -116,5 +116,5 @@ test('MCP empty catalog is truthful and a failed inspection can be dismissed or 
     await expect(notice).toHaveCount(0)
     await expect(page.getByText('Catalog inspected', { exact: true })).toBeVisible()
     expect(failed.calls.filter(method => method === 'tools/list')).toHaveLength(1)
-  } finally { releaseInspection?.(); await empty.close(); await failed.close(); await stack.close() }
+  } finally { releaseInspection?.(); await disposeProxy(); await empty.close(); await failed.close(); await stack.close() }
 })

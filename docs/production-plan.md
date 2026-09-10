@@ -20,7 +20,61 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint adds a reviewed file-to-Document workflow to New artifact.
+The current checkpoint adds structural PowerPoint-to-Slides import. It preserves
+real visible slide boundaries rather than interpreting flattened attachment
+text, including explicitly numbered empty slides. First nonblank paragraphs
+become titles, remaining paragraphs/table rows become bullets, and the complete
+outline must fit the existing authoring limits. Read-only review explains the
+mapping and omitted fidelity before explicit Use/Replace; normal keyed Create
+alone saves. A common import lifetime and review frame now serve Document and
+Slides, retaining cancellation, account/format fencing, draft/name preservation,
+focus recovery and actual lazy-loader failure recovery without widening native
+authority. Rich Word, workbook tabs/formulas and rich presentation fidelity
+remain required; workbook artifact identity is awaiting the owner's decision.
+
+The first complete gate caught a section-navigation graph of 505,847 bytes,
+above its unchanged 500,000-byte limit. Artifact creation is now a separate
+on-demand form behind a shared bounded loading/error ceremony, loaded before
+draft input exists. The existing resource FormDialog/FormField primitives move
+to their own module without changing layout or behavior. A real module refusal
+requires explicit reload with unsent-workspace guidance, never an automatic
+retry of the browser's rejected URL.
+The shared shell has an explicit independent chunk so the lazy form cannot
+pull section navigation back in through a shared-module dependency. Physical,
+cold, async and worker byte gates remain unchanged. The shell's default Node
+was 24; final verification explicitly uses the installed required Node 26.
+
+Focused parser, contract, mapping, UI-host and browser checks have passed.
+Intentional dropped-bullets, no-op adoption and no-op Reload mutations failed
+their respective pure/browser locks before restoration. Browser checks prove review/adoption, editing, reload, ownership,
+sharing/foreign denial and actual PPTX download bytes and XML; the existing
+Document import/recovery and PPTX attachment paths also pass. The frozen-tree
+responsive sweep passed all 135 cells with zero violations or skips. All 137
+fresh originals (excluding five historical captures) and 70 focused import,
+review, failure, loading and owner/shared/foreign originals were individually
+reviewed at full resolution with no remaining findings. The complete five-lane
+verifier passed: all 367 browser tests, the complete Node suite, type checking
+and the production build under unchanged byte budgets. Unsigned arm64 packaging
+and all executable smoke phases passed
+on Node 26, including exact imported slide identity, revision and body surviving
+a full relaunch after the source PPTX was removed. Native picker results are
+simulated; selected-file reads, IPC, emitted workers, review/adoption, saving and
+relaunch are real. This does not claim actual OS-dialog interaction, signing,
+notarization or Intel acceptance. The previous Document checkpoint's GitHub run
+`34438685229` is confirmed successful.
+
+Acceptance also exposed stale source-owner checks after the form extraction and
+an MCP browser fixture teardown race. The former now read the shared form owner;
+all MCP proxy consumers drain their page-owned handlers before closing servers.
+A held-acknowledgement browser lock was watched fail when draining was disabled.
+The first responsive sweep was rejected because concurrent test/package edits
+triggered Vite reloads; the accepted sweep above ran without edits. The first-run
+setup fixture now keeps its release-shaped registry projection until the whole
+conversation completes, then drains routes in finally. Artifact cancellation
+checks use layout-stable scrolling after viewport changes; eight consecutive
+five-viewport diagnostic walks passed with unchanged assertions and budgets.
+
+The preceding checkpoint added a reviewed file-to-Document workflow to New artifact.
 One text, PDF or DOCX file is read through the existing bounded UI-host/native
 reader; only explicit adoption changes the draft, and only normal keyed creation
 saves it. Text-only conversion discloses omitted formatting, images, layout and
@@ -28,8 +82,8 @@ OCR; PDF/Word extraction details remain visible during review. Unsupported or
 multiple selections are rejected before parsing, oversized source is rejected
 before the authoring clamp, and cancellation, format change, closure and account
 switch fence late work. A typed name is never replaced by a filename suggestion.
-This is not structured Office import: rich Word, multi-sheet workbook and deck
-mapping remain required future work.
+That checkpoint did not include structured Office import; the current Slides
+mapping above extends it without claiming rich Word or multi-sheet workbooks.
 
 The full five-lane verifier passed, including 362 browser tests, the complete
 Node suite, type checking and production build under unchanged startup budgets.

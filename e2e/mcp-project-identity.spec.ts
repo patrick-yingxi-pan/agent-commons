@@ -25,9 +25,9 @@ test('project chip and rail preserve the opaque external MCP identity beside a s
   const label = 'filesystem'
   const projectId = `p-mcp-identity-${stamp}`
   const projectName = `MCP identity ${stamp}`
+  const disposeProxy = await proxyMcpApi(page, stack)
 
   try {
-    await proxyMcpApi(page, stack)
     // Establish the app origin before the route-owned setup fetches use their
     // normal relative API paths; a fresh Playwright page is about:blank.
     await page.goto('/')
@@ -100,6 +100,7 @@ test('project chip and rail preserve the opaque external MCP identity beside a s
     await expect(page).toHaveURL(new RegExp(`/contexts/${connectionId}$`))
     await expect(page.getByRole('heading', { name: label, exact: true })).toBeVisible()
   } finally {
+    await disposeProxy()
     await stack.close()
   }
 })

@@ -117,17 +117,14 @@ import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
-import { ArtifactDocumentImport } from './ArtifactDocumentImport.tsx'
-import { useArtifactDocumentImport } from '../lib/useArtifactDocumentImport.ts'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { useDisclosure } from '../lib/useDisclosure'
+import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { NotificationRow, type NotificationDoors } from './NotificationList'
 import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
 import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
-import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS, FORM_DIALOG_FIELDS_CLASS } from '../lib/dialog'
-import { useBoundedDialog } from '../lib/useBoundedDialog.ts'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
 import { AnchorThreadComposer } from './AnchorThreadComposer'
@@ -655,11 +652,6 @@ import {
   EFFECT_ENVELOPE_CARDINALITY_MAX,
   CONTRIBUTION_FIELD_MAX,
   CHANGE_ENTRY_KINDS,
-  MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
-  authoredArtifact,
-  normalizeArtifactName,
-  type CreateArtifactRequest,
-  type StructuredArtifactBody,
   AUDIT_CHANNEL_LABEL,
   type EnvelopeHarness,
   type ChangeEntryKind,
@@ -696,8 +688,9 @@ import {
 import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
 import { ArtifactDetailPage, KIND_ICON, KIND_LABEL } from './artifactPreview'
-import { StructuredArtifactFields } from './StructuredArtifactEditor'
-import { enqueueArtifactCreation, heldArtifactCreation, useArtifactCreationStatus, type ArtifactCreationResult } from '../controller/artifactCreationMutations'
+import { heldArtifactCreation } from '../controller/artifactCreationMutations'
+import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
+import { FormDialog, FormField } from './FormDialog.tsx'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { artifactSourceSessionId } from '../lib/artifactSource'
 import { resolvedByCommission } from '../lib/commissionTrackRecord'
@@ -7964,168 +7957,6 @@ function ArtifactsSection({
   )
 }
 
-/** Every offered format authors a real, bounded body. Format switching retains
- * each independent draft; creation and saved correction share the same fields. */
-function NewArtifactDialog({
-  projects,
-  onCreated,
-  onClose,
-}: {
-  projects: Project[]
-  onCreated: (id: string) => void
-  onClose: () => void
-}) {
-  const mutation = useArtifactCreationStatus()
-  const held = heldArtifactCreation()
-  const identity = useMe().data
-  const [initial] = useState(() => held?.intent.request)
-  const [draftName, setName] = useState(initial?.name ?? '')
-  const [draftKind, setKind] = useState<CreateArtifactRequest['kind']>(initial?.kind ?? 'doc')
-  const [draftBody, setBody] = useState(typeof initial?.body === 'string' ? initial.body : '')
-  const [draftSheet, setSheet] = useState<StructuredArtifactBody>(initial?.kind === 'sheet' && typeof initial.body !== 'string' ? initial.body : { type: 'sheet', columns: [''], rows: [['']] })
-  const [draftSlides, setSlides] = useState<StructuredArtifactBody>(initial?.kind === 'slide' && typeof initial.body !== 'string' ? initial.body : { type: 'slides', slides: [{ title: '', bullets: [] }] })
-  const [draftProjectId, setProjectId] = useState<string | null>(initial?.projectId ?? null)
-  // A second open pane sees the actual held request, not its unrelated local
-  // draft wearing a false Creating label. Unsubmitted format drafts stay local.
-  const heldRequest = held?.intent.request
-  const name = heldRequest?.name ?? draftName
-  const kind = heldRequest?.kind ?? draftKind
-  const body = typeof heldRequest?.body === 'string' ? heldRequest.body : draftBody
-  const sheet = heldRequest?.kind === 'sheet' && typeof heldRequest.body !== 'string' ? heldRequest.body : draftSheet
-  const slides = heldRequest?.kind === 'slide' && typeof heldRequest.body !== 'string' ? heldRequest.body : draftSlides
-  const projectId = heldRequest ? heldRequest.projectId ?? null : draftProjectId
-  const [error, setError] = useState<string | null>(null)
-  const tenantId = identity?.tenant.id
-  const busy = held !== null
-  const documentImport = useArtifactDocumentImport(draftKind === 'doc' && !busy)
-  const documentBodyId = useId()
-  const documentBodyRef = useRef<HTMLTextAreaElement>(null)
-  const waitingForRecovery = busy && !!mutation.error
-  const mounted = useRef(false)
-  const followed = useRef<Promise<ArtifactCreationResult> | null>(null)
-  const createdCallback = useRef(onCreated)
-  createdCallback.current = onCreated
-  const follow = (result: Promise<ArtifactCreationResult>) => {
-    followed.current = result
-    void result.then((settled) => {
-      if (!mounted.current || followed.current !== result) return
-      followed.current = null
-      if (settled.outcome === 'applied') createdCallback.current(settled.artifactId)
-      else setError('Creation was not completed. Your draft is ready to review.')
-    }, () => {
-      if (mounted.current && followed.current === result) {
-        followed.current = null
-        setError('Creation could not start. Your draft is still here; try again. If this persists, copy your draft before reloading.')
-      }
-    })
-  }
-  useEffect(() => {
-    mounted.current = true
-    const pending = heldArtifactCreation()
-    if (pending) follow(pending.result)
-    return () => { mounted.current = false }
-  }, [])
-  const helpId = useId()
-  const close = busy ? () => {} : onClose
-  const normalizedName = normalizeArtifactName(name)
-  const authored = normalizedName && authoredArtifact(normalizedName, kind, kind === 'doc' ? body : kind === 'sheet' ? sheet : slides)
-  const canFileProject = projectId === null || projects.some((project) => project.id === projectId && project.own === true)
-  const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
-  const submit = () => {
-    if (canCreate && authored && normalizedName && tenantId) {
-      setError(null)
-      follow(enqueueArtifactCreation({ tenantId, sourceUserId: identity?.via === 'session' ? identity.user.id : null, request: { name: normalizedName, kind, body: authored.draftBody, projectId } }))
-    }
-  }
-
-  return (
-    <FormDialog
-      title="New artifact"
-      icon={<FileText size={18} className="text-cap-workspace" />}
-      submitLabel={waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : `Create ${KIND_LABEL[kind].toLowerCase()}`}
-      submitIcon={<Plus size={15} />}
-      canSubmit={canCreate}
-      onSubmit={submit}
-      onClose={close}
-      busy={busy}
-      error={error}
-    >
-      <FormField label="Name">
-        <input
-          value={name}
-          disabled={busy}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={kind === 'doc' ? 'e.g. launch-brief.md' : kind === 'sheet' ? 'e.g. launch-metrics.xlsx' : 'e.g. launch-review.pptx'}
-          aria-invalid={name.length > 0 && !normalizedName}
-          className={FORM_INPUT_CLASS}
-        />
-        {name.length > 0 && !normalizedName && <span role="alert" className="mt-1 block text-[11px] text-removed">Use 1–240 characters without control characters.</span>}
-      </FormField>
-      <FormField label="Format">
-        <select value={kind} disabled={busy} onChange={(event) => {
-          const value = event.target.value
-          if (value === 'doc' || value === 'sheet' || value === 'slide') {
-            documentImport.discard()
-            setKind(value)
-          }
-        }} className={FORM_INPUT_CLASS}>
-          <option value="doc">Document</option>
-          <option value="sheet">Sheet</option>
-          <option value="slide">Slides</option>
-        </select>
-      </FormField>
-      {kind === 'doc' ? <>
-      <ArtifactDocumentImport intake={documentImport} hasContent={body.length > 0} disabled={busy} onUse={() => documentImport.accept((candidate) => {
-        setBody(candidate.text)
-        setName((current) => current.trim() ? current : candidate.name)
-        documentBodyRef.current?.focus()
-      })} />
-      <FormField label="Content" controlId={documentBodyId}>
-        <textarea
-          id={documentBodyId}
-          ref={documentBodyRef}
-          value={body}
-          disabled={busy}
-          onChange={(e) => setBody(e.target.value)}
-          maxLength={MAX_AUTHORED_DOCUMENT_SOURCE_CHARS}
-          aria-describedby={helpId}
-          rows={9}
-          placeholder="Write the document. Separate paragraphs with a blank line."
-          className={`${FORM_INPUT_CLASS} resize-y leading-relaxed`}
-        />
-        <span id={helpId} className="mt-1 block text-[11px] text-ink-faint">
-          Blank lines become independently editable paragraphs. The index synopsis is derived from this content. About 20,000
-          characters maximum. Whitespace within each paragraph is normalized when saved.
-        </span>
-      </FormField></> : <fieldset className="min-w-0 space-y-2" aria-describedby={helpId}>
-        <legend className="mb-1.5 text-[12px] font-medium text-ink-soft">Content</legend>
-        <p id={helpId} className="text-[11px] text-ink-faint">
-          {kind === 'sheet' ? 'Name each column and enter literal values. Formulas are not calculated.' : 'Give each slide a title, then add optional bullets.'}
-          {' '}Up to 20,000 characters across this content.
-        </p>
-        <StructuredArtifactFields body={kind === 'sheet' ? sheet : slides} onChange={kind === 'sheet' ? setSheet : setSlides} disabled={busy} />
-        {normalizedName && !authored && <p role="status" className="text-[11px] text-ink-faint">Complete the required labels and keep the content within its size limits to create.</p>}
-      </fieldset>}
-      <FormField label="Project" optional>
-        <select
-          value={projectId ?? ''}
-          disabled={busy}
-          onChange={(e) => setProjectId(e.target.value || null)}
-          className={FORM_INPUT_CLASS}
-        >
-          <option value="">No project</option>
-          {!canFileProject && <option value={projectId ?? ''} disabled>Previously selected project (unavailable)</option>}
-          {projects.filter((project) => project.own === true).map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-        </select>
-      </FormField>
-    </FormDialog>
-  )
-}
-
 /** One artifact's INDEX preview. Every kind uses this same information shape:
  * identity, synopsis, provenance, and recency. The artifact's kind still has a
  * recognizable icon; it does not redraw the list row into a tiny document,
@@ -9449,126 +9280,6 @@ function CardActions({
         </button>
       )}
     </div>
-  )
-}
-
-/** A labeled form field for the hub dialogs. */
-function FormField({ label, optional, controlId, children }: { label: string; optional?: boolean; controlId?: string; children: ReactNode }) {
-  const caption = <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
-    {label}
-    {optional && <span className="font-normal text-ink-faint"> (optional)</span>}
-  </span>
-  // Explicit association keeps auxiliary copy and controlled textarea content
-  // outside the field's name. Existing simple fields retain implicit labels.
-  return controlId
-    ? <div><label htmlFor={controlId} className="block">{caption}</label>{children}</div>
-    : <label className="block">{caption}{children}</label>
-}
-
-/** The shared create / edit modal shell for resource forms — portal + focus trap, a
- *  titled header, a body of fields, an inline error slot, and a Cancel / submit footer.
- *  One primitive so every concept's dialog looks and behaves identically (form follows
- *  function); each dialog supplies only its own fields + submit handler. */
-function FormDialog({
-  title,
-  icon,
-  kind,
-  submitLabel,
-  submitIcon,
-  canSubmit,
-  onSubmit,
-  onClose,
-  error,
-  busy = false,
-  fieldsDisabled = busy,
-  cancelLabel = 'Cancel',
-  children,
-}: {
-  title: string
-  icon: ReactNode
-  kind?: string
-  submitLabel: string
-  submitIcon?: ReactNode
-  canSubmit: boolean
-  onSubmit: () => void
-  onClose: () => void
-  error?: string | null
-  busy?: boolean
-  fieldsDisabled?: boolean
-  cancelLabel?: string
-  children: ReactNode
-}) {
-  const dialogRef = useRef<HTMLDivElement>(null)
-  useBoundedDialog(dialogRef)
-  const close = () => {
-    if (!busy) onClose()
-  }
-  useFocusTrap(dialogRef, close)
-  // Land focus on the first field, not the close button useFocusTrap would otherwise
-  // pick (this mount effect runs after the trap's, so it wins).
-  useEffect(() => {
-    dialogRef.current?.querySelector<HTMLElement>('input, textarea, select')?.focus()
-  }, [])
-  return createPortal(
-    <div
-      data-form-dialog={kind}
-      className={BOUNDED_DIALOG_LAYER_CLASS}
-      onMouseDown={close}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title}
-      aria-busy={busy}
-    >
-      <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
-      <div
-        ref={dialogRef}
-        data-bounded-dialog="resource-form"
-        onMouseDown={(e) => e.stopPropagation()}
-        className={`w-[460px] ${BOUNDED_DIALOG_PANEL_CLASS} ${DIALOG_SURFACE_CLASS}`}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
-          <div className="flex items-center gap-2">
-            {icon}
-            <span className="text-[15px] font-semibold text-ink">{title}</span>
-          </div>
-          <button
-            onClick={close}
-            disabled={busy}
-            title="Close"
-            aria-label="Close"
-            className="-mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <div className={`space-y-4 p-5 ${BOUNDED_DIALOG_BODY_CLASS}`}>
-          <fieldset disabled={fieldsDisabled} data-form-fields className={FORM_DIALOG_FIELDS_CLASS}>
-            {children}
-          </fieldset>
-          {error && <p className="text-[12px] text-removed">{error}</p>}
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line bg-panel px-5 py-3">
-          <button
-            onClick={close}
-            disabled={busy}
-            className={`${SECONDARY_BUTTON_CLASS} px-3.5 py-1.5 text-[13px]`}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            onClick={onSubmit}
-            disabled={!canSubmit || fieldsDisabled}
-            className={`flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-3.5 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            {submitIcon}
-            {submitLabel}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
   )
 }
 

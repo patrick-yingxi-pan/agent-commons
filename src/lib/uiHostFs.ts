@@ -19,6 +19,8 @@ import { importPdf } from './pdfImport.ts'
 import { importDocx } from './docxImport.ts'
 import { importXlsx } from './xlsxImport.ts'
 import { importPptx } from './pptxImport.ts'
+import { importPresentation } from './presentationImport.ts'
+import type { PresentationSnapshot } from '../../contract/presentationImport.ts'
 import { importImage, ImageImportError } from './imageImport.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
@@ -36,6 +38,8 @@ export interface UiHostFile {
   /** Whole UTF-8 body for a supported text file (the read-only preview). */
   text?: string
   documentImport?: DocumentImportOutcome
+  /** Transient structured review only; saved artifacts use their normal body. */
+  presentation?: PresentationSnapshot
   imageInput?: ImageSnapshot
   image?: ImageAssetRef
 }
@@ -62,8 +66,11 @@ export function uiHostKind(name: string): ArtifactKind {
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
 const isImportableImage = (name: string) => IMPORTABLE_IMAGE_EXTS.has(extOf(name))
-type UiHostFileAccept = 'image' | 'any' | 'document'
-const isSingleDocumentSelection = (files: readonly { name: string }[]) => files.length === 1 && isArtifactDocumentFileName(files[0].name)
+type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides'
+function rejectedArtifactSelection(files: readonly { name: string }[], accept: UiHostFileAccept): boolean {
+  if (accept !== 'document' && accept !== 'slides') return false
+  return files.length !== 1 || !(accept === 'document' ? isArtifactDocumentFileName(files[0].name) : isPptxFileName(files[0].name))
+}
 
 function previewBytes(url: string): Uint8Array {
   if (typeof url !== 'string' || url.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 + 32 ||
@@ -103,14 +110,16 @@ const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_
 
 // Format adapters differ; allocation, selection admission and whole-read
 // checks do not. Keep that policy on one path as supported formats expand.
+const PPTX_READER = { matches: isPptxFileName, maxBytes: MAX_PPTX_FILE_BYTES, failure: pptxImportFailure, read: importPptx }
 const DOCUMENT_READERS = [
   { matches: isPdfFileName, maxBytes: MAX_PDF_FILE_BYTES, failure: pdfImportFailure, read: importPdf },
   { matches: isDocxFileName, maxBytes: MAX_DOCX_FILE_BYTES, failure: docxImportFailure, read: importDocx },
   { matches: isXlsxFileName, maxBytes: MAX_XLSX_FILE_BYTES, failure: xlsxImportFailure, read: importXlsx },
-  { matches: isPptxFileName, maxBytes: MAX_PPTX_FILE_BYTES, failure: pptxImportFailure, read: importPptx },
+  PPTX_READER,
 ] as const
+const PRESENTATION_READER = { ...PPTX_READER, read: importPresentation }
 
-async function toUiHostFile(file: File, documentBudget: { used: number }, imageBudget: { used: number }, signal?: AbortSignal): Promise<UiHostFile> {
+async function toUiHostFile(file: File, documentBudget: { used: number }, imageBudget: { used: number }, accept: UiHostFileAccept, signal?: AbortSignal): Promise<UiHostFile> {
   const name = file.name
   if (isImage(name)) {
     if (!isImportableImage(name)) throw new UiHostPickerError('unsupported-image')
@@ -125,7 +134,7 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
       throw new UiHostPickerError('unreadable')
     }
   }
-  const document = DOCUMENT_READERS.find((reader) => reader.matches(name))
+  const document = accept === 'slides' ? PRESENTATION_READER : DOCUMENT_READERS.find((reader) => reader.matches(name))
   if (document) {
     if (file.size > document.maxBytes) return selectedFile({ name, kind: 'file', ...document.failure('file-too-large') })
     if (documentBudget.used + file.size > MAX_DOCUMENT_SELECTION_BYTES) return selectedFile({ name, kind: 'file', ...document.failure('selection-limit') })
@@ -167,13 +176,13 @@ export async function pickUiHostFiles(
   if (signal?.aborted) return []
   const native = scope.agentCommonsDesktop?.context
   if (native) {
-    // Document is a narrower renderer intake policy, not new native authority.
+    // Artifact modes narrow renderer intake, not native filesystem authority.
     const result = await native.pickFiles(accept === 'image' ? 'image' : 'any')
     if (signal?.aborted) return []
     if (result.status === 'cancelled') return []
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
     if (result.files.length > 24) throw new UiHostPickerError('too-many-files')
-    if (accept === 'document' && !isSingleDocumentSelection(result.files)) {
+    if (rejectedArtifactSelection(result.files, accept)) {
       return result.files.map(({ name, kind }) => selectedFile({ name, kind }))
     }
     const nativeImages = new Map<(typeof result.files)[number], Uint8Array>()
@@ -204,7 +213,7 @@ export async function pickUiHostFiles(
             : file.xlsxBytes ? await importXlsx(file.xlsxBytes, signal) : xlsxImportFailure('unavailable')
         : isPptxFileName(file.name)
           ? file.pptxFailure ? pptxImportFailure(file.pptxFailure)
-            : file.pptxBytes ? await importPptx(file.pptxBytes, signal) : pptxImportFailure('unavailable')
+            : file.pptxBytes ? await (accept === 'slides' ? importPresentation : importPptx)(file.pptxBytes, signal) : pptxImportFailure('unavailable')
         : file.kind === 'photo'
           ? { imageInput: await importImage(nativeImages.get(file)!, signal) }
           : { text: file.text }
@@ -212,7 +221,7 @@ export async function pickUiHostFiles(
     }
     return signal?.aborted ? [] : files
   }
-  const files = await openInput({ multiple: accept !== 'document', accept: accept === 'image' ? 'image/*' : undefined }, signal)
+  const files = await openInput({ multiple: accept === 'any' || accept === 'image', accept: accept === 'image' ? 'image/*' : undefined }, signal)
   return readSelectedFiles(files, accept, signal)
 }
 
@@ -224,7 +233,7 @@ export async function readDroppedFiles(list: FileList, accept: UiHostFileAccept 
 async function readSelectedFiles(files: File[], accept: UiHostFileAccept, signal?: AbortSignal): Promise<UiHostFile[]> {
   if (signal?.aborted) return []
   if (files.length > 24) throw new UiHostPickerError('too-many-files')
-  if (accept === 'document' && !isSingleDocumentSelection(files)) {
+  if (rejectedArtifactSelection(files, accept)) {
     return files.map(({ name }) => selectedFile({ name, kind: isImage(name) ? 'photo' : 'file' }))
   }
   const images = files.filter((file) => isImage(file.name))
@@ -237,7 +246,7 @@ async function readSelectedFiles(files: File[], accept: UiHostFileAccept, signal
   const imageBudget = { used: 0 }
   for (const file of files) {
     if (signal?.aborted) break
-    selected.push(await toUiHostFile(file, documentBudget, imageBudget, signal))
+    selected.push(await toUiHostFile(file, documentBudget, imageBudget, accept, signal))
   }
   return signal?.aborted ? [] : selected
 }

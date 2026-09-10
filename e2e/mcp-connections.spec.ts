@@ -8,12 +8,44 @@ const VIEWPORTS = [
   { width: 844, height: 390 }, { width: 1280, height: 800 },
 ]
 
+test('MCP fixture disposal drains custom acknowledgement handlers before shutdown', async ({ page }) => {
+  const stack = await startMcpRouterStack()
+  const disposeProxy = await proxyApi(page, stack)
+  let release!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  let enter!: () => void
+  const entered = new Promise<void>(resolve => { enter = resolve })
+  try {
+    // A JSON document establishes the same origin without an app producing
+    // background requests that could obscure this deliberately held handler.
+    await page.goto('/api/v1/me')
+    await page.route('**/__held_acknowledgement__', async route => {
+      enter()
+      await held
+      await route.fulfill({ status: 200, contentType: 'text/plain', body: 'exact held acknowledgement' })
+    })
+    const response = page.evaluate(async () => (await fetch('/__held_acknowledgement__')).text())
+    await entered
+    let disposed = false
+    const disposal = disposeProxy().then(() => { disposed = true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(disposed, 'fixture shutdown cannot pass an active acknowledgement handler').toBe(false)
+    release()
+    await disposal
+    expect(await response).toBe('exact held acknowledgement')
+  } finally {
+    release()
+    await disposeProxy()
+    await stack.close()
+  }
+})
+
 test('MCP create, inspect, refresh, disconnect, reconnect, and remove use the real route lifecycle', async ({ page }) => {
   test.setTimeout(ms(90_000))
   const fixture = await startMcpFixture({ label: 'Untrusted <fixture>', description: 'Read-only catalog fixture. ' + 'plain-untrusted-text '.repeat(120) })
   const stack = await startMcpRouterStack()
+  const disposeProxy = await proxyApi(page, stack)
   try {
-    await proxyApi(page, stack)
     await page.goto('/contexts')
     await page.getByRole('button', { name: 'Add context', exact: true }).click()
     await page.getByRole('dialog', { name: 'Add context', exact: true }).getByRole('button', { name: 'Add an MCP server' }).click()
@@ -62,13 +94,14 @@ test('MCP create, inspect, refresh, disconnect, reconnect, and remove use the re
     await page.getByRole('dialog', { name: /Remove Untrusted/ }).getByRole('button', { name: 'Remove server', exact: true }).click()
     await expect(page).toHaveURL(/\/contexts$/)
     await expect(page.getByRole('main').getByRole('button', { name: 'Untrusted <fixture>', exact: true })).toHaveCount(0)
-  } finally { await fixture.close(); await stack.close() }
+  } finally { await disposeProxy(); await fixture.close(); await stack.close() }
 })
 
 test('a lost inspect acknowledgement retains the exact operation and Retry does not rediscover', async ({ page }) => {
   test.setTimeout(ms(60_000))
   const fixture = await startMcpFixture()
   const stack = await startMcpRouterStack()
+  const disposeProxy = await proxyApi(page, stack)
   let loseAcknowledgement = true
   const inspections: Array<{ body: unknown; key: string | undefined }> = []
   page.on('request', request => {
@@ -77,7 +110,6 @@ test('a lost inspect acknowledgement retains the exact operation and Retry does 
     }
   })
   try {
-    await proxyApi(page, stack)
     await page.route('**/api/v1/mcp-connections/*/inspect', async (route) => {
       if (route.request().method() !== 'POST' || !loseAcknowledgement) return route.fallback()
       loseAcknowledgement = false
@@ -111,7 +143,7 @@ test('a lost inspect acknowledgement retains the exact operation and Retry does 
     expect(fixture.calls).toEqual(['server/discover', 'tools/list'])
     expect(inspections).toHaveLength(2)
     expect(inspections[1]).toEqual(inspections[0])
-  } finally { await fixture.close(); await stack.close() }
+  } finally { await disposeProxy(); await fixture.close(); await stack.close() }
 })
 
 test('device bearer removal retains the reviewed row until exact retry acknowledges cleanup', async ({ page, request }) => {
@@ -138,6 +170,7 @@ test('device bearer removal retains the reviewed row until exact retry acknowled
       return token
     },
   })
+  const disposeProxy = await proxyApi(page, stack)
   try {
     await page.exposeFunction('provisionMcpFixture', (binding: unknown, secret: string) => {
       expect(secret).toBe(token)
@@ -154,7 +187,6 @@ test('device bearer removal retains the reviewed row until exact retry acknowled
         mcpCredentials: { provision: (binding: unknown, secret: string) => scope.provisionMcpFixture(binding, secret) },
       }
     })
-    await proxyApi(page, stack)
     await page.goto('/contexts')
     await page.getByRole('button', { name: 'Add context', exact: true }).click()
     await page.getByRole('dialog', { name: 'Add context', exact: true }).getByRole('button', { name: 'Add an MCP server' }).click()
@@ -201,5 +233,5 @@ test('device bearer removal retains the reviewed row until exact retry acknowled
     expect(removals[0]!.key).toBeTruthy()
     expect(apiBodies.join('\n')).not.toContain(token)
     expect((await (await request.get(`${stack.url}/api/v1/mcp-connections`)).json()).capabilities.credentialCleanupPending).toBe(false)
-  } finally { await fixture.close(); await stack.close() }
+  } finally { await disposeProxy(); await fixture.close(); await stack.close() }
 })

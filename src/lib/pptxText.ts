@@ -114,12 +114,20 @@ const TABLE_URIS = new Set([
  * Blocks retain their shape/group owners until parse completion, so an explicit
  * hidden flag cannot leak an earlier body even in out-of-order source XML. */
 export function slideBodyText(xml: string): string {
+  return slideBodyContent(xml).text
+}
+
+export function slideBodyParagraphs(xml: string): string[] {
+  return slideBodyContent(xml).paragraphs
+}
+
+export function slideBodyContent(xml: string): { text: string; paragraphs: string[] } {
   const stack: SlideNode[] = []
-  const blocks: Array<{ value: string; owners: SlideNode[] }> = []
+  const blocks: Array<{ value: string; paragraphs: string[]; owners: SlideNode[] }> = []
   let presentation = ''
   let drawing = ''
-  const emit = (value: string) => {
-    if (value) blocks.push({ value, owners: stack.filter(isShapeOwner) })
+  const emit = (value: string, paragraphs = [value]) => {
+    if (value) blocks.push({ value, paragraphs, owners: stack.filter(isShapeOwner) })
   }
   parseXml(xml, {
     open(tag, depth) {
@@ -181,10 +189,11 @@ export function slideBodyText(xml: string): string {
       else if (node.kind === 'body') {
         const value = node.paragraphs!.join('\n')
         if (parent?.kind === 'cell') parent.value = value
-        else emit(value)
+        else emit(value, node.paragraphs)
       } else if (node.kind === 'cell') parent!.cells!.push(node.value!)
-      else if (node.kind === 'row') emit(node.cells!.join('\t'))
+      else if (node.kind === 'row') emit(node.cells!.join('\t'), [node.cells!.join('\t')])
     },
   })
-  return blocks.filter((block) => block.owners.every((owner) => !owner.hidden)).map((block) => block.value).join('\n')
+  const visible = blocks.filter((block) => block.owners.every((owner) => !owner.hidden))
+  return { text: visible.map((block) => block.value).join('\n'), paragraphs: visible.flatMap((block) => block.paragraphs) }
 }

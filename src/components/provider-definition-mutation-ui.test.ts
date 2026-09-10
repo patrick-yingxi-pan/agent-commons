@@ -5,6 +5,7 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('provider definitions use one sparse held-draft recovery path', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const form = stripComments(read(join(ROOT, 'src', 'components', 'FormDialog.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'providerDefinitionMutations.ts')))
 
@@ -20,7 +21,9 @@ test('provider definitions use one sparse held-draft recovery path', () => {
     'the exact sparse patch remains held through conflict recovery')
   assert.match(section, /<fieldset disabled=\{busy\}/,
     'a queued draft cannot change underneath its frozen retry payload')
-  assert.match(section, /const close = \(\) => \{\s*if \(!busy\) onClose\(\)/,
+  assert.match(section, /import \{ FormDialog, FormField \} from '\.\/FormDialog\.tsx'/,
+    'provider dialogs use the guarded shared form')
+  assert.match(form, /const close = \(\) => \{\s*if \(!busy\) onClose\(\)/,
     'Escape, scrim, Close, and Cancel cannot discard a held draft while its mutation is unresolved')
   assert.match(controller, /createRevisionedMutationController<ModelProvider, ProviderDefinitionMutationPatch>/,
     'provider edits reuse the shared FIFO/reconcile/idempotency mechanism')

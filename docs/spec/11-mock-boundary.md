@@ -37,7 +37,10 @@ deliver bounded Document, Sheet, or Slides bodies under a frozen explicit format
 and name (REL-13 / MODEL-29). None of this implies spreadsheet calculation,
 formula execution, arbitrary slide layout or media authoring, imported Office
 fidelity, paid-provider acceptance, or a signed/notarized two-architecture release;
-those remain required work.
+those remain required work. ADAPT-35 imports actual text/PDF/DOCX text into a
+reviewed Document draft; ADAPT-36 additionally maps actual visible PPTX slide
+boundaries into editable title/bullet outlines. Neither borrows seeded content,
+preserves rich Office fidelity, nor saves before explicit adoption and Create.
 
 ## The declared fixtures (L2)
 

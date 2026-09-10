@@ -1,6 +1,6 @@
 import { extractDocx } from './docxExtraction.ts'
 import { extractXlsx } from './xlsxExtraction.ts'
-import { extractPptx } from './pptxExtraction.ts'
+import { extractPptx, extractPresentation } from './pptxExtraction.ts'
 import { docxImportFailure } from '../../contract/docxImport.mjs'
 import { xlsxImportFailure } from '../../contract/xlsxImport.mjs'
 import { pptxImportFailure } from '../../contract/pptxImport.mjs'
@@ -13,5 +13,6 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
   if (value.format === 'docx') self.postMessage(value.bytes instanceof Uint8Array ? await extractDocx(value.bytes) : docxImportFailure('invalid'))
   else if (value.format === 'xlsx') self.postMessage(value.bytes instanceof Uint8Array ? await extractXlsx(value.bytes) : xlsxImportFailure('invalid'))
   else if (value.format === 'pptx') self.postMessage(value.bytes instanceof Uint8Array ? await extractPptx(value.bytes) : pptxImportFailure('invalid'))
+  else if (value.format === 'pptx-presentation') self.postMessage(value.bytes instanceof Uint8Array ? await extractPresentation(value.bytes) : { documentImport: { format: 'pptx', status: 'invalid' } })
   else throw new Error('Invalid Office import format.')
 }

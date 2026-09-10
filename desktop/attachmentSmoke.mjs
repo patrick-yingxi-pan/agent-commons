@@ -81,8 +81,8 @@ async function openArtifactImportDialog(page, origin) {
 async function chooseNativeArtifactFile(app, dialog, path) {
   await app.evaluate(({ dialog: nativeDialog }, selectedPath) => {
     nativeDialog.showOpenDialog = async (_owner, options) => {
-      if (options.title !== 'Add files' || !options.properties.includes('openFile')) {
-        throw new Error('Expected native document file selection')
+      if (options.title !== 'Add files' || options.properties.join(',') !== 'openFile,multiSelections' || options.filters !== undefined) {
+        throw new Error('Expected any-format native artifact file selection')
       }
       return { canceled: false, filePaths: [selectedPath] }
     }
@@ -296,7 +296,61 @@ export async function smokePackagedAttachments({ executable }) {
       })
       imported.id = saved.artifact.id
     }
-    await Promise.all(importedDocuments.map(({ path }) => rm(path)))
+
+    const importedPresentation = {
+      path: join(fixtureRoot, 'native-artifact-slides.pptx'),
+      name: 'native-artifact-slides.slides',
+      body: {
+        type: 'slides',
+        revision: 0,
+        slides: [
+          { title: 'Imported deck title', bullets: ['Opening bullet', 'Revenue\t43'] },
+          { title: 'Final deck title', bullets: ['Closing bullet'] },
+        ],
+      },
+    }
+    await writeFile(importedPresentation.path, pptxFixture({
+      slides: [
+        { shapes: ['Imported deck title', 'Opening bullet'], table: [['Revenue', '43']] },
+        { hidden: true, shapes: ['HIDDEN_SLIDE'] },
+        { shapes: ['Final deck title', 'Closing bullet'] },
+      ],
+    }), { mode: 0o600 })
+    const presentationDialog = await openArtifactImportDialog(page, origin)
+    await presentationDialog.getByRole('combobox', { name: 'Format', exact: true }).selectOption({ label: 'Slides' })
+    await chooseNativeArtifactFile(run.app, presentationDialog, importedPresentation.path)
+    const importedSlides = presentationDialog.getByRole('region', { name: 'Imported slides', exact: true })
+    await expect(importedSlides).toContainText('Imported deck title')
+    await expect(importedSlides).toContainText('Final deck title')
+    await expect(importedSlides).not.toContainText('HIDDEN_SLIDE')
+    await expect(presentationDialog.getByLabel('Slide 1 title', { exact: true })).toHaveValue('')
+    await expect(presentationDialog.getByRole('button', { name: 'Create slides', exact: true })).toBeDisabled()
+    await presentationDialog.getByRole('button', { name: 'Use imported slides', exact: true }).click()
+    await expect(presentationDialog.getByLabel('Slide 1 title', { exact: true })).toHaveValue('Imported deck title')
+    await expect(presentationDialog.getByLabel('Slide 1 bullet 1', { exact: true })).toHaveValue('Opening bullet')
+    await expect(presentationDialog.getByLabel('Slide 1 bullet 2', { exact: true })).toHaveValue('Revenue\t43')
+    await expect(presentationDialog.getByLabel('Slide 2 title', { exact: true })).toHaveValue('Final deck title')
+    await expect(presentationDialog.getByLabel('Slide 2 bullet 1', { exact: true })).toHaveValue('Closing bullet')
+    await expect(presentationDialog.getByLabel('Name', { exact: true })).toHaveValue(importedPresentation.name)
+    await expect(presentationDialog.getByRole('button', { name: 'Create slides', exact: true })).toBeEnabled()
+    await presentationDialog.getByRole('button', { name: 'Create slides', exact: true }).click()
+    await expect(presentationDialog).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: importedPresentation.name, exact: true })).toBeVisible()
+    const savedPresentation = await page.evaluate(async (name) => {
+      const artifactsResponse = await fetch('/api/v1/artifacts')
+      const contentsResponse = await fetch('/api/v1/artifact-content')
+      if (!artifactsResponse.ok || !contentsResponse.ok) throw new Error('Imported presentation reads failed.')
+      const artifacts = await artifactsResponse.json()
+      const contents = await contentsResponse.json()
+      const artifact = artifacts.find((candidate) => candidate.name === name)
+      return { artifact, body: artifact ? contents[artifact.id] : undefined }
+    }, importedPresentation.name)
+    assert.equal(savedPresentation.artifact?.kind, 'slide')
+    assert.deepEqual(savedPresentation.body, importedPresentation.body)
+    importedPresentation.id = savedPresentation.artifact.id
+    console.log('[desktop-artifact-presentation-import-smoke] any-format native dialog result · real PPTX reader + IPC · reviewed visible-slide outline · explicit adoption · exact saved titles and bullets')
+
+    await Promise.all([...importedDocuments.map(({ path }) => rm(path)), rm(importedPresentation.path)])
     console.log('[desktop-artifact-import-smoke] real native reader + IPC · text/PDF/DOCX review · explicit adoption · saved document bodies')
 
     // Markdown export is a renderer download, not a native bridge. Create a real
@@ -667,6 +721,20 @@ export async function smokePackagedAttachments({ executable }) {
       await expect(page.getByRole('heading', { name: imported.name, exact: true })).toBeVisible()
       for (const block of imported.blocks) await expect(page.getByText(block, { exact: true })).toBeVisible()
     }
+    await page.goto(`${origin}/artifacts/${encodeURIComponent(importedPresentation.id)}`)
+    await expect(page.getByRole('heading', { name: importedPresentation.name, exact: true })).toBeVisible()
+    const persistedPresentation = page.locator('[data-structured-artifact-body="slides"]')
+    await expect(persistedPresentation).toContainText('Imported deck title')
+    await expect(persistedPresentation).toContainText('Revenue\t43')
+    await expect(persistedPresentation).toContainText('Final deck title')
+    await expect(persistedPresentation).toContainText('Closing bullet')
+    const restoredPresentationBody = await page.evaluate(async (id) => {
+      const response = await fetch('/api/v1/artifact-content')
+      if (!response.ok) throw new Error('Restored presentation read failed.')
+      return (await response.json())[id]
+    }, importedPresentation.id)
+    assert.deepEqual(restoredPresentationBody, importedPresentation.body)
+    console.log('[desktop-artifact-presentation-import-smoke] exact saved slide identity + body survive full relaunch without source PPTX')
     console.log('[desktop-artifact-import-smoke] exact saved document identities + rendered bodies survive full relaunch without source files')
     await page.goto(`${origin}${sessionPath}`)
     await inspectPair(page, ids)

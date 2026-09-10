@@ -174,10 +174,11 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
   process.env.MODEL_PORT = '1'
   let fixture: Awaited<ReturnType<typeof startMcpFixture>> | undefined
   let stack: Awaited<ReturnType<typeof startMcpRouterStack>> | undefined
+  let disposeProxy: (() => Promise<void>) | undefined
   try {
     fixture = await startMcpFixture({ label: 'Execution fixture' })
     stack = await startMcpRouterStack()
-    await proxyMcpApi(page, stack)
+    disposeProxy = await proxyMcpApi(page, stack)
     const connectionId = await inspectExecutionFixture(page, fixture.url, 'Execution fixture')
     await captureContextsGuidance(page)
     const created = await page.request.post(`${stack.url}/api/v1/sessions`, { data: {} })
@@ -222,7 +223,7 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
     expect(fixture.toolCalls).toHaveLength(1)
   } finally {
     try {
-      await page.unrouteAll({ behavior: 'wait' })
+      await disposeProxy?.()
       await fixture?.close()
     } finally {
       try {
@@ -245,8 +246,8 @@ test('known MCP errors and post-submission uncertainty stay durable without repl
   test.setTimeout(ms(120_000))
   const fixture = await startMcpFixture({ label: 'Outcome fixture', toolBehavior: 'error' })
   const stack = await startMcpRouterStack()
+  const disposeProxy = await proxyMcpApi(page, stack)
   try {
-    await proxyMcpApi(page, stack)
     await inspectExecutionFixture(page, fixture.url, 'Outcome fixture')
     const created = await page.request.post(`${stack.url}/api/v1/sessions`, { data: {} })
     const session = await created.json() as Session
@@ -274,7 +275,7 @@ test('known MCP errors and post-submission uncertainty stay durable without repl
     await expect(persisted).toContainText('won’t be retried automatically')
     await expect(persisted.getByRole('button', { name: 'Retry' })).toHaveCount(0)
     expect(fixture.toolCalls).toHaveLength(2)
-  } finally { await fixture.close(); await stack.close() }
+  } finally { await disposeProxy(); await fixture.close(); await stack.close() }
 })
 
 test('long external labels and result descriptors stay contained at 320px', async ({ page }) => {
@@ -288,8 +289,8 @@ test('long external labels and result descriptors stay contained at 320px', asyn
     resultMimeType: longMime,
   })
   const stack = await startMcpRouterStack()
+  const disposeProxy = await proxyMcpApi(page, stack)
   try {
-    await proxyMcpApi(page, stack)
     await inspectExecutionFixture(page, fixture.url, longLabel)
     const created = await page.request.post(`${stack.url}/api/v1/sessions`, { data: {} })
     const session = await created.json() as Session
@@ -307,7 +308,7 @@ test('long external labels and result descriptors stay contained at 320px', asyn
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await assertWcag22Aa(page, 'long external MCP result 320x700')
     await page.screenshot({ path: '.data/mcp-execution-review/320x700-long-result.png' })
-  } finally { await fixture.close(); await stack.close() }
+  } finally { await disposeProxy(); await fixture.close(); await stack.close() }
 })
 
 test('withheld and rejected tool-card chunks stay local and reload recovers truth', async ({ page }) => {

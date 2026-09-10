@@ -5,6 +5,7 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('system-prompt definitions use one bounded sparse held-draft recovery path', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const form = stripComments(read(join(ROOT, 'src', 'components', 'FormDialog.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'systemPromptDefinitionMutations.ts')))
 
@@ -22,7 +23,9 @@ test('system-prompt definitions use one bounded sparse held-draft recovery path'
     'the editor shares the server prompt-body ceiling')
   assert.match(section, /<fieldset disabled=\{busy\}/,
     'a queued draft cannot change underneath its frozen retry payload')
-  assert.match(section, /const close = \(\) => \{\s*if \(!busy\) onClose\(\)/,
+  assert.match(section, /import \{ FormDialog, FormField \} from '\.\/FormDialog\.tsx'/,
+    'system-prompt dialogs use the guarded shared form')
+  assert.match(form, /const close = \(\) => \{\s*if \(!busy\) onClose\(\)/,
     'Escape, scrim, Close, and Cancel cannot discard a held draft while unresolved')
   assert.match(controller, /createRevisionedMutationController<SystemPromptEntry, SystemPromptDefinitionMutationPatch>/,
     'prompt edits reuse the shared FIFO/reconcile/idempotency mechanism')

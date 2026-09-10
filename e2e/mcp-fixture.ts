@@ -3,7 +3,7 @@ import { once } from 'node:events'
 import { configureMcpRuntime, mcpRuntimeConfiguration } from '../server/mcpRuntime.ts'
 import { sendError } from '../server/http/respond.ts'
 import type { Router } from '../server/http/router.ts'
-import type { Page } from '@playwright/test'
+import type { Page, Route } from '@playwright/test'
 
 const TEST_MODEL_PORT = 8830 + Number(process.env.E2E_SHARD ?? 0)
 const TEST_MODEL_BASE_URL = `http://127.0.0.1:${TEST_MODEL_PORT}`
@@ -16,13 +16,22 @@ function restoreEnv(name: 'AUTH_GATE' | 'ANTHROPIC_BASE_URL' | 'MODEL_PORT', val
 /** Only the event stream is intentionally absent in this request/ack fixture.
  * Ordinary HTTP failures remain loud rather than silently hanging a route. */
 export async function proxyMcpApi(page: Page, stack: { url: string }) {
-  await page.route('**/api/v1/**', async route => {
+  const pattern = '**/api/v1/**'
+  const handler = async (route: Route) => {
     const url = new URL(route.request().url())
-    if (url.pathname === '/api/v1/events') return route.abort()
+    if (url.pathname === '/api/v1/events') {
+      await route.abort()
+      return
+    }
     const { origin: _origin, ...headers } = route.request().headers()
     const response = await route.fetch({ url: `${stack.url}${url.pathname}${url.search}`, headers })
-    await route.fulfill({ response })
-  })
+    const body = await response.body()
+    await route.fulfill({ status: response.status(), headers: response.headers(), body })
+  }
+  await page.route(pattern, handler)
+  // The page and its loss/hold routes belong to this fixture. Drain all active
+  // handlers before their server or Playwright response context is disposed.
+  return () => page.unrouteAll({ behavior: 'wait' })
 }
 
 export interface McpFixture {

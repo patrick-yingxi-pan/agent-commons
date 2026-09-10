@@ -112,7 +112,10 @@ test('composer and provider surfaces project the server-computed execution postu
 })
 
 test('the longer endpoint workflow stays inside the shared scroll-bounded form dialog', () => {
-  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.match(section, /import \{ FormDialog, FormField \} from '\.\/FormDialog\.tsx'/,
+    'endpoint workflows retain the shared form shell')
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'FormDialog.tsx')))
   assert.ok(src.includes('BOUNDED_DIALOG_PANEL_CLASS'), 'the dialog composes the shared viewport-bounded panel')
   assert.ok(src.includes('useBoundedDialog(dialogRef)'), 'the dialog follows the available workspace below shell notices')
   assert.ok(src.includes('BOUNDED_DIALOG_BODY_CLASS'), 'only the shared form body scrolls')

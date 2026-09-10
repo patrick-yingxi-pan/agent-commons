@@ -1,0 +1,190 @@
+import { useEffect, useId, useRef, useState } from 'react'
+import { FileText, Plus } from 'lucide-react'
+import type { Project } from '../data/cowork'
+import {
+  MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
+  authoredArtifact,
+  normalizeArtifactName,
+  type CreateArtifactRequest,
+  type StructuredArtifactBody,
+} from '../../contract/index.ts'
+import { useMe } from '../api/hooks'
+import { enqueueArtifactCreation, heldArtifactCreation, useArtifactCreationStatus, type ArtifactCreationResult } from '../controller/artifactCreationMutations'
+import { ArtifactDocumentImport } from './ArtifactDocumentImport.tsx'
+import { ArtifactPresentationImport } from './ArtifactPresentationImport.tsx'
+import { StructuredArtifactFields } from './StructuredArtifactEditor'
+import { useArtifactDocumentImport } from '../lib/useArtifactDocumentImport.ts'
+import { useArtifactPresentationImport } from '../lib/useArtifactPresentationImport.ts'
+import { FORM_INPUT_CLASS } from '../lib/formInput'
+import { FormDialog, FormField } from './FormDialog.tsx'
+import { KIND_LABEL } from './artifactPreview'
+
+export function NewArtifactDialog({
+  projects,
+  onCreated,
+  onClose,
+}: {
+  projects: Project[]
+  onCreated: (id: string) => void
+  onClose: () => void
+}) {
+  const mutation = useArtifactCreationStatus()
+  const held = heldArtifactCreation()
+  const identity = useMe().data
+  const [initial] = useState(() => held?.intent.request)
+  const [draftName, setName] = useState(initial?.name ?? '')
+  const [draftKind, setKind] = useState<CreateArtifactRequest['kind']>(initial?.kind ?? 'doc')
+  const [draftBody, setBody] = useState(typeof initial?.body === 'string' ? initial.body : '')
+  const [draftSheet, setSheet] = useState<StructuredArtifactBody>(initial?.kind === 'sheet' && typeof initial.body !== 'string' ? initial.body : { type: 'sheet', columns: [''], rows: [['']] })
+  const [draftSlides, setSlides] = useState<StructuredArtifactBody>(initial?.kind === 'slide' && typeof initial.body !== 'string' ? initial.body : { type: 'slides', slides: [{ title: '', bullets: [] }] })
+  const [draftProjectId, setProjectId] = useState<string | null>(initial?.projectId ?? null)
+  // A second open pane sees the actual held request, not its unrelated local
+  // draft wearing a false Creating label. Unsubmitted format drafts stay local.
+  const heldRequest = held?.intent.request
+  const name = heldRequest?.name ?? draftName
+  const kind = heldRequest?.kind ?? draftKind
+  const body = typeof heldRequest?.body === 'string' ? heldRequest.body : draftBody
+  const sheet = heldRequest?.kind === 'sheet' && typeof heldRequest.body !== 'string' ? heldRequest.body : draftSheet
+  const slides = heldRequest?.kind === 'slide' && typeof heldRequest.body !== 'string' ? heldRequest.body : draftSlides
+  const projectId = heldRequest ? heldRequest.projectId ?? null : draftProjectId
+  const [error, setError] = useState<string | null>(null)
+  const tenantId = identity?.tenant.id
+  const busy = held !== null
+  const documentImport = useArtifactDocumentImport(draftKind === 'doc' && !busy)
+  const presentationImport = useArtifactPresentationImport(draftKind === 'slide' && !busy)
+  const documentBodyId = useId()
+  const documentBodyRef = useRef<HTMLTextAreaElement>(null)
+  const structuredFieldsRef = useRef<HTMLFieldSetElement>(null)
+  const waitingForRecovery = busy && !!mutation.error
+  const mounted = useRef(false)
+  const followed = useRef<Promise<ArtifactCreationResult> | null>(null)
+  const createdCallback = useRef(onCreated)
+  createdCallback.current = onCreated
+  const follow = (result: Promise<ArtifactCreationResult>) => {
+    followed.current = result
+    void result.then((settled) => {
+      if (!mounted.current || followed.current !== result) return
+      followed.current = null
+      if (settled.outcome === 'applied') createdCallback.current(settled.artifactId)
+      else setError('Creation was not completed. Your draft is ready to review.')
+    }, () => {
+      if (mounted.current && followed.current === result) {
+        followed.current = null
+        setError('Creation could not start. Your draft is still here; try again. If this persists, copy your draft before reloading.')
+      }
+    })
+  }
+  useEffect(() => {
+    mounted.current = true
+    const pending = heldArtifactCreation()
+    if (pending) follow(pending.result)
+    return () => { mounted.current = false }
+  }, [])
+  const helpId = useId()
+  const close = busy ? () => {} : onClose
+  const normalizedName = normalizeArtifactName(name)
+  const authored = normalizedName && authoredArtifact(normalizedName, kind, kind === 'doc' ? body : kind === 'sheet' ? sheet : slides)
+  const canFileProject = projectId === null || projects.some((project) => project.id === projectId && project.own === true)
+  const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && !presentationImport.reviewing && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
+  const submit = () => {
+    if (canCreate && authored && normalizedName && tenantId) {
+      setError(null)
+      follow(enqueueArtifactCreation({ tenantId, sourceUserId: identity?.via === 'session' ? identity.user.id : null, request: { name: normalizedName, kind, body: authored.draftBody, projectId } }))
+    }
+  }
+
+  return (
+    <FormDialog
+      title="New artifact"
+      icon={<FileText size={18} className="text-cap-workspace" />}
+      submitLabel={waitingForRecovery ? 'Waiting for recovery…' : busy ? 'Creating…' : `Create ${KIND_LABEL[kind].toLowerCase()}`}
+      submitIcon={<Plus size={15} />}
+      canSubmit={canCreate}
+      onSubmit={submit}
+      onClose={close}
+      busy={busy}
+      error={error}
+    >
+      <FormField label="Name">
+        <input
+          value={name}
+          disabled={busy}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={kind === 'doc' ? 'e.g. launch-brief.md' : kind === 'sheet' ? 'e.g. launch-metrics.xlsx' : 'e.g. launch-review.pptx'}
+          aria-invalid={name.length > 0 && !normalizedName}
+          className={FORM_INPUT_CLASS}
+        />
+        {name.length > 0 && !normalizedName && <span role="alert" className="mt-1 block text-[11px] text-removed">Use 1–240 characters without control characters.</span>}
+      </FormField>
+      <FormField label="Format">
+        <select value={kind} disabled={busy} onChange={(event) => {
+          const value = event.target.value
+          if (value === 'doc' || value === 'sheet' || value === 'slide') {
+            documentImport.discard()
+            presentationImport.discard()
+            setKind(value)
+          }
+        }} className={FORM_INPUT_CLASS}>
+          <option value="doc">Document</option>
+          <option value="sheet">Sheet</option>
+          <option value="slide">Slides</option>
+        </select>
+      </FormField>
+      {kind === 'slide' && <ArtifactPresentationImport intake={presentationImport}
+        hasContent={slides.type === 'slides' && (slides.slides.length > 1 || slides.slides.some((slide) => slide.title.length > 0 || slide.bullets.length > 0))}
+        disabled={busy} onUse={() => presentationImport.accept((candidate) => {
+          setSlides(candidate.body)
+          setName((current) => current.trim() ? current : candidate.name)
+          structuredFieldsRef.current?.querySelector('textarea')?.focus()
+        })} />}
+      {kind === 'doc' ? <>
+      <ArtifactDocumentImport intake={documentImport} hasContent={body.length > 0} disabled={busy} onUse={() => documentImport.accept((candidate) => {
+        setBody(candidate.text)
+        setName((current) => current.trim() ? current : candidate.name)
+        documentBodyRef.current?.focus()
+      })} />
+      <FormField label="Content" controlId={documentBodyId}>
+        <textarea
+          id={documentBodyId}
+          ref={documentBodyRef}
+          value={body}
+          disabled={busy}
+          onChange={(e) => setBody(e.target.value)}
+          maxLength={MAX_AUTHORED_DOCUMENT_SOURCE_CHARS}
+          aria-describedby={helpId}
+          rows={9}
+          placeholder="Write the document. Separate paragraphs with a blank line."
+          className={`${FORM_INPUT_CLASS} resize-y leading-relaxed`}
+        />
+        <span id={helpId} className="mt-1 block text-[11px] text-ink-faint">
+          Blank lines become independently editable paragraphs. The index synopsis is derived from this content. About 20,000
+          characters maximum. Whitespace within each paragraph is normalized when saved.
+        </span>
+      </FormField></> : <fieldset ref={structuredFieldsRef} className="min-w-0 space-y-2" aria-describedby={helpId}>
+        <legend className="mb-1.5 text-[12px] font-medium text-ink-soft">Content</legend>
+        <p id={helpId} className="text-[11px] text-ink-faint">
+          {kind === 'sheet' ? 'Name each column and enter literal values. Formulas are not calculated.' : 'Give each slide a title, then add optional bullets.'}
+          {' '}Up to 20,000 characters across this content.
+        </p>
+        <StructuredArtifactFields body={kind === 'sheet' ? sheet : slides} onChange={kind === 'sheet' ? setSheet : setSlides} disabled={busy} />
+        {normalizedName && !authored && <p role="status" className="text-[11px] text-ink-faint">Complete the required labels and keep the content within its size limits to create.</p>}
+      </fieldset>}
+      <FormField label="Project" optional>
+        <select
+          value={projectId ?? ''}
+          disabled={busy}
+          onChange={(e) => setProjectId(e.target.value || null)}
+          className={FORM_INPUT_CLASS}
+        >
+          <option value="">No project</option>
+          {!canFileProject && <option value={projectId ?? ''} disabled>Previously selected project (unavailable)</option>}
+          {projects.filter((project) => project.own === true).map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </FormField>
+    </FormDialog>
+  )
+}

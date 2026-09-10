@@ -45,7 +45,7 @@ when changing the renderer-facing bridge or setup UI.
 ## Verification
 
 The packaged attachment phase also imports text, PDF and DOCX into saved
-Documents through the built New artifact form. Only the native dialog result
+Documents and PPTX into saved Slides through the built New artifact form. Only the native dialog result
 is a fixture; reader/IPC, extraction, review, explicit adoption and keyed
 creation stay real. It verifies exact canonical bodies and reuses its existing
 full app relaunch after deleting the source files. This is not actual OS-dialog
@@ -78,8 +78,10 @@ PDF/Office worker budget is 1,400,000 bytes; UI graph budgets remain unchanged.
 Direct PPTX selection uses the same one-shot bridge, with 8 MiB/file and 24
 MiB/selection limits. ZIP/XML extraction stays in a dedicated renderer worker;
 only bounded visible-slide text and the strict import outcome persist. No PPTX
-archive bytes, paths, notes, layouts, media or presentation semantics cross
-into product state. Packaged acceptance proves the native reader/IPC, emitted
+archive bytes, paths, notes, layouts or media cross into product state. The
+explicit Slides artifact import additionally retains source slide boundaries
+in a transient review snapshot, mapping only a bounded title/bullet outline
+into the ordinary authored body after adoption. Packaged acceptance proves the native reader/IPC, emitted
 worker under production CSP, exact model body and metadata, relaunch without
 the original presentation, and detach.
 

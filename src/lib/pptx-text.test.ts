@@ -1,6 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { slideBodyText, slideIsHidden } from './pptxText.ts'
+import { slideBodyParagraphs, slideBodyText, slideIsHidden } from './pptxText.ts'
+
+test('structural paragraphs preserve original boundaries and marker-looking text', () => {
+  assert.deepEqual(slideBodyParagraphs(slide(`${shape('Slide 99: authored text')}<p:sp>${body('second paragraph')}</p:sp>`)), ['Slide 99: authored text', 'second paragraph'])
+})
 
 const P = 'http://schemas.openxmlformats.org/presentationml/2006/main'
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
