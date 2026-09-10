@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { ImageImportError, importImage } from './imageImport.ts'
 import { IMAGE_MAX_BYTES } from '../../contract/imageInput.ts'
 import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
+import { bitmapFixture, iconFixture } from '../../tests/helpers/bitmapFixture.mjs'
 
 const png = (): Uint8Array => new Uint8Array(imageFixture(2, 2))
 
@@ -26,6 +27,32 @@ test('rejects malformed, oversized, and aborted input before decoding', async ()
   assert.equal(decoded, false)
   const controller = new AbortController(); controller.abort()
   await assert.rejects(() => importImage(png(), controller.signal), (error: unknown) => error instanceof ImageImportError && error.reason === 'aborted')
+})
+
+test('rejects BMP and ICO decoded dimensions that disagree with their admitted container headers', async () => {
+  for (const source of [bitmapFixture(2, 2), iconFixture(2, 2, { png: true })]) {
+    await assert.rejects(() => importImage(source, undefined, {
+      decode: async () => ({ width: 3, height: 2 }),
+    }), (error: unknown) => error instanceof ImageImportError && error.reason === 'invalid')
+  }
+})
+
+test('ICO cancellation and deadline close late decoded bitmaps', async () => {
+  for (const mode of ['abort', 'timeout'] as const) {
+    let release!: (bitmap: { width: number; height: number; close: () => void }) => void
+    let closed = false
+    const pending = new Promise<{ width: number; height: number; close: () => void }>((resolve) => { release = resolve })
+    const controller = new AbortController()
+    const promise = importImage(iconFixture(2, 2, { png: true }), mode === 'abort' ? controller.signal : undefined, {
+      timeoutMs: mode === 'timeout' ? 5 : 15_000,
+      decode: async () => pending,
+    })
+    if (mode === 'abort') controller.abort()
+    await assert.rejects(() => promise, (error: unknown) => error instanceof ImageImportError && error.reason === (mode === 'abort' ? 'aborted' : 'timeout'))
+    release({ width: 2, height: 2, close: () => { closed = true } })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    assert.equal(closed, true, mode)
+  }
 })
 
 test('timeout and abort close late bitmaps and do not wait for an unabortable decoder', async () => {

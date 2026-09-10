@@ -1,8 +1,9 @@
 import { IMAGE_MAX_BYTES, IMAGE_MAX_CONTAINER_BYTES, IMAGE_MAX_DIMENSION, IMAGE_MAX_PIXELS, inspectImageBytes, type ImageSnapshot } from '../../contract/imageInput.ts'
+import { inspectLocalRaster } from './localRasterInput.ts'
 
 export type ImageImportFailure = 'invalid' | 'too-large' | 'decode-failed' | 'timeout' | 'aborted' | 'canvas-unavailable'
 const FAILURE_COPY: Record<ImageImportFailure, string> = {
-  invalid: 'Choose a valid PNG, JPEG, GIF, or WebP image, up to 8,000 pixels per side and 32 megapixels.',
+  invalid: 'Choose a valid PNG, JPEG, GIF, WebP, BMP, or ICO image, up to 8,000 pixels per side and 32 megapixels. For unsupported variants, export as PNG or JPEG.',
   'too-large': 'Choose an image up to 8 MB. Its saved preview must fit within 3 MB.',
   'decode-failed': 'This image could not be opened. Try exporting it as PNG or JPEG.',
   timeout: 'This image took too long to import. Try a smaller image.',
@@ -53,7 +54,7 @@ function encode(canvas: Canvas): Promise<Blob> {
 export async function importImage(bytes: Uint8Array, signal?: AbortSignal, deps: ImageImportDeps = {}): Promise<ImageSnapshot> {
   if (signal?.aborted) throw new ImageImportError('aborted')
   if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > IMAGE_MAX_CONTAINER_BYTES) throw new ImageImportError('too-large')
-  const header = inspectImageBytes(bytes)
+  const header = inspectLocalRaster(bytes)
   if (!header) throw new ImageImportError('invalid')
   const controller = new AbortController()
   let reason: ImageImportFailure = 'aborted'
@@ -74,7 +75,7 @@ export async function importImage(bytes: Uint8Array, signal?: AbortSignal, deps:
   const timeout = deps.timeoutMs ?? 15_000
   const timer = setTimeout(() => cancel('timeout'), Number.isFinite(timeout) && timeout > 0 ? timeout : 15_000)
   const work = async (): Promise<ImageSnapshot> => {
-    const blob = new Blob([new Uint8Array(bytes)], { type: header.mimeType })
+    const blob = new Blob([new Uint8Array(header.bytes)], { type: header.mimeType })
     const decode = deps.decode ?? ((input: Blob) => {
       if (typeof createImageBitmap !== 'function') throw new ImageImportError('decode-failed')
       return createImageBitmap(input)
@@ -84,6 +85,8 @@ export async function importImage(bytes: Uint8Array, signal?: AbortSignal, deps:
     const { width, height } = bitmap
     if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
         width > IMAGE_MAX_DIMENSION || height > IMAGE_MAX_DIMENSION || width * height > IMAGE_MAX_PIXELS) throw new ImageImportError('invalid')
+    if ((header.mimeType === 'image/bmp' || header.mimeType === 'image/x-icon') &&
+        (width !== header.width || height !== header.height)) throw new ImageImportError('invalid')
     const scale = Math.min(1, 2000 / Math.max(width, height), Math.sqrt(4_000_000 / (width * height)))
     let targetWidth = Math.max(1, Math.floor(width * scale))
     let targetHeight = Math.max(1, Math.floor(height * scale))

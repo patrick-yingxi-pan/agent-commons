@@ -11,6 +11,7 @@ import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
 import { pptxFixture } from '../tests/helpers/pptxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
+import { bitmapFixture, iconFixture } from '../tests/helpers/bitmapFixture.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -1122,45 +1123,92 @@ export async function smokePackagedAttachments({ executable }) {
     const currentInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
     assert.equal(JSON.stringify(currentInput).includes('native-pdf-body'), false, 'detach removes current attachment input, not previous assistant history')
     console.log('[desktop-pdf-smoke] real native PDF bytes + IPC · packaged worker extraction · model text metadata · full relaunch without source PDF · detach')
-    const imagePath = join(fixtureRoot, 'native-image.png')
-    await writeFile(imagePath, imageFixture(240, 120), { mode: 0o600 })
+    const imageInputs = [
+      { name: 'native-image.png', bytes: imageFixture(240, 120), width: 240, height: 120 },
+      { name: 'native-image.bmp', bytes: bitmapFixture(160, 80), width: 160, height: 80 },
+      { name: 'native-image.ico', bytes: iconFixture(96, 64), width: 96, height: 64 },
+    ].map((input) => ({ ...input, path: join(fixtureRoot, input.name) }))
+    await Promise.all(imageInputs.map(({ path, bytes }) => writeFile(path, bytes, { mode: 0o600 })))
     await run.app.evaluate(({ dialog }, path) => {
       dialog.showOpenDialog = async (_owner, options) => {
-        if (!options.properties.includes('openFile')) throw new Error('Expected image file selection')
-        return { canceled: false, filePaths: [path] }
+        if (!options.properties.includes('openFile') || !options.properties.includes('multiSelections')) throw new Error('Expected image file selection')
+        return { canceled: false, filePaths: path }
       }
-    }, imagePath)
+    }, imageInputs.map(({ path }) => path))
     const imagePicker = await openFilesPicker(page)
     await imagePicker.getByRole('button', { name: /Add files from this computer/ }).click()
     const imagePreview = page.locator('[data-attachment-preview]')
     await expect(imagePreview).toHaveAttribute('data-attachment-input-status', 'image-ready')
-    await expect.poll(() => imagePreview.locator('img').last().evaluate((image) => image.complete && image.naturalWidth === 240)).toBe(true)
-    const imageId = await imagePreview.getAttribute('data-attachment-preview')
-    const storedImage = await page.evaluate(async (id) => {
+    await expect.poll(() => page.locator('[data-attachment-image-ready="3"]').count()).toBe(1)
+    await expect.poll(() => imagePreview.locator('img').last().evaluate((image) => image.complete && [240, 160, 96].includes(image.naturalWidth))).toBe(true)
+    const imageRefs = await page.evaluate(async (id) => {
       const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
-      return detail.workspace.attachments.find((attachment) => attachment.image)
+      return detail.workspace.attachments.filter((attachment) => attachment.image).map((attachment) => ({
+        id: attachment.id, label: attachment.label, image: attachment.image, previewUrl: attachment.previewUrl,
+      }))
     }, pdfSession.id)
-    assert.equal(storedImage.previewUrl, undefined)
-    assert.equal(storedImage.image.data, undefined)
-    assert.equal(storedImage.image.width, 240)
+    assert.equal(imageRefs.length, imageInputs.length)
+    assert.equal(new Set(imageRefs.map(({ image }) => image.id)).size, imageInputs.length)
+    for (const { image, previewUrl } of imageRefs) {
+      assert.match(image.id, /^img-[a-f0-9]{64}$/)
+      assert.equal(image.mimeType, 'image/png')
+      assert.equal(image.data, undefined)
+      assert.equal(previewUrl, undefined)
+      assert.deepEqual(Object.keys(image).sort(), ['byteLength', 'height', 'id', 'mimeType', 'width'])
+    }
+    assert.deepEqual(imageRefs.map(({ label }) => label), imageInputs.map(({ name }) => name))
+    for (const [{ image }, { width, height }] of imageRefs.map((entry, index) => [entry, imageInputs[index]])) {
+      assert.equal(image.mimeType, 'image/png')
+      assert.equal(image.width, width)
+      assert.equal(image.height, height)
+    }
+    const imageIdByName = new Map(imageRefs.map(({ id, label }) => [label, id]))
+    const authorizedImageData = await page.evaluate(async (ids) => {
+      const encoded = []
+      for (const id of ids) {
+        const response = await fetch(`/api/v1/image-assets/${encodeURIComponent(id)}/content`)
+        if (!response.ok) throw new Error(`Image asset content fetch failed: HTTP ${response.status}`)
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        let binary = ''
+        for (const byte of bytes) binary += String.fromCharCode(byte)
+        encoded.push(btoa(binary))
+      }
+      return encoded
+    }, imageRefs.map(({ image }) => image.id))
+    assert.deepEqual(imageRefs.map(({ image }) => image.byteLength), authorizedImageData.map((data) => Buffer.from(data, 'base64').byteLength))
     await closePreview(page)
-    await send(page, 'Describe the native image.', 'Received 1 supplied image(s).')
+    await send(page, 'Describe the native images.', 'Received 3 supplied image(s).')
     const imageBlocks = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
-    assert.equal(imageBlocks.filter((block) => block.type === 'image').length, 1)
-    assert.equal(imageBlocks.find((block) => block.type === 'image').source.media_type, 'image/png')
-    assert.equal(JSON.stringify(endpoint.requests).includes(imagePath), false)
+    const sentImageBlocks = imageBlocks.filter((block) => block.type === 'image')
+    assert.equal(sentImageBlocks.length, imageInputs.length)
+    assert.deepEqual(sentImageBlocks.map((block) => block.source.media_type), imageRefs.map(({ image }) => image.mimeType))
+    assert.deepEqual(sentImageBlocks.map((block) => block.source.data), authorizedImageData)
+    assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
     await run.app.close()
     run = undefined
-    await rm(imagePath)
+    await Promise.all(imageInputs.map(({ path }) => rm(path)))
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
     await page.goto(`${origin}${pdfRoute}`)
-    await page.getByTitle('Open in sidebar').filter({ hasText: 'native-image.png' }).click()
-    const restoredImage = page.locator('[data-attachment-preview]')
-    await expect(restoredImage).toHaveAttribute('data-attachment-preview', imageId)
-    await expect.poll(() => restoredImage.locator('img').last().evaluate((image) => image.complete && image.naturalWidth === 240)).toBe(true)
-    await page.getByRole('button', { name: 'Remove photo', exact: true }).click()
-    await send(page, 'Check detached image.', 'No supplied attachment text.')
+    const restoredImages = await page.evaluate(async (id) => {
+      const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
+      return detail.workspace.attachments.filter((attachment) => attachment.image).map((attachment) => ({ id: attachment.id, label: attachment.label, image: attachment.image }))
+    }, pdfSession.id)
+    assert.deepEqual(restoredImages.map(({ label, image }) => ({ label, image })), imageRefs.map(({ label, image }) => ({ label, image })))
+    for (const [index, { name, width, height }] of imageInputs.entries()) {
+      const remaining = imageInputs.length - index
+      if (remaining > 1) {
+        await page.getByTitle(`Photos (${remaining})`, { exact: true }).click()
+        await page.getByRole('menu', { name: 'Photos', exact: true }).getByRole('button', { name, exact: true }).click()
+      } else {
+        await page.getByTitle('Open in sidebar', { exact: true }).filter({ hasText: name }).click()
+      }
+      const restoredPreview = page.locator('[data-attachment-preview]')
+      await expect(restoredPreview).toHaveAttribute('data-attachment-preview', imageIdByName.get(name))
+      await expect.poll(() => restoredPreview.locator('img').last().evaluate((image, expected) => image.complete && image.naturalWidth === expected.width && image.naturalHeight === expected.height, { width, height })).toBe(true)
+      await page.getByRole('button', { name: 'Remove photo', exact: true }).click()
+    }
+    await send(page, 'Check detached images.', 'No supplied attachment text.')
     const detachedInput = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
     assert.equal(typeof detachedInput, 'string', 'detachment excludes image blocks from future turns')
     console.log('[desktop-image-smoke] real native image bytes + IPC · renderer raster conversion · durable asset upload · model image blocks · full relaunch without source · detach')

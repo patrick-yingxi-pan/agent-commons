@@ -20,7 +20,41 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint adds CSV/TSV-to-Sheet import through the existing bounded
+The current checkpoint adds bounded BMP/ICO local image attachments through
+the existing browser and Electron picker, preview, durable upload and model
+input workflow. It recognizes CORE RGB depths 1/4/8/24, INFO/V2/V3/V4/V5 RGB
+depths 1/4/8/16/24/32 and 16/32-bit BITFIELDS, plus ICO files with disjoint PNG/DIB
+entries and deterministic largest-area/depth/file-order selection. Inputs remain
+transient and durable image snapshots remain PNG/JPEG/GIF/WebP after the
+existing ≤2,000 px/≤3 MiB normalization. The 8 MiB raw, 24 MiB selection,
+8,000 px, 32 megapixel and 15-second abort/decode bounds are unchanged. Focused
+tests cover malformed/truncated, mask/palette, directory, overlap, cursor and
+selection cases. The browser codec matrix decodes 86 real BMP/ICO cases and
+checks normalized dimensions and colored pixels. Reversing the actual ICO
+area, depth and directory-order choices was watched fail before restoration,
+as was reading the V5 linked-profile marker from the wrong header field.
+Microsoft's header confirms the existing color-space field and numeric marker;
+the implementation needed no change for that review concern. The complete
+five-lane verifier passed all 374 browser tests, the complete Node suite,
+type checking and the production build under unchanged budgets. The frozen-tree
+responsive sweep passed 135/135 cells with zero violations or skips. All 137
+fresh sweep originals and 25 focused PNG/BMP/ICO, shared-view and error originals
+were individually reviewed at full resolution with no remaining findings.
+Unsigned arm64 packaging and every executable smoke phase passed. A single
+native PNG/BMP/ICO batch proves real selected-file reads and IPC, normalization,
+exact authorized model bytes, full relaunch after deleting all source files,
+exact asset-reference preservation, restored previews and independent detach.
+Native results still simulate the OS dialog; manual dialog, signing/notarization,
+Intel and paid-provider acceptance remain separate gates. The new harness was
+corrected to pass dimensions into its browser callback and use the actual
+grouped Photos menu as the batch shrinks; no product behavior or budgets changed.
+The shared light desktop preview has all six demo accounts stacked, with Ada
+active on the local Photos intake surface.
+No Image-artifact retention or original-image persistence decision is made.
+Workbook identity, image original retention, and document-edit CAS remain
+pending owner decisions.
+
+The preceding checkpoint adds CSV/TSV-to-Sheet import through the existing bounded
 local reader and shared review/adoption ceremony. Quoting and literal values are
 preserved; first-row column names versus generated headers are an explicit review
 choice. Malformed, ragged or oversized input is rejected without partial adoption.
@@ -46,6 +80,10 @@ and adoption, exact saved identities/bodies, and a full app relaunch after the
 source files are deleted. Native picker results are still simulated by this
 harness; actual OS-dialog, signing/notarization, Intel and paid-provider
 acceptance are not claimed.
+
+The CSV/TSV checkpoint is recorded at `e9f8dc4`. GitHub run `34465411546`
+failed before workflow steps because of account-billing annotations; that is an
+external gate failure, not a code failure in the checkpoint.
 
 The first complete run exposed two existing test races: a 50 ms credential
 test timeout competed with `setImmediate`, and a read-only MCP proxy could

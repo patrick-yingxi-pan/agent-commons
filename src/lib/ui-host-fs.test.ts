@@ -7,6 +7,7 @@ import { MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../../contract/xl
 import { MAX_PPTX_FILE_BYTES, MAX_PPTX_SELECTION_BYTES } from '../../contract/pptxImport.mjs'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPicker } from './uiHostFs.ts'
 import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
+import { bitmapFixture, iconFixture } from '../../tests/helpers/bitmapFixture.mjs'
 
 const dropped = (files: File[]): FileList => files as unknown as FileList
 
@@ -221,6 +222,34 @@ test('the UI-host adapter prefers Electron selected-file previews without learni
   assert.ok(selected[1]?.id && selected[1].id !== selected[1].name)
   assert.notEqual(selected[0]?.id, selected[1]?.id)
   assert.deepEqual(calls, ['any'])
+})
+
+test('browser BMP and ICO intake normalizes transient photos while preserving opaque identities', async (t) => {
+  t.after(installImageGlobals())
+  const selected = await readDroppedFiles(dropped([
+    new File([bitmapFixture(2, 2)], 'source.BMP', { type: 'image/bmp' }),
+    new File([iconFixture(2, 2, { png: true })], 'icon.ICO', { type: 'image/x-icon' }),
+  ]), 'image')
+  assert.deepEqual(selected.map((file) => file.name), ['source.BMP', 'icon.ICO'])
+  assert.ok(selected.every((file) => file.kind === 'photo' && file.imageInput && file.id && file.id !== file.name))
+  assert.ok(selected.every((file) => file.imageInput?.mimeType === 'image/png'))
+  assert.notEqual(selected[0]?.id, selected[1]?.id)
+})
+
+test('native BMP and ICO previews are admitted, normalized, and remain path-free', async (t) => {
+  t.after(installImageGlobals())
+  const bmp = bitmapFixture(2, 2); const ico = iconFixture(2, 2, { png: true })
+  const scope: DesktopBridgeScope = { agentCommonsDesktop: { context: {
+    pickFiles: async () => ({ status: 'selected' as const, files: [
+      { name: 'source.BMP', kind: 'photo' as const, sizeBytes: bmp.byteLength, previewDataUrl: `data:image/bmp;base64,${Buffer.from(bmp).toString('base64')}` },
+      { name: 'icon.ICO', kind: 'photo' as const, sizeBytes: ico.byteLength, previewDataUrl: `data:image/x-icon;base64,${Buffer.from(ico).toString('base64')}` },
+    ] }),
+    pickFolder: async () => ({ status: 'cancelled' as const }),
+  } } }
+  const selected = await pickUiHostFiles('image', scope)
+  assert.deepEqual(selected.map((file) => file.name), ['source.BMP', 'icon.ICO'])
+  assert.ok(selected.every((file) => file.kind === 'photo' && file.imageInput?.mimeType === 'image/png'))
+  assert.doesNotMatch(JSON.stringify(selected), /private|previewDataUrl/)
 })
 
 test('native picks keep same-basename files distinct across bodies and subsequent selections', async () => {
@@ -500,7 +529,7 @@ test('browser PDF limits are classified before reading bytes, including Photos r
   assert.equal(4 * MAX_PDF_FILE_BYTES > MAX_PDF_SELECTION_BYTES, true)
 
   reads = 0
-  await assert.rejects(() => readDroppedFiles(dropped([oversized]), 'image'), /Choose a PNG/)
+  await assert.rejects(() => readDroppedFiles(dropped([oversized]), 'image'), /Choose a PNG.*BMP.*ICO/)
   assert.equal(reads, 0)
 })
 

@@ -837,7 +837,7 @@ function UiHostDropZone({
       </button>
       {importing && <p role="status" className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Importing selected files… Close this picker to cancel.</p>}
       {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Documents (.pdf, .docx, .xlsx, .pptx): up to 8 MB each, 24 MB combined per selection. Only extracted text up to 64 KB per file is saved. PDFs: up to 100 pages; images, layout and OCR are not included. Excel: visible cell values only; formulas are not calculated. PowerPoint: slide text only; speaker notes and hidden slides are excluded.</p>}
-      <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PNG, JPEG, GIF or WebP: up to 8 MB each, 24 MB per selection. Images are saved as a resized PNG of the first frame.</p>
+      <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PNG, JPEG, GIF, WebP, BMP or ICO: up to 8 MB each, 24 MB per selection. Images are saved as a resized PNG of the first frame; ICO uses its largest image.</p>
       {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
     </div>
   )

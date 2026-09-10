@@ -18,11 +18,13 @@ the first frame to PNG (2,000 px maximum edge, ≤3 MiB), and persists immutable
 tenant-scoped asset references through SQL and portable backups. Model turns are
 bounded to 8 images/8 MiB; endpoint and negotiated relay/MCP image blocks are
 real boundary work. Owner context walls and shared-view image reads are real.
-Structural validation is not complete codec decoding. Protocol and persistence
+Raw local admission also validates bounded RGB BMP CORE/INFO/V2/V3/V4/V5
+variants and ICO PNG/DIB entries, but those bytes remain transient and do not
+become durable image MIME types. Structural validation is not complete codec decoding. Protocol and persistence
 locks, packaged executable smoke, and the complete responsive sweep exercise
 this boundary. Automated repository and packaged-executable verification cover
 the implemented path; they do not by themselves claim a completed manual macOS
-picker handoff. OCR, SVG/BMP/ICO, other documents, live folder/Git, remote input,
+picker handoff. OCR, SVG, RLE/embedded BMP variants, other documents, live folder/Git, remote input,
 paid-provider acceptance, and manual OS-dialog acceptance remain outside this
 milestone. A public native release additionally still requires the signed,
 notarized two-architecture release gate.

@@ -167,7 +167,7 @@ function PhotoBody({
         </PhotoThumb>
 
         <p className="mt-2 text-[11px] leading-snug text-ink-faint">{attachmentInputCopy(status)}</p>
-        {item.image && <p className="mt-1 text-[11px] leading-snug text-ink-faint">Saved {item.image.width} × {item.image.height} image. Local imports save a PNG copy of the first frame.</p>}
+        {item.image && <p className="mt-1 text-[11px] leading-snug text-ink-faint">Saved {item.image.width} × {item.image.height} image. Local imports save a PNG copy of the first frame (largest image for ICO).</p>}
 
         {onRemove && <button
           onClick={() => onRemove(item.id)}
@@ -232,7 +232,7 @@ function FileBody({
       <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
         <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
         {item.documentImport && <p data-document-import={item.documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{documentImportCopy(item.documentImport)}</p>}
-        {item.image && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG; the selected model must support vision to use this image.</p>}
+        {item.image && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG (largest image for ICO); the selected model must support vision to use this image.</p>}
         {content.isImage ? (
           <>
             <div className="mb-2 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">

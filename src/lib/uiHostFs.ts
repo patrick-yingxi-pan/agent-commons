@@ -46,7 +46,7 @@ export interface UiHostFile {
 }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
-const IMPORTABLE_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp'])
+const IMPORTABLE_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico'])
 const SHEET_EXTS = new Set(['csv', 'tsv', 'xlsx', 'xls'])
 const SLIDE_EXTS = new Set(['key', 'ppt', 'pptx'])
 
@@ -76,7 +76,7 @@ function rejectedArtifactSelection(files: readonly { name: string }[], accept: U
 
 function previewBytes(url: string): Uint8Array {
   if (typeof url !== 'string' || url.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 + 32 ||
-      !/^data:image\/(png|jpeg|gif|webp);base64,/.test(url)) throw new ImageImportError('invalid')
+      !/^data:image\/(png|jpeg|gif|webp|bmp|x-icon);base64,/.test(url)) throw new ImageImportError('invalid')
   const encoded = url.slice(url.indexOf(',') + 1)
   let binary: string
   try { binary = atob(encoded) } catch { throw new ImageImportError('invalid') }
@@ -97,7 +97,7 @@ const PICKER_FAILURE: Record<DesktopContextPickerRejection, string> = {
   'too-many-files': 'Choose no more than 24 files at a time.',
   'too-many-folder-entries': 'Choose a folder with no more than 500 top-level items.',
   unreadable: 'The selected items could not be read. Check their permissions and try again.',
-  'unsupported-image': 'Choose a PNG, JPEG, GIF, or WebP image.',
+  'unsupported-image': 'Choose a PNG, JPEG, GIF, WebP, BMP, or ICO image.',
 }
 
 export class UiHostPickerError extends Error {
