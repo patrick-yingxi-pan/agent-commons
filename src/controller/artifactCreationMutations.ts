@@ -20,6 +20,12 @@ const loadRuntime = createRetryableRuntimeLoader<Runtime>(
   (loaded) => { runtime = loaded },
 )
 
+/** Load the complete save/recovery path before the form accepts draft input.
+ * A rejected browser module URL cannot be healed by clearing a Promise alone;
+ * the deferred form boundary owns the explicit reload ceremony. No intent or
+ * backend write is created by admission. */
+export const prepareArtifactCreation = (): Promise<Runtime> => loadRuntime()
+
 onAccountSwitch(() => {
   accountGeneration += 1
   held = null

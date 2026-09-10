@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 import { createRetryableRuntimeLoader } from './retryableRuntimeLoader.ts'
 
-test('a rejected Artifact creation runtime load leaves the facade cache able to retry', async () => {
+test('the Artifact facade coalesces loads without claiming browser module-cache recovery', async () => {
   const loaded = { runtime: 'ready' }
   let attempts = 0
   let accepted = 0
@@ -28,4 +28,6 @@ test('a rejected Artifact creation runtime load leaves the facade cache able to 
     'the Artifact facade imports the shared framework-free loader')
   assert.match(facade, /createRetryableRuntimeLoader<Runtime>\([\s\S]*import\('\.\/artifactCreationMutationRuntime\.ts'\)/,
     'the production Artifact facade uses the retryable cache around its runtime import')
+  assert.match(facade, /export const prepareArtifactCreation = \(\): Promise<Runtime> => loadRuntime\(\)/,
+    'form admission shares the actual runtime load, not a duplicate or no-op readiness check')
 })

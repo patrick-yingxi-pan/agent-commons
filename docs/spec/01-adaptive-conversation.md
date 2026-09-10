@@ -16,10 +16,13 @@ responsive checks, without weakening their focus, highlight, or layout assertion
 
 ADAPT-31/35/36 share `src/components/NewArtifactDialog.tsx`, admitted on demand
 by `src/components/DeferredNewArtifactDialog.tsx` before draft input exists.
-Its loading/failure states reuse `src/components/FormDialog.tsx`, preserve safe
+Admission waits for both the dialog module and the actual shared artifact-creation
+runtime before mounting fields; it never triggers a mutation. Its loading/failure
+states reuse `src/components/FormDialog.tsx`, preserve safe
 Close/Cancel, and offer an explicit full reload with unsent-workspace guidance
-after a real rejected module URL. `e2e/artifact-import-recovery.spec.ts` locks
-that browser recovery; all saved/held creation semantics stay unchanged.
+after a real rejected module URL. `e2e/artifact-import-recovery.spec.ts` and
+`e2e/artifact-runtime-recovery.spec.ts` lock actual browser module rejection and
+recovery; all saved/held creation semantics stay unchanged.
 
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|

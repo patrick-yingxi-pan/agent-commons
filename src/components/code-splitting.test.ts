@@ -64,3 +64,12 @@ test('global search stays behind an announced, dismissible lazy boundary', () =>
   assert.match(deferred, /useFocusTrap\(dialogRef, onClose, \{ initialFocus: closeRef \}\)/,
     'late loading failure cannot arm Enter to reload unsent work')
 })
+
+test('artifact form admission includes the complete mutation runtime before editable input', () => {
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredNewArtifactDialog.tsx')))
+  assert.match(deferred, /import \{ prepareArtifactCreation \} from '\.\.\/controller\/artifactCreationMutations\.ts'/)
+  assert.match(deferred, /lazy\(\(\) => Promise\.all\(\[\s*import\('\.\/NewArtifactDialog\.tsx'\),\s*prepareArtifactCreation\(\),\s*\]\)\.then/,
+    'the lazy form waits for both its display and actual save/recovery runtime')
+  assert.match(deferred, /window\.location\.reload\(\)/,
+    'failed browser module URLs recover by explicit document navigation')
+})

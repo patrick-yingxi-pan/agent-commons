@@ -20,7 +20,30 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint adds Download Word beside Markdown for saved Documents
+The latest runtime-admission checkpoint closes a demonstrated New artifact
+failure: the form now waits for both the lazy dialog module and the actual
+shared creation runtime before mounting fields, so a rejected runtime remains
+closeable/reloadable and cannot start a mutation during admission. The new
+failure-first browser lock observed the old path fail (opening the form made
+zero runtime requests where one was required); the source lock also failed
+when the preparation call was removed. Focused type and Node tests passed.
+Final acceptance passed the complete five-lane verifier: all 369 browser tests,
+the complete Node suite, type checking and the production build under unchanged
+byte budgets. The frozen-tree responsive sweep passed 135/135 cells with zero
+violations or skips. All 137 fresh sweep originals and 15 focused loading,
+failure and recovered-form originals were individually reviewed at full
+resolution with no remaining findings. Live keyboard checks confirmed that
+short-screen form fields scroll fully above the persistent footer; clipped
+offscreen content was not an overlap defect. Unsigned arm64 packaging and every
+executable smoke phase passed, including creation, Office downloads, credentials,
+relaunch, managed backup, input and MCP schema checks. Native picker results
+remain simulated where recorded by the harness; actual OS-dialog, signed/
+notarized, Intel and paid-provider acceptance are not claimed.
+Workbook tabs versus separate artifacts and account/workspace versus device
+appearance persistence remain owner decisions; no production-ready claim is
+made here.
+
+The preceding checkpoint added Download Word beside Markdown for saved Documents
 and email artifacts. A fresh exact-ID read snapshots current saved content,
 preserves ordered title/headings/prose/lists/code/email text in editable DOCX,
 and rechecks visibility after serialization. Both actions share edit and
@@ -47,6 +70,7 @@ actual Word download whose disk bytes match a fresh authenticated descriptor.
 Existing credential, relaunch, backup, input and schema checks remain green.
 Picker results are simulated where recorded by the native harness; this is not
 actual OS-dialog, signing/notarization, Intel or paid-provider acceptance.
+The Word checkpoint at `1ce88ca` passed GitHub run `34453295428`.
 
 The first complete plan passed all 368 browser tests but caught a source-lock
 literal being interpreted as a real suite-relative import; the assertion now
@@ -231,10 +255,10 @@ export, input and MCP schema-worker checks also passed. This is not signing,
 notarization, native Intel, paid-provider or complete actual OS-dialog evidence.
 
 Current shared-browser handoff leaves all six demo accounts stacked with Ada
-active on the saved insights-onepager.md Document in a desktop/light viewport,
-with Word and Markdown visible. Live Document and email downloads were reviewed
-without changing saved content; Ada's Acid Plum palette and three overrides
-remain intact. Isolated browser tests cover Ada's owner, Grace's
+active on Artifacts in a desktop/light viewport. The New artifact form was
+reviewed and cancelled without saving sample content; Ada's Acid Plum palette
+and three overrides remain intact. The admission states are account-neutral;
+existing isolated creation and download tests cover Ada's owner, Grace's
 shared-reader and Maya's foreign-account faces. The Mac is currently locked,
 which does not block in-app browser review but prevents a fresh actual OS-dialog
 ceremony. Earlier native OS-dialog acceptance remains qualified as recorded

@@ -2,8 +2,14 @@ import { Component, lazy, Suspense, type ComponentProps, type ReactNode } from '
 import { FileText } from 'lucide-react'
 import { FormDialog } from './FormDialog.tsx'
 import type { NewArtifactDialog } from './NewArtifactDialog.tsx'
+import { prepareArtifactCreation } from '../controller/artifactCreationMutations.ts'
 
-const Dialog = lazy(() => import('./NewArtifactDialog.tsx').then((module) => ({ default: module.NewArtifactDialog })))
+// The editable surface and its save/recovery code form one admission boundary.
+// Fetch both concurrently, but expose no draft fields until both are ready.
+const Dialog = lazy(() => Promise.all([
+  import('./NewArtifactDialog.tsx'),
+  prepareArtifactCreation(),
+]).then(([module]) => ({ default: module.NewArtifactDialog })))
 type Props = ComponentProps<typeof NewArtifactDialog>
 
 /** Admission is before the first editable field. A rejected browser module URL
