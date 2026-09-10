@@ -20,16 +20,24 @@ bounded to 8 images/8 MiB; endpoint and negotiated relay/MCP image blocks are
 real boundary work. Owner context walls and shared-view image reads are real.
 Structural validation is not complete codec decoding. Protocol and persistence
 locks, packaged executable smoke, and the complete responsive sweep exercise
-this boundary. Final repository verification gates landing; the shared preview
-handoff awaits an unlocked Mac. OCR, SVG/BMP/ICO, other documents, live folder/Git, remote
-input, paid-provider acceptance, and manual OS-dialog/native release acceptance
-remain outside this milestone.
+this boundary. Automated repository and packaged-executable verification cover
+the implemented path; they do not by themselves claim a completed manual macOS
+picker handoff. OCR, SVG/BMP/ICO, other documents, live folder/Git, remote input,
+paid-provider acceptance, and manual OS-dialog acceptance remain outside this
+milestone. A public native release additionally still requires the signed,
+notarized two-architecture release gate.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values
 under exact artifact identities. The model proposes those values for consent;
 one shared renderer shows them before and after saving. They never borrow seed
-bodies. This is not spreadsheet calculation, native Office export, layout/media
-authoring, or structured routine delivery; those remain required follow-on work.
+bodies. Saved literal sheets and slides export through the authenticated boundary
+as real XLSX and PPTX packages, and packaged-executable smoke verifies their exact
+downloaded bytes. Standing routine approval and the guarded model loop likewise
+deliver bounded Document, Sheet, or Slides bodies under a frozen explicit format
+and name (REL-13 / MODEL-29). None of this implies spreadsheet calculation,
+formula execution, arbitrary slide layout or media authoring, imported Office
+fidelity, paid-provider acceptance, or a signed/notarized two-architecture release;
+those remain required work.
 
 ## The declared fixtures (L2)
 

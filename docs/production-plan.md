@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-09-09. The standing goal remains production readiness for Agent
+Reviewed 2026-09-10 UTC. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -23,8 +23,19 @@ milestones or address a demonstrated defect.
 Shared-browser handoff was restored on 2026-09-08: all six demo accounts are
 stacked and Ada is active on a saved sheet after exercising its XLSX download.
 Older checkpoint notes below describe the Mac lock at that time; it no longer
-blocks shared preview review. Manual native OS-dialog and Excel-application
-acceptance remain separate, unverified checks.
+blocks shared preview review. Native OS-dialog acceptance has since advanced as
+recorded below; Excel-application acceptance remains a separate unverified check.
+
+The [2026-09-10 native-context review](acceptance/native-context-2026-09-10.md)
+used the unsigned arm64 packaged app and actual macOS Files, Photos, and Folder
+dialogs. Cancellation, text/PDF/DOCX/XLSX/PPTX/image/folder import and preview,
+model delivery, and full relaunch with the original input paths absent passed.
+Exact stored identities/content and the model's text/image payload survived.
+Independent native detach passed for Markdown, DOCX, and PDF; XLSX, PPTX, image,
+folder detach and the final post-detach turn remain unverified after native
+control became unavailable. This is qualified development-artifact evidence, not
+a complete native matrix, a paid-provider pass, or a signed two-architecture
+release. No dialog policy was changed to accommodate the automation surface.
 
 Shared editor review resumed on 2026-09-09 after the Mac became available. A
 fresh tab preserves all six stacked accounts with Ada active, a desktop/light

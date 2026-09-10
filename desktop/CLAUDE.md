@@ -82,6 +82,11 @@ profile; its mock-keychain switches cannot replace the ordinary executable
 smoke's OS-backed storage proof. Native OS-dialog interaction and paid-provider
 acceptance remain separate manual gates.
 
+The dated [native-context acceptance record](../docs/acceptance/native-context-2026-09-10.md)
+adds actual macOS selection/cancellation and source-absent relaunch evidence for
+the unsigned arm64 development artifact. Its remaining native-detach cells are
+explicitly unverified; it is not a complete manual or signed-release receipt.
+
 Run `node --test "desktop/**/*.test.ts"`, then `npm run desktop:verify`. The MCP
 phase proves real OS-backed token replacement/relaunch, secret exclusion,
 durable disconnect despite a real vault-write failure, explicit cleanup Retry,
