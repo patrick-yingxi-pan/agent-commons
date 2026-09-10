@@ -41,8 +41,8 @@ test('native file selection returns bounded previews without paths or handles', 
   assert.deepEqual(dialogs, [{ title: 'Add files', properties: ['openFile', 'multiSelections'] }])
 })
 
-test('native BMP and ICO selections use their exact bounded image MIME previews', async () => {
-  const paths = ['/private/work/source.BMP', '/private/work/icon.ICO']
+test('native BMP, ICO and SVG selections use their exact bounded image MIME previews', async () => {
+  const paths = ['/private/work/source.BMP', '/private/work/icon.ICO', '/private/work/vector.SVG']
   const payloads = new Map(paths.map((path, index) => [path, Buffer.from(index === 0 ? [1, 2, 3] : [4, 5])]))
   const dialogs: unknown[] = []
   const picker = createNativeContextPicker({
@@ -59,6 +59,7 @@ test('native BMP and ICO selections use their exact bounded image MIME previews'
     files: [
       { name: 'source.BMP', kind: 'photo', sizeBytes: 3, previewDataUrl: 'data:image/bmp;base64,AQID' },
       { name: 'icon.ICO', kind: 'photo', sizeBytes: 2, previewDataUrl: 'data:image/x-icon;base64,BAU=' },
+      { name: 'vector.SVG', kind: 'photo', sizeBytes: 2, previewDataUrl: 'data:image/svg+xml;base64,BAU=' },
     ],
   })
   assert.deepEqual(dialogs, [{ title: 'Add photos', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Images', extensions: ['bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp'] }] }])

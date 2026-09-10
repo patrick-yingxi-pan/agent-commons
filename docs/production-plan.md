@@ -20,7 +20,41 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint adds bounded BMP/ICO local image attachments through
+The current checkpoint adds self-contained static SVG local image input through
+the existing Photos workflow. XML is admitted in the shared isolated parser
+worker under 8 MiB/8,000 px/32 megapixel and 10,000-node/64-depth/50,000-expanded-use
+bounds, then decoded as a detached image and normalized under the existing
+15-second total deadline and 2,000 px/3 MiB PNG limits. Scripts, animation,
+external resources, malformed geometry and recursive reuse fail visibly;
+static embedded PNG/JPEG share a 32-megapixel aggregate budget, and local
+gradients/clipping/styles remain supported.
+No original SVG or inline markup is retained and no native authority/API is added.
+Malformed percentage geometry was watched fail before correction. Removing the
+actual closed-result validation, worker termination and object-URL cleanup each
+failed the new locks before restoration. Acceptance requires the frozen-tree
+browser, full verifier, responsive and unsigned arm64 runs, including real colored
+SVG pixels, durable/model references, rejection without external requests, and
+native relaunch after the source files are deleted. Manual OS-dialog, paid-provider,
+signed/notarized and Intel release evidence remain distinct external gates.
+The first native SVG run caught a stale three-image readiness assertion after
+the batch grew to four; the harness now derives readiness and expected model
+copy from its fixture list, without weakening reference or byte checks.
+The first full verifier caught two source-lock false positives: active-SVG test
+data used a dialog function name, and an MCP identity regex consumed unrelated
+later SVG copy. The fixture now uses an inert marker and the MCP lock names the
+actual external/legacy mapping branches; mutating the real external ID mapping
+was watched fail before restoration. The embedded-pixel aggregate guard likewise
+has a failure-first structural-header test, distinct from real codec acceptance.
+The provider-form viewport walk also sampled before the existing resize/observer
+geometry update; it now waits for the same 7 px panel/footer bounds before
+measuring, with unchanged test budgets and no retries.
+
+The preceding BMP/ICO checkpoint is committed locally as `f398685`. Publishing
+private repository changes was rejected by the automated permission gate; explicit
+owner approval is pending and no further push is attempted. The existing remote
+CSV/TSV CI failure remains the billing gate described below, not SVG acceptance.
+
+That checkpoint added bounded BMP/ICO local image attachments through
 the existing browser and Electron picker, preview, durable upload and model
 input workflow. It recognizes CORE RGB depths 1/4/8/24, INFO/V2/V3/V4/V5 RGB
 depths 1/4/8/16/24/32 and 16/32-bit BITFIELDS, plus ICO files with disjoint PNG/DIB

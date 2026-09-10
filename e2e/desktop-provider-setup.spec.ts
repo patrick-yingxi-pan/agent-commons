@@ -52,6 +52,19 @@ test('desktop provider setup keeps its OS-encrypted key face reachable at every 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport)
     await body.evaluate((element) => { element.scrollTop = 0 })
+
+    // A viewport change can precede the shared useBoundedDialog resize/
+    // ResizeObserver work settling. Sample only after the live bounds have
+    // settled; the assertions below still enforce the full 7px contract.
+    await expect.poll(async () => {
+      const box = await panel.boundingBox()
+      return Boolean(box && box.x >= 7 && box.y >= 7 && box.x + box.width <= viewport.width - 7 && box.y + box.height <= viewport.height - 7)
+    }, `${viewport.width}x${viewport.height} bounded panel geometry`).toBe(true)
+    await expect.poll(async () => {
+      const box = await footer.boundingBox()
+      return Boolean(box && box.y + box.height <= viewport.height - 7)
+    }, `${viewport.width}x${viewport.height} footer geometry`).toBe(true)
+
     const [panelBox, footerBox] = await Promise.all([panel.boundingBox(), footer.boundingBox()])
     expect(panelBox, `${viewport.width}x${viewport.height} panel`).not.toBeNull()
     expect(footerBox, `${viewport.width}x${viewport.height} footer`).not.toBeNull()

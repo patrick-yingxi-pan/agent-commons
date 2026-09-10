@@ -185,6 +185,7 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
     'src/lib/officePackage.ts', 'src/lib/officeParser.worker.ts', 'src/lib/docxExtraction.ts', 'src/lib/docxText.ts',
     'src/lib/xlsxExtraction.ts', 'src/lib/xlsxText.ts',
     'src/lib/pptxExtraction.ts', 'src/lib/pptxText.ts',
+    'src/lib/svgExtraction.ts',
   ])
   for (const directory of ['desktop', 'server', 'src']) {
     for (const file of filesUnder(directory, ['.ts', '.tsx', '.mjs'])) {
@@ -209,6 +210,31 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
         continue
       }
       assert.doesNotMatch(stripComments(read(file)), /\bfrom\s+['"](?:@zip\.js\/zip\.js|saxes|[^'"]*(?:officePackage|docxExtraction|docxText|xlsxExtraction|xlsxText|pptxExtraction|pptxText))/, `${relative} cannot import Office parsing outside its workers`)
+    }
+  }
+})
+
+test('SVG markup stays in a bounded XML worker and reaches the renderer only as a detached image', () => {
+  const importer = stripComments(read(join(ROOT, 'src/lib/svgImport.ts')))
+  assert.ok(importer.includes("import('./officeParser.worker.ts?worker')"))
+  assert.ok(importer.includes("format: 'svg'"))
+  assert.ok(importer.includes('acceptedResult: parseSvgPreparation'))
+  const worker = stripComments(read(join(ROOT, 'src/lib/officeParser.worker.ts')))
+  assert.ok(worker.includes("value.format === 'svg'"))
+  assert.ok(worker.includes('extractSvg(value.bytes)'))
+  const parser = stripComments(read(join(ROOT, 'src/lib/svgExtraction.ts')))
+  assert.ok(parser.includes("from 'saxes'"))
+  const image = stripComments(read(join(ROOT, 'src/lib/svgImage.ts')))
+  assert.ok(image.includes('new Image()'))
+  assert.ok(image.includes('URL.createObjectURL(blob)'))
+  assert.ok(image.includes('URL.revokeObjectURL(url)'))
+  for (const source of [parser, image, importer]) {
+    assert.doesNotMatch(source, /\b(?:fetch|XMLHttpRequest|WebSocket|importScripts|innerHTML|outerHTML|insertAdjacentHTML|appendChild)\b/)
+  }
+  for (const directory of ['desktop', 'server', 'src']) {
+    for (const file of filesUnder(directory, ['.ts', '.tsx', '.mjs'])) {
+      if (file.endsWith('/src/lib/officeParser.worker.ts')) continue
+      assert.doesNotMatch(stripComments(read(file)), /\bfrom\s+['"][^'"]*svgExtraction(?:\.ts)?['"]/, `${file} cannot parse SVG outside its worker`)
     }
   }
 })

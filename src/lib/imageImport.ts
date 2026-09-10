@@ -1,9 +1,12 @@
 import { IMAGE_MAX_BYTES, IMAGE_MAX_CONTAINER_BYTES, IMAGE_MAX_DIMENSION, IMAGE_MAX_PIXELS, inspectImageBytes, type ImageSnapshot } from '../../contract/imageInput.ts'
 import { inspectLocalRaster } from './localRasterInput.ts'
+import { prepareSvg } from './svgImport.ts'
+import { decodeSvgImage } from './svgImage.ts'
+import type { SvgPreparation } from './svgInput.ts'
 
 export type ImageImportFailure = 'invalid' | 'too-large' | 'decode-failed' | 'timeout' | 'aborted' | 'canvas-unavailable'
 const FAILURE_COPY: Record<ImageImportFailure, string> = {
-  invalid: 'Choose a valid PNG, JPEG, GIF, WebP, BMP, or ICO image, up to 8,000 pixels per side and 32 megapixels. For unsupported variants, export as PNG or JPEG.',
+  invalid: 'Choose a valid PNG, JPEG, GIF, WebP, BMP, ICO, or self-contained static SVG image, up to 8,000 pixels per side and 32 megapixels. For unsupported variants, export as PNG or JPEG.',
   'too-large': 'Choose an image up to 8 MB. Its saved preview must fit within 3 MB.',
   'decode-failed': 'This image could not be opened. Try exporting it as PNG or JPEG.',
   timeout: 'This image took too long to import. Try a smaller image.',
@@ -15,7 +18,7 @@ export class ImageImportError extends Error {
   constructor(reason: ImageImportFailure) { super(FAILURE_COPY[reason]); this.name = 'ImageImportError'; this.reason = reason }
 }
 
-type Bitmap = { width: number; height: number; close?: () => void }
+type Bitmap = { width: number; height: number; source?: CanvasImageSource; close?: () => void }
 type Canvas = {
   width: number; height: number
   getContext(kind: '2d'): { drawImage(image: CanvasImageSource, x: number, y: number, width: number, height: number): void } | null
@@ -24,6 +27,7 @@ type Canvas = {
 }
 export interface ImageImportDeps {
   decode?: (blob: Blob, signal: AbortSignal) => Promise<Bitmap>
+  prepareSvg?: (bytes: Uint8Array, signal: AbortSignal) => Promise<SvgPreparation>
   canvas?: (width: number, height: number) => Canvas | null
   timeoutMs?: number
 }
@@ -48,14 +52,20 @@ function encode(canvas: Canvas): Promise<Blob> {
   })
 }
 
-/** Decode only structurally bounded raster inputs, then save a first-frame PNG.
+function mayBeSvg(bytes: Uint8Array): boolean {
+  let at = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf ? 3 : 0
+  while ([9, 10, 13, 32].includes(bytes[at]!)) at++
+  return bytes[at] === 60
+}
+
+/** Decode structurally bounded raster or worker-admitted static vector input.
  * A single deadline covers decode and every encode attempt. Cancellation wins
  * immediately even when the browser codec is not abortable; late bitmaps close. */
 export async function importImage(bytes: Uint8Array, signal?: AbortSignal, deps: ImageImportDeps = {}): Promise<ImageSnapshot> {
   if (signal?.aborted) throw new ImageImportError('aborted')
   if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > IMAGE_MAX_CONTAINER_BYTES) throw new ImageImportError('too-large')
-  const header = inspectLocalRaster(bytes)
-  if (!header) throw new ImageImportError('invalid')
+  const raster = inspectLocalRaster(bytes)
+  if (!raster && !mayBeSvg(bytes)) throw new ImageImportError('invalid')
   const controller = new AbortController()
   let reason: ImageImportFailure = 'aborted'
   let bitmap: Bitmap | undefined
@@ -75,8 +85,15 @@ export async function importImage(bytes: Uint8Array, signal?: AbortSignal, deps:
   const timeout = deps.timeoutMs ?? 15_000
   const timer = setTimeout(() => cancel('timeout'), Number.isFinite(timeout) && timeout > 0 ? timeout : 15_000)
   const work = async (): Promise<ImageSnapshot> => {
+    const vector = raster ? undefined : await (deps.prepareSvg ?? prepareSvg)(bytes, controller.signal)
+    check()
+    if (vector && vector.status !== 'ready') throw new ImageImportError(vector.status === 'timeout' ? 'timeout' : vector.status === 'unavailable' ? 'decode-failed' : 'invalid')
+    const header = vector?.status === 'ready'
+      ? { mimeType: 'image/svg+xml', width: vector.width, height: vector.height, bytes: new TextEncoder().encode(vector.xml) }
+      : raster!
     const blob = new Blob([new Uint8Array(header.bytes)], { type: header.mimeType })
     const decode = deps.decode ?? ((input: Blob) => {
+      if (header.mimeType === 'image/svg+xml') return decodeSvgImage(input, controller.signal)
       if (typeof createImageBitmap !== 'function') throw new ImageImportError('decode-failed')
       return createImageBitmap(input)
     })
@@ -85,7 +102,7 @@ export async function importImage(bytes: Uint8Array, signal?: AbortSignal, deps:
     const { width, height } = bitmap
     if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
         width > IMAGE_MAX_DIMENSION || height > IMAGE_MAX_DIMENSION || width * height > IMAGE_MAX_PIXELS) throw new ImageImportError('invalid')
-    if ((header.mimeType === 'image/bmp' || header.mimeType === 'image/x-icon') &&
+    if ((header.mimeType === 'image/bmp' || header.mimeType === 'image/x-icon' || header.mimeType === 'image/svg+xml') &&
         (width !== header.width || height !== header.height)) throw new ImageImportError('invalid')
     const scale = Math.min(1, 2000 / Math.max(width, height), Math.sqrt(4_000_000 / (width * height)))
     let targetWidth = Math.max(1, Math.floor(width * scale))
@@ -95,7 +112,7 @@ export async function importImage(bytes: Uint8Array, signal?: AbortSignal, deps:
       const canvas = (deps.canvas ?? defaultCanvas)(targetWidth, targetHeight)
       const context = canvas?.getContext('2d')
       if (!canvas || !context) throw new ImageImportError('canvas-unavailable')
-      context.drawImage(bitmap as CanvasImageSource, 0, 0, targetWidth, targetHeight)
+      context.drawImage(bitmap.source ?? bitmap as CanvasImageSource, 0, 0, targetWidth, targetHeight)
       const output = await encode(canvas)
       check()
       if (output.size <= IMAGE_MAX_BYTES) {

@@ -28,8 +28,9 @@ test('execution-ready external MCP rows attach by their exact opaque identity', 
     'external ids remain opaque while legacy fixture ids retain their adapter prefix')
   assert.match(picker, /connector: \{ id: m\.id, label: m\.label, kind: 'mcp' \}/,
     'an external row writes its exact registry id through the shared context funnel')
-  assert.doesNotMatch(picker, /`mcp-\$\{m\.id\}`[\s\S]*external/,
-    'the fixture namespace cannot be prepended to an external connection id')
+  assert.match(picker,
+    /toContext=\{\(m\) => m\.external \? \(\{[\s\S]*?connector: \{ id: m\.id, label: m\.label, kind: 'mcp' \}[\s\S]*?\}\) : \(\{[\s\S]*?connector: \{ id: `mcp-\$\{m\.id\}`, label: `MCP · \$\{m\.label\}`, kind: 'mcp' \}/,
+    'external rows retain their opaque id while legacy fixture rows use the adapter namespace')
 })
 
 test('an executable catalog promises per-call approval without becoming a run surface', () => {

@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 import { bitmapFixture, iconFixture, multiIconFixture } from '../tests/helpers/bitmapFixture.mjs'
+import { svgFixture } from '../tests/helpers/svgFixture.mjs'
 import { startMessagesFixture } from './attachment-endpoint'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers'
@@ -72,7 +73,7 @@ test('an attached image is previewable by a read-only audience and hidden from a
   }
 })
 
-test('real PNG, BMP, and multi-frame ICO images become durable references and model blocks, then detach', async ({ page }) => {
+test('real PNG, BMP, ICO and SVG images become durable references and model blocks, then detach', async ({ page }) => {
   test.setTimeout(ms(90_000))
   await page.context().setExtraHTTPHeaders({
     'x-user-id': 'user-ada',
@@ -94,6 +95,7 @@ test('real PNG, BMP, and multi-frame ICO images become durable references and mo
       { slug: 'png', name: 'two-colors.png', mimeType: 'image/png', buffer: imageFixture(), width: 160, height: 80 },
       { slug: 'bmp', name: 'two-colors.bmp', mimeType: 'image/bmp', buffer: bitmapFixture(160, 80), width: 160, height: 80 },
       { slug: 'ico', name: 'multi-frame.ico', mimeType: 'image/x-icon', buffer: multiIconFixture([{ width: 16, height: 16 }, { width: 160, height: 80 }]), width: 160, height: 80 },
+      { slug: 'svg', name: 'local-diagram.svg', mimeType: 'image/svg+xml', buffer: svgFixture(160, 80, { viewBoxOnly: true }), width: 160, height: 80 },
     ] as const
     for (const image of cases) {
       await selectImage(page, image.name, image.buffer, image.mimeType)
@@ -145,7 +147,7 @@ test('real PNG, BMP, and multi-frame ICO images become durable references and mo
   } finally { await new Promise<void>((resolve) => endpoint.server.close(() => resolve())) }
 })
 
-test('browser codecs normalize the BMP header/depth/orientation matrix and PNG/DIB ICO frames to colored PNG pixels', async ({ page }) => {
+test('browser codecs normalize the BMP header/depth/orientation matrix and PNG/DIB ICO frames plus SVG to colored PNG pixels', async ({ page }) => {
   test.setTimeout(ms(90_000))
   const created = await page.request.post('/api/v1/sessions', { data: { firstMessage: 'Codec matrix' } })
   expect(created.ok()).toBe(true)
@@ -167,6 +169,8 @@ test('browser codecs normalize the BMP header/depth/orientation matrix and PNG/D
     })))),
     { label: 'ico-png', bytes: iconFixture(32, 16, { png: true }), width: 32, height: 16 },
     { label: 'ico-dib', bytes: iconFixture(32, 16), width: 32, height: 16 },
+    { label: 'svg-sized', bytes: svgFixture(160, 80), width: 160, height: 80 },
+    { label: 'svg-viewbox', bytes: svgFixture(160, 80, { viewBoxOnly: true }), width: 160, height: 80 },
   ]
   for (const image of cases) {
     const result = await page.evaluate(async ({ encoded, width, height }) => {
@@ -192,6 +196,62 @@ test('browser codecs normalize the BMP header/depth/orientation matrix and PNG/D
     expect(right[2], `${image.label} right blue`).toBeGreaterThan(right[0] + 80)
     expect(right[3], `${image.label} right alpha`).toBeGreaterThan(200)
   }
+})
+
+test('SVG active content, external resources, animation, and recursive use are rejected before attachment', async ({ page }) => {
+  test.setTimeout(ms(90_000))
+  const created = await page.request.post('/api/v1/sessions', { data: { firstMessage: 'SVG security rejection' } })
+  expect(created.ok()).toBe(true)
+  const session = await created.json()
+  await page.goto(`/s/${session.id}`)
+  const marker = `svg-rejection-${randomUUID()}`
+  const externalOrigin = `https://svg-rejection-${randomUUID()}.example.invalid`
+  const outbound: string[] = []
+  await page.route(`${externalOrigin}/**`, async (route) => {
+    outbound.push(route.request().url())
+    await route.abort()
+  })
+  const cases = [
+    {
+      name: 'unsafe-active.svg',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><script>window['${marker}']=true</script></svg>`,
+    },
+    {
+      name: 'unsafe-event.svg',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80" onload="window['${marker}']=true"><rect width="80" height="80"/></svg>`,
+    },
+    {
+      name: 'unsafe-external.svg',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><image href="${externalOrigin}/image.png" width="160" height="80"/></svg>`,
+    },
+    {
+      name: 'unsafe-external-css.svg',
+      body: `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><style>@import url("${externalOrigin}/style.css");</style></svg>`,
+    },
+    {
+      name: 'unsafe-animation.svg',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><rect width="80" height="80"><animate attributeName="x" from="0" to="80" dur="1s"/></rect></svg>',
+    },
+    {
+      name: 'unsafe-recursive-use.svg',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="80"><defs><g id="loop"><use href="#loop"/></g></defs><use href="#loop"/></svg>',
+    },
+  ]
+  try {
+    for (const image of cases) {
+      const picker = await selectImage(page, image.name, Buffer.from(image.body), 'image/svg+xml')
+      await expect(picker.getByRole('alert')).toContainText('valid PNG')
+      await expect(page.locator('[data-attachment-image-ready]')).toHaveCount(0)
+      expect(await page.evaluate((needle) => document.documentElement.innerHTML.includes(needle), marker)).toBe(false)
+      expect(await page.evaluate((key) => Boolean((window as unknown as Record<string, unknown>)[key]), marker)).toBe(false)
+      await expect.poll(async () => (await (await page.request.get(`/api/v1/sessions/${session.id}`)).json()).workspace.attachments.length).toBe(0)
+      if (image.name === 'unsafe-active.svg') await page.screenshot({ path: '.data/image-review/svg-unsafe-rejected.png' })
+      await page.keyboard.press('Escape')
+    }
+  } finally {
+    await page.unroute(`${externalOrigin}/**`)
+  }
+  expect(outbound).toEqual([])
 })
 
 test('invalid images fail visibly without attaching placeholder context at every canonical viewport', async ({ page }) => {

@@ -20,11 +20,17 @@ bounded to 8 images/8 MiB; endpoint and negotiated relay/MCP image blocks are
 real boundary work. Owner context walls and shared-view image reads are real.
 Raw local admission also validates bounded RGB BMP CORE/INFO/V2/V3/V4/V5
 variants and ICO PNG/DIB entries, but those bytes remain transient and do not
-become durable image MIME types. Structural validation is not complete codec decoding. Protocol and persistence
+become durable image MIME types. Self-contained static SVG follows the same PNG
+normalization path through bounded worker-only XML admission and detached image
+decode. Scripts, animation, external resources, malformed geometry and recursive
+use are rejected; only static PNG/JPEG raster embeds within a combined 32-megapixel
+budget are admitted. Raw SVG stays
+transient, never inline application markup or a durable SVG asset. Structural
+validation is not complete codec decoding. Protocol and persistence
 locks, packaged executable smoke, and the complete responsive sweep exercise
 this boundary. Automated repository and packaged-executable verification cover
 the implemented path; they do not by themselves claim a completed manual macOS
-picker handoff. OCR, SVG, RLE/embedded BMP variants, other documents, live folder/Git, remote input,
+picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants, other documents, live folder/Git, remote input,
 paid-provider acceptance, and manual OS-dialog acceptance remain outside this
 milestone. A public native release additionally still requires the signed,
 notarized two-architecture release gate.

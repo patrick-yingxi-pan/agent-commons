@@ -12,6 +12,7 @@ import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
 import { pptxFixture } from '../tests/helpers/pptxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 import { bitmapFixture, iconFixture } from '../tests/helpers/bitmapFixture.mjs'
+import { svgFixture } from '../tests/helpers/svgFixture.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -1127,6 +1128,7 @@ export async function smokePackagedAttachments({ executable }) {
       { name: 'native-image.png', bytes: imageFixture(240, 120), width: 240, height: 120 },
       { name: 'native-image.bmp', bytes: bitmapFixture(160, 80), width: 160, height: 80 },
       { name: 'native-image.ico', bytes: iconFixture(96, 64), width: 96, height: 64 },
+      { name: 'native-image.svg', bytes: svgFixture(320, 160), width: 320, height: 160 },
     ].map((input) => ({ ...input, path: join(fixtureRoot, input.name) }))
     await Promise.all(imageInputs.map(({ path, bytes }) => writeFile(path, bytes, { mode: 0o600 })))
     await run.app.evaluate(({ dialog }, path) => {
@@ -1139,8 +1141,8 @@ export async function smokePackagedAttachments({ executable }) {
     await imagePicker.getByRole('button', { name: /Add files from this computer/ }).click()
     const imagePreview = page.locator('[data-attachment-preview]')
     await expect(imagePreview).toHaveAttribute('data-attachment-input-status', 'image-ready')
-    await expect.poll(() => page.locator('[data-attachment-image-ready="3"]').count()).toBe(1)
-    await expect.poll(() => imagePreview.locator('img').last().evaluate((image) => image.complete && [240, 160, 96].includes(image.naturalWidth))).toBe(true)
+    await expect.poll(() => page.locator(`[data-attachment-image-ready="${imageInputs.length}"]`).count()).toBe(1)
+    await expect.poll(() => imagePreview.locator('img').last().evaluate((image, expectedWidths) => image.complete && expectedWidths.includes(image.naturalWidth), imageInputs.map(({ width }) => width))).toBe(true)
     const imageRefs = await page.evaluate(async (id) => {
       const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()
       return detail.workspace.attachments.filter((attachment) => attachment.image).map((attachment) => ({
@@ -1177,7 +1179,7 @@ export async function smokePackagedAttachments({ executable }) {
     }, imageRefs.map(({ image }) => image.id))
     assert.deepEqual(imageRefs.map(({ image }) => image.byteLength), authorizedImageData.map((data) => Buffer.from(data, 'base64').byteLength))
     await closePreview(page)
-    await send(page, 'Describe the native images.', 'Received 3 supplied image(s).')
+    await send(page, 'Describe the native images.', `Received ${imageInputs.length} supplied image(s).`)
     const imageBlocks = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
     const sentImageBlocks = imageBlocks.filter((block) => block.type === 'image')
     assert.equal(sentImageBlocks.length, imageInputs.length)

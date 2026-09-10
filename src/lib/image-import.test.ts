@@ -97,3 +97,75 @@ test('oversized output retries at smaller dimensions and unavailable decoder is 
     globalThis.createImageBitmap = previous
   }
 })
+
+test('SVG preparation supplies an SVG blob, draws its source, and closes the bitmap', async () => {
+  const source = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"/>')
+  const normalized = new Uint8Array(imageFixture(4, 2))
+  let preparedBytes: Uint8Array | undefined
+  let preparedSawAbort = true
+  let decodedType = ''
+  let decodedXml = ''
+  let decodedSawAbort = true
+  let drawn: unknown
+  let closed = false
+  const result = await importImage(source, undefined, {
+    prepareSvg: async (bytes, signal) => {
+      preparedBytes = bytes; preparedSawAbort = signal.aborted
+      return { status: 'ready', xml: '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="2"/>', width: 4, height: 2 }
+    },
+    decode: async (blob, signal) => {
+      decodedType = blob.type; decodedXml = await blob.text(); decodedSawAbort = signal.aborted
+      const imageSource = { kind: 'svg-source' }
+      return { width: 4, height: 2, source: imageSource as unknown as CanvasImageSource, close: () => { closed = true } }
+    },
+    canvas: () => ({ width: 4, height: 2, getContext: () => ({ drawImage: (image: CanvasImageSource) => { drawn = image } } as unknown as CanvasRenderingContext2D), toBlob: (cb) => cb(new Blob([normalized], { type: 'image/png' })) }),
+  })
+  assert.deepEqual(preparedBytes, source)
+  assert.equal(preparedSawAbort, false)
+  assert.equal(decodedType, 'image/svg+xml')
+  assert.match(decodedXml, /^<svg /)
+  assert.equal(decodedSawAbort, false)
+  assert.deepEqual(drawn, { kind: 'svg-source' })
+  assert.equal(result.mimeType, 'image/png')
+  assert.equal(result.width, 4); assert.equal(result.height, 2)
+  assert.equal(closed, true)
+})
+
+test('SVG decoder rejects preparation refusals and dimension disagreement before painting', async () => {
+  for (const [status, reason] of [['unsupported', 'invalid'], ['structure-limit', 'invalid'], ['invalid', 'invalid'], ['timeout', 'timeout'], ['unavailable', 'decode-failed']] as const) {
+    let decoded = false
+    await assert.rejects(() => importImage(new TextEncoder().encode('<svg/>'), undefined, {
+      prepareSvg: async () => ({ status }),
+      decode: async () => { decoded = true; return { width: 1, height: 1 } },
+    }), (error: unknown) => error instanceof ImageImportError && error.reason === reason)
+    assert.equal(decoded, false, status)
+  }
+  let closed = false
+  await assert.rejects(() => importImage(new TextEncoder().encode('<svg/>'), undefined, {
+    prepareSvg: async () => ({ status: 'ready', xml: '<svg/>', width: 4, height: 2 }),
+    decode: async () => ({ width: 3, height: 2, close: () => { closed = true } }),
+  }), (error: unknown) => error instanceof ImageImportError && error.reason === 'invalid')
+  assert.equal(closed, true)
+})
+
+test('abort and overall timeout during SVG preparation abort its signal and reject late preparation', async () => {
+  for (const mode of ['abort', 'timeout'] as const) {
+    let release!: (value: { status: 'ready'; xml: string; width: number; height: number }) => void
+    let preparedSignal: AbortSignal | undefined
+    let decoded = false
+    const prepared = new Promise<{ status: 'ready'; xml: string; width: number; height: number }>((resolve) => { release = resolve })
+    const controller = new AbortController()
+    const promise = importImage(new TextEncoder().encode('<svg/>'), mode === 'abort' ? controller.signal : undefined, {
+      timeoutMs: mode === 'timeout' ? 5 : 15_000,
+      prepareSvg: async (_bytes, signal) => { preparedSignal = signal; return prepared },
+      decode: async () => { decoded = true; return { width: 1, height: 1 } },
+    })
+    if (mode === 'abort') controller.abort()
+    const expected = mode === 'abort' ? 'aborted' : 'timeout'
+    await assert.rejects(() => promise, (error: unknown) => error instanceof ImageImportError && error.reason === expected)
+    assert.equal(preparedSignal?.aborted, true, mode)
+    release({ status: 'ready', xml: '<svg/>', width: 1, height: 1 })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(decoded, false, mode)
+  }
+})
