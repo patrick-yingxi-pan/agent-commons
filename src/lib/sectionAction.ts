@@ -15,4 +15,4 @@
  *  and assert it — src/lib/sectionAction.test.ts locks that every section-header
  *  action renders through the shared <SectionAction> component. */
 export const SECTION_ACTION_CLASS =
-  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink data-[open=true]:bg-panel-2 data-[open=true]:text-ink'
+  'flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink data-[open=true]:bg-panel-2 data-[open=true]:text-ink data-[captioned=true]:w-auto data-[captioned=true]:gap-1 data-[captioned=true]:px-1.5'

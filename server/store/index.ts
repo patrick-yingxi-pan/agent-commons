@@ -18,6 +18,7 @@ import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseScheduleStanding, pruneOrphanScheduleStanding, scheduleApprovalKeyMatches, scheduleStandingFailure } from '../scheduleStanding.ts'
 import { parseScheduledArtifactSpec, type ScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
 import { sheetXlsx } from '../artifactXlsx.ts'
+import { documentDocx, hasWordText } from '../artifactDocx.ts'
 import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
 import { authoredArtifact, parseStructuredArtifactBody, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
@@ -6294,6 +6295,18 @@ export const store = {
     const body = artifactBodyOf(artifactId)
     if ((artifact.kind !== 'doc' && artifact.kind !== 'email') || body?.type !== 'doc') return null
     return { artifactId, ...documentMarkdown(artifact.name, body) }
+  },
+  async exportArtifactWord(artifactId: string, tenantId: string) {
+    const artifact = findArtifact(artifactId)
+    if (!artifact || !this.artifactVisibleToTenant(artifact, tenantId)) return undefined
+    const body = artifactBodyOf(artifactId)
+    if ((artifact.kind !== 'doc' && artifact.kind !== 'email') || body?.type !== 'doc' || !hasWordText(body)) return null
+    // Freeze the saved revision before writing the package. A revoked reader
+    // must not receive the bytes after the async writer yields.
+    const exported = await documentDocx(artifact.name, structuredClone(body))
+    const current = findArtifact(artifactId)
+    if (!current || !this.artifactVisibleToTenant(current, tenantId)) return undefined
+    return exported ? { artifactId, ...exported } : null
   },
   async exportArtifactSpreadsheet(artifactId: string, tenantId: string) {
     const artifact = findArtifact(artifactId)

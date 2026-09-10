@@ -1,21 +1,23 @@
 import {
   artifactExportFilename,
+  DOCX_MEDIA_TYPE,
   PPTX_MEDIA_TYPE,
   XLSX_MEDIA_TYPE,
   type ArtifactPresentationExport,
   type ArtifactSpreadsheetExport,
+  type ArtifactWordExport,
 } from '../../contract/index.ts'
 import type { DownloadBlobDescriptor } from './downloadText.ts'
 
-const MAX_BYTES = { xlsx: 2 * 1024 * 1024, pptx: 8 * 1024 * 1024 } as const
+const MAX_BYTES = { xlsx: 2 * 1024 * 1024, pptx: 8 * 1024 * 1024, docx: 2 * 1024 * 1024 } as const
 
-type OfficeExport = ArtifactSpreadsheetExport | ArtifactPresentationExport
+type OfficeExport = ArtifactSpreadsheetExport | ArtifactPresentationExport | ArtifactWordExport
 
 /** Validate and decode a server-owned Office descriptor before Blob. */
-export function decodeArtifactOfficeExport(file: unknown, artifactId: string, format: 'xlsx' | 'pptx'): DownloadBlobDescriptor {
+export function decodeArtifactOfficeExport(file: unknown, artifactId: string, format: 'xlsx' | 'pptx' | 'docx'): DownloadBlobDescriptor {
   if (!file || typeof file !== 'object') throw new Error('Unexpected office descriptor')
   const candidate = file as Partial<OfficeExport>
-  const mediaType = format === 'xlsx' ? XLSX_MEDIA_TYPE : PPTX_MEDIA_TYPE
+  const mediaType = format === 'xlsx' ? XLSX_MEDIA_TYPE : format === 'pptx' ? PPTX_MEDIA_TYPE : DOCX_MEDIA_TYPE
   const maxBytes = MAX_BYTES[format]
   if (typeof candidate.artifactId !== 'string' || candidate.artifactId !== artifactId) throw new Error('Unexpected office identity')
   if (candidate.mediaType !== mediaType || candidate.encoding !== 'base64') throw new Error('Unexpected office format')

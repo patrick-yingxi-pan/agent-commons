@@ -433,6 +433,63 @@ export async function smokePackagedAttachments({ executable }) {
     assert.match(downloaded.toString('utf8'), /Edited current saved revision\\\./, 'download preserves escaped Markdown punctuation')
     console.log('[desktop-markdown-smoke] owner rename · authenticated fresh export GET · current edited document bytes · test-only packaged download redirect · exact renamed .md file')
 
+    // Word export uses the same saved, renamed, edited document. Fetch the
+    // authenticated DOCX representation first, inspect its native document
+    // part, then prove the real renderer download is byte-identical in the
+    // isolated packaged Electron process.
+    const wordName = markdownName.replace(/\.md$/iu, '.docx')
+    await expect(page.getByRole('button', { name: 'Download Word', exact: true })).toBeVisible()
+    const wordExportPayload = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/artifacts/${encodeURIComponent(id)}/export?format=docx`)
+      return { status: response.status, payload: await response.json() }
+    }, markdownArtifact.id)
+    assert.equal(wordExportPayload.status, 200, 'fresh authenticated Word export GET succeeds')
+    assert.equal(wordExportPayload.payload.artifactId, markdownArtifact.id)
+    assert.equal(wordExportPayload.payload.filename, wordName)
+    assert.equal(wordExportPayload.payload.mediaType, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    assert.equal(wordExportPayload.payload.revision, exportPayload.payload.revision, 'Word export uses the same current saved revision')
+    const expectedWordBytes = Buffer.from(wordExportPayload.payload.content, 'base64')
+    const wordReader = new ZipReader(new Uint8ArrayReader(expectedWordBytes), { checkSignature: true })
+    let nativeWord = ''
+    try {
+      const documentEntry = (await wordReader.getEntries()).find((entry) => entry.filename === 'word/document.xml')
+      assert.ok(documentEntry, 'DOCX contains the native Word document part')
+      nativeWord = await documentEntry.getData(new TextWriter(), { checkSignature: true })
+    } finally { await wordReader.close() }
+    assert.match(nativeWord, /Edited current saved revision\./, 'native Word body contains the edited saved paragraph')
+    assert.match(nativeWord, /Native Markdown smoke body [\w-]+/, 'native Word body contains the first authored paragraph')
+    assert.match(nativeWord, /<w:document[^>]*xmlns:w=/, 'native Word body is editable WordprocessingML')
+    const wordDownloadDirectory = join(fixtureRoot, 'word-download')
+    const wordDownloadPath = join(wordDownloadDirectory, wordName)
+    await mkdir(wordDownloadDirectory, { recursive: true })
+    const wordDownloadDone = await run.app.evaluateHandle(({ session }, { trustedOrigin, target }) => ({
+      done: new Promise((resolve) => {
+        const timeout = setTimeout(() => resolve({ state: 'timed-out', filename: '' }), 30_000)
+        session.defaultSession.once('will-download', (event, item, contents) => {
+          let downloadOrigin = ''
+          try { downloadOrigin = new URL(contents.getURL()).origin } catch {}
+          if (downloadOrigin !== trustedOrigin) {
+            event.preventDefault()
+            clearTimeout(timeout)
+            resolve({ state: 'unexpected-origin', filename: '' })
+            return
+          }
+          item.setSavePath(target)
+          item.once('done', (_event, state) => {
+            clearTimeout(timeout)
+            resolve({ state, filename: item.getFilename() })
+          })
+        })
+      }),
+    }), { trustedOrigin: origin, target: wordDownloadPath })
+    await page.getByRole('button', { name: 'Download Word', exact: true }).click()
+    const wordDownloadResult = await wordDownloadDone.evaluate((holder) => holder.done)
+    await wordDownloadDone.dispose()
+    assert.deepEqual(wordDownloadResult, { state: 'completed', filename: wordName }, 'Electron completed the packaged Word download with the expected filename')
+    const downloadedWord = await readFile(wordDownloadPath)
+    assert.deepEqual(downloadedWord, expectedWordBytes, 'downloaded Word bytes equal the fresh authenticated export content')
+    console.log('[desktop-word-smoke] same renamed/edited document · authenticated fresh DOCX export GET · native word/document.xml text · test-only packaged download redirect · exact renamed .docx bytes')
+
     // XLSX export is a renderer download, not a native bridge. Create a real
     // structured sheet through the authenticated relation seam, rename it via
     // the canonical page, and inspect the downloaded ZIP/XML so formula-looking

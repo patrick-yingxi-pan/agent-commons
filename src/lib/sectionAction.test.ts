@@ -41,6 +41,15 @@ test('the SectionAction component sources the class and names its verb', () => {
   assert.match(src, /aria-expanded/, 'stateful triggers announce expanded state')
 })
 
+test('captioned section actions keep their visible choice inside an auto-width button', () => {
+  const source = read(join(ROOT, 'src/components/SectionAction.tsx'))
+  assert.match(source, /data-captioned=\{caption \? true : undefined\}/)
+  assert.match(source, /\{caption && <span>\{caption\}<\/span>\}/)
+  for (const piece of ['data-[captioned=true]:w-auto', 'data-[captioned=true]:gap-1', 'data-[captioned=true]:px-1.5']) {
+    assert.ok(SECTION_ACTION_CLASS.includes(piece), `captioned choices retain ${piece}`)
+  }
+})
+
 test('the section surfaces render their header verbs through SectionAction', () => {
   for (const rel of ['src/components/SectionView.tsx', 'src/components/AddContextButton.tsx']) {
     const src = read(join(ROOT, ...rel.split('/')))

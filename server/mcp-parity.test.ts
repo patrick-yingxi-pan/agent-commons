@@ -293,6 +293,31 @@ test('POLICY: PPTX artifact export has identical HTTP and remote-MCP read walls'
   assert.equal(revokedMcp.status, 404)
 })
 
+test('POLICY: DOCX artifact export has identical HTTP and remote-MCP read walls', async () => {
+  const name = `mcp-word-${Date.now()}.md`
+  const owner = 'tenant-personal'
+  const reader = 'tenant-beta'
+  const created = await call('POST', '/artifacts', { name, kind: 'doc', body: 'An editable Word document.\n\nLiteral <text> & Unicode 雪.' }, { 'x-tenant-id': owner, 'idempotency-key': name })
+  assert.equal(created.status, 201)
+  const artifact = created.json.artifact
+  const grant = await call('POST', '/grants', { subject: { kind: 'artifact', id: artifact.id }, audience: { kind: 'org', orgId: reader }, tier: 'view' }, { 'x-tenant-id': owner })
+  assert.equal(grant.status, 200)
+  for (const [tenant, status] of [[owner, 200], [reader, 200], ['tenant-growthworks', 404]] as const) {
+    const direct = await call('GET', `/artifacts/${artifact.id}/export?format=docx`, undefined, { 'x-tenant-id': tenant })
+    const mcp = await toolCall('get_artifacts_by_id_export', { id: artifact.id, query: { format: 'docx' } }, { 'x-tenant-id': tenant })
+    assert.equal(direct.status, status)
+    assert.equal(mcp.status, status)
+    assert.deepEqual(mcp.body, direct.json, 'same descriptor bytes or same existence-hiding error')
+  }
+  const implicit = await toolCall('get_artifacts_by_id_export', { id: artifact.id }, { 'x-tenant-id': owner })
+  assert.equal(implicit.status, 200)
+  assert.equal(implicit.body.mediaType, 'text/markdown;charset=utf-8')
+  assert.equal((await call('DELETE', `/grants/${grant.json.id}`, undefined, { 'x-tenant-id': owner })).status, 200)
+  const denied = await toolCall('get_artifacts_by_id_export', { id: artifact.id, query: { format: 'docx' } }, { 'x-tenant-id': reader })
+  assert.equal(denied.status, 404)
+  assert.equal((await call('GET', `/artifacts/${artifact.id}/export?format=docx`, undefined, { 'x-tenant-id': reader })).status, 404)
+})
+
 test('POLICY: structured artifact edits have identical HTTP and remote-MCP owner/CAS walls', async () => {
   const stamp = Date.now().toString(36)
   const owner = 'tenant-personal'

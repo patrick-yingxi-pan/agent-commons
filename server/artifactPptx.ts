@@ -1,8 +1,8 @@
 /** Editable PresentationML built from the saved title/bullet contract only.
  * Package relationships follow Microsoft's minimum presentation structure:
  * https://learn.microsoft.com/en-us/office/open-xml/presentation/structure-of-a-presentationml-document */
-import { ZipWriter, TextReader, Uint8ArrayWriter } from '@zip.js/zip.js/lib/zip-core-custom.js'
 import { artifactExportFilename, PPTX_MEDIA_TYPE, type ArtifactPresentationExport } from '../contract/index.ts'
+import { writeOfficeZip } from './artifactOfficeZip.ts'
 import { hasPowerPointText, presentationPages, PRESENTATION_HEIGHT, PRESENTATION_WIDTH, type PresentationTextBox, type SlidesBody } from './artifactPptxLayout.ts'
 
 const A = 'http://schemas.openxmlformats.org/drawingml/2006/main'
@@ -67,8 +67,6 @@ export async function slidesPptx(name: string, body: SlidesBody): Promise<Omit<A
     parts.push([`ppt/slides/slide${index + 1}.xml`, `${XML}<p:sld ${NS}><p:cSld name="Slide ${page.sourceSlide}, part ${page.part}"><p:spTree>${GROUP}${[...page.boxes, marker].map((box, i) => textBox(box, i + 2)).join('')}</p:spTree></p:cSld>${colorMap}</p:sld>`])
     parts.push([`ppt/slides/_rels/slide${index + 1}.xml.rels`, relationships([['rId1', 'slideLayout', '../slideLayouts/slideLayout1.xml']])])
   })
-  const writer = new ZipWriter(new Uint8ArrayWriter(), { level: 0, useWebWorkers: false })
-  for (const [path, content] of parts) await writer.add(path, new TextReader(content), { lastModDate: new Date(2000, 0, 1), extendedTimestamp: false })
-  const bytes = await writer.close()
+  const bytes = await writeOfficeZip(parts)
   return { filename: artifactExportFilename(name, 'pptx'), mediaType: PPTX_MEDIA_TYPE, encoding: 'base64', content: Buffer.from(bytes).toString('base64'), revision: body.revision ?? 0 }
 }

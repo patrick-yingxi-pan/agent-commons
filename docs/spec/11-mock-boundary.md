@@ -42,6 +42,16 @@ reviewed Document draft; ADAPT-36 additionally maps actual visible PPTX slide
 boundaries into editable title/bullet outlines. Neither borrows seeded content,
 preserves rich Office fidelity, nor saves before explicit adoption and Create.
 
+Saved authored Documents and draft emails also export through the authenticated
+boundary as bounded DOCX projections of the current saved text snapshot. The
+2 MiB decoded-payload ceiling before Blob creation, exact identity/revision, granted-reader visibility and
+post-serialization revocation checks are real; omitted format remains Markdown.
+The Word package is a portable text projection, not imported rich Office fidelity.
+Browser and unsigned arm64 packaged acceptance passed, including actual downloaded
+bytes and editable package contents. The original generated DOCX also rendered
+successfully through bundled LibreOffice. This does not claim rich imported
+fidelity, Microsoft Word application testing, signing/notarization or Intel acceptance.
+
 ## The declared fixtures (L2)
 
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |

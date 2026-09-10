@@ -167,7 +167,7 @@ test('owner and granted reader download the current sheet workbook at every view
   }
 })
 
-test('documents retain Markdown only and slides do not advertise XLSX', async ({ page }) => {
+test('documents retain Markdown and Word while neither documents nor slides advertise XLSX', async ({ page }) => {
   test.setTimeout(ms(45_000))
   const stamp = Date.now().toString(36)
   const response = await page.request.post(`${API}/relations/ops`, {
@@ -180,6 +180,7 @@ test('documents retain Markdown only and slides do not advertise XLSX', async ({
   expect(doc).toBeTruthy()
   await page.goto(`/artifacts/${doc!.id}`)
   await expect(page.getByRole('button', { name: 'Download Markdown', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Download Word', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Download XLSX', exact: true })).toHaveCount(0)
 
   const slideResponse = await page.request.post(`${API}/relations/ops`, {

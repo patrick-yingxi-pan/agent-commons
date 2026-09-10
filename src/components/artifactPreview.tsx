@@ -713,6 +713,9 @@ export function ArtifactDetailPage({
   const [sharing, setSharing] = useState(false)
   const [sharingHeld, setSharingHeld] = useState(false)
   const downloadFormat = artifact.kind === 'sheet' ? 'xlsx' : artifact.kind === 'slide' ? 'pptx' : artifact.kind === 'doc' || artifact.kind === 'email' ? 'markdown' : null
+  // One artifact-scoped operation owns both document downloads. This keeps
+  // Markdown and Word mutually exclusive and gives account/artifact changes a
+  // single abort fence.
   const artifactDownload = useArtifactDownload(artifact.id, downloadFormat ?? 'markdown')
   const edit: DocEdit | undefined = own
     ? {
@@ -890,13 +893,24 @@ export function ArtifactDetailPage({
               disabled={structuredBusy}
               disabledReason={structuredBusy ? 'Finish the current structure edit first' : undefined}
             />}
-            {downloadFormat && <SectionAction
-              label={downloadFormat === 'xlsx' ? 'Download XLSX' : downloadFormat === 'pptx' ? 'Download PowerPoint' : 'Download Markdown'}
-              icon={<Download size={14} />}
-              onClick={() => { void artifactDownload.download() }}
-              disabled={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy || artifactDownload.busy}
-              disabledReason={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy ? 'Save or cancel your edit before downloading' : 'Preparing download'}
-            />}
+            {downloadFormat && <>
+              <SectionAction
+                label={downloadFormat === 'xlsx' ? 'Download XLSX' : downloadFormat === 'pptx' ? 'Download PowerPoint' : 'Download Markdown'}
+                caption={downloadFormat === 'markdown' ? 'Markdown' : undefined}
+                icon={<Download size={14} />}
+                onClick={() => { void artifactDownload.download(downloadFormat) }}
+                disabled={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy || artifactDownload.busy}
+                disabledReason={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy ? 'Save or cancel your edit before downloading' : 'Preparing download'}
+              />
+              {(downloadFormat === 'markdown') && <SectionAction
+                label="Download Word"
+                caption="Word"
+                icon={<Download size={14} />}
+                onClick={() => { void artifactDownload.download('docx') }}
+                disabled={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy || artifactDownload.busy}
+                disabledReason={editing !== null || saving || editingName || metadataBusy || editingStructured || structuredBusy ? 'Save or cancel your edit before downloading' : 'Preparing download'}
+              />}
+            </>}
           </div>}
         >
           {artifactDownload.notice && <InlineOperationStatus {...artifactDownload.notice} />}

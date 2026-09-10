@@ -18,18 +18,20 @@ const capture = (page: Page, name: string) =>
   page.screenshot({ path: join(REVIEW_DIR, `${name}.png`), fullPage: false })
 
 async function expectContainedDialog(page: Page, dialog: Locator) {
-  const viewport = page.viewportSize()!
-  const workspace = await page.locator('[data-popover-viewport]').boundingBox()
   const panel = dialog.locator('[data-bounded-dialog]')
   const footer = panel.locator(':scope > div').last()
-  for (const element of [panel, footer]) {
-    const box = await element.boundingBox()
-    expect(box).not.toBeNull()
-    expect(box!.x).toBeGreaterThanOrEqual(7)
-    expect(box!.y).toBeGreaterThanOrEqual((workspace?.y ?? 0) + 7)
-    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width - 7)
-    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height - 7)
-  }
+  // setViewportSize acknowledges the viewport, not the resize listener and
+  // ResizeObserver that update the dialog's live workspace bound. Poll the
+  // same strict geometry rather than sampling the previous tier's height.
+  await expect.poll(async () => {
+    const viewport = page.viewportSize()!
+    const workspace = await page.locator('[data-popover-viewport]').boundingBox()
+    const boxes = await Promise.all([panel.boundingBox(), footer.boundingBox()])
+    return boxes.every((box) => box !== null && box.x >= 7
+      && box.y >= (workspace?.y ?? 0) + 7
+      && box.x + box.width <= viewport.width - 7
+      && box.y + box.height <= viewport.height - 7)
+  }, 'panel and footer settle inside the live workspace and viewport').toBe(true)
 }
 
 async function tenantId(page: Page): Promise<string> {

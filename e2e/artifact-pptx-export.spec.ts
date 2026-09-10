@@ -174,7 +174,7 @@ test('owner and granted reader download current slides as PowerPoint at every vi
   }
 })
 
-test('artifact pages expose exactly the format native to each authored kind', async ({ page }) => {
+test('artifact pages expose exactly the formats supported by each authored kind', async ({ page }) => {
   test.setTimeout(ms(45_000))
   const stamp = Date.now().toString(36)
   const save = async (kind: 'doc' | 'sheet' | 'slide', name: string, body: unknown) => {
@@ -192,17 +192,20 @@ test('artifact pages expose exactly the format native to each authored kind', as
   const doc = await save('doc', `format-${stamp}.md`, 'saved text')
   await page.goto(`/artifacts/${doc.id}`)
   await expect(page.getByRole('button', { name: 'Download Markdown', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Download Word', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Download XLSX', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Download PowerPoint', exact: true })).toHaveCount(0)
 
   const sheet = await save('sheet', `format-${stamp}.xlsx`, { type: 'sheet', columns: ['A'], rows: [['saved']] })
   await page.goto(`/artifacts/${sheet.id}`)
+  await expect(page.getByRole('button', { name: 'Download Word', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Download XLSX', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Download Markdown', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Download PowerPoint', exact: true })).toHaveCount(0)
 
   const slide = await save('slide', `format-${stamp}.slides`, { type: 'slides', slides: [{ title: 'Saved', bullets: ['saved'] }] })
   await page.goto(`/artifacts/${slide.id}`)
+  await expect(page.getByRole('button', { name: 'Download Word', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Download PowerPoint', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Download Markdown', exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Download XLSX', exact: true })).toHaveCount(0)

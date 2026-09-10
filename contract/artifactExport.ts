@@ -8,9 +8,10 @@ export interface ArtifactDocumentExport {
   revision: number
 }
 
-export type ArtifactExportFormat = 'markdown' | 'xlsx' | 'pptx'
+export type ArtifactExportFormat = 'markdown' | 'xlsx' | 'pptx' | 'docx'
 export const XLSX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 export const PPTX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+export const DOCX_MEDIA_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 /** A saved values-only workbook, not a formula calculation or original upload. */
 export interface ArtifactSpreadsheetExport {
   artifactId: string
@@ -24,7 +25,11 @@ export interface ArtifactSpreadsheetExport {
 export interface ArtifactPresentationExport extends Omit<ArtifactSpreadsheetExport, 'mediaType'> {
   mediaType: typeof PPTX_MEDIA_TYPE
 }
-export type ArtifactExport = ArtifactDocumentExport | ArtifactSpreadsheetExport | ArtifactPresentationExport
+/** Editable saved document blocks, not a reconstruction of an imported file. */
+export interface ArtifactWordExport extends Omit<ArtifactSpreadsheetExport, 'mediaType'> {
+  mediaType: typeof DOCX_MEDIA_TYPE
+}
+export type ArtifactExport = ArtifactDocumentExport | ArtifactSpreadsheetExport | ArtifactPresentationExport | ArtifactWordExport
 
 type DocumentBody = Extract<ArtifactContent, { type: 'doc' }>
 

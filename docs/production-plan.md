@@ -20,7 +20,48 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint adds structural PowerPoint-to-Slides import. It preserves
+The current checkpoint adds Download Word beside Markdown for saved Documents
+and email artifacts. A fresh exact-ID read snapshots current saved content,
+preserves ordered title/headings/prose/lists/code/email text in editable DOCX,
+and rechecks visibility after serialization. Both actions share edit and
+in-flight holds; missing/foreign/revoked content remains hidden. Markdown stays
+the omitted-format default. This does not reproduce imported rich Word layout.
+
+Independent rendering exposed incomplete local ZIP headers: generic archive
+readers accepted the files, but LibreOffice could not open DOCX/PPTX. All three
+Office exporters now share deterministic stored ZIP finalization with complete
+local sizes. A header-descriptor mutation was watched fail, as were bypassing
+the DOCX post-serialization access check and losing email-label separator spaces.
+The actual generated DOCX renders through bundled LibreOffice; its fontconfig
+must be selected explicitly for installed Japanese font fallback. All four
+rendered pages were individually inspected for text, wrapping and pagination.
+All eight focused browser export checks passed. The final complete five-lane
+verifier passed all 368 browser tests, the complete Node suite, type checking
+and the production build on Node 26 under unchanged byte budgets. The frozen-tree
+responsive sweep passed 135/135 cells with zero violations or skips. All 137
+fresh sweep originals, 35 focused Office-export originals and 15 provider-dialog
+originals were individually reviewed at full resolution with no remaining
+findings. Manual foreign-account denial also passed at all five canonical sizes.
+Unsigned arm64 packaging and all executable smoke phases passed, including an
+actual Word download whose disk bytes match a fresh authenticated descriptor.
+Existing credential, relaunch, backup, input and schema checks remain green.
+Picker results are simulated where recorded by the native harness; this is not
+actual OS-dialog, signing/notarization, Intel or paid-provider acceptance.
+
+The first complete plan passed all 368 browser tests but caught a source-lock
+literal being interpreted as a real suite-relative import; the assertion now
+matches the serializer import as syntax. Live UI review found adjacent identical
+download glyphs, so both document choices use a captioned shared SectionAction
+variant. Ordinary icon-only header verbs keep their existing quiet presentation.
+The new visible-label constraint and geometry lock belong to UI-154. Both source
+locks and the browser test failed when captions were intentionally hidden.
+The next full pass exposed an immediate provider-dialog geometry sample during
+a viewport resize. Its helper now waits for the same strict panel/footer bounds
+under the existing assertion deadline. Disabling the real resize updates was
+watched fail this stabilized lock; no production dialog rule or budget changed.
+Five diagnostic repetitions and the final complete verifier passed afterwards.
+
+The preceding checkpoint added structural PowerPoint-to-Slides import. It preserves
 real visible slide boundaries rather than interpreting flattened attachment
 text, including explicitly numbered empty slides. First nonblank paragraphs
 become titles, remaining paragraphs/table rows become bullets, and the complete
@@ -62,6 +103,7 @@ simulated; selected-file reads, IPC, emitted workers, review/adoption, saving an
 relaunch are real. This does not claim actual OS-dialog interaction, signing,
 notarization or Intel acceptance. The previous Document checkpoint's GitHub run
 `34438685229` is confirmed successful.
+The Slides checkpoint at `21bbd8a` also passed GitHub run `34446360264`.
 
 Acceptance also exposed stale source-owner checks after the form extraction and
 an MCP browser fixture teardown race. The former now read the shared form owner;
@@ -189,9 +231,10 @@ export, input and MCP schema-worker checks also passed. This is not signing,
 notarization, native Intel, paid-provider or complete actual OS-dialog evidence.
 
 Current shared-browser handoff leaves all six demo accounts stacked with Ada
-active on Artifacts in a desktop/light viewport. The live New artifact form was
-reviewed and cancelled without adding sample data; Ada's Acid Plum palette and
-three overrides remain intact. Isolated browser tests cover Ada's owner, Grace's
+active on the saved insights-onepager.md Document in a desktop/light viewport,
+with Word and Markdown visible. Live Document and email downloads were reviewed
+without changing saved content; Ada's Acid Plum palette and three overrides
+remain intact. Isolated browser tests cover Ada's owner, Grace's
 shared-reader and Maya's foreign-account faces. The Mac is currently locked,
 which does not block in-app browser review but prevents a fresh actual OS-dialog
 ceremony. Earlier native OS-dialog acceptance remains qualified as recorded

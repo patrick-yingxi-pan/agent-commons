@@ -4,10 +4,11 @@ import { SECTION_ACTION_CLASS } from '../lib/sectionAction'
 /** The one section-header action button — every verb in a section header's
  *  hover-revealed cluster (edit, add, post, commission…) renders through this,
  *  so the cue can't drift between copy-pasted copies (form follows function;
- *  locked by src/lib/sectionAction.test.ts). Icon-only: the destination stays
- *  NAMED via title + aria-label, like the page back arrow. */
+ *  locked by src/lib/sectionAction.test.ts). Normally icon-only, with title +
+ *  aria-label. Same-glyph choices add a short visible caption for disambiguation. */
 export function SectionAction({
   label,
+  caption,
   icon,
   onClick,
   open,
@@ -17,6 +18,8 @@ export function SectionAction({
 }: {
   /** The verb, spelled out — becomes the tooltip and the accessible name. */
   label: string
+  /** Visible discriminator when adjacent actions share a glyph (Word/Markdown). */
+  caption?: string
   icon: ReactNode
   onClick: () => void
   /** For popover triggers: the popover's open state. Stamps `data-open` (keeps
@@ -43,9 +46,11 @@ export function SectionAction({
       {...(open !== undefined ? { 'aria-haspopup': 'dialog' as const } : {})}
       {...(state !== undefined ? { 'aria-expanded': state } : {})}
       data-open={state || undefined}
+      data-captioned={caption ? true : undefined}
       className={`${SECTION_ACTION_CLASS} disabled:pointer-events-none disabled:opacity-50`}
     >
       {icon}
+      {caption && <span>{caption}</span>}
     </button>
   )
 }

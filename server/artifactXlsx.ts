@@ -2,8 +2,8 @@
  * resource fetches, or arbitrary parts: the package is entirely generated here.
  * ST_Xstring escaping follows MS-OE376 §2.1.1127, including literal escape text:
  * https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oe376/bd0aa042-434a-4ca7-b25f-4e1fd25a954d */
-import { ZipWriter, TextReader, Uint8ArrayWriter } from '@zip.js/zip.js/lib/zip-core-custom.js'
 import { artifactExportFilename, XLSX_MEDIA_TYPE, type ArtifactContent, type ArtifactSpreadsheetExport } from '../contract/index.ts'
+import { writeOfficeZip } from './artifactOfficeZip.ts'
 
 type SheetBody = Extract<ArtifactContent, { type: 'sheet' }>
 const MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
@@ -68,8 +68,6 @@ export async function sheetXlsx(name: string, body: SheetBody): Promise<Omit<Art
   ]
   // Stored entries avoid a worker/WASM/compressor dependency in the native
   // sidecar. Inputs are the already bounded saved sheet, not arbitrary uploads.
-  const writer = new ZipWriter(new Uint8ArrayWriter(), { level: 0, useWebWorkers: false })
-  for (const [path, content] of parts) await writer.add(path, new TextReader(content), { lastModDate: new Date(2000, 0, 1), extendedTimestamp: false })
-  const bytes = await writer.close()
+  const bytes = await writeOfficeZip(parts)
   return { filename: artifactExportFilename(name, 'xlsx'), mediaType: XLSX_MEDIA_TYPE, encoding: 'base64', content: Buffer.from(bytes).toString('base64'), revision: body.revision ?? 0 }
 }
