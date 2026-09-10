@@ -66,12 +66,14 @@ test('local picker copy distinguishes text input from preview-only formats and f
 
 test('local picker chunk failure has honest explicit recovery without automatic reload', () => {
   const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const notice = stripComments(read(join(ROOT, 'src/components/UiHostLoadNotice.tsx')))
   const loader = stripComments(read(join(ROOT, 'src/lib/useUiHostFs.ts')))
   assert.match(source, /import type \{ UiHostFile \} from/)
   assert.equal((source.match(/const hostFs = useUiHostFs\(active\.kind === 'ui-host'\)/g) ?? []).length, 3, 'files, photos and folders all share the admission hook')
-  assert.match(source, /data-local-picker-load="error"/)
-  assert.match(source, /Copy any unsent text first/)
-  assert.match(source, /onClick=\{\(\) => window\.location\.reload\(\)\}/)
+  assert.match(source, /import \{ UiHostLoadNotice \} from/)
+  assert.match(notice, /data-local-picker-load="error"/)
+  assert.match(notice, /Copy any unsent text first/)
+  assert.match(notice, /onClick=\{\(\) => window\.location\.reload\(\)\}/)
   assert.doesNotMatch(loader, /location\.reload|setInterval/)
   assert.match(loader, /if \(!alive\) return/)
 })

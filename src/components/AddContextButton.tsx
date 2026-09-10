@@ -44,7 +44,8 @@ import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
 import type { UiHostFile } from '../lib/uiHostFs'
-import { useUiHostFs, type UiHostFsLoadState, type UiHostFsModule } from '../lib/useUiHostFs'
+import { useUiHostFs, type UiHostFsModule } from '../lib/useUiHostFs'
+import { UiHostLoadNotice } from './UiHostLoadNotice.tsx'
 import { prepareUiHostFiles } from '../controller/imageAttachments'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
@@ -840,23 +841,6 @@ function UiHostDropZone({
       {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
     </div>
   )
-}
-
-function UiHostLoadNotice({ state, label }: { state: UiHostFsLoadState; label: string }) {
-  if (state.status === 'ready') return null
-  if (state.status === 'loading') {
-    return <p role="status" aria-busy="true" className="px-1 py-6 text-center text-[11px] text-ink-soft">Loading {label}…</p>
-  }
-  if (state.status === 'error') {
-    return (
-      <div role="alert" data-local-picker-load="error" className="px-1 py-4 text-center text-[11px] text-danger-text">
-        <p>Local {label} could not be loaded.</p>
-        <p className="mt-1 text-ink-soft">Reload the app to try again. Copy any unsent text first.</p>
-        <button type="button" onClick={() => window.location.reload()} className="mt-2 rounded-md px-2 py-1 text-[11px] font-medium text-ink ring-1 ring-line-strong hover:bg-panel-2">Reload app</button>
-      </div>
-    )
-  }
-  return null
 }
 
 /** Empty / loading state for a served catalog pane. */

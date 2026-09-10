@@ -11,6 +11,13 @@ test('bounded dialog layout reserves viewport space and gives overflow to its bo
   assert.match(BOUNDED_DIALOG_BODY_CLASS, /\boverflow-y-auto\b/)
 })
 
+test('resource-form field spacing belongs to the real fieldset, not a display-contents wrapper', () => {
+  const source = stripComments(read('src/components/SectionView.tsx'))
+  assert.ok(source.includes('data-form-fields className={FORM_DIALOG_FIELDS_CLASS}'), 'shared FormDialog fields use the spacing funnel on a rendered box')
+  const primitive = stripComments(read('src/lib/dialog.ts'))
+  assert.ok(primitive.includes("FORM_DIALOG_FIELDS_CLASS = 'min-w-0 space-y-4'"), 'one real group owns the inter-field rhythm')
+})
+
 test('every bounded dialog composes the whole layout and exposes the browser enumeration stamp', () => {
   const consumers = filesUnder('src').filter((file) => file.endsWith('.tsx'))
     .map((file) => ({ file, source: stripComments(read(file)) }))

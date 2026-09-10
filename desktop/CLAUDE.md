@@ -44,6 +44,14 @@ when changing the renderer-facing bridge or setup UI.
 
 ## Verification
 
+The packaged attachment phase also imports text, PDF and DOCX into saved
+Documents through the built New artifact form. Only the native dialog result
+is a fixture; reader/IPC, extraction, review, explicit adoption and keyed
+creation stay real. It verifies exact canonical bodies and reuses its existing
+full app relaunch after deleting the source files. This is not actual OS-dialog
+interaction, rich Office conversion, or a replacement for OS-backed keychain
+acceptance in the separate ordinary executable smoke.
+
 The ordinary executable smoke records one provider-reported turn, reads the
 exact durable tenant counters and period anchors from SQLite, and compares them
 after a full app relaunch. The first-run setup also saves an exact personal

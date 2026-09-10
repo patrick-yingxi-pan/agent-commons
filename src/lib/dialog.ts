@@ -23,3 +23,5 @@ export const BOUNDED_DIALOG_LAYER_CLASS =
 export const BOUNDED_DIALOG_PANEL_CLASS =
   'relative flex h-fit max-h-[calc(var(--dialog-viewport-height,100dvh)-2rem)] max-w-full flex-col sm:max-h-[calc(var(--dialog-viewport-height,100dvh)-16dvh)]'
 export const BOUNDED_DIALOG_BODY_CLASS = 'min-h-0 flex-1 overflow-y-auto'
+/** `display: contents` has no box for the spacing selector to separate. */
+export const FORM_DIALOG_FIELDS_CLASS = 'min-w-0 space-y-4'

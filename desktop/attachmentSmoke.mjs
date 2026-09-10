@@ -69,6 +69,27 @@ async function openFilesPicker(page) {
   return picker
 }
 
+async function openArtifactImportDialog(page, origin) {
+  await page.goto(`${origin}/artifacts`)
+  await page.getByRole('button', { name: 'New artifact', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New artifact', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Import file', exact: true })).toBeVisible()
+  return dialog
+}
+
+async function chooseNativeArtifactFile(app, dialog, path) {
+  await app.evaluate(({ dialog: nativeDialog }, selectedPath) => {
+    nativeDialog.showOpenDialog = async (_owner, options) => {
+      if (options.title !== 'Add files' || !options.properties.includes('openFile')) {
+        throw new Error('Expected native document file selection')
+      }
+      return { canceled: false, filePaths: [selectedPath] }
+    }
+  }, path)
+  await dialog.getByRole('button', { name: 'Import file', exact: true }).click()
+}
+
 async function inspectPair(page, expectedIds) {
   await page.getByTitle('Files (2)', { exact: true }).click()
   const menu = page.getByRole('menu', { name: 'Files', exact: true })
@@ -217,6 +238,66 @@ export async function smokePackagedAttachments({ executable }) {
     }, { baseURL: endpoint.origin, model: SMOKE_MODEL_ID })
     const sessionPath = `/s/${encodeURIComponent(session.id)}`
     await page.goto(`${origin}${sessionPath}`)
+
+    const importedDocuments = [
+      {
+        path: join(fixtureRoot, 'native-artifact-text.txt'),
+        name: 'native-artifact-text.md',
+        text: 'Native text artifact body.\n\nSecond text paragraph.',
+        blocks: ['Native text artifact body.', 'Second text paragraph.'],
+      },
+      {
+        path: join(fixtureRoot, 'native-artifact-pdf.pdf'),
+        name: 'native-artifact-pdf.md',
+        text: '[Page 1]\nnative-artifact-pdf-body\n\n[Page 3]\nFinal PDF page',
+        blocks: ['[Page 1] native-artifact-pdf-body', '[Page 3] Final PDF page'],
+        disclosure: '2 of 3 pages',
+        bytes: pdfFixture({ pages: ['native-artifact-pdf-body', null, 'Final PDF page'], compress: true }),
+      },
+      {
+        path: join(fixtureRoot, 'native-artifact-docx.docx'),
+        name: 'native-artifact-docx.md',
+        text: 'native-artifact-word-body · café 世界 😀\nSecond Word paragraph.',
+        blocks: ['native-artifact-word-body · café 世界 😀 Second Word paragraph.'],
+        disclosure: 'Extracted Word body text',
+        bytes: docxFixture({ paragraphs: ['native-artifact-word-body · café 世界 😀', 'Second Word paragraph.'] }),
+      },
+    ]
+    await writeFile(importedDocuments[0].path, importedDocuments[0].text, { mode: 0o600 })
+    await writeFile(importedDocuments[1].path, importedDocuments[1].bytes, { mode: 0o600 })
+    await writeFile(importedDocuments[2].path, importedDocuments[2].bytes, { mode: 0o600 })
+    for (const imported of importedDocuments) {
+      const artifactDialog = await openArtifactImportDialog(page, origin)
+      await chooseNativeArtifactFile(run.app, artifactDialog, imported.path)
+      await expect(artifactDialog.getByLabel('Name', { exact: true })).toHaveValue('')
+      await expect(artifactDialog.getByLabel('Content', { exact: true })).toHaveValue('')
+      await expect(artifactDialog.getByRole('button', { name: 'Create document', exact: true })).toBeDisabled()
+      await expect(artifactDialog.getByLabel('Imported text', { exact: true })).toHaveValue(imported.text)
+      if (imported.disclosure) await expect(artifactDialog).toContainText(imported.disclosure)
+      await artifactDialog.getByRole('button', { name: 'Use imported text', exact: true }).click()
+      await expect(artifactDialog.getByLabel('Name', { exact: true })).toHaveValue(imported.name)
+      await expect(artifactDialog.getByLabel('Content', { exact: true })).toHaveValue(imported.text)
+      await expect(artifactDialog.getByRole('button', { name: 'Create document', exact: true })).toBeEnabled()
+      await artifactDialog.getByRole('button', { name: 'Create document', exact: true }).click()
+      await expect(artifactDialog).toHaveCount(0)
+      await expect(page.getByRole('heading', { name: imported.name, exact: true })).toBeVisible()
+      const saved = await page.evaluate(async (name) => {
+        const artifactsResponse = await fetch('/api/v1/artifacts')
+        const contentsResponse = await fetch('/api/v1/artifact-content')
+        if (!artifactsResponse.ok || !contentsResponse.ok) throw new Error('Imported artifact reads failed.')
+        const artifacts = await artifactsResponse.json()
+        const contents = await contentsResponse.json()
+        const artifact = artifacts.find((candidate) => candidate.name === name)
+        return { artifact, body: artifact ? contents[artifact.id] : undefined }
+      }, imported.name)
+      assert.equal(saved.artifact?.kind, 'doc')
+      assert.deepEqual(saved.body, {
+        type: 'doc', title: imported.name.slice(0, -3), blocks: imported.blocks.map((p) => ({ p })), revision: 0,
+      })
+      imported.id = saved.artifact.id
+    }
+    await Promise.all(importedDocuments.map(({ path }) => rm(path)))
+    console.log('[desktop-artifact-import-smoke] real native reader + IPC · text/PDF/DOCX review · explicit adoption · saved document bodies')
 
     // Markdown export is a renderer download, not a native bridge. Create a real
     // authored document through the authenticated relation seam, then capture the
@@ -581,6 +662,12 @@ export async function smokePackagedAttachments({ executable }) {
     await Promise.all(paths.map((path) => rm(path)))
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
+    for (const imported of importedDocuments) {
+      await page.goto(`${origin}/artifacts/${encodeURIComponent(imported.id)}`)
+      await expect(page.getByRole('heading', { name: imported.name, exact: true })).toBeVisible()
+      for (const block of imported.blocks) await expect(page.getByText(block, { exact: true })).toBeVisible()
+    }
+    console.log('[desktop-artifact-import-smoke] exact saved document identities + rendered bodies survive full relaunch without source files')
     await page.goto(`${origin}${sessionPath}`)
     await inspectPair(page, ids)
     await expect(page.locator('[data-turn]').filter({ hasText: 'native-first-body' })).toBeVisible()

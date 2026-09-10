@@ -9,6 +9,65 @@ import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPick
 import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
 
 const dropped = (files: File[]): FileList => files as unknown as FileList
+
+test('document-only selections reject multiple or unsupported files before reading bytes', async () => {
+  let reads = 0
+  const file = (name: string) => ({ name, size: 10, slice: () => { reads++; throw new Error('unexpected read') } }) as unknown as File
+  for (const files of [[file('notes.txt'), file('other.pdf')], [file('book.xlsx')], [file('photo.png')]]) {
+    const picked = await readDroppedFiles(dropped(files), 'document')
+    assert.equal(picked.length, files.length)
+    assert.ok(picked.every((entry) => entry.text === undefined && entry.documentImport === undefined && entry.imageInput === undefined))
+  }
+  assert.equal(reads, 0)
+  const selected = await readDroppedFiles(dropped([new File(['whole text'], 'notes.txt')]), 'document')
+  assert.equal(selected[0].text, 'whole text')
+})
+
+test('native document selection uses existing authority and rejects before media extraction', async () => {
+  let byteReads = 0
+  const calls: unknown[] = []
+  const scope = { agentCommonsDesktop: { context: {
+    pickFiles: async (accept: unknown) => {
+      calls.push(accept)
+      return { status: 'selected' as const, files: [{ name: 'book.xlsx', kind: 'file' as const, sizeBytes: 1,
+        get xlsxBytes() { byteReads++; return new Uint8Array(1) },
+      }] }
+    },
+    pickFolder: async () => ({ status: 'cancelled' as const }),
+  } } }
+  const result = await pickUiHostFiles('document', scope)
+  assert.equal(result[0].text, undefined)
+  assert.equal(result[0].documentImport, undefined)
+  assert.equal(byteReads, 0)
+  assert.deepEqual(calls, ['any'])
+  const aborted = new AbortController()
+  aborted.abort()
+  assert.deepEqual(await pickUiHostFiles('document', scope, aborted.signal), [])
+  assert.deepEqual(calls, ['any'], 'already cancelled work never opens a native chooser')
+})
+
+test('browser document chooser is single-select and abort releases its late selection handlers', async () => {
+  const previous = globalThis.document
+  const controller = new AbortController()
+  const listeners = new Map<string, () => void>()
+  const input = {
+    type: '', multiple: false, files: [new File(['late body'], 'notes.txt')],
+    onchange: null as null | (() => void), click() {},
+    addEventListener: (name: string, fn: () => void) => listeners.set(name, fn),
+    removeEventListener: (name: string) => listeners.delete(name),
+  }
+  globalThis.document = { createElement: () => input } as unknown as Document
+  try {
+    const pending = pickUiHostFiles('document', {}, controller.signal)
+    assert.equal(input.type, 'file')
+    assert.equal(input.multiple, false)
+    assert.equal(listeners.has('cancel'), true)
+    controller.abort()
+    assert.deepEqual(await pending, [])
+    assert.equal(input.onchange, null)
+    assert.equal(listeners.size, 0)
+  } finally { globalThis.document = previous }
+})
 function installImageGlobals() {
   const previousBitmap = globalThis.createImageBitmap
   const previousCanvas = globalThis.OffscreenCanvas
@@ -172,6 +231,7 @@ test('browser folder selection snapshots only visible top-level files', async ()
         click: () => queueMicrotask(() => input.onchange?.()),
         onchange: undefined as (() => void) | undefined,
         addEventListener: () => {},
+        removeEventListener: () => {},
       }
       return input
     },
@@ -202,6 +262,7 @@ test('browser folder selection never reads a nested-only folder', async () => {
         click: () => queueMicrotask(() => input.onchange?.()),
         onchange: undefined as (() => void) | undefined,
         addEventListener: () => {},
+        removeEventListener: () => {},
       }
       return input
     },
@@ -229,6 +290,7 @@ test('browser folder entry cap rejects before reading any file', async () => {
         click: () => queueMicrotask(() => input.onchange?.()),
         onchange: undefined as (() => void) | undefined,
         addEventListener: () => {},
+        removeEventListener: () => {},
       }
       return input
     },

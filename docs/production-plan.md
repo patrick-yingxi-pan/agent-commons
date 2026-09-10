@@ -20,7 +20,39 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint completes the provider-onboarding failure path needed
+The current checkpoint adds a reviewed file-to-Document workflow to New artifact.
+One text, PDF or DOCX file is read through the existing bounded UI-host/native
+reader; only explicit adoption changes the draft, and only normal keyed creation
+saves it. Text-only conversion discloses omitted formatting, images, layout and
+OCR; PDF/Word extraction details remain visible during review. Unsupported or
+multiple selections are rejected before parsing, oversized source is rejected
+before the authoring clamp, and cancellation, format change, closure and account
+switch fence late work. A typed name is never replaced by a filename suggestion.
+This is not structured Office import: rich Word, multi-sheet workbook and deck
+mapping remain required future work.
+
+The full five-lane verifier passed, including 362 browser tests, the complete
+Node suite, type checking and production build under unchanged startup budgets.
+The responsive sweep covered 135/135 cells with zero violations or skips; all
+137 fresh originals were individually reviewed at full resolution. Another 35
+originals cover import review, error, loading failure, in-flight reads and the
+owner/shared/foreign saved-document faces at every canonical viewport. Live
+review caught crowded shared resource-form fields: UI-153 moves spacing to
+the actual fieldset and locks the rendered gaps. Intentional admission,
+source-limit, cancellation, Create-guard and adoption regressions were observed
+failing their locks; the restored adoption path passed again in the browser.
+Unsigned arm64 packaging and the complete executable smoke passed. The new
+native-dialog-result fixture keeps selected-file reads, trusted IPC, emitted
+workers, explicit review/adoption and keyed creation real; exact saved bodies
+are checked before all three source files are removed, then their identities
+and rendered bodies survive a full app relaunch. The existing separate
+OS-backed auth/provider/MCP credential, managed-backup, input/export and schema
+worker checks also passed. This does not claim actual macOS dialog interaction,
+signing, notarization, native Intel or paid-service acceptance. The preceding
+provider-onboarding revision's GitHub CI run `34434648778`
+is also confirmed successful; the new revision requires its own complete gate.
+
+The preceding checkpoint completed the provider-onboarding failure path needed
 for a reliable first conversation. The form now loads its saving/recovery
 controller before accepting intent. A real browser module failure previously
 stranded Create; consolidating the queue removes that late dependency.
@@ -41,7 +73,7 @@ notices and scrolls only its body, keeping titles and footer actions reachable.
 The browser locks observed the short-window footer overflow and narrow recovery
 banner overlap before their fixes.
 
-Current checkpoint acceptance passed the complete five-lane verifier: 3,396 Node
+That checkpoint's acceptance passed the complete five-lane verifier: 3,396 Node
 tests and 356 browser tests, type checking and production build, with startup
 budgets unchanged. The final frozen-tree responsive sweep covered 135/135 cells
 with zero violations or skips. Its 137 fresh originals are distinct from five
@@ -103,13 +135,13 @@ export, input and MCP schema-worker checks also passed. This is not signing,
 notarization, native Intel, paid-provider or complete actual OS-dialog evidence.
 
 Current shared-browser handoff leaves all six demo accounts stacked with Ada
-active on Models in a desktop/light viewport. Viewer-relative inspection
-covered Ada, Grace and Maya's New provider forms without saving any provider or
-changing their model choices; Ada's Acid Plum palette and three overrides remain intact. Older
-checkpoint notes below describe earlier handoff surfaces and the Mac lock at
-that time; it no longer blocks shared preview review. Native OS-dialog acceptance
-has since advanced as recorded below; Excel-application acceptance remains a
-separate unverified check.
+active on Artifacts in a desktop/light viewport. The live New artifact form was
+reviewed and cancelled without adding sample data; Ada's Acid Plum palette and
+three overrides remain intact. Isolated browser tests cover Ada's owner, Grace's
+shared-reader and Maya's foreign-account faces. The Mac is currently locked,
+which does not block in-app browser review but prevents a fresh actual OS-dialog
+ceremony. Earlier native OS-dialog acceptance remains qualified as recorded
+below; Excel-application acceptance remains a separate unverified check.
 
 The [2026-09-10 native-context review](acceptance/native-context-2026-09-10.md)
 used the unsigned arm64 packaged app and actual macOS Files, Photos, and Folder

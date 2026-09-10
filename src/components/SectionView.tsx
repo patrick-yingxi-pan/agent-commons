@@ -117,6 +117,8 @@ import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { ConnectorDetailBody } from './ConnectorPanel'
 import { AddContextButton } from './AddContextButton'
+import { ArtifactDocumentImport } from './ArtifactDocumentImport.tsx'
+import { useArtifactDocumentImport } from '../lib/useArtifactDocumentImport.ts'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { useDisclosure } from '../lib/useDisclosure'
 import { NotificationRow, type NotificationDoors } from './NotificationList'
@@ -124,7 +126,7 @@ import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
 import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
-import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS, FORM_DIALOG_FIELDS_CLASS } from '../lib/dialog'
 import { useBoundedDialog } from '../lib/useBoundedDialog.ts'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
@@ -7995,6 +7997,9 @@ function NewArtifactDialog({
   const [error, setError] = useState<string | null>(null)
   const tenantId = identity?.tenant.id
   const busy = held !== null
+  const documentImport = useArtifactDocumentImport(draftKind === 'doc' && !busy)
+  const documentBodyId = useId()
+  const documentBodyRef = useRef<HTMLTextAreaElement>(null)
   const waitingForRecovery = busy && !!mutation.error
   const mounted = useRef(false)
   const followed = useRef<Promise<ArtifactCreationResult> | null>(null)
@@ -8025,7 +8030,7 @@ function NewArtifactDialog({
   const normalizedName = normalizeArtifactName(name)
   const authored = normalizedName && authoredArtifact(normalizedName, kind, kind === 'doc' ? body : kind === 'sheet' ? sheet : slides)
   const canFileProject = projectId === null || projects.some((project) => project.id === projectId && project.own === true)
-  const canCreate = !!authored && !!tenantId && canFileProject && !busy
+  const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
   const submit = () => {
     if (canCreate && authored && normalizedName && tenantId) {
       setError(null)
@@ -8059,15 +8064,26 @@ function NewArtifactDialog({
       <FormField label="Format">
         <select value={kind} disabled={busy} onChange={(event) => {
           const value = event.target.value
-          if (value === 'doc' || value === 'sheet' || value === 'slide') setKind(value)
+          if (value === 'doc' || value === 'sheet' || value === 'slide') {
+            documentImport.discard()
+            setKind(value)
+          }
         }} className={FORM_INPUT_CLASS}>
           <option value="doc">Document</option>
           <option value="sheet">Sheet</option>
           <option value="slide">Slides</option>
         </select>
       </FormField>
-      {kind === 'doc' ? <FormField label="Content">
+      {kind === 'doc' ? <>
+      <ArtifactDocumentImport intake={documentImport} hasContent={body.length > 0} disabled={busy} onUse={() => documentImport.accept((candidate) => {
+        setBody(candidate.text)
+        setName((current) => current.trim() ? current : candidate.name)
+        documentBodyRef.current?.focus()
+      })} />
+      <FormField label="Content" controlId={documentBodyId}>
         <textarea
+          id={documentBodyId}
+          ref={documentBodyRef}
           value={body}
           disabled={busy}
           onChange={(e) => setBody(e.target.value)}
@@ -8079,9 +8095,9 @@ function NewArtifactDialog({
         />
         <span id={helpId} className="mt-1 block text-[11px] text-ink-faint">
           Blank lines become independently editable paragraphs. The index synopsis is derived from this content. About 20,000
-          characters maximum.
+          characters maximum. Whitespace within each paragraph is normalized when saved.
         </span>
-      </FormField> : <fieldset className="min-w-0 space-y-2" aria-describedby={helpId}>
+      </FormField></> : <fieldset className="min-w-0 space-y-2" aria-describedby={helpId}>
         <legend className="mb-1.5 text-[12px] font-medium text-ink-soft">Content</legend>
         <p id={helpId} className="text-[11px] text-ink-faint">
           {kind === 'sheet' ? 'Name each column and enter literal values. Formulas are not calculated.' : 'Give each slide a title, then add optional bullets.'}
@@ -9437,16 +9453,16 @@ function CardActions({
 }
 
 /** A labeled form field for the hub dialogs. */
-function FormField({ label, optional, children }: { label: string; optional?: boolean; children: ReactNode }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
-        {label}
-        {optional && <span className="font-normal text-ink-faint"> (optional)</span>}
-      </span>
-      {children}
-    </label>
-  )
+function FormField({ label, optional, controlId, children }: { label: string; optional?: boolean; controlId?: string; children: ReactNode }) {
+  const caption = <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">
+    {label}
+    {optional && <span className="font-normal text-ink-faint"> (optional)</span>}
+  </span>
+  // Explicit association keeps auxiliary copy and controlled textarea content
+  // outside the field's name. Existing simple fields retain implicit labels.
+  return controlId
+    ? <div><label htmlFor={controlId} className="block">{caption}</label>{children}</div>
+    : <label className="block">{caption}{children}</label>
 }
 
 /** The shared create / edit modal shell for resource forms — portal + focus trap, a
@@ -9527,7 +9543,7 @@ function FormDialog({
         </div>
 
         <div className={`space-y-4 p-5 ${BOUNDED_DIALOG_BODY_CLASS}`}>
-          <fieldset disabled={fieldsDisabled} className="contents">
+          <fieldset disabled={fieldsDisabled} data-form-fields className={FORM_DIALOG_FIELDS_CLASS}>
             {children}
           </fieldset>
           {error && <p className="text-[12px] text-removed">{error}</p>}

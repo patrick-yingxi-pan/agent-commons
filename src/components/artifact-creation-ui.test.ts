@@ -3,6 +3,22 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
+test('document intake is review-only, bounded, account-fenced and shares picker recovery', () => {
+  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const surface = stripComments(read(join(ROOT, 'src/components/ArtifactDocumentImport.tsx')))
+  const hook = stripComments(read(join(ROOT, 'src/lib/useArtifactDocumentImport.ts')))
+  assert.ok(section.includes('!documentImport.reviewing'), 'Create cannot publish while an import is reading or awaiting review')
+  assert.ok(section.includes("body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS"), 'programmatic input never bypasses the source ceiling')
+  assert.ok(section.includes('setName((current) => current.trim() ? current : candidate.name)'), 'an import suggestion cannot overwrite a typed name')
+  assert.ok(surface.includes('readOnly value={state.text}'), 'candidate preview is separate from the editable draft')
+  assert.ok(surface.includes('Replace content with imported text'), 'replacement requires a named action')
+  assert.ok(surface.includes('<UiHostLoadNotice '), 'import and conversation attachments share actual chunk recovery')
+  assert.ok(hook.includes('current.generation === accountGeneration()'), 'extraction results retain their source generation')
+  assert.ok(hook.includes('current.generation !== accountGeneration()'), 'review adoption rechecks source generation')
+  assert.ok(hook.includes('operation.current === current'), 'superseded imports cannot clear a newer review')
+  assert.ok(hook.includes('onAccountSwitch(discard)'), 'account changes discard unsaved private candidate text')
+})
+
 test('New artifact authors every supported format through the shared bounded field/parser contract', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   const fields = stripComments(read(join(ROOT, 'src', 'components', 'StructuredArtifactEditor.tsx')))

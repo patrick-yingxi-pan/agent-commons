@@ -23,6 +23,7 @@ import { importImage, ImageImportError } from './imageImport.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
 import { IMAGE_MAX_CONTAINER_BYTES } from '../../contract/imageInput.ts'
+import { isArtifactDocumentFileName } from './artifactDocumentImport.ts'
 
 /** Local intake: bounded text or a transient normalized image, later replaced
  * by its server-owned reference before entering conversation context. */
@@ -61,6 +62,8 @@ export function uiHostKind(name: string): ArtifactKind {
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
 const isImportableImage = (name: string) => IMPORTABLE_IMAGE_EXTS.has(extOf(name))
+type UiHostFileAccept = 'image' | 'any' | 'document'
+const isSingleDocumentSelection = (files: readonly { name: string }[]) => files.length === 1 && isArtifactDocumentFileName(files[0].name)
 
 function previewBytes(url: string): Uint8Array {
   if (typeof url !== 'string' || url.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 + 32 ||
@@ -157,16 +160,22 @@ export function uiHostSupportsPicker(scope?: DesktopBridgeScope): boolean {
  *  for the Photos type. Electron routes through its bounded native bridge; web
  *  uses a transient `<input type=file>` without changing callers. */
 export async function pickUiHostFiles(
-  accept: 'image' | 'any' = 'any',
+  accept: UiHostFileAccept = 'any',
   scope: DesktopBridgeScope = window,
   signal?: AbortSignal,
 ): Promise<UiHostFile[]> {
+  if (signal?.aborted) return []
   const native = scope.agentCommonsDesktop?.context
   if (native) {
-    const result = await native.pickFiles(accept)
+    // Document is a narrower renderer intake policy, not new native authority.
+    const result = await native.pickFiles(accept === 'image' ? 'image' : 'any')
+    if (signal?.aborted) return []
     if (result.status === 'cancelled') return []
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
     if (result.files.length > 24) throw new UiHostPickerError('too-many-files')
+    if (accept === 'document' && !isSingleDocumentSelection(result.files)) {
+      return result.files.map(({ name, kind }) => selectedFile({ name, kind }))
+    }
     const nativeImages = new Map<(typeof result.files)[number], Uint8Array>()
     let nativeImageBytes = 0
     for (const file of result.files) {
@@ -203,17 +212,21 @@ export async function pickUiHostFiles(
     }
     return signal?.aborted ? [] : files
   }
-  const files = await openInput({ multiple: true, accept: accept === 'image' ? 'image/*' : undefined })
+  const files = await openInput({ multiple: accept !== 'document', accept: accept === 'image' ? 'image/*' : undefined }, signal)
   return readSelectedFiles(files, accept, signal)
 }
 
 /** Read files dropped onto a drop zone. */
-export async function readDroppedFiles(list: FileList, accept: 'image' | 'any' = 'any', signal?: AbortSignal): Promise<UiHostFile[]> {
+export async function readDroppedFiles(list: FileList, accept: UiHostFileAccept = 'any', signal?: AbortSignal): Promise<UiHostFile[]> {
   return readSelectedFiles(Array.from(list), accept, signal)
 }
 
-async function readSelectedFiles(files: File[], accept: 'image' | 'any', signal?: AbortSignal): Promise<UiHostFile[]> {
+async function readSelectedFiles(files: File[], accept: UiHostFileAccept, signal?: AbortSignal): Promise<UiHostFile[]> {
+  if (signal?.aborted) return []
   if (files.length > 24) throw new UiHostPickerError('too-many-files')
+  if (accept === 'document' && !isSingleDocumentSelection(files)) {
+    return files.map(({ name }) => selectedFile({ name, kind: isImage(name) ? 'photo' : 'file' }))
+  }
   const images = files.filter((file) => isImage(file.name))
   if (accept === 'image' && files.some((file) => !isImportableImage(file.name))) throw new UiHostPickerError('unsupported-image')
   if (images.some((file) => !isImportableImage(file.name))) throw new UiHostPickerError('unsupported-image')
@@ -287,8 +300,9 @@ function humanSize(bytes: number): string {
 
 /** Promise-wrap a transient `<input type=file>` click. Modern Chromium emits
  *  `cancel`; `change` remains the cross-browser selection path. */
-function openInput(opts: { multiple?: boolean; accept?: string; directory?: boolean }): Promise<File[]> {
+function openInput(opts: { multiple?: boolean; accept?: string; directory?: boolean }, signal?: AbortSignal): Promise<File[]> {
   return new Promise((resolve) => {
+    if (signal?.aborted) { resolve([]); return }
     const input = document.createElement('input')
     input.type = 'file'
     if (opts.multiple) input.multiple = true
@@ -298,10 +312,15 @@ function openInput(opts: { multiple?: boolean; accept?: string; directory?: bool
     const finish = (files: File[]) => {
       if (settled) return
       settled = true
+      input.onchange = null
+      input.removeEventListener('cancel', cancel)
+      signal?.removeEventListener('abort', cancel)
       resolve(files)
     }
+    const cancel = () => finish([])
     input.onchange = () => finish(input.files ? Array.from(input.files) : [])
-    input.addEventListener('cancel', () => finish([]), { once: true })
+    input.addEventListener('cancel', cancel, { once: true })
+    signal?.addEventListener('abort', cancel, { once: true })
     input.click()
   })
 }
