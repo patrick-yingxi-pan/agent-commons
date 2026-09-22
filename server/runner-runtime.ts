@@ -8,8 +8,10 @@
  *  Fulfilment is mock (deterministic, reviewable) but the wire shape is real —
  *  the same seam a production runner would implement against its host. */
 import type { Runner, CapabilityRequest, CapabilityResult } from '../contract/index.ts'
-import { fsReader } from './fs.ts'
-import { RUNNER_FS_ROOTS } from './data/runners.ts'
+import type { FsReader } from './fs.ts'
+import { runnerFs } from './runnerFs.ts'
+import { scopeMatches } from './runnerScopes.ts'
+export { scopeMatches, isGranted } from './runnerScopes.ts'
 
 /** A capability invocation that the runner refused or couldn't run. `code` maps to
  *  the contract error envelope so the route can surface it verbatim. */
@@ -22,49 +24,19 @@ export class CapabilityError extends Error {
   }
 }
 
-/** Does a single granted scope cover `target`? `*` grants everything; otherwise an
- *  exact match or a path/command *under* the scope (`scope` then a `/` boundary),
- *  so `~/projects` grants `~/projects/app` but not `~/projects-secret`. */
-export function scopeMatches(scope: string, target: string): boolean {
-  if (scope === '*') return true
-  if (scope === target) return true
-  return target.startsWith(scope.endsWith('/') ? scope : `${scope}/`)
-}
-
-/** Is `target` within *any* of the runner's granted scopes for `capability`?
- *  False when the runner doesn't advertise the capability at all. */
-export function isGranted(runner: Runner, capability: CapabilityRequest['capability'], target: string): boolean {
-  const cap = runner.capabilities.find((c) => c.type === capability)
-  return !!cap && cap.scopes.some((s) => scopeMatches(s, target))
-}
-
-/** A seeded runner's logical `target` resolved to a real path under its on-disk
- *  root: strip the matched scope prefix (`~/projects/…` → `…`) and read from the
- *  runner's `RUNNER_FS_ROOTS` directory. `undefined` when the runner has no mapped
- *  root (an ad-hoc runner that connected at runtime) — the caller falls back to a
- *  deterministic mock so a real read isn't required to demo the wire shape. */
-function realFs(runner: Runner, capability: 'fs.read' | 'fs.list', target: string) {
-  const root = RUNNER_FS_ROOTS[runner.id]
-  if (!root) return undefined
-  const cap = runner.capabilities.find((c) => c.type === capability)
-  const scope = cap?.scopes.find((s) => scopeMatches(s, target))
-  // Express the target relative to the matched scope root (the runner's real dir).
-  const rel = !scope || scope === '*' ? target.replace(/^[~/]+/, '') : target.slice(scope.length).replace(/^\/+/, '')
-  return { reader: fsReader(root), rel }
-}
-
 /** Fulfilment per capability. Read-only fs (`fs.read` / `fs.list`) hits the real
  *  filesystem under the runner's mapped root (deterministic mock fallback for an
  *  unmapped runner); the rest stay mock — deterministic, real-shaped output. */
 function fulfil(runner: Runner, request: CapabilityRequest): unknown {
   switch (request.capability) {
     case 'fs.read': {
-      const fs = realFs(runner, 'fs.read', request.target)
+      const fs = runnerFs(runner)
       // An unmapped development runner has no host fulfilment and retains the
       // deterministic mock. A mapped runner, however, must never turn a real
       // missing/refused read into a successful fake effect.
       if (!fs) return { encoding: 'utf-8', content: `// mock contents of ${request.target}\n` }
-      const got = fs.reader.readText(fs.rel)
+      const rel = fs.relativeTarget(request.target)
+      const got = rel === undefined ? undefined : fs.reader.readText(rel)
       if (got?.kind === 'text') return { encoding: 'utf-8', content: got.text ?? '' }
       if (got?.kind === 'image' || got?.kind === 'binary') {
         return { encoding: 'binary', contentType: got.contentType, note: 'use /fs/content for bytes' }
@@ -72,8 +44,9 @@ function fulfil(runner: Runner, request: CapabilityRequest): unknown {
       throw new CapabilityError('capability_unavailable', `Runner '${runner.id}' could not read '${request.target}'`)
     }
     case 'fs.list': {
-      const fs = realFs(runner, 'fs.list', request.target)
-      const listed = fs ? (fs.rel ? fs.reader.folderContents(fs.rel) : { artifacts: fsRootEntries(fs.reader) }) : undefined
+      const fs = runnerFs(runner)
+      const rel = fs?.relativeTarget(request.target)
+      const listed = fs && rel !== undefined ? (rel ? fs.reader.folderContents(rel) : { artifacts: fsRootEntries(fs.reader) }) : undefined
       if (fs && !listed) {
         throw new CapabilityError('capability_unavailable', `Runner '${runner.id}' could not list '${request.target}'`)
       }
@@ -94,7 +67,7 @@ function fulfil(runner: Runner, request: CapabilityRequest): unknown {
 
 /** Top-level entries of a reader as `{name, kind}`-shaped artifacts (for `fs.list`
  *  at the scope root, where there's no sub-folder path to scan). */
-function fsRootEntries(reader: ReturnType<typeof fsReader>) {
+function fsRootEntries(reader: FsReader) {
   const { files, photos, folders } = reader.list()
   return [
     ...folders.map((d) => ({ name: d.name, kind: 'doc' as const })),

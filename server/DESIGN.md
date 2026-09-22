@@ -77,6 +77,18 @@ files return the existing unavailable/404 result, not partial content. Mapped
 runner read/list refusal becomes `capability_unavailable` before a success effect
 is journaled; deterministic mock reads remain only for unmapped development runners.
 
+Runner source browsing and mediated invocation share `runnerFs.ts`, one
+process-lifetime reader per fixed logical/physical binding. The current runner
+snapshot supplies grants on each operation: listing requires `fs.list`, content
+requires `fs.read`, and absent/empty/outside-root grants expose no source route.
+Narrowing `~/projects` to `~/projects/insights-dashboard` restricts the existing
+tree rather than remapping its physical root. Catalogs expose only permitted
+entries and list-grant ancestors needed for navigation; folder file counts and
+artifacts are filtered, and read grants never imply list grants or vice versa.
+Revocation therefore closes a previously known content URL as well as the
+source switcher's discovery entry. Cloud storage remains a separately configured
+operator-owned source; this does not invent tenant provisioning or runner enrollment.
+
 These are application-level defenses, not an OS filesystem sandbox. The
 configured directories and their ancestry must be controlled by the operator,
 not a hostile local process that can race directory renames, mount filesystems

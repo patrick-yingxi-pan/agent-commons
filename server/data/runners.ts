@@ -32,12 +32,15 @@ export const LOCAL_RUNNER_SEED: RegisterInput = {
   ],
 }
 
-/** Server-only map: a seeded runner id → the REAL on-disk directory the broker
- *  reads when serving / fulfilling that runner's `fs.*` capabilities. NOT on the
- *  contract — the runner's advertised `scopes` (above) are logical labels; this is
- *  how the prototype's in-process broker turns one into actual bytes. Defaults to
+/** Server-only fixed binding: runner id → logical root + REAL on-disk directory.
+ *  Mutable advertised grants restrict this mapping; they never select a new
+ *  physical root. NOT on the contract — this is how the development in-process
+ *  broker turns a logical path into actual bytes. Defaults to
  *  the in-repo `sample-runner-host/` tree (deterministic, reviewable); override the
  *  co-located runner's root with `CONTEXT_RUNNER_ROOT`. */
-export const RUNNER_FS_ROOTS: Record<string, string> = {
-  [LOCAL_RUNNER_ID]: process.env.CONTEXT_RUNNER_ROOT ?? join(process.cwd(), 'sample-runner-host'),
+export const RUNNER_FS_BINDINGS: Record<string, { root: string; scope: string }> = {
+  [LOCAL_RUNNER_ID]: {
+    root: process.env.CONTEXT_RUNNER_ROOT ?? join(process.cwd(), 'sample-runner-host'),
+    scope: RUNNER_SCOPE,
+  },
 }

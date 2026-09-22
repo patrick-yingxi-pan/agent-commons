@@ -20,7 +20,27 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint repairs the shared served-filesystem boundary before
+The current checkpoint closes a pre-existing runner grant bypass found during
+the filesystem review: revoking both advertised filesystem capabilities still
+left known catalog/folder/text/content URLs returning 200. Source routes and
+mediated invokes now share one fixed logical/physical binding and one cached
+reader; current list/read grants govern their respective operations. Narrowing
+a grant filters the same tree, not a newly re-rooted tree; browse projections
+omit unrelated entries and counts, retaining only the navigation branch needed
+to reach an explicit list grant. This is not a new enrollment, tenant storage,
+native filesystem grant, or live-folder/model-input feature. Final verification
+and review are required before committing this follow-up.
+The new route lock first failed with four unauthorized 200 responses. Replacing
+the actual grant predicate, removing folder filtering, flattening the fixed
+nested path and recreating a root reader per call each failed the new locks
+before restoration. Denial tests keep a readable live fixture until those
+assertions finish; root-replacement tests run afterward so missing data cannot
+make permission assertions pass vacuously.
+
+The preceding checkpoint `47c05ee` passed the complete verifier in 257.8 seconds,
+including all 375 browser tests, and is committed locally. Publishing remains
+blocked on the same explicit approval requirement as the two image checkpoints;
+no push is retried. That checkpoint repaired the shared served-filesystem boundary before
 extending remote-source input. Failure-first tests reproduced outside bytes via
 a descendant symlink, an outside folder listing and a catalog crash on a broken
 link. Readers now pin their configured canonical root, accept exact visible

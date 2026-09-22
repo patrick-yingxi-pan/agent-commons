@@ -148,7 +148,8 @@ import { RunnerRegistry } from '../registry.ts'
 import { RunnerJournal } from '../journal.ts'
 import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from '../relay.ts'
 import { ResourceGuardian, GuardianError } from '../guardian.ts'
-import { LOCAL_RUNNER_ID, LOCAL_RUNNER_SEED, RUNNER_FS_ROOTS } from '../data/runners.ts'
+import { LOCAL_RUNNER_ID, LOCAL_RUNNER_SEED } from '../data/runners.ts'
+import { runnerFs } from '../runnerFs.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import { EMPTY_WORKSPACE, workspaceFromSeed } from '../workspace.ts'
 import { PersistenceWriteError, STORE_VERSION, loadState, saveState, type PersistedState, type StoredNotification, type StoredAgentProposal, type StoredA2aPeer, type StoredOpenSubGoal, type StoredWorkItemComment, type StoredContribution, type StoredContributionEvent, type StoredDelegation, type StoredDelegationRetirement, type StoredGrant, type StoredDiscussion, type StoredDiscussionPost, type StoredSocialProposal } from '../persistence/persist.ts'
@@ -2497,15 +2498,16 @@ if (NATIVE) {
 // `cloud` → the web backend's storage; `runner:<id>` → that online runner's host,
 // proxied through the broker (the in-process reader stands in for the on-host
 // runner reading its own disk). `ui-host` is client-side, so it never resolves
-// here; an unknown / offline / unmapped source → undefined (→ 404).
-function resolveFsReader(sourceId: string): { reader: FsReader; source: FsSource } | undefined {
+// here; an unknown / offline / unmapped / ungranted source → undefined (→ 404).
+function resolveFsReader(sourceId: string, capability: 'fs.read' | 'fs.list'): { reader: FsReader; source: FsSource } | undefined {
   if (sourceId === 'cloud') return { reader: cloudReader, source: CLOUD_SOURCE }
   if (sourceId.startsWith('runner:')) {
     const runnerId = sourceId.slice('runner:'.length)
     const runner = registry.get(runnerId)
-    const root = RUNNER_FS_ROOTS[runnerId]
-    if (!runner || runner.status !== 'online' || !root) return undefined
-    return { reader: fsReader(root), source: { id: sourceId, kind: 'runner', label: runner.label, runnerId } }
+    if (!runner || runner.status !== 'online') return undefined
+    const mapped = runnerFs(runner)
+    if (!mapped?.supports(capability)) return undefined
+    return { reader: mapped.reader, source: { id: sourceId, kind: 'runner', label: runner.label, runnerId } }
   }
   return undefined
 }
@@ -2517,12 +2519,11 @@ function resolveFsReader(sourceId: string): { reader: FsReader; source: FsSource
 function fsSourceList(): FsSource[] {
   const runnerSources = registry
     .list()
-    .filter(
-      (r) =>
-        r.status === 'online' &&
-        RUNNER_FS_ROOTS[r.id] &&
-        r.capabilities.some((c) => c.type === 'fs.read' || c.type === 'fs.list'),
-    )
+    .filter((r) => {
+      if (r.status !== 'online') return false
+      const mapped = runnerFs(r)
+      return mapped?.supports('fs.read') || mapped?.supports('fs.list')
+    })
     .map((r): FsSource => ({ id: `runner:${r.id}`, kind: 'runner', label: r.label, runnerId: r.id }))
   return [CLOUD_SOURCE, ...runnerSources]
 }
@@ -3829,22 +3830,22 @@ export const store = {
   /** A source's top-level catalog (files / photos / folders). Undefined for an
    *  unknown / client-only source (→ 404/400 at the route). */
   fsCatalog(sourceId: string): FsCatalog | undefined {
-    const r = resolveFsReader(sourceId)
+    const r = resolveFsReader(sourceId, 'fs.list')
     if (!r) return undefined
     const { files, photos, folders } = r.reader.list()
     return { source: r.source, files, photos, folders }
   },
   /** Scan a folder under a source → its artifacts (what the workspace shows). */
   fsFolder(sourceId: string, path: string): FsFolderContents | undefined {
-    return resolveFsReader(sourceId)?.reader.folderContents(path)
+    return resolveFsReader(sourceId, 'fs.list')?.reader.folderContents(path)
   },
   /** A file's textual content under a source (the editable preview). */
   fsText(sourceId: string, path: string): FsFileContent | undefined {
-    return resolveFsReader(sourceId)?.reader.readText(path)
+    return resolveFsReader(sourceId, 'fs.read')?.reader.readText(path)
   },
   /** A file's raw bytes + content type under a source (image / binary serving). */
   fsBytes(sourceId: string, path: string): { bytes: Uint8Array; contentType: string } | undefined {
-    return resolveFsReader(sourceId)?.reader.readBytes(path)
+    return resolveFsReader(sourceId, 'fs.read')?.reader.readBytes(path)
   },
 
   // ── Native resources (only a native sidecar fulfills these — the arbitrary-path
