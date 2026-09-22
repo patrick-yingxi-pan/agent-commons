@@ -3,7 +3,7 @@
  *  `useSessions()` and gains: a real fetch, a loading/error state, and live
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useQuery, invalidate, type QueryState } from './cache.ts'
 import { apiGet, apiPost, apiUrl } from './client.ts'
 import { keys, paths } from './keys.ts'
@@ -11,6 +11,7 @@ import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
 import { readModelPreferences } from './modelPreferences.ts'
 import { fetchProviderRegistry } from './providerRegistry.ts'
+import { readFsCatalog, readFsSources } from './fsReads.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
 import type {
@@ -488,17 +489,28 @@ export function useArtifactContent(enabled = true): QueryState<ArtifactContentLi
   return useQuery(keys.artifactContent, () => apiGet<ArtifactContentLibrary>(paths.artifactContent), enabled)
 }
 
+/** Unlike ordinary stale-while-revalidate views, picker rows confer new intake
+ * authority. Suppress cached success even on the first render, before useQuery's
+ * passive mount effect begins revalidation. Key changes get the same fence. */
+function useFsQuery<T>(key: string, fetcher: () => Promise<T>, enabled = true): QueryState<T> {
+  const state = useQuery(key, fetcher, enabled, true)
+  const [admitted, setAdmitted] = useState<string | null>(null)
+  useEffect(() => { setAdmitted(enabled ? key : null) }, [key, enabled])
+  return !enabled || admitted === key ? state : { ...state, status: 'loading' }
+}
+
 /** The server-known filesystem sources for the picker's source switcher — the web
  *  backend's cloud storage plus any fs-capable runner (contract/fs.ts). The client
- *  prepends its own `ui-host` source. */
+ *  appends its own `ui-host` source. Mount revalidates source availability. */
 export function useFsSources(): QueryState<FsSource[]> {
-  return useQuery(keys.fsSources, () => apiGet<FsSource[]>(paths.fsSources))
+  return useFsQuery(keys.fsSources, readFsSources)
 }
 
 /** A served source's top-level catalog (files / photos / folders). `enabled` is
- *  false for the client-side `ui-host` source (read in the browser, not here). */
+ *  false for the client-side `ui-host` source (read in the browser, not here).
+ *  Each picker mount rechecks disk contents and current runner grants. */
 export function useFsCatalog(source: string, enabled = true): QueryState<FsCatalog> {
-  return useQuery(keys.fsCatalog(source), () => apiGet<FsCatalog>(paths.fsCatalog(source)), enabled)
+  return useFsQuery(keys.fsCatalog(source), () => readFsCatalog(source), enabled)
 }
 
 /** The artifacts inside a served folder (the workspace view of an attached folder). */

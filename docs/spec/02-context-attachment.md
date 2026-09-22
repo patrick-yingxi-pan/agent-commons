@@ -28,6 +28,14 @@
 
 ## Files / photos / folders are really served (L2)
 
+| ID | Requirement | Implementation | Verified by | Status |
+|----|-------------|----------------|-------------|--------|
+| CTX-FS-17 | **Recoverable served-source intake.** Source discovery and every Files/Photos/Folder catalog distinguish announced loading, retryable failure and acknowledged empty results. Stale rows are not selectable during failed/pending revalidation; selecting the local computer is explicit. Picker reads have a 30-second network/body deadline. Folder reads attach only successful current results, are single-flight, and cancel on close, source change or account switch; retry re-reads the same folder. This adds no remote model-input authority. | `src/lib/fsReadState.ts`, `src/lib/fsSources.ts`, `src/api/fsReads.ts`, `src/components/FsReadNotice.tsx`, `src/components/AddContextButton.tsx` | `src/lib/fs-read-state.test.ts`, `src/api/fs-reads.test.ts`, `src/components/served-fs-picker.test.ts`, `e2e/served-fs-recovery.spec.ts` | ✅ |
+
+The first-render cache fence is also locked by `src/api/fs-query-admission.test.ts`;
+local file controls admit both their bridge and `src/components/UiHostDropZone.tsx`
+before selection (`e2e/local-picker-loading.spec.ts`).
+
 Send and retry use the conversation's **current attachments**. A failed turn's
 retry starts a new generation snapshot; it does not recover an earlier file set.
 The composer and per-file disclosure make this explicit. Local folder picks

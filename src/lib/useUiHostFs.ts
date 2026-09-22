@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
+import type { UiHostDropZone as UiHostDropZoneComponent } from '../components/UiHostDropZone.tsx'
 
 export type UiHostFsModule = Pick<
   typeof import('./uiHostFs'),
   'pickUiHostFiles' | 'readDroppedFiles' | 'pickUiHostFolder'
->
+> & { UiHostDropZone: typeof UiHostDropZoneComponent }
 
 export type UiHostFsLoadState =
   | { status: 'idle'; module: null }
@@ -14,7 +15,8 @@ export type UiHostFsLoadState =
 /** Load the local-file bridge only while a UI-host picker is mounted. Keeping
  * the import here (before the user clicks) preserves native/browser dialog
  * activation, while the alive fence prevents a late chunk rejection or
- * resolution from writing into a closed picker. */
+ * resolution from writing into a closed picker. The intake UI and its preparation
+ * runtime are admitted in the same boundary, before selection can start. */
 export function useUiHostFs(enabled: boolean): UiHostFsLoadState {
   const [state, setState] = useState<UiHostFsLoadState>(enabled ? { status: 'loading', module: null } : { status: 'idle', module: null })
 
@@ -25,9 +27,9 @@ export function useUiHostFs(enabled: boolean): UiHostFsLoadState {
       return () => { alive = false }
     }
     setState({ status: 'loading', module: null })
-    void import('./uiHostFs').then((loaded) => {
+    void Promise.all([import('./uiHostFs'), import('../components/UiHostDropZone.tsx')]).then(([loaded, dropZone]) => {
       if (!alive) return
-      setState({ status: 'ready', module: loaded })
+      setState({ status: 'ready', module: { ...loaded, UiHostDropZone: dropZone.UiHostDropZone } })
     }).catch(() => {
       if (!alive) return
       setState({ status: 'error', module: null })

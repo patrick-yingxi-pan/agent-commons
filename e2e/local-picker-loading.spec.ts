@@ -3,6 +3,7 @@ import { ms } from './budget.ts'
 import { assertWcag22Aa } from './accessibility-helpers'
 
 const UI_HOST_FS_MODULE = /\/src\/lib\/uiHostFs(?:\.ts)?(?:\?|$)/
+const UI_HOST_DROP_ZONE_MODULE = /\/src\/components\/UiHostDropZone(?:\.tsx)?(?:\?|$)/
 
 async function openFilesSource(page: Page) {
   await page.getByRole('button', { name: 'Add context', exact: true }).click()
@@ -89,5 +90,36 @@ test('a failed local filesystem module discloses reload consequences and recover
   expect(moduleRequests).toBe(2)
   await readyFileChooser(page, recovered, 'retry-ready.txt', 'retry recovered local picker')
   await expect(page.locator('[data-attachment-preview]')).toContainText('retry recovered local picker')
+  await page.keyboard.press('Escape')
+})
+
+test('local intake waits for its drop-zone module and explicit reload recovers a failed admission', async ({ page }) => {
+  test.setTimeout(ms(45_000))
+  let moduleRequests = 0
+  let chooserSeen = false
+  page.on('filechooser', () => { chooserSeen = true })
+  await page.route(UI_HOST_DROP_ZONE_MODULE, async (route) => {
+    moduleRequests += 1
+    if (moduleRequests === 1) return route.abort()
+    await route.continue()
+  })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Add context', exact: true })).toBeVisible()
+  expect(moduleRequests, 'drop-zone module is not loaded by app boot').toBe(0)
+
+  const picker = await openFilesSource(page)
+  await expect(picker.getByRole('alert')).toContainText('Local file access could not be loaded', { timeout: ms(10_000) })
+  await expect(picker.getByRole('button', { name: /Add files from this computer/ })).toHaveCount(0)
+  expect(moduleRequests).toBe(1)
+  expect(chooserSeen, 'incomplete admission must not activate a native file chooser').toBe(false)
+
+  await picker.getByRole('button', { name: 'Reload app', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Add context', exact: true })).toBeVisible()
+  const recovered = await openFilesSource(page)
+  await expect(recovered.getByRole('button', { name: /Add files from this computer/ })).toBeVisible({ timeout: ms(10_000) })
+  expect(moduleRequests).toBe(2)
+  await readyFileChooser(page, recovered, 'drop-zone-ready.txt', 'drop-zone reload recovered local picker')
+  await expect(page.locator('[data-attachment-preview]')).toContainText('drop-zone reload recovered local picker')
   await page.keyboard.press('Escape')
 })

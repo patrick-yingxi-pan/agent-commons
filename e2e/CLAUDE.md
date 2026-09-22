@@ -156,4 +156,4 @@ Spec gotchas: the app **opens on a fresh draft** (sending materializes a new ses
 - **A definition mutation needs a test-owned entity.** Create its routine/project/artifact through the real route; a unique row locator cannot prevent competing shard revisions.
 - **Model-turn specs own a usage partition.** A balanced shard is not a stable test order; multi-turn recovery walks use an explicit non-default tenant so unrelated coverage cannot exhaust their plan window first.
 ## Verification
-Run the affected spec first, then `npm run e2e` or `npm run verify`; clear only the isolated E2E store when diagnosing accumulated-state flakiness, never as a precondition.
+Declare each test with a top-level `test(` call so the verifier can count and weight it; nested `describe` tests escape its manifest. Run the affected spec first, then `npm run e2e` or `npm run verify`; clear only the isolated E2E store when diagnosing accumulated-state flakiness, never as a precondition.

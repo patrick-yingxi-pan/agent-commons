@@ -416,6 +416,23 @@ ledgers when an escape confirms them.
 
 ## Data coherence — registries have one home and live points-of-use
 
+Filesystem picker admission suppresses cached success on its first render,
+before passive query revalidation runs. Files and Photos share intake while
+keeping their distinct projections. Local drop-zone UI and preparation load
+inside the existing pre-selection boundary, with the same close/reload recovery;
+this keeps startup within its budget without accepting a file before its full
+runtime is ready.
+
+Filesystem discovery and catalogs are reads, not evidence of absence until they
+succeed. Their shared picker policy hides selectable stale rows during pending
+or failed revalidation and offers an explicit same-source Retry. Failed discovery
+never substitutes the local computer. A served-folder read is a cancellable
+preparation step, bounded to 30 seconds including the body; only its successful,
+still-current result enters the existing context-mutation queue. Closing the
+picker, changing sources or switching accounts abandons preparation, not an
+already queued context mutation. Local folder intake shares the source-mounted
+lifetime without expanding native access.
+
 Every account-level registry
 (Model providers → the **Models** rail section; worker agents / prompts /
 commissions → the **Agents** hub; saved connectors & repos → **Contexts**) is

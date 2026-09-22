@@ -20,7 +20,35 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint closes a pre-existing runner grant bypass found during
+The current checkpoint repairs served-file intake recovery before extending
+remote-source model input. Failed source/catalog reads must not appear empty or
+silently select the local disk, and a failed folder read must not create an empty
+workspace. One shared read-state/retry face, bounded reads and source/account/
+picker lifetime fences cover the three filesystem pickers. Snapshot-plus-Refresh
+versus live per-turn remote reads remains an owner decision; no model authority
+is inferred by this recovery work. Seven focused browser walks cover retry,
+404, stale cached rows, served close/source cancellation and local leave-return
+cancellation. The restored false-empty behavior was watched fail in both the
+pure policy and rendered 404 checks; removing a read deadline also failed.
+Browser acceptance and the full verifier remain required before committing.
+The first full run passed all four browser lanes but caught the new spec's
+nested test declarations falling outside the verifier's top-level manifest.
+The tests now follow the repository's existing declaration convention; no
+verifier check, assertion or coverage expectation was relaxed.
+The next full run passed all 3,527 node tests and all browser lanes but exceeded
+the unchanged 800 KB startup graph budget by 961 bytes. Files and Photos now
+share one intake component, and the local drop zone joins the existing lazy
+admission boundary before file selection. Review also caught cached success on
+the first render before passive revalidation: a failure-first render lock and
+held-response browser walk now require loading from that first render onward.
+The final focused browser walk passes all ten recovery/loading tests. The
+separate responsive sweep covers 135/135 cells with zero violations or skips;
+the static/build lane is green after the image-boundary lock followed its
+extracted chooser. Final landing still requires the complete immutable-tree
+verifier, without changing the startup budget or adding retries.
+
+The preceding checkpoint `36a50ef` passed the complete verifier in 249.2 seconds,
+including all 375 browser tests, and is committed locally. It closes a pre-existing runner grant bypass found during
 the filesystem review: revoking both advertised filesystem capabilities still
 left known catalog/folder/text/content URLs returning 200. Source routes and
 mediated invokes now share one fixed logical/physical binding and one cached
@@ -28,8 +56,7 @@ reader; current list/read grants govern their respective operations. Narrowing
 a grant filters the same tree, not a newly re-rooted tree; browse projections
 omit unrelated entries and counts, retaining only the navigation branch needed
 to reach an explicit list grant. This is not a new enrollment, tenant storage,
-native filesystem grant, or live-folder/model-input feature. Final verification
-and review are required before committing this follow-up.
+native filesystem grant, or live-folder/model-input feature.
 The new route lock first failed with four unauthorized 200 responses. Replacing
 the actual grant predicate, removing folder filtering, flattening the fixed
 nested path and recreating a root reader per call each failed the new locks

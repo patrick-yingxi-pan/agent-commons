@@ -23,7 +23,6 @@ import type {
   Attachment,
   Connector,
   FsFileEntry,
-  FsFolderContents,
   FsFolderEntry,
   FsPhotoEntry,
   FsSource,
@@ -42,18 +41,18 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { CheckSquare } from './Checkbox'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
-import { UI_HOST_SOURCE, DEFAULT_FS_SOURCE_ID, useFsSourceList } from '../lib/fsSources'
+import { UI_HOST_SOURCE, useFsPickerSource } from '../lib/fsSources'
+import { fsReadPhase } from '../lib/fsReadState.ts'
+import { FsReadNotice } from './FsReadNotice.tsx'
 import type { UiHostFile } from '../lib/uiHostFs'
 import { useUiHostFs, type UiHostFsModule } from '../lib/useUiHostFs'
 import { UiHostLoadNotice } from './UiHostLoadNotice.tsx'
-import { prepareUiHostFiles } from '../controller/imageAttachments'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
-import { SOFT_BUTTON_CLASS } from '../lib/button'
+import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button'
 import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
 import { useMcpConnections } from '../api/mcpConnectionHooks.ts'
-import { apiGet } from '../api/client'
-import { paths } from '../api/keys'
+import { readFsFolder, retryFsCatalog } from '../api/fsReads.ts'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { RecentOverflowList, type OverflowRow } from './RecentOverflowList'
@@ -321,9 +320,9 @@ function WorkflowBody({
     return <McpPicker maxRows={maxRows} addedIds={addedMcpIds} onAdd={onAttach} onClose={onClose} />
   }
   if (type === 'files') {
-    return <FilesPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
+    return <FilePicker kind="files" key="files" maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
   }
-  return <PhotosPicker onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
+  return <FilePicker kind="photos" key="photos" maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedPhotoIds} />
 }
 
 /** External connections come from the tenant-owned registry, not the fixture
@@ -737,7 +736,9 @@ function SourceSwitcher({
         return (
           <button
             key={s.id}
+            type="button"
             onClick={() => onPick(s.id)}
+            aria-pressed={on}
             title={s.label}
             className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${
               on ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
@@ -752,104 +753,14 @@ function SourceSwitcher({
   )
 }
 
-/** Pick/drop local snapshots, then persist image bytes before attaching refs.
- * The whole selection belongs to the account that opened the picker. */
-function UiHostDropZone({
-  accept,
-  label,
-  onPicked,
-  hostFs,
-}: {
-  accept: 'image' | 'any'
-  label: string
-  onPicked: (f: UiHostFile) => void | Promise<void>
-  hostFs: UiHostFsModule
+function FsSourcePanel({ selection, children }: {
+  selection: ReturnType<typeof useFsPickerSource>
+  children: ReactNode
 }) {
-  const [drag, setDrag] = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
-  const [importing, setImporting] = useState(false)
-  const intake = useRef<AbortController | null>(null)
-  useEffect(() => {
-    const unsubscribe = onAccountSwitch(() => {
-      intake.current?.abort()
-      setImporting(false)
-      setFailure(null)
-    })
-    return () => { unsubscribe(); intake.current?.abort() }
-  }, [])
-  const take = async (read: (signal: AbortSignal) => Promise<UiHostFile[]>) => {
-    if (intake.current) return
-    const controller = new AbortController()
-    const issuedAccount = accountGeneration()
-    intake.current = controller
-    setImporting(true)
-    setFailure(null)
-    try {
-      const files = await read(controller.signal)
-      if (accountGeneration() !== issuedAccount) controller.abort()
-      if (!controller.signal.aborted) {
-        const prepared = await prepareUiHostFiles(files, controller.signal)
-        if (!controller.signal.aborted) {
-          // Queue the accepted selection before the first acknowledgement can
-          // open a split pane and remount this picker. The session FIFO owns
-          // commit/retry from here; closing the intake cannot cancel queued work.
-          setImporting(false)
-          const commits = prepared.map((file) => onPicked(file))
-          await Promise.all(commits)
-        }
-      }
-    } catch (error) {
-      if (!controller.signal.aborted) setFailure(error instanceof Error ? error.message : 'The selected items could not be read. Try again.')
-    } finally {
-      if (!controller.signal.aborted) setImporting(false)
-      intake.current = null
-    }
-  }
-  return (
-    <div>
-      <button
-        type="button"
-        onClick={() => void take((signal) => hostFs.pickUiHostFiles(accept, window, signal))}
-        disabled={importing}
-        aria-busy={importing}
-        onDragOver={(e) => {
-          e.preventDefault()
-          setDrag(true)
-        }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => {
-          e.preventDefault()
-          setDrag(false)
-          const files = e.dataTransfer.files
-          void take((signal) => hostFs.readDroppedFiles(files, accept, signal))
-        }}
-        className={`flex w-full flex-col items-center justify-center rounded-lg border border-dashed px-3 py-6 text-center transition ${
-          drag ? 'border-accent bg-accent-tint' : 'border-line-strong hover:bg-panel-2'
-        }`}
-      >
-        {accept === 'image' ? (
-          <ImageIcon size={18} className="mb-1 text-ink-faint" />
-        ) : (
-          <Paperclip size={18} className="mb-1 text-ink-faint" />
-        )}
-        <span className="text-[12px] font-medium text-ink">{label}</span>
-        <span className="text-[11px] text-ink-faint">drag &amp; drop, or click to choose</span>
-      </button>
-      {importing && <p role="status" className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Importing selected files… Close this picker to cancel.</p>}
-      {accept === 'any' && <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Documents (.pdf, .docx, .xlsx, .pptx): up to 8 MB each, 24 MB combined per selection. Only extracted text up to 64 KB per file is saved. PDFs: up to 100 pages; images, layout and OCR are not included. Excel: visible cell values only; formulas are not calculated. PowerPoint: slide text only; speaker notes and hidden slides are excluded.</p>}
-      <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">PNG, JPEG, GIF, WebP, BMP, ICO or SVG: up to 8 MB each, 24 MB per selection. Images are saved as a resized PNG of the first frame; ICO uses its largest image. SVG must be self-contained and static; scripts, animation and external resources are not supported.</p>
-      {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
-    </div>
-  )
-}
-
-/** Empty / loading state for a served catalog pane. */
-function CatalogEmpty({ loading, label }: { loading: boolean; label: string }) {
-  return (
-    <div className="px-1 py-6 text-center text-[12px] text-ink-faint">
-      {loading ? 'Loading…' : `Nothing here yet — no ${label}.`}
-    </div>
-  )
+  return <>
+    <SourceSwitcher sources={selection.sources} active={selection.sourceId} onPick={selection.pick} />
+    {selection.active ? children : <FsReadNotice phase={selection.phase} label="file sources" onRetry={selection.retry} unavailable={selection.phase === 'empty'} />}
+  </>
 }
 
 /** Entry ids in `recentKeys` that belong to `sourceId` (the source-qualified MRU). */
@@ -879,7 +790,8 @@ function ServedFiles({
   const files = cat.data?.files ?? []
   const recent = recentEntryIds(recentKeys, source.id)
   const ordered = [...files.filter((f) => recent.has(f.id)), ...files.filter((f) => !recent.has(f.id))]
-  if (!files.length) return <CatalogEmpty loading={cat.status === 'loading'} label="files" />
+  const phase = fsReadPhase(cat.status, files.length > 0)
+  if (phase !== 'ready') return <FsReadNotice phase={phase} label="files" onRetry={() => retryFsCatalog(source.id)} />
   return (
     <RecentOverflowList
       maxRows={maxRows}
@@ -912,7 +824,8 @@ function ServedPhotos({
 }) {
   const cat = useFsCatalog(source.id)
   const photos = cat.data?.photos ?? []
-  if (!photos.length) return <CatalogEmpty loading={cat.status === 'loading'} label="photos" />
+  const phase = fsReadPhase(cat.status, photos.length > 0)
+  if (phase !== 'ready') return <FsReadNotice phase={phase} label="photos" onRetry={() => retryFsCatalog(source.id)} />
   return (
     <div className="grid max-h-[210px] grid-cols-3 gap-1.5 overflow-y-auto px-1 pb-1">
       {photos.map((p) => {
@@ -940,79 +853,48 @@ function ServedPhotos({
   )
 }
 
-function FilesPicker({
+/** Files and photos share source admission and intake; only their catalog view
+ * and accepted local formats differ. */
+function FilePicker({
+  kind,
   maxRows,
   onAdd,
   onClose,
   addedIds,
 }: {
+  kind: 'files' | 'photos'
   maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
   addedIds: readonly string[]
 }) {
-  const sources = useFsSourceList()
-  const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
-  const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
-  const hostFs = useUiHostFs(active.kind === 'ui-host')
+  const selection = useFsPickerSource()
+  const { active } = selection
+  const hostFs = useUiHostFs(active?.kind === 'ui-host')
 
   const attachUiHost = (f: UiHostFile) =>
     onAdd({
-      kind: 'files',
+      kind,
       attachments: [
-        { id: fsRecentKey('ui-host', f.id), label: f.name, kind: f.kind, source: UI_HOST_SOURCE, previewText: f.text, documentImport: f.documentImport, image: f.image },
+        { id: fsRecentKey('ui-host', f.id), label: f.name, kind: kind === 'photos' ? 'photo' : f.kind, source: UI_HOST_SOURCE, previewText: f.text, documentImport: f.documentImport, image: f.image },
       ],
     })
-  const attachServed = (e: FsFileEntry) =>
-    onAdd({ kind: 'files', attachments: [{ id: fsRecentKey(active.id, e.id), label: e.name, kind: 'file', source: active }] })
+  const attachServed = (e: FsFileEntry | FsPhotoEntry) =>
+    active && onAdd({ kind, attachments: [{ id: fsRecentKey(active.id, e.id), label: e.name, kind: kind === 'photos' ? 'photo' : 'file', source: active }] })
 
   return (
     <div className="pb-1">
-      <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
-      {active.kind === 'ui-host' ? (
-        hostFs.module ? (
-          <UiHostDropZone accept="any" label="Add files from this computer" onPicked={attachUiHost} hostFs={hostFs.module} />
-        ) : <UiHostLoadNotice state={hostFs} label="file access" />
-      ) : (
-        <ServedFiles source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={attachServed} />
-      )}
-      <MultiAddFooter count={addedIds.length} onDone={onClose} />
-    </div>
-  )
-}
-
-function PhotosPicker({
-  onAdd,
-  onClose,
-  addedIds,
-}: {
-  onAdd: (ctx: AddedContext) => void
-  onClose: () => void
-  addedIds: readonly string[]
-}) {
-  const sources = useFsSourceList()
-  const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
-  const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
-  const hostFs = useUiHostFs(active.kind === 'ui-host')
-
-  const attachUiHost = (f: UiHostFile) =>
-    onAdd({
-      kind: 'photos',
-      attachments: [{ id: fsRecentKey('ui-host', f.id), label: f.name, kind: 'photo', source: UI_HOST_SOURCE, previewText: f.text, image: f.image }],
-    })
-  const attachServed = (e: FsPhotoEntry) =>
-    onAdd({ kind: 'photos', attachments: [{ id: fsRecentKey(active.id, e.id), label: e.name, kind: 'photo', source: active }] })
-
-  return (
-    <div className="pb-1">
-      <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
-      {active.kind === 'ui-host' ? (
-        hostFs.module ? (
-          <UiHostDropZone accept="image" label="Add photos from this computer" onPicked={attachUiHost} hostFs={hostFs.module} />
-        ) : <UiHostLoadNotice state={hostFs} label="photo access" />
-      ) : (
-        <ServedPhotos source={active} addedIds={addedIds} onAttach={attachServed} />
-      )}
+      <FsSourcePanel selection={selection}>
+        {active?.kind === 'ui-host' ? (
+          hostFs.module ? (
+            <hostFs.module.UiHostDropZone accept={kind === 'photos' ? 'image' : 'any'} label={`Add ${kind} from this computer`} onPicked={attachUiHost} hostFs={hostFs.module} />
+          ) : <UiHostLoadNotice state={hostFs} label={kind === 'photos' ? 'photo access' : 'file access'} />
+        ) : active ? kind === 'photos' ? (
+          <ServedPhotos source={active} addedIds={addedIds} onAttach={attachServed} />
+        ) : (
+          <ServedFiles source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={attachServed} />
+        ) : null}
+      </FsSourcePanel>
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
     </div>
   )
@@ -1291,7 +1173,8 @@ function ServedFolders({
   const folders = cat.data?.folders ?? []
   const recent = recentEntryIds(recentKeys, source.id)
   const ordered = [...folders.filter((f) => recent.has(f.path)), ...folders.filter((f) => !recent.has(f.path))]
-  if (!folders.length) return <CatalogEmpty loading={cat.status === 'loading'} label="folders" />
+  const phase = fsReadPhase(cat.status, folders.length > 0)
+  if (phase !== 'ready') return <FsReadNotice phase={phase} label="folders" onRetry={() => retryFsCatalog(source.id)} />
   return (
     <RecentOverflowList
       maxRows={maxRows}
@@ -1312,6 +1195,55 @@ function ServedFolders({
   )
 }
 
+/** A read is cancellable until it enters the acknowledged context-mutation queue.
+ * This component is keyed by source; switching it or closing the picker abandons
+ * the read without creating a success-shaped empty workspace. */
+function ServedFolderPicker({ source, maxRows, addedIds, onAdd }: {
+  source: FsSource
+  maxRows: number
+  addedIds: readonly string[]
+  onAdd: (ctx: AddedContext) => void
+}) {
+  const [read, setRead] = useState<{ entry: FsFolderEntry; status: 'loading' | 'error' } | null>(null)
+  const intake = useRef<AbortController | null>(null)
+  useEffect(() => {
+    const cancel = () => { intake.current?.abort(); intake.current = null }
+    const unsubscribe = onAccountSwitch(() => { cancel(); setRead(null) })
+    return () => { unsubscribe(); cancel() }
+  }, [])
+
+  const take = async (entry: FsFolderEntry) => {
+    if (intake.current) return
+    const controller = new AbortController()
+    const issuedAccount = accountGeneration()
+    intake.current = controller
+    setRead({ entry, status: 'loading' })
+    try {
+      const contents = await readFsFolder(source.id, entry.path, controller.signal)
+      if (controller.signal.aborted || issuedAccount !== accountGeneration()) return
+      const src = { id: fsRecentKey(source.id, entry.path), label: `${entry.name}/` }
+      setRead(null)
+      onAdd({ kind: 'folder', label: entry.name, artifacts: contents.artifacts.map((a) => ({ ...a, source: src })), source })
+    } catch {
+      if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error' })
+    } finally {
+      if (intake.current === controller) intake.current = null
+    }
+  }
+
+  return <>
+    <fieldset disabled={read?.status === 'loading'}>
+      <ServedFolders source={source} maxRows={maxRows} addedIds={addedIds} onAttach={(entry) => void take(entry)} />
+    </fieldset>
+    {read && <div data-fs-folder-read={read.status} role={read.status === 'error' ? 'alert' : 'status'} aria-busy={read.status === 'loading'} className="break-words px-1 py-2 text-[12px] text-ink-soft">
+      {read.status === 'loading' ? <p>Reading {read.entry.name}… Close this picker or choose another source to cancel.</p> : <>
+        <p className="break-words text-danger-text">Could not read {read.entry.name}. Nothing was attached.</p>
+        <button type="button" onClick={() => void take(read.entry)} className={`${SECONDARY_BUTTON_CLASS} mt-2 px-2 py-1 text-[12px]`}>Retry</button>
+      </>}
+    </div>}
+  </>
+}
+
 /** Folder picker — source-aware. A served folder (cloud / runner) attaches as a
  *  workspace of its real scanned artifacts; the UI-host source opens the OS folder
  *  picker. (The old git-repo prompt is gone: served folders are plain workspaces;
@@ -1328,32 +1260,44 @@ function FolderPicker({
   /** Folder source-keys already in the shared workspace — rows for these read ✓ Added. */
   addedIds: readonly string[]
 }) {
-  const sources = useFsSourceList()
-  const [sourceId, setSourceId] = useState(DEFAULT_FS_SOURCE_ID)
+  const selection = useFsPickerSource()
+  const { active } = selection
+  const hostFs = useUiHostFs(active?.kind === 'ui-host')
+
+  return (
+    <div className="pb-1">
+      <FsSourcePanel selection={selection}>
+        {active?.kind === 'ui-host' ? (
+          hostFs.module ? <UiHostFolderPicker hostFs={hostFs.module} onAdd={onAdd} />
+            : <UiHostLoadNotice state={hostFs} label="folder access" />
+        ) : active ? (
+          <ServedFolderPicker key={active.id} source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAdd={onAdd} />
+        ) : null}
+      </FsSourcePanel>
+      <MultiAddFooter count={addedIds.length} onDone={onClose} />
+    </div>
+  )
+}
+
+/** The local intake's lifetime also ends when its selected source leaves. */
+function UiHostFolderPicker({ hostFs, onAdd }: { hostFs: UiHostFsModule; onAdd: (ctx: AddedContext) => void }) {
   const [failure, setFailure] = useState<string | null>(null)
-  const active = sources.find((s) => s.id === sourceId) ?? UI_HOST_SOURCE
-  const hostFs = useUiHostFs(active.kind === 'ui-host')
+  const [pending, setPending] = useState(false)
+  const busy = useRef(false)
   const mounted = useRef(true)
   useEffect(() => {
     mounted.current = true
     return () => { mounted.current = false }
   }, [])
 
-  // Attach a served folder: fetch its contents, tag each artifact with the folder
-  // (a source-qualified key so the workspace can fetch real content + de-dupe).
-  const attachServed = async (f: FsFolderEntry) => {
-    const src = { id: fsRecentKey(active.id, f.path), label: `${f.name}/` }
-    const contents = await apiGet<FsFolderContents>(paths.fsFolder(active.id, f.path)).catch(() => undefined)
-    const artifacts = (contents?.artifacts ?? []).map((a) => ({ ...a, source: src }))
-    onAdd({ kind: 'folder', label: f.name, artifacts, source: active })
-  }
-
   const attachUiHost = async () => {
-    if (!hostFs.module || !mounted.current) return
+    if (busy.current || !mounted.current) return
+    busy.current = true
+    setPending(true)
     setFailure(null)
     const issuedAccount = accountGeneration()
     try {
-      const picked = await hostFs.module.pickUiHostFolder()
+      const picked = await hostFs.pickUiHostFolder()
       if (!mounted.current || accountGeneration() !== issuedAccount) return
       if (!picked) return
       if (!picked.artifacts.length) {
@@ -1371,32 +1315,28 @@ function FolderPicker({
       if (mounted.current && accountGeneration() === issuedAccount) {
         setFailure(error instanceof Error ? error.message : 'The selected folder could not be read. Try again.')
       }
+    } finally {
+      busy.current = false
+      if (mounted.current) setPending(false)
     }
   }
 
   return (
-    <div className="pb-1">
-      <SourceSwitcher sources={sources} active={sourceId} onPick={setSourceId} />
-      {active.kind === 'ui-host' ? (
-        hostFs.module ? (
-          <div>
-            <button
-              type="button"
-              onClick={() => void attachUiHost()}
-              className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-6 text-center transition hover:bg-panel-2"
-            >
-              <FolderOpen size={18} className="mb-1 text-ink-faint" />
-              <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
-              <span className="text-[11px] text-ink-faint">Import top-level text snapshots for the selected model. Hidden files and subfolders are excluded.</span>
-            </button>
-            <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Up to 24 readable files, 64 KB each and 128 KB total. Original files are never changed or kept in sync. Reattach to import later edits.</p>
-            {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger">{failure}</p>}
-          </div>
-        ) : <UiHostLoadNotice state={hostFs} label="folder access" />
-      ) : (
-        <ServedFolders source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={(f) => void attachServed(f)} />
-      )}
-      <MultiAddFooter count={addedIds.length} onDone={onClose} />
+    <div>
+      <button
+        type="button"
+        onClick={() => void attachUiHost()}
+        disabled={pending}
+        aria-busy={pending}
+        className="flex w-full flex-col items-center justify-center rounded-lg border border-dashed border-line-strong px-3 py-6 text-center transition hover:bg-panel-2"
+      >
+        <FolderOpen size={18} className="mb-1 text-ink-faint" />
+        <span className="text-[12px] font-medium text-ink">Choose a folder from this computer</span>
+        <span className="text-[11px] text-ink-faint">Import top-level text snapshots for the selected model. Hidden files and subfolders are excluded.</span>
+      </button>
+      <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Up to 24 readable files, 64 KB each and 128 KB total. Original files are never changed or kept in sync. Reattach to import later edits.</p>
+      {pending && <p role="status" className="px-1 pt-1.5 text-[11px] text-ink-soft">Reading selected folder… Close this picker or choose another source to cancel.</p>}
+      {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
     </div>
   )
 }
