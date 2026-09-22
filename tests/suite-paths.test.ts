@@ -68,6 +68,8 @@ const NOT_A_READ = new Set([
   // A traversal payload: the suite asserts `/fs/text` REFUSES to serve it.
   // Were this path ever to resolve, the test would be proving nothing.
   "server/routes/fs.test.ts → '../package.json'",
+  // A deliberately refused alias of an owned temporary file, not a repo read.
+  `server/routes/fs-confinement.test.ts → '${'./'}notes.md'`,
 ])
 
 test('every relative path a suite names resolves from where the suite now lives', () => {

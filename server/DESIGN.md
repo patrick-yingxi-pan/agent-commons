@@ -55,6 +55,39 @@ doc-lint and cross-layer locks with no single module to belong to.
   their result is shown. Full statement + earned instances:
   [`docs/spec/09-design-invariants.md`](../docs/spec/09-design-invariants.md).
 
+## Served filesystem boundary
+
+`fs.ts` is shared by the cloud source and mapped development runner roots.
+Every handle is an exact, visible, forward-slash relative path: no absolute
+paths, dot-prefixed components, empty components, traversal aliases, Windows
+drive prefixes, backslashes or control characters. Ordinary spaces, Unicode and
+source-qualified `::` names remain unchanged. Descendant symlinks are refused
+even when they point inside the root, so listing and direct lookup obey one rule.
+Special files, broken links and entries that disappear while scanning are skipped.
+
+Each reader resolves the operator-configured root once, including legitimate
+configuration aliases such as macOS `/var`, and pins its directory identity.
+A missing or replaced root requires a new reader; a live reader never silently
+adopts a replacement tree. Reads use a single no-follow/nonblocking descriptor
+where the platform supports those flags, check regular-file identity/version
+before and after I/O, and allocate/read no more than the admitted size plus one
+byte. Text retains its existing 256 KiB preview and oversize-note behavior; raw
+preview/download bodies are at most 32 MiB. Changed, oversized raw or unreadable
+files return the existing unavailable/404 result, not partial content. Mapped
+runner read/list refusal becomes `capability_unavailable` before a success effect
+is journaled; deterministic mock reads remain only for unmapped development runners.
+
+These are application-level defenses, not an OS filesystem sandbox. The
+configured directories and their ancestry must be controlled by the operator,
+not a hostile local process that can race directory renames, mount filesystems
+or create hard links. The reader remains synchronous and does not yet impose
+a directory-cardinality or slow-filesystem deadline. Hosted per-tenant root
+provisioning and stronger OS-level isolation remain separate production work;
+this checkpoint grants neither local picker nor model-input authority.
+Node's [filesystem API](https://nodejs.org/api/fs.html) specifies the descriptor
+and open-flag behavior; the colocated confinement/bounds suites exercise actual
+temporary files and controlled syscall-time changes.
+
 ## Model boundary — real Anthropic Messages and tools
 
 (Not an in-process fake.) `server/generate.ts` calls an

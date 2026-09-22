@@ -17,7 +17,7 @@ test('invoke records an effect with a commandId and runnerSeq', async () => {
     sessionId: 'seff',
     contextId: 'cx-all',
     capability: 'fs.read',
-    target: '~/projects/a.ts',
+    target: '~/projects/TODO.md',
     commandId: 'cmd-eff-1',
   })
   assert.equal(status, 200)
@@ -57,12 +57,12 @@ test('effects?since returns only the tail after a sequence number', async () => 
     sessionId: 'seff',
     contextId: 'cx-all',
     capability: 'fs.read',
-    target: '~/projects/tail.ts',
+    target: '~/projects/scratch.md',
     commandId: `cmd-tail-${maxSeq}`,
   })
   const tail = await call('GET', `/runners/runner-local/effects?since=${maxSeq}`)
   assert.ok(tail.json.every((e: any) => e.runnerSeq > maxSeq))
-  assert.ok(tail.json.some((e: any) => e.target === '~/projects/tail.ts'))
+  assert.ok(tail.json.some((e: any) => e.target === '~/projects/scratch.md'))
 })
 
 test('sync merges a runner outbox idempotently and reports the projected delta', async () => {

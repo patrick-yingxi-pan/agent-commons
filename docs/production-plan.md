@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-09-10 UTC. The standing goal remains production readiness for Agent
+Reviewed 2026-09-22 UTC. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -20,7 +20,36 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint adds self-contained static SVG local image input through
+The current checkpoint repairs the shared served-filesystem boundary before
+extending remote-source input. Failure-first tests reproduced outside bytes via
+a descendant symlink, an outside folder listing and a catalog crash on a broken
+link. Readers now pin their configured canonical root, accept exact visible
+relative handles, omit descendant links/special files and use identity/version-
+checked bounded descriptors (256 KiB text; 32 MiB raw). Cloud and runner route
+tests exercise real isolated roots and preserve unavailable/404 responses.
+A mapped runner's missing read also reproduced a false mock success; mapped
+read/list refusals now fail before a successful effect is journaled.
+This does not introduce remote model input, new picker authority, hosted tenant
+storage or OS-level isolation from a hostile local process. Directory-cardinality
+and slow-filesystem bounds remain work for the production storage boundary.
+The final revision must pass the complete verifier and adversarial diff review.
+Removing the raw-byte ceiling, descriptor cleanup and post-read integrity check
+each failed the new locks before restoration. Removing the mapped subfolder
+refusal likewise failed its route test. The byte-response integration check also
+caught a Buffer-to-Uint8Array compatibility regression in router re-entry; the
+bounded reader now preserves the existing Buffer runtime representation.
+The first complete run passed all four browser lanes but found four older
+invoke/journal tests that expected successful mapped reads of nonexistent files.
+They now use actual committed runner fixture files, preserving success, cursor,
+permission and coordination assertions; no refusal was changed back to success.
+
+The preceding SVG checkpoint is committed locally as `2be75d3`; its final full
+verifier passed all 375 browser tests, unsigned arm64 packaged smoke passed and
+the separately run rendered review covered all 135 cells without violations.
+Both it and `f398685` remain unpublished: the automated private-repository
+permission gate requires explicit owner approval. No push is retried without it.
+
+That checkpoint added self-contained static SVG local image input through
 the existing Photos workflow. XML is admitted in the shared isolated parser
 worker under 8 MiB/8,000 px/32 megapixel and 10,000-node/64-depth/50,000-expanded-use
 bounds, then decoded as a detached image and normalized under the existing

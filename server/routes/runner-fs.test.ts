@@ -6,6 +6,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
+import { runCapability } from '../runner-runtime.ts'
+import type { Runner } from '../../contract/index.ts'
 
 test('GET /fs/sources includes the seeded runner', async () => {
   const r = await call('GET', '/fs/sources')
@@ -61,6 +63,61 @@ test('mediated invoke: fs.read on the runner returns REAL host bytes + journals 
   assert.ok(log.json.some((e: any) => e.commandId === 'cmd-fs-read-todo'))
 })
 
+test('mapped runner read refusal is capability_unavailable and never a fake success effect', async () => {
+  store.attachContext('auth-refactor', {
+    id: 'ctx-runner-fs-missing',
+    type: 'folder',
+    label: 'projects',
+    scope: '~/projects',
+  })
+  const commandId = 'cmd-fs-read-missing-real-file'
+  const r = await call('POST', '/runners/runner-local/invoke', {
+    sessionId: 'auth-refactor',
+    contextId: 'ctx-runner-fs-missing',
+    capability: 'fs.read',
+    target: '~/projects/does-not-exist.txt',
+    commandId,
+  })
+  assert.equal(r.status, 409)
+  assert.equal(r.json.error.code, 'capability_unavailable')
+  const log = await call('GET', '/runners/runner-local/effects')
+  assert.ok(!log.json.some((e: any) => e.commandId === commandId), 'a refused read is not journaled as success')
+
+  const refusedCommandId = 'cmd-fs-read-directory-refused'
+  const refused = await call('POST', '/runners/runner-local/invoke', {
+    sessionId: 'auth-refactor',
+    contextId: 'ctx-runner-fs-missing',
+    capability: 'fs.read',
+    target: '~/projects/insights-dashboard',
+    commandId: refusedCommandId,
+  })
+  assert.equal(refused.status, 409)
+  assert.equal(refused.json.error.code, 'capability_unavailable')
+  const afterRefused = await call('GET', '/runners/runner-local/effects')
+  assert.ok(!afterRefused.json.some((e: any) => e.commandId === refusedCommandId), 'a non-file read is not journaled as success')
+})
+
+test('an unmapped development runner retains the deterministic fs.read mock', () => {
+  const runner: Runner = {
+    id: 'runner-unmapped-fixture',
+    label: 'fixture',
+    host: 'fixture',
+    status: 'online',
+    lastSeen: 0,
+    capabilities: [{ type: 'fs.read', scopes: ['~/projects'] }],
+  }
+  const result = runCapability(runner, {
+    sessionId: 'unmapped-fixture-session',
+    contextId: 'unmapped-fixture-context',
+    capability: 'fs.read',
+    target: '~/projects/missing.txt',
+  })
+  assert.deepEqual(result.output, {
+    encoding: 'utf-8',
+    content: '// mock contents of ~/projects/missing.txt\n',
+  })
+})
+
 test('mediated invoke: fs.list (the new monotonic capability) lists a real host directory + journals', async () => {
   store.attachContext('auth-refactor', {
     id: 'ctx-runner-list',
@@ -82,6 +139,44 @@ test('mediated invoke: fs.list (the new monotonic capability) lists a real host 
   // Monotonic (fs.list) bypasses the guardian and still journals the effect (D2).
   const log = await call('GET', '/runners/runner-local/effects')
   assert.ok(log.json.some((e: any) => e.commandId === 'cmd-fs-list-insights'))
+})
+
+test('mapped runner fs.list refuses missing, unsafe, and non-directory paths without fake effects', async () => {
+  store.attachContext('auth-refactor', {
+    id: 'ctx-runner-list-refusals',
+    type: 'folder',
+    label: 'projects',
+    scope: '~/projects',
+  })
+
+  const root = await call('POST', '/runners/runner-local/invoke', {
+    sessionId: 'auth-refactor',
+    contextId: 'ctx-runner-list-refusals',
+    capability: 'fs.list',
+    target: '~/projects',
+    commandId: 'cmd-fs-list-root-real',
+  })
+  assert.equal(root.status, 200)
+  assert.ok(root.json.output.entries.some((entry: any) => entry.name === 'TODO.md'))
+
+  const cases = [
+    ['missing', '~/projects/does-not-exist-directory', 'cmd-fs-list-missing'],
+    ['unsafe', '~/projects/../secrets', 'cmd-fs-list-unsafe'],
+    ['non-directory', '~/projects/TODO.md', 'cmd-fs-list-file'],
+  ] as const
+  for (const [label, target, commandId] of cases) {
+    const result = await call('POST', '/runners/runner-local/invoke', {
+      sessionId: 'auth-refactor',
+      contextId: 'ctx-runner-list-refusals',
+      capability: 'fs.list',
+      target,
+      commandId,
+    })
+    assert.equal(result.status, 409, `${label} list should be unavailable`)
+    assert.equal(result.json.error.code, 'capability_unavailable', `${label} list error code`)
+    const log = await call('GET', '/runners/runner-local/effects')
+    assert.ok(!log.json.some((entry: any) => entry.commandId === commandId), `${label} list is not journaled`)
+  }
 })
 
 test('context mediation still bounds the effect: a target outside the context scope is forbidden', async () => {

@@ -60,16 +60,23 @@ function fulfil(runner: Runner, request: CapabilityRequest): unknown {
   switch (request.capability) {
     case 'fs.read': {
       const fs = realFs(runner, 'fs.read', request.target)
-      const got = fs?.reader.readText(fs.rel)
+      // An unmapped development runner has no host fulfilment and retains the
+      // deterministic mock. A mapped runner, however, must never turn a real
+      // missing/refused read into a successful fake effect.
+      if (!fs) return { encoding: 'utf-8', content: `// mock contents of ${request.target}\n` }
+      const got = fs.reader.readText(fs.rel)
       if (got?.kind === 'text') return { encoding: 'utf-8', content: got.text ?? '' }
       if (got?.kind === 'image' || got?.kind === 'binary') {
         return { encoding: 'binary', contentType: got.contentType, note: 'use /fs/content for bytes' }
       }
-      return { encoding: 'utf-8', content: `// mock contents of ${request.target}\n` }
+      throw new CapabilityError('capability_unavailable', `Runner '${runner.id}' could not read '${request.target}'`)
     }
     case 'fs.list': {
       const fs = realFs(runner, 'fs.list', request.target)
       const listed = fs ? (fs.rel ? fs.reader.folderContents(fs.rel) : { artifacts: fsRootEntries(fs.reader) }) : undefined
+      if (fs && !listed) {
+        throw new CapabilityError('capability_unavailable', `Runner '${runner.id}' could not list '${request.target}'`)
+      }
       return { entries: listed?.artifacts?.map((a) => ({ name: a.name, kind: a.kind })) ?? [] }
     }
     case 'fs.write': {

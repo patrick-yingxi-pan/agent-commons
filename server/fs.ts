@@ -10,10 +10,12 @@
  *
  *  Addressing: every entry's `id` is its **root-relative path** (forward slashes),
  *  which is also the `?path=` handle the content endpoints take. The client never
- *  sends an absolute path, and `resolveSafe` rejects anything that escapes the root
- *  (the traversal guard), so a crafted `../` can't read outside the served tree. */
-import { readdirSync, statSync, readFileSync, existsSync } from 'node:fs'
-import { resolve, sep } from 'node:path'
+ *  sends an absolute path. Descendant symlinks, path aliases and special files
+ *  are refused. Configured roots are operator-owned, not an OS sandbox against
+ *  a hostile process concurrently renaming directories or mounting filesystems. */
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync } from 'node:fs'
+import type { Stats } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type {
   Artifact,
   ArtifactKind,
@@ -26,7 +28,9 @@ import type {
 
 /** Largest text file we serve inline (keeps a stray huge file from blowing up a
  *  preview). Past this the preview shows a truncation note. */
-const MAX_TEXT_BYTES = 256 * 1024
+export const MAX_TEXT_BYTES = 256 * 1024
+/** Raw previews/downloads must not allocate an arbitrary source file in memory. */
+export const MAX_CONTENT_BYTES = 32 * 1024 * 1024
 
 /** Lower-case extension without the dot (`md`, `svg`, …); `''` when there is none. */
 function extOf(name: string): string {
@@ -92,7 +96,7 @@ export interface FsReader {
    *  their kind + content type instead of text. `undefined` when missing/escaping. */
   readText(relPath: string): FsFileContent | undefined
   /** A file's raw bytes + content type (for `<img>` / binary). `undefined` when
-   *  missing/escaping/not a file. */
+   *  missing/unsafe/not a regular file/over 32 MiB/changed during the read. */
   readBytes(relPath: string): { bytes: Uint8Array; contentType: string } | undefined
 }
 
@@ -100,28 +104,84 @@ export interface FsReader {
  *  deployment with nothing provisioned), never a throw. */
 export function fsReader(root: string): FsReader {
   const rootAbs = resolve(root)
-
-  /** Resolve a root-relative path to an absolute one inside the root, or
-   *  `undefined` when it escapes (the traversal guard, same shape as the static
-   *  server's in server/index.ts). */
-  function resolveSafe(relPath: string): string | undefined {
-    const abs = resolve(rootAbs, relPath)
-    if (abs !== rootAbs && !abs.startsWith(rootAbs + sep)) return undefined
-    return abs
-  }
-
-  /** Names directly under `abs`, skipping dotfiles (`.git`, `.DS_Store`, …). */
-  function entries(abs: string): string[] {
+  // Resolve operator-configured aliases once (including macOS /var → /private/var).
+  // A replaced or initially missing root needs a new reader; never adopt a new tree.
+  const anchor = (() => {
     try {
-      return readdirSync(abs).filter((n) => !n.startsWith('.'))
-    } catch {
-      return []
-    }
+      const abs = realpathSync(rootAbs)
+      const st = lstatSync(abs)
+      return st.isDirectory() && !st.isSymbolicLink() ? { abs, st } : undefined
+    } catch { return undefined }
+  })()
+
+  function sameFile(a: Stats, b: Stats): boolean {
+    return a.dev === b.dev && a.ino === b.ino && a.mode === b.mode
   }
 
-  function fileEntry(relPath: string, name: string): FsFileEntry {
+  function sameVersion(a: Stats, b: Stats): boolean {
+    return sameFile(a, b) && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs
+  }
+
+  type Entry = { abs: string; st: Stats }
+
+  /** Exact forward-slash handles only. Check every component, not just the leaf:
+   * O_NOFOLLOW alone does not reject a symlink in a parent directory. */
+  function inspect(relPath: string, allowRoot = false): Entry | undefined {
+    if (!anchor || typeof relPath !== 'string' || relPath.length > 4096 || /[\\\x00-\x1f\x7f]/.test(relPath)) return undefined
+    const parts = relPath === '' && allowRoot ? [] : relPath.split('/')
+    if (parts.length > 64 || parts.some((part) => !part || part.startsWith('.') || /^[a-z]:/i.test(part))) return undefined
+    try {
+      let abs = anchor.abs
+      let st = lstatSync(abs)
+      if (!sameFile(anchor.st, st) || !st.isDirectory() || st.isSymbolicLink() || realpathSync(abs) !== abs) return undefined
+      for (const part of parts) {
+        if (!st.isDirectory()) return undefined
+        abs = join(abs, part)
+        st = lstatSync(abs)
+        if (st.isSymbolicLink() || (!st.isDirectory() && !st.isFile())) return undefined
+      }
+      if (realpathSync(abs) !== abs) return undefined
+      return { abs, st }
+    } catch { return undefined }
+  }
+
+  /** A disappearing, unreadable or replaced directory is an empty listing. */
+  function entries(relPath: string): string[] {
+    const before = inspect(relPath, true)
+    if (!before?.st.isDirectory()) return []
+    try {
+      const names = readdirSync(before.abs).filter((name) => !name.startsWith('.'))
+      const after = inspect(relPath, true)
+      return after && sameFile(before.st, after.st) ? names : []
+    } catch { return [] }
+  }
+
+  /** Open once, validate that descriptor, and read only the admitted size + one
+   * byte. Refuse replacement/growth instead of returning a partial preview. */
+  function readBounded(relPath: string, entry: Entry, limit: number): Uint8Array | undefined {
+    if (!entry.st.isFile() || !Number.isSafeInteger(entry.st.size) || entry.st.size < 0 || entry.st.size > limit) return undefined
+    let fd: number | undefined
+    try {
+      fd = openSync(entry.abs, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0))
+      const opened = fstatSync(fd)
+      const current = inspect(relPath)
+      if (!opened.isFile() || !sameVersion(entry.st, opened) || !current || !sameVersion(opened, current.st)) return undefined
+      const bytes = Buffer.alloc(opened.size + 1)
+      let offset = 0
+      while (offset < bytes.length) {
+        const count = readSync(fd, bytes, offset, bytes.length - offset, offset)
+        if (count === 0) break
+        offset += count
+      }
+      const after = inspect(relPath)
+      if (offset !== opened.size || !sameVersion(opened, fstatSync(fd)) || !after || !sameVersion(opened, after.st)) return undefined
+      return bytes.subarray(0, offset)
+    } catch { return undefined }
+    finally { if (fd !== undefined) closeSync(fd) }
+  }
+
+  function fileEntry(relPath: string, name: string, st: Stats): FsFileEntry {
     const ext = extOf(name)
-    const st = statSync(resolveSafe(relPath)!)
     return { id: relPath, name, ext, size: st.size, mtime: st.mtimeMs, kind: kindForExt(ext) }
   }
 
@@ -132,41 +192,37 @@ export function fsReader(root: string): FsReader {
       const files: FsFileEntry[] = []
       const photos: FsPhotoEntry[] = []
       const folders: FsFolderEntry[] = []
-      if (!existsSync(rootAbs)) return { files, photos, folders }
-      for (const name of entries(rootAbs)) {
-        const abs = resolveSafe(name)
-        if (!abs) continue
-        const st = statSync(abs)
+      for (const name of entries('')) {
+        const entry = inspect(name)
+        if (!entry) continue
+        const { st } = entry
         if (st.isDirectory()) {
           folders.push({
             id: name,
             name,
             path: name,
-            fileCount: entries(abs).filter((c) => {
-              const cs = resolveSafe(`${name}/${c}`)
-              return cs ? statSync(cs).isFile() : false
-            }).length,
+            fileCount: entries(name).filter((c) => inspect(`${name}/${c}`)?.st.isFile()).length,
             mtime: st.mtimeMs,
           })
         } else if (isImageExt(extOf(name))) {
           photos.push({ id: name, name, mtime: st.mtimeMs })
         } else {
-          files.push(fileEntry(name, name))
+          files.push(fileEntry(name, name, st))
         }
       }
       return { files, photos, folders }
     },
 
     folderContents(relPath) {
-      const abs = resolveSafe(relPath)
-      if (!abs || !existsSync(abs) || !statSync(abs).isDirectory()) return undefined
-      const names = entries(abs)
+      const entry = inspect(relPath)
+      if (!entry?.st.isDirectory()) return undefined
+      const names = entries(relPath)
       const artifacts: Artifact[] = []
       for (const name of names) {
         const childRel = `${relPath}/${name}`
-        const childAbs = resolveSafe(childRel)
-        if (!childAbs) continue
-        const st = statSync(childAbs)
+        const child = inspect(childRel)
+        if (!child) continue
+        const { st } = child
         if (!st.isFile()) continue // one level of artifacts; nested dirs aren't artifacts
         const ext = extOf(name)
         artifacts.push({
@@ -176,6 +232,8 @@ export function fsReader(root: string): FsReader {
           meta: `${ext ? ext.toUpperCase() + ' · ' : ''}${humanSize(st.size)}`,
         })
       }
+      const after = inspect(relPath)
+      if (!after || !sameFile(entry.st, after.st)) return undefined
       const fileCount = artifacts.length
       return {
         id: relPath,
@@ -186,10 +244,9 @@ export function fsReader(root: string): FsReader {
     },
 
     readText(relPath) {
-      const abs = resolveSafe(relPath)
-      if (!abs || !existsSync(abs)) return undefined
-      const st = statSync(abs)
-      if (!st.isFile()) return undefined
+      const entry = inspect(relPath)
+      if (!entry?.st.isFile()) return undefined
+      const { st } = entry
       const name = relPath.split('/').pop() ?? relPath
       const ext = extOf(name)
       if (isImageExt(ext)) {
@@ -198,22 +255,16 @@ export function fsReader(root: string): FsReader {
       if (st.size > MAX_TEXT_BYTES) {
         return { id: relPath, name, kind: 'text', text: `… ${name} is ${humanSize(st.size)} — too large to preview.` }
       }
-      try {
-        return { id: relPath, name, kind: 'text', text: readFileSync(abs, 'utf8') }
-      } catch {
-        return { id: relPath, name, kind: 'binary', contentType: contentTypeForExt(ext) }
-      }
+      const bytes = readBounded(relPath, entry, MAX_TEXT_BYTES)
+      return bytes ? { id: relPath, name, kind: 'text', text: new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes) } : undefined
     },
 
     readBytes(relPath) {
-      const abs = resolveSafe(relPath)
-      if (!abs || !existsSync(abs) || !statSync(abs).isFile()) return undefined
+      const entry = inspect(relPath)
+      if (!entry) return undefined
       const ext = extOf(relPath.split('/').pop() ?? relPath)
-      try {
-        return { bytes: readFileSync(abs), contentType: contentTypeForExt(ext) }
-      } catch {
-        return undefined
-      }
+      const bytes = readBounded(relPath, entry, MAX_CONTENT_BYTES)
+      return bytes ? { bytes, contentType: contentTypeForExt(ext) } : undefined
     },
   }
 }

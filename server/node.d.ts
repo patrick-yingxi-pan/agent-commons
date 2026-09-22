@@ -72,13 +72,25 @@ declare module 'node:fs' {
   export function readFileSync(path: string): { toString(): string } & Uint8Array
   export function readFileSync(path: string, encoding: string): string
   export function existsSync(path: string): boolean
-  export function statSync(path: string): {
+  export interface Stats {
     isFile(): boolean
     isDirectory(): boolean
+    isSymbolicLink(): boolean
     size: number
     mtimeMs: number
+    ctimeMs: number
     mode: number
+    dev: number
+    ino: number
   }
+  export function statSync(path: string): Stats
+  export function lstatSync(path: string): Stats
+  export function fstatSync(fd: number): Stats
+  export function realpathSync(path: string): string
+  export function openSync(path: string, flags: number): number
+  export function closeSync(fd: number): void
+  export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number
+  export const constants: { O_RDONLY: number; O_NOFOLLOW?: number; O_NONBLOCK?: number }
   export function readdirSync(path: string): string[]
   export function chmodSync(path: string, mode: number): void
   export function writeFileSync(path: string, data: string, options?: { mode?: number }): void
@@ -154,6 +166,7 @@ interface Buffer extends Uint8Array {
   toString(encoding?: string): string
 }
 declare const Buffer: {
+  alloc(size: number): Buffer
   concat(list: Uint8Array[]): Buffer
   from(data: string, encoding?: string): Buffer
   from(data: Uint8Array): Buffer

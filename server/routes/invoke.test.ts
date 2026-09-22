@@ -22,12 +22,12 @@ test('invoke within the context scope and host grant returns output', async () =
     sessionId: 'inv',
     contextId: 'ctx-projects',
     capability: 'fs.read',
-    target: '~/projects/insights/main.ts',
+    target: '~/projects/insights-dashboard/src-notes.md',
   })
   assert.equal(status, 200)
   assert.equal(json.runnerId, 'runner-local')
   assert.equal(json.capability, 'fs.read')
-  assert.match(json.output.content, /mock contents of/)
+  assert.match(json.output.content, /insightsDashboard/)
 })
 
 test('invoke outside the context scope is 403 forbidden (mediation, D5)', async () => {
@@ -227,12 +227,12 @@ test('a monotonic read is coordination-free — allowed while another session ho
   store.attachContext('gQ', { id: 'res-ro', type: 'repo', label: 'ro', scope: '*' })
   // P holds the write lock on the resource.
   const wp = await call('POST', '/runners/runner-local/invoke', {
-    sessionId: 'gP', contextId: 'res-ro', capability: 'fs.write', target: '~/projects/r.ts', args: { content: 'p' },
+    sessionId: 'gP', contextId: 'res-ro', capability: 'fs.write', target: '~/projects/TODO.md', args: { content: 'p' },
   })
   assert.equal(wp.status, 200)
   // Q reads the same resource — fs.read is monotonic, so it bypasses the guardian.
   const rq = await call('POST', '/runners/runner-local/invoke', {
-    sessionId: 'gQ', contextId: 'res-ro', capability: 'fs.read', target: '~/projects/r.ts',
+    sessionId: 'gQ', contextId: 'res-ro', capability: 'fs.read', target: '~/projects/TODO.md',
   })
   assert.equal(rq.status, 200)
 })
