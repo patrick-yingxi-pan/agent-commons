@@ -44,7 +44,22 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint implements the approved saved-copy policy for individual
+The current checkpoint adds the internal served-folder capture foundation:
+streamed 500-entry admission, the existing local whole-text budgets and omission
+policy, independently enforced list/read grants, and refusal after folder or
+represented-authority changes during capture. The limits apply before filtering
+or body reads, so hidden/unlisted entries cannot bypass the enumeration ceiling.
+Failure-first tests cover the missing capability; deliberate cap, directory
+version and runner-filter regressions each failed before restoration. Final
+review then reproduced grant narrowing between the reader's final check and
+its facade's await continuation; both boundaries now share the exact-output
+authority predicate, with a failure-first microtask regression. This is
+not yet a user-facing folder snapshot feature: intake, durable identity, model
+projection, targeted Refresh and rendered recovery are the next integration
+checkpoint. No new public route, UI behavior or filesystem permission is added.
+The complete local verifier remains the landing gate; no GitHub CI is used.
+
+The preceding checkpoint implements the approved saved-copy policy for individual
 served cloud/runner text files. Explicit selection captures bounded whole text;
 previews, reopened conversations and both model transports use that persisted
 copy without new source reads. Owner-only Refresh replaces only its addressed

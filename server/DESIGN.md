@@ -95,11 +95,32 @@ Revocation therefore closes a previously known content URL as well as the
 source switcher's discovery entry. Cloud storage remains a separately configured
 operator-owned source; this does not invent tenant provisioning or runner enrollment.
 
+The internal `folderSnapshot` capture foundation streams a selected directory,
+refusing entry 501 before any file bodies are opened. Hidden files, subfolders,
+symlinks and unlisted names count toward that ceiling but do not become input.
+Visible regular-file metadata passes through the shared local-folder policy:
+lexical ordering, whole strict UTF-8, 64 KiB per file, 128 KiB total and 24
+readable files, with explicit omissions for unsupported, oversized, exhausted
+or unreadable bodies. Failed enumeration/metadata admission and changed
+directory identity/version refuse the batch instead of fabricating emptiness.
+Runner capture applies list grants before metadata/body-budget selection and
+independent read grants before each descriptor read; after asynchronous policy
+completion both the base reader and the facade recheck represented names and
+readable bodies through one predicate. A grant may narrow between those await
+continuations even when some other list/read scope remains. The facade never
+accepts caller predicates as a way to widen grants. The runner object is the
+caller's authority snapshot, so a future route must also re-resolve current
+store authority before committing an awaited capture. This is not an atomic
+point-in-time image of all file contents: each body has its own checked read.
+The foundation has no public route, saved-session representation, model-input
+projection or Refresh UI yet; existing folder behavior is unchanged.
+
 These are application-level defenses, not an OS filesystem sandbox. The
 configured directories and their ancestry must be controlled by the operator,
 not a hostile local process that can race directory renames, mount filesystems
-or create hard links. The reader remains synchronous and does not yet impose
-a directory-cardinality or slow-filesystem deadline. Hosted per-tenant root
+or create hard links. Filesystem syscalls remain synchronous; ordinary catalog
+and metadata scans still have no directory-cardinality ceiling, and none of
+these operations has a slow-filesystem deadline. Hosted per-tenant root
 provisioning and stronger OS-level isolation remain separate production work;
 this checkpoint grants neither local picker nor model-input authority.
 Node's [filesystem API](https://nodejs.org/api/fs.html) specifies the descriptor

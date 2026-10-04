@@ -92,6 +92,15 @@ declare module 'node:fs' {
   export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number
   export const constants: { O_RDONLY: number; O_NOFOLLOW?: number; O_NONBLOCK?: number }
   export function readdirSync(path: string): string[]
+  export interface Dirent {
+    name: string
+    isFile(): boolean
+  }
+  export interface Dir {
+    readSync(): Dirent | null
+    closeSync(): void
+  }
+  export function opendirSync(path: string): Dir
   export function chmodSync(path: string, mode: number): void
   export function writeFileSync(path: string, data: string, options?: { mode?: number }): void
   export function renameSync(oldPath: string, newPath: string): void

@@ -13,10 +13,12 @@
  *  sends an absolute path. Descendant symlinks, path aliases and special files
  *  are refused. Configured roots are operator-owned, not an OS sandbox against
  *  a hostile process concurrently renaming directories or mounting filesystems. */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync } from 'node:fs'
+import { closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readSync, readdirSync, realpathSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
+import { MAX_FOLDER_SNAPSHOT_ENTRIES, MAX_FOLDER_SNAPSHOT_FILE_BYTES, snapshotFolderFiles } from '../contract/localFolderSnapshot.mjs'
+import type { FolderSnapshotFile } from '../contract/localFolderSnapshot.mjs'
 import type {
   Artifact,
   ArtifactKind,
@@ -32,7 +34,7 @@ import type {
 export const MAX_TEXT_BYTES = 256 * 1024
 /** Whole text snapshots are smaller than previews so model context intake has a
  *  predictable per-file ceiling and never returns a lossy prefix. */
-export const MAX_SNAPSHOT_BYTES = 64 * 1024
+export const MAX_SNAPSHOT_BYTES = MAX_FOLDER_SNAPSHOT_FILE_BYTES
 /** Raw previews/downloads must not allocate an arbitrary source file in memory. */
 export const MAX_CONTENT_BYTES = 32 * 1024 * 1024
 
@@ -88,6 +90,20 @@ function humanSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+/** Internal narrowing only: names require list permission, bodies require read
+ * permission too. The runner facade always supplies its own grant predicates. */
+export interface FolderSnapshotAccess {
+  canList(path: string): boolean
+  canRead(path: string): boolean
+}
+
+/** Recheck captured names and bodies at each async publication boundary. This
+ * tests current authority over trusted capture output, not its wire schema. */
+export function folderSnapshotPermitted(path: string, files: readonly FolderSnapshotFile[], access: FolderSnapshotAccess): boolean {
+  return files.every((file) => access.canList(`${path}/${file.name}`) &&
+    (typeof file.snapshot.text !== 'string' || access.canRead(`${path}/${file.name}`)))
+}
+
 export interface FsReader {
   /** The absolute root this reader serves. */
   root: string
@@ -97,6 +113,10 @@ export interface FsReader {
   /** Scan a sub-folder (root-relative path) into the artifacts it holds, or
    *  `undefined` when the path is missing / not a directory / escapes the root. */
   folderContents(relPath: string): FsFolderContents | undefined
+  /** Internal capture foundation, not yet an attachment/Refresh route. Captures
+   * bounded, visible regular top-level files using the shared omission policy.
+   * Enumeration/change failure is unavailable, distinct from an empty batch. */
+  folderSnapshot(relPath: string, access?: FolderSnapshotAccess): Promise<FolderSnapshotFile[] | undefined>
   /** A file's textual content (the editable preview); image/binary files report
    *  their kind + content type instead of text. `undefined` when missing/escaping. */
   readText(relPath: string): FsFileContent | undefined
@@ -256,6 +276,50 @@ export function fsReader(root: string): FsReader {
         meta: `${fileCount} file${fileCount === 1 ? '' : 's'}`,
         artifacts,
       }
+    },
+
+    async folderSnapshot(relPath, access) {
+      try {
+        const folder = inspect(relPath)
+        if (!folder?.st.isDirectory()) return undefined
+        const canList = (path: string) => access?.canList(path) ?? true
+        const canRead = (path: string) => access?.canRead(path) ?? true
+        const candidates: Array<{ name: string; sizeBytes: number }> = []
+        const admitted = new Map<string, Entry>()
+        // Stream and cap before any filtering or body read. Hidden files,
+        // directories and unlisted entries still consume enumeration capacity.
+        const directory = opendirSync(folder.abs)
+        try {
+          let count = 0
+          for (let item = directory.readSync(); item; item = directory.readSync()) {
+            if (++count > MAX_FOLDER_SNAPSHOT_ENTRIES) return undefined
+            if (item.name.startsWith('.') || !item.isFile()) continue
+            const path = `${relPath}/${item.name}`
+            if (!canList(path)) continue
+            const child = inspect(path)
+            // A known regular entry that became inaccessible or unsafe cannot
+            // silently disappear from a supposedly complete captured manifest.
+            if (!child?.st.isFile()) return undefined
+            admitted.set(item.name, child)
+            candidates.push({ name: item.name, sizeBytes: child.st.size })
+          }
+        } finally { directory.closeSync() }
+        const enumerated = inspect(relPath)
+        if (!enumerated || !sameVersion(folder.st, enumerated.st)) return undefined
+        const snapshots = await snapshotFolderFiles(candidates, (file) => {
+          const path = `${relPath}/${file.name}`
+          if (!canList(path) || !canRead(path)) throw new Error('folder body unavailable')
+          const bytes = readBounded(path, admitted.get(file.name)!, MAX_SNAPSHOT_BYTES)
+          if (!bytes) throw new Error('folder body unavailable')
+          return bytes
+        })
+        // The shared async policy may yield between files. Do not publish after
+        // folder replacement/membership changes or a grant predicate narrowing.
+        const after = inspect(relPath)
+        if (!after || !sameVersion(folder.st, after.st)) return undefined
+        if (access && !folderSnapshotPermitted(relPath, snapshots, access)) return undefined
+        return snapshots
+      } catch { return undefined }
     },
 
     readText(relPath) {
