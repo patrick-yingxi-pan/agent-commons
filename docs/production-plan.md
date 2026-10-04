@@ -20,7 +20,16 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint closes a demonstrated backend gap in served-file intake:
+The current checkpoint completes the four previously unverified native context
+removal cases. The [2026-10-04 acceptance record](acceptance/native-context-2026-10-04.md)
+uses a fresh unsigned arm64 package of `2abc976d`, actual macOS Files/Photos/Folder
+dialogs, and a credential-free local model fixture. XLSX, PPTX, PNG and folder
+imports and previews passed; each independent detach preserved exact siblings
+and prior messages. The final native-composer request supplied no attachment
+document or image blocks. This does not repeat the prior source-absent relaunch
+matrix or constitute signed/notarized, Intel or paid-provider acceptance.
+
+The preceding checkpoint `2abc976d` is published on main and closes a demonstrated backend gap in served-file intake:
 directory enumeration failure was still acknowledged as an empty catalog or
 workspace, despite the picker's recovery states. Missing/replaced roots and
 failed root/folder scans now remain unavailable through cloud and mapped-runner
@@ -34,17 +43,19 @@ model input, source lifetime or native authority is inferred.
 The first complete run passed all five lanes and 383 browser tests. Final review
 then reproduced root replacement during child inspection publishing a partial
 catalog; a final anchor check now refuses it, with a failure-first regression.
-The complete verifier must pass again on that corrected immutable revision.
+The final immutable-tree verifier passed all five lanes and 383 browser tests
+in 300.9 seconds; adversarial diff review found no remaining scoped findings.
 
 The preceding five checkpoints are published through `fc42d8f` on main; the
 owner's renewed push instruction resolved the private-repository upload gate.
 The final picker verifier passed all five lanes and 383 browser tests, and the
 separate responsive review passed 135/135 cells without violations or skips.
 GitHub run `35867243830` did not start its jobs because of account billing or
-spending-limit annotations; that remains external release evidence, not a local
-test failure. Remote-source snapshot-plus-Refresh versus live per-turn input
-still awaits the owner. The manual native acceptance record also retains its
-unverified XLSX/PPTX/image/folder detach cells; automated smoke is not a substitute.
+spending-limit annotations. The newer run `37185242103` has started all jobs and
+passed Checks; its browser lanes were still executing at 07:35 UTC on October 4.
+The historical billing failure is not the current run's observed blocker; no
+full CI success is claimed while those lanes remain pending. Remote-source
+snapshot-plus-Refresh versus live per-turn input still awaits the owner.
 
 The picker checkpoint repaired served-file intake recovery before extending
 remote-source model input. Failed source/catalog reads must not appear empty or
@@ -469,21 +480,23 @@ active on Artifacts in a desktop/light viewport. The New artifact form was
 reviewed and cancelled without saving sample content; Ada's Acid Plum palette
 and three overrides remain intact. The admission states are account-neutral;
 existing isolated creation and download tests cover Ada's owner, Grace's
-shared-reader and Maya's foreign-account faces. The Mac is currently locked,
-which does not block in-app browser review but prevents a fresh actual OS-dialog
-ceremony. Earlier native OS-dialog acceptance remains qualified as recorded
-below; Excel-application acceptance remains a separate unverified check.
+shared-reader and Maya's foreign-account faces. That earlier review could not
+perform a fresh actual OS-dialog ceremony while the Mac was locked. Native
+controls were available for the October 4 review below; Excel-application
+acceptance remains a separate unverified check.
 
 The [2026-09-10 native-context review](acceptance/native-context-2026-09-10.md)
 used the unsigned arm64 packaged app and actual macOS Files, Photos, and Folder
 dialogs. Cancellation, text/PDF/DOCX/XLSX/PPTX/image/folder import and preview,
 model delivery, and full relaunch with the original input paths absent passed.
 Exact stored identities/content and the model's text/image payload survived.
-Independent native detach passed for Markdown, DOCX, and PDF; XLSX, PPTX, image,
-folder detach and the final post-detach turn remain unverified after native
-control became unavailable. This is qualified development-artifact evidence, not
-a complete native matrix, a paid-provider pass, or a signed two-architecture
-release. No dialog policy was changed to accommodate the automation surface.
+Independent native detach passed for Markdown, DOCX, and PDF in that review.
+The [October 4 follow-up](acceptance/native-context-2026-10-04.md) freshly imported
+and independently detached XLSX, PPTX, PNG and folder snapshots and verified a
+final attachment-free model request. These dated, revision-scoped records are
+qualified development-artifact evidence, not every native acceptance cell on
+one current artifact, a paid-provider pass, or a signed two-architecture release.
+No dialog policy was changed to accommodate the automation surface.
 
 Shared editor review resumed on 2026-09-09 after the Mac became available. A
 fresh tab preserves all six stacked accounts with Ada active, a desktop/light

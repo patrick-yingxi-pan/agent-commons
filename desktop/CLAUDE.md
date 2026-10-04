@@ -103,6 +103,10 @@ The dated [native-context acceptance record](../docs/acceptance/native-context-2
 adds actual macOS selection/cancellation and source-absent relaunch evidence for
 the unsigned arm64 development artifact. Its remaining native-detach cells are
 explicitly unverified; it is not a complete manual or signed-release receipt.
+The [October 4 follow-up](../docs/acceptance/native-context-2026-10-04.md) closes
+those four XLSX/PPTX/PNG/folder detach cells and the final attachment-free model
+turn on its recorded unsigned arm64 revision, without repeating every earlier
+cell or replacing the broader native/release gates.
 
 Run `node --test "desktop/**/*.test.ts"`, then `npm run desktop:verify`. The MCP
 phase proves real OS-backed token replacement/relaunch, secret exclusion,

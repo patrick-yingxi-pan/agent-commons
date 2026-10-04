@@ -28,6 +28,14 @@
 
 ## Files / photos / folders are really served (L2)
 
+Manual native acceptance complements the executable locks below. The
+[September 10 review](../acceptance/native-context-2026-09-10.md) records real
+chooser cancellation, imports, previews and source-absent relaunch. The
+[October 4 follow-up](../acceptance/native-context-2026-10-04.md) completes the
+remaining XLSX/PPTX/PNG/folder detach cells and a final attachment-free model
+turn on its recorded unsigned arm64 revision. Neither is a signed-release,
+Intel, paid-provider or all-current-format acceptance claim.
+
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|
 | CTX-FS-17 | **Recoverable served-source intake.** Source discovery and every Files/Photos/Folder catalog distinguish announced loading, retryable failure and acknowledged empty results. Stale rows are not selectable during failed/pending revalidation; selecting the local computer is explicit. Picker reads have a 30-second network/body deadline. Folder reads attach only successful current results, are single-flight, and cancel on close, source change or account switch; retry re-reads the same folder. This adds no remote model-input authority. | `src/lib/fsReadState.ts`, `src/lib/fsSources.ts`, `src/api/fsReads.ts`, `src/components/FsReadNotice.tsx`, `src/components/AddContextButton.tsx` | `src/lib/fs-read-state.test.ts`, `src/api/fs-reads.test.ts`, `src/components/served-fs-picker.test.ts`, `e2e/served-fs-recovery.spec.ts` | ✅ |
