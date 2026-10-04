@@ -42,6 +42,10 @@ record does not claim completed TSV acceptance, source-absent CSV relaunch,
 download byte-for-byte comparison, Intel execution, paid-provider behavior, or
 signed/notarized release acceptance. No shared demo account state was changed.
 
+The subsequent [native Sheet follow-up](native-sheet-2026-10-04.md) completes
+the TSV workflow, source-absent CSV/TSV relaunch and native-download byte
+comparisons on its explicitly recorded revisions. The other limits above remain.
+
 ## Automated locks
 
 Before repair, nine store/first-boot tests failed on the fixture baseline,

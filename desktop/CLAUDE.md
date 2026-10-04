@@ -56,6 +56,12 @@ full app relaunch after deleting the source files. This is not actual OS-dialog
 interaction, rich Office conversion, or a replacement for OS-backed keychain
 acceptance in the separate ordinary executable smoke.
 
+The [October 4 native Sheet review](../docs/acceptance/native-sheet-2026-10-04.md)
+adds actual macOS CSV/TSV selection and XLSX Save dialogs, explicit header mapping
+and adoption, saved edits, byte-identical exports and source-absent relaunch on
+its recorded unsigned arm64 revisions. It does not replace parser/error matrices,
+Microsoft Excel application testing or signed two-architecture release gates.
+
 The ordinary executable smoke records one provider-reported turn, reads the
 exact durable tenant counters and period anchors from SQLite, and compares them
 after a full app relaunch. The first-run setup also saves an exact personal

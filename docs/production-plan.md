@@ -20,7 +20,18 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint fixes a demonstrated clean-install content leak found
+The current checkpoint completes the unfinished native CSV/TSV Sheet workflow
+checks. Actual OS selection, explicit header mapping/adoption, canonical save,
+editing and native XLSX download are now backed by exact body/export comparisons.
+Both saved Sheets survive a full app relaunch with the generated source paths
+absent; IDs, literal values, notes and revision-one bodies remain unchanged.
+The [native Sheet acceptance record](acceptance/native-sheet-2026-10-04.md)
+names the two runtime revisions and download hashes. This is unsigned arm64
+evidence, not signed/notarized, Intel, Excel-application or rich-workbook acceptance.
+The read-only workflow audit found no concrete code defect; no new product policy
+was inferred. The complete verifier and final diff review remain the push gate.
+
+The preceding checkpoint `d3753db2` fixes a demonstrated clean-install content leak found
 during actual native CSV artifact acceptance: an empty registry still exposed
 the global demo body library through the artifact-content API. Bodies now require
 current artifact/session read authority; compatibility names must be unambiguous
@@ -29,10 +40,10 @@ Failure-first store/clean-boot and authenticated HTTP/MCP tests reproduce the
 defect. The rebuilt unsigned arm64 app returns an empty library on a fresh SQLite
 profile and only the exact saved Sheet plus its unique alias after relaunch of
 the existing CSV review profile. The [scoped acceptance record](acceptance/artifact-content-2026-10-04.md)
-records the package and limitations. CSV import/edit/native download passed;
-TSV and source-absent CSV relaunch remain unfinished. The complete verifier and
-final review gate this checkpoint; no new artifact identity or removal policy
-is inferred.
+records the package and limitations. Its initially unfinished TSV/source-absent
+cells are completed by the native follow-up above. The complete five-lane
+verifier passed all 383 browser tests in 261.7 seconds before publication;
+no new artifact identity or removal policy was inferred.
 
 The preceding checkpoint `057d5fe4` completes the four previously unverified native context
 removal cases. The [2026-10-04 acceptance record](acceptance/native-context-2026-10-04.md)

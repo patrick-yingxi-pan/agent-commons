@@ -8,6 +8,12 @@
 
 ## Requirements (L2)
 
+The [October 4 native Sheet acceptance](../acceptance/native-sheet-2026-10-04.md)
+complements ADAPT-37's automated locks with actual macOS CSV/TSV selection,
+review/adoption, saved edits and XLSX Save dialogs. Exact bodies and downloaded
+bytes survive a full source-absent relaunch on the recorded unsigned arm64
+revisions; this does not establish rich-workbook or signed-release acceptance.
+
 The ADAPT-11/ADAPT-17 navigation walks reveal older Sessions through the rail's
 “Show all” control before selecting them. `e2e/hooks-order.spec.ts` explicitly
 fills the recent head and asserts that its destination begins outside the slice;
