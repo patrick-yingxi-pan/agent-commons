@@ -6,6 +6,7 @@ import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './authRoot.mjs'
 import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
+import { desktopProfileAclInspector } from './profileAcl.mjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
@@ -67,12 +68,20 @@ const contextPicker = createNativeContextPicker({
 app.enableSandbox()
 if (!app.isPackaged) app.setPath('userData', join(app.getPath('appData'), 'Agent Commons Development'))
 
-const ownsInstance = app.requestSingleInstanceLock()
-if (!ownsInstance) {
-  app.quit()
-} else {
-  app.on('second-instance', () => focusMainWindow())
-  app.whenReady().then(startDesktop).catch(failStartup)
+try {
+  // No await before admission: even the instance lock can write into userData.
+  ensureDesktopUserDataDirectory(app.getPath('userData'), {
+    protectedPaths: [app.getPath('appData')],
+    inspectAcl: desktopProfileAclInspector({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
+  })
+  if (!app.requestSingleInstanceLock()) {
+    app.quit()
+  } else {
+    app.on('second-instance', () => focusMainWindow())
+    app.whenReady().then(startDesktop).catch(failStartup)
+  }
+} catch (error) {
+  void failStartup(error)
 }
 
 function focusMainWindow() {
@@ -83,9 +92,6 @@ function focusMainWindow() {
 }
 
 async function startDesktop() {
-  await ensureDesktopUserDataDirectory(app.getPath('userData'), {
-    protectedPaths: [app.getPath('appData')],
-  })
   app.setAppUserModelId(APP_ID)
   installApplicationMenu()
   const authSecret = await loadDesktopAuthSecret({
@@ -573,8 +579,9 @@ async function createMainWindow(url, origin) {
 
 async function failStartup(error) {
   if (error instanceof DesktopUserDataError) {
+    console.error('[desktop] profile admission refused; no application data opened.')
     dialog.showErrorBox('Couldn’t protect Agent Commons data', error.message)
-    app.quit()
+    app.exit(1)
     return
   }
   if (error instanceof DesktopAuthRootError) {

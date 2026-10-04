@@ -2,10 +2,13 @@ import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
+import { buildDesktopProfileHelper } from './profileHelperBuild.mjs'
 
 const require = createRequire(import.meta.url)
 const VITE_BIN = join(dirname(require.resolve('vite/package.json')), 'bin/vite.js')
 const ELECTRON_BIN = require('electron')
+
+buildDesktopProfileHelper()
 
 const uiPort = process.env.PORT ? Number(process.env.PORT) : await findAvailableLoopbackPort()
 let backendPort = process.env.MOCK_PORT ? Number(process.env.MOCK_PORT) : await findAvailableLoopbackPort()

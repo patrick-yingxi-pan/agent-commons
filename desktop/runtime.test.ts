@@ -90,22 +90,30 @@ test('the one-shot restore worker receives persistence coordinates and no ambien
   })
 })
 
-test('profile admission is awaited before product startup and failure cannot offer restore', () => {
+test('profile admission is synchronous before instance lock and ready; failure cannot offer restore', () => {
   const main = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
+  const admission = main.indexOf("ensureDesktopUserDataDirectory(app.getPath('userData'),")
+  const lock = main.indexOf('app.requestSingleInstanceLock()')
+  const ready = main.indexOf('app.whenReady().then(startDesktop)')
+  assert.ok(admission >= 0 && lock > admission && ready > lock)
+  const bootstrap = main.slice(main.indexOf('app.enableSandbox()'), ready)
+  assert.doesNotMatch(bootstrap.replaceAll(/\/\/[^\n]*/g, ''), /\bawait\b/)
+  assert.match(bootstrap, /protectedPaths: \[app.getPath\('appData'\)\]/)
+  assert.match(bootstrap, /inspectAcl: desktopProfileAclInspector\(\{ packaged: app.isPackaged, resourcesPath: process.resourcesPath \}\)/)
+  const guard = readFileSync(new URL('./userDataDirectory.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(guard, /async function|\bawait\b|chmod/)
   const start = main.indexOf('async function startDesktop()')
   const end = main.indexOf('async function openDesktopCredentialVault()')
   assert.ok(start >= 0 && end > start)
   const startup = main.slice(start, end)
-  assert.match(startup, /async function startDesktop\(\) \{\s*await ensureDesktopUserDataDirectory\(app.getPath\('userData'\),/)
-  assert.match(startup, /protectedPaths: \[app.getPath\('appData'\)\]/)
   for (const boundary of ['await loadDesktopAuthSecret(', 'await openDesktopCredentialVault()', 'await openMcpCredentialVaultForDesktop()', 'await launchBackend(']) {
-    assert.ok(startup.indexOf(boundary) > startup.indexOf('await ensureDesktopUserDataDirectory('), boundary)
+    assert.ok(startup.includes(boundary), boundary)
   }
   const failureStart = main.indexOf('async function failStartup(error)')
   const failureEnd = main.indexOf('if (error instanceof DesktopAuthRootError)', failureStart)
   assert.ok(failureStart >= 0 && failureEnd > failureStart)
   const failure = main.slice(failureStart, failureEnd)
-  assert.match(failure, /if \(error instanceof DesktopUserDataError\) \{\s*dialog.showErrorBox\('Couldn’t protect Agent Commons data', error.message\)\s*app.quit\(\)\s*return\s*\}/)
+  assert.match(failure, /if \(error instanceof DesktopUserDataError\) \{[\s\S]*dialog.showErrorBox\('Couldn’t protect Agent Commons data', error.message\)\s*app.exit\(1\)\s*return\s*\}/)
   assert.doesNotMatch(failure, /offerStartupRecovery|restoreFromManagedBackup|openPath/)
 })
 
@@ -268,6 +276,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/authRoot.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/userDataDirectory.mjs'), false)
+  assert.equal(ignoreFromPackage('/desktop/profileAcl.mjs'), false)
+  assert.equal(ignoreFromPackage('/desktop/profileAdmissionSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/nativeRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/backendRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/rendererRecovery.mjs'), false)
@@ -280,6 +290,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(packagedExecutable('/repo', 'win32', 'x64'), join('/repo', 'out', 'Agent Commons-win32-x64', 'Agent Commons.exe'))
 
   const smoke = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
+  assert.ok(smoke.includes('await smokePackagedProfileAdmission({ executable })'))
   assert.ok(
     smoke.replaceAll(/\s+/g, ' ').includes('await smokePackagedRestore({ executable })'),
     'ordinary packaged smoke awaits the independent restore acceptance phase',

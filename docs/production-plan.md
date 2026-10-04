@@ -44,7 +44,30 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint integrates saved served-folder snapshots end to end:
+The current checkpoint implements approved default 6: unsafe POSIX modes and
+macOS ACL grants refuse startup without repair. Admission is synchronous before
+the instance lock and ready-driven product startup. The bundled read-only helper
+checks the already-open no-follow directory, distinguishes absent ACLs from failed
+inspection, accepts owner-only/deny-only entries and refuses other allow entries,
+including inherited and inherit-only grants. Errors offer manual repair guidance,
+not database restore. Build hooks compile the exact target architecture and keep
+native build/test inputs outside the shipped ASAR. Unit and real temporary-ACL
+tests pass; deliberately bypassing ACL inspection, delaying admission with an
+await, and selecting the wrong helper architecture each failed their locks.
+Review corrected platform-specific repair guidance. Packaged admission acceptance
+passes missing-leaf startup, mode/ACL refusal with exact profile preservation,
+and successful relaunch after explicit repair of only its disposable fixtures.
+An isolated ASAR mutant with ACL inspection bypassed reached backend readiness
+instead of refusing and failed the native gate; the artifact was then restored.
+The complete packaged suite also passes OS-backed storage, attachments, artifact
+imports/exports, MCP and managed restore. Each landing remains gated by the full
+local verifier, without GitHub CI. Actual native-dialog visual review
+was attempted but the host was locked; it remains unverified, and only the owned
+temporary test process was stopped. This is a profile-boundary check, not a descendant
+audit or defense against a same-user/admin attacker; trusted parents remain
+required. No user's profile has been used as a fixture or repaired.
+
+The preceding checkpoint `fb0e10ea` integrates saved served-folder snapshots end to end:
 explicit intake, independent identity even for empty folders, derived read-only
 previews, model input, and owner-only Refresh. A folder owns one closed snapshot;
 displayed artifacts never duplicate its saved bodies. Refresh pins the reviewed
@@ -73,8 +96,8 @@ lost response left Retry rejecting its own already-synced receipt. Persisted
 retries now admit that exact request ID while drafts and unrelated newer copies
 remain fenced; the failure-first browser lock proves identical request replay
 and the unchanged saved snapshot, including its capture time. The final local
-verifier, UI review and packaged Electron smoke remain
-landing gates; no GitHub CI is used.
+verifier passed all five lanes and 428 browser tests, the final UI sweep passed
+135/135 cells, and packaged Electron smoke passed. No GitHub CI was used.
 
 The preceding checkpoint added the internal served-folder capture foundation:
 streamed 500-entry admission, the existing local whole-text budgets and omission
@@ -253,9 +276,9 @@ is claimed. A subsequent disposable-directory probe confirmed that an explicit
 macOS `everyone` list/search ACL remains after the current guard admits mode
 0700. The fixture stayed inside its own private temporary parent; no other
 account access or normal profile was tested. The owner has since approved the
-refuse-and-preserve policy in default 6 above; implementation and ACL acceptance
-remain open. The earlier mode-only pass is not ACL evidence or acceptance of the
-new policy.
+refuse-and-preserve policy in default 6 above; its implementation supersedes this
+historical mode-repair behavior at the current checkpoint. The earlier mode-only
+pass is not ACL evidence or acceptance of the new policy.
 
 The preceding checkpoint `4802b9fa` fixes a defect observed while reviewing native recovery:
 editing a document changed its body and Edited time, but left its index preview

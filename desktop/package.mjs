@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { packager } from '@electron/packager'
 import { generateDesktopIcons, verifyPackagedDesktopIcon } from './icons.mjs'
 import packagerConfig from './packager.config.mjs'
+import { buildDesktopProfileHelper } from './profileHelperBuild.mjs'
 
 const require = createRequire(import.meta.url)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -36,6 +37,7 @@ export async function packageDesktop({
   targetArch = process.env.ELECTRON_INSTALL_ARCH || process.env.npm_config_arch || process.arch,
   releaseOptions,
 } = {}) {
+  const profileHelperPath = buildDesktopProfileHelper({ targetPlatform, targetArch })
   await generateDesktopIcons()
   await run(process.execPath, [VITE_BIN, 'build'])
 
@@ -63,6 +65,7 @@ export async function packageDesktop({
     electronZipDir: dirname(zipPath),
     platform: targetPlatform,
     arch: targetArch,
+    ...(profileHelperPath ? { extraResource: [profileHelperPath] } : {}),
     ...(releaseOptions ?? {}),
   })
   if (!artifacts.length || artifacts.some((artifact) => !existsSync(artifact))) {

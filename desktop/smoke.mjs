@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
@@ -15,6 +15,7 @@ import { smokePackagedAttachments } from './attachmentSmoke.mjs'
 import { smokePackagedMcpCredentials } from './mcpCredentialSmoke.mjs'
 import { smokePackagedMcpSchema } from './mcpSchemaSmoke.mjs'
 import { smokePackagedRestore } from './restoreSmoke.mjs'
+import { smokePackagedProfileAdmission } from './profileAdmissionSmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
@@ -24,7 +25,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const TIMEOUT_MS = 30_000
 const OUTPUT_LIMIT = 16_384
 const USER_DATA_SENTINEL = '.user-data-permissions-smoke'
-const USER_DATA_SENTINEL_BYTES = Buffer.from('preserve this user-data file across permission repair\0\x01')
+const USER_DATA_SENTINEL_BYTES = Buffer.from('preserve this user-data file across private startup\0\x01')
 
 function appendTail(current, chunk) {
   return `${current}${chunk}`.slice(-OUTPUT_LIMIT)
@@ -135,18 +136,6 @@ async function closePackagedDesktop(run) {
   await stop(run.child)
 }
 
-async function makeUserDataFixturePermissive(userDataPath, { createSentinel = false } = {}) {
-  if (process.platform === 'win32') return
-  const sentinelPath = join(userDataPath, USER_DATA_SENTINEL)
-  if (createSentinel) await writeFile(sentinelPath, USER_DATA_SENTINEL_BYTES, { mode: 0o600, flag: 'wx' })
-  await chmod(userDataPath, 0o755)
-  const mode = (await stat(userDataPath)).mode & 0o777
-  if (mode !== 0o755) throw new Error(`The smoke profile could not be prepared with permissive mode ${mode.toString(8)}.`)
-  if (!USER_DATA_SENTINEL_BYTES.equals(await readFile(sentinelPath))) {
-    throw new Error('The user-data permission smoke sentinel changed before startup.')
-  }
-}
-
 async function assertPrivateUserDataFixture(userDataPath, phase) {
   if (process.platform === 'win32') return
   const [directoryStat, sentinel] = await Promise.all([
@@ -154,7 +143,7 @@ async function assertPrivateUserDataFixture(userDataPath, phase) {
     readFile(join(userDataPath, USER_DATA_SENTINEL)),
   ])
   if ((directoryStat.mode & 0o777) !== 0o700) {
-    throw new Error(`Packaged desktop did not repair the user-data directory to mode 0700 after ${phase}.`)
+    throw new Error(`Packaged desktop did not preserve the private user-data directory after ${phase}.`)
   }
   if (!USER_DATA_SENTINEL_BYTES.equals(sentinel)) {
     throw new Error(`Packaged desktop changed the user-data sentinel during ${phase}.`)
@@ -163,12 +152,14 @@ async function assertPrivateUserDataFixture(userDataPath, phase) {
 
 export async function smokePackagedDesktop({ executable = packagedExecutable() } = {}) {
   if (!existsSync(executable)) throw new Error(`Packaged desktop executable is missing: ${executable}`)
+  await smokePackagedProfileAdmission({ executable })
   const userDataPath = await mkdtemp(join(tmpdir(), 'agent-commons-desktop-smoke-'))
   const modelOrigin = loopbackOrigin(await findAvailableLoopbackPort())
   const modelServer = startModelServer(Number(new URL(modelOrigin).port), '127.0.0.1')
   let run
   try {
-    await makeUserDataFixturePermissive(userDataPath, { createSentinel: true })
+    await writeFile(join(userDataPath, USER_DATA_SENTINEL), USER_DATA_SENTINEL_BYTES, { mode: 0o600, flag: 'wx' })
+    await assertPrivateUserDataFixture(userDataPath, 'fixture creation')
     await new Promise((resolve, reject) => {
       if (modelServer.listening) return resolve()
       modelServer.once('listening', resolve)
@@ -407,7 +398,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
           retiredOrigin.once('error', reject)
           retiredOrigin.listen(Number(new URL(firstOrigin).port), '127.0.0.1', resolve)
         })
-        await makeUserDataFixturePermissive(userDataPath)
+        await assertPrivateUserDataFixture(userDataPath, 'before relaunch')
         run = await launchPackagedDesktop(executable, userDataPath)
       } finally {
         await new Promise((resolve) => retiredOrigin.close(resolve))

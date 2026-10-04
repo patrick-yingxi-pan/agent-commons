@@ -54,18 +54,24 @@ export function ignoreFromPackage(path) {
   if (
     normalized === 'desktop/assets' ||
     normalized.startsWith('desktop/assets/') ||
+    normalized === 'desktop/native' ||
+    normalized.startsWith('desktop/native/') ||
+    normalized === 'desktop/bin' ||
+    normalized.startsWith('desktop/bin/') ||
     normalized === 'desktop/entitlements.mac.plist' ||
     [
       'desktop/dev.mjs',
       'desktop/icons.mjs',
       'desktop/package.mjs',
       'desktop/packager.config.mjs',
+      'desktop/profileHelperBuild.mjs',
       'desktop/release-plan.mjs',
       'desktop/release-publish.mjs',
       'desktop/release-set.mjs',
       'desktop/release.mjs',
       'desktop/smoke.mjs',
       'desktop/smokePaths.mjs',
+      'desktop/profileAdmissionSmoke.mjs',
       'desktop/mcpCredentialSmoke.mjs',
       'desktop/mcpSchemaSmoke.mjs',
       'desktop/attachmentSmoke.mjs',

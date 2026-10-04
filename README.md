@@ -117,6 +117,10 @@ three times by default with exponential backoff; operators can tune
 
 Requires **Node 26+**.
 
+macOS desktop development and packaging also require Apple's command-line tools
+(`/usr/bin/clang`) to build the small, bundled read-only profile ACL inspector.
+End users do not need a compiler.
+
 ```bash
 npm install
 npm run dev        # UI 127.0.0.1:5173 + API 127.0.0.1:8787 + mock model :8788
@@ -173,7 +177,10 @@ boots use explicit profiles:
   separately under OS protection (macOS Keychain), so sign-in, remembered
   accounts, and personal MCP tokens survive a full relaunch within their existing
   expiry/revocation rules. Secure storage must unlock before the backend starts;
-  an unreadable root is never silently replaced. Portable backups exclude this
+  an unreadable root is never silently replaced. Unsafe profile permissions also
+  stop startup before the instance lock, authentication or backend opens. Existing
+  permissions are not silently repaired; see [profile repair](#profile-permission-refusal).
+  Portable backups exclude this
   device secret, so moving a backup to another device requires fresh sign-in and
   newly issued personal tokens. Upgrading an older build creates its first
   persistent root and invalidates credentials issued by that build's temporary
@@ -292,11 +299,12 @@ into the same attachment workflow. Native folder attachment intentionally lists 
 top-level regular files and stops after 500 top-level items; large or excessive selections stay in place with a clear
 limit message rather than silently truncating or widening filesystem access.
 
-Cloud and mapped-runner text files attach as saved whole-file copies (64 KiB
-each). Opening or sending a conversation uses that copy without rereading its
-source. Owners can **Refresh saved copy** in Files; failed Refresh preserves
-the saved text and offers Retry or **Use saved state**. Remote folder snapshots
-and rich remote document/image input remain separate unfinished work.
+Cloud and mapped-runner text files and bounded top-level folders attach as saved
+copies (64 KiB/file, 128 KiB/folder, at most 24 readable files). Opening or sending
+a conversation uses the saved copy without rereading its source. Owners can
+explicitly Refresh; failure preserves saved text and offers Retry or **Use saved
+state**. Empty folders retain independent identity. Remembered local Folder/Git
+connections and rich remote document/image input remain unfinished work.
 
 For a provider you created, Models → provider → **Update connection** replaces
 only the URL, model, or key you enter. The server merges those write-only fields,
@@ -323,6 +331,28 @@ using an optional `PROVIDER_*` environment-variable reference: launch the server
 with the variable already set, then enter only that variable's name. In both
 modes a custom endpoint is probed before it is saved or replaced; endpoint URLs,
 credential references, and secret values never appear on the provider read shape.
+
+## Profile permission refusal
+
+If macOS startup cannot establish private access, it exits without opening the
+database or changing existing permissions. Quit all instances and preserve a
+backup before asking the folder owner or administrator to review the exact
+profile. The normal location is your account's `Library/Application Support/Agent
+Commons`; development uses `Agent Commons Development`, and an explicit
+`--user-data-dir` override selects a different profile. Do not modify the shared
+Application Support folder or another account's files.
+
+The profile must be a real directory owned by the current account, with mode
+0700 (owner read/write/search only). Inspect extended ACLs as well: grants to
+other users/groups, including inherited and inherit-only grants, are refused.
+Owner-only allows and deny-only rules need not be removed. Review and repair
+only the exact folder; do not apply recursive permission changes, erase ACLs
+indiscriminately, delete saved work or restore a database to fix access.
+If an organization manages its ACLs, ask its administrator rather than removing
+policy. Reopen after explicit repair. If access is already private, reinstall a
+complete app bundle or investigate unavailable ACL inspection with support.
+The guard assumes trusted parent directories and does not audit descendants,
+defend against the same user/administrator, or replace Windows ACL policy.
 
 ## Persistence and recovery
 
