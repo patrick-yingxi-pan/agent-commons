@@ -4123,6 +4123,17 @@ export function buildRouter(): Router {
     }
     return false
   }
+  // A social grant admits reading a conversation, not controlling its model.
+  // Check before body parsing or idempotent replay, on both turn mutations.
+  const denySessionTurnMutation = (req: IncomingMessage, res: ServerResponse, id: string): boolean => {
+    if (denyForeignSession(req, res, id)) return true
+    const session = store.getSession(id)
+    if (session && !store.sessionOwnedBy(session, store.identity(req.headers).tenant.id)) {
+      sendError(res, 'forbidden', 'Only the conversation owner may send messages or stop a reply.')
+      return true
+    }
+    return false
+  }
 
   // Opt-in cursor pagination (F3 PD14): `?limit=N[&cursor=C]` returns a `Page<Session>`;
   // without `limit`, the full array (the UI reads the array until it virtualizes, PD36).
@@ -4431,7 +4442,7 @@ export function buildRouter(): Router {
   // We relay the model's text deltas, then append the app-domain relation
   // proposals as `message.relations` before `message.end`.
   r.intrinsicPost('/sessions/:id/messages', 'the in-app session realizes conversation input intrinsically; a recursive send-message tool would create a second conversation inside the turn', async ({ req, res, params, body }) => {
-    if (denyForeignSession(req, res, params.id)) return
+    if (denySessionTurnMutation(req, res, params.id)) return
     // The caller's tenant — usage is metered + budget-gated per tenant (F2/PD9), so one
     // tenant's spend neither 429s nor shows up in another's gauge. Resolved once for the turn.
     const tenantId = store.identity(req.headers).tenant.id
@@ -4790,7 +4801,7 @@ export function buildRouter(): Router {
   // timeout) trips the turn's AbortController, so the `aborted` outcome metric now
   // means "a user chose to stop". The partial persists (see the send route's catch).
   r.intrinsicPost('/sessions/:id/turns/:turnId/cancel', 'live-turn cancellation is intrinsic host control for the in-app session', ({ req, res, params }) => {
-    if (denyForeignSession(req, res, params.id)) return
+    if (denySessionTurnMutation(req, res, params.id)) return
     const turn = turns.get(params.turnId)
     if (!turn || turn.sessionId !== params.id) {
       return sendError(res, 'not_found', `No live turn '${params.turnId}' on session '${params.id}'`)

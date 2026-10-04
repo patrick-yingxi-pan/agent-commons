@@ -13,10 +13,13 @@
  *  same slot, the same shape, opposite verbs. */
 import { CircleStop, RotateCcw } from 'lucide-react'
 import { InlineOperationStatus } from './InlineOperationStatus'
+import type { StopRequestState } from '../controller/conversationCore'
 
 export function TurnControls({
   mode,
   reason,
+  stopRequest,
+  canStop = false,
   onStop,
   onRetry,
 }: {
@@ -25,16 +28,23 @@ export function TurnControls({
    *  (e.g. a Session provider's "Your session isn't answering — start its drain
    *  loop and retry") — actionable copy over the generic line. */
   reason?: string | null
+  stopRequest?: StopRequestState | null
+  canStop?: boolean
   onStop: () => void
   onRetry: () => void
 }) {
   const streaming = mode === 'streaming'
+  const stopping = streaming ? stopRequest?.phase : undefined
+  const message = stopping === 'pending' ? 'Stopping…'
+    : stopping === 'requested' ? 'Stop requested. Waiting for the reply to finish…'
+      : stopping === 'failed' ? 'Couldn’t confirm Stop. The reply may still be running.'
+        : streaming ? 'Claude is writing…' : (reason ?? 'Generation was interrupted.')
   return (
     <InlineOperationStatus
-      tone={streaming ? 'status' : 'alert'}
-      message={streaming ? 'Claude is writing…' : (reason ?? 'Generation was interrupted.')}
-      action={{
-        label: streaming ? 'Stop' : 'Retry',
+      tone={streaming && stopping !== 'failed' ? 'status' : 'alert'}
+      message={message}
+      action={(!canStop && streaming) || stopping === 'pending' || stopping === 'requested' ? undefined : {
+        label: streaming ? (stopping === 'failed' ? 'Retry stop' : 'Stop') : 'Retry',
         icon: streaming ? <CircleStop size={12} /> : <RotateCcw size={12} />,
         onClick: streaming ? onStop : onRetry,
       }}

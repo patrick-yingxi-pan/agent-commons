@@ -21,7 +21,7 @@ import { MessageRow, TypingRow } from './Message'
 import { Spinner } from './Spinner'
 import { TurnControls } from './TurnControls'
 import { ContextMutationNotice } from './ContextMutationNotice'
-import { EscalationPrompt } from './EscalationPrompt'
+import { DeferredEscalationPrompt } from './DeferredEscalationPrompt'
 import { DEFAULT_PROVIDER_ID, estimateTokens } from '../../contract/index.ts'
 import { useAgents, useMe, useProviders, useSessions } from '../api'
 import { MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
@@ -30,7 +30,7 @@ import { messageWindow } from '../lib/messageWindow'
 import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
 import type { AddedContext, PanelFocus, UsageModelRef } from '../types'
-import { isContextMutationHeld, type ContextMutationStatus } from '../controller/conversationCore'
+import { isContextMutationHeld, type ContextMutationStatus, type StopRequestState } from '../controller/conversationCore'
 import {
   isSessionCompactionHeld,
   useSessionCompactionStatus,
@@ -51,6 +51,9 @@ export function ConversationView({
   busy,
   streaming,
   sendFailure,
+  stopRequest,
+  canControlTurn,
+  turnControlPending = false,
   canRetry = false,
   contextMutation,
   pendingApproval,
@@ -87,6 +90,9 @@ export function ConversationView({
   /** A turn is streaming into THIS view right now (the stop affordance). */
   streaming: boolean
   sendFailure: string | null
+  stopRequest?: StopRequestState | null
+  canControlTurn: boolean
+  turnControlPending?: boolean
   /** This client retained the failed logical send (including its key). A
    *  server-owned orphan after reload is derived from the final user row. */
   canRetry?: boolean
@@ -249,6 +255,7 @@ export function ConversationView({
   // An orphaned turn: the thread's last word is the user's with nothing
   // generating — offer the one-logical-turn retry (multi-account §6.5).
   const interrupted =
+    canControlTurn &&
     !busy &&
     !typing &&
     (canRetry || (!draft && live.messages.length > 0 && live.messages[live.messages.length - 1].role === 'user'))
@@ -297,7 +304,7 @@ export function ConversationView({
             {/* Claude asks before it escalates: this consent prompt gates
                 attaching a workspace / repo / project (the one apply funnel). */}
             {pendingApproval && atLatest && (
-              <EscalationPrompt
+              <DeferredEscalationPrompt
                 key={pendingApproval.kind}
                 kind={pendingApproval.kind}
                 rootChoices={pendingApproval.kind === 'workspace' ? pendingApproval.rootChoices : undefined}
@@ -345,7 +352,7 @@ export function ConversationView({
 
       {/* Live-turn affordances (multi-account §6.5): the deliberate stop while a
           turn streams; the in-place retry on an orphaned turn. */}
-      {streaming && <TurnControls mode="streaming" onStop={onStop} onRetry={onRetry} />}
+      {streaming && <TurnControls mode="streaming" stopRequest={stopRequest} canStop={canControlTurn} onStop={onStop} onRetry={onRetry} />}
       {interrupted && <TurnControls mode="interrupted" reason={sendFailure} onStop={onStop} onRetry={onRetry} />}
       <ContextMutationNotice state={contextMutation} onRetry={onRetryContext} />
 
@@ -362,9 +369,11 @@ export function ConversationView({
         connectors={live.connectors}
         attachments={live.attachments}
         focus={focus}
-        disabled={busy || compactionHeld || execution.blocked || isContextMutationHeld(contextMutation)}
+        disabled={!canControlTurn || busy || compactionHeld || execution.blocked || isContextMutationHeld(contextMutation)}
         disabledLabel={
-          contextMutation.busy
+          !canControlTurn
+            ? turnControlPending ? 'Loading conversation…' : 'Only the conversation owner can send messages.'
+            : contextMutation.busy
             ? 'Updating context…'
             : contextMutation.error
               ? 'Retry the context update before sending.'

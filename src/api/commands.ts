@@ -216,8 +216,8 @@ export async function reattachTurn(
 
 /** Deliberately stop a live turn (multi-account §5.2 — the explicit cancel, as
  *  opposed to merely detaching a view). The partial persists server-side. */
-export async function cancelTurn(sessionId: string, turnId: string): Promise<void> {
-  await apiPost(paths.turnCancel(sessionId, turnId))
+export async function cancelTurn(sessionId: string, turnId: string, signal?: AbortSignal): Promise<void> {
+  await apiPost(paths.turnCancel(sessionId, turnId), undefined, { signal })
 }
 
 // ── Sessions (the conversation, server-owned) ───────────────────────────────

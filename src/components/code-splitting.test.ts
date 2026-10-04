@@ -35,6 +35,33 @@ test('tool activity UI loads only for transcripts that contain tool activity', (
     'a display failure cannot claim that historical or already-running activity was never approved')
 })
 
+test('escalation consent stays behind an honest local lazy-load recovery face', () => {
+  const conversation = stripComments(read(join(ROOT, 'src', 'components', 'ConversationView.tsx')))
+  assert.doesNotMatch(conversation, /import\s+\{\s*EscalationPrompt\s*\}\s+from/,
+    'the low-frequency consent UI must stay out of the initial conversation chunk')
+  assert.match(conversation, /<DeferredEscalationPrompt\b/,
+    'pending consent is rendered through the guarded display door')
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredEscalationPrompt.tsx')))
+  assert.match(deferred, /lazy\(\(\)\s*=>\s*import\('\.\/EscalationPrompt\.tsx'\)/,
+    'the escalation prompt owns one dynamic import boundary')
+  assert.match(deferred, /ComponentProps<typeof EscalationPrompt>/,
+    'the wrapper reuses the prompt props without redeclaring its contract')
+  assert.match(deferred, /getDerivedStateFromError/,
+    'a rejected consent chunk remains local to its transcript row')
+  assert.match(deferred, /data-escalation-loading[\s\S]*Loading approval…/,
+    'the loading face is announced with stable copy and a browser seam')
+  assert.match(deferred, /data-escalation-load-error[\s\S]*tone="alert"[\s\S]*Copy any unsent text before reloading/i,
+    'the announced failure face warns that reload can discard composer text')
+  assert.match(deferred, /window\.location\.reload\(\)/,
+    'failed module URLs recover through explicit document reload')
+  assert.match(deferred, /Reload to review/,
+    'the reload action names its purpose')
+  assert.doesNotMatch(deferred, /approval was not applied/i,
+    'a display failure cannot claim what happened to the decision elsewhere')
+  assert.doesNotMatch(deferred, /onApprove\s*\(/,
+    'the failed display never applies the pending approval')
+})
+
 test('model preference saving is ready before a picker accepts intent', () => {
   const readDoor = stripComments(read(join(ROOT, 'src', 'api', 'modelPreferences.ts')))
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'modelPreferences.ts')))

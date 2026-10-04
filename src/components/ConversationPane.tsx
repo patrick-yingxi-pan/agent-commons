@@ -49,6 +49,7 @@ export function ConversationPane({
   const row =
     (useSessions().data ?? []).find((s) => s.id === sessionId) ?? peek<Session>(keys.session(sessionId))
   const isDraft = sessionId === DRAFT_ID
+  const canControlTurn = isDraft || row?.own === true
   const providersQ = useProviders()
   const providers = providersQ.data ?? []
   const { preferences } = useModelPreferences()
@@ -188,6 +189,9 @@ export function ConversationPane({
         busy={conv.busy}
         streaming={!!(conv.busy && conv.liveTurn)}
         sendFailure={conv.sendFailure}
+        stopRequest={conv.stopRequest}
+        canControlTurn={canControlTurn}
+        turnControlPending={!isDraft && !row}
         canRetry={conv.retryableSend !== null}
         contextMutation={conv.contextMutation}
         pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
@@ -200,7 +204,7 @@ export function ConversationPane({
         onRetryContext={() => retryContextMutation(sessionId)}
         canCompact={!!row && row.own !== false}
         modelPick={modelPick}
-        onSelectModel={isDraft || row ? selectModel : undefined}
+        onSelectModel={canControlTurn ? selectModel : undefined}
         usageModel={draftModelRef}
         focus={conv.focus}
         // A DRAFT has no server row to bind against — its attach AND removes

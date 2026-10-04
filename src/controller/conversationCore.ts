@@ -78,6 +78,11 @@ export interface ContextMutationStatus {
  * A failed queued removal is still intent, not permission to send old context. */
 export const isContextMutationHeld = (status: ContextMutationStatus): boolean => status.busy || status.error !== null
 
+export interface StopRequestState {
+  turnId: string
+  phase: 'pending' | 'requested' | 'failed'
+}
+
 /** One session's conversation state — everything a pane needs to render a
  *  thread and its composer affordances. */
 export interface ConversationState {
@@ -89,6 +94,8 @@ export interface ConversationState {
   busy: boolean
   /** The server-owned turn currently streaming into this client (stop handle). */
   liveTurn: { sessionId: string; turnId: string } | null
+  /** Stop acknowledgement is distinct from the reply's terminal stream. */
+  stopRequest: StopRequestState | null
   /** The server's refusal copy for the last failed send (the pre-persist gates). */
   sendFailure: string | null
   /** Present only when this client saw a send fail and can retransmit the same
@@ -140,7 +147,7 @@ export interface ConversationTransport {
    *  controller. Only the API's typed stale-turn response may trigger the one
    *  authoritative read; ordinary 404s remain interruptions. */
   isStaleReattachError?: (error: unknown) => boolean
-  cancelTurn: (sessionId: string, turnId: string) => Promise<void>
+  cancelTurn: (sessionId: string, turnId: string, signal?: AbortSignal) => Promise<void>
   /** A turn settled (message.end) — the wiring refreshes the usage gauge. */
   onTurnSettled?: (sessionId: string) => void
 }
@@ -150,6 +157,8 @@ export type ConversationStore = ReturnType<typeof createConversationStore>
 export interface ConversationStoreOptions {
   /** Bound the one authoritative read after a stale live-turn handle. */
   reattachRecoveryTimeoutMs?: number
+  /** Bound one deliberate Stop request; uncertainty requires explicit retry. */
+  stopRequestTimeoutMs?: number
 }
 
 export function createConversationStore(
@@ -161,6 +170,10 @@ export function createConversationStore(
   if (!Number.isSafeInteger(reattachRecoveryTimeoutMs) || reattachRecoveryTimeoutMs < 1 || reattachRecoveryTimeoutMs > 30_000) {
     throw new RangeError('Recovery timeout must be an integer between 1 and 30000 milliseconds.')
   }
+  const stopRequestTimeoutMs = options.stopRequestTimeoutMs ?? 30_000
+  if (!Number.isSafeInteger(stopRequestTimeoutMs) || stopRequestTimeoutMs < 1 || stopRequestTimeoutMs > 30_000) {
+    throw new RangeError('Stop timeout must be an integer between 1 and 30000 milliseconds.')
+  }
   const states = new Map<string, ConversationState>()
   const listeners = new Map<string, Set<() => void>>()
   const epochs = new Map<string, number>()
@@ -168,6 +181,8 @@ export function createConversationStore(
    *  (the server's one-live-turn-per-session slot), never behind ANOTHER
    *  session's turn. */
   const chains = new Map<string, Promise<void>>()
+  const stopAttempts = new Map<string, { result: Promise<void>; retire: () => void }>()
+  const retireStop = (id: string): void => { stopAttempts.get(id)?.retire() }
 
   const blank = (): ConversationState => ({
     live: empty(),
@@ -175,6 +190,7 @@ export function createConversationStore(
     typing: false,
     busy: false,
     liveTurn: null,
+    stopRequest: null,
     sendFailure: null,
     retryableSend: null,
     contextMutation: { busy: false, error: null, retryable: false },
@@ -232,6 +248,7 @@ export function createConversationStore(
   const epoch = (id: string): number => epochs.get(id) ?? 0
   const bump = (id: string): void => {
     epochs.set(id, epoch(id) + 1)
+    retireStop(id)
   }
 
   /** Select-time reset: a fresh entry seeded with `live`; every in-flight
@@ -406,6 +423,10 @@ export function createConversationStore(
     return {
       onStart: (_mid, message, turnId) => {
         if (stale()) return
+        if (turnId && get(id).stopRequest?.turnId !== turnId) {
+          retireStop(id)
+          patch(id, { stopRequest: null })
+        }
         update(id, (s) => ({
           ...s,
           typing: false,
@@ -453,13 +474,15 @@ export function createConversationStore(
    *  error, or drop; the record is the authority). */
   const settle = (id: string, since: number, failure?: string | null, retryableSend?: RetryableSend): void => {
     if (epoch(id) !== since) return
+    retireStop(id)
     update(id, (s) =>
-      s.typing || s.busy || s.liveTurn || s.sendFailure || s.retryableSend || failure !== undefined
+      s.typing || s.busy || s.liveTurn || s.stopRequest || s.sendFailure || s.retryableSend || failure !== undefined
         ? {
             ...s,
             typing: false,
             busy: false,
             liveTurn: null,
+            stopRequest: null,
             sendFailure: failure === undefined ? null : failure,
             retryableSend: failure === undefined ? null : (retryableSend ?? null),
           }
@@ -579,11 +602,13 @@ export function createConversationStore(
       userMessageId: userMessage.id,
       priorMessageId: state.live.messages[userIndex - 1]?.id ?? null,
     }
+    retireStop(id)
     update(id, (current) => ({
       ...current,
       typing: true,
       busy: true,
       liveTurn: null,
+      stopRequest: null,
       sendFailure: null,
       retryableSend: null,
       pendingEscalation: null,
@@ -606,7 +631,11 @@ export function createConversationStore(
   const reattach = (id: string, turnId: string): Promise<void> => {
     const since = epoch(id)
     const capturedLogical = logicalForLastUser(id)
-    patch(id, { typing: true, busy: true, liveTurn: { sessionId: id, turnId } })
+    if (get(id).liveTurn?.turnId !== turnId) retireStop(id)
+    patch(id, {
+      typing: true, busy: true, liveTurn: { sessionId: id, turnId },
+      stopRequest: get(id).stopRequest?.turnId === turnId ? get(id).stopRequest : null,
+    })
     const staleLiveTurn = (error: unknown): boolean => transport.isStaleReattachError?.(error) === true
     const logicalOnFailure = (): RetryableSend | undefined =>
       capturedLogical ? { ...capturedLogical, turnId } : undefined
@@ -667,11 +696,48 @@ export function createConversationStore(
     )
   }
 
-  /** The deliberate stop: cancel the SERVER-owned turn — the stream's own end
-   *  (not this call) clears the flags; the button doesn't fake the stop. */
-  const stop = (id: string): void => {
-    const t = get(id).liveTurn
-    if (t) void transport.cancelTurn(t.sessionId, t.turnId).catch(() => {})
+  /** Acknowledge one bounded Stop intent without inventing reply completion.
+   * All panes share its lifetime; failures require a deliberate same-turn retry. */
+  const stop = (id: string): Promise<void> => {
+    const state = get(id)
+    const turn = state.liveTurn
+    if (!turn || state.stopRequest?.phase === 'requested') return Promise.resolve()
+    const pending = stopAttempts.get(id)
+    if (pending) return pending.result
+    const since = epoch(id)
+    const controller = new AbortController()
+    let resolve!: () => void
+    const result = new Promise<void>((done) => { resolve = done })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const cleanup = () => {
+      if (timer !== undefined) clearTimeout(timer)
+      stopAttempts.delete(id)
+      resolve()
+    }
+    const claim = {
+      result,
+      retire: () => { cleanup(); controller.abort() },
+    }
+    const current = () => stopAttempts.get(id) === claim && epoch(id) === since && states.get(id)?.liveTurn?.turnId === turn.turnId
+    const finish = (phase: 'requested' | 'failed') => {
+      if (!current()) return
+      cleanup()
+      patch(id, { stopRequest: { turnId: turn.turnId, phase } })
+    }
+    stopAttempts.set(id, claim)
+    timer = setTimeout(() => { finish('failed'); controller.abort() }, stopRequestTimeoutMs)
+    patch(id, { stopRequest: { turnId: turn.turnId, phase: 'pending' } })
+    // Publishing may synchronously dispose the account or finish the turn.
+    if (!current()) return result
+    try {
+      void transport.cancelTurn(turn.sessionId, turn.turnId, controller.signal).then(
+        () => finish('requested'),
+        () => finish('failed'),
+      )
+    } catch {
+      finish('failed')
+    }
+    return result
   }
 
   return {

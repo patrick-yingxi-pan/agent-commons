@@ -20,7 +20,42 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint addresses a demonstrated core authoring defect: after a
+The current checkpoint repairs the conversation Stop workflow and its authority
+wall. Failed cancellation previously disappeared into an empty catch. Shared
+per-conversation state now distinguishes pending, acknowledged and failed Stop
+requests, bounds each attempt to 30 seconds, and permits only deliberate
+same-turn retry. Stream completion remains authoritative; account disposal and
+turn replacement abort outstanding requests and fence late responses. The
+failure-first controller suite exposed the missing lifecycle before repair.
+The related route audit reproduced view/comment/propose grantees both appending
+prompts and cancelling the owner's live turn. Send and cancel now share an
+owner check before request parsing or replay; reading and stream attachment
+remain grant-aware. The UI derives control from the server's ownership face,
+keeps shared readers read-only, and offers accessible Stop recovery to owners.
+Complete verification, five-viewport recovery and owner/reader/foreign review
+remain landing gates. No new collaboration permission policy is introduced.
+The corrected browser lock was watched fail when the Stop-state prop was
+removed, then restored. Review also identified a separate existing freshness
+gap: an already-open shared reader reconciles completed turns, but the live
+attachment callback currently runs only on opening the conversation. The
+permission regression verifies opening/reloading onto an active turn; automatic
+discovery of a newly started turn remains follow-up work, not claimed here.
+The production build caught the new cold graph at 800,686 bytes, above its
+unchanged 800,000-byte cap. The existing low-frequency approval display is now
+deferred with a local announced loading/failure boundary, preserving the
+conversation and warning about unsent text before explicit Reload. Display
+mounting and failure never invoke approval. Its dedicated browser checks cover
+loading and failure at all five viewports, plus loaded Deny/Grant-access focus
+and explicit reload recovery; budget and consent policy are unchanged.
+The focused eight browser journeys passed; intentional removal of the loading
+status and reload warning then failed both approval tests before exact source
+restoration. The final isolated sweep covered 135/135 cells with no skips or
+violations. Packaged unsigned Electron smoke passed. In the signed-in preview,
+an explicit Stop preserved its partial through reload; Ada remains active with
+all six demo accounts stacked. Complete repository verification remains the
+final landing gate.
+
+The preceding checkpoint `c7dbe4f2` addresses a demonstrated core authoring defect: after a
 failed save, navigating away from a Document, Sheet or Slides page erased its
 visible draft while the shell still promised recovery. All three failure-first
 browser walks reproduced the missing editor. One account-scoped memory store now
