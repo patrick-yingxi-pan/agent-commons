@@ -292,6 +292,12 @@ into the same attachment workflow. Native folder attachment intentionally lists 
 top-level regular files and stops after 500 top-level items; large or excessive selections stay in place with a clear
 limit message rather than silently truncating or widening filesystem access.
 
+Cloud and mapped-runner text files attach as saved whole-file copies (64 KiB
+each). Opening or sending a conversation uses that copy without rereading its
+source. Owners can **Refresh saved copy** in Files; failed Refresh preserves
+the saved text and offers Retry or **Use saved state**. Remote folder snapshots
+and rich remote document/image input remain separate unfinished work.
+
 For a provider you created, Models → provider → **Update connection** replaces
 only the URL, model, or key you enter. The server merges those write-only fields,
 verifies the effective Messages connection before committing it, and leaves the

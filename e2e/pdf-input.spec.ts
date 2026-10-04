@@ -41,9 +41,10 @@ test('a real PDF is extracted locally, delivered as text, restored and detached'
       if (/pdf\.worker/.test(request.url())) parserRequests.push(request.url())
     })
     const conclusion = 'Final page conclusion · café 世界 😀'
-    await selectFiles(page, [{ name: 'research.pdf', mimeType: 'application/pdf', buffer: pdfFixture({ pages: [marker, null, conclusion], compress: true, unicode: true }) }])
+    const picker = await selectFiles(page, [{ name: 'research.pdf', mimeType: 'application/pdf', buffer: pdfFixture({ pages: [marker, null, conclusion], compress: true, unicode: true }) }])
+    await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute('data-attachment-input-ready', '1', { timeout: ms(20_000) })
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page.locator('[data-document-import="ready"]')).toBeVisible({ timeout: ms(20_000) })
-    await page.keyboard.press('Escape')
     const preview = page.locator('[data-attachment-preview]')
     await expect(preview).toContainText('2 of 3 pages')
     await expect(preview).toContainText('No OCR')
@@ -90,7 +91,7 @@ test('unreadable PDFs have explicit outcomes and readable responsive previews', 
   const created = await page.request.post('/api/v1/sessions', { data: { firstMessage: 'PDF outcomes fixture' } })
   expect(created.ok()).toBe(true)
   await page.goto(`/s/${(await created.json()).id}`)
-  await selectFiles(page, [
+  const picker = await selectFiles(page, [
     { name: 'empty.pdf', mimeType: 'application/pdf', buffer: pdfFixture({ pages: [null] }) },
     { name: 'invalid.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-broken') },
     { name: 'long.pdf', mimeType: 'application/pdf', buffer: pdfFixture({ pages: Array(101).fill('page') }) },
@@ -99,7 +100,8 @@ test('unreadable PDFs have explicit outcomes and readable responsive previews', 
     { name: 'text-limit.pdf', mimeType: 'application/pdf', buffer: pdfFixture({ pages: Array(34).fill(Array(40).fill('x'.repeat(50)).join('\n')), compress: true }) },
   ])
   await expect(page.locator('[data-attachment-input-disclosure]')).toContainText('6 not sent', { timeout: ms(20_000) })
-  await page.keyboard.press('Escape')
+  await expect(picker).toContainText('6 added')
+  await picker.getByRole('button', { name: 'Done', exact: true }).click()
   const preview = page.locator('[data-attachment-preview]')
   for (const [name, status] of [['empty.pdf', 'no-text'], ['invalid.pdf', 'invalid'], ['long.pdf', 'page-limit'], ['large.pdf', 'file-too-large'], ['protected.pdf', 'protected'], ['text-limit.pdf', 'text-limit']]) {
     await page.getByRole('button', { name, exact: true }).click()
@@ -143,8 +145,9 @@ test('closing a pending PDF import cancels attachment and releases the next inta
     await expect(picker).toHaveCount(0)
     unblock()
     const next = await selectFiles(page, [{ name: 'next.pdf', mimeType: 'application/pdf', buffer: pdfFixture({ pages: ['next intake still works'] }) }])
+    await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute('data-attachment-input-ready', '1', { timeout: ms(20_000) })
+    await next.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page.locator('[data-attachment-preview]')).toContainText('next intake still works')
-    await page.keyboard.press('Escape')
     await expect(next).toHaveCount(0)
     const saved = await (await page.request.get(`/api/v1/sessions/${session.id}`)).json()
     expect(saved.workspace.attachments.map((attachment: { label: string }) => attachment.label)).toEqual(['next.pdf'])

@@ -41,6 +41,7 @@ import type {
   SystemPromptEntry,
   WorkItemComment,
 } from '../../contract/index.ts'
+import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseStructuredArtifactBody } from '../../contract/artifactAuthoring.ts'
@@ -719,6 +720,18 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       return Object.keys(fields).length === 2 && typeof fields.name === 'string' && typeof fields.source === 'string'
     })
   }
+  const servedSnapshotsValid = (workspaces: unknown): boolean => {
+    if (!Array.isArray(workspaces)) return false
+    for (const entry of workspaces) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue
+      const workspace = entry[1]
+      if (!record(workspace) || !Array.isArray(workspace.attachments)) continue
+      for (const attachment of workspace.attachments) {
+        if (record(attachment) && Object.hasOwn(attachment, 'textSnapshot') && !isAttachmentInput(attachment)) return false
+      }
+    }
+    return true
+  }
   return Boolean(
     state
       && (state.initialWorld === undefined || state.initialWorld === 'demo' || state.initialWorld === 'clean')
@@ -726,6 +739,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       && mcpActivitiesValid(state.sessions)
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)
+      && servedSnapshotsValid(state.workspaces)
       && Array.isArray(state.schedules)
       && state.schedules.every((task) => record(task) && Array.isArray(task.runs) && task.runs.every((run) => {
         if (!record(run)) return false

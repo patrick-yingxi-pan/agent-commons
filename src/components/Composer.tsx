@@ -429,6 +429,7 @@ export function Composer({
           <div className="flex items-center gap-1">
             <PermissionModeControl />
             {contextWritable && <AddContextButton
+              sessionId={sessionId}
               onAttach={onAddContext}
               connectors={connectors}
               repos={repos}

@@ -17,6 +17,8 @@ async function readyFileChooser(page: Page, picker: Locator, name: string, body:
   const choosing = page.waitForEvent('filechooser')
   await picker.getByRole('button', { name: /Add files from this computer/ }).click()
   await (await choosing).setFiles([{ name, mimeType: 'text/plain', buffer: Buffer.from(body) }])
+  await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute('data-attachment-input-ready', '1', { timeout: ms(20_000) })
+  await picker.getByRole('button', { name: 'Done', exact: true }).click()
 }
 
 test('local picker loads lazily, fences a held load on close, then reopens the real chooser', async ({ page }) => {
@@ -90,7 +92,6 @@ test('a failed local filesystem module discloses reload consequences and recover
   expect(moduleRequests).toBe(2)
   await readyFileChooser(page, recovered, 'retry-ready.txt', 'retry recovered local picker')
   await expect(page.locator('[data-attachment-preview]')).toContainText('retry recovered local picker')
-  await page.keyboard.press('Escape')
 })
 
 test('local intake waits for its drop-zone module and explicit reload recovers a failed admission', async ({ page }) => {
@@ -121,5 +122,4 @@ test('local intake waits for its drop-zone module and explicit reload recovers a
   expect(moduleRequests).toBe(2)
   await readyFileChooser(page, recovered, 'drop-zone-ready.txt', 'drop-zone reload recovered local picker')
   await expect(page.locator('[data-attachment-preview]')).toContainText('drop-zone reload recovered local picker')
-  await page.keyboard.press('Escape')
 })

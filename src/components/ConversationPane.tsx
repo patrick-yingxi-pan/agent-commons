@@ -22,7 +22,7 @@ import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { enqueueSessionMetadataMutation } from '../controller/sessionMetadataMutations'
-import { retryContextMutation } from '../controller/contextMutations'
+import { dismissContextMutation, retryContextMutation } from '../controller/contextMutations'
 import { useSessionEscalation } from '../controller/useSessionEscalation'
 import { useRelations } from '../controller/useRelations'
 import { draft } from '../controller/draftController'
@@ -202,6 +202,7 @@ export function ConversationPane({
         onStop={() => conversations.stop(sessionId)}
         onRetry={retry}
         onRetryContext={() => retryContextMutation(sessionId)}
+        onDismissContext={() => dismissContextMutation(sessionId)}
         canCompact={!!row && row.own !== false}
         modelPick={modelPick}
         onSelectModel={canControlTurn ? selectModel : undefined}

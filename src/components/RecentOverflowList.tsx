@@ -31,7 +31,9 @@ export function useFlyout() {
 }
 
 /** A hover flyout panel, portaled to <body> so the popover's `overflow-hidden`
- *  can't clip it. Anchored to the right of the trigger (flips left near the edge),
+ *  can't clip it. Command menus retain menu semantics; ordinary intake buttons
+ *  use a named nonmodal dialog instead of pretending to be menuitems.
+ *  Anchored to the right of the trigger (flips left near the edge),
  *  height-capped to the viewport and scrollable when its content is taller. */
 export function FlyoutPanel({
   anchor,
@@ -39,12 +41,16 @@ export function FlyoutPanel({
   onEnter,
   onLeave,
   children,
+  role = 'menu',
+  label,
 }: {
   anchor: HTMLElement | null
   width?: number
   onEnter: () => void
   onLeave: () => void
   children: ReactNode
+  role?: 'menu' | 'dialog'
+  label?: string
 }) {
   const [pos, setPos] = useState<{ left: number; top: number; maxH: number } | null>(null)
 
@@ -66,7 +72,9 @@ export function FlyoutPanel({
   if (!pos) return null
   return createPortal(
     <div
-      role="menu"
+      role={role}
+      aria-label={label}
+      data-popover="flyout"
       onMouseEnter={onEnter}
       onMouseLeave={onLeave}
       // Keep the flyout open while focus is INSIDE it (a keyboard user who reached
@@ -126,7 +134,7 @@ export function RecentOverflowList({
             onMouseLeave={closeSoon}
             onFocus={openNow}
             onBlur={closeSoon}
-            aria-haspopup="menu"
+            aria-haspopup="dialog"
             aria-expanded={open}
             className="group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-ink-soft transition hover:bg-panel-2 hover:text-ink"
           >
@@ -138,7 +146,7 @@ export function RecentOverflowList({
             <ChevronRight size={15} className="shrink-0 text-ink-faint" />
           </button>
           {open && (
-            <FlyoutPanel anchor={moreRef.current} onEnter={openNow} onLeave={closeSoon}>
+            <FlyoutPanel anchor={moreRef.current} onEnter={openNow} onLeave={closeSoon} role="dialog" label={moreLabel}>
               {tail.map((r) => (
                 <div key={r.key}>{r.node}</div>
               ))}

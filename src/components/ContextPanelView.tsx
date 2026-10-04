@@ -17,11 +17,12 @@ import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { PaneChromeContext, type PaneChrome } from './paneChrome'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
-import { AttachmentPanel } from './AttachmentPanel'
+import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { useContextWritable } from '../controller/useContextWritable'
-import { retryContextMutation } from '../controller/contextMutations'
+import { dismissContextMutation, retryContextMutation } from '../controller/contextMutations'
+import { isContextMutationHeld } from '../controller/conversationCore'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { contextPaneId } from '../lib/mainSplit'
 import type { PaneContent } from '../lib/splitFrame'
@@ -72,13 +73,15 @@ export function ContextPanelView({
       case 'file':
       case 'photo':
         return (
-          <AttachmentPanel
+          <DeferredAttachmentPanel
             kind={panel.kind}
             items={live.attachments.filter((a) => a.kind === panel.kind)}
             allAttachments={inputAttachments}
             initialId={panel.id}
             onClose={noop}
             onRemove={writable ? removeAttachment : undefined}
+            refreshSessionId={writable ? sessionId : undefined}
+            refreshDisabled={isContextMutationHeld(contextMutation)}
           />
         )
       default:
@@ -108,6 +111,7 @@ export function ContextPanelView({
         <ContextMutationNotice
           state={contextMutation}
           onRetry={() => retryContextMutation(sessionId)}
+          onDismiss={() => dismissContextMutation(sessionId)}
           floating
         />
       </div>

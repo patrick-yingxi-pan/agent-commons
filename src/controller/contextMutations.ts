@@ -9,6 +9,7 @@ import {
   type ContextMutationOutcome,
 } from './contextMutationsCore'
 import { rememberPanelPreference } from './panelPreferences'
+import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
 
 const controller = createContextMutationController({
   snapshot: (sessionId) => {
@@ -18,7 +19,9 @@ const controller = createContextMutationController({
   mutate: updateSessionContextState,
   commit: (sessionId, before, planned, returned) => {
     const current = conversations.get(sessionId)
-    const live: Live = { ...current.live, ...returned.workspace }
+    const live: Live = planned.attachmentRefresh
+      ? mergeServedAttachmentRefresh(current.live, returned, planned.attachmentRefresh)
+      : { ...current.live, ...returned.workspace }
     conversations.setLive(sessionId, live)
 
     // The acknowledgement may arrive after the user deliberately picked a
@@ -49,4 +52,8 @@ export function enqueueContextMutation(
 
 export function retryContextMutation(sessionId: string): void {
   controller.retry(sessionId)
+}
+
+export function dismissContextMutation(sessionId: string): void {
+  controller.dismiss(sessionId)
 }

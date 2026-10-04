@@ -54,6 +54,9 @@ export interface Attachment {
   previewUrl?: string
   /** Readable local text may reach the selected model under attachmentInput's budget. */
   previewText?: string
+  /** Explicitly captured whole served-file text. Refresh is a user action;
+   * previewing and generation consume this saved copy without source I/O. */
+  textSnapshot?: import('./servedTextSnapshot.ts').ServedTextSnapshot
   /** Text-extraction provenance only, never raw document bytes or authority. */
   documentImport?: import('./documentImport.mjs').DocumentImportOutcome
   /** Server-owned image snapshot, durable across reload; no local path or bytes. */

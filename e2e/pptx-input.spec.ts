@@ -69,14 +69,15 @@ test('a real presentation projects visible slide text, persists its preview, rea
     page.on('request', (request) => {
       if (/officeParser/i.test(request.url()) && /worker/.test(request.url())) parserRequests.push(request.url())
     })
-    await selectFiles(page, [{
+    const picker = await selectFiles(page, [{
       name: 'research.pptx',
       mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
       buffer: deck,
     }])
+    await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute('data-attachment-input-ready', '1', { timeout: ms(20_000) })
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     const preview = page.locator('[data-attachment-preview]')
     await expect(preview.locator('[data-document-import="ready"]')).toBeVisible({ timeout: ms(20_000) })
-    await page.keyboard.press('Escape')
     await expect(preview).toContainText(marker)
     await expect(preview).toContainText('cell one')
     await expect(preview).not.toContainText('HIDDEN_SHAPE_MARKER')
@@ -188,12 +189,13 @@ test('presentation intake reports malformed and no-text outcomes without sending
     expect(sessionResponse.ok()).toBe(true)
     const session = await sessionResponse.json() as { id: string }
     await page.goto(`/s/${session.id}`)
-    await selectFiles(page, [
+    const picker = await selectFiles(page, [
       { name: 'empty.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buffer: pptxFixture() },
       { name: 'invalid.pptx', mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buffer: Buffer.from('not a ZIP package') },
     ])
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText('2 not sent', { timeout: ms(20_000) })
-    await page.keyboard.press('Escape')
+    await expect(picker).toContainText('2 added')
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     const preview = page.locator('[data-attachment-preview]')
     for (const [name, status] of [['empty.pptx', 'no-text'], ['invalid.pptx', 'invalid']] as const) {
       await page.getByRole('button', { name, exact: true }).click()

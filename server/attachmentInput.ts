@@ -1,5 +1,5 @@
 import type { Attachment } from '../contract/entities.ts'
-import { ATTACHMENT_INPUT_MAX_ITEMS, isAttachmentInput, planAttachmentInput } from '../contract/attachmentInput.ts'
+import { ATTACHMENT_INPUT_MAX_ITEMS, attachmentText, isAttachmentInput, planAttachmentInput } from '../contract/attachmentInput.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../contract/imageInput.ts'
 import { imageAssetRefMatches } from '../contract/imageAssets.ts'
 
@@ -25,7 +25,7 @@ export function attachmentPrompt(text: string, attachments: readonly Attachment[
     }
     return {
       name, status,
-      ...(status === 'ready' ? { text: attachment.previewText } : {}),
+      ...(status === 'ready' ? { text: attachmentText(attachment) } : {}),
       ...(status === 'ready' && attachment.documentImport ? { extraction: {
         format: attachment.documentImport.format,
         ...(attachment.documentImport.format === 'pdf' ? {

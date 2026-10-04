@@ -46,6 +46,7 @@ export function runnerFs(runner: Runner) {
       return { ...folder, artifacts, meta: `${artifacts.length} file${artifacts.length === 1 ? '' : 's'}` }
     },
     readText: (path) => permits('fs.read', path) ? base.readText(path) : undefined,
+    readSnapshot: (path) => permits('fs.read', path) ? base.readSnapshot(path) : undefined,
     readBytes: (path) => permits('fs.read', path) ? base.readBytes(path) : undefined,
   }
   return {

@@ -37,6 +37,14 @@ navigation, or workspace category. Rendered consumers live under
 
 ## Filesystem source layout
 
+Conversation multi-add pickers acquire the session-scoped `contextIntake.ts`
+presentation lease. The shell delays the matching overlay/inertness and new
+wide split projection until Done/dismissal; stored focus still records the
+acknowledged attachment. A new pane must not remount an unfinished picker.
+`context-intake.test.ts` locks cleanup, independent sessions and every host;
+`e2e/served-file-snapshot.spec.ts` locks the previously obscured Done workflow
+(UI-162). This is ephemeral presentation state, never permission or persistence.
+
 Files, Photos and Folder use `fsSourceLayout.ts` through the shared
 `SourceSwitcher`. Source choices wrap; a bounded label can truncate without
 putting the buttons under a horizontal scrollbar. The source enumeration in

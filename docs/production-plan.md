@@ -44,7 +44,49 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint repairs the conversation Stop workflow and its authority
+The current checkpoint implements the approved saved-copy policy for individual
+served cloud/runner text files. Explicit selection captures bounded whole text;
+previews, reopened conversations and both model transports use that persisted
+copy without new source reads. Owner-only Refresh replaces only its addressed
+copy, pins the reviewed snapshot and keeps one durable request identity through
+response loss or restart. Failed source reads preserve saved input; a read-only
+recovery action reconciles current truth before releasing the send hold. Live
+sync may expose a committed copy even when its HTTP acknowledgement is lost.
+Ordinary stale workspace updates cannot rewind an existing copy. The strict
+reader, source/path-bound response checks and former live-preview read each
+have observed failing regression locks; fresh-process JSON and SQLite tests
+prove saved-copy restoration and receipt replay without source reads.
+
+The UI review exposed preview takeovers interrupting multi-add intake, wide
+split changes remounting the picker, and portaled options escaping both busy
+state and accessible button semantics. Shared presentation/overflow fixes retain
+Done and cancellation without delaying saved attachment authority. The isolated
+sweep passed 135/135 cells with no skips or violations; all 137 current sweep
+captures and 42 focused saved-copy captures were inspected at original size.
+Final code review also reproduced a delayed ambient Session read visibly
+rewinding an acknowledged Refresh. Pane reads now carry session/context/order
+receipts; stale responses cannot overwrite a newer copy or run panel/reattach
+side effects, while transcript-only streaming and pagination retain their
+separate lifecycle. A second failure-first browser walk caught a superseding
+push read losing the startup reattach callback. Mount and push now share one
+effect-scoped, one-shot obligation, retired by cleanup or an epoch change; this
+does not add automatic discovery of later shared turns. All 26 focused browser
+journeys pass, including saved copies, startup recovery, account switching,
+panel preferences and Stop. The complete unsigned arm64 Electron gate also
+passes: OS-backed credential recovery, native intake and source-absent relaunch,
+MCP credentials, packaged schema isolation and exact backup/restore. Picker
+smoke walks now await saved text/image acknowledgement before choosing Done;
+their exact body, image-byte, model-input and relaunch assertions remain intact.
+Complete local verification and packaged Electron acceptance remain mandatory
+landing gates; no GitHub check substitutes for either. These are not signed,
+notarized or Intel release receipts.
+
+This is the file slice of approved policy 2, not completion of all remote
+context. Folder snapshots with the same explicit Refresh policy are next;
+remembered local/Git connections, workbook tabs, Trash, update consent and unsafe
+profile refusal all remain required milestones under the approved defaults.
+
+The preceding checkpoint repairs the conversation Stop workflow and its authority
 wall. Failed cancellation previously disappeared into an empty catch. Shared
 per-conversation state now distinguishes pending, acknowledged and failed Stop
 requests, bounds each attempt to 30 seconds, and permits only deliberate

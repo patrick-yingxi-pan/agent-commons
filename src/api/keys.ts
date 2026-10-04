@@ -341,6 +341,10 @@ export const paths = {
     `/fs/folder?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   fsText: (source: string, path: string) =>
     `/fs/text?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+  fsSnapshot: (source: string, path: string) =>
+    `/fs/snapshot?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+  refreshSessionAttachment: (sessionId: string, attachmentId: string) =>
+    `/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/refresh`,
   fsContent: (source: string, path: string) =>
     `/fs/content?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   projects: '/projects',

@@ -72,6 +72,13 @@ async function openFilesPicker(page) {
   return picker
 }
 
+async function finishReadyTextIntake(page, picker, expectedCount) {
+  await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute(
+    'data-attachment-input-ready', String(expectedCount), { timeout: TIMEOUT_MS },
+  )
+  await picker.getByRole('button', { name: 'Done', exact: true }).click()
+}
+
 async function openArtifactImportDialog(page, origin) {
   await page.goto(`${origin}/artifacts`)
   await page.getByRole('button', { name: 'New artifact', exact: true }).click()
@@ -781,10 +788,12 @@ export async function smokePackagedAttachments({ executable }) {
     await expect(page.locator('[data-attachment-preview]')).toHaveCount(0)
     await expect(page.getByTitle('Open in sidebar').filter({ hasText: FILE_NAME })).toHaveCount(0)
     await choose.click()
+    await finishReadyTextIntake(page, picker, 1)
     await expect(page.locator('[data-attachment-preview]')).toContainText(FIRST_TEXT)
     await closePreview(page)
     const nextPicker = await openFilesPicker(page)
     await nextPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await finishReadyTextIntake(page, nextPicker, 2)
     await expect(page.locator('[data-attachment-preview]')).toContainText(SECOND_TEXT)
     await closePreview(page)
     assert.deepEqual(await calls.jsonValue(), Array.from({ length: 3 }, () => ({
@@ -900,6 +909,8 @@ export async function smokePackagedAttachments({ executable }) {
       await preserveSmokeFailure(error, () => capturePickerFailure(page, folderPicker))
     }
     await folderPicker.getByRole('button', { name: /Choose a folder from this computer/ }).click()
+    await expect(folderPicker).toContainText('2 added', { timeout: TIMEOUT_MS })
+    await folderPicker.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)
     await page.locator('[data-overlay-dock="narrow"]').getByRole('button', { name: 'Close', exact: true }).click()
     await send(page, 'Read the imported folder.', 'native-folder-snapshot-body')
@@ -933,6 +944,7 @@ export async function smokePackagedAttachments({ executable }) {
     }, pdfPath)
     const pdfPicker = await openFilesPicker(page)
     await pdfPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await finishReadyTextIntake(page, pdfPicker, 1)
     await expect(page.locator('[data-document-import="ready"]')).toContainText('2 of 3 pages')
     await expect(page.locator('[data-attachment-preview]')).toContainText(pdfText)
     const pdfId = await page.locator('[data-attachment-preview]').getAttribute('data-attachment-preview')
@@ -963,6 +975,7 @@ export async function smokePackagedAttachments({ executable }) {
     }, docxPath)
     const docxPicker = await openFilesPicker(page)
     await docxPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await finishReadyTextIntake(page, docxPicker, 1)
     await expect(page.locator('[data-document-import="ready"]')).toContainText('Word body text')
     await expect(page.locator('[data-attachment-preview]')).toContainText(docxText)
     const docxId = await page.locator('[data-attachment-preview]').getAttribute('data-attachment-preview')
@@ -1000,6 +1013,7 @@ export async function smokePackagedAttachments({ executable }) {
     }, xlsxPath)
     const xlsxPicker = await openFilesPicker(page)
     await xlsxPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await finishReadyTextIntake(page, xlsxPicker, 1)
     await expect(page.locator('[data-document-import="ready"]')).toBeVisible()
     await expect(page.locator('[data-attachment-preview]')).toContainText(xlsxMarker)
     await expect(page.locator('[data-attachment-preview]')).not.toContainText('hidden row')
@@ -1042,6 +1056,7 @@ export async function smokePackagedAttachments({ executable }) {
     }, pptxPath)
     const pptxPicker = await openFilesPicker(page)
     await pptxPicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await finishReadyTextIntake(page, pptxPicker, 1)
     await expect(page.locator('[data-document-import="ready"]')).toContainText('Visible slide text')
     await expect(page.locator('[data-attachment-preview]')).toContainText(pptxText)
     await expect(page.locator('[data-attachment-preview]')).not.toContainText('speaker note must not enter input')
@@ -1175,9 +1190,12 @@ export async function smokePackagedAttachments({ executable }) {
     }, imageInputs.map(({ path }) => path))
     const imagePicker = await openFilesPicker(page)
     await imagePicker.getByRole('button', { name: /Add files from this computer/ }).click()
+    await expect(page.locator('[data-attachment-image-ready]')).toHaveAttribute(
+      'data-attachment-image-ready', String(imageInputs.length), { timeout: TIMEOUT_MS },
+    )
+    await imagePicker.getByRole('button', { name: 'Done', exact: true }).click()
     const imagePreview = page.locator('[data-attachment-preview]')
     await expect(imagePreview).toHaveAttribute('data-attachment-input-status', 'image-ready')
-    await expect.poll(() => page.locator(`[data-attachment-image-ready="${imageInputs.length}"]`).count()).toBe(1)
     await expect.poll(() => imagePreview.locator('img').last().evaluate((image, expectedWidths) => image.complete && expectedWidths.includes(image.naturalWidth), imageInputs.map(({ width }) => width))).toBe(true)
     const imageRefs = await page.evaluate(async (id) => {
       const detail = await (await fetch(`/api/v1/sessions/${id}`)).json()

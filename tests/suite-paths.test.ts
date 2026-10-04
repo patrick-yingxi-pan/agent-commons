@@ -70,6 +70,10 @@ const NOT_A_READ = new Set([
   "server/routes/fs.test.ts → '../package.json'",
   // A deliberately refused alias of an owned temporary file, not a repo read.
   `server/routes/fs-confinement.test.ts → '${'./'}notes.md'`,
+  // Deliberate traversal payloads rejected by the saved-text reader and wire
+  // admission tests. Neither is a source file the suite tries to load.
+  `server/fs-snapshot.test.ts → '${'../'}outside.md'`,
+  `server/routes/served-file-snapshot.test.ts → '${'../'}outside.md'`,
 ])
 
 test('every relative path a suite names resolves from where the suite now lives', () => {

@@ -52,6 +52,8 @@ test('runnerFs caches its configured root, filters exact file grants, and keeps 
   assert.deepEqual(exactFs!.reader.list().folders.map((entry) => [entry.name, entry.fileCount]), [['folder', 1]])
   assert.deepEqual(exactFs!.reader.folderContents('folder')?.artifacts.map((entry) => entry.name), ['inside.md'])
   assert.equal(exactFs!.reader.readText('allowed.md')?.text, 'allowed')
+  assert.deepEqual(exactFs!.reader.readSnapshot('allowed.md'), { name: 'allowed.md', text: 'allowed' })
+  assert.equal(exactFs!.reader.readSnapshot('sibling.md'), undefined, 'snapshot requires an exact fs.read grant')
   assert.equal(exactFs!.reader.readText('sibling.md'), undefined)
   assert.equal(exactFs!.relativeTarget(`${scope}/folder/inside.md`), 'folder/inside.md')
 
@@ -77,6 +79,7 @@ test('runnerFs caches its configured root, filters exact file grants, and keeps 
     assert.deepEqual(resolved!.reader.list(), { files: [], photos: [], folders: [] })
     assert.equal(resolved!.reader.folderContents('folder'), undefined)
     assert.equal(resolved!.reader.readText('allowed.md'), undefined)
+    assert.equal(resolved!.reader.readSnapshot('allowed.md'), undefined)
     assert.equal(resolved!.supports('fs.read'), false)
     assert.equal(resolved!.supports('fs.list'), false)
   }

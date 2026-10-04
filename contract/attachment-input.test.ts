@@ -76,6 +76,24 @@ test('invalid legacy shapes are safely marked unavailable', () => {
   assert.deepEqual(planAttachmentInput(invalid).map(({ status }) => status), ['unavailable', 'unavailable', 'unavailable'])
 })
 
+test('served files use only an explicit bound saved snapshot, under the shared text budget', () => {
+  const snapshot = {
+    version: 1, snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'notes.txt', text: 'Saved text',
+  }
+  const file = {
+    id: 'cloud::notes.txt', label: 'notes.txt', kind: 'file',
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud' }, textSnapshot: snapshot,
+  } as Attachment
+  assert.equal(isAttachmentInput(file), true)
+  assert.deepEqual(planAttachmentInput([file]).map(({ status, bytes }) => ({ status, bytes })), [{ status: 'ready', bytes: 10 }])
+  assert.equal(isAttachmentInput({ ...file, id: 'cloud::different.txt' }), false)
+  assert.equal(isAttachmentInput({ ...file, previewText: 'unrelated preview' }), false)
+  assert.equal(isAttachmentInput({ ...file, textSnapshot: { ...snapshot, sourceId: 'runner:other' } }), false)
+  const full = { ...file, textSnapshot: { ...snapshot, text: 'x'.repeat(ATTACHMENT_TEXT_FILE_BYTES) } }
+  assert.deepEqual(planAttachmentInput([uiFile('x'.repeat(ATTACHMENT_TEXT_FILE_BYTES)), full, file]).map(({ status }) => status), ['ready', 'ready', 'total-limit'])
+})
+
 test('accepts the bounded DOCX outcome union and rejects forged failure text metadata', () => {
   const ready = uiFile('Word body', {
     label: 'brief.docx',

@@ -39,32 +39,40 @@ function reconcilePanelPreference(sessionId: string, session: Session, live: Liv
   conversations.setFocus(sessionId, focus !== undefined ? focus : strongestFocus(live))
 }
 
-/** The ONE server-reconcile tail both effects below share: load the session,
- *  refuse to stomp a mid-stream entry, land the reconciled live, and resurface
- *  a persisted-but-unresolved escalation proposal (C28 — the record is the
- *  authority; holdEscalation never stomps a prompt already held). The two
- *  callers differ only in their `after` follow-up — extracting the tail is
- *  what keeps them from diverging (before the Phase 6 hardening, a
- *  hand-copied push tail silently missed the C28 resurface). */
+/** The ONE server-reconcile tail shared by mount and session-push reads: load
+ *  the session, refuse to stomp a mid-stream entry, land the reconciled live,
+ *  and resurface a persisted-but-unresolved escalation proposal (C28 — the
+ *  record is the authority; holdEscalation never stomps a held prompt). */
 function reconcileNow(sessionId: string, after?: (s: Session, reconciled: Live) => void): void {
-  const since = conversations.epoch(sessionId)
+  const receipt = conversations.beginPaneRead(sessionId)
   loadSession(sessionId)
     .then((s) => {
+      // A newer pane read, changed context projection, reset, or account switch
+      // makes this response ineligible before it can affect either transcript
+      // or panel/reattach state.
+      if (!conversations.isPaneReadCurrent(sessionId, receipt)) return
       const now = conversations.get(sessionId)
       const reconciled = liveFromSession(s)
       // Presentation intent is orthogonal to transcript reconciliation: a
       // remote close/open may land while this client is streaming a turn.
       if (now.busy || now.typing) {
         reconcilePanelPreference(sessionId, s, reconciled)
-        after?.(s, reconciled)
+        // setFocus publishes synchronously; a subscriber may reset the store.
+        // Recheck before the follow-up can start a reattach.
+        if (conversations.isPaneReadCurrent(sessionId, receipt)) after?.(s, reconciled)
         return
       }
-      if (!conversations.reconcile(sessionId, since, reconciled, s.messagePage)) return
+      if (!conversations.reconcile(sessionId, receipt, reconciled, s.messagePage)) return
+      // reconcile publishes synchronously and may trigger account disposal.
+      // The receipt's context generation has intentionally advanced from the
+      // accepted projection; account and read order still fence follow-ups.
+      if (!conversations.isPaneReadLatest(sessionId, receipt)) return
       const landed = conversations.get(sessionId).live
       reconcilePanelPreference(sessionId, s, landed)
+      if (!conversations.isPaneReadLatest(sessionId, receipt)) return
       const held = unresolvedEscalation(s, landed, peek<RelationGraph>(keys.relations))
       if (held) conversations.holdEscalation(sessionId, held)
-      after?.(s, landed)
+      if (conversations.isPaneReadLatest(sessionId, receipt)) after?.(s, landed)
     })
     .catch(() => {})
 }
@@ -115,25 +123,42 @@ export function usePaneConversation(sessionId: string): ConversationState & { lo
       const pref = getPanelPref(sessionId)
       conversations.setFocus(sessionId, pref !== undefined ? pref : strongestFocus(conversations.get(sessionId).live))
     }
-    reconcileNow(sessionId, (s) => {
+
+    // The initial read owns one bootstrap obligation: resume a server turn
+    // already active when this pane opened. If a session push supersedes that
+    // read, carry the same one-shot obligation forward to the latest read; do
+    // not make later pushes discover new turns for an already-open shared pane.
+    const bootstrap = {
+      epoch: conversations.epoch(sessionId),
+      pending: true,
+      active: true,
+    }
+    const reattachBootstrap = (s: Session): void => {
+      if (!bootstrap.pending) return
+      bootstrap.pending = false
+      if (
+        !bootstrap.active ||
+        conversations.epoch(sessionId) !== bootstrap.epoch
+      ) return
       // A turn still generating server-side: resume rendering its stream
       // (replay from the top, then the live tail — invariant I1).
       if (s.activeTurnId && !conversations.get(sessionId).liveTurn) conversations.reattach(sessionId, s.activeTurnId)
+    }
+    // Subscribe before the first GET so a push cannot fall into the gap between
+    // mount reconciliation and listener setup. A superseding read inherits the
+    // still-pending bootstrap callback, but only until one eligible response
+    // consumes it.
+    const unsubscribe = onSessionPush((sid) => {
+      if (sid !== sessionId || sessionId === DRAFT_ID) return
+      reconcileNow(sessionId, bootstrap.pending ? reattachBootstrap : undefined)
     })
+    reconcileNow(sessionId, reattachBootstrap)
+    return () => {
+      bootstrap.active = false
+      bootstrap.pending = false
+      unsubscribe()
+    }
   }, [sessionId])
-
-  // Cross-client freshness: another client's change to THIS session (a context
-  // attached, a turn persisted) re-reconciles the open pane through the SAME
-  // tail as the mount-time read. Every visible pane subscribes for its own
-  // session (the singleton used to cover only the one active thread).
-  useEffect(
-    () =>
-      onSessionPush((sid) => {
-        if (sid !== sessionId || sessionId === DRAFT_ID) return
-        reconcileNow(sessionId)
-      }),
-    [sessionId],
-  )
 
   return { ...conv, loadEarlier }
 }

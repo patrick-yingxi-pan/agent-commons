@@ -30,10 +30,16 @@ validation is not complete codec decoding. Protocol and persistence
 locks, packaged executable smoke, and the complete responsive sweep exercise
 this boundary. Automated repository and packaged-executable verification cover
 the implemented path; they do not by themselves claim a completed manual macOS
-picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants, other documents, live folder/Git, remote input,
+picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants, other documents, live folder/Git, remote image/document/folder input,
 paid-provider acceptance, and manual OS-dialog acceptance remain outside this
 milestone. A public native release additionally still requires the signed,
 notarized two-architecture release gate.
+
+Served cloud and mapped-runner text files now use actual bounded saved copies
+(CTX-FS-20), not fixture bodies or automatic per-turn source reads. Explicit
+Refresh alone replaces a saved copy through current source authority. This does
+not complete remote folder snapshots, reusable local connections or rich remote
+document/image input; those remain production work.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values
 under exact artifact identities. The model proposes those values for consent;

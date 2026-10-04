@@ -16,6 +16,7 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, readdirSync, realpathSync } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
 import type {
   Artifact,
   ArtifactKind,
@@ -29,6 +30,9 @@ import type {
 /** Largest text file we serve inline (keeps a stray huge file from blowing up a
  *  preview). Past this the preview shows a truncation note. */
 export const MAX_TEXT_BYTES = 256 * 1024
+/** Whole text snapshots are smaller than previews so model context intake has a
+ *  predictable per-file ceiling and never returns a lossy prefix. */
+export const MAX_SNAPSHOT_BYTES = 64 * 1024
 /** Raw previews/downloads must not allocate an arbitrary source file in memory. */
 export const MAX_CONTENT_BYTES = 32 * 1024 * 1024
 
@@ -96,6 +100,9 @@ export interface FsReader {
   /** A file's textual content (the editable preview); image/binary files report
    *  their kind + content type instead of text. `undefined` when missing/escaping. */
   readText(relPath: string): FsFileContent | undefined
+  /** A complete, strictly decoded supported text file within the snapshot
+   *  budget. Unsupported, binary, oversized, unsafe, or changed files omit. */
+  readSnapshot(relPath: string): { name: string; text: string } | undefined
   /** A file's raw bytes + content type (for `<img>` / binary). `undefined` when
    *  missing/unsafe/not a regular file/over 32 MiB/changed during the read. */
   readBytes(relPath: string): { bytes: Uint8Array; contentType: string } | undefined
@@ -265,6 +272,17 @@ export function fsReader(root: string): FsReader {
       }
       const bytes = readBounded(relPath, entry, MAX_TEXT_BYTES)
       return bytes ? { id: relPath, name, kind: 'text', text: new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes) } : undefined
+    },
+
+    readSnapshot(relPath) {
+      const entry = inspect(relPath)
+      if (!entry?.st.isFile() || entry.st.size > MAX_SNAPSHOT_BYTES) return undefined
+      const name = relPath.split('/').pop() ?? relPath
+      if (!isLocalTextFileName(name)) return undefined
+      const bytes = readBounded(relPath, entry, MAX_SNAPSHOT_BYTES)
+      if (!bytes) return undefined
+      const text = decodeLocalTextPreview(bytes)
+      return text === undefined ? undefined : { name, text }
     },
 
     readBytes(relPath) {

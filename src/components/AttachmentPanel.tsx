@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react'
-import { FileText, Image as ImageIcon, Sheet, Trash2 } from 'lucide-react'
+import { FileText, Image as ImageIcon, RefreshCw, Sheet, Trash2 } from 'lucide-react'
 import type { Attachment } from '../types'
 import { PanelShell } from './PanelShell'
 import { PhotoThumb } from './PhotoThumb'
-import { useFsText, fsContentUrl } from '../api/hooks'
+import { fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
 import { attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
 import { documentImportCopy } from '../../contract/documentImport.mjs'
 import { imageAssetContentUrl } from '../api/imageAssets'
+import { isLocalTextFileName } from '../../contract/localTextFile.mjs'
+import { SECONDARY_BUTTON_CLASS } from '../lib/button'
+import { refreshServedAttachment } from '../controller/servedAttachmentRefresh'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
@@ -24,31 +27,23 @@ function attachmentImageUrl(att: Attachment): string | undefined {
 }
 
 interface AttachmentContent {
-  loading: boolean
   body: string
   isImage: boolean
   imageUrl?: string
 }
 
-/** Resolve a picked preview snapshot or served text/image (cloud / runner).
+/** Text previews resolve only saved input, never reread a mutable source.
  * Missing content remains unavailable, never replaced by invented file content.
  * All rendered content is read-only; model availability is disclosed separately. */
-function useAttachmentContent(att: Attachment): AttachmentContent {
-  const isImage = att.kind === 'photo' || isImageLabel(att.label)
+function attachmentContent(att: Attachment): AttachmentContent {
+  const isImage = !att.textSnapshot && (att.kind === 'photo' || isImageLabel(att.label))
   const imageUrl = attachmentImageUrl(att)
-  const path = parseFsRecentKey(att.id)?.entryId
-  const served = !!att.source && att.source.kind !== 'ui-host' && !!path && !isImage
-  // Called unconditionally (enabled-gated) to honor the rules of hooks.
-  const q = useFsText(att.source?.id ?? '', path ?? '', served)
-  if (isImage) return { loading: false, body: '', isImage: true, imageUrl }
+  if (isImage) return { body: '', isImage: true, imageUrl }
+  if (att.textSnapshot) return { body: att.textSnapshot.text, isImage: false }
   if (att.source?.kind === 'ui-host') {
-    return { loading: false, body: att.previewText ?? '', isImage: false }
+    return { body: att.previewText ?? '', isImage: false }
   }
-  if (served) {
-    const body = q.data?.kind === 'text' ? q.data.text ?? '' : ''
-    return { loading: q.status === 'loading', body, isImage: false }
-  }
-  return { loading: false, body: '', isImage: false }
+  return { body: '', isImage: false }
 }
 
 /** Right-side panel that displays a group of file or photo attachments and lets
@@ -61,6 +56,8 @@ export function AttachmentPanel({
   initialId,
   onClose,
   onRemove,
+  refreshSessionId,
+  refreshDisabled = false,
 }: {
   kind: 'file' | 'photo'
   items: Attachment[]
@@ -68,6 +65,8 @@ export function AttachmentPanel({
   initialId?: string
   onClose: () => void
   onRemove?: (id: string) => void
+  refreshSessionId?: string
+  refreshDisabled?: boolean
 }) {
   const [selectedId, setSelectedId] = useState(initialId ?? items[0]?.id)
 
@@ -113,6 +112,8 @@ export function AttachmentPanel({
             allAttachments={allAttachments}
             onSelect={setSelectedId}
             onRemove={onRemove}
+            onRefresh={refreshSessionId ? (attachment) => { void refreshServedAttachment(refreshSessionId, attachment) } : undefined}
+            refreshDisabled={refreshDisabled}
           />
         )
       ) : (
@@ -187,14 +188,22 @@ function FileBody({
   allAttachments,
   onSelect,
   onRemove,
+  onRefresh,
+  refreshDisabled,
 }: {
   item: Attachment
   items: Attachment[]
   allAttachments: Attachment[]
   onSelect: (id: string) => void
   onRemove?: (id: string) => void
+  onRefresh?: (attachment: Attachment) => void
+  refreshDisabled: boolean
 }) {
-  const content = useAttachmentContent(item)
+  const content = attachmentContent(item)
+  const address = parseFsRecentKey(item.id)
+  const servedText = !!address && address.sourceId === item.source?.id &&
+    item.source.kind === (address.sourceId === 'cloud' ? 'cloud' : 'runner') &&
+    isLocalTextFileName(address.entryId.split('/').at(-1) ?? '') && !content.isImage
   const status: AttachmentInputStatus = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
 
   return (
@@ -231,6 +240,22 @@ function FileBody({
 
       <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
         <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
+        {servedText && <div data-served-snapshot={item.textSnapshot ? 'saved' : 'missing'} className="mb-3 shrink-0 space-y-2">
+          <p className="text-[11px] leading-snug text-ink-soft">
+            {item.textSnapshot
+              ? 'Saved copy. Source changes are used only after Refresh.'
+              : 'No saved text yet. Save a snapshot to use this file as model input.'}
+          </p>
+          {onRefresh && <button
+            type="button"
+            disabled={refreshDisabled}
+            onClick={() => onRefresh(item)}
+            className={`${SECONDARY_BUTTON_CLASS} inline-flex items-center gap-1.5 px-2 py-1 text-[12px]`}
+          >
+            <RefreshCw size={13} />
+            {item.textSnapshot ? 'Refresh saved copy' : 'Save snapshot'}
+          </button>}
+        </div>}
         {item.documentImport && <p data-document-import={item.documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{documentImportCopy(item.documentImport)}</p>}
         {item.image && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG (largest image for ICO); the selected model must support vision to use this image.</p>}
         {content.isImage ? (
@@ -240,8 +265,6 @@ function FileBody({
             </div>
             <PhotoThumb id={item.id} src={content.imageUrl} showUnavailableLabel fit="contain" className="aspect-video w-full rounded-lg shadow-inner" />
           </>
-        ) : content.loading ? (
-          <div className="flex flex-1 items-center justify-center text-[12px] text-ink-faint">Loading…</div>
         ) : content.body ? (
           <>
             <div className="mb-1.5 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">Preview · {item.label}</div>
@@ -268,5 +291,6 @@ function fileIcon(label: string) {
 }
 
 function attEmptyText(item: Attachment): boolean {
-  return item.source?.kind === 'ui-host' && typeof item.previewText === 'string' && item.previewText.length === 0
+  return item.textSnapshot?.text === '' ||
+    (item.source?.kind === 'ui-host' && typeof item.previewText === 'string' && item.previewText.length === 0)
 }

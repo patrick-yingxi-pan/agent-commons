@@ -238,7 +238,18 @@ test('session pushes reach the panes through the one narrow seam (one-door holds
   assert.match(busyGuard, /reconcilePanelPreference\(sessionId, s, reconciled\)/, 'orthogonal panel intent remains live mid-stream')
   assert.match(busyGuard, /return/, 'a mid-stream transcript is never stomped by the authoritative reconcile')
   const push = controller.slice(controller.indexOf('onSessionPush(('))
-  assert.match(push.slice(0, 300), /reconcileNow\(sessionId\)/, 'the push re-read is the same shared server reconcile the mount recipe uses')
+  assert.match(
+    push.slice(0, 500),
+    /reconcileNow\(sessionId, bootstrap\.pending \? reattachBootstrap : undefined\)/,
+    'a superseding push read carries the still-pending mount reattach obligation only during bootstrap',
+  )
+  assert.match(controller, /pending: true,[\s\S]*?active: true/, 'mount creates one active bootstrap lease')
+  assert.match(controller, /bootstrap\.pending = false[\s\S]*?!bootstrap\.active[\s\S]*?conversations\.epoch\(sessionId\) !== bootstrap\.epoch/, 'the one-shot callback is fenced by cleanup and account/session epoch')
+  assert.match(controller, /bootstrap\.active = false\s+bootstrap\.pending = false\s+unsubscribe\(\)/, 'effect cleanup retires the lease and push listener')
+  assert.match(controller, /if \(!conversations\.isPaneReadCurrent\(sessionId, receipt\)\) return[\s\S]*const now = conversations\.get/, 'read authority is checked before the streaming branch')
+  assert.match(controller, /if \(!conversations\.isPaneReadLatest\(sessionId, receipt\)\) return\s+const landed/, 'publication cannot let an older read change panel preference after a newer read starts')
+  assert.match(controller, /reconcilePanelPreference\(sessionId, s, landed\)\s+if \(!conversations\.isPaneReadLatest\(sessionId, receipt\)\) return\s+const held/, 'preference publication is fenced before resurfacing an escalation')
+  assert.match(controller, /if \(conversations\.isPaneReadLatest\(sessionId, receipt\)\) after\?\./, 'reattach follow-up requires current account and read order')
 })
 
 test('ambient sync health is earned by hello and degraded by every stream failure (SYNC-10)', () => {

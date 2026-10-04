@@ -72,6 +72,11 @@ export interface ContextMutationStatus {
   busy: boolean
   error: string | null
   retryable: boolean
+  /** Only intents with an authoritative read-only reconciliation may be
+   * abandoned without replaying their mutation. */
+  dismissible?: boolean
+  /** Busy state while confirming current truth, not writing context. */
+  reconciling?: boolean
 }
 
 /** Input-changing intent is unresolved until its exact acknowledgement lands.
@@ -81,6 +86,17 @@ export const isContextMutationHeld = (status: ContextMutationStatus): boolean =>
 export interface StopRequestState {
   turnId: string
   phase: 'pending' | 'requested' | 'failed'
+}
+
+/** A pane read is current only while its account/session epoch, context
+ * projection, and issue order still match. Transcript streaming deliberately
+ * does not advance the context generation, so a read can still land while a
+ * turn is appending messages. */
+export interface PaneReadReceipt {
+  sessionId: string
+  epoch: number
+  contextGeneration: number
+  sequence: number
 }
 
 /** One session's conversation state — everything a pane needs to render a
@@ -177,6 +193,8 @@ export function createConversationStore(
   const states = new Map<string, ConversationState>()
   const listeners = new Map<string, Set<() => void>>()
   const epochs = new Map<string, number>()
+  const contextGenerations = new Map<string, number>()
+  const paneReadSequences = new Map<string, number>()
   /** Per-session send chains — a rapid second send queues behind the first
    *  (the server's one-live-turn-per-session slot), never behind ANOTHER
    *  session's turn. */
@@ -232,6 +250,14 @@ export function createConversationStore(
     const prev = get(id)
     const next = fn(prev)
     if (next === prev) return
+    if (
+      next.live.workspaces !== prev.live.workspaces ||
+      next.live.repos !== prev.live.repos ||
+      next.live.connectors !== prev.live.connectors ||
+      next.live.attachments !== prev.live.attachments
+    ) {
+      contextGenerations.set(id, (contextGenerations.get(id) ?? 0) + 1)
+    }
     states.set(id, next)
     notify(id)
   }
@@ -246,6 +272,27 @@ export function createConversationStore(
     update(id, (s) => ({ ...s, live: typeof next === 'function' ? next(s.live) : next }))
 
   const epoch = (id: string): number => epochs.get(id) ?? 0
+  const beginPaneRead = (id: string): PaneReadReceipt => {
+    const sequence = (paneReadSequences.get(id) ?? 0) + 1
+    paneReadSequences.set(id, sequence)
+    return {
+      sessionId: id,
+      epoch: epoch(id),
+      contextGeneration: contextGenerations.get(id) ?? 0,
+      sequence,
+    }
+  }
+  const isPaneReadCurrent = (id: string, receipt: PaneReadReceipt): boolean =>
+    receipt.sessionId === id &&
+    epoch(id) === receipt.epoch &&
+    (contextGenerations.get(id) ?? 0) === receipt.contextGeneration &&
+    (paneReadSequences.get(id) ?? 0) === receipt.sequence
+  /** The accepted read itself may advance contextGeneration. Follow-up effects
+   * after its synchronous publication still need the account and issue-order
+   * fence, without treating that accepted projection as stale. */
+  const isPaneReadLatest = (id: string, receipt: PaneReadReceipt): boolean =>
+    receipt.sessionId === id && epoch(id) === receipt.epoch && (paneReadSequences.get(id) ?? 0) === receipt.sequence
+
   const bump = (id: string): void => {
     epochs.set(id, epoch(id) + 1)
     retireStop(id)
@@ -274,8 +321,8 @@ export function createConversationStore(
   /** A server reconcile: replace the live state WITHOUT staling in-flight
    *  streams — refused (false) when the entry was reset since `since`, so a
    *  slow read can't clobber a newer selection. */
-  const reconcile = (id: string, since: number, live: Live, history?: HistoryPage): boolean => {
-    if (epoch(id) !== since) return false
+  const reconcile = (id: string, since: number | PaneReadReceipt, live: Live, history?: HistoryPage): boolean => {
+    if (typeof since === 'number' ? epoch(id) !== since : !isPaneReadCurrent(id, since)) return false
     update(id, (s) => {
       // A later newest-tail refresh must not discard pages this client already
       // loaded. A response with no older cursor is authoritative and complete,
@@ -388,6 +435,11 @@ export function createConversationStore(
     // entry always has focus null, so the coalesce-skip is unaffected.
     if (!s || (s.live.messages.length === 0 && !s.composerText && !s.busy && !s.typing && !s.pendingEscalation && !s.focus)) return
     bump(from)
+    // The target epoch belongs to any stream already dispatched under that
+    // identity and must not be bumped here. Its pane reads are different:
+    // adoption changes the target's authoritative local projection, so reads
+    // issued before it cannot publish afterward.
+    paneReadSequences.set(to, (paneReadSequences.get(to) ?? 0) + 1)
     states.set(to, s)
     states.delete(from)
     notify(from)
@@ -407,7 +459,7 @@ export function createConversationStore(
    *  draft, whose target epoch adopt leaves untouched) re-match and write into
    *  the NEW account's store. Monotonic epochs make that re-match impossible. */
   const clearAll = (): void => {
-    const ids = new Set([...states.keys(), ...epochs.keys()])
+    const ids = new Set([...states.keys(), ...epochs.keys(), ...contextGenerations.keys(), ...paneReadSequences.keys()])
     states.clear()
     chains.clear()
     for (const id of ids) bump(id)
@@ -748,6 +800,9 @@ export function createConversationStore(
     setLive,
     update,
     epoch,
+    beginPaneRead,
+    isPaneReadCurrent,
+    isPaneReadLatest,
     reset,
     reconcile,
     setHistoryLoading,

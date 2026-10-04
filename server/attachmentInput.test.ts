@@ -246,3 +246,62 @@ test('image metadata keeps the first eight and eight MiB total limits', () => {
   assert.equal(document.attached_files.length, 9)
   assert.equal(document.attached_files[8]!.status, 'image-count-limit')
 })
+
+test('model prompt uses only captured served text and freezes its contents without source I/O', () => {
+  const textSnapshot = {
+    version: 1 as const,
+    snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    capturedAt: '2026-10-04T12:00:00.000Z',
+    sourceId: 'cloud',
+    path: 'reports/notes.txt',
+    text: 'saved contents, captured earlier',
+  }
+  const attachment = file('', {
+    id: 'cloud::reports/notes.txt',
+    label: 'reports/notes.txt',
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
+    textSnapshot,
+  })
+  delete attachment.previewText
+
+  // The deliberately nonexistent source path is just an opaque reference here;
+  // model prompt construction consumes the saved snapshot and performs no read.
+  const result = attachmentPrompt('summarize', [attachment])
+  textSnapshot.text = 'changed after prompt capture'
+  assert.deepEqual(documentFrom(result).attached_files, [
+    { name: 'reports/notes.txt', status: 'ready', text: 'saved contents, captured earlier' },
+  ])
+})
+
+test('served and UI-host text share one whole-file budget and previews cannot substitute for snapshots', () => {
+  const snapshot = {
+    version: 1 as const,
+    snapshotId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    capturedAt: '2026-10-04T12:00:00.000Z',
+    sourceId: 'runner:worker_1',
+    path: 'src/readme.md',
+    text: 's'.repeat(64 * 1024),
+  }
+  const served = file('', {
+    id: 'runner:worker_1::src/readme.md',
+    label: 'src/readme.md',
+    source: { id: 'runner:worker_1', kind: 'runner', label: 'Worker', runnerId: 'worker_1' },
+    textSnapshot: snapshot,
+  })
+  delete served.previewText
+  const previewOnly = file('preview-only secret', {
+    id: 'cloud::preview.txt',
+    label: 'preview.txt',
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
+  })
+  const document = documentFrom(attachmentPrompt('question', [file('l'.repeat(64 * 1024)), served, file('after'), previewOnly]))
+  assert.deepEqual(document.attached_files.map(({ name, status }) => ({ name, status })), [
+    { name: 'notes.txt', status: 'ready' },
+    { name: 'src/readme.md', status: 'ready' },
+    { name: 'notes.txt', status: 'total-limit' },
+    { name: 'preview.txt', status: 'preview-only' },
+  ])
+  assert.equal(document.attached_files[0]?.text?.length, 64 * 1024)
+  assert.equal(document.attached_files[1]?.text?.length, 64 * 1024)
+  assert.equal(JSON.stringify(document).includes('preview-only secret'), false)
+})

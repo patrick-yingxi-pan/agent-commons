@@ -2,6 +2,7 @@
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
+import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
 import { messageHistoryText } from '../toolActivityHistory.ts'
 import { exportArtifact } from './artifactExport.ts'
 import { updateArtifactContent } from './artifactContent.ts'
@@ -4432,6 +4433,8 @@ export function buildRouter(): Router {
     }
     sendJson(res, store.updateSessionContextState(params.id, input.operations, ws))
   })
+
+  registerServedFileSnapshotRoutes(r, denyForeignSession)
 
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic
   // Messages API). The body carries typed events, not just text: an assistant

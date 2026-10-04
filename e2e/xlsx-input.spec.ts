@@ -67,14 +67,15 @@ test('a real workbook projects visible worksheet values, persists its preview, r
     page.on('request', (request) => {
       if (/officeParser/i.test(request.url()) && /worker/.test(request.url())) parserRequests.push(request.url())
     })
-    await selectFiles(page, [{
+    const picker = await selectFiles(page, [{
       name: 'research.xlsx',
       mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       buffer: workbook,
     }])
+    await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute('data-attachment-input-ready', '1', { timeout: ms(20_000) })
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     const preview = page.locator('[data-attachment-preview]')
     await expect(preview.locator('[data-document-import="ready"]')).toBeVisible({ timeout: ms(20_000) })
-    await page.keyboard.press('Escape')
     await expect(preview).toContainText(marker)
     await expect(preview).not.toContainText('hidden row')
     await expect(preview).not.toContainText('HIDDEN_SHEET_MARKER')
@@ -175,12 +176,13 @@ test('workbook intake reports malformed and no-text outcomes without sending the
     expect(sessionResponse.ok()).toBe(true)
     const session = await sessionResponse.json() as { id: string }
     await page.goto(`/s/${session.id}`)
-    await selectFiles(page, [
+    const picker = await selectFiles(page, [
       { name: 'empty.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: xlsxFixture() },
       { name: 'invalid.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: Buffer.from('not a ZIP package') },
     ])
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText('2 not sent', { timeout: ms(20_000) })
-    await page.keyboard.press('Escape')
+    await expect(picker).toContainText('2 added')
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     const preview = page.locator('[data-attachment-preview]')
     for (const [name, status] of [['empty.xlsx', 'no-text'], ['invalid.xlsx', 'invalid']] as const) {
       await page.getByRole('button', { name, exact: true }).click()

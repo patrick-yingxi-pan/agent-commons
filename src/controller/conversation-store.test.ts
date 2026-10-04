@@ -135,6 +135,99 @@ test('reconcile replaces live WITHOUT staling the stream, and refuses after a re
   assert.equal(store.get('s').live.messages.length, 0)
 })
 
+test('pane read receipt rejects an older context projection after a local context commit', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', EMPTY)
+  const receipt = store.beginPaneRead('s')
+  const attached = [{ id: 'new-workspace' }] as unknown as Live['workspaces']
+  store.setLive('s', { ...EMPTY, messages: [user('local', 'keep me')], workspaces: attached })
+
+  assert.equal(store.isPaneReadCurrent('s', receipt), false)
+  assert.equal(
+    store.reconcile('s', receipt, { ...EMPTY, messages: [user('stale', 'old response')] }),
+    false,
+    'a read begun before the context change cannot roll it back',
+  )
+  assert.equal(store.get('s').live.workspaces, attached)
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.id), ['local'])
+})
+
+test('only the latest issued pane read may reconcile, even when responses arrive out of order', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', EMPTY)
+  const olderRead = store.beginPaneRead('s')
+  const newerRead = store.beginPaneRead('s')
+
+  assert.equal(store.reconcile('s', olderRead, { ...EMPTY, messages: [user('old', 'older read')] }), false)
+  assert.equal(store.reconcile('s', newerRead, { ...EMPTY, messages: [user('new', 'newer read')] }), true)
+  assert.equal(store.isPaneReadLatest('s', newerRead), true, 'an accepted projection may advance context generation without retiring its follow-up')
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.id), ['new'])
+})
+
+test('pane read receipt is fenced by reset, account disposal, and receipt-only ids', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', EMPTY)
+  const beforeReset = store.beginPaneRead('s')
+  store.reset('s', { ...EMPTY, messages: [user('fresh', 'fresh')] })
+  assert.equal(store.isPaneReadCurrent('s', beforeReset), false)
+
+  const neverLoaded = store.beginPaneRead('receipt-only')
+  store.clearAll()
+  assert.equal(store.isPaneReadCurrent('receipt-only', neverLoaded), false)
+  assert.ok(store.epoch('receipt-only') > neverLoaded.epoch, 'clearAll invalidates ids with no prior state')
+})
+
+test('adopting into a session invalidates its pane reads without bumping its stream epoch', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('target', EMPTY)
+  const targetEpoch = store.epoch('target')
+  const receipt = store.beginPaneRead('target')
+  store.update('draft', (s) => ({ ...s, composerText: 'draft intent' }))
+
+  store.adopt('draft', 'target')
+  assert.equal(store.epoch('target'), targetEpoch, 'adoption does not stale streams already dispatched under target')
+  assert.equal(store.isPaneReadCurrent('target', receipt), false)
+})
+
+test('pane reads survive transcript-only stream writes and older-page pagination', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', EMPTY)
+  store.reconcile('s', store.epoch('s'), { ...EMPTY, messages: [user('u3', 'three'), user('u4', 'four')] }, {
+    olderCursor: 'before-u3',
+    olderTokens: 2,
+  })
+  const receipt = store.beginPaneRead('s')
+  store.setLive('s', { ...EMPTY, messages: [user('u3', 'three'), user('u4', 'four streamed')] })
+  assert.equal(store.isPaneReadCurrent('s', receipt), true, 'transcript deltas do not change context generation')
+  store.prependHistory(
+    's',
+    store.epoch('s'),
+    { ...EMPTY, messages: [user('u1', 'one'), user('u2', 'two'), user('u3', 'three')] },
+    { olderCursor: 'before-u1', olderTokens: 7 },
+  )
+  assert.equal(store.isPaneReadCurrent('s', receipt), true, 'pagination does not stale a tail refresh')
+  assert.equal(store.reconcile('s', receipt, { ...EMPTY, messages: [user('u4', 'four updated'), user('u5', 'five')] }, {
+    olderCursor: 'before-u4',
+    olderTokens: 1,
+  }), true)
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.id), ['u1', 'u2', 'u3', 'u4', 'u5'])
+  assert.equal(store.get('s').live.messages.find((message) => message.id === 'u4')?.content, 'four updated')
+  assert.equal(store.get('s').history.olderCursor, 'before-u1', 'tail reconcile retains the loaded older cursor')
+  assert.equal(store.get('s').history.olderTokens, 7)
+
+  const latestReply = store.beginPaneRead('s')
+  assert.equal(store.reconcile('s', latestReply, { ...EMPTY, messages: [user('u5', 'five'), user('u6', 'six')] }, {
+    olderCursor: 'before-u5',
+    olderTokens: 3,
+  }), true)
+  assert.equal(store.isPaneReadCurrent('s', receipt), false, 'a newer reply retires the previous receipt')
+})
+
 test('paged history prepends without duplicates and a live reconcile preserves the loaded prefix', () => {
   const { transport } = fakeTransport()
   const store = createConversationStore(transport, empty)

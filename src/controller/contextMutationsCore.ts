@@ -15,6 +15,7 @@ import type {
 import { focusValidIn, workspaceOf, type Live } from '../data/liveSession.ts'
 import { sameFocus } from '../lib/focus.ts'
 import type { ContextMutationStatus } from './conversationCore.ts'
+import type { RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 
 export interface ContextMutationSnapshot {
   live: Live
@@ -25,10 +26,21 @@ export interface ContextMutationPlan {
   live: Live
   focus: PanelFocus | null
   operations: SessionContextOperation[]
+  attachmentRefresh?: RefreshServedAttachmentRequest & {
+    attachmentId: string
+    reconciled?: boolean
+    baselineSnapshotId?: string | null
+  }
 }
 
 export interface ContextMutationIntent {
   plan: (snapshot: ContextMutationSnapshot) => ContextMutationPlan
+  /** Targeted refresh participates in the same FIFO without replacing stale
+   * whole-workspace state on the server. It returns the usual acknowledgement. */
+  mutate?: (snapshot: ContextMutationSnapshot, plan: ContextMutationPlan) => Promise<SessionContextState>
+  /** Read authoritative current state before an explicit safe dismissal. This
+   *  is never called for retry-only intents and must not issue another write. */
+  reconcile?: (snapshot: ContextMutationSnapshot, signal: AbortSignal) => Promise<SessionContextState>
   /** Runs only after the atomic server acknowledgement (recents promotion is
    * the earned example); it can never make a failed attachment look recent. */
   afterCommit?: () => void
@@ -55,6 +67,8 @@ interface QueueEntry {
   }>
   running: boolean
   failed: boolean
+  failedPlan?: ContextMutationPlan
+  reconcileController?: AbortController
 }
 
 const idle = (): ContextMutationStatus => ({ busy: false, error: null, retryable: false })
@@ -94,6 +108,7 @@ export function createContextMutationController(deps: ContextMutationDeps) {
     const intent = queued.intent
     const before = deps.snapshot(sessionId)
     let planned: ContextMutationPlan
+    entry.failedPlan = undefined
     try {
       planned = intent.plan(before)
     } catch (error) {
@@ -103,8 +118,10 @@ export function createContextMutationController(deps: ContextMutationDeps) {
     }
     entry.running = true
     deps.setStatus(sessionId, { busy: true, error: null, retryable: false })
-    void deps
-      .mutate(sessionId, { operations: planned.operations, workspace: workspaceOf(planned.live) })
+    entry.failedPlan = planned
+    void (intent.mutate
+      ? intent.mutate(before, planned)
+      : deps.mutate(sessionId, { operations: planned.operations, workspace: workspaceOf(planned.live) }))
       .then(
         (returned) => {
           // An account switch clears the queue; its late response belongs to a
@@ -132,7 +149,12 @@ export function createContextMutationController(deps: ContextMutationDeps) {
           if (queues.get(sessionId) !== entry) return
           entry.running = false
           entry.failed = true
-          deps.setStatus(sessionId, { busy: false, error: failureMessage(error), retryable: true })
+          deps.setStatus(sessionId, {
+            busy: false,
+            error: failureMessage(error),
+            retryable: true,
+            ...(intent.reconcile ? { dismissible: true } : {}),
+          })
         },
       )
   }
@@ -159,12 +181,79 @@ export function createContextMutationController(deps: ContextMutationDeps) {
     drain(sessionId, entry)
   }
 
+  const dismiss = (sessionId: string): void => {
+    const entry = queues.get(sessionId)
+    const queued = entry?.intents[0]
+    const intent = queued?.intent
+    const reconcile = intent?.reconcile
+    if (!entry || !queued || !entry.failed || entry.running || !reconcile || !entry.failedPlan) return
+
+    const before = deps.snapshot(sessionId)
+    const plan = entry.failedPlan.attachmentRefresh
+      ? {
+          ...entry.failedPlan,
+          focus: before.focus,
+          attachmentRefresh: {
+            ...entry.failedPlan.attachmentRefresh,
+            reconciled: true,
+            baselineSnapshotId: before.live.attachments.find((item) => item.id === entry.failedPlan!.attachmentRefresh!.attachmentId)
+              ?.textSnapshot?.snapshotId ?? null,
+          },
+        }
+      : entry.failedPlan
+    const controller = new AbortController()
+    entry.reconcileController = controller
+    entry.running = true
+    deps.setStatus(sessionId, { busy: true, error: null, retryable: false, reconciling: true })
+
+    void Promise.resolve()
+      .then(() => {
+        if (controller.signal.aborted || queues.get(sessionId) !== entry) {
+          throw new Error('Context reconciliation was cancelled.')
+        }
+        return reconcile(before, controller.signal)
+      })
+      .then(
+        (returned) => {
+          if (queues.get(sessionId) !== entry) return
+          entry.reconcileController = undefined
+          entry.running = false
+          entry.failed = false
+          entry.failedPlan = undefined
+          entry.intents.shift()
+          // A canonical read is enough to release an abandoned intent, even if
+          // its projection callback fails; a later session read can heal it.
+          try { deps.commit(sessionId, before, plan, returned) } catch { /* keep server truth authoritative */ }
+          queued.settle('discarded')
+          if (entry.intents.length === 0) {
+            queues.delete(sessionId)
+            deps.setStatus(sessionId, idle())
+            return
+          }
+          drain(sessionId, entry)
+        },
+        (error: unknown) => {
+          if (queues.get(sessionId) !== entry) return
+          entry.reconcileController = undefined
+          entry.running = false
+          entry.failed = true
+          deps.setStatus(sessionId, {
+            busy: false,
+            error: `Couldn’t check the current context. ${error instanceof Error ? error.message : ''}`.trim(),
+            retryable: true,
+            dismissible: true,
+          })
+        },
+      )
+  }
+
   const clearAll = (): void => {
     for (const entry of queues.values()) {
+      entry.reconcileController?.abort()
       for (const queued of entry.intents) queued.settle('discarded')
     }
     queues.clear()
   }
 
-  return { enqueue, retry, clearAll }
+  return { enqueue, retry, dismiss, clearAll }
 }

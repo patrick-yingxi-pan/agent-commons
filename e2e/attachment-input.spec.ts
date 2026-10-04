@@ -73,6 +73,7 @@ test('same-name local files reach the endpoint independently while preview-only 
     await expect(page.getByTitle('Open in sidebar').filter({ hasText: 'e2e-photo.png' })).toBeVisible()
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/2 text files/i)
     await expect(page.locator('[data-attachment-input-disclosure]')).toContainText(/1 not sent|omitted/i)
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     await fileGroup.click()
     const fileMenu = page.getByRole('menu', { name: 'Files', exact: true })
     const fileRows = fileMenu.getByRole('button', { name: 'e2e-source.py', exact: true })
@@ -190,12 +191,12 @@ test('attachment input limits and truthful previews stay usable across canonical
     await picker.getByRole('button', { name: 'This computer', exact: true }).click()
     await picker.getByRole('button', { name: /Add files from this computer/ }).click()
   })
-
   const disclosure = page.locator('[data-attachment-input-disclosure]')
   await test.step('assert aggregate disclosure', async () => {
     await expect(disclosure).toContainText(/3 text files?/i)
     await expect(disclosure).toContainText(/21 not sent|omitted/i)
   })
+  await picker.getByRole('button', { name: 'Done', exact: true }).click()
   // The grouped Files chip opens a menu, not 24 individual composer chips.
   await page.getByTitle('Files (24)', { exact: true }).click()
   await page.getByRole('menu', { name: 'Files', exact: true }).getByRole('button', { name: 'empty.md', exact: true }).click()

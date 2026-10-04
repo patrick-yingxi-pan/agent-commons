@@ -31,9 +31,10 @@ test('an attached image is previewable by a read-only audience and hidden from a
   expect(created.ok()).toBe(true)
   const session = await created.json()
   await page.goto(`/s/${session.id}`)
-  await selectImage(page, 'shared.png', imageFixture())
+  const picker = await selectImage(page, 'shared.png', imageFixture())
+  await expect(page.locator('[data-attachment-image-ready]')).toHaveAttribute('data-attachment-image-ready', '1', { timeout: ms(20_000) })
+  await picker.getByRole('button', { name: 'Done', exact: true }).click()
   await expect(page.locator('[data-attachment-image-ready]')).toHaveAttribute('data-attachment-image-ready', '1')
-  await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Share this conversation' }).click()
   await page.getByLabel('Audience id').fill('tenant-beta')
   await page.getByRole('button', { name: /Share|Publish/ }).last().click()
@@ -98,9 +99,10 @@ test('real PNG, BMP, ICO and SVG images become durable references and model bloc
       { slug: 'svg', name: 'local-diagram.svg', mimeType: 'image/svg+xml', buffer: svgFixture(160, 80, { viewBoxOnly: true }), width: 160, height: 80 },
     ] as const
     for (const image of cases) {
-      await selectImage(page, image.name, image.buffer, image.mimeType)
+      const picker = await selectImage(page, image.name, image.buffer, image.mimeType)
+      await expect(page.locator('[data-attachment-image-ready]')).toHaveAttribute('data-attachment-image-ready', '1', { timeout: ms(20_000) })
+      await picker.getByRole('button', { name: 'Done', exact: true }).click()
       await expect(page.locator('[data-attachment-image-ready]')).toHaveAttribute('data-attachment-image-ready', '1')
-      await page.keyboard.press('Escape')
       const preview = page.locator('[data-attachment-preview]')
       await expect(preview).toHaveAttribute('data-attachment-input-status', 'image-ready')
       await expect(preview.locator('img').last()).toHaveCSS('object-fit', 'contain')

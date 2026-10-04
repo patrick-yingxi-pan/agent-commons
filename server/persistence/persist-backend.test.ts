@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { JsonFileBackend, SqliteBackend } from './index.ts'
 import { STORE_VERSION, type PersistedState } from './persist.ts'
+import { hasCorePersistedShape } from './format.ts'
 
 // A fully-populated snapshot that exercises every slice kind: singletons (version,
 // recents, graph, seq), ordered arrays (sessions, schedules-empty, savedContexts,
@@ -29,7 +30,14 @@ const sample: PersistedState = {
     { id: 's2', title: 'Bye', caps: ['chat'], preview: 'q', messages: [] },
   ] as unknown as PersistedState['sessions'],
   bindings: [['s1', [{ id: 'c1', type: 'repo', label: 'r', scope: '*' }]]] as unknown as PersistedState['bindings'],
-  workspaces: [['s1', { workspaces: [], repos: [], connectors: [], attachments: [] }]] as unknown as PersistedState['workspaces'],
+  workspaces: [['s1', { workspaces: [], repos: [], connectors: [], attachments: [{
+    id: 'cloud::notes.md', label: 'notes.md', kind: 'file',
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
+    textSnapshot: {
+      version: 1, snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'notes.md', text: 'durable text',
+    },
+  }] }]] as unknown as PersistedState['workspaces'],
   sessionPreferences: [['user-a', [['s1', { panelFocus: null }]]]],
   modelPreferences: [['tenant-a', [['user-a', { revision: 1, preferences: { effort: 'High', ultracode: false, fast: true } }]]]],
   schedules: [], // present-but-empty array must round-trip as [], not vanish
@@ -74,6 +82,8 @@ test('SQLite backend round-trips the JSON-canonical snapshot exactly', () => {
   db.save(sample)
   const loaded = db.load()
   assert.deepStrictEqual(loaded, canonical, 'every slice kind survives save → load')
+  assert.equal(hasCorePersistedShape(loaded), true, 'a well-formed served text snapshot remains core-valid')
+  assert.deepEqual(loaded?.workspaces?.[0]?.[1].attachments[0]?.textSnapshot, sample.workspaces?.[0]?.[1].attachments[0]?.textSnapshot)
   // Spell out the isolation-critical bit: a session's tenantId must survive the round-trip.
   assert.equal(loaded?.sessions?.[0]?.tenantId, 'tenant-a', 'a session keeps its tenantId across persistence')
   db.close()
@@ -98,12 +108,28 @@ test('JSON and SQLite backends produce identical loaded state (backend-swap is i
 
   assert.deepStrictEqual(fromSqlite, fromJson, 'the two backends rehydrate the same state')
   assert.deepStrictEqual(fromSqlite, canonical)
+  assert.equal(hasCorePersistedShape(fromSqlite), true, 'both backends preserve a valid served snapshot')
   cleanup(file)
   try {
     rmSync(jsonFile)
   } catch {
     /* already gone */
   }
+})
+
+test('persisted served snapshots fail admission when malformed or detached from their exact source path', () => {
+  const valid = JSON.parse(JSON.stringify(sample)) as PersistedState
+  const attachment = valid.workspaces[0]![1].attachments[0]!
+  assert.equal(hasCorePersistedShape(valid), true)
+
+  const malformed = JSON.parse(JSON.stringify(valid)) as PersistedState
+  ;(malformed.workspaces[0]![1].attachments[0]!.textSnapshot as any).snapshotId = 'not-a-uuid'
+  assert.equal(hasCorePersistedShape(malformed), false)
+
+  const mismatchedPath = JSON.parse(JSON.stringify(valid)) as PersistedState
+  mismatchedPath.workspaces[0]![1].attachments[0]!.id = 'cloud::other.md'
+  assert.equal(hasCorePersistedShape(mismatchedPath), false)
+  assert.equal(attachment.textSnapshot?.text, 'durable text', 'validation leaves the canonical fixture unchanged')
 })
 
 test('SQLite load returns null for a fresh database (caller seeds fresh)', () => {

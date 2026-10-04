@@ -37,6 +37,7 @@ import { repoIdForLabel } from '../data/liveSession'
 import { getDecision, setDecision } from '../lib/prefs'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
+import { useContextIntake } from '../lib/contextIntake'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { CheckSquare } from './Checkbox'
 import { usePopoverShift } from '../lib/usePopoverShift'
@@ -53,9 +54,11 @@ import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button'
 import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
 import { useMcpConnections } from '../api/mcpConnectionHooks.ts'
-import { readFsFolder, retryFsCatalog } from '../api/fsReads.ts'
+import { readFsFolder, readFsSnapshot, retryFsCatalog } from '../api/fsReads.ts'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
+import { isLocalTextFileName } from '../../contract/localTextFile.mjs'
+import type { ServedTextSnapshot } from '../../contract/servedTextSnapshot.ts'
 import { RecentOverflowList, type OverflowRow } from './RecentOverflowList'
 import {
   CONNECTOR_OPTIONS,
@@ -97,8 +100,11 @@ export function AddContextButton({
   workspaces,
   variant = 'icon',
   label = 'Add context',
+  sessionId,
 }: {
   onAttach: (ctx: AddedContext) => void
+  /** Session whose preview waits for this multi-add picker to finish. */
+  sessionId?: string
   /** The thread's currently-attached context — drives which rows show "Added"
    *  and the repo→GitHub-connector prompt. */
   connectors: Connector[]
@@ -115,6 +121,7 @@ export function AddContextButton({
   label?: string
 }) {
   const [open, setOpen] = useState(false)
+  useContextIntake(sessionId, open)
   const [type, setType] = useState<TypeId | null>(null)
   // How many recent rows fit inline — measured from the space above the composer
   // so the list is "as long as the layout allows"; the rest folds into the
@@ -780,11 +787,13 @@ function ServedFiles({
   maxRows,
   addedIds,
   onAttach,
+  disabled = false,
 }: {
   source: FsSource
   maxRows: number
   addedIds: readonly string[]
   onAttach: (e: FsFileEntry) => void
+  disabled?: boolean
 }) {
   const cat = useFsCatalog(source.id)
   const recentKeys = useRecentIds('files')
@@ -805,6 +814,7 @@ function ServedFiles({
             label={f.name}
             meta={`${f.ext ? f.ext.toUpperCase() + ' · ' : ''}${fmtSize(f.size)}`}
             added={addedIds.includes(fsRecentKey(source.id, f.id))}
+            disabled={disabled}
             onClick={() => onAttach(f)}
           />
         ),
@@ -893,12 +903,75 @@ function FilePicker({
         ) : active ? kind === 'photos' ? (
           <ServedPhotos source={active} addedIds={addedIds} onAttach={attachServed} />
         ) : (
-          <ServedFiles source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAttach={attachServed} />
+          <ServedFilePicker key={active.id} source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAdd={onAdd} onPreviewOnly={attachServed} />
         ) : null}
       </FsSourcePanel>
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
     </div>
   )
+}
+
+/** Supported served text files become model input only after one explicit,
+ * source-pinned whole-file snapshot succeeds. Other formats keep their existing
+ * metadata-only attachment behavior. */
+function ServedFilePicker({ source, maxRows, addedIds, onAdd, onPreviewOnly }: {
+  source: FsSource
+  maxRows: number
+  addedIds: readonly string[]
+  onAdd: (ctx: AddedContext) => void
+  onPreviewOnly: (entry: FsFileEntry) => void
+}) {
+  const [read, setRead] = useState<{ entry: FsFileEntry; status: 'loading' | 'error' } | null>(null)
+  const intake = useRef<AbortController | null>(null)
+  useEffect(() => {
+    const cancel = () => { intake.current?.abort(); intake.current = null }
+    const unsubscribe = onAccountSwitch(() => { cancel(); setRead(null) })
+    return () => { unsubscribe(); cancel() }
+  }, [])
+
+  const take = async (entry: FsFileEntry) => {
+    if (intake.current) return
+    const controller = new AbortController()
+    const issuedAccount = accountGeneration()
+    intake.current = controller
+    setRead({ entry, status: 'loading' })
+    try {
+      const snapshot: ServedTextSnapshot = await readFsSnapshot(source.id, entry.id, controller.signal)
+      if (controller.signal.aborted || issuedAccount !== accountGeneration()) return
+      if (snapshot.sourceId !== source.id || snapshot.path !== entry.id) throw new Error('Snapshot did not match the selected file.')
+      setRead(null)
+      onAdd({ kind: 'files', attachments: [{
+        id: fsRecentKey(source.id, entry.id),
+        label: entry.name,
+        kind: 'file',
+        source,
+        textSnapshot: snapshot,
+      }] })
+    } catch {
+      if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error' })
+    } finally {
+      if (intake.current === controller) intake.current = null
+    }
+  }
+
+  return <>
+    <p className="px-1 py-2 text-[11px] leading-snug text-ink-soft">Text files attach as saved copies, up to 64 KB each. Use Refresh in Files to import later changes.</p>
+    <fieldset disabled={read?.status === 'loading'}>
+      <ServedFiles
+        source={source}
+        maxRows={maxRows}
+        addedIds={addedIds}
+        disabled={read?.status === 'loading'}
+        onAttach={(entry) => isLocalTextFileName(entry.name) ? void take(entry) : onPreviewOnly(entry)}
+      />
+    </fieldset>
+    {read && <div data-fs-file-read={read.status} role={read.status === 'error' ? 'alert' : 'status'} aria-busy={read.status === 'loading'} className="break-words px-1 py-2 text-[12px] text-ink-soft">
+      {read.status === 'loading' ? <p>Reading {read.entry.name}… Close this picker or choose another source to cancel.</p> : <>
+        <p className="break-words text-danger-text">Could not read {read.entry.name}. Nothing was attached.</p>
+        <button type="button" onClick={() => void take(read.entry)} className={`${SECONDARY_BUTTON_CLASS} mt-2 px-2 py-1 text-[12px]`}>Retry</button>
+      </>}
+    </div>}
+  </>
 }
 
 type RepoContext = Extract<AddedContext, { kind: 'repo' }>
@@ -1358,6 +1431,7 @@ function OptionRow({
   status,
   added,
   onClick,
+  disabled = false,
 }: {
   icon: ReactNode
   label: string
@@ -1370,12 +1444,15 @@ function OptionRow({
   /** Already attached to the thread — shows ✓ Added (not a plus) and isn't
    *  clickable, so it can't be added twice. Persists across reopens. */
   added?: boolean
+  /** Explicitly crosses a portal; a parent fieldset cannot disable flyout rows. */
+  disabled?: boolean
   onClick: () => void
 }) {
   return (
     <button
-      onClick={added ? undefined : onClick}
-      aria-disabled={added}
+      onClick={added || disabled ? undefined : onClick}
+      disabled={disabled}
+      aria-disabled={added || disabled}
       className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
         added ? 'cursor-default' : 'hover:bg-panel-2'
       }`}

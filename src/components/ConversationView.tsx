@@ -64,6 +64,7 @@ export function ConversationView({
   onStop,
   onRetry,
   onRetryContext,
+  onDismissContext,
   canCompact = false,
   modelPick,
   onSelectModel,
@@ -110,6 +111,7 @@ export function ConversationView({
   onStop: () => void
   onRetry: () => void
   onRetryContext: () => void
+  onDismissContext: () => void
   /** Owner-backed persisted conversation; shared readers and drafts cannot compact. */
   canCompact?: boolean
   modelPick?: ModelPick
@@ -354,7 +356,7 @@ export function ConversationView({
           turn streams; the in-place retry on an orphaned turn. */}
       {streaming && <TurnControls mode="streaming" stopRequest={stopRequest} canStop={canControlTurn} onStop={onStop} onRetry={onRetry} />}
       {interrupted && <TurnControls mode="interrupted" reason={sendFailure} onStop={onStop} onRetry={onRetry} />}
-      <ContextMutationNotice state={contextMutation} onRetry={onRetryContext} />
+      <ContextMutationNotice state={contextMutation} onRetry={onRetryContext} onDismiss={onDismissContext} />
 
       <Composer
         value={composerText}
@@ -376,7 +378,7 @@ export function ConversationView({
             : contextMutation.busy
             ? 'Updating context…'
             : contextMutation.error
-              ? 'Retry the context update before sending.'
+              ? 'Resolve the context update before sending.'
               : execution.blocked
                 ? execution.placeholder
                 : onRelay

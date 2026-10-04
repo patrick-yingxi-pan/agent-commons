@@ -33,6 +33,7 @@ import { useLayout } from './controller/useLayout'
 import { RelationsProvider } from './controller/useRelations'
 import { canSplitRow, railWidthCss, useViewport } from './lib/viewport'
 import { NO_PENDING_FOCUS } from './lib/focusContext'
+import { useContextIntakeOpen } from './lib/contextIntake'
 import { SCRIM_CLASS } from './lib/scrim'
 import { SyncHealthNotice } from './components/SyncHealthNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
@@ -388,6 +389,7 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
 
   const focusedConv = useConversation(focusedSessionId ?? DRAFT_ID)
   const focusedFocus = focusedSessionId ? focusedConv.focus : null
+  const contextIntakeOpen = useContextIntakeOpen(focusedSessionId)
   const activePanel = useMemo<PaneContent | null>(
     () => (focusedSessionId && focusedFocus ? { kind: focusedFocus.kind, id: focusedFocus.id } : null),
     [focusedSessionId, focusedFocus],
@@ -395,9 +397,9 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
   useEffect(() => {
     // No conversation focused (a section pane, the background) — leave the
     // tree as-is: an absent subject is not a "close the panel" instruction.
-    if (!focusedSessionId) return
+    if (!focusedSessionId || (tier === 'wide' && contextIntakeOpen)) return
     setFocusDrivenContext(focusedSessionId, tier === 'wide' ? activePanel : null)
-  }, [setFocusDrivenContext, focusedSessionId, tier, activePanel])
+  }, [setFocusDrivenContext, focusedSessionId, tier, activePanel, contextIntakeOpen])
   // Split duplicates the FOCUSED pane's own content (every page equally —
   // the controller reads the leaf; no caller-supplied "what the primary
   // shows" since there is no primary).
@@ -693,9 +695,10 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
             <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
               {/* While the docked panel overlays the focused pane (medium
                   drawer / narrow takeover), the covered content is inert
-                  (UI-8) — it leaves the tab order / accessibility tree. */}
+                  (UI-8). Intake retains control until Done, then reveals the
+                  acknowledged preview without rewriting its stored focus. */}
               <section
-                inert={tier !== 'wide' && !!focusedFocus}
+                inert={tier !== 'wide' && !!focusedFocus && !contextIntakeOpen}
                 className="flex min-h-0 min-w-0 flex-1 flex-col"
               >
                 {/* The notification-door focus target is provided PER PANE
@@ -717,7 +720,7 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
                   (medium drawer / narrow takeover, ADAPT-11) — keyed on the
                   FOCUSED pane's session and its STORE-held focus (no singleton;
                   the wide tier tiles it as a context pane instead). */}
-              {tier !== 'wide' && (
+              {tier !== 'wide' && !contextIntakeOpen && (
                 <OverlayPanelDock
                   sessionId={focusedContent?.kind === 'msession' ? focusedContent.id : null}
                   tier={tier}

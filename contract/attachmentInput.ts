@@ -2,6 +2,8 @@ import type { Attachment, SessionWorkspace } from './entities.ts'
 import { isDocumentImportOutcome } from './documentImport.mjs'
 import { isImageAssetRef } from './imageAssets.ts'
 import { IMAGE_MAX_COUNT, IMAGE_TURN_MAX_BYTES } from './imageInput.ts'
+import { isServedTextSnapshot } from './servedTextSnapshot.ts'
+import { fsRecentKey } from './fs.ts'
 
 /** One ordered input projection for the composer, previews and both transports.
  * Folder bodies are durable snapshots, never a request to read a path. Direct
@@ -52,6 +54,15 @@ export function isAttachmentInput(value: unknown): value is Attachment {
   if (item.previewUrl !== undefined && typeof item.previewUrl !== 'string') return false
   if (item.documentImport !== undefined && !isDocumentImportOutcome(item.documentImport)) return false
   if (item.image !== undefined && (item.kind !== 'photo' || !isImageAssetRef(item.image))) return false
+  if (item.textSnapshot !== undefined) {
+    if (!isServedTextSnapshot(item.textSnapshot) || item.kind !== 'file' ||
+        item.previewText !== undefined || item.documentImport !== undefined || item.image !== undefined) return false
+    const source = item.source as Record<string, unknown> | undefined
+    const snapshot = item.textSnapshot
+    if (!source || source.id !== snapshot.sourceId ||
+        source.kind !== (snapshot.sourceId === 'cloud' ? 'cloud' : 'runner') ||
+        item.id !== fsRecentKey(snapshot.sourceId, snapshot.path)) return false
+  }
   if (item.source !== undefined) {
     if (!item.source || typeof item.source !== 'object' || Array.isArray(item.source)) return false
     const source = item.source as Record<string, unknown>
@@ -61,7 +72,7 @@ export function isAttachmentInput(value: unknown): value is Attachment {
   return true
 }
 
-/** Resolve supplied local text only. A source-relative id or preview URL never
+/** Resolve supplied saved text only. A source-relative id or preview URL never
  * authorizes a backend filesystem read, remote fetch, or binary import. */
 export function planAttachmentInput(attachments: readonly Attachment[] = []): AttachmentInputItem[] {
   let usedBytes = 0
@@ -77,18 +88,24 @@ export function planAttachmentInput(attachments: readonly Attachment[] = []): At
       imageBytes += attachment.image.byteLength
       return { attachment, status: 'image-ready', bytes: attachment.image.byteLength }
     }
-    if (attachment.kind !== 'file' || attachment.source?.kind !== 'ui-host') return { attachment, status: 'preview-only' }
+    if (attachment.kind !== 'file' || (attachment.source?.kind !== 'ui-host' && !attachment.textSnapshot)) return { attachment, status: 'preview-only' }
     if (attachment.documentImport && attachment.documentImport.status !== 'ready') return { attachment, status: 'unavailable' }
-    if (typeof attachment.previewText !== 'string') return { attachment, status: 'unavailable' }
+    const text = attachmentText(attachment)
+    if (typeof text !== 'string') return { attachment, status: 'unavailable' }
     // A JS string has at least as many UTF-8 bytes as UTF-16 code units. Avoid
     // allocating an encoded copy of an already-obviously oversized payload.
-    if (attachment.previewText.length > ATTACHMENT_TEXT_FILE_BYTES) return { attachment, status: 'too-large' }
-    const bytes = new TextEncoder().encode(attachment.previewText).byteLength
+    if (text.length > ATTACHMENT_TEXT_FILE_BYTES) return { attachment, status: 'too-large' }
+    const bytes = new TextEncoder().encode(text).byteLength
     if (bytes > ATTACHMENT_TEXT_FILE_BYTES) return { attachment, status: 'too-large', bytes }
     if (usedBytes + bytes > ATTACHMENT_TEXT_TOTAL_BYTES) return { attachment, status: 'total-limit', bytes }
     usedBytes += bytes
     return { attachment, status: 'ready', bytes }
   })
+}
+
+/** Callers still use the shared admission plan before sending any text. */
+export function attachmentText(attachment: Attachment): string | undefined {
+  return attachment.textSnapshot?.text ?? attachment.previewText
 }
 
 export function attachmentInputCopy(status: AttachmentInputStatus): string {

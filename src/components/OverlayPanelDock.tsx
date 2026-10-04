@@ -10,13 +10,14 @@ import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { conversations, useConversation } from '../controller/conversationStore'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { useContextWritable } from '../controller/useContextWritable'
-import { retryContextMutation } from '../controller/contextMutations'
+import { dismissContextMutation, retryContextMutation } from '../controller/contextMutations'
+import { isContextMutationHeld } from '../controller/conversationCore'
 import { rememberPanelPreference } from '../controller/panelPreferences'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DRAFT_ID } from '../data/liveSession'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
-import { AttachmentPanel } from './AttachmentPanel'
+import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
 import { ContextMutationNotice } from './ContextMutationNotice'
 
 export function OverlayPanelDock({
@@ -99,7 +100,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
 
         <AnimatePresence>
           {(focus?.kind === 'file' || focus?.kind === 'photo') && (
-            <AttachmentPanel
+            <DeferredAttachmentPanel
               key="att"
               kind={focus.kind}
               items={live.attachments.filter((a) => a.kind === focus.kind)}
@@ -107,6 +108,8 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               initialId={focus.id}
               onClose={closePanel}
               onRemove={writable ? (id) => removeContexts([{ kind: focus.kind, id }]) : undefined}
+              refreshSessionId={writable ? sessionId : undefined}
+              refreshDisabled={isContextMutationHeld(contextMutation)}
             />
           )}
         </AnimatePresence>
@@ -114,6 +117,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
           <ContextMutationNotice
             state={contextMutation}
             onRetry={() => retryContextMutation(sessionId)}
+            onDismiss={() => dismissContextMutation(sessionId)}
             floating
           />
         )}

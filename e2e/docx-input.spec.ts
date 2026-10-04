@@ -123,14 +123,15 @@ test('a real Word document projects body text, reaches the model, survives reloa
     page.on('request', onMainFrameNavigation)
     const parserRequests: string[] = []
     page.on('request', (request) => { if (/officeParser/i.test(request.url()) && /worker/.test(request.url())) parserRequests.push(request.url()) })
-    await selectFiles(page, [{ name: 'research.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ bodyXml, entries: {
+    const picker = await selectFiles(page, [{ name: 'research.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ bodyXml, entries: {
       'word/header1.xml': '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:r><w:t>header must not appear</w:t></w:r></w:p></w:hdr>',
       'word/comments.xml': '<comments>comment must not appear</comments>',
     } }) }])
+    await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute('data-attachment-input-ready', '1', { timeout: ms(20_000) })
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page.locator('[data-document-import="ready"]')).toBeVisible({ timeout: ms(20_000) })
     expect(mainFrameNavigations, 'DOCX import must not reload the main frame').toEqual([])
     page.off('request', onMainFrameNavigation)
-    await page.keyboard.press('Escape')
     const preview = page.locator('[data-attachment-preview]')
     await expect(preview).toContainText(marker)
     await expect(preview).toContainText('cell one')
@@ -218,7 +219,7 @@ test('Word intake reports invalid, empty, compound, text-limit and expanded-part
   const session = await createSession(page, `DOCX outcomes ${Date.now().toString(36)}`)
   const expanded = 'x'.repeat(4 * 1024 * 1024 + 1)
   await page.goto(`/s/${session.id}`)
-  await selectFiles(page, [
+  const picker = await selectFiles(page, [
     { name: 'notes.md', mimeType: 'text/markdown', buffer: Buffer.from('mixed text remains readable') },
     { name: 'context.pdf', mimeType: 'application/pdf', buffer: pdfFixture({ pages: ['mixed PDF remains readable'] }) },
     { name: 'empty.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture() },
@@ -231,9 +232,10 @@ test('Word intake reports invalid, empty, compound, text-limit and expanded-part
   // queue must settle each independent import without turning a failed DOCX
   // into a failure for the other two readable inputs.
   await expect(page.locator('[data-attachment-input-disclosure]')).toContainText('5 not sent', { timeout: ms(20_000) })
+  await expect(picker).toContainText('7 added')
+  await picker.getByRole('button', { name: 'Done', exact: true }).click()
   await expect(page.getByRole('button', { name: 'notes.md', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'context.pdf', exact: true })).toBeVisible()
-  await page.keyboard.press('Escape')
   const preview = page.locator('[data-attachment-preview]')
   const outcomes = [
     ['empty.docx', 'no-text'],
@@ -287,9 +289,10 @@ test('closing a pending DOCX import cancels it and releases the next intake', as
     await picker.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(picker).toHaveCount(0)
     unblock()
-    await selectFiles(page, [{ name: 'next.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ paragraphs: ['next intake still works'] }) }])
+    const next = await selectFiles(page, [{ name: 'next.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ paragraphs: ['next intake still works'] }) }])
+    await expect(page.locator('[data-attachment-input-ready]')).toHaveAttribute('data-attachment-input-ready', '1', { timeout: ms(20_000) })
+    await next.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page.locator('[data-attachment-preview]')).toContainText('next intake still works', { timeout: ms(20_000) })
-    await page.keyboard.press('Escape')
     const saved = await (await page.request.get(`/api/v1/sessions/${session.id}`)).json()
     expect(saved.workspace.attachments.map((attachment: { label: string }) => attachment.label)).toEqual(['next.docx'])
   } finally { unblock() }
@@ -320,7 +323,9 @@ test('a stalled DOCX worker reaches the exact deadline and leaves no live worker
   await page.goto(`/s/${session.id}`)
   try {
     const started = Date.now()
-    await selectFiles(page, [{ name: 'stalled.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ paragraphs: ['stalled'] }) }])
+    const picker = await selectFiles(page, [{ name: 'stalled.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docxFixture({ paragraphs: ['stalled'] }) }])
+    await expect(page.locator('[data-attachment-input-disclosure]')).toContainText('1 not sent', { timeout: ms(25_000) })
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page.locator('[data-document-import="timeout"]')).toBeVisible({ timeout: ms(25_000) })
     const elapsed = Date.now() - started
     expect(elapsed).toBeGreaterThanOrEqual(14_000)

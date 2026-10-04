@@ -7,10 +7,12 @@ import { InlineOperationStatus } from './InlineOperationStatus'
 export function ContextMutationNotice({
   state,
   onRetry,
+  onDismiss,
   floating = false,
 }: {
   state: ContextMutationStatus
   onRetry: () => void
+  onDismiss?: () => void
   /** Panel hosts need the same notice over a body that already owns h-full. */
   floating?: boolean
 }) {
@@ -19,7 +21,7 @@ export function ContextMutationNotice({
     notice = (
       <InlineOperationStatus
         tone="status"
-        message="Updating context…"
+        message={state.reconciling ? 'Checking saved context…' : 'Updating context…'}
         leading={<Spinner size={12} />}
       />
     )
@@ -29,6 +31,7 @@ export function ContextMutationNotice({
         tone="alert"
         message={state.error}
         action={state.retryable ? { label: 'Retry', icon: <RotateCcw size={12} />, onClick: onRetry } : undefined}
+        secondaryAction={state.dismissible && onDismiss ? { label: 'Use saved state', onClick: onDismiss } : undefined}
       />
     )
   }

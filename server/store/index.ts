@@ -85,6 +85,7 @@ import type {
   ViewerModelPreferences,
 } from '../../contract/index.ts'
 import { randomUUID } from 'node:crypto'
+import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 import {
   applyGraphOp,
   artifactFromDraft,
@@ -123,8 +124,9 @@ import {
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from '../fs.ts'
+import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../../contract/index.ts'
-import { fsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
+import { fsRecentKey, parseFsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity.ts'
 import { nonNegativeIntEnv } from '../env.ts'
 import { SAVED_CONTEXTS, CONNECTED_CONNECTOR_IDS, CONNECTED_MCP_IDS } from '../data/savedContexts.ts'
@@ -3519,6 +3521,75 @@ function scheduleArtifactFormatFailure(task: ScheduledTask, spec: ScheduledArtif
     : undefined
 }
 
+/** Keep a store-owned served-file receipt monotonic across workspace projections.
+ * Only the refresh commit path may name the one row whose saved copy is replaced. */
+function preserveSessionWorkspaceSnapshots(
+  sessionId: string,
+  workspace: SessionWorkspace,
+  refreshAttachmentId?: string,
+): SessionWorkspace {
+  const previousAttachments = new Map((sessionWorkspaces.get(sessionId)?.attachments ?? []).map((item) => [item.id, item]))
+  return {
+    ...workspace,
+    attachments: workspace.attachments.map((item) => {
+      const saved = previousAttachments.get(item.id)?.textSnapshot
+      if (!saved || refreshAttachmentId === item.id) return item
+      const expectedKind = saved.sourceId === 'cloud' ? 'cloud' : 'runner'
+      if (item.kind !== 'file' || item.id !== fsRecentKey(saved.sourceId, saved.path) ||
+          item.source?.id !== saved.sourceId || item.source.kind !== expectedKind) {
+        throw new ConflictError('This served attachment changed. Reopen the conversation before updating its context.')
+      }
+      const { previewText: _preview, documentImport: _import, ...metadata } = item
+      return { ...metadata, textSnapshot: saved }
+    }),
+  }
+}
+
+/** Private compound commit used by ordinary context updates and owner Refresh.
+ * The refresh capability is deliberately not part of the exported store API. */
+function commitSessionContextState(
+  sessionId: string,
+  operations: SessionContextOperation[],
+  workspace: SessionWorkspace,
+  refreshAttachmentId?: string,
+): SessionContextState {
+  let contexts = sessionContextBindings.get(sessionId) ?? []
+  const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
+  const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+  const tenantId = session?.tenantId ?? defaultTenantId()
+  for (const operation of operations) {
+    if (operation.action !== 'attach' || !isExternalMcpId(operation.context.id)) continue
+    if (operation.context.type !== 'mcp') throw new ValidationError('An external MCP connection must be attached as MCP context.')
+    if (!originalContextIds.has(operation.context.id) && store.mcpConnection(operation.context.id, tenantId)?.execution !== 'approval-required') {
+      throw new ValidationError('Inspect and connect this MCP server before attaching it.')
+    }
+  }
+  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId)
+  for (const operation of operations) {
+    if (operation.action === 'detach') {
+      contexts = contexts.filter((context) => context.id !== operation.contextId)
+      continue
+    }
+    const input = operation.context
+    const context: SessionContext = {
+      id: input.id,
+      type: input.type,
+      label: input.label,
+      scope: input.scope ?? '*',
+      ...(input.source ? { source: input.source } : {}),
+    }
+    contexts = [...contexts.filter((candidate) => candidate.id !== context.id), context]
+  }
+  sessionContextBindings.set(sessionId, contexts)
+  sessionWorkspaces.set(sessionId, committedWorkspace)
+  pruneSessionPreferences(sessionId, committedWorkspace)
+  emit({ type: 'session.contexts.changed', sessionId, contexts })
+  const updatedSession = SESSIONS.find((candidate) => candidate.id === sessionId)
+  if (updatedSession) emit({ type: 'session.updated', session: updatedSession })
+  persist()
+  return { contexts, workspace: committedWorkspace }
+}
+
 export const store = {
   epoch: EPOCH,
 
@@ -3856,6 +3927,48 @@ export const store = {
   /** A file's textual content under a source (the editable preview). */
   fsText(sourceId: string, path: string): FsFileContent | undefined {
     return resolveFsReader(sourceId, 'fs.read')?.reader.readText(path)
+  },
+  /** Only an explicit intake/Refresh reads the source. Stored snapshots grant
+   * neither future reads nor writes, and model preparation remains I/O-free. */
+  fsSnapshot(sourceId: string, path: string, snapshotId = randomUUID()): ServedTextSnapshot | undefined {
+    const content = resolveFsReader(sourceId, 'fs.read')?.reader.readSnapshot(path)
+    if (!content) return undefined
+    const snapshot = { version: 1 as const, snapshotId, capturedAt: new Date().toISOString(), sourceId, path, text: content.text }
+    return isServedTextSnapshot(snapshot) ? snapshot : undefined
+  },
+  refreshSessionAttachment(sessionId: string, attachmentId: string, request: RefreshServedAttachmentRequest): SessionContextState {
+    const workspace = store.sessionWorkspace(sessionId)
+    const attachment = workspace?.attachments.find((item) => item.id === attachmentId)
+    const address = parseFsRecentKey(attachmentId)
+    const expectedKind = address?.sourceId === 'cloud' ? 'cloud' : 'runner'
+    if (!attachment || attachment.kind !== 'file' || !address || !attachment.source ||
+        attachment.source.kind !== expectedKind || attachment.source.id !== address.sourceId) {
+      throw new ConflictError('This served file is no longer attached. Reopen the conversation before refreshing.')
+    }
+    // The captured ID is the durable receipt. A lost acknowledgement or restart
+    // must not cause another source read for the same logical Refresh.
+    if (attachment.textSnapshot?.snapshotId === request.requestId) {
+      return { contexts: store.sessionContexts(sessionId), workspace }
+    }
+    if ((attachment.textSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+      throw new ConflictError('This saved copy changed. Reopen it before refreshing again.')
+    }
+    const textSnapshot = store.fsSnapshot(address.sourceId, address.entryId, request.requestId)
+    if (!textSnapshot) throw new ValidationError('Could not read a complete text file of 64 KB or less. The saved copy is unchanged.')
+    const latest = store.sessionWorkspace(sessionId)
+    const current = latest?.attachments.find((item) => item.id === attachmentId)
+    if (!store.getSession(sessionId) || current !== attachment) {
+      throw new ConflictError('The attached file changed while reading. The saved copy is unchanged.')
+    }
+    const { previewText: _preview, documentImport: _import, ...metadata } = current
+    const refreshedAttachment = { ...metadata, textSnapshot }
+    if (!isAttachmentInput(refreshedAttachment)) {
+      throw new ValidationError('The refreshed file no longer matches its attached source. The saved copy is unchanged.')
+    }
+    return commitSessionContextState(sessionId, [], {
+      ...latest,
+      attachments: latest.attachments.map((item) => item.id === attachmentId ? refreshedAttachment : item),
+    }, attachmentId)
   },
   /** A file's raw bytes + content type under a source (image / binary serving). */
   fsBytes(sourceId: string, path: string): { bytes: Uint8Array; contentType: string } | undefined {
@@ -4434,12 +4547,13 @@ export const store = {
    *  persists the result here, the system of record). Broadcasts `session.updated`
    *  so any other client reconciles. Returns the stored workspace. */
   setSessionWorkspace(id: string, workspace: SessionWorkspace): SessionWorkspace {
-    sessionWorkspaces.set(id, workspace)
-    pruneSessionPreferences(id, workspace)
+    const committedWorkspace = preserveSessionWorkspaceSnapshots(id, workspace)
+    sessionWorkspaces.set(id, committedWorkspace)
+    pruneSessionPreferences(id, committedWorkspace)
     const session = SESSIONS.find((s) => s.id === id)
     if (session) emit({ type: 'session.updated', session })
     persist()
-    return workspace
+    return committedWorkspace
   },
 
   /** This viewer's durable panel intent for a session. Kept outside the shared
@@ -6013,40 +6127,7 @@ export const store = {
     operations: SessionContextOperation[],
     workspace: SessionWorkspace,
   ): SessionContextState {
-    let contexts = sessionContextBindings.get(sessionId) ?? []
-    const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
-    const session = SESSIONS.find((candidate) => candidate.id === sessionId)
-    const tenantId = session?.tenantId ?? defaultTenantId()
-    for (const operation of operations) {
-      if (operation.action !== 'attach' || !isExternalMcpId(operation.context.id)) continue
-      if (operation.context.type !== 'mcp') throw new ValidationError('An external MCP connection must be attached as MCP context.')
-      if (!originalContextIds.has(operation.context.id) && this.mcpConnection(operation.context.id, tenantId)?.execution !== 'approval-required') {
-        throw new ValidationError('Inspect and connect this MCP server before attaching it.')
-      }
-    }
-    for (const operation of operations) {
-      if (operation.action === 'detach') {
-        contexts = contexts.filter((context) => context.id !== operation.contextId)
-        continue
-      }
-      const input = operation.context
-      const context: SessionContext = {
-        id: input.id,
-        type: input.type,
-        label: input.label,
-        scope: input.scope ?? '*',
-        ...(input.source ? { source: input.source } : {}),
-      }
-      contexts = [...contexts.filter((candidate) => candidate.id !== context.id), context]
-    }
-    sessionContextBindings.set(sessionId, contexts)
-    sessionWorkspaces.set(sessionId, workspace)
-    pruneSessionPreferences(sessionId, workspace)
-    emit({ type: 'session.contexts.changed', sessionId, contexts })
-    const updatedSession = SESSIONS.find((candidate) => candidate.id === sessionId)
-    if (updatedSession) emit({ type: 'session.updated', session: updatedSession })
-    persist()
-    return { contexts, workspace }
+    return commitSessionContextState(sessionId, operations, workspace)
   },
 
   // ── Dispatch ──

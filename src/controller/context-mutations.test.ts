@@ -8,6 +8,9 @@ import type {
   SessionContextState,
   UpdateSessionContextStateRequest,
 } from '../../contract/index.ts'
+import { fsRecentKey } from '../../contract/fs.ts'
+import type { Attachment } from '../../contract/entities.ts'
+import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
 
 interface Deferred {
   request: UpdateSessionContextStateRequest
@@ -15,8 +18,8 @@ interface Deferred {
   reject: (error: Error) => void
 }
 
-function harness() {
-  let snapshot: { live: Live; focus: PanelFocus | null } = { live: EMPTY_LIVE, focus: null }
+function harness(initialLive: Live = EMPTY_LIVE) {
+  let snapshot: { live: Live; focus: PanelFocus | null } = { live: initialLive, focus: null }
   const statuses: ContextMutationStatus[] = []
   const calls: Deferred[] = []
   const commits: string[] = []
@@ -26,7 +29,12 @@ function harness() {
       calls.push({ request, resolve, reject })
     }),
     commit: (_sid, _before, planned, returned) => {
-      snapshot = { live: { ...planned.live, ...returned.workspace }, focus: planned.focus }
+      snapshot = {
+        live: planned.attachmentRefresh
+          ? mergeServedAttachmentRefresh(snapshot.live, returned, planned.attachmentRefresh)
+          : { ...planned.live, ...returned.workspace },
+        focus: planned.focus,
+      }
       commits.push(planned.live.connectors.map((connector) => connector.id).join(','))
     },
     setStatus: (_sid, status) => statuses.push(status),
@@ -98,6 +106,9 @@ test('a failed head stays retryable and blocks later intents until explicit retr
 
   h.controller.enqueue('s1', addConnector('notion'))
   assert.equal(h.calls.length, 1, 'later intent cannot skip the failed head')
+  h.controller.dismiss('s1')
+  assert.equal(h.calls.length, 1, 'generic context intents do not expose the refresh-only dismissal escape')
+  assert.equal(h.statuses.at(-1)?.dismissible, undefined)
   h.controller.retry('s1')
   assert.equal(h.calls.length, 2)
   ack(h.calls[1]!)
@@ -117,6 +128,110 @@ test('clearing on account switch drops a late acknowledgement', async () => {
   await tick()
   assert.equal(h.snapshot().live.connectors.length, 0)
   assert.deepEqual(h.commits, [])
+})
+
+test('refresh retries keep one request id; Dismiss reads truth before releasing later FIFO intent', async () => {
+  const attachmentId = fsRecentKey('cloud', 'notes.md')
+  const currentAttachment: Attachment = {
+    id: attachmentId, label: 'notes.md', kind: 'file',
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
+  }
+  const h = harness({ ...EMPTY_LIVE, attachments: [currentAttachment] })
+  const requestIds: string[] = []
+  const refreshAttempts: Array<{ resolve: (value: SessionContextState) => void; reject: (error: Error) => void }> = []
+  let resolveReconcile: ((value: SessionContextState) => void) | undefined
+  const intent: ContextMutationIntent = {
+    plan: ({ live, focus }) => ({
+      live, focus, operations: [],
+      attachmentRefresh: {
+        attachmentId: 'cloud::notes.md',
+        expectedSnapshotId: null,
+        requestId: '44444444-4444-4444-8444-444444444444',
+      },
+    }),
+    mutate: (_snapshot, plan) => new Promise<SessionContextState>((resolve, reject) => {
+      requestIds.push(plan.attachmentRefresh!.requestId)
+      refreshAttempts.push({ resolve, reject })
+    }),
+    reconcile: (_snapshot, signal) => new Promise<SessionContextState>((resolve) => {
+      assert.equal(signal.aborted, false)
+      resolveReconcile = () => resolve({ contexts: [], workspace: {
+        workspaces: [], repos: [], connectors: [],
+        attachments: [{ ...currentAttachment, textSnapshot: {
+          version: 1,
+          snapshotId: '44444444-4444-4444-8444-444444444444',
+          capturedAt: '2026-01-01T00:00:00.000Z',
+          sourceId: 'cloud',
+          path: 'notes.md',
+          text: 'saved after the lost response',
+        } }],
+      } })
+    }),
+  }
+  const head = h.controller.enqueue('s1', intent)
+  refreshAttempts[0]!.reject(new Error('conflict'))
+  await tick()
+  h.controller.retry('s1')
+  assert.equal(requestIds.length, 2)
+  assert.equal(requestIds[0], requestIds[1], 'Retry preserves one logical snapshot request id')
+  refreshAttempts[1]!.reject(new Error('permission changed'))
+  await tick()
+
+  const later = h.controller.enqueue('s1', addConnector('slack'))
+  h.controller.dismiss('s1')
+  await tick()
+  assert.equal(h.calls.length, 0, 'later context work remains behind reconciliation')
+  assert.equal(h.statuses.at(-1)?.busy, true)
+  assert.equal(h.statuses.at(-1)?.reconciling, true)
+  resolveReconcile!({ contexts: [], workspace: { workspaces: [], repos: [], connectors: [], attachments: [] } })
+  await tick()
+
+  assert.equal(await head, 'discarded', 'dismissal releases the failed refresh without calling it applied')
+  assert.equal(h.snapshot().live.attachments[0]?.textSnapshot?.snapshotId, requestIds[0], 'the canonical read reveals a refresh that committed before its response was lost')
+  assert.equal(h.calls.length, 1, 'later FIFO intent starts only after authoritative read acknowledgement')
+  ack(h.calls[0]!)
+  await tick()
+  assert.equal(await later, 'applied')
+})
+
+test('failed refresh reconciliation retains its hold and account clearing aborts/fences a late read', async () => {
+  const h = harness()
+  const reconciliations: Array<{
+    resolve: (value: SessionContextState) => void
+    reject: (error: Error) => void
+    signal: AbortSignal
+  }> = []
+  const intent: ContextMutationIntent = {
+    plan: ({ live, focus }) => ({
+      live, focus, operations: [],
+      attachmentRefresh: { attachmentId: 'cloud::notes.md', expectedSnapshotId: null, requestId: '55555555-5555-4555-8555-555555555555' },
+    }),
+    mutate: () => Promise.reject(new Error('conflict')),
+    reconcile: (_snapshot, signal) => new Promise<SessionContextState>((resolve, reject) => {
+      reconciliations.push({ resolve, reject, signal })
+    }),
+  }
+  const outcome = h.controller.enqueue('s1', intent)
+  await tick()
+  h.controller.dismiss('s1')
+  await tick()
+  assert.equal(h.statuses.at(-1)?.reconciling, true)
+  reconciliations[0]!.reject(new Error('read offline'))
+  await tick()
+  assert.match(h.statuses.at(-1)?.error ?? '', /read offline/)
+  assert.equal(h.statuses.at(-1)?.retryable, true)
+  assert.equal(h.statuses.at(-1)?.dismissible, true, 'the failed head remains held and may reconcile again')
+  h.controller.dismiss('s1')
+  await tick()
+  const late = reconciliations[1]!
+  assert.equal(late.signal.aborted, false)
+  assert.equal(h.calls.length, 0)
+  h.controller.clearAll()
+  assert.equal(await outcome, 'discarded')
+  assert.equal(late.signal.aborted, true, 'account clearing aborts active reconciliation')
+  late.resolve({ contexts: [], workspace: { workspaces: [], repos: [], connectors: [], attachments: [] } })
+  await tick()
+  assert.deepEqual(h.commits, [], 'a late read after account clearing cannot publish')
 })
 
 test('an own SSE echo of the planned focus is still remembered; a later user focus wins', () => {

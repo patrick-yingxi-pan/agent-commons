@@ -13,9 +13,11 @@ test('context mutation delivery uses the shared accessible status/recovery primi
   assert.match(primitive, /aria-atomic="true"/)
 
   const notice = read('src/components/ContextMutationNotice.tsx')
-  assert.match(notice, /message="Updating context…"/)
+  assert.match(notice, /state\.reconciling \? 'Checking saved context…' : 'Updating context…'/)
   assert.match(notice, /message=\{state\.error\}/)
   assert.match(notice, /label: 'Retry'/)
+  assert.match(notice, /state\.dismissible && onDismiss/)
+  assert.match(notice, /label: 'Use saved state'/)
   assert.ok(!notice.includes('<button'), 'the recovery button stays in the one shared primitive')
 
   for (const file of ['ConversationView.tsx', 'ContextPanelView.tsx', 'OverlayPanelDock.tsx']) {
@@ -27,5 +29,5 @@ test('conversation composer holds while context truth is pending or retryable', 
   const conversation = read('src/components/ConversationView.tsx')
   assert.match(conversation, /isContextMutationHeld\(contextMutation\)/)
   assert.match(conversation, /contextMutation\.busy[\s\S]*Updating context…/)
-  assert.match(conversation, /contextMutation\.error[\s\S]*Retry the context update before sending\./)
+  assert.match(conversation, /contextMutation\.error[\s\S]*Resolve the context update before sending\./)
 })

@@ -5,7 +5,7 @@
  *  wherever it renders (homogeneity, universal split Phase 6). */
 import { AddContextButton } from './AddContextButton'
 import { Cpu } from 'lucide-react'
-import type { Live } from '../data/liveSession'
+import { DRAFT_ID, type Live } from '../data/liveSession'
 import type { AddedContext } from '../types'
 import { PAGE_ACTION_BUTTON_CLASS } from '../lib/button'
 
@@ -65,6 +65,7 @@ export function EmptyState({
             // shortcuts, not tabs. Reuses the one attach funnel + picker.
             <div className="mt-4 flex justify-center">
               <AddContextButton
+                sessionId={DRAFT_ID}
                 variant="inline"
                 label="Start with a repo, folder, or connector…"
                 onAttach={onNewSessionWith}
