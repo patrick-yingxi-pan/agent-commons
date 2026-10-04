@@ -621,6 +621,10 @@ export async function buildComprehensive(): Promise<PersistedState> {
     store.updateArtifactBlock(editable.id, editable.block, 'Playground body edit — snapshot coverage.')
     const artifact = store.artifactById(editable.id)!
     store.renameArtifact(editable.id, 'Playground renamed document.md', artifact.metadataRevision ?? 0, store.defaultTenantId())
+    // Exercise both transitions without hiding this shared playground row.
+    // Retaining the active revision proves restore ordering is durable too.
+    store.setArtifactLifecycle(editable.id, 'trashed', 0, store.defaultTenantId())
+    store.setArtifactLifecycle(editable.id, 'active', 1, store.defaultTenantId())
   }
   // Structured authoring shares the portable body map with documents, but its
   // values must survive as a real sheet/deck rather than a prose scaffold.

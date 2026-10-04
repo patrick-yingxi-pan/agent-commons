@@ -44,7 +44,26 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint implements approved default 6: unsafe POSIX modes and
+The current checkpoint builds the internal retention/access foundation for
+approved default 3. Artifact Trash and restore have independent durable CAS
+ordering; canonical identity, saved content, names, filing and current grants
+survive JSON/SQLite restart. Trashed artifacts disappear from ordinary reads,
+exports, editable targets, graph projections, inbox doors and their nested social tree.
+Routine output fails visibly while its stable target is retained, and historical
+creation/save retries cannot silently restore it. Owner restoration preserves
+the current grant roster rather than recreating revoked access. Review exposed
+nested-discussion access and cached-response bypasses; route-owned replay checks
+now reauthorize immediate and awaited responses without rerunning old effects.
+The observed failing locks cover nested access, cached disclosures, disabled
+Trash filtering and an omitted durable slice. This is deliberately not yet a
+user-facing Trash feature: the next integration must add symmetric UI/API/MCP
+controls, account-scoped held intent and rendered recovery, then the separately
+confirmed permanent-delete path with non-resurrecting retirement receipts.
+There is no automatic purge, public lifecycle route or deletion of user data in
+this checkpoint. Complete local verification remains the landing gate; no
+GitHub CI is used. The preview UI has not changed.
+
+The preceding checkpoint implements approved default 6: unsafe POSIX modes and
 macOS ACL grants refuse startup without repair. Admission is synchronous before
 the instance lock and ready-driven product startup. The bundled read-only helper
 checks the already-open no-follow directory, distinguishes absent ACLs from failed
@@ -153,8 +172,9 @@ notarized or Intel release receipts.
 
 The saved-file and folder slices implement approved policy 2 for served text;
 unsupported formats remain explicit omissions. They do not complete all six defaults:
-remembered local/Git connections, workbook tabs, Trash, update consent and unsafe
-profile refusal all remain required milestones under the approved defaults.
+remembered local/Git connections, workbook tabs, the complete Trash workflow,
+and update consent remain required milestones. Profile refusal is implemented
+as described above, with native-dialog visual review still outstanding.
 
 The preceding checkpoint repairs the conversation Stop workflow and its authority
 wall. Failed cancellation previously disappeared into an empty catch. Shared

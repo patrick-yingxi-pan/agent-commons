@@ -45,6 +45,8 @@ import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { validWorkspaceFolders } from '../../contract/workspaceFolders.ts'
 import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import { parseArtifactLifecycleEntries } from '../artifactLifecycle.ts'
+import type { ArtifactLifecycle } from '../../contract/artifactLifecycle.ts'
 import { parseStructuredArtifactBody } from '../../contract/artifactAuthoring.ts'
 import type { ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import type { ProviderConfig } from '../data/providers.ts'
@@ -404,6 +406,8 @@ export interface PersistedState {
   artifactBodies?: [string, ArtifactContent][]
   /** Independent display names, ordered by metadata revision rather than body revision. */
   artifactMetadata?: [string, ArtifactMetadata][]
+  /** Recoverable Trash ordering. Retained rows and bodies remain canonical. */
+  artifactLifecycle?: [string, ArtifactLifecycle][]
   /** S5 guardrails — per-viewer mute lists (`[tenantId, names[]]`).
    *  Additive-optional. */
   mutes?: [string, string[]][]
@@ -545,6 +549,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   socialProposals: 'array',
   artifactBodies: 'mapEntries',
   artifactMetadata: 'mapEntries',
+  artifactLifecycle: 'mapEntries',
   mutes: 'mapEntries',
   follows: 'mapEntries',
   discussionReads: 'mapEntries',
@@ -612,6 +617,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   }
   if (state?.artifactMetadata !== undefined) {
     try { parseArtifactMetadataEntries(state.artifactMetadata) } catch { return false }
+  }
+  if (state?.artifactLifecycle !== undefined) {
+    try { parseArtifactLifecycleEntries(state.artifactLifecycle) } catch { return false }
   }
   if (state?.usageMeters !== undefined) {
     try { parseUsageMeterEntries(state.usageMeters) } catch { return false }

@@ -290,6 +290,8 @@ export interface ArtifactItem {
   name: string
   /** Display-name ordering only; document content has its own body revision. */
   metadataRevision?: number
+  /** Independent Trash/restore ordering; absent legacy state is active at zero. */
+  lifecycleRevision?: number
   /** Immutable save provenance, stamped by the materializer, never renamed.
    * Keeps historical save proposals recognized after the display name changes. */
   saveOrigin?: { name: string; source: string }

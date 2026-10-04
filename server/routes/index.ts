@@ -103,6 +103,7 @@ import { accounts, type StoredOrgInvite } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
 import { store, type GenerationOutcome } from '../store/index.ts'
 import { artifactCreationId } from '../artifactCreationIdentity.ts'
+import { artifactReplayVisible, discussionReplayVisible, grantReplayVisible, graphReplayVisible, proposalReplayVisible, type ReplayVisibility } from './replayVisibility.ts'
 import {
   IDEMPOTENCY_KEY_MAX_LENGTH,
   IdempotencyCache,
@@ -113,6 +114,7 @@ import {
   idempotencyRequestFingerprint,
   idempotencyRequestScope,
   replayResponse,
+  type CachedResponse,
 } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
@@ -384,8 +386,14 @@ export function buildRouter(): Router {
   // and in-flight work. Transparent without the header; never applied to SSE.
   const idem = new IdempotencyCache()
   const idempotent =
-    (handler: (ctx: Ctx) => void | Promise<void>) =>
+    (handler: (ctx: Ctx) => void | Promise<void>, visible?: ReplayVisibility) =>
     async (ctx: Ctx): Promise<void> => {
+      const replay = (response: CachedResponse): void => {
+        if (response.status >= 200 && response.status < 300 && visible && !visible(ctx, response)) {
+          return sendError(ctx.res, 'not_found', 'This saved response is no longer available. Review the current workspace state.')
+        }
+        replayResponse(ctx.res, response)
+      }
       const key = headerValue(ctx.req.headers, 'idempotency-key')
       if (!key) return handler(ctx)
       if (key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
@@ -398,7 +406,7 @@ export function buildRouter(): Router {
       const scope = idempotencyRequestScope(method, target)
       try {
         const completed = idem.replay(cacheKey, scope)
-        if (completed) return replayResponse(ctx.res, completed)
+        if (completed) return replay(completed)
         const parsedBody = await ctx.body<unknown>()
         const bufferedBody = async <T>(): Promise<T> => parsedBody as T
         const fingerprint = idempotencyRequestFingerprint(method, target, parsedBody)
@@ -407,7 +415,7 @@ export function buildRouter(): Router {
           await handler({ ...ctx, res: cap.res, body: bufferedBody })
           return cap.record()
         })
-        if (result.replayed && result.response) replayResponse(ctx.res, result.response)
+        if (result.replayed && result.response) replay(result.response)
       } catch (error) {
         if (error instanceof IdempotencyConflictError) {
           return sendError(ctx.res, 'conflict', error.message)
@@ -2756,7 +2764,7 @@ export function buildRouter(): Router {
     if (out === 'invalid') return sendError(res, 'bad_request', 'a valid tier and a known principal/org audience are required (link audiences arrive with the public phase; discussion subjects with S2)')
     if (out === 'capped') return sendError(res, 'conflict', 'This resource’s grant roster is at its cap')
     sendJson(res, out)
-  }))
+  }, grantReplayVisible))
   // S6 — redeem a link token: the signed-in caller becomes audience at the
   // grant's tier; unknown/rotated tokens 404 (existence-hiding).
   r.post('/grants/redeem', async ({ req, res, body }) => {
@@ -2859,7 +2867,7 @@ export function buildRouter(): Router {
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Commenting needs the comment tier (a view grant reads silently)')
     if (out === 'capped') return sendError(res, 'conflict', 'This subject’s discussions are at their cap')
     sendJson(res, out)
-  }))
+  }, discussionReplayVisible))
   r.get('/discussions/:did', ({ req, res, params }) => {
     const out = store.getDiscussion(params.did, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion '${params.did}'`)
@@ -2889,7 +2897,7 @@ export function buildRouter(): Router {
     // is worse than one that fails, because the author cannot see it happen.
     if (out === 'no-parent') return sendError(res, 'bad_request', 'replyTo must name a post in this discussion')
     sendJson(res, out)
-  }))
+  }, discussionReplayVisible))
   r.post('/discussions/:did/posts/:pid/react', idempotent(async ({ req, res, params, body }) => {
     const input = await body<SetDiscussionReactionRequest | undefined>()
     if (input !== undefined && (typeof input !== 'object' || input === null || Array.isArray(input))) {
@@ -2909,7 +2917,7 @@ export function buildRouter(): Router {
     )
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
     sendJson(res, out)
-  }))
+  }, discussionReplayVisible))
   // S5 guardrails: author-retract or anchor-owner moderation; report rings the
   // owner; mutes are the caller's own earmuffs (never a wall).
   r.delete('/discussions/:did/posts/:pid', idempotent(async ({ req, res, params, url, body }) => {
@@ -2962,7 +2970,7 @@ export function buildRouter(): Router {
       return sendError(res, 'conflict', 'This reply branch changed. Review it again before deleting.')
     }
     sendJson(res, { ok: true, discussion: out } satisfies DeleteDiscussionPostResponse)
-  }))
+  }, discussionReplayVisible))
   r.post('/discussions/:did/posts/:pid/report', idempotent(async ({ req, res, params, body }) => {
     const input = await body<unknown>()
     if (
@@ -2974,7 +2982,7 @@ export function buildRouter(): Router {
     const out = store.reportDiscussionPost(params.did, params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No discussion post '${params.pid}'`)
     sendJson(res, { ok: true, discussion: out } satisfies ReportDiscussionPostResponse)
-  }))
+  }, discussionReplayVisible))
   // S7 — follow: mute's positive twin, and shaped identically (a name-keyed
   // per-viewer list). Explicit state rather than a toggle, like the Commons
   // like: two clients pressing at once must converge on what was asked for.
@@ -3048,7 +3056,7 @@ export function buildRouter(): Router {
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the opener or the subject’s owner may resolve a discussion')
     if (out === 'conflict') return sendError(res, 'conflict', 'This discussion changed. Review it again before changing its state.')
     sendJson(res, out)
-  }))
+  }, discussionReplayVisible))
 
   // ── The Commons feed (S4) — a projection over the social primitives ─────────
   r.get('/commons', ({ req, res }) => {
@@ -3154,14 +3162,14 @@ export function buildRouter(): Router {
     if (out === 'inapplicable') return sendError(res, 'conflict', 'This proposal cannot be applied safely with the current access. Review it and ask for a new proposal.')
     if (out === 'stale') return sendError(res, 'conflict', 'This proposal is outdated because its target changed after it was offered. Review the current version and ask for a new proposal.')
     sendJson(res, out)
-  }))
+  }, proposalReplayVisible))
   r.post('/proposals/:pid/decline', idempotent(({ req, res, params }) => {
     const out = store.declineSocialProposal(params.pid, store.identity(req.headers).tenant.id)
     if (out === undefined) return sendError(res, 'not_found', `No proposal '${params.pid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the subject’s owner declines a proposal')
     if (out === 'closed') return sendError(res, 'conflict', 'Only an offered proposal can be declined')
     sendJson(res, out)
-  }))
+  }, proposalReplayVisible))
 
   // ── The contribution ledger (agent-contribution workflow Phase A) ───────────
   // Visibility mirrors the Project's exactly (the open-subgoals wall — owner or
@@ -5344,7 +5352,7 @@ export function buildRouter(): Router {
   /** Owner-only content editing: addressed prose blocks or one complete
    *  revision-pinned sheet/deck. Grants widen reads, never this write door;
    *  missing and foreign identities share the same existence-hiding wall. */
-  r.patch('/artifacts/:id/content', idempotent(updateArtifactContent))
+  r.patch('/artifacts/:id/content', idempotent(updateArtifactContent, artifactReplayVisible))
   r.get('/schedule-templates', ({ res }) => {
     sendJson(res, store.scheduleTemplates())
   })
@@ -5382,7 +5390,7 @@ export function buildRouter(): Router {
       if (err instanceof ConflictError) return sendError(res, err.code, err.message)
       throw err
     }
-  }))
+  }, graphReplayVisible))
   // Direct human/remote authoring gets an intrinsic exact creation identity.
   // The in-app model keeps using its consent-gated save-artifact relation op;
   // it cannot self-authorize this direct write capability.
@@ -5456,7 +5464,7 @@ export function buildRouter(): Router {
       if (error instanceof ValidationError || error instanceof ConflictError) return sendError(res, error.code, error.message)
       throw error
     }
-  }))
+  }, artifactReplayVisible))
   r.get('/artifacts/:id/export', exportArtifact)
   r.get('/schedules', ({ req, res }) => {
     sendJson(res, store.listSchedules(store.identity(req.headers).tenant.id))
@@ -5636,7 +5644,7 @@ export function buildRouter(): Router {
       if (err instanceof ValidationError) return sendError(res, err.code, err.message)
       throw err
     }
-  }))
+  }, graphReplayVisible))
 
   // ── The MCP door (access-parity INV-11 — server/mcp.ts) ─────────────────────
   // Registered LAST so the route table its tool catalog derives from is

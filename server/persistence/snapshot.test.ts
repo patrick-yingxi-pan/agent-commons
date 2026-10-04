@@ -605,6 +605,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.ok(s.artifactMetadata?.some(([id, metadata]) =>
     id.length > 0 && metadata.name === 'Playground renamed document.md' && metadata.revision === 1),
   'renameArtifact → independent, revisioned display metadata in the portable snapshot')
+  assert.ok(s.artifactLifecycle?.some(([id, lifecycle]) =>
+    s.artifactMetadata?.some(([metadataId, metadata]) => metadataId === id && metadata.name === 'Playground renamed document.md') &&
+    lifecycle.state === 'active' && lifecycle.revision === 2 && lifecycle.changedAt > 0),
+  'Trash then restore → retained lifecycle ordering in the portable snapshot')
   assert.ok(s.artifactBodies?.some(([id, body]) => id.length > 0 && body.type === 'sheet' &&
     body.rows[0]?.[1] === '=1+1' && body.revision === 0), 'authored sheet values remain literal in portable state')
   assert.ok(s.artifactBodies?.some(([id, body]) => id.length > 0 && body.type === 'slides' &&

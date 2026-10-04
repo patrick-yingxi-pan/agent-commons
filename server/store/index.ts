@@ -15,6 +15,8 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
+import { parseArtifactLifecycleEntries } from '../artifactLifecycle.ts'
+import { nextArtifactLifecycle, type ArtifactLifecycle, type TrashedArtifact } from '../../contract/artifactLifecycle.ts'
 import { parseScheduleStanding, pruneOrphanScheduleStanding, scheduleApprovalKeyMatches, scheduleStandingFailure } from '../scheduleStanding.ts'
 import { parseScheduledArtifactSpec, type ScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
 import { sheetXlsx } from '../artifactXlsx.ts'
@@ -1095,9 +1097,14 @@ const artifactBodies = new Map<string, ArtifactContent>()
 // Display metadata is independent of authored bytes and immutable save origin.
 // This also lets demo rows be renamed without mutating the fixture library.
 const artifactMetadata = new Map<string, ArtifactMetadata>()
+// Retention is independent of body/name ordering. The canonical row remains
+// present so historical saves and keyed creation can never silently recreate it.
+const artifactLifecycle = new Map<string, ArtifactLifecycle>()
+const artifactIsTrashed = (id: string): boolean => artifactLifecycle.get(id)?.state === 'trashed'
 const artifactWithMetadata = (artifact: ArtifactItem): ArtifactItem => {
-  const projected = projectArtifactMetadata(artifact, artifactMetadata.get(artifact.id))
-  const body = artifact.excerptSource === 'body' ? artifactBodyOf(artifact.id) : undefined
+  const projected = { ...projectArtifactMetadata(artifact, artifactMetadata.get(artifact.id)),
+    lifecycleRevision: artifactLifecycle.get(artifact.id)?.revision ?? 0 }
+  const body = artifact.excerptSource === 'body' ? retainedArtifactBody(artifact.id) : undefined
   return body ? { ...projected, excerpt: artifactBodyExcerpt(body) ?? projected.excerpt } : projected
 }
 
@@ -1126,6 +1133,12 @@ function commitArtifactBodyEdit(artifact: ArtifactItem, updated: ArtifactContent
  *  Module-level so the store's methods AND the wire-face builders share one
  *  resolver (`publicSocialProposal` stamps a diff's base from it). */
 function artifactBodyOf(artifactId: string): ArtifactContent | undefined {
+  if (artifactIsTrashed(artifactId)) return undefined
+  return retainedArtifactBody(artifactId)
+}
+/** Private retention resolver: only metadata/Trash projection may bypass the
+ * ordinary read wall. Export/edit/model paths must use artifactBodyOf instead. */
+function retainedArtifactBody(artifactId: string): ArtifactContent | undefined {
   const stored = artifactBodies.get(artifactId)
   if (stored) return stored
   const a = baseArtifacts().find((candidate) => candidate.id === artifactId)
@@ -1649,9 +1662,33 @@ const tenantIdForName = (name: string): string | undefined => {
 
 /** Resolve an artifact across both homes — seeded (`ALL_ARTIFACTS`) + created
  *  (`graph.extraArtifacts`) — mirroring `findProject`. */
-const findArtifact = (id: string): ArtifactItem | undefined => {
+const retainedArtifact = (id: string): ArtifactItem | undefined => {
   const artifact = baseArtifacts().find((a) => a.id === id) ?? graph.extraArtifacts.find((a) => a.id === id)
   return artifact ? artifactWithMetadata(artifact) : undefined
+}
+const findArtifact = (id: string): ArtifactItem | undefined =>
+  artifactIsTrashed(id) ? undefined : retainedArtifact(id)
+
+/** A retained artifact suspends its entire anchored social tree, even where
+ * a nested discussion has its own opener/grants. Iterate rather than recurse;
+ * malformed cycles confer no visibility or authority. */
+function socialSubjectSuspended(ref: SocialEntityRef): boolean {
+  const visited = new Set<string>()
+  let current: SocialEntityRef | undefined = ref
+  while (current) {
+    const key = `${current.kind}:${current.id}`
+    if (visited.has(key)) return true
+    visited.add(key)
+    if (current.kind === 'artifact') return artifactIsTrashed(current.id)
+    if (current.kind === 'discussion') {
+      const id: string = current.id
+      current = discussions.find((row) => row.id === id)?.anchor.ref
+    } else if (current.kind === 'proposal') {
+      const id: string = current.id
+      current = socialProposals.find((row) => row.id === id)?.subject
+    } else return false
+  }
+  return false
 }
 
 /** Agent-Commons registry visibility (F2/PD9). Unlike CONTENT (sessions/projects/artifacts,
@@ -1745,6 +1782,7 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
     return p ? rowVisibleTo(p, tenantId) : seedVisibleTo(tenantId)
   }
   const artVisible = (aid: string): boolean => {
+    if (artifactIsTrashed(aid)) return false
     const a = findArtifact(aid)
     return a ? rowVisibleTo(a, tenantId) : seedVisibleTo(tenantId)
   }
@@ -1788,7 +1826,7 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
       const projected = projectForTenant(p, g, tenantId)
       return projected ? [projected] : []
     }),
-    extraArtifacts: g.extraArtifacts.filter((a) => rowVisibleTo(a, tenantId)).map(artifactWithMetadata),
+    extraArtifacts: g.extraArtifacts.filter((a) => !artifactIsTrashed(a.id) && rowVisibleTo(a, tenantId)).map(artifactWithMetadata),
     sessionProject: byProjValue(g.sessionProject),
     // An artifact→project row needs the artifact visible; the value is gated on project
     // visibility ONLY when it's a real project id — `''` is the reducer's "unfiled"
@@ -2674,6 +2712,7 @@ function snapshot(): PersistedState {
     socialProposals, // social S3 — offered changes + the per-subject ledger
     artifactBodies: [...artifactBodies.entries()], // social S3 — edited artifact bodies (id-keyed)
     artifactMetadata: [...artifactMetadata.entries()],
+    artifactLifecycle: [...artifactLifecycle.entries()],
     mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
     // S7 — the person layer: who each viewer follows, and how far they've read
     // each thread (the DM inbox's unread count).
@@ -2770,6 +2809,7 @@ function cleanFirstBootState(): PersistedState {
   clean.socialProposals = []
   clean.artifactBodies = []
   clean.artifactMetadata = []
+  clean.artifactLifecycle = []
   clean.mutes = []
   clean.follows = []
   clean.discussionReads = []
@@ -3348,6 +3388,8 @@ function rehydrate(s: PersistedState): boolean {
   for (const [id, body] of s.artifactBodies ?? []) artifactBodies.set(id, body)
   artifactMetadata.clear()
   for (const [id, metadata] of parseArtifactMetadataEntries(s.artifactMetadata)) artifactMetadata.set(id, metadata)
+  artifactLifecycle.clear()
+  for (const [id, lifecycle] of parseArtifactLifecycleEntries(s.artifactLifecycle)) artifactLifecycle.set(id, lifecycle)
   // S5 mutes — same restore shape.
   mutes.clear()
   for (const [t, names] of s.mutes ?? []) mutes.set(t, new Set(names))
@@ -3485,6 +3527,7 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, spec: Sche
       artifact.sourceSessionId !== undefined && runSessions.has(artifact.sourceSessionId) &&
       !artifactBodies.has(artifact.id))
   const id = existing?.id ?? mintArtifactId()
+  if (artifactIsTrashed(id)) throw new ConflictError('Restore this routine’s saved artifact from Trash before running it again.')
   const delivered: ArtifactItem = {
     ...artifactFromDraft(op.artifact, id, source, existing?.projectId ?? task.projectId ?? '',
       existing ? Math.max(at, existing.editedAt) : at, sessionId, ownerTenantId),
@@ -3525,6 +3568,7 @@ function scheduleArtifactFormatFailure(task: ScheduledTask, spec: ScheduledArtif
   if (!spec) return undefined
   const existing = graph.extraArtifacts.find((artifact) => artifact.sourceScheduleId === task.id &&
     (artifact.tenantId ?? defaultTenantId()) === (task.tenantId ?? defaultTenantId()))
+  if (existing && artifactIsTrashed(existing.id)) return 'This routine’s saved artifact is in Trash. Restore it before running again; its saved content was not changed.'
   return existing && existing.kind !== spec.kind
     ? 'This routine already has a saved artifact in a different format. Keep its current format for now; its saved artifact was not changed.'
     : undefined
@@ -4235,8 +4279,11 @@ export const store = {
         // Mirrors the artifact's own READ wall, so a shared artifact's audience
         // sees a landed body edit live and nobody else learns the name exists.
         // An unresolvable id falls back to the flagship rule, like the gates above.
-        const a = findArtifact(e.artifactId)
-        return a ? this.artifactVisibleToTenant(a, tenantId) : seedVisibleTo(tenantId)
+        // Keep invalidation reachable to the retained audience after Trash has
+        // closed ordinary reads. The hint contains identity, never body data.
+        const a = retainedArtifact(e.artifactId)
+        return a ? rowVisibleTo(a, tenantId) || grantedTierFor({ kind: 'artifact', id: a.id }, tenantId) !== undefined
+          : seedVisibleTo(tenantId)
       }
       case 'agent.changed':
         // A published face is directory-wide, but its event carries no raw owner
@@ -6748,6 +6795,7 @@ export const store = {
    * retry body, so this exact lookup is the durable acknowledgement boundary. */
   getArtifactCreation(id: string, tenantId: string): CreateArtifactResponse | 'invalid' | undefined {
     if (!isArtifactCreationId(id)) return 'invalid'
+    if (artifactIsTrashed(id)) return 'invalid'
     const artifact = findArtifact(id)
     if (!artifact) return undefined
     if (!this.artifactOwnedBy(artifact, tenantId)) return 'invalid'
@@ -8162,6 +8210,7 @@ export const store = {
    *  ownership rule everywhere), or undefined when the subject doesn't exist.
    *  'discussion' is a documented refusal until S2 mints the entity. */
   grantSubjectRow(ref: SocialEntityRef): { tenantId?: string } | 'unsupported' | undefined {
+    if (socialSubjectSuspended(ref)) return undefined
     switch (ref.kind) {
       case 'session':
         return SESSIONS.find((s) => s.id === ref.id)
@@ -8853,6 +8902,7 @@ export const store = {
    *  (you can always see what was shared TO you, never the rest of the
    *  roster). The route walls subject visibility (existence-hiding 404). */
   listGrants(ref: SocialEntityRef, viewerTenant: string): Grant[] {
+    if (socialSubjectSuspended(ref)) return []
     const rows = grants.filter((g) => g.subject.kind === ref.kind && g.subject.id === ref.id)
     const row = this.grantSubjectRow(ref)
     const owner = row !== undefined && row !== 'unsupported' && ownsGrantSubject(row, viewerTenant)
@@ -9000,7 +9050,7 @@ export const store = {
    *  a personal grant or any org seat), or undefined when nothing was shared.
    *  The S1 read-side hook: subject-visibility walls OR this into their checks. */
   grantedTier(ref: SocialEntityRef, viewerTenant: string): ShareTier | undefined {
-    return grantedTierFor(ref, viewerTenant)
+    return socialSubjectSuspended(ref) ? undefined : grantedTierFor(ref, viewerTenant)
   },
   /** Redeem a link token (S6): the signed-in caller joins the grant's
    *  redeemed set — thereafter the ordinary tier machinery treats them as
@@ -9011,6 +9061,7 @@ export const store = {
   redeemGrant(token: string, tenantId: string): RedeemGrantResponse | undefined {
     const g = grants.find((x) => x.audience.kind === 'link' && x.audience.token === token)
     if (!g) return undefined
+    if (socialSubjectSuspended(g.subject)) return undefined
     const set = g.redeemedBy ?? (g.redeemedBy = [])
     if (!set.includes(tenantId)) {
       set.push(tenantId)
@@ -9036,6 +9087,7 @@ export const store = {
   /** A subject's proposals: offered first, then the landed ledger L{n}
    *  descending (the contributions read order). Route walls the subject. */
   listSocialProposals(ref: SocialEntityRef, viewerTenant: string): SocialProposal[] {
+    if (socialSubjectSuspended(ref)) return []
     const rows = socialProposals.filter((p) => p.subject.kind === ref.kind && p.subject.id === ref.id)
     const band = (p: StoredSocialProposal) => (p.state === 'offered' ? 0 : 1)
     return [...rows]
@@ -10627,6 +10679,11 @@ export const store = {
     return notifications
       .filter((x) => tenantReadsAs(tenantId, x.tenantId))
       .filter((x) => !muted?.has(x.actor)) // S5 earmuff — the bell honors the mute too
+      // Inbox doors are projections, not another home for a retained subject.
+      // Keep the stored history/read state so restoration is reversible.
+      .filter((x) => !((x.subjectKind === 'artifact' || x.subjectKind === 'discussion' || x.subjectKind === 'proposal') &&
+        x.subjectId && socialSubjectSuspended({ kind: x.subjectKind, id: x.subjectId })) &&
+        !(x.discussionId && socialSubjectSuspended({ kind: 'discussion', id: x.discussionId })))
       .map(({ tenantId: _recipient, actorTenant: _actor, postId: _post, ...pub }) => pub)
       .reverse()
   },
@@ -10664,7 +10721,7 @@ export const store = {
   /** The complete artifact registry, including authored relation-graph rows.
    * Read visibility may widen through grants; ownership never does. */
   listArtifacts(tenantId?: string): ArtifactItem[] {
-    const artifacts = [...graph.extraArtifacts, ...baseArtifacts()].map((a) => ({
+    const artifacts = [...graph.extraArtifacts, ...baseArtifacts()].filter((a) => !artifactIsTrashed(a.id)).map((a) => ({
       ...artifactWithMetadata(a),
       projectId: graph.artifactProject[a.id] ?? a.projectId,
     }))
@@ -10681,6 +10738,35 @@ export const store = {
    * same visibility/ownership wall as the complete registry. */
   artifactById(id: string): ArtifactItem | undefined {
     return findArtifact(id)
+  },
+  /** Retained identities are visible only through this owner-only collection.
+   * Normal reads, exports and social subjects stay closed until restoration. */
+  listTrashedArtifacts(tenantId: string): TrashedArtifact[] {
+    return [...graph.extraArtifacts, ...baseArtifacts()]
+      .filter((artifact) => artifactIsTrashed(artifact.id) && this.artifactOwnedBy(artifact, tenantId))
+      .map((artifact) => ({
+        artifact: { ...artifactWithMetadata(artifact), projectId: graph.artifactProject[artifact.id] ?? artifact.projectId, own: true },
+        trashedAt: artifactLifecycle.get(artifact.id)!.changedAt,
+      }))
+      .sort((a, b) => b.trashedAt - a.trashedAt || a.artifact.id.localeCompare(b.artifact.id))
+  },
+  /** One durable CAS for Trash and restore. Replaying its immediate represented
+   * step acknowledges it; old retries cannot cross a later opposite transition.
+   * Body, metadata, filing, source, proposals and current grants are retained. */
+  setArtifactLifecycle(id: string, state: 'active' | 'trashed', expectedRevision: number, tenantId: string) {
+    const artifact = retainedArtifact(id)
+    if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
+    const current = artifactLifecycle.get(id)
+    const result = nextArtifactLifecycle(current, state, expectedRevision, Math.max(Date.now(), current?.changedAt ?? 0))
+    if (result.kind === 'invalid') throw new ValidationError('A valid target state and non-negative lifecycle revision are required.')
+    if (result.kind === 'conflict') throw new ConflictError('This artifact’s Trash state changed. Review its current state before trying again.')
+    if (result.kind === 'changed') {
+      artifactLifecycle.set(id, result.value)
+      graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
+      persist()
+      emit({ type: 'artifact.changed', artifactId: id })
+    }
+    return { artifact: { ...artifactWithMetadata(artifact), projectId: graph.artifactProject[id] ?? artifact.projectId, own: true }, lifecycle: { ...result.value } }
   },
   /** Owner-only display rename. No document byte, filing, sharing, save receipt,
    * or routine configuration is changed. Publication follows durable commit. */
@@ -10711,7 +10797,7 @@ export const store = {
    *  discussable and even carried a Commons card, while the artifact itself
    *  stayed invisible to the audience: a grant that granted nothing. */
   artifactVisibleToTenant(a: ArtifactItem, tenantId: string): boolean {
-    return rowVisibleTo(a, tenantId) || this.grantedTier({ kind: 'artifact', id: a.id }, tenantId) !== undefined
+    return !artifactIsTrashed(a.id) && (rowVisibleTo(a, tenantId) || this.grantedTier({ kind: 'artifact', id: a.id }, tenantId) !== undefined)
   },
   /** OWNERSHIP — the strict half (filing, deletion, the share configuration). */
   artifactOwnedBy(a: ArtifactItem, tenantId: string): boolean {
@@ -11634,6 +11720,7 @@ export const store = {
     // — a non-default caller keying a ghost/'' artifact row is refused. (save-artifact
     // MINTS a new id internally, carries no `artifactId`, so it's naturally exempt here.)
     const aid = (op as { artifactId?: string }).artifactId
+    if (aid != null && artifactIsTrashed(aid)) return true
     if (aid != null && artifactTenant(aid) !== tenantId) return true
     // A routine's standing bindings are writes, not shared-reader actions.
     // Unknown and blank ids have no owner and cannot mint ghost authority.

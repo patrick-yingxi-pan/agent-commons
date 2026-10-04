@@ -175,7 +175,11 @@ one logical mutation, not a new edit. The door scopes its hashed inner identity
 to the tool and exact path/query, then uses the route's ordinary idempotency
 middleware. The outer HTTP key is never forwarded. Completed-response replay is
 bounded and process-local unless the route also owns a durable receipt; this is
-not a blanket restart-safe exactly-once guarantee. For artifact content edits,
+not a blanket restart-safe exactly-once guarantee. Cached Artifact, grant,
+discussion, proposal-verdict and owner-graph responses
+also recheck current visibility before replay; an old acknowledgement does not
+authorize reading a subject retained in Trash. A refused replay does not erase
+its receipt or re-execute the historical mutation. For artifact content edits,
 send either the existing prose block body or `{content, expectedRevision}` for a
 complete sheet/deck; `content` excludes server revision metadata. Missing/stale
 preconditions and reader writes meet the same HTTP validation and owner walls.
