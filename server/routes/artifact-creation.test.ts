@@ -178,3 +178,66 @@ test('invalid name/body/kind and unavailable filing targets fail before any arti
   assert.deepEqual(afterGraph.json.extraArtifacts, beforeGraph.json.extraArtifacts)
   assert.deepEqual(afterBodies, beforeBodies)
 })
+
+test('direct artifact filing follows canonical seed ownership and stamped org-owner walls', async () => {
+  const adaLogin = await call('POST', '/auth/login', {
+    email: 'ada@acme.example', password: 'ada-demo-password',
+  })
+  assert.equal(adaLogin.status, 200)
+  const adaCookie = sessionCookie(adaLogin)
+  const keyBase = `artifact-filing-owner-${(sequence += 1)}`
+
+  const adaCreated = await call('POST', '/artifacts', {
+    name: 'ada-insights-filing.md', kind: 'doc', body: 'Ada can file into her flagship seed project.', projectId: 'p-insights',
+  }, { cookie: adaCookie, ...keyed(`${keyBase}-ada`) })
+  assert.equal(adaCreated.status, 201, 'the signed-in Ada/Acme face owns the unstamped flagship seed project')
+  assert.equal(adaCreated.json.artifact.projectId, 'p-insights')
+
+  const defaultOwner = store.defaultTenantId()
+  const defaultCreated = await call('POST', '/artifacts', {
+    name: 'default-insights-filing.md', kind: 'doc', body: 'The default principal can file into its seed project.', projectId: 'p-insights',
+  }, { 'x-tenant-id': defaultOwner, ...keyed(`${keyBase}-default`) })
+  assert.equal(defaultCreated.status, 201, 'the default principal remains an owner of the same seed project')
+
+  const foreign = await call('POST', '/artifacts', {
+    name: 'foreign-insights-filing.md', kind: 'doc', body: 'This must not be filed.', projectId: 'p-insights',
+  }, { 'x-tenant-id': `${defaultOwner}-foreign`, ...keyed(`${keyBase}-foreign`) })
+  assert.equal(foreign.status, 404, 'seed visibility does not confer filing authority to a foreign tenant')
+
+  const account = async (name: string) => {
+    const email = `artifact-filing-${name.toLowerCase().replace(/\s+/g, '-')}-${keyBase}@example.test`
+    const signup = await call('POST', '/auth/signup', { name, email, password: `${name}-password-1` })
+    assert.equal(signup.status, 200)
+    return { cookie: sessionCookie(signup), email }
+  }
+  const owner = await account('Org Owner')
+  const member = await account('Org Member')
+  const outsider = await account('Org Outsider')
+  const org = (await call('POST', '/orgs', { name: `Artifact Filing ${keyBase}` }, { cookie: owner.cookie })).json
+  assert.ok(org.id)
+  assert.equal((await call('POST', `/orgs/${org.id}/invites`, { email: member.email }, { cookie: owner.cookie })).status, 201)
+  const invite = (await call('GET', '/me/invites', undefined, { cookie: member.cookie })).json[0]
+  assert.ok(invite)
+  assert.equal((await call('POST', `/me/invites/${invite.id}/accept`, undefined, { cookie: member.cookie })).status, 200)
+
+  const projectId = `p-artifact-filing-${keyBase}`
+  const project = await call('POST', '/relations/ops', {
+    op: { kind: 'create-project', projectId, projectName: `Artifact Filing Project ${keyBase}`, projectDescription: '', ownerTenantId: org.id },
+  }, { cookie: member.cookie })
+  assert.equal(project.status, 200)
+
+  const orgOwnerCreate = await call('POST', '/artifacts', {
+    name: 'org-owner-filed.md', kind: 'doc', body: 'Only the org owner may file.', projectId,
+  }, { cookie: owner.cookie, ...keyed(`${keyBase}-org-owner`) })
+  assert.equal(orgOwnerCreate.status, 201, 'a stamped project accepts its organization owner')
+
+  const orgMemberCreate = await call('POST', '/artifacts', {
+    name: 'org-member-filed.md', kind: 'doc', body: 'Members can see but not own the project.', projectId,
+  }, { cookie: member.cookie, ...keyed(`${keyBase}-org-member`) })
+  assert.equal(orgMemberCreate.status, 404, 'org membership grants visibility, not owner-grade filing authority')
+
+  const orgOutsiderCreate = await call('POST', '/artifacts', {
+    name: 'org-outsider-filed.md', kind: 'doc', body: 'An outsider must not file.', projectId,
+  }, { cookie: outsider.cookie, ...keyed(`${keyBase}-org-outsider`) })
+  assert.equal(orgOutsiderCreate.status, 404, 'a foreign tenant cannot file into an org project')
+})

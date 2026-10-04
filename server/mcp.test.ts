@@ -269,13 +269,18 @@ test('curated body examples: every key is a real mutation route, the spine is co
     200,
     'DELETE /schedules/:id example applies',
   )
-  assert.equal(
-    (await toolCall('post_artifacts', {
+  const artifactExample = await toolCall('post_artifacts', {
       ...ex('POST /artifacts'),
       idempotencyKey: `mcp-direct-artifact-example-${Date.now()}`,
+    }, seam)
+  assert.equal(artifactExample.status, 201, 'POST /artifacts example creates under its required logical identity')
+  assert.equal(
+    (await toolCall('patch_artifacts_by_id_lifecycle', {
+      id: artifactExample.body.artifact.id,
+      ...ex('PATCH /artifacts/:id/lifecycle'),
     }, seam)).status,
-    201,
-    'POST /artifacts example creates under its required logical identity',
+    200,
+    'PATCH /artifacts/:id/lifecycle example moves the created row to Trash',
   )
   assert.equal(
     (await toolCall('patch_artifacts_by_id_content', { id: 'a1', ...ex('PATCH /artifacts/:id/content') }, seam)).status,
@@ -286,7 +291,7 @@ test('curated body examples: every key is a real mutation route, the spine is co
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 14, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 15, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

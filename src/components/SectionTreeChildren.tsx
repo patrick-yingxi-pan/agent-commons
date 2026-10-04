@@ -16,6 +16,9 @@
  *
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
+import { useTrashedArtifacts } from '../api/artifactLifecycle'
+import { heldArtifactLifecycles, useArtifactLifecycleStatus } from '../controller/artifactLifecycleMutations'
+import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import {
   Children,
   Fragment,
@@ -1502,10 +1505,13 @@ function CollectionSectionRows({
 function ArtifactChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
-  const artifacts = rel.allArtifacts()
+  const trashQ = useTrashedArtifacts()
+  useArtifactLifecycleStatus()
+  const library = artifactTrashProjection(rel.allArtifacts(), trashQ.data ?? [], heldArtifactLifecycles().map(held => held.artifact))
+  const artifacts = library.active
   const rows = listArtifacts(artifacts, filter)
-  const allGroups = artifactCollectionSections(artifacts, rel.allProjects(), rel.artifactProjectId)
-  const groups = artifactCollectionSections(rows, rel.allProjects(), rel.artifactProjectId)
+  const allGroups = artifactCollectionSections(artifacts, rel.allProjects(), rel.artifactProjectId, library.trashed)
+  const groups = artifactCollectionSections(rows, rel.allProjects(), rel.artifactProjectId, listArtifacts(library.trashed, filter))
   const activeGroup = props.activeSeed?.collectionSectionId
     ? allGroups.find((group) => group.id === props.activeSeed?.collectionSectionId)
     : undefined

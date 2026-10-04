@@ -1,6 +1,8 @@
 import { useRef } from 'react'
 import { SCRIM_CLASS } from '../lib/scrim'
-import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { useBoundedDialog } from '../lib/useBoundedDialog'
+import { WRAPPING_PROSE_CLASS } from '../lib/prose'
 import { DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { CheckboxRow } from './Checkbox'
@@ -62,11 +64,12 @@ export function ConfirmDialog({
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
+  useBoundedDialog(dialogRef)
   useFocusTrap(dialogRef, onCancel, { initialFocus: cancelRef })
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[18dvh] short:pt-[8dvh]"
+      className={BOUNDED_DIALOG_LAYER_CLASS}
       onMouseDown={onCancel}
       role="dialog"
       aria-modal="true"
@@ -75,26 +78,25 @@ export function ConfirmDialog({
       <div className={SCRIM_CLASS} />
       <div
         ref={dialogRef}
+        data-bounded-dialog="confirm"
         onMouseDown={(e) => e.stopPropagation()}
-        className={`relative h-fit w-[380px] max-w-full p-4 ${DIALOG_SURFACE_CLASS}`}
+        className={`w-[380px] p-4 ${BOUNDED_DIALOG_PANEL_CLASS} ${DIALOG_SURFACE_CLASS}`}
       >
-        <p className="text-[15px] font-semibold text-ink">{title}</p>
-        <p className="mt-1.5 text-[12px] leading-relaxed text-ink-soft">{body}</p>
-        {/* The shared `CheckboxRow`, not a raw `<input type="checkbox">` — the
-            first cut wrote one and `src/lib/checkbox.test.ts` caught it. Worth
-            the catch: the raw input would have been the only checkbox in the
-            app not wearing the accent square, in the one dialog where a reader
-            most needs to recognise a control at a glance. */}
-        {option && (
-          <CheckboxRow
-            checked={option.checked}
-            onToggle={() => option.onChange(!option.checked)}
-            className="mt-3 w-full rounded-md bg-panel-2/60 p-2 text-[12px] leading-snug text-ink-soft"
-          >
-            <span>{option.label}</span>
-          </CheckboxRow>
-        )}
-        <div className="mt-4 flex items-center justify-end gap-2">
+        <p className="shrink-0 text-[15px] font-semibold text-ink">{title}</p>
+        <div className={BOUNDED_DIALOG_BODY_CLASS}>
+          <p data-wrapping-prose className={`mt-1.5 text-[12px] leading-relaxed text-ink-soft ${WRAPPING_PROSE_CLASS}`}>{body}</p>
+          {/* The shared checkbox keeps widening the action a familiar, explicit choice. */}
+          {option && (
+            <CheckboxRow
+              checked={option.checked}
+              onToggle={() => option.onChange(!option.checked)}
+              className="mt-3 w-full rounded-md bg-panel-2/60 p-2 text-[12px] leading-snug text-ink-soft"
+            >
+              <span>{option.label}</span>
+            </CheckboxRow>
+          )}
+        </div>
+        <div className="mt-4 flex shrink-0 items-center justify-end gap-2">
           <button ref={cancelRef} type="button" onClick={onCancel} className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}>
             Cancel
           </button>

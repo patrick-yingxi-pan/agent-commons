@@ -19,6 +19,7 @@ import {
 import { registryRows } from '../lib/registryRows.ts'
 import { OWNER_SECTION } from '../lib/paneNav'
 import {
+  isArtifactLifecycleActive,
   useArtifacts,
   useProjects,
   useRelationGraph,
@@ -191,7 +192,7 @@ export function RelationsProvider({
     const projectIdForSession = (sid: string) =>
       sid in graph.sessionProject ? graph.sessionProject[sid] : null
     const artifactProjectId = (a: ArtifactItem) => graph.artifactProject[a.id] ?? a.projectId
-    const allArtifacts = () => registryRows(graph.extraArtifacts, artifacts)
+    const allArtifacts = () => registryRows(graph.extraArtifacts, artifacts).filter(isArtifactLifecycleActive)
     const scheduleProjectId = (schedId: string) =>
       schedId in graph.scheduleProject ? graph.scheduleProject[schedId] : null
 

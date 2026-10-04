@@ -15,6 +15,18 @@ export interface TrashedArtifact {
   trashedAt: number
 }
 
+/** Owner-authoritative lifecycle projection, including legacy active rows. */
+export interface ArtifactLifecycleSnapshot {
+  artifact: ArtifactItem
+  lifecycle: ArtifactLifecycle
+}
+
+/** Strict compare-and-swap request for Trash and restore. */
+export interface ArtifactLifecycleRequest {
+  state: ArtifactLifecycleState
+  expectedRevision: number
+}
+
 export type ArtifactLifecycleTransitionResult =
   | { kind: 'changed'; value: ArtifactLifecycle }
   | { kind: 'replayed'; value: ArtifactLifecycle }

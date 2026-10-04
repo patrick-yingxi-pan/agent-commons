@@ -14,7 +14,7 @@ test('every truncated h1 consumer uses the shared full-identity disclosure', () 
     return [...source.matchAll(/<h1\b(?=[^>]*\btruncate\b)[^>]*>[\s\S]*?<\/h1>/g)].map(([heading]) => ({ path, heading }))
   })
 
-  assert.equal(headings.length, 8, 'the consumer enumeration must be reviewed when a truncated h1 is added or removed')
+  assert.equal(headings.length, 9, 'the consumer enumeration must be reviewed when a truncated h1 is added or removed')
   for (const { path, heading } of headings) {
     assert.match(heading, /identityTitleProps\(/, `${path.replace(ROOT + '/', '')} must expose its full identity through the shared helper`)
   }

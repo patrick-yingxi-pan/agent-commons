@@ -690,6 +690,11 @@ import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
 import { ArtifactDetailPage, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { heldArtifactCreation } from '../controller/artifactCreationMutations'
+import { InlineOperationStatus } from './InlineOperationStatus'
+import { useTrashedArtifacts } from '../api/artifactLifecycle'
+import { heldArtifactLifecycle, heldArtifactLifecycles, useArtifactLifecycleStatus } from '../controller/artifactLifecycleMutations'
+import { artifactTrashProjection } from '../lib/artifactTrashProjection'
+import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
@@ -7812,9 +7817,12 @@ function ArtifactsSection({
   const [filter] = useSectionFilter('artifacts')
   const rel = useRelations()
   const artifactsQ = useArtifacts()
+  const trashQ = useTrashedArtifacts()
+  useArtifactLifecycleStatus()
   const artifactRelationsQ = useRelationGraph()
   const sourceSchedules = useSchedules().data ?? []
-  const artifacts = rel.allArtifacts()
+  const library = artifactTrashProjection(rel.allArtifacts(), trashQ.data ?? [], heldArtifactLifecycles().map(held => held.artifact))
+  const artifacts = library.active
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
 
@@ -7832,8 +7840,9 @@ function ArtifactsSection({
   // The grouping is shared with the rail: project section → artifact. The
   // unfiltered registry resolves a selected section even if a transient search
   // currently leaves it empty; the visible list supplies that section's rows.
-  const allGroups = artifactCollectionSections(artifacts, projects, rel.artifactProjectId)
-  const groups = artifactCollectionSections(matches, projects, rel.artifactProjectId)
+  const trashMatches = listArtifacts(library.trashed, filter).filter(a => !needle || `${a.name} ${a.excerpt ?? ''} ${a.source}`.toLowerCase().includes(needle))
+  const allGroups = artifactCollectionSections(artifacts, projects, rel.artifactProjectId, library.trashed)
+  const groups = artifactCollectionSections(matches, projects, rel.artifactProjectId, trashMatches)
   const selectedMeta = collectionSectionId
     ? allGroups.find((group) => group.id === collectionSectionId) ?? null
     : null
@@ -7844,10 +7853,11 @@ function ArtifactsSection({
 
   // An id the registry doesn't know (a stale link, a deleted artifact) degrades
   // to the plain index — the same graceful read every detail page gives.
-  const openArtifact = artifactId ? (artifacts.find((a) => a.id === artifactId) ?? null) : null
+  const openArtifact = artifactId ? (heldArtifactLifecycle(artifactId)?.artifact ?? artifacts.find((a) => a.id === artifactId) ?? library.trashed.find(a => a.id === artifactId) ?? null) : null
+  const inTrash = openArtifact ? (openArtifact.lifecycleRevision ?? 0) % 2 === 1 : false
   // The open artifact IS this section's detail page now, so it records a view
   // like every other one (only when it actually resolved).
-  useRecordView('artifact', openArtifact?.id)
+  useRecordView('artifact', !inTrash && !heldArtifactLifecycle(artifactId ?? '') ? openArtifact?.id : undefined)
 
   // Assign an artifact to a project (or unfile it, projectId null) — re-files via
   // the relation graph, re-grouping the index live for every client. Only
@@ -7872,6 +7882,8 @@ function ArtifactsSection({
           // its draft — cannot leak to a different artifact at the same pane.
           key={openArtifact.id}
           artifact={openArtifact}
+          inTrash={inTrash}
+          filingHeld={rel.mutation.pendingKeys.length > 0}
           projects={projects}
           currentProjectId={rel.artifactProjectId(openArtifact)}
           own={openArtifact.own !== false}
@@ -7888,11 +7900,11 @@ function ArtifactsSection({
     return (
       <UnavailableResourcePage
         title="Artifact"
-        state={resolveResourceUnavailable([artifactsQ, artifactRelationsQ])}
+        state={resolveResourceUnavailable([artifactsQ, artifactRelationsQ, trashQ])}
         message="This artifact isn’t visible from this account (or no longer exists)."
         backTo={backTo ?? { kind: 'section', section: 'artifacts', projectId: null, scheduleId: null }}
         onBack={onBack}
-        onRetry={() => retryResourceQueries([keys.artifacts, keys.relations])}
+        onRetry={() => retryResourceQueries([keys.artifacts, keys.relations, keys.artifactTrash])}
       />
     )
   }
@@ -7905,8 +7917,8 @@ function ArtifactsSection({
     groups: shownGroups.map((group) => ({
       key: group.id,
       label: group.label,
-      keepEmpty: selectedGroup?.id === group.id,
-      empty: 'No artifacts in this section.',
+      keepEmpty: selectedGroup?.id === group.id || group.id === ARTIFACT_TRASH_SECTION.id,
+      empty: group.id === ARTIFACT_TRASH_SECTION.id ? trashQ.status === 'error' ? 'Couldn’t load Trash.' : trashQ.data === undefined ? 'Loading Trash…' : library.trashed.length ? 'No matching artifacts in Trash.' : 'Trash is empty.' : 'No artifacts in this section.',
       items: collectionProjectionItems(
         group.items,
         (artifact) => artifact.id,
@@ -7932,6 +7944,8 @@ function ArtifactsSection({
         section="artifacts"
         filter={<SectionFilterMenu section="artifacts" placement="page" />}
       />
+      {trashQ.status === 'error' && <InlineOperationStatus tone="alert" message="Couldn’t refresh Trash. Previously loaded items may be out of date." action={{ label: 'Retry', onClick: () => retryResourceQueries([keys.artifactTrash]) }} />}
+      {collectionSectionId === ARTIFACT_TRASH_SECTION.id && <p className="mb-3 text-[12px] text-ink-soft">Artifacts in Trash are hidden from shared readers. Restore an artifact to make it available again with its current sharing settings.</p>}
 
       <MainCollectionTemplate
         projection={projection}
@@ -7972,7 +7986,8 @@ function ArtifactPreviewRow({
   onOpen: () => void
 }) {
   const Icon = KIND_ICON[artifact.kind]
-  const preview = artifact.excerpt?.trim() || 'No preview available.'
+  const recovery = heldArtifactLifecycle(artifact.id) ? 'Waiting for confirmation' : (artifact.lifecycleRevision ?? 0) % 2 === 1 ? 'In Trash' : null
+  const preview = recovery ?? (artifact.excerpt?.trim() || 'No preview available.')
   const specificMeta = artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind])
   return (
     // The row is the mouse target, its NAME the named keyboard door (UI-17).
@@ -8537,16 +8552,20 @@ function McpAccessCard() {
             )}
           </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-2.5">
-            <input
-              type="text"
-              value={mintHeld?.label ?? label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Token label (optional — e.g. laptop MCP)"
-              maxLength={80}
-              disabled={!signedIn || !!mintHeld || !mintRecoveryChecked}
-              className="min-w-0 flex-1 rounded-md border border-line bg-panel-2/30 px-2.5 py-1.5 text-[12px] text-ink placeholder:text-ink-faint focus:outline-none focus:ring-1 focus:ring-co disabled:opacity-50"
-            />
+          <div className="flex flex-wrap items-end gap-2.5">
+            <div className="min-w-0 flex-1 basis-56">
+              <FormField label="Token label" optional>
+                <input
+                  type="text"
+                  value={mintHeld?.label ?? label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder="e.g. laptop MCP"
+                  maxLength={80}
+                  disabled={!signedIn || !!mintHeld || !mintRecoveryChecked}
+                  className={FORM_INPUT_CLASS}
+                />
+              </FormField>
+            </div>
             <button
               onClick={mint}
               disabled={!!mintHeld || !signedIn || !mintRecoveryChecked}

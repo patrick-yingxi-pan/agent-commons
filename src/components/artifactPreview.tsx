@@ -12,6 +12,8 @@ import {
   Plus,
   Presentation,
   Sheet,
+  Trash2,
+  RotateCcw,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -22,7 +24,7 @@ import type { SocialEntityRef } from '../../contract/index.ts'
 import { docBlockText } from '../../contract/index.ts'
 import { LocusGutter } from './LocusGutter'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
-import { useArtifactContent, useFsText, fsContentUrl } from '../api'
+import { useArtifactContent, useFsText, fsContentUrl, useMe } from '../api'
 import { artifactEditDrafts, useArtifactEditDraft } from '../controller/artifactEditDrafts'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
@@ -37,10 +39,14 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { identityTitleProps } from '../lib/identityTitle'
+import { WRAPPING_PROSE_CLASS } from '../lib/prose'
 import { BackButton } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SectionAction } from './SectionAction'
-import { SHARING_MUTATION_WAIT } from '../controller/grantMutations.ts'
+import { SHARING_MUTATION_WAIT, isGrantMutationHeld, useGrantMutationStatus } from '../controller/grantMutations.ts'
+import { enqueueArtifactLifecycle, heldArtifactLifecycle, useArtifactLifecycleStatus } from '../controller/artifactLifecycleMutations'
+import { ConfirmDialog } from './ConfirmDialog'
+import { SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { useArtifactDownload } from '../controller/useArtifactDownload.ts'
 import {
   enqueueArtifactMetadataMutation,
@@ -216,7 +222,7 @@ function DocView({
   const t = DOC[size]
   const blocks = size === 'thumb' ? doc.blocks.slice(0, 2) : doc.blocks
   return (
-    <div className={t.gap}>
+    <div data-wrapping-prose className={`${t.gap} ${WRAPPING_PROSE_CLASS}`}>
       <div className={`${t.title} font-serif font-semibold leading-snug text-ink ${size === 'thumb' ? 'line-clamp-1' : ''}`}>
         {doc.title}
       </div>
@@ -651,6 +657,8 @@ export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; nam
  *  unfiled without leaving its page. */
 export function ArtifactDetailPage({
   artifact,
+  inTrash = false,
+  filingHeld = false,
   projects,
   currentProjectId,
   own,
@@ -661,6 +669,8 @@ export function ArtifactDetailPage({
   Section,
 }: {
   artifact: ArtifactItem
+  inTrash?: boolean
+  filingHeld?: boolean
   projects: { id: string; name: string }[]
   /** Whether the reader OWNS this artifact — a grant widens the read, so
    *  "can see it" and "may rewrite it" are different questions (the routine
@@ -686,6 +696,8 @@ export function ArtifactDetailPage({
 }) {
   const Icon = KIND_ICON[artifact.kind]
   const metadataMutation = useArtifactMetadataMutationStatus()
+  const identity = useMe().data
+  const sourceUserId = identity?.via === 'session' ? identity.user.id : null
   const metadataBusy = isArtifactMetadataMutationHeld(artifact.id) ||
     (metadataMutation.busy && metadataMutation.activeResourceId === artifact.id)
   const [editingName, setEditingName] = useState(false)
@@ -704,7 +716,9 @@ export function ArtifactDetailPage({
   const editing = documentDraft?.block ?? null
   const saving = draftState?.held ?? false
   const editingStructured = structuredDraft !== undefined
-  const artifactContent = useArtifactContent()
+  useArtifactLifecycleStatus()
+  const lifecycleHeld = heldArtifactLifecycle(artifact.id)
+  const artifactContent = useArtifactContent(!inTrash && !lifecycleHeld)
   const structuredMutation = useStructuredArtifactMutationStatus()
   const structuredBody = artifactContent.data?.[artifact.id]
   const draftBlock = structuredBody?.type === 'doc' && editing !== null ? structuredBody.blocks[editing] : undefined
@@ -714,6 +728,9 @@ export function ArtifactDetailPage({
     (structuredMutation.busy && structuredMutation.activeResourceId === artifact.id)
   const [sharing, setSharing] = useState(false)
   const [sharingHeld, setSharingHeld] = useState(false)
+  useGrantMutationStatus()
+  const [trashReview, setTrashReview] = useState<{ artifact: ArtifactItem; sourceUserId: string | null } | null>(null)
+  const trashBlocked = !identity || editingName || metadataBusy || draftState !== undefined || structuredBusy || sharingHeld || isGrantMutationHeld({ kind: 'artifact', id: artifact.id }) || filingHeld
   const downloadFormat = artifact.kind === 'sheet' ? 'xlsx' : artifact.kind === 'slide' ? 'pptx' : artifact.kind === 'doc' || artifact.kind === 'email' ? 'markdown' : null
   // One artifact-scoped operation owns both document downloads. This keeps
   // Markdown and Word mutually exclusive and gives account/artifact changes a
@@ -757,6 +774,30 @@ export function ArtifactDetailPage({
     const { revision = 0, ...content } = editableStructuredBody
     artifactEditDrafts.start(artifact.id, { kind: 'structured', content, expectedRevision: revision })
   }
+
+  // The same canonical identity becomes a recovery surface. No retained body,
+  // download, sharing or edit controls confer authority while access is suspended
+  // or while the initiating action has an uncertain acknowledgement.
+  if (inTrash || lifecycleHeld) return (
+    <div data-artifact-page={artifact.id} data-artifact-lifecycle={lifecycleHeld ? 'held' : 'trashed'} className="mx-auto w-full max-w-3xl">
+      <header className={PAGE_HEADER_CLASS}>
+        <div className="flex min-w-0 items-start gap-3">
+          <BackButton to={backTo ?? { kind: 'section', section: 'artifacts', projectId: null, scheduleId: null, collectionSectionId: '__trash' }} onBack={onBack} />
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-cap-workspace"><Icon size={20} /></span>
+          <div className="min-w-0 flex-1">
+            <h1 className={`${PAGE_TITLE_CLASS} truncate`} {...identityTitleProps(artifact.name)}>{artifact.name}</h1>
+            <p className="mt-1 text-[12px] text-ink-soft"><span>{lifecycleHeld ? 'Waiting for confirmation' : 'In Trash'}</span> · {KIND_LABEL[artifact.kind]}</p>
+          </div>
+        </div>
+      </header>
+      <Section title="Recovery" summary={lifecycleHeld ? 'Your reviewed action is held' : 'Restore this artifact'}>
+        <p className="text-[13px] leading-relaxed text-ink-soft">{lifecycleHeld
+          ? 'Use the recovery notice to retry this exact action, or Dismiss to check its saved state. The artifact stays here until the outcome is confirmed.'
+          : 'This artifact is kept in Trash and is unavailable to shared readers, discussions and routines. Restoring keeps its contents, filing and current sharing settings.'}</p>
+        {own && !lifecycleHeld && <button type="button" disabled={!identity} className={`${SECONDARY_BUTTON_CLASS} mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]`} onClick={() => { if (identity) void enqueueArtifactLifecycle(artifact, 'active', sourceUserId) }}><RotateCcw size={14} />Restore artifact</button>}
+      </Section>
+    </div>
+  )
 
   return (
     <div
@@ -969,7 +1010,16 @@ export function ArtifactDetailPage({
             )}
           </div>
         </Section>
+        {own && <Section title="Manage artifact" summary="Recoverable removal" defaultFolded>
+          <p className="text-[12px] leading-relaxed text-ink-soft">Move this artifact to Trash to remove it from active work. You can restore it later.</p>
+          <button type="button" disabled={trashBlocked || artifactDownload.busy} title={trashBlocked || artifactDownload.busy ? 'Save or cancel edits and finish current changes before moving to Trash' : 'Move to Trash'} className={`${SECONDARY_BUTTON_CLASS} mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]`} onClick={() => setTrashReview({ artifact: structuredClone(artifact), sourceUserId })}><Trash2 size={14} />Move to Trash</button>
+        </Section>}
       </div>
+      {trashReview && <ConfirmDialog title="Move artifact to Trash?" body={`“${trashReview.artifact.name}” will leave active work. Shared access, discussions and routine output to this artifact will be suspended. Its contents and filing are kept so you can restore it later.`} confirmLabel="Move to Trash" onCancel={() => setTrashReview(null)} onConfirm={() => {
+        if (trashBlocked || artifactDownload.busy) { setTrashReview(null); return }
+        void enqueueArtifactLifecycle(trashReview.artifact, 'trashed', trashReview.sourceUserId)
+        setTrashReview(null)
+      }} />}
     </div>
   )
 }

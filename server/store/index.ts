@@ -1691,6 +1691,27 @@ function socialSubjectSuspended(ref: SocialEntityRef): boolean {
   return false
 }
 
+/** The same bounded ancestry walk, with the root artifact identified for a
+ * lifecycle audience snapshot. Cycles fail closed. */
+function socialSubjectHasArtifactAncestor(ref: SocialEntityRef, artifactId: string): boolean {
+  const visited = new Set<string>()
+  let current: SocialEntityRef | undefined = ref
+  while (current) {
+    const key = `${current.kind}:${current.id}`
+    if (visited.has(key)) return false
+    visited.add(key)
+    if (current.kind === 'artifact') return current.id === artifactId
+    if (current.kind === 'discussion') {
+      const id: string = current.id
+      current = discussions.find((row) => row.id === id)?.anchor.ref
+    } else if (current.kind === 'proposal') {
+      const id: string = current.id
+      current = socialProposals.find((row) => row.id === id)?.subject
+    } else return false
+  }
+  return false
+}
+
 /** Agent-Commons registry visibility (F2/PD9). Unlike CONTENT (sessions/projects/artifacts,
  *  where a seed row belongs to the default tenant and is private to it), a registry entry is
  *  INFRASTRUCTURE: a seeded/shared one (no `tenantId` — e.g. the default agent/provider/prompt
@@ -4210,6 +4231,8 @@ export const store = {
       // O-D5, the streams of that org's members (the inbox is member-readable).
       case 'notification.changed':
         return tenantReadsAs(tenantId, e.tenantId)
+      case 'social-access.changed':
+        return tenantReadsAs(tenantId, e.tenantId)
       case 'org.invitation.changed':
         // Owners are explicit; the addressed account matches an opaque audience
         // minted for known and unknown emails alike, preserving the no-oracle wall.
@@ -4279,8 +4302,9 @@ export const store = {
         // Mirrors the artifact's own READ wall, so a shared artifact's audience
         // sees a landed body edit live and nobody else learns the name exists.
         // An unresolvable id falls back to the flagship rule, like the gates above.
-        // Keep invalidation reachable to the retained audience after Trash has
-        // closed ordinary reads. The hint contains identity, never body data.
+        // Keep direct root-read invalidation reachable to the retained audience
+        // after Trash closes reads. Nested-only readers receive the separate
+        // tenant-targeted social-access.changed hint below.
         const a = retainedArtifact(e.artifactId)
         return a ? rowVisibleTo(a, tenantId) || grantedTierFor({ kind: 'artifact', id: a.id }, tenantId) !== undefined
           : seedVisibleTo(tenantId)
@@ -6830,7 +6854,7 @@ export const store = {
     const projectId = input.projectId ?? ''
     if (projectId) {
       const project = findProject(projectId)
-      if (!project || !tenantWritesAs(tenantId, projectTenant(projectId))) return undefined
+      if (!project || !ownsGrantSubject(project, tenantId)) return undefined
     }
 
     const at = Date.now()
@@ -10750,12 +10774,56 @@ export const store = {
       }))
       .sort((a, b) => b.trashedAt - a.trashedAt || a.artifact.id.localeCompare(b.artifact.id))
   },
+  /** Owner-only authoritative lifecycle snapshot. Legacy absence projects as
+   * active revision zero without mutating or eagerly stamping old rows. */
+  getArtifactLifecycle(id: string, tenantId: string) {
+    const artifact = retainedArtifact(id)
+    if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
+    const lifecycle = artifactLifecycle.get(id) ?? { state: 'active' as const, revision: 0, changedAt: 0 }
+    return {
+      artifact: {
+        ...artifactWithMetadata(artifact),
+        projectId: graph.artifactProject[id] ?? artifact.projectId,
+        own: true,
+      },
+      lifecycle: { ...lifecycle },
+    }
+  },
   /** One durable CAS for Trash and restore. Replaying its immediate represented
    * step acknowledges it; old retries cannot cross a later opposite transition.
    * Body, metadata, filing, source, proposals and current grants are retained. */
   setArtifactLifecycle(id: string, state: 'active' | 'trashed', expectedRevision: number, tenantId: string) {
     const artifact = retainedArtifact(id)
     if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
+    const collectNestedReaders = (): Set<string> => {
+      const candidates = new Set<string>(accounts.tenants.keys())
+      candidates.add(tenantId)
+      for (const grant of grants) {
+        if (grant.granterTenant) candidates.add(grant.granterTenant)
+        if (grant.audienceTenant) candidates.add(grant.audienceTenant)
+        for (const redeemedTenant of grant.redeemedBy ?? []) candidates.add(redeemedTenant)
+      }
+      const descendantDiscussions = discussions.filter((row) => socialSubjectHasArtifactAncestor(row.anchor.ref, id))
+      const descendantProposals = socialProposals.filter((row) => socialSubjectHasArtifactAncestor(row.subject, id))
+      for (const discussion of descendantDiscussions) {
+        candidates.add(discussion.openerTenant)
+        for (const post of discussion.posts) candidates.add(post.authorTenant)
+      }
+      for (const proposal of descendantProposals) candidates.add(proposal.offererTenant)
+
+      const readers = new Set<string>()
+      for (const candidateTenant of candidates) {
+        const rootVisible = this.artifactVisibleToTenant(artifact, candidateTenant)
+        const nestedVisible = descendantDiscussions.some((row) => this.discussionReadableBy(row, candidateTenant)) ||
+          descendantProposals.some((row) => this.grantSubjectVisible({ kind: 'proposal', id: row.id }, candidateTenant))
+        if (!rootVisible && nestedVisible) readers.add(candidateTenant)
+      }
+      return readers
+    }
+    // Trash snapshots while the ordinary read wall is still open; restore
+    // snapshots immediately after it reopens. The real social access predicates
+    // decide recipients, rather than a parallel approximation of grants.
+    const nestedReadersBeforeTrash = state === 'trashed' ? collectNestedReaders() : undefined
     const current = artifactLifecycle.get(id)
     const result = nextArtifactLifecycle(current, state, expectedRevision, Math.max(Date.now(), current?.changedAt ?? 0))
     if (result.kind === 'invalid') throw new ValidationError('A valid target state and non-negative lifecycle revision are required.')
@@ -10765,6 +10833,8 @@ export const store = {
       graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
       persist()
       emit({ type: 'artifact.changed', artifactId: id })
+      const nestedReaders = nestedReadersBeforeTrash ?? collectNestedReaders()
+      for (const recipient of nestedReaders) emit({ type: 'social-access.changed', tenantId: recipient })
     }
     return { artifact: { ...artifactWithMetadata(artifact), projectId: graph.artifactProject[id] ?? artifact.projectId, own: true }, lifecycle: { ...result.value } }
   },

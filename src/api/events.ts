@@ -149,6 +149,13 @@ function route(e: ServerEvent): void {
     // Granted readers receive this hint but not the owner's private relation
     // event, so all body and metadata projections heal through this one door.
     case 'artifact.changed':
+      invalidate(keys.artifactTrash)
+      invalidatePrefix(keys.artifactLifecycle())
+      invalidatePrefix(keys.grants())
+      invalidatePrefix(keys.discussions())
+      invalidatePrefix(keys.discussion())
+      invalidatePrefix('social-capability')
+      invalidate(keys.notifications)
       invalidate(keys.artifactContent)
       invalidate(keys.artifacts)
       invalidate(keys.relations)
@@ -304,6 +311,17 @@ function route(e: ServerEvent): void {
     // A grant changed (social S1) — the subject's roster is stale, and so is
     // the audience's world projection: a granted project must appear in their
     // Projects list (the shared-with-me band) live, a revoked one must leave.
+    case 'social-access.changed':
+      invalidatePrefix(keys.grants())
+      invalidatePrefix(keys.discussions())
+      invalidatePrefix(keys.discussion())
+      invalidatePrefix(keys.socialProposals())
+      invalidatePrefix(keys.socialProposal())
+      invalidatePrefix('social-capability')
+      invalidate(keys.notifications)
+      invalidate(keys.commons)
+      invalidatePrefix(keys.search())
+      break
     case 'grant.changed':
       invalidatePrefix(keys.grants())
       invalidate(keys.projects) // seed rows enter/leave the shared-with-me band

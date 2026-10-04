@@ -95,6 +95,8 @@ export const keys = {
   /** Keyed per session so the context-window figure tracks the open thread. */
   usage: (sessionId?: string) => (sessionId ? `usage:${sessionId}` : 'usage'),
   artifactContent: 'artifact-content',
+  artifactTrash: 'artifact-trash',
+  artifactLifecycle: (id?: string) => (id ? `artifact-lifecycle:${id}` : 'artifact-lifecycle'),
   scheduleTemplates: 'schedule-templates',
   // Served filesystem sources (Files / Photos / Folder — contract/fs.ts). Keyed per
   // source / path so each catalog + folder scan + file body caches on its own.
@@ -354,6 +356,8 @@ export const paths = {
   projects: '/projects',
   artifacts: '/artifacts',
   artifact: (id: string) => `/artifacts/${encodeURIComponent(id)}`,
+  artifactTrash: '/artifacts/trash',
+  artifactLifecycle: (id: string) => `/artifacts/${encodeURIComponent(id)}/lifecycle`,
   artifactExport: (id: string, format?: 'xlsx' | 'pptx' | 'docx') => {
     const path = `/artifacts/${encodeURIComponent(id)}/export`
     return format ? `${path}?format=${format}` : path

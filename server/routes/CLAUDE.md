@@ -104,6 +104,7 @@ Read [`../http/CLAUDE.md`](../http/CLAUDE.md) for registration/dispatch rules,
 | ROUTES-D84 | data-access | `POST /artifacts` requires one Idempotency-Key and accepts only the strict direct authored request. When supplied, the browser's expected account source must still match before tenant lookup; remote/MCP callers may omit that compatibility precondition. The authenticated tenant and key derive an opaque identity; represented replay precedes changed request parsing, while stale accounts, invalid fields and foreign projects fail before graph, body, filing, or event effects. | [`index.ts`](index.ts) · [`../artifactCreationIdentity.ts`](../artifactCreationIdentity.ts) | [`artifact-creation.test.ts`](artifact-creation.test.ts) | refines ROUTES-D1; requires SERVER-D46; requires STORE-D80; requires CONTRACT-D89 |
 | ROUTES-D85 | data-access | The UI-only model-preference GET/PATCH resolves authority solely from the authenticated principal. GET echoes that exact scope; PATCH accepts only one closed full body and requires matching expected tenant, user and revision, so stale tabs conflict without redirecting intent into the newly active principal. | [`index.ts`](index.ts) · [`../modelPreferences.ts`](../modelPreferences.ts) | [`model-preferences.test.ts`](model-preferences.test.ts) · [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines ROUTES-D4; requires SERVER-D49 |
 | ROUTES-D86 | data-access | Cached Artifact, grant, discussion, proposal-verdict and owner-graph responses remain acknowledgements, not enduring read authority. Route-owned replay guards check current access on both immediate and awaited replay before disclosure; refusal preserves the original receipt without rerunning its mutation. | [`index.ts`](index.ts) · [`replayVisibility.ts`](replayVisibility.ts) | [`artifact-trash-replay.test.ts`](artifact-trash-replay.test.ts) · [`artifact-trash-visibility.test.ts`](artifact-trash-visibility.test.ts) | refines ROUTES-D1; requires STORE-D84 |
+| ROUTES-D87 | data-access | Artifact Trash list and lifecycle reads are owner-only; lifecycle GET/PATCH honor the optional first-party account-source precondition before returning truth or mutating, while source-free MCP remains compatible. PATCH requires a strict target plus exact revision, admits only the store's immediate one-step retry, and returns current artifact/lifecycle truth without generic cached replay. Every product route derives matching HTTP, in-session, and MCP access. Direct readers get body-free Artifact invalidation; nested-only readers get a tenant-targeted `social-access.changed` without the Artifact id, while foreign tenants learn nothing. | [`index.ts`](index.ts) · [`../store/index.ts`](../store/index.ts) · [`../../contract/artifactLifecycle.ts`](../../contract/artifactLifecycle.ts) · [`../../contract/events.ts`](../../contract/events.ts) | [`artifact-lifecycle.test.ts`](artifact-lifecycle.test.ts) · [`artifact-trash-visibility.test.ts`](artifact-trash-visibility.test.ts) · [`../mcp-parity.test.ts`](../mcp-parity.test.ts) | refines ROUTES-D1; requires STORE-D84; requires CONTRACT-D98 |
 | ROUTES-V1 | verification | Each resource suite drives the real router/store through the shared HTTP testkit. | [`../testkit/http.ts`](../testkit/http.ts) | [`sessions.test.ts`](sessions.test.ts) · [`schedules.test.ts`](schedules.test.ts) | refines SERVER-V1 |
 <!-- context-rules:end -->
 
@@ -121,11 +122,9 @@ semantic alias, and in-session intrinsic realizations must use the named router
 shorthands and explain the exception at registration; no access door keeps a
 private exclusion list.
 
-Beside it: the ~77 suites that lock those endpoints, one per resource or
-behavior. A suite here drives the **real** router through
-[`../testkit/http.ts`](../testkit/http.ts) — `buildRouter()` + the real store,
-no port bound and no entry point booted — so it reads like HTTP without the
-process plumbing.
+Beside it are per-resource and behavior suites driving the **real** router
+through [`../testkit/http.ts`](../testkit/http.ts): `buildRouter()` + the real
+store, without binding a port or booting the entry point.
 
 ## Naming
 

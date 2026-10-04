@@ -44,6 +44,7 @@ test('Artifacts groups by live project membership with an honest Unfiled tail', 
       ['p1', 'Insights', ['a1']],
       ['p2', 'Hardening', ['a2']],
       ['__unfiled', 'Unfiled', ['a3']],
+      ['__trash', 'Trash', []],
     ],
   )
 })

@@ -79,6 +79,7 @@ import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { validWorkspaceFolders } from '../../contract/workspaceFolders.ts'
 import { IMAGE_UPLOAD_BODY_BYTES } from '../../contract/imageAssets.ts'
+import type { ArtifactLifecycleRequest, ArtifactLifecycleSnapshot, TrashedArtifact } from '../../contract/artifactLifecycle.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { stripTypeScriptTypes } from 'node:module'
@@ -5440,6 +5441,43 @@ export function buildRouter(): Router {
   })
   r.get('/artifacts', ({ req, res, url }) => {
     sendList(res, url, store.listArtifacts(store.identity(req.headers).tenant.id), (a) => a.id)
+  })
+  r.get('/artifacts/trash', ({ req, res }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    sendJson(res, store.listTrashedArtifacts(tenantId) satisfies TrashedArtifact[])
+  })
+  r.get('/artifacts/:id/lifecycle', ({ req, res, params }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
+    const tenantId = store.identity(req.headers).tenant.id
+    const snapshot = store.getArtifactLifecycle(params.id, tenantId)
+    if (!snapshot) return sendError(res, 'not_found', 'No such artifact')
+    sendJson(res, snapshot satisfies ArtifactLifecycleSnapshot)
+  })
+  // A lifecycle transition uses the store's exact CAS receipt directly. Do not
+  // wrap it in the generic response cache: the one-step lifecycle replay is
+  // authoritative, and a cached acknowledgement must not outlive current owner
+  // access or conceal a later restore/Trash cycle.
+  r.patch('/artifacts/:id/lifecycle', async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
+    const tenantId = store.identity(req.headers).tenant.id
+    const input = await body<unknown>()
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+      Object.keys(input).some((key) => key !== 'state' && key !== 'expectedRevision') ||
+      !Object.hasOwn(input, 'state') || !Object.hasOwn(input, 'expectedRevision') ||
+      (input as Record<string, unknown>).state !== 'active' && (input as Record<string, unknown>).state !== 'trashed' ||
+      !Number.isSafeInteger((input as Record<string, unknown>).expectedRevision) ||
+      ((input as Record<string, unknown>).expectedRevision as number) < 0) {
+      return sendError(res, 'bad_request', 'Only state (active or trashed) and a non-negative safe expectedRevision are accepted.')
+    }
+    const request = input as ArtifactLifecycleRequest
+    try {
+      const snapshot = store.setArtifactLifecycle(params.id, request.state, request.expectedRevision, tenantId)
+      if (!snapshot) return sendError(res, 'not_found', 'No such artifact')
+      sendJson(res, snapshot satisfies ArtifactLifecycleSnapshot)
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
   })
   r.get('/artifacts/:id', ({ req, res, params }) => {
     const artifact = store.listArtifacts(store.identity(req.headers).tenant.id).find((row) => row.id === params.id)

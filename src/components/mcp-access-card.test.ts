@@ -13,6 +13,13 @@ test('MCP access card separates the local device owner from hosted token flows',
   assert.match(card, /disabled=\{!signedIn \|\| !!mintHeld \|\| !mintRecoveryChecked\}/, 'the hosted mint form keeps its verified-session and restart-recovery wall')
 })
 
+test('the token label has persistent optional guidance through the shared field primitive', () => {
+  const card = stripComments(sectionViewComponent('McpAccessCard'))
+  assert.match(card, /<FormField label="Token label" optional>/)
+  assert.match(card, /placeholder="e\.g\. laptop MCP"/)
+  assert.match(card, /className=\{FORM_INPUT_CLASS\}/)
+})
+
 test('a one-time token reveal and frozen label survive navigation but stay identity-fenced', () => {
   const card = stripComments(sectionViewComponent('McpAccessCard'))
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'apiTokenMintMutations.ts')))

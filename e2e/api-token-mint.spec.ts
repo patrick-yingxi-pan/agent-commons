@@ -2,6 +2,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import type { ApiToken, BearerSession } from '../contract/index.ts'
 import { ms } from './budget.ts'
+import { assertWcag22Aa } from './accessibility-helpers.ts'
 
 async function signInAndOpen(page: Page) {
   const login = await page.request.post('/api/v1/auth/login', {
@@ -21,7 +22,35 @@ async function leaveAndReturn(page: Page) {
   await expect(page).toHaveURL(/\/contexts$/)
 }
 
-const labelInput = (page: Page) => page.getByPlaceholder('Token label (optional — e.g. laptop MCP)')
+const labelInput = (page: Page) => page.getByRole('textbox', { name: 'Token label (optional)', exact: true })
+
+test('token label and optional guidance stay visible while typing at every viewport', async ({ page }, testInfo) => {
+  test.setTimeout(ms(60_000))
+  await signInAndOpen(page)
+  const field = page.locator('label').filter({ has: labelInput(page) })
+  const caption = field.locator('span').first()
+  const mint = page.getByRole('button', { name: 'Mint access token', exact: true })
+  await expect(mint).toBeEnabled()
+  await labelInput(page).fill('Desktop MCP')
+  for (const viewport of [
+    { width: 320, height: 700 }, { width: 375, height: 812 },
+    { width: 768, height: 1024 }, { width: 844, height: 390 },
+    { width: 1280, height: 800 },
+  ]) {
+    await page.setViewportSize(viewport)
+    await labelInput(page).scrollIntoViewIfNeeded()
+    await expect(caption).toHaveText('Token label (optional)')
+    await expect(caption).toBeVisible()
+    await expect.poll(() => caption.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    await labelInput(page).click()
+    await labelInput(page).press('Tab')
+    await expect(mint).toBeFocused()
+    await expect(mint).toBeInViewport()
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath(`token-label-${viewport.width}x${viewport.height}.png`) })
+    await assertWcag22Aa(page, `Token label ${viewport.width}x${viewport.height}`)
+  }
+})
 
 test('a failed token mint keeps its label and Retry reuses one key', async ({ page }) => {
   test.setTimeout(ms(45_000))

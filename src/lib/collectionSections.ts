@@ -25,6 +25,7 @@ export const CONTEXT_COLLECTION_SECTIONS = [
 export const ACCOUNT_MCP_SECTION = { id: 'account-mcp', label: 'This account is an MCP server' } as const
 export const PROVIDERS_SECTION = { id: 'providers', label: 'Providers' } as const
 export const UNFILED_ARTIFACT_SECTION = { id: '__unfiled', label: 'Unfiled' } as const
+export const ARTIFACT_TRASH_SECTION = { id: '__trash', label: 'Trash' } as const
 
 /** Artifact sections follow project membership—the exact structure the gallery
  * draws. The relation resolver is injected so this pure module never learns the
@@ -33,6 +34,7 @@ export function artifactCollectionSections(
   artifacts: readonly ArtifactItem[],
   projects: readonly Project[],
   projectIdOf: (artifact: ArtifactItem) => string | undefined,
+  trashedArtifacts: readonly ArtifactItem[] = [],
 ): CollectionSection<ArtifactItem>[] {
   const knownProjectIds = new Set(projects.map((project) => project.id))
   return [
@@ -46,7 +48,7 @@ export function artifactCollectionSections(
       label: UNFILED_ARTIFACT_SECTION.label,
       items: artifacts.filter((artifact) => !knownProjectIds.has(projectIdOf(artifact) ?? '')),
     },
-  ].filter((section) => section.items.length > 0)
+  ].filter((section) => section.items.length > 0).concat({ ...ARTIFACT_TRASH_SECTION, items: [...trashedArtifacts] })
 }
 
 export function contextCollectionSections(contexts: readonly SavedContext[]): CollectionSection<SavedContext>[] {
@@ -70,7 +72,8 @@ export function collectionSectionLabel(
   projectNames: Readonly<Record<string, string>> = {},
 ): string | undefined {
   if (host === 'artifacts')
-    return id === UNFILED_ARTIFACT_SECTION.id ? UNFILED_ARTIFACT_SECTION.label : projectNames[id]
+    return id === ARTIFACT_TRASH_SECTION.id ? ARTIFACT_TRASH_SECTION.label
+      : id === UNFILED_ARTIFACT_SECTION.id ? UNFILED_ARTIFACT_SECTION.label : projectNames[id]
   if (host === 'contexts')
     return id === ACCOUNT_MCP_SECTION.id
       ? ACCOUNT_MCP_SECTION.label

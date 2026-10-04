@@ -296,6 +296,14 @@ export interface NotificationChangedEvent {
   tenantId: string
 }
 
+/** A viewer lost or regained access through a nested social subject when an
+ * Artifact root entered or left Trash. It names only the receiving tenant, not
+ * the Artifact or nested subject whose visibility changed. */
+export interface SocialAccessChangedEvent {
+  type: 'social-access.changed'
+  tenantId: string
+}
+
 /** One organization invitation moved. The payload carries no raw address or row
  * id. Its opaque address audience exists for known and unknown emails alike, so
  * targeted SSE delivery cannot reveal whether an account already exists. */
@@ -495,6 +503,7 @@ export type ServerEvent =
   | ProjectChangedEvent
   | RecentsChangedEvent
   | NotificationChangedEvent
+  | SocialAccessChangedEvent
   | OrgInvitationChangedEvent
   | ConnectorStatusEvent
   | SavedContextChangedEvent
