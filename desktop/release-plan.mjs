@@ -1,6 +1,7 @@
 import { basename, dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
-import { DESKTOP_BUNDLE_ID, DESKTOP_PRODUCT_NAME } from './packager.config.mjs'
+import packagerConfig, { DESKTOP_BUNDLE_ID, DESKTOP_PRODUCT_NAME } from './packager.config.mjs'
+import { assertUpdateBaseUrl, parseStableVersion } from './updateMetadata.mjs'
 
 export const DIRECT_DOWNLOAD_ENV = Object.freeze({
   signingIdentity: 'APPLE_SIGNING_IDENTITY',
@@ -81,6 +82,8 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
     'notarytool credentials stored in macOS Keychain',
   )
   const keychain = env[DIRECT_DOWNLOAD_ENV.keychain]?.trim() || undefined
+  const updateBaseUrl = assertUpdateBaseUrl(env.AGENT_COMMONS_UPDATE_BASE_URL)
+  parseStableVersion(manifest.version)
   const productName = manifest.productName
   if (productName !== DESKTOP_PRODUCT_NAME) throw new Error('Direct release product identity must remain Agent Commons.')
 
@@ -110,9 +113,11 @@ export function directDownloadReleasePlan({ root, manifest, env = process.env, p
       executableName: DESKTOP_PRODUCT_NAME,
       shortVersion: manifest.version,
       bundleVersion: manifest.version,
+      updateBaseUrl,
       binaryArchitectures: [arch === 'x64' ? 'x86_64' : arch],
     },
     packagerOptions: {
+      extendInfo: { ...packagerConfig.extendInfo, AgentCommonsUpdateBaseURL: updateBaseUrl },
       osxSign: signingOptions({
         identity,
         keychain,
@@ -174,6 +179,7 @@ export function releaseBundleIdentityProbes(appPath, executablePath) {
     plistProbe('executableName', 'CFBundleExecutable'),
     plistProbe('shortVersion', 'CFBundleShortVersionString'),
     plistProbe('bundleVersion', 'CFBundleVersion'),
+    plistProbe('updateBaseUrl', 'AgentCommonsUpdateBaseURL'),
     {
       field: 'binaryArchitectures',
       command: '/usr/bin/lipo',
@@ -195,9 +201,10 @@ export function validateReleaseBundleIdentity(actual, expected) {
     executableName: text(actual?.executableName),
     shortVersion: text(actual?.shortVersion),
     bundleVersion: text(actual?.bundleVersion),
+    updateBaseUrl: typeof actual?.updateBaseUrl === 'string' ? actual.updateBaseUrl.replace(/\r?\n$/, '') : undefined,
     binaryArchitectures: rawArchitectures.map(text).filter(Boolean).sort(),
   }
-  for (const field of ['bundleIdentifier', 'displayName', 'executableName', 'shortVersion', 'bundleVersion']) {
+  for (const field of ['bundleIdentifier', 'displayName', 'executableName', 'shortVersion', 'bundleVersion', 'updateBaseUrl']) {
     if (normalized[field] !== expected?.[field]) {
       throw new Error(`Release bundle ${field} does not match the immutable release plan.`)
     }
@@ -269,11 +276,12 @@ export function releaseReceiptJson({ productName, version, platform, architectur
     executableName: DESKTOP_PRODUCT_NAME,
     shortVersion: version,
     bundleVersion: version,
+    updateBaseUrl: assertUpdateBaseUrl(bundleIdentity?.updateBaseUrl),
     binaryArchitectures: [architecture === 'x64' ? 'x86_64' : architecture],
   })
 
   return `${JSON.stringify({
-    schemaVersion: 2,
+    schemaVersion: 3,
     product: productName,
     version,
     platform,
@@ -294,7 +302,7 @@ export function releaseReceiptJson({ productName, version, platform, architectur
   }, null, 2)}\n`
 }
 
-export function validateReleaseReceipt(receipt, { version, architecture, archiveName, bytes, sha256 }) {
+export function validateReleaseReceipt(receipt, { version, architecture, archiveName, bytes, sha256, updateBaseUrl }) {
   if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) {
     throw new Error('Direct release candidate receipt must be a JSON object.')
   }
@@ -315,6 +323,9 @@ export function validateReleaseReceipt(receipt, { version, architecture, archive
   }
   if (!isDeepStrictEqual(receipt, expected)) {
     throw new Error('Direct release candidate receipt does not match its artifact.')
+  }
+  if (receipt.bundle.updateBaseUrl !== assertUpdateBaseUrl(updateBaseUrl)) {
+    throw new Error('Direct release candidate update location does not match finalization.')
   }
   return receipt
 }

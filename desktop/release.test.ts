@@ -26,6 +26,7 @@ const manifest = { version: '0.1.0', productName: 'Agent Commons' }
 const validEnv = {
   APPLE_SIGNING_IDENTITY: 'Developer ID Application: Agent Commons (ABCDE12345)',
   APPLE_NOTARY_KEYCHAIN_PROFILE: 'agent-commons-notary',
+  AGENT_COMMONS_UPDATE_BASE_URL: 'https://updates.example.com/releases/',
 }
 
 test('direct download release fails before packaging without every macOS release prerequisite', () => {
@@ -59,6 +60,11 @@ test('direct download release fails before packaging without every macOS release
     }),
     /APPLE_NOTARY_KEYCHAIN_PROFILE/,
   )
+  for (const updateBaseUrl of [undefined, 'http://updates.example.com/releases/', 'https://updates.example.com/releases']) {
+    assert.throws(() => directDownloadReleasePlan({
+      root, manifest, env: { ...validEnv, AGENT_COMMONS_UPDATE_BASE_URL: updateBaseUrl }, platform: 'darwin', arch: 'arm64',
+    }), /AGENT_COMMONS_UPDATE_BASE_URL/)
+  }
 })
 
 test('direct download release pins signing, Keychain notarization, and architecture-specific outputs', () => {
@@ -86,11 +92,16 @@ test('direct download release pins signing, Keychain notarization, and architect
     executableName: 'Agent Commons',
     shortVersion: '0.1.0',
     bundleVersion: '0.1.0',
+    updateBaseUrl: validEnv.AGENT_COMMONS_UPDATE_BASE_URL,
     binaryArchitectures: ['arm64'],
   })
   assert.deepEqual(plan.packagerOptions.osxNotarize, {
     keychainProfile: 'agent-commons-notary',
     keychain: '/build/release.keychain-db',
+  })
+  assert.equal(plan.packagerOptions.extendInfo.AgentCommonsUpdateBaseURL, validEnv.AGENT_COMMONS_UPDATE_BASE_URL)
+  assert.deepEqual(plan.packagerOptions.extendInfo.NSAppTransportSecurity, {
+    NSAllowsArbitraryLoads: false, NSAllowsLocalNetworking: true,
   })
   assert.equal(plan.packagerOptions.osxSign.identity, validEnv.APPLE_SIGNING_IDENTITY)
   assert.equal(plan.packagerOptions.osxSign.continueOnError, false)
@@ -118,6 +129,7 @@ test('release identity is read from the app and its executable, not inferred for
     { field: 'executableName', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
     { field: 'shortVersion', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleShortVersionString', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
     { field: 'bundleVersion', command: '/usr/bin/plutil', args: ['-extract', 'CFBundleVersion', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
+    { field: 'updateBaseUrl', command: '/usr/bin/plutil', args: ['-extract', 'AgentCommonsUpdateBaseURL', 'raw', '-o', '-', `${appPath}/Contents/Info.plist`] },
     { field: 'binaryArchitectures', command: '/usr/bin/lipo', args: ['-archs', executablePath] },
   ])
 
@@ -128,6 +140,7 @@ test('release identity is read from the app and its executable, not inferred for
     executableName: 'Agent Commons\n',
     shortVersion: '0.1.0\n',
     bundleVersion: '0.1.0\n',
+    updateBaseUrl: `${validEnv.AGENT_COMMONS_UPDATE_BASE_URL}\n`,
     binaryArchitectures: 'arm64\n',
   }
   assert.doesNotThrow(() => validateReleaseBundleIdentity(actual, expected))
@@ -137,6 +150,7 @@ test('release identity is read from the app and its executable, not inferred for
     ['executableName', 'Other App'],
     ['shortVersion', '0.2.0'],
     ['bundleVersion', '99'],
+    ['updateBaseUrl', 'https://other.example.com/releases/'],
     ['binaryArchitectures', 'arm64 x86_64'],
   ]) {
     assert.throws(
@@ -236,7 +250,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
   })
   assert.equal(json.endsWith('\n'), true)
   assert.deepEqual(JSON.parse(json), {
-    schemaVersion: 2,
+    schemaVersion: 3,
     product: 'Agent Commons',
     version: '0.1.0',
     platform: 'macos',
@@ -297,6 +311,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
 
   const receipt = JSON.parse(json)
   assert.equal(validateReleaseReceipt(receipt, {
+    updateBaseUrl: validEnv.AGENT_COMMONS_UPDATE_BASE_URL,
     version: '0.1.0',
     architecture: 'arm64',
     archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
@@ -305,6 +320,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
   }), receipt)
   assert.throws(
     () => validateReleaseReceipt({ ...receipt, verification: { ...receipt.verification, executableSmoke: 'skipped' } }, {
+      updateBaseUrl: validEnv.AGENT_COMMONS_UPDATE_BASE_URL,
       version: '0.1.0',
       architecture: 'arm64',
       archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
@@ -559,6 +575,13 @@ test('release-set finalizer verifies both candidates before exposing either publ
       /AGENT_COMMONS_UPDATE_BASE_URL.*canonical public HTTPS directory URL/,
     )
     assert.equal(plan.artifacts.every((candidate) => !existsSync(candidate.updatePath)), true, 'invalid feed configuration writes no feed')
+    await assert.rejects(
+      finalizeMacDirectDownloadSet({ root: testRoot, baseUrl: 'https://other.example.com/releases/' }),
+      /update location does not match finalization/,
+    )
+    assert.equal(existsSync(plan.manifestPath), false, 'destination mismatch must not publish a completion marker')
+    assert.equal(plan.artifacts.every((candidate) => !existsSync(candidate.updatePath) && !existsSync(candidate.archivePath)), true,
+      'signed destination mismatch publishes neither feeds nor archives')
     const intel = plan.artifacts.find((candidate) => candidate.architecture === 'x64')
     assert.ok(intel)
     await writeFile(intel.candidateChecksumPath, `${'0'.repeat(64)}  ${intel.archiveName}\n`)

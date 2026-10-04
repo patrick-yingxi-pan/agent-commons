@@ -23,13 +23,13 @@ export async function runManagedRestoreLifecycle({
   try {
     await stopBackend()
     await restoreSnapshot()
-    restart(0)
+    await restart(0)
     return { status: 'restarting' }
   } catch (error) {
     try {
       await reportShutdownFailure({ error, safetyBackup })
     } finally {
-      restart(1)
+      await restart(1)
     }
     return { status: 'restarting' }
   }

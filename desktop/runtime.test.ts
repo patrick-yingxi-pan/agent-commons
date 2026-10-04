@@ -18,6 +18,78 @@ import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
 
+function assertInOrder(source, parts, message) {
+  let previous = -1
+  for (const part of parts) {
+    const position = source.indexOf(part)
+    assert.ok(position > previous, `${message}: ${part}`)
+    previous = position
+  }
+}
+
+function assertDesktopUpdaterWiring(main, preload) {
+  assert.match(main, /import \{[^}]*autoUpdater[^}]*\} from 'electron'/,
+    'native Electron main process owns the updater')
+  assert.doesNotMatch(preload, /autoUpdater|checkForUpdates|quitAndInstall|updateController|update-feed|updates:/i,
+    'the preload exposes no update authority to the renderer')
+
+  const admission = main.slice(main.indexOf('ownsInstance = app.requestSingleInstanceLock()'), main.indexOf('function focusMainWindow()'))
+  assert.match(admission, /if \(!ownsInstance\) \{\s*app\.quit\(\)\s*\} else \{[^]*app\.whenReady\(\)\.then\(startDesktop\)/,
+    'only the lock owner starts ready-driven product work')
+  const activate = main.slice(main.indexOf("app.on('activate'"), main.indexOf("app.on('window-all-closed'"))
+  assert.match(activate, /if \(!ownsInstance\) return/,
+    'activation cannot create a window from a non-owning instance')
+
+  const startup = main.slice(main.indexOf('async function startDesktop()'), main.indexOf('async function openDesktopCredentialVault()'))
+  assertInOrder(startup, ['await createMainWindow(', 'desktopReady = true', 'await initializeDesktopUpdater()'],
+    'update controller initializes only after ready window startup')
+
+  const menu = main.slice(main.indexOf('function installApplicationMenu()'), main.indexOf('function canOfferUpdate()'))
+  assert.match(menu, /id: 'check-for-updates'/)
+  assert.match(menu, /desktopUpdater\.action\(\)/,
+    'the native menu dispatches the host-owned update action')
+  const updater = main.slice(main.indexOf('async function initializeDesktopUpdater()'), main.indexOf('async function installApprovedDesktopUpdate'))
+  assert.match(updater, /buttons: \['Later', 'Download Update'\]/)
+  assert.match(updater, /buttons: \['Later', 'Install and Restart'\]/)
+  const nativeDialog = main.slice(main.indexOf('async function updateMessage('), main.indexOf('async function initializeDesktopUpdater()'))
+  assert.match(nativeDialog, /defaultId: 0, cancelId: 0/,
+    'both consent dialogs default and cancel to Later')
+  assert.match(updater, /result\.response === 1 && canOfferUpdate\(\)/,
+    'consent is accepted only from the affirmative button while still eligible')
+
+  const install = main.slice(main.indexOf('async function installApprovedDesktopUpdate'), main.indexOf('function configureSessionPermissions'))
+  assertInOrder(install, [
+    'createSafetyBackup: () => dataBackend.createBackup()',
+    'stopBackend: async () =>',
+    'await stopBackend({ requireExit: true })',
+    'stageUpdate: () => stageNativeUpdate(',
+    'discardDownload: () => archive.dispose()',
+    'autoUpdater.quitAndInstall()',
+  ], 'approved update lifecycle preserves backup, strict shutdown, staging, cleanup, and install order')
+
+  const relaunch = main.slice(main.indexOf('function relaunchDesktop('), main.indexOf('async function restoreFromManagedBackup'))
+  assert.match(relaunch, /relaunchAfterUpdateCleanup\(/)
+  assert.match(relaunch, /disposeUpdates: \(\) => updateInProgress \? Promise\.resolve\(\) : desktopUpdater\?\.dispose\(\)/,
+    'restore and recovery relaunch drain update work without awaiting the active install')
+  assert.match(main, /restart: relaunchDesktop/,
+    'managed recovery lifecycles share the cleanup-aware relaunch helper')
+
+  const beforeQuit = main.slice(main.indexOf("app.on('before-quit'"))
+  assertInOrder(beforeQuit, ['desktopUpdater?.dispose()', 'stopBackend()', 'quitAfterBackend = true', 'app.quit()'],
+    'ordinary quit disposes updater resources before stopping backend and exiting')
+}
+test('native updater authority and lifecycle are wired only through the desktop host', () => {
+  const main = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
+  const preload = readFileSync(new URL('./preload.cjs', import.meta.url), 'utf8')
+  assertDesktopUpdaterWiring(main, preload)
+
+  // Exercise the source lock against a realistic unsafe consent-order mutation.
+  const unsafeMain = main.replace("buttons: ['Later', 'Download Update']", "buttons: ['Download Update', 'Later']")
+  assert.notEqual(unsafeMain, main, 'the mutation fixture must change the reviewed native dialog')
+  assert.throws(() => assertDesktopUpdaterWiring(unsafeMain, preload), assert.AssertionError,
+    'the wiring lock rejects making Download Update the default action')
+})
+
 test('desktop origins are exact IPv4 loopback origins, not user-controlled URLs', () => {
   assert.equal(loopbackOrigin(49152), 'http://127.0.0.1:49152')
   assert.equal(exactLoopbackOrigin('http://127.0.0.1:5173'), 'http://127.0.0.1:5173')
@@ -267,6 +339,10 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release-set.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/updateFeed.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/updateMenuSmoke.mjs'), true)
+  for (const module of ['updateMetadata', 'updateArchive', 'updateConfiguration', 'updateController', 'updateLifecycle']) {
+    assert.equal(ignoreFromPackage(`/desktop/${module}.mjs`), false)
+  }
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smokePaths.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/mcpCredentialSmoke.mjs'), true)

@@ -44,7 +44,40 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint adds the release-feed prerequisite for approved default 5
+The current checkpoint implements the native workflow for approved default 5.
+Signed candidates now require a canonical owner-selected update base URL embedded
+before signing, checked again in the extracted app, and recorded in schema-v3
+candidate receipts. Finalization refuses a different destination; the paired
+completion manifest remains schema-v2. No real host or credentials are invented.
+The owner-approved public HTTPS URL is still needed before release builds.
+
+Runtime checks are metadata-only, bounded, credential-free and exact-architecture.
+They run after 30 seconds and every six hours. The native app menu exposes manual
+checks and the current download/install action without granting renderer IPC.
+Download and Install and Restart have distinct, default-Later consent. A private
+ZIP is checked against the feed's exact size and SHA-256; only install consent
+allows a safety backup, strict backend shutdown and a short-lived local feed
+serving those verified bytes to Squirrel. Native signature validation stays with
+Squirrel; no real signed update installation is claimed. Development packages
+remain unconfigured and report that honestly from the menu.
+
+Review reproduced manual/background-check interaction and relaunch-cleanup gaps.
+Manual intent now joins in-flight checks, and quit/restore/recovery drain aborted
+downloads before exit. Repeated disposal coalesces, later downloads remain inert,
+and failed native staging restarts through the established safety-copy boundary.
+Intentional consent, shutdown, metadata, size, signed-destination and cleanup
+mutations fail their regression tests. All 181 desktop tests pass. The complete
+unsigned arm64 packaged gate passes real native menu/activation and unconfigured
+notice checks across relaunch, profile admission, OS-backed credentials, imports,
+exports, schema isolation and exact backup/restore. Its first run caught a
+test-only unsupported dynamic import in Electron's evaluation context; the
+helper now reads the actual packaged plist independently and the complete rerun
+passes. No product guard or timeout was relaxed. Visual OS-menu/dialog review
+is pending because the Mac is locked. Signed two-version installation/relaunch,
+hosted channel publication and native Intel acceptance remain distinct release
+gates. The final complete local verifier remains mandatory before landing.
+
+The preceding checkpoint adds the release-feed prerequisite for approved default 5
 while the permanent-deletion cascade decision awaits the owner. Finalization
 generates deterministic, architecture-specific Squirrel.Mac update feeds from
 the two already-verified signed ZIP candidates. A required operator-selected
@@ -59,8 +92,8 @@ through an exclusive atomic link; a failed copy cannot expose a partial manifest
 Private candidate-snapshot cleanup failures are reported with the temporary path
 and inspect-before-retry guidance; a completed release is preserved, and any
 earlier validation/publication failure remains available in the aggregate error.
-These are release artifacts, not runtime update behavior. Automatic metadata-only
-checks, explicit installation/restart consent, coordinated backend shutdown,
+That checkpoint produced release artifacts, not runtime update behavior. The
+current checkpoint above adds checks, consent and shutdown coordination;
 configured hosting and real signed two-version update acceptance remain required.
 Electron's native checker must not run unattended: it stages downloads that may
 install on next launch, which would bypass the approved consent policy.

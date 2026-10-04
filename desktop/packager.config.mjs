@@ -70,6 +70,7 @@ export function ignoreFromPackage(path) {
       'desktop/release-set.mjs',
       'desktop/release.mjs',
       'desktop/updateFeed.mjs',
+      'desktop/updateMenuSmoke.mjs',
       'desktop/smoke.mjs',
       'desktop/smokePaths.mjs',
       'desktop/profileAdmissionSmoke.mjs',

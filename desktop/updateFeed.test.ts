@@ -79,6 +79,7 @@ test('release feed rejects malformed versions, paths, architectures, hashes, siz
     { ...validArtifact, bytes: 0 },
     { ...validArtifact, bytes: -1 },
     { ...validArtifact, bytes: 1.5 },
+    { ...validArtifact, bytes: 1024 ** 3 + 1 },
     { ...validArtifact, bytes: Number.MAX_SAFE_INTEGER + 1 },
     { ...validArtifact, sha256: 'A'.repeat(64) },
     { ...validArtifact, sha256: 'a'.repeat(63) },

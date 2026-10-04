@@ -32,7 +32,7 @@ async function requireRegularFile(path, label) {
   if (!metadata.isFile()) throw new Error(`Direct macOS release set ${label} must be a regular file: ${path}`)
 }
 
-async function inspectCandidate(candidate, version) {
+async function inspectCandidate(candidate, version, baseUrl) {
   await Promise.all([
     requireRegularFile(candidate.candidateArchivePath, `${candidate.label} archive`),
     requireRegularFile(candidate.candidateChecksumPath, `${candidate.label} checksum`),
@@ -57,6 +57,7 @@ async function inspectCandidate(candidate, version) {
     archiveName: candidate.archiveName,
     bytes: archiveBytes,
     sha256: digest,
+    updateBaseUrl: baseUrl,
   })
   return {
     architecture: candidate.architecture,
@@ -99,7 +100,7 @@ export async function finalizeMacDirectDownloadSet({ root = ROOT, baseUrl = proc
         await copyFile(candidate[sourceKey], staged[sourceKey])
         candidateFiles.push({ stagedPath: staged[sourceKey], destinationPath: candidate[destinationKey] })
       }
-      artifacts.push(await inspectCandidate(staged, manifest.version))
+      artifacts.push(await inspectCandidate(staged, manifest.version, baseUrl))
     }
     const updateFeeds = []
     for (const artifact of artifacts) {

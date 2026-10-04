@@ -14,6 +14,7 @@ import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 import { bitmapFixture, iconFixture } from '../tests/helpers/bitmapFixture.mjs'
 import { svgFixture } from '../tests/helpers/svgFixture.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
+import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
 
 const TIMEOUT_MS = 30_000
 const DIAGNOSTIC_TIMEOUT_MS = 2_000
@@ -43,6 +44,7 @@ async function launch(executable, userDataPath) {
     assert.equal(posture.packaged, true, 'acceptance launches the packaged application, not a source entry point')
     assert.equal(posture.userData, userDataPath)
     assert.deepEqual(posture.preferences, [{ sandbox: true, contextIsolation: true, nodeIntegration: false }])
+    if (process.platform === 'darwin') await smokeDesktopUpdateMenu(app)
     return { app, page, origin }
   } catch (error) {
     await app.close().catch(() => {})

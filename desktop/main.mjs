@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
+import { app, autoUpdater, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
 import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
@@ -14,6 +14,9 @@ import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
 import { createMcpCredentialLifecycle } from './mcpCredentialLifecycle.mjs'
 import { createDataBackendClient, desktopRecoveryStatus } from './dataProtocol.mjs'
 import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
+import { createDesktopUpdateController, desktopUpdateMenuLabel } from './updateController.mjs'
+import { loadDesktopUpdateConfiguration } from './updateConfiguration.mjs'
+import { relaunchAfterUpdateCleanup, runManagedUpdateLifecycle, stageNativeUpdate } from './updateLifecycle.mjs'
 import { confirmManagedRestore, pickManagedBackup, waitForRestoreWorker } from './restoreProtocol.mjs'
 import { runRendererRecovery } from './rendererRecovery.mjs'
 import { offerStartupRecovery, revealRecoveryDirectory } from './startupRecovery.mjs'
@@ -44,6 +47,7 @@ const MCP_CREDENTIAL_CAPABILITY = 'mcp-provision-v1'
 const mcpCredentialChannels = Object.freeze({ provision: 'agent-commons:mcp-credentials:provision' })
 
 let mainWindow = null
+let ownsInstance = false
 let backend = null
 let backendReady = false
 let desktopReady = false
@@ -56,6 +60,8 @@ let dataBackend = null
 let quitting = false
 let quitAfterBackend = false
 let restoreInProgress = false
+let updateInProgress = false
+let desktopUpdater = null
 let backendRecoveryInProgress = false
 let rendererRecoveryInProgress = false
 let automaticRecovery = desktopRecoveryStatus()
@@ -74,7 +80,8 @@ try {
     protectedPaths: [app.getPath('appData')],
     inspectAcl: desktopProfileAclInspector({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
   })
-  if (!app.requestSingleInstanceLock()) {
+  ownsInstance = app.requestSingleInstanceLock()
+  if (!ownsInstance) {
     app.quit()
   } else {
     app.on('second-instance', () => focusMainWindow())
@@ -133,6 +140,7 @@ async function startDesktop() {
   await createMainWindow(rendererUrl, trustedOrigin)
   assertCurrentBackend(backendHandle)
   desktopReady = true
+  await initializeDesktopUpdater()
   console.log(`[desktop] ready ${rendererUrl} · ${credentialVault ? 'secure credentials' : 'environment-only credentials'}`)
 }
 
@@ -176,10 +184,127 @@ async function openMcpCredentialVaultForDesktop() {
 
 function installApplicationMenu() {
   const template = []
-  if (process.platform === 'darwin') template.push({ role: 'appMenu' })
+  if (process.platform === 'darwin') template.push({
+    label: 'Agent Commons',
+    submenu: [
+      { role: 'about' },
+      {
+        id: 'check-for-updates',
+        label: desktopUpdateMenuLabel(desktopUpdater?.state ?? { phase: 'unconfigured' }),
+        enabled: Boolean(desktopUpdater) && desktopReady && !quitting &&
+          !['checking', 'downloading', 'installing'].includes(desktopUpdater?.state.phase),
+        click: () => {
+          focusMainWindow()
+          void desktopUpdater.action().catch(error => console.error('[desktop] update action failed.', error))
+        },
+      },
+      { type: 'separator' }, { role: 'services' }, { type: 'separator' },
+      { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' },
+      { type: 'separator' }, { role: 'quit' },
+    ],
+  })
   template.push({ role: 'editMenu' }, { role: 'windowMenu' })
   if (DEVELOPMENT) template.push({ role: 'viewMenu' })
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+function canOfferUpdate() {
+  return desktopReady && backendReady && !quitting && !restoreInProgress && !updateInProgress &&
+    !backendRecoveryInProgress && !rendererRecoveryInProgress && mainWindow && !mainWindow.isDestroyed()
+}
+
+async function updateMessage(options, signal) {
+  if (!canOfferUpdate() || signal?.aborted) return { response: 0 }
+  return dialog.showMessageBox(mainWindow, { title: 'Agent Commons Updates', type: 'info',
+    buttons: ['OK'], defaultId: 0, cancelId: 0, ...options, signal })
+}
+
+async function initializeDesktopUpdater() {
+  let configuration = null
+  try {
+    configuration = await loadDesktopUpdateConfiguration({
+      packaged: app.isPackaged, development: DEVELOPMENT, platform: process.platform,
+      architecture: process.arch, currentVersion: app.getVersion(), resourcesPath: process.resourcesPath,
+    })
+  } catch (error) { console.warn('[desktop] invalid bundled update configuration; updates disabled.', error) }
+  autoUpdater.on('error', error => console.error('[desktop] native update failed.', error))
+  desktopUpdater = createDesktopUpdateController({
+    configuration,
+    confirmDownload: async (update, signal) => {
+      if (!canOfferUpdate() || !mainWindow.isFocused()) return false
+      const result = await updateMessage({
+        message: `Agent Commons ${update.version} is available`,
+        detail: `Download the ${Math.ceil(update.bytes / 1024 ** 2)} MB update? You can keep working while it downloads. Installation and restart require a separate confirmation.`,
+        buttons: ['Later', 'Download Update'],
+      }, signal)
+      return result.response === 1 && canOfferUpdate()
+    },
+    confirmInstall: async (update, signal) => {
+      if (!canOfferUpdate() || !mainWindow.isFocused()) return false
+      const result = await updateMessage({
+        type: 'warning',
+        message: `Install Agent Commons ${update.version} and restart?`,
+        detail: 'Finish any active work and save unsent drafts first. A safety backup of saved local data will be made before the app closes. Once installation begins, this approved update may also finish on the next launch.',
+        buttons: ['Later', 'Install and Restart'],
+      }, signal)
+      return result.response === 1 && canOfferUpdate()
+    },
+    inform: (kind, signal) => updateMessage(kind === 'unconfigured' ? {
+      message: 'Updates are not configured for this build',
+      detail: 'Development builds do not check a public update service. Signed direct-download releases include their verified update location.',
+    } : kind === 'current' ? {
+      message: 'Agent Commons is up to date', detail: `You’re using version ${app.getVersion()}.`,
+    } : {
+      type: 'warning', message: 'Couldn’t check or prepare the update',
+      detail: 'The update was not started. Your current app and saved local data are unchanged. Try again from the Agent Commons menu.',
+    }, signal),
+    install: installApprovedDesktopUpdate,
+    onState: state => {
+      installApplicationMenu()
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.setProgressBar(['downloading', 'installing'].includes(state.phase) ? 2 : -1)
+      }
+    },
+    onError: error => console.warn('[desktop] update check or preparation failed.', error),
+  })
+  installApplicationMenu()
+  desktopUpdater.start()
+}
+
+async function installApprovedDesktopUpdate({ update, archive }) {
+  if (!canOfferUpdate()) throw new Error('The app is not ready to install an update.')
+  updateInProgress = true
+  mainWindow.setEnabled(false)
+  let shutdownStarted = false
+  try {
+    return await runManagedUpdateLifecycle({
+      createSafetyBackup: () => dataBackend.createBackup(),
+      stopBackend: async () => {
+        quitting = true
+        shutdownStarted = true
+        await stopBackend({ requireExit: true })
+      },
+      stageUpdate: () => stageNativeUpdate({ updater: autoUpdater, archivePath: archive.archivePath, update }),
+      discardDownload: () => archive.dispose(),
+      installAndRestart: () => {
+        quitAfterBackend = true
+        autoUpdater.quitAndInstall()
+      },
+      reportShutdownFailure: async ({ error, safetyBackup }) => {
+        console.error('[desktop] update failed after shutdown began.', error)
+        try { await archive.dispose() }
+        catch (cleanupError) { console.warn('[desktop] temporary update cleanup failed.', cleanupError) }
+        dialog.showErrorBox('Couldn’t finish the update',
+          `Agent Commons will restart. Your saved data and safety copy ${safetyBackup.fileName} remain on this device. If the approved update was already staged, it may complete on launch.`)
+      },
+      restart: relaunchDesktop,
+    })
+  } finally {
+    if (!shutdownStarted) {
+      updateInProgress = false
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.setEnabled(true)
+    }
+  }
 }
 
 function configureSessionPermissions(origin) {
@@ -264,6 +389,7 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       backendReady = false
       if (!desktopReady || quitting || backendRecoveryInProgress) return
       desktopReady = false
+      void desktopUpdater?.dispose().catch(error => console.warn('[desktop] temporary update cleanup failed.', error))
       backendRecoveryInProgress = true
       void runBackendRecovery({
         showMessageBox: (options) => mainWindow && !mainWindow.isDestroyed()
@@ -630,7 +756,7 @@ async function stopBackend({ requireExit = false } = {}) {
     setTimeout(() => finish(false), STOP_TIMEOUT_MS)
   })
   if (!exited) {
-    if (requireExit) throw new Error('The local backend did not stop; restore was refused.')
+    if (requireExit) throw new Error('The local backend did not stop; the requested operation was refused.')
     return false
   }
   backend = null
@@ -657,11 +783,15 @@ async function runRestoreWorker(snapshotName) {
 }
 
 function relaunchDesktop(exitCode = 0) {
-  app.relaunch()
-  app.exit(exitCode)
+  return relaunchAfterUpdateCleanup({
+    disposeUpdates: () => updateInProgress ? Promise.resolve() : desktopUpdater?.dispose(),
+    onCleanupError: error => console.warn('[desktop] temporary update cleanup failed before relaunch.', error),
+    relaunch: () => app.relaunch(), exit: code => app.exit(code), exitCode,
+  })
 }
 
 async function restoreFromManagedBackup({ startup = false } = {}) {
+  if (updateInProgress) throw new Error('An update is already in progress.')
   if (restoreInProgress) throw new Error('A restore is already in progress.')
   restoreInProgress = true
   let shutdownStarted = false
@@ -727,11 +857,14 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
-  if (quitAfterBackend || !backend) return
+  if (quitAfterBackend || (!backend && !desktopUpdater)) return
   event.preventDefault()
+  if (updateInProgress) return
   if (quitting) return
   quitting = true
-  void stopBackend().finally(() => {
+  void Promise.resolve().then(() => desktopUpdater?.dispose())
+    .catch(error => console.warn('[desktop] temporary update cleanup failed.', error))
+    .then(() => stopBackend()).finally(() => {
     quitAfterBackend = true
     app.quit()
   })

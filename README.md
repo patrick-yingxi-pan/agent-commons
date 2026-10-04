@@ -221,7 +221,7 @@ boots use explicit profiles:
   architecture-specific ZIP, extracts that ZIP into a fresh directory, repeats
   the identity and trust checks, and runs the full packaged-app smoke against the
   extracted executable. Only then does it write the adjacent SHA-256 manifest
-  and a deterministic machine-readable schema-v2 release receipt that records
+  and a deterministic machine-readable schema-v3 release receipt that records
   those verified bundle facts alongside the archive name, byte size, digest, and
   completed verification stages. The receipt is publishing/audit metadata, not
   a substitute for the app's Apple code signature or an authenticated download
@@ -231,13 +231,14 @@ boots use explicit profiles:
   ```bash
   APPLE_SIGNING_IDENTITY='Developer ID Application: … (TEAMID)' \
   APPLE_NOTARY_KEYCHAIN_PROFILE='agent-commons-notary' \
+  AGENT_COMMONS_UPDATE_BASE_URL='https://downloads.example.com/agent-commons/' \
   npm run desktop:release:mac
   ```
 
   Set `APPLE_KEYCHAIN` only when both the certificate and notary profile live in
   a non-default Keychain. Each run writes an immutable candidate under
   `release/candidates/<version>/<arch>/`: an
-  `Agent-Commons-<version>-macos-<arch>.zip`, its `.sha256`, and its schema-v2
+  `Agent-Commons-<version>-macos-<arch>.zip`, its `.sha256`, and its schema-v3
   `.release.json` receipt. Transfer the candidate directory from the other native
   Mac into the same version tree without renaming files, then run:
 
@@ -259,18 +260,32 @@ boots use explicit profiles:
   audit metadata, not substitutes for Apple signatures or an authenticated download
   channel. The schema-v2 pair manifest names each update feed. Finalization
   requires an operator-selected canonical HTTPS directory URL with no credentials,
-  query, fragment, port or local/IP host; the example above is not a configured
-  service. Stable three-part versions alone enter this update channel. Each
+  query, fragment, port or local/IP host; it must match the update URL embedded
+  before signing and independently verified in both candidates' Info.plist and
+  receipts. The example above is not a configured service. Stable three-part
+  versions alone enter this update channel. Each
   deterministic Squirrel.Mac feed names only its architecture's verified ZIP,
   exact size and SHA-256. Upload the complete set only after the completion
-  marker exists; publishing or changing a hosted latest pointer is a separate
-  operator action, not performed by this command.
-  The approved updater policy is automatic checks with user-approved
-  installation and restart. These release feeds are its prerequisite, not a
-  shipped updater: metadata-only runtime checks, consent, shutdown coordination,
-  hosting and signed two-version installation acceptance remain required. Never
-  use Electron's native `checkForUpdates()` for unattended metadata checks:
-  it downloads automatically, and a downloaded update can install on next launch.
+  marker exists. Only then copy each architecture's feed to its hosted channel
+  name, `macos-arm64.json` or `macos-x64.json`, at that same base URL. Serve feeds
+  as `application/json`, without redirects, and preserve immutable ZIP bytes.
+  Uploads and channel promotion remain explicit operator actions.
+  Signed builds read that bundled URL, never an environment or renderer override.
+  They check metadata 30 seconds after startup and every six hours; the native
+  Agent Commons menu also offers Check for Updates. Automatic failures stay quiet.
+  A focused app offers Download Update with Later as the default. Downloaded ZIPs
+  remain inert and private, with exact size/SHA-256 verification and a separate
+  Install and Restart confirmation; declining retains the download only until
+  app exit. Installation first creates a safety backup, strictly stops the
+  backend, then serves only the verified ZIP through a short-lived loopback
+  capability URL to Squirrel for native signature verification and installation.
+  Quit, restore and recovery drain pending update work and remove temporary ZIPs.
+  Ordinary unsigned/development builds have no public update destination and
+  explain that from the menu. No new renderer IPC authority is exposed.
+  Real hosting, signed two-version installation/relaunch, and both native
+  architectures remain release gates; the unsigned acceptance run cannot prove
+  them. Electron's native `checkForUpdates()` runs only after install consent:
+  it stages downloads that may install on the next launch.
   See the [Electron updater contract](https://www.electronjs.org/docs/latest/api/auto-updater)
   and [Squirrel static feed format](https://github.com/Squirrel/Squirrel.Mac#update-file-json-format).
   The six
