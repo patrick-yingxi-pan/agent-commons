@@ -301,8 +301,10 @@ ambient default-tenant assumption.
   Apple Silicon and Intel ZIPs plus fail-closed pair finalization are now the chosen
   architecture policy. Before a public release, run the candidate lane on matching
   native Macs with the production Apple identity/profile, collect both accepted sets,
-  and finalize the pair. Native repository selection, updater policy, and
-  background/tray routine behavior remain product decisions, not packaging defaults.
+  and finalize the pair. Native repository access lifetime and updater policy now
+  follow the [approved desktop defaults](../production-plan.md#approved-desktop-defaults-2026-10-04);
+  their implementation remains follow-on work. Background/tray routine behavior
+  remains a product decision, not a packaging default.
 - **P4 real connector delivery follow-through** *(rows 86–88 ship cadence, model
   execution, and the fail-closed adapter boundary)*. Implement live discovery plus the
   first real adapter behind `connectorRuntime`: desktop stdio MCP remains coupled to the

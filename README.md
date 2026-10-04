@@ -247,7 +247,10 @@ boots use explicit profiles:
   publishes nothing, a copy failure rolls back the new public set, and an existing
   same-version output is never overwritten. Receipts and the pair manifest are
   audit metadata, not substitutes for Apple signatures or an authenticated download
-  channel. Updater policy remains a separate product decision.
+  channel. The approved updater policy is automatic checks with user-approved
+  installation and restart; the updater itself remains unimplemented. The six
+  [approved desktop defaults](docs/production-plan.md#approved-desktop-defaults-2026-10-04)
+  distinguish product decisions from remaining implementation and release evidence.
 - `npm run start:desktop:server` keeps the release-shaped backend available
   without Electron for diagnostics, recovery tooling, and contract-level work.
 - `npm run start:web` preserves the later hosted boundary: remote capabilities,

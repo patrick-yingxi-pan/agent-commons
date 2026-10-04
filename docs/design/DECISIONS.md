@@ -18,6 +18,10 @@
 >
 > **Sign-off.** All 8 decisions originally flagged for review were reviewed by the
 > owner and are now `✅ confirmed` (each landed on the recommended default).
+> The six additional desktop defaults were explicitly approved on 2026-10-04;
+> their authoritative policy record is
+> [Approved desktop defaults](../production-plan.md#approved-desktop-defaults-2026-10-04).
+> Approval selects the target behavior; it does not mark implementation complete.
 
 | id | Area | Decision (the default chosen) | Rationale | Alternatives rejected | Flag |
 |----|------|-------------------------------|-----------|-----------------------|------|

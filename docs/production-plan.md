@@ -16,10 +16,31 @@ milestones or address a demonstrated defect.
 - The complete local verifier is the delivery gate (owner decision 2026-10-04).
   GitHub Actions is manual-only optional diagnostics, not a prerequisite or a
   routine monitoring task. Earlier CI references below are historical evidence.
-- Ask before selecting an updater policy or materially widening the supported
-  external integration scope.
+- Follow the approved desktop defaults below. Ask before materially widening
+  the supported external integration scope or changing an approved policy.
 - Sequencing is delegated: all planned core capabilities remain required;
   prioritize complete, verifiable workflows without dropping later milestones.
+
+### Approved desktop defaults (2026-10-04)
+
+The owner explicitly approved all six recommendations. These are target product
+policies, not claims of shipped behavior; implementation and acceptance remain
+required. Earlier checkpoint evidence does not establish these policies as built.
+
+| # | Area | Approved default |
+| --- | --- | --- |
+| 1 | Folder/Git access after relaunch | Offer explicit “Remember this connection”; retain the selected read-only connection until disconnected only when the user opts in. Otherwise require selection again after relaunch. Remembered access does not authorize writes or automatic model input. |
+| 2 | Remote context freshness | Use saved snapshots with explicit Refresh, not automatic reads on every model turn. |
+| 3 | Artifact deletion | Use recoverable Trash; permanent deletion is a separate, explicitly confirmed action. |
+| 4 | Spreadsheet organization | Represent a workbook as one artifact containing tabs, with shared permissions and revision history. |
+| 5 | Desktop updates | Check automatically; require user approval to install and restart. |
+| 6 | Unsafe macOS profile permissions | Refuse startup, preserve data, and explain repair steps rather than silently rewriting permissions, including unsafe ACLs. |
+
+This approval does not grant access to a particular local folder, authorize a
+real deletion or profile repair, waive external-tool consent, or supply release
+credentials. Signing/notarization credentials, download hosting, and native Intel
+acceptance remain release prerequisites. Feature implementation must retain the
+existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
@@ -142,8 +163,10 @@ profiles remain a separate release-review gap; no administrator/same-user defens
 is claimed. A subsequent disposable-directory probe confirmed that an explicit
 macOS `everyone` list/search ACL remains after the current guard admits mode
 0700. The fixture stayed inside its own private temporary parent; no other
-account access or normal profile was tested. Refuse-and-preserve versus removing
-the app folder's ACL is awaiting the owner; a mode-only pass is not ACL evidence.
+account access or normal profile was tested. The owner has since approved the
+refuse-and-preserve policy in default 6 above; implementation and ACL acceptance
+remain open. The earlier mode-only pass is not ACL evidence or acceptance of the
+new policy.
 
 The preceding checkpoint `4802b9fa` fixes a defect observed while reviewing native recovery:
 editing a document changed its body and Edited time, but left its index preview
@@ -258,15 +281,16 @@ spending-limit annotations. The newer run `37185242103` has started all jobs and
 passed Checks; its browser lanes were still executing at 07:35 UTC on October 4.
 The historical billing failure is not the current run's observed blocker; no
 full CI success is claimed while those lanes remain pending. Remote-source
-snapshot-plus-Refresh versus live per-turn input still awaits the owner.
+input now follows approved default 2 above; the approval is not implementation
+evidence.
 
 The picker checkpoint repaired served-file intake recovery before extending
 remote-source model input. Failed source/catalog reads must not appear empty or
 silently select the local disk, and a failed folder read must not create an empty
 workspace. One shared read-state/retry face, bounded reads and source/account/
-picker lifetime fences cover the three filesystem pickers. Snapshot-plus-Refresh
-versus live per-turn remote reads remains an owner decision; no model authority
-is inferred by this recovery work. Seven focused browser walks cover retry,
+picker lifetime fences cover the three filesystem pickers. Approved default 2
+now selects the remote-input policy; no model authority was introduced by this
+recovery work. Seven focused browser walks cover retry,
 404, stale cached rows, served close/source cancellation and local leave-return
 cancellation. The restored false-empty behavior was watched fail in both the
 pure policy and rendered 404 checks; removing a read deadline also failed.
@@ -400,8 +424,8 @@ grouped Photos menu as the batch shrinks; no product behavior or budgets changed
 The shared light desktop preview has all six demo accounts stacked, with Ada
 active on the local Photos intake surface.
 No Image-artifact retention or original-image persistence decision is made.
-Workbook identity, image original retention, and document-edit CAS remain
-pending owner decisions.
+Workbook identity is now resolved by approved default 4 above. Image original
+retention and document-edit CAS remain pending owner decisions.
 
 The preceding checkpoint adds CSV/TSV-to-Sheet import through the existing bounded
 local reader and shared review/adoption ceremony. Quoting and literal values are
@@ -462,9 +486,9 @@ executable smoke phase passed, including creation, Office downloads, credentials
 relaunch, managed backup, input and MCP schema checks. Native picker results
 remain simulated where recorded by the harness; actual OS-dialog, signed/
 notarized, Intel and paid-provider acceptance are not claimed.
-Workbook tabs versus separate artifacts and account/workspace versus device
-appearance persistence remain owner decisions; no production-ready claim is
-made here.
+Workbook organization now follows approved default 4 above; account/workspace
+versus device appearance persistence remains an owner decision. No
+production-ready claim is made here.
 
 The preceding checkpoint added Download Word beside Markdown for saved Documents
 and email artifacts. A fresh exact-ID read snapshots current saved content,
@@ -519,7 +543,7 @@ alone saves. A common import lifetime and review frame now serve Document and
 Slides, retaining cancellation, account/format fencing, draft/name preservation,
 focus recovery and actual lazy-loader failure recovery without widening native
 authority. Rich Word, workbook tabs/formulas and rich presentation fidelity
-remain required; workbook artifact identity is awaiting the owner's decision.
+remain required; workbook artifact identity now follows approved default 4 above.
 
 The first complete gate caught a section-navigation graph of 505,847 bytes,
 above its unchanged 500,000-byte limit. Artifact creation is now a separate
@@ -637,8 +661,8 @@ Earlier browser/sweep runs were rejected for coverage gaps or extra document
 reloads during edits. The final unchanged run passed without retries or extended
 budgets; the harness now retains bounded reload/navigation diagnostics and waits
 for the canonical artifact subject under its existing readiness deadline.
-No artifact-removal policy is inferred: recoverable Trash versus permanent
-deletion is awaiting the owner's decision. Signing, notarization, native Intel,
+Artifact-removal policy is now approved in default 3 above; this checkpoint did
+not implement deletion. Signing, notarization, native Intel,
 external-service and paid-provider acceptance gates remain open below.
 
 The preceding checkpoint closed a desktop first-conversation continuity defect:
@@ -913,9 +937,9 @@ from borrowing demo text through a matching filename. Rich sheet/slide layout,
 external tools and signed release remain required.
 Legacy demo workspace previews receive explicit code-owned seed-ID projections
 behind the live session read wall, never a generic filename fallback.
-Artifact removal awaits the owner's recoverable-Trash versus permanent-deletion
-decision because shared review history and routine report regeneration depend
-on that retention policy; no answer has been inferred.
+Artifact removal now follows approved default 3 above. Implementation must
+preserve shared review history and define routine report regeneration behavior;
+this earlier export checkpoint did not implement deletion.
 
 Packaged acceptance exposed a send/detach race: the next turn could snapshot
 old attachments while an earlier context update was still unacknowledged.
@@ -1010,9 +1034,8 @@ must not be described as a manual OS-dialog pass.
 
 The owner delegated sequencing on 2026-09-07: all planned core capabilities
 remain required. Bounded local folder snapshots and direct-file PDF text imports
-are built. The live-folder/Git read-access lifetime decision awaits the owner:
-remember a read-only connection until disconnected, or select
-it again after each relaunch. No answer has been inferred. Image OCR, other
+are built. The live-folder/Git read-access lifetime now follows approved default
+1 above; remembered connections are not yet claimed as implemented. Image OCR, other
 document formats, live access and remote inputs remain required; sequencing is
 not a scope reduction. Signing/notarization credentials
 and a download destination remain separate release prerequisites. Dependency
