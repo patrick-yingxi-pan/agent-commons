@@ -142,7 +142,7 @@ import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDE
 import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
 import { SEED_COMMISSIONS } from '../data/commissions.ts'
-import { TOOL_DEFINITIONS } from '../model/tools.ts'
+import { baseToolDefinitions } from '../model/tools.ts'
 import { systemPrompt, resolvedModelId } from '../generate.ts'
 import { RunnerRegistry } from '../registry.ts'
 import { RunnerJournal } from '../journal.ts'
@@ -1601,10 +1601,6 @@ const meterFor = (tenantId?: string) => usageRegistry.readForTenant(tenantId)
 // transient like the request counters (reset each boot), so not persisted.
 export type GenerationOutcome = 'ok' | 'fallback' | 'aborted' | 'error'
 const generationCounts = new Map<GenerationOutcome, number>()
-// The real token weight of the resource-manipulation tool schema the backend
-// declares on every request (server/model/tools.ts) — injected eagerly, so it's a
-// loaded context category, not a deferred one. Static, so computed once.
-const SYSTEM_TOOLS_TOKENS = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
 
 // The seeded worker Agents (docs/agent-commons.md, D6) — one for now, the
 // degenerate N=1 case. Every Conversation resolves to it until users create more.
@@ -6514,8 +6510,8 @@ export const store = {
     let messageTokens = 0
     const session = sessionId ? SESSIONS.find((s) => s.id === sessionId) : undefined
     for (const m of session?.messages ?? []) messageTokens += estimateTokens(messageHistoryText(m))
-    // System tools + system prompt are computed from the *actual* request the
-    // backend sends — both injected eagerly — so they're real loaded categories.
+    // The context estimate includes the eagerly injected base tools and prompt.
+    // Dynamic API/connector/routine tools and attachment payloads are not counted.
     const agent = resolveAgent(session?.agentId)
     const systemPromptTokens = estimateTokens(systemPrompt({ id: sessionId ?? '', title: session?.title ?? '' }, agent))
     // The context figures are measured against the session's RESOLVED cognition —
@@ -6526,11 +6522,18 @@ export const store = {
     // a model the catalog doesn't describe has no known window: both degrade to
     // unknown-capacity (`windowTokens` absent), the honest reading.
     const provider = effectiveProviderOf(session)
+    // Session providers always receive base definitions through relayReply; the
+    // explicit capability check governs endpoint generation only. Preserve that
+    // behavior even if a restored legacy Session config says toolUse:false.
+    const providerSupportsTools = provider.kind === 'session' ||
+      PROVIDER_CONFIGS.get(provider.id)?.capabilities?.toolUse !== false
+    const baseTools = baseToolDefinitions(agent.tools, providerSupportsTools)
+    const systemToolsTokens = baseTools.length ? estimateTokens(JSON.stringify(baseTools)) : 0
     const opaque = provider.kind === 'session'
     const modelId = opaque ? undefined : session?.modelId ?? resolvedModelId(PROVIDER_CONFIGS.get(provider.id))
     const model = modelId ? provider.models?.find((m) => m.id === modelId) : undefined
     return {
-      context: contextBreakdown({ messageTokens, systemToolsTokens: SYSTEM_TOOLS_TOKENS, systemPromptTokens }, model?.contextWindow),
+      context: contextBreakdown({ messageTokens, systemToolsTokens, systemPromptTokens }, model?.contextWindow),
       limits: meterFor(tenantId).planLimits(), // per-tenant plan windows (F2/PD9)
       model: {
         providerId: provider.id,

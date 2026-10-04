@@ -20,7 +20,15 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint completes the unfinished native CSV/TSV Sheet workflow
+The current checkpoint removes fictional context inventory exposed by the clean
+native review. The shared estimate now sums only supplied categories and keeps
+the snapshot's own deferred rows through live-message/model overlays. Base-tool
+estimates follow the Agent allowlist and transport capability; the popover names
+the four-character approximation, omitted runtime inputs and local-only limits.
+This is honest partial accounting, not a full request tokenizer or provider bill.
+Failure-first contract/store and five-viewport browser locks cover the defect.
+
+The preceding checkpoint `af66da4e` completes the unfinished native CSV/TSV Sheet workflow
 checks. Actual OS selection, explicit header mapping/adoption, canonical save,
 editing and native XLSX download are now backed by exact body/export comparisons.
 Both saved Sheets survive a full app relaunch with the generated source paths

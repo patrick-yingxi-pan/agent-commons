@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createUsageMeter, estimateTokens, formatTokens, CONTEXT_WINDOW, MAX_USAGE_STATE_START, parseUsageMeterState, UsageStateError } from './usage.ts'
-import { contextBreakdown, withLiveMessages, type ContextParts } from '../contract/index.ts'
+import { contextBreakdown, withLiveMessages, DEFAULT_PROVIDER_ID, type ContextParts } from '../contract/index.ts'
 import { TOOL_DEFINITIONS } from './model/tools.ts'
 import { store } from './store/index.ts'
 
@@ -48,11 +48,7 @@ test('contextBreakdown: Messages is live, the loaded categories sum to used, the
   const usedRaw = loaded.reduce((n, s) => n + s.rawTokens, 0)
   const free = ctx.segments.find((s) => s.id === 'free')!
   assert.equal(usedRaw + free.rawTokens, CONTEXT_WINDOW, 'loaded + free tile the window')
-  // Deferred categories are listed but uncounted (no pct → renders '—').
-  const deferred = ctx.segments.filter((s) => s.deferred)
-  assert.ok(deferred.length > 0 && deferred.every((s) => s.pct === undefined))
-  // The eagerly-injected tools are a LOADED category, never a deferred one.
-  assert.ok(!ctx.segments.some((s) => s.deferred && s.id.startsWith('systemTools')))
+  assert.deepEqual(ctx.segments.map((s) => s.id), ['messages', 'systemTools', 'systemPrompt', 'free'])
 })
 
 test('System tools + System prompt are the real eager request sizes (not seed)', () => {
@@ -62,12 +58,92 @@ test('System tools + System prompt are the real eager request sizes (not seed)',
   assert.equal(ctx.segments.find((s) => s.id === 'systemPrompt')?.rawTokens, 100)
 })
 
-test('store: the System tools category is the real tool-schema size, eager (loaded)', () => {
-  const realToolTokens = estimateTokens(JSON.stringify(TOOL_DEFINITIONS))
-  const seg = store.usage('auth-refactor').context.segments.find((s) => s.id === 'systemTools')!
-  assert.equal(seg.rawTokens, realToolTokens, 'System tools reflects the actual TOOL_DEFINITIONS the backend sends')
-  assert.ok(!seg.deferred, 'tools are injected eagerly, so the category is loaded')
-  assert.ok(seg.rawTokens > 0)
+test('store.usage: base tool tokens match the Agent allowlist actually sent to a tool-capable provider', () => {
+  const tenantId = store.defaultTenantId()
+  const tools = TOOL_DEFINITIONS.slice(0, 1).map((tool) => tool.name)
+  assert.equal(tools.length, 1, 'precondition: catalog has a concrete tool to allow')
+  const agent = store.createAgent({
+    label: 'Usage subset agent', systemPrompt: 'usage test', providerId: DEFAULT_PROVIDER_ID,
+    tools, instructions: '',
+  }, tenantId)
+  const session = store.createSession('usage subset', tenantId)
+  try {
+    store.setSessionAgent(session.id, agent.id)
+    const provider = store.getProvider(agent.providerId)
+    assert.equal(provider.id, agent.providerId)
+    assert.notEqual(store.providerConfig(provider.id).capabilities?.toolUse, false)
+    const allowed = TOOL_DEFINITIONS.filter((tool) => agent.tools.includes(tool.name))
+    const expected = estimateTokens(JSON.stringify(allowed))
+    const seg = store.usage(session.id, tenantId).context.segments.find((s) => s.id === 'systemTools')!
+    assert.equal(seg.rawTokens, expected, 'usage includes only base definitions generateReply sends')
+    assert.equal(seg.deferred, undefined)
+  } finally {
+    store.removeSession(session.id)
+    store.deleteAgent(agent.id)
+  }
+})
+
+test('store.usage: a non-tool endpoint estimates no base tools', () => {
+  const tenantId = store.defaultTenantId()
+  const provider = store.createProvider(
+    {
+      label: 'Usage non-tool endpoint', modelFamily: 'claude', effortLevels: ['Default'],
+      models: [{ id: 'usage-model', label: 'Usage model', contextWindow: 32_000 }],
+    },
+    { model: 'usage-model', capabilities: { toolUse: false } },
+    tenantId,
+  )
+  const agent = store.createAgent({
+    label: 'Usage non-tool agent', systemPrompt: 'usage test', providerId: provider.id,
+    tools: TOOL_DEFINITIONS.map((tool) => tool.name), instructions: '',
+  }, tenantId)
+  const session = store.createSession('usage opaque', tenantId)
+  try {
+    store.setSessionAgent(session.id, agent.id)
+    const resolvedProvider = store.getProvider(provider.id)
+    assert.equal(resolvedProvider.id, provider.id)
+    assert.equal(store.providerConfig(resolvedProvider.id).capabilities?.toolUse, false)
+    const seg = store.usage(session.id, tenantId).context.segments.find((s) => s.id === 'systemTools')!
+    assert.equal(seg.rawTokens, 0, 'opaque provider does not receive a tools parameter')
+  } finally {
+    store.removeSession(session.id)
+    store.deleteAgent(agent.id)
+    store.deleteProvider(provider.id)
+  }
+})
+
+test('store.usage: legacy Session config still estimates its relayed Agent tools', () => {
+  const tenantId = store.defaultTenantId()
+  const provider = store.createProvider(
+    { label: 'Usage Session provider', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session' },
+    // New Session providers are minted tool-capable; a persisted older config
+    // could say false, but relay.ts still forwards the Agent's tool definitions.
+    { kind: 'session', capabilities: { toolUse: false }, secretHash: '1'.repeat(64) },
+    tenantId,
+  )
+  const tools = TOOL_DEFINITIONS.slice(0, 2).map((tool) => tool.name)
+  assert.ok(tools.length > 0)
+  const agent = store.createAgent({
+    label: 'Usage Session agent', systemPrompt: 'usage test', providerId: provider.id,
+    tools, instructions: '',
+  }, tenantId)
+  const session = store.createSession('usage Session', tenantId)
+  try {
+    store.setSessionAgent(session.id, agent.id)
+    const resolvedProvider = store.getProvider(provider.id)
+    assert.equal(resolvedProvider.kind, 'session')
+    assert.equal(store.providerConfig(resolvedProvider.id).capabilities?.toolUse, false)
+    const expected = estimateTokens(JSON.stringify(
+      TOOL_DEFINITIONS.filter((tool) => agent.tools.includes(tool.name)),
+    ))
+    const snapshot = store.usage(session.id, tenantId)
+    assert.equal(snapshot.model.modelId, undefined, 'mailbox cognition remains opaque')
+    assert.equal(snapshot.context.segments.find((s) => s.id === 'systemTools')?.rawTokens, expected)
+  } finally {
+    store.removeSession(session.id)
+    store.deleteAgent(agent.id)
+    store.deleteProvider(provider.id)
+  }
 })
 
 test('withLiveMessages overlays a live Messages count, keeping the real categories', () => {

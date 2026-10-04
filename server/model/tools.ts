@@ -751,6 +751,13 @@ export const TOOL_DEFINITIONS = TOOLS.map((t) => ({
   },
 }))
 
+/** The base catalog actually offered to a turn: Agent allowlist intersected
+ *  with provider tool-use capability. Dynamic API, connector and routine tools
+ *  are derived separately at the generation seam. */
+export function baseToolDefinitions(agentTools: readonly string[], supportsTools: boolean) {
+  return supportsTools ? TOOL_DEFINITIONS.filter((tool) => agentTools.includes(tool.name)) : []
+}
+
 /** Display metadata for the Agent-building-materials page, derived from the same
  * table as the model schema and executor. */
 export const TOOL_CATALOG = TOOLS.map((t) => ({ name: t.name, description: t.description }))

@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { ArrowRight, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { useUsage } from '../api'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
@@ -42,9 +42,9 @@ function waterColor(pct: number): string {
 /** Usage button: a three-ring water gauge (context · 5-hour · weekly) that
  *  opens a usage popup with the per-window detail.
  *
- *  The plan rings (5-hour, weekly) are the server's real meter, keyed to the open
- *  session. The context disc + breakdown reflect the *live* open thread: when the
- *  composer passes `messageTokens` (the size of the messages currently loaded),
+ *  The limit rings (5-hour, weekly) are the server's local per-tenant meter.
+ *  The context disc + breakdown estimate the *live* open thread: when the
+ *  composer passes `messageTokens` (the estimated conversation text size),
  *  the breakdown is recomputed immediately — so the Messages row + the disc fill
  *  as you chat — overriding the server's persisted-only figure.
  *
@@ -71,7 +71,7 @@ export function UsageControl({
   // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
   // paint before the fetch resolves. The live breakdown overrides the snapshot's.
   const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
-  // The server owns the real category sizes (system tools, system prompt, …); the
+  // The server owns the base-tool/prompt estimates; the
   // composer overlays the live Messages count so the breakdown tracks the open
   // thread without re-sending those server-owned figures — and, on a draft, the
   // picked model's window (the server can't know a pick that has no row yet).
@@ -89,9 +89,9 @@ export function UsageControl({
   const modelRef = usage.model
 
   const title = windowKnown
-    ? `Usage — context ${usage.context.pct}%, ` +
+    ? `Usage — estimated context ${usage.context.pct}%, ` +
       `5-hour ${usage.limits[0]?.pct ?? 0}%, weekly ${usage.limits[1]?.pct ?? 0}%`
-    : `Usage — context ${usage.context.used} used (window unknown), ` +
+    : `Usage — estimated context ${usage.context.used} used (window unknown), ` +
       `5-hour ${usage.limits[0]?.pct ?? 0}%, weekly ${usage.limits[1]?.pct ?? 0}%`
 
   return (
@@ -110,15 +110,14 @@ export function UsageControl({
       </button>
 
       {open && (
-        <div ref={popRef} className={`absolute bottom-full right-0 z-20 mb-2 w-[340px] p-3 ${POPOVER_SURFACE}`}>
-          {/* Context window — a stacked breakdown of what's occupying it, toggled
-              open by the chevron. Messages is live; the rest is workspace config. */}
+        <div ref={popRef} role="dialog" aria-label="Usage details" className={`absolute bottom-full right-0 z-20 mb-2 w-[340px] p-3 ${POPOVER_SURFACE}`}>
+          {/* Partial estimate; the disclosure stays visible when rows collapse. */}
           <button
             onClick={() => setExpanded((e) => !e)}
             aria-expanded={expanded}
-            className="flex w-full items-center justify-between text-left"
+            className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-left"
           >
-            <span className="text-[13px] font-medium text-ink">Context window</span>
+            <span className="text-[13px] font-medium text-ink">Context estimate</span>
             <span className="flex items-center gap-1 text-[12px] text-ink-soft">
               {windowKnown ? (
                 <>
@@ -142,10 +141,14 @@ export function UsageControl({
             <StackedBar segments={usage.context.segments} className="mt-1.5" />
           ) : (
             <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">
-              This provider doesn’t expose the model’s context window, so fill percentages can’t
-              be computed — token counts below are still real.
+              This provider doesn’t expose its context window. Fill percentages are unavailable.
             </p>
           )}
+          <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">
+            About 4 characters per token for conversation text, base tools and prompt.
+            Excludes attachments, runtime tools, per-turn prompt additions and provider-managed context;
+            actual use may be higher.
+          </p>
 
           {expanded && usage.context.segments.length > 0 && (
             <div className="mt-2.5 space-y-1.5">
@@ -157,10 +160,10 @@ export function UsageControl({
 
           <div className="my-2.5 border-t border-line" />
 
-          <button className="flex w-full items-center justify-between text-left">
-            <span className="text-[12px] text-ink-faint">Plan usage</span>
-            <ArrowRight size={13} className="text-ink-faint" />
-          </button>
+          <div className="text-[12px] text-ink-faint">Local usage limits</div>
+          <p className="mt-0.5 text-[11px] leading-snug text-ink-soft">
+            App counters, not your provider’s quota or bill.
+          </p>
 
           <div className="mt-2.5 space-y-2.5">
             {usage.limits.map((l, i) => (

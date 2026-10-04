@@ -449,7 +449,12 @@ are each provider's **own catalog** (`ModelProvider.models` — fetched from its
 endpoint's `GET /v1/models` or declared at registration, spec MODEL-16/-17), so
 even the default Claude models are registry rows, and the composer strip's
 usage gauge measures against the resolved model's provider-sourced context
-window (honest unknown-capacity when it doesn't expose one).
+window (honest unknown-capacity when it doesn't expose one). Its contents are
+explicitly a partial text estimate: conversation, enabled base-tool schemas and
+base prompt, at roughly four characters per token. Attachments, runtime tools
+and provider-managed context are excluded, not invented as fixed inventory.
+The popover keeps that limitation visible even when its rows collapse and
+distinguishes local rolling counters from provider quota or billing.
 When adding a picker for a registry concept,
 drive it from the registry hook and route it through the shared menu — and if the
 concept's entries are usable in sessions, make the registry a first-class rail

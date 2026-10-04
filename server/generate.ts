@@ -12,7 +12,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import { attachmentPrompt } from './attachmentInput.ts'
 import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
-import { TOOL_DEFINITIONS, type ToolContext } from './model/tools.ts'
+import { baseToolDefinitions, type ToolContext } from './model/tools.ts'
 import { deriveConnectorTools, EXTERNAL_CATALOG_LIMIT_MESSAGE } from './model/connectorTools.ts'
 import { TOOL_RECEIPT_DATA_LABEL, TOOL_RECEIPT_SYSTEM_ADDITION } from './toolActivityHistory.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
@@ -372,7 +372,7 @@ export async function generateReply(
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
   const input = attachmentPrompt(text, session.attachments, session.images, session.supportsImages !== false)
   // The Agent's tool allowlist — a subset of the catalog (the default carries all).
-  const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
+  const agentTools = baseToolDefinitions(agent.tools, provider.capabilities?.toolUse !== false)
   // P6: an attached connector/MCP contributes callable tools too — derived from the
   // session's context bindings (server/model/connectorTools.ts) and appended to the
   // request. Only *attached* contexts yield tools, so the model can't reach one the

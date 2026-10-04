@@ -39,7 +39,7 @@ import type {
   ToolActivity,
 } from '../contract/index.ts'
 import { systemPrompt, type ReplyHandlers, type ReplyResult, type ReplySession } from './generate.ts'
-import { TOOL_DEFINITIONS, type ToolContext } from './model/tools.ts'
+import { baseToolDefinitions, type ToolContext } from './model/tools.ts'
 import { deriveConnectorTools, EXTERNAL_CATALOG_LIMIT_MESSAGE } from './model/connectorTools.ts'
 import { TOOL_RECEIPT_DATA_LABEL, TOOL_RECEIPT_SYSTEM_ADDITION } from './toolActivityHistory.ts'
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
@@ -528,7 +528,9 @@ export async function relayReply(
   // capable whichever provider serves it). Renamed to
   // the wire's `inputSchema` so the contract stays SDK-shape-free.
   const ctx: ToolContext = { session: { id: session.id, title: session.title }, commons }
-  const agentTools = TOOL_DEFINITIONS.filter((t) => agent.tools.includes(t.name))
+  // Session providers are minted with toolUse:true; the relay mail carries the
+  // Agent's base allowlist through the same selector as endpoint generation.
+  const agentTools = baseToolDefinitions(agent.tools, true)
   const { definitions: connectorDefs, bindings: connectorBindings, externalUnavailable } = deriveConnectorTools(connectorContexts, { externalMcpConnections })
   const apiDefs = api ? deriveApiTools(api.catalog).definitions : []
   const tools: RelayToolDefinition[] = [...agentTools, ...connectorDefs, ...apiDefs].map((t) => ({
