@@ -20,7 +20,21 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint completes the four previously unverified native context
+The current checkpoint fixes a demonstrated clean-install content leak found
+during actual native CSV artifact acceptance: an empty registry still exposed
+the global demo body library through the artifact-content API. Bodies now require
+current artifact/session read authority; compatibility names must be unambiguous
+and cannot replace exact IDs. Renames and revocation withdraw aliases too.
+Failure-first store/clean-boot and authenticated HTTP/MCP tests reproduce the
+defect. The rebuilt unsigned arm64 app returns an empty library on a fresh SQLite
+profile and only the exact saved Sheet plus its unique alias after relaunch of
+the existing CSV review profile. The [scoped acceptance record](acceptance/artifact-content-2026-10-04.md)
+records the package and limitations. CSV import/edit/native download passed;
+TSV and source-absent CSV relaunch remain unfinished. The complete verifier and
+final review gate this checkpoint; no new artifact identity or removal policy
+is inferred.
+
+The preceding checkpoint `057d5fe4` completes the four previously unverified native context
 removal cases. The [2026-10-04 acceptance record](acceptance/native-context-2026-10-04.md)
 uses a fresh unsigned arm64 package of `2abc976d`, actual macOS Files/Photos/Folder
 dialogs, and a credential-free local model fixture. XLSX, PPTX, PNG and folder

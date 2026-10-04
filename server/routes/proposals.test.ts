@@ -499,10 +499,10 @@ test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator',
   // render carries it for the owner AND the granted audience, nobody else.
   assert.match(JSON.stringify(store.artifactContent(owner)['insights-onepager.md']), /honestly rewritten/)
   assert.match(JSON.stringify(store.artifactContent(AUDIENCE)['insights-onepager.md']), /honestly rewritten/)
-  assert.doesNotMatch(
-    JSON.stringify(store.artifactContent(BYSTANDER)['insights-onepager.md']),
-    /honestly rewritten/,
-    'a bystander still reads the authored fixture — the overlay is per-caller',
+  assert.equal(
+    store.artifactContent(BYSTANDER)['insights-onepager.md'],
+    undefined,
+    'a bystander reads neither the edit nor the underlying fixture',
   )
 
   // Restore, so the seeded demo world is unchanged for other suites.
@@ -695,7 +695,7 @@ test('SOCIAL-7: a same-named artifact in the SAME workspace never inherits a bod
   const name = 'rate-limit-rfc.md'
   const before = store.artifactBlockText('a17', 1)
   assert.ok(before, 'the seeded document')
-  assert.ok(store.artifactContent(owner)[name], 'whose authored body is served under its name')
+  assert.ok(store.artifactContent(owner)['a17'], 'whose authored body is served under its exact id')
 
   const g = store.applyRelationOp(
     { kind: 'save-artifact', artifact: { name, kind: 'doc', meta: 'Document' }, sessionTitle: 'Another thread' },
@@ -707,9 +707,9 @@ test('SOCIAL-7: a same-named artifact in the SAME workspace never inherits a bod
   store.updateArtifactBlock('a17', 1, 'Token-bucket per API key: rewritten for this test.')
   const lib = store.artifactContent(owner)
   assert.match(JSON.stringify(lib['a17']), /rewritten for this test/, 'the edit is served under the exact artifact id')
-  assert.doesNotMatch(
-    JSON.stringify(lib[name] ?? {}),
-    /rewritten for this test/,
+  assert.equal(
+    lib[name],
+    undefined,
     'and never under a name two artifacts share — the impostor cannot inherit it',
   )
   store.updateArtifactBlock('a17', 1, before)

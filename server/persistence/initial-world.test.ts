@@ -20,6 +20,7 @@ interface WorldSummary {
   projects: number
   extraProjects: number
   artifacts: number
+  artifactContentKeys: string[]
   schedules: number
   providers: string[]
   prompts: string[]
@@ -38,6 +39,7 @@ function boot(file: string, requested: 'demo' | 'clean', backend: 'mock' | 'remo
       projects: store.listProjects().length,
       extraProjects: store.relationGraph().extraProjects.length,
       artifacts: store.listArtifacts().length,
+      artifactContentKeys: Object.keys(store.artifactContent(store.identity().tenant.id)).sort(),
       schedules: store.listSchedules().length,
       providers: store.listProviders().map((row) => row.id),
       prompts: store.listSystemPrompts().map((row) => row.id),
@@ -69,6 +71,7 @@ test('a clean first boot contains infrastructure but no fictional user world, an
     projects: 0,
     extraProjects: 0,
     artifacts: 0,
+    artifactContentKeys: [],
     schedules: 0,
     providers: ['provider-anthropic'],
     prompts: ['sp-default'],
@@ -102,6 +105,7 @@ test('a clean hosted first boot has no account until signup and its front-door i
   const file = join(TMP, 'web-clean.json')
   const first = boot(file, 'clean', 'remote')
   assert.deepEqual(first.accounts, [])
+  assert.deepEqual(first.artifactContentKeys, [], 'a clean hosted world exposes no demo bodies')
   assert.deepEqual(first.identity, { userId: 'user-anonymous', tenantId: 'tenant-anonymous' })
 
   const stored = JSON.parse(readFileSync(file, 'utf8')) as PersistedState
@@ -118,6 +122,7 @@ test('an established historical/demo database is never cleaned by a release envi
   assert.ok(first.projects > 0)
   assert.ok(first.extraProjects > 0)
   assert.ok(first.artifacts > 0)
+  assert.ok(first.artifactContentKeys.includes('a1'), 'demo owner retains readable seed bodies')
   assert.ok(first.schedules > 0)
   assert.ok(first.accounts.includes('user-ada'))
 

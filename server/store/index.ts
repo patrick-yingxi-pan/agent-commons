@@ -1084,8 +1084,8 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
  *  file name; every edit lands here instead, keyed by ARTIFACT ID. Two artifacts
  *  in different tenants may share a name, so a name-keyed edit store would let
  *  one workspace rewrite another's document — authority never keys on a name
- *  (the S7 lesson). `store.artifactContent(tenantId)` lays these over the
- *  fixture per caller; `artifactBodyOf(id)` is the one resolver. */
+ *  (the S7 lesson). `store.artifactContent(tenantId)` projects only readable
+ *  identities; `artifactBodyOf(id)` is the canonical artifact resolver. */
 const artifactBodies = new Map<string, ArtifactContent>()
 // Display metadata is independent of authored bytes and immutable save origin.
 // This also lets demo rows be renamed without mutating the fixture library.
@@ -6240,24 +6240,13 @@ export const store = {
   },
 
   // ── Artifact bodies ──
-  /** The exact-ID body library the previews render, with the CALLER's edits
-   *  laid over the seed fixture (social S3). Two rules make that safe:
-   *
-   *  1. **Edits are keyed by artifact ID, the library by NAME.** The seed is a
-   *     shared fixture keyed by file name, and two tenants can own artifacts
-   *     with the same name — so a name-keyed edit store would write one
-   *     tenant's revision into another's document. This repo's earned rule is
-   *     that preference may key on a name while AUTHORITY never may (the S7
-   *     same-name signup collision); a body edit is authority.
-   *  2. **The projection is per-caller**, over exactly the artifacts that caller
-   *     can READ (own + granted — `artifactVisibleToTenant`), so a shared
-   *     artifact's audience sees the landed revision and nobody else does.
-   *
-   *  Unscoped (no tenant) returns the untouched seed — the internal-caller
-   *  shape `listArtifacts` already uses. */
-  artifactContent(tenantId?: string): ArtifactContentLibrary {
-    if (!tenantId) return ARTIFACT_CONTENT
-    const lib: ArtifactContentLibrary = { ...ARTIFACT_CONTENT }
+  /** Readable bodies keyed by exact identity. The demo library is a resolver
+   *  input, never a public baseline: clean worlds and unrelated callers must
+   *  not receive fictional content. Compatibility names are emitted only when
+   *  unique across the whole projection and never in place of an exact ID. */
+  artifactContent(tenantId: string): ArtifactContentLibrary {
+    if (!tenantId) return {}
+    const visible = new Map<string, { name: string; body: ArtifactContent | undefined }>()
     // Demo workspace items predate the canonical artifact registry and carry
     // separate IDs. Project only code-owned seed identities, never a filename
     // supplied by an authored row or attached file. The live session must still
@@ -6268,29 +6257,26 @@ export const store = {
         if (!session || !this.sessionVisibleToTenant(session, tenantId)) continue
         for (const artifact of seed.artifacts ?? []) {
           if (!session.artifacts?.some((candidate) => candidate.id === artifact.id)) continue
-          const body = ARTIFACT_CONTENT[artifact.name]
-          if (body) lib[artifact.id] = body
+          visible.set(artifact.id, { name: artifact.name, body: ARTIFACT_CONTENT[artifact.name] })
         }
       }
     }
-    // How many of this caller's visible artifacts wear each name. A name is a
-    // WEAKER identity than an edit's: nothing stops one workspace holding two
-    // artifacts called `notes.md`, and writing an edit under the shared name
-    // would show one document's revision inside the other.
-    const byName = new Map<string, number>()
-    const visible = [...baseArtifacts(), ...graph.extraArtifacts].map(artifactWithMetadata)
-      .filter((artifact) => this.artifactVisibleToTenant(artifact, tenantId))
-    for (const a of visible) byName.set(a.name, (byName.get(a.name) ?? 0) + 1)
-    for (const a of visible) {
-      const body = artifactBodyOf(a.id)
-      if (!body) continue
-      // Every addressed body has an exact ID, including untouched seeds.
-      lib[a.id] = body
-      // The NAME key is the compatibility path for the few readers that hold a
-      // file name and no id — correct only while the name picks out one artifact.
-      if ((byName.get(a.name) ?? 0) === 1) lib[a.name] = body
+    for (const artifact of [...baseArtifacts(), ...graph.extraArtifacts].map(artifactWithMetadata)) {
+      if (this.artifactVisibleToTenant(artifact, tenantId)) {
+        visible.set(artifact.id, { name: artifact.name, body: artifactBodyOf(artifact.id) })
+      }
     }
-    return lib
+    // Count bodyless rows too: they must not inherit a different row's content
+    // through a shared name or a name equal to their exact ID.
+    const byName = new Map<string, number>()
+    for (const { name } of visible.values()) byName.set(name, (byName.get(name) ?? 0) + 1)
+    const bodies = new Map<string, ArtifactContent>()
+    for (const [id, { name, body }] of visible) {
+      if (!body) continue
+      bodies.set(id, body)
+      if (byName.get(name) === 1 && !visible.has(name)) bodies.set(name, body)
+    }
+    return Object.fromEntries(bodies)
   },
   /** A fresh saved-document projection behind the exact artifact read wall.
    * Undefined hides existence; null means a readable row has no exportable
