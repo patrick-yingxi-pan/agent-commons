@@ -335,11 +335,11 @@ test('release-set manifest is deterministic, ordered, and incomplete pairs fail 
     },
   ]
   const releaseSet = JSON.parse(releaseSetJson({ productName: 'Agent Commons', version: '0.1.0', artifacts }))
-  assert.equal(releaseSet.schemaVersion, 1)
+  assert.equal(releaseSet.schemaVersion, 2)
   assert.equal(releaseSet.distribution, 'direct-download')
-  assert.deepEqual(releaseSet.artifacts.map(({ architecture, label }) => ({ architecture, label })), [
-    { architecture: 'arm64', label: 'Apple Silicon' },
-    { architecture: 'x64', label: 'Intel' },
+  assert.deepEqual(releaseSet.artifacts.map(({ architecture, label, updateFile }) => ({ architecture, label, updateFile })), [
+    { architecture: 'arm64', label: 'Apple Silicon', updateFile: 'Agent-Commons-0.1.0-macos-arm64.update.json' },
+    { architecture: 'x64', label: 'Intel', updateFile: 'Agent-Commons-0.1.0-macos-x64.update.json' },
   ])
   assert.throws(
     () => releaseSetJson({ productName: 'Agent Commons', version: '0.1.0', artifacts: artifacts.slice(0, 1) }),
@@ -428,55 +428,93 @@ test('release-set publication writes its completion marker last and rolls back p
   try {
     const stagedArm = join(directory, 'staged-arm.zip')
     const stagedIntel = join(directory, 'staged-intel.zip')
+    const stagedArmFeed = join(directory, 'staged-arm.update.json')
+    const stagedIntelFeed = join(directory, 'staged-intel.update.json')
     const stagedManifest = join(directory, 'staged-release.json')
     await writeFile(stagedArm, 'arm')
     await writeFile(stagedIntel, 'intel')
+    await writeFile(stagedArmFeed, 'arm feed')
+    await writeFile(stagedIntelFeed, 'intel feed')
     await writeFile(stagedManifest, 'complete')
     const arm = join(directory, 'arm.zip')
     const intel = join(directory, 'intel.zip')
+    const armFeed = join(directory, 'arm.update.json')
+    const intelFeed = join(directory, 'intel.update.json')
     const releaseManifest = join(directory, 'release.json')
     const order = []
     await publishImmutableReleaseSet({
       artifacts: [
         { stagedPath: stagedArm, destinationPath: arm },
         { stagedPath: stagedIntel, destinationPath: intel },
+        { stagedPath: stagedArmFeed, destinationPath: armFeed },
+        { stagedPath: stagedIntelFeed, destinationPath: intelFeed },
       ],
       completionArtifact: { stagedPath: stagedManifest, destinationPath: releaseManifest },
       async copy(source, destination, flags) {
-        order.push(destination)
+        order.push(source)
         await copyFile(source, destination, flags)
       },
     })
-    assert.deepEqual(order, [arm, intel, releaseManifest])
+    assert.deepEqual(order, [stagedArm, stagedIntel, stagedArmFeed, stagedIntelFeed, stagedManifest])
+    assert.equal(await readFile(armFeed, 'utf8'), 'arm feed')
+    assert.equal(await readFile(intelFeed, 'utf8'), 'intel feed')
 
-    const failedArm = join(directory, 'failed-arm.zip')
-    const failedIntel = join(directory, 'failed-intel.zip')
-    const failedManifest = join(directory, 'failed-release.json')
-    let copies = 0
+    const immutableArm = join(directory, 'immutable-arm.zip')
+    const immutableFeed = join(directory, 'immutable.update.json')
+    const immutableManifest = join(directory, 'immutable-release.json')
+    await writeFile(immutableFeed, 'published feed')
     await assert.rejects(
       publishImmutableReleaseSet({
         artifacts: [
-          { stagedPath: stagedArm, destinationPath: failedArm },
-          { stagedPath: stagedIntel, destinationPath: failedIntel },
+          { stagedPath: stagedArm, destinationPath: immutableArm },
+          { stagedPath: stagedArmFeed, destinationPath: immutableFeed },
         ],
-        completionArtifact: { stagedPath: stagedManifest, destinationPath: failedManifest },
-        async copy(source, destination) {
-          copies += 1
-          if (copies === 2) throw new Error('simulated second-architecture failure')
-          await copyFile(source, destination)
-        },
+        completionArtifact: { stagedPath: stagedManifest, destinationPath: immutableManifest },
       }),
-      /simulated second-architecture failure/,
+      /EEXIST/,
     )
-    assert.equal(existsSync(failedArm), false)
-    assert.equal(existsSync(failedIntel), false)
-    assert.equal(existsSync(failedManifest), false)
+    assert.equal(existsSync(immutableArm), false, 'a feed collision rolls back the newly copied archive')
+    assert.equal(await readFile(immutableFeed, 'utf8'), 'published feed', 'an existing feed is never overwritten or removed')
+    assert.equal(existsSync(immutableManifest), false)
+
+    const failedArm = join(directory, 'failed-arm.zip')
+    const failedIntel = join(directory, 'failed-intel.zip')
+    const failedArmFeed = join(directory, 'failed-arm.update.json')
+    const failedIntelFeed = join(directory, 'failed-intel.update.json')
+    const failedManifest = join(directory, 'failed-release.json')
+    // Preserve second-architecture refusal and cover both feed and marker failures.
+    for (const failAt of [2, 4, 5]) {
+      let copies = 0
+      await assert.rejects(
+        publishImmutableReleaseSet({
+          artifacts: [
+            { stagedPath: stagedArm, destinationPath: failedArm },
+            { stagedPath: stagedIntel, destinationPath: failedIntel },
+            { stagedPath: stagedArmFeed, destinationPath: failedArmFeed },
+            { stagedPath: stagedIntelFeed, destinationPath: failedIntelFeed },
+          ],
+          completionArtifact: { stagedPath: stagedManifest, destinationPath: failedManifest },
+          async copy(source, destination) {
+            copies += 1
+            if (copies === failAt) throw new Error('simulated release-set copy failure')
+            await copyFile(source, destination)
+          },
+        }),
+        /simulated release-set copy failure/,
+      )
+      assert.equal(existsSync(failedArm), false)
+      assert.equal(existsSync(failedIntel), false)
+      assert.equal(existsSync(failedArmFeed), false)
+      assert.equal(existsSync(failedIntelFeed), false)
+      assert.equal(existsSync(failedManifest), false)
+    }
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
 })
 
 test('release-set finalizer verifies both candidates before exposing either public ZIP', async () => {
+  const baseUrl = 'https://updates.example.com/releases/'
   const testRoot = await mkdtemp(join(tmpdir(), 'agent-commons-release-set-finalize-test-'))
   try {
     await writeFile(join(testRoot, 'package.json'), `${JSON.stringify(manifest)}\n`)
@@ -505,32 +543,219 @@ test('release-set finalizer verifies both candidates before exposing either publ
         bundleIdentity,
       }))
     }
+    const configuredBaseUrl = process.env.AGENT_COMMONS_UPDATE_BASE_URL
+    try {
+      delete process.env.AGENT_COMMONS_UPDATE_BASE_URL
+      await assert.rejects(
+        finalizeMacDirectDownloadSet({ root: testRoot }),
+        /AGENT_COMMONS_UPDATE_BASE_URL.*canonical HTTPS directory URL/,
+      )
+    } finally {
+      if (configuredBaseUrl === undefined) delete process.env.AGENT_COMMONS_UPDATE_BASE_URL
+      else process.env.AGENT_COMMONS_UPDATE_BASE_URL = configuredBaseUrl
+    }
+    await assert.rejects(
+      finalizeMacDirectDownloadSet({ root: testRoot, baseUrl: 'http://updates.example.com/releases/' }),
+      /AGENT_COMMONS_UPDATE_BASE_URL.*canonical public HTTPS directory URL/,
+    )
+    assert.equal(plan.artifacts.every((candidate) => !existsSync(candidate.updatePath)), true, 'invalid feed configuration writes no feed')
     const intel = plan.artifacts.find((candidate) => candidate.architecture === 'x64')
     assert.ok(intel)
     await writeFile(intel.candidateChecksumPath, `${'0'.repeat(64)}  ${intel.archiveName}\n`)
     await assert.rejects(
-      finalizeMacDirectDownloadSet({ root: testRoot }),
+      finalizeMacDirectDownloadSet({ root: testRoot, baseUrl }),
       /Intel checksum does not match its archive/,
     )
     assert.equal(existsSync(plan.manifestPath), false)
+    assert.equal(plan.artifacts.every((candidate) => !existsSync(candidate.updatePath)), true, 'invalid candidate pairs publish no updater feeds')
     assert.equal(plan.artifacts.every((candidate) => (
       !existsSync(candidate.archivePath) && !existsSync(candidate.checksumPath) && !existsSync(candidate.receiptPath)
     )), true)
     const intelDigest = createHash('sha256').update(await readFile(intel.candidateArchivePath)).digest('hex')
     await writeFile(intel.candidateChecksumPath, checksumLine(intelDigest, intel.archiveName))
-    await finalizeMacDirectDownloadSet({ root: testRoot })
+    const arm = plan.artifacts.find((candidate) => candidate.architecture === 'arm64')
+    assert.ok(arm)
+    await writeFile(arm.updatePath, 'pre-existing feed')
+    await assert.rejects(
+      finalizeMacDirectDownloadSet({ root: testRoot, baseUrl }),
+      /already has a public or partial direct-download release set/,
+    )
+    assert.equal(await readFile(arm.updatePath, 'utf8'), 'pre-existing feed', 'a pre-existing architecture feed is immutable')
+    assert.equal(plan.artifacts.every((candidate) => !existsSync(candidate.archivePath)), true, 'feed collision publishes no archive')
+    await rm(arm.updatePath)
+
+    let changedCandidate = false
+    await finalizeMacDirectDownloadSet({
+      root: testRoot,
+      baseUrl,
+      async copy(source, destination, flags) {
+        // Simulate a build replacing its candidate after validation but before
+        // publication. The release must use its verified private snapshot.
+        if (!changedCandidate) {
+          changedCandidate = true
+          await writeFile(arm.candidateArchivePath, 'changed-after-candidate-validation')
+        }
+        await copyFile(source, destination, flags)
+      },
+    })
+    assert.equal(changedCandidate, true)
+    assert.equal(await readFile(arm.archivePath, 'utf8'), 'signed-arm64-archive')
     assert.equal(existsSync(plan.manifestPath), true)
     assert.equal(plan.artifacts.every((candidate) => (
       existsSync(candidate.archivePath) && existsSync(candidate.checksumPath) && existsSync(candidate.receiptPath)
     )), true)
     const releaseSet = JSON.parse(await readFile(plan.manifestPath, 'utf8'))
     assert.deepEqual(releaseSet.artifacts.map((artifact) => artifact.label), ['Apple Silicon', 'Intel'])
+    assert.equal(releaseSet.schemaVersion, 2)
+    for (const candidate of plan.artifacts) {
+      const archive = await readFile(candidate.archivePath)
+      const digest = createHash('sha256').update(archive).digest('hex')
+      const feed = JSON.parse(await readFile(candidate.updatePath, 'utf8'))
+      assert.deepEqual(feed, {
+        currentRelease: manifest.version,
+        releases: [{
+          version: manifest.version,
+          updateTo: {
+            version: manifest.version,
+            url: `${baseUrl}${candidate.archiveName}`,
+            name: manifest.version,
+            sha256: digest,
+            size: archive.byteLength,
+          },
+        }],
+      })
+      const entry = releaseSet.artifacts.find((artifact) => artifact.architecture === candidate.architecture)
+      assert.equal(entry?.updateFile, candidate.updateName)
+      assert.equal(feed.releases[0].updateTo.sha256, entry?.sha256)
+      assert.equal(feed.releases[0].updateTo.size, entry?.bytes)
+    }
     await assert.rejects(
-      finalizeMacDirectDownloadSet({ root: testRoot }),
+      finalizeMacDirectDownloadSet({ root: testRoot, baseUrl }),
       /already has a public or partial direct-download release set/,
     )
   } finally {
     await rm(testRoot, { recursive: true, force: true })
+  }
+})
+
+async function validReleaseSetFixture() {
+  const root = await mkdtemp(join(tmpdir(), 'agent-commons-release-set-cleanup-test-'))
+  await writeFile(join(root, 'package.json'), `${JSON.stringify(manifest)}\n`)
+  const plan = directDownloadReleaseSetPlan({ root, manifest })
+  for (const candidate of plan.artifacts) {
+    await mkdir(join(plan.candidateRoot, candidate.architecture), { recursive: true })
+    const contents = `signed-${candidate.architecture}-archive`
+    const digest = createHash('sha256').update(contents).digest('hex')
+    await writeFile(candidate.candidateArchivePath, contents)
+    await writeFile(candidate.candidateChecksumPath, checksumLine(digest, candidate.archiveName))
+    const bundleIdentity = directDownloadReleasePlan({
+      root,
+      manifest,
+      env: validEnv,
+      platform: 'darwin',
+      arch: candidate.architecture,
+    }).bundleIdentity
+    await writeFile(candidate.candidateReceiptPath, releaseReceiptJson({
+      productName: manifest.productName,
+      version: manifest.version,
+      platform: 'macos',
+      architecture: candidate.architecture,
+      archiveName: candidate.archiveName,
+      bytes: Buffer.byteLength(contents),
+      sha256: digest,
+      bundleIdentity,
+    }))
+  }
+  return { root, plan }
+}
+
+test('release-set finalizer reports private snapshot cleanup failure after publishing a complete set', async () => {
+  const { root, plan } = await validReleaseSetFixture()
+  const baseUrl = 'https://updates.example.com/releases/'
+  let snapshotDirectory: string | undefined
+  try {
+    await assert.rejects(
+      finalizeMacDirectDownloadSet({
+        root,
+        baseUrl,
+        async remove(path, options) {
+          if (path.includes('agent-commons-release-set-')) {
+            snapshotDirectory = path
+            throw new Error('simulated private snapshot cleanup failure')
+          }
+          await rm(path, options)
+        },
+      }),
+      (error: unknown) => {
+        assert.equal(error instanceof AggregateError, true)
+        const aggregate = error as AggregateError
+        assert.match(aggregate.message, /private snapshot cleanup failed/i)
+        assert.match(aggregate.message, /inspect.*before retry/i)
+        assert.ok(snapshotDirectory)
+        assert.ok(aggregate.message.includes(snapshotDirectory), 'the operator sees the exact private snapshot directory')
+        assert.equal(aggregate.errors.length, 1, 'cleanup-only failure has one exact cause')
+        assert.equal(aggregate.errors.some((entry) => entry instanceof Error && entry.message === 'simulated private snapshot cleanup failure'), true)
+        return true
+      },
+    )
+    assert.ok(snapshotDirectory, 'the finalizer attempted to remove its private candidate snapshot directory')
+    assert.equal(existsSync(snapshotDirectory), true, 'failed cleanup leaves the named private directory for inspection')
+    assert.equal(existsSync(plan.manifestPath), true, 'completed outputs remain published and must be inspected before retry')
+    for (const candidate of plan.artifacts) {
+      assert.equal(existsSync(candidate.archivePath), true)
+      assert.equal(existsSync(candidate.checksumPath), true)
+      assert.equal(existsSync(candidate.receiptPath), true)
+      assert.equal(existsSync(candidate.updatePath), true)
+    }
+  } finally {
+    if (snapshotDirectory) await rm(snapshotDirectory, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('release-set finalizer preserves candidate validation and private snapshot cleanup failures', async () => {
+  const { root, plan } = await validReleaseSetFixture()
+  const candidate = plan.artifacts.find((artifact) => artifact.architecture === 'x64')!
+  await writeFile(candidate.candidateChecksumPath, `${'0'.repeat(64)}  ${candidate.archiveName}\n`)
+  let snapshotDirectory: string | undefined
+  try {
+    await assert.rejects(
+      finalizeMacDirectDownloadSet({
+        root,
+        baseUrl: 'https://updates.example.com/releases/',
+        async remove(path, options) {
+          if (path.includes('agent-commons-release-set-')) {
+            snapshotDirectory = path
+            throw new Error('simulated private snapshot cleanup failure')
+          }
+          await rm(path, options)
+        },
+      }),
+      (error: unknown) => {
+        assert.equal(error instanceof AggregateError, true)
+        const aggregate = error as AggregateError
+        assert.match(aggregate.message, /private snapshot cleanup failed/i)
+        assert.match(aggregate.message, /inspect.*before retry/i)
+        assert.ok(snapshotDirectory)
+        assert.ok(aggregate.message.includes(snapshotDirectory), 'the operator sees the exact private snapshot directory')
+        assert.equal(aggregate.errors.length, 2, 'validation and cleanup failures remain distinct causes')
+        assert.equal(aggregate.errors.some((entry) => entry instanceof Error && /Intel checksum does not match its archive/.test(entry.message)), true)
+        assert.equal(aggregate.errors.some((entry) => entry instanceof Error && entry.message === 'simulated private snapshot cleanup failure'), true)
+        return true
+      },
+    )
+    assert.ok(snapshotDirectory, 'the finalizer attempted private snapshot cleanup after validation failed')
+    assert.equal(existsSync(snapshotDirectory), true, 'failed cleanup leaves the named private directory for inspection')
+    assert.equal(existsSync(plan.manifestPath), false, 'validation failure publishes no completion marker')
+    for (const artifact of plan.artifacts) {
+      assert.equal(existsSync(artifact.archivePath), false)
+      assert.equal(existsSync(artifact.checksumPath), false)
+      assert.equal(existsSync(artifact.receiptPath), false)
+      assert.equal(existsSync(artifact.updatePath), false)
+    }
+  } finally {
+    if (snapshotDirectory) await rm(snapshotDirectory, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true })
   }
 })
 

@@ -266,6 +266,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release-publish.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release-set.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/updateFeed.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/smokePaths.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/mcpCredentialSmoke.mjs'), true)

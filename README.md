@@ -242,20 +242,38 @@ boots use explicit profiles:
   Mac into the same version tree without renaming files, then run:
 
   ```bash
+  AGENT_COMMONS_UPDATE_BASE_URL='https://downloads.example.com/agent-commons/' \
   npm run desktop:release:mac:finalize
   ```
 
   Finalization requires exactly `arm64` (shown to people as **Apple Silicon**) and
   `x64` (shown as **Intel**) for the current package version. It recomputes each
-  archive's size and SHA-256, validates the adjacent checksum and exact receipt,
-  then exclusively publishes both ZIPs, both checksums, both receipts, and
+  archive's size and SHA-256 from a private snapshot, validates its adjacent
+  checksum and exact receipt, then publishes those exact bytes as both ZIPs,
+  both checksums, both receipts, both
+  architecture-specific `Agent-Commons-<version>-macos-<arch>.update.json` feeds, and
   `Agent-Commons-<version>-macos.release.json` into `release/`. That manifest is
   written last and is the only complete-release marker; a missing/invalid candidate
   publishes nothing, a copy failure rolls back the new public set, and an existing
   same-version output is never overwritten. Receipts and the pair manifest are
   audit metadata, not substitutes for Apple signatures or an authenticated download
-  channel. The approved updater policy is automatic checks with user-approved
-  installation and restart; the updater itself remains unimplemented. The six
+  channel. The schema-v2 pair manifest names each update feed. Finalization
+  requires an operator-selected canonical HTTPS directory URL with no credentials,
+  query, fragment, port or local/IP host; the example above is not a configured
+  service. Stable three-part versions alone enter this update channel. Each
+  deterministic Squirrel.Mac feed names only its architecture's verified ZIP,
+  exact size and SHA-256. Upload the complete set only after the completion
+  marker exists; publishing or changing a hosted latest pointer is a separate
+  operator action, not performed by this command.
+  The approved updater policy is automatic checks with user-approved
+  installation and restart. These release feeds are its prerequisite, not a
+  shipped updater: metadata-only runtime checks, consent, shutdown coordination,
+  hosting and signed two-version installation acceptance remain required. Never
+  use Electron's native `checkForUpdates()` for unattended metadata checks:
+  it downloads automatically, and a downloaded update can install on next launch.
+  See the [Electron updater contract](https://www.electronjs.org/docs/latest/api/auto-updater)
+  and [Squirrel static feed format](https://github.com/Squirrel/Squirrel.Mac#update-file-json-format).
+  The six
   [approved desktop defaults](docs/production-plan.md#approved-desktop-defaults-2026-10-04)
   distinguish product decisions from remaining implementation and release evidence.
 - `npm run start:desktop:server` keeps the release-shaped backend available

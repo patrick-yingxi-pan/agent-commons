@@ -44,7 +44,38 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint integrates the recoverable half of approved default 3.
+The current checkpoint adds the release-feed prerequisite for approved default 5
+while the permanent-deletion cascade decision awaits the owner. Finalization
+generates deterministic, architecture-specific Squirrel.Mac update feeds from
+the two already-verified signed ZIP candidates. A required operator-selected
+HTTPS base URL supplies archive locations; no real hosting destination is
+invented. Stable-version, URL and exact archive metadata validation happen
+before publication. Feeds join the existing immutable publication transaction;
+the schema-v2 paired manifest still lands last, and partial output rolls back.
+Review found and reproduced mutable-source and partial-copy publication races.
+Finalization now validates private candidate snapshots and publishes those exact
+bytes. Individual outputs become visible only after complete private copies,
+through an exclusive atomic link; a failed copy cannot expose a partial manifest.
+Private candidate-snapshot cleanup failures are reported with the temporary path
+and inspect-before-retry guidance; a completed release is preserved, and any
+earlier validation/publication failure remains available in the aggregate error.
+These are release artifacts, not runtime update behavior. Automatic metadata-only
+checks, explicit installation/restart consent, coordinated backend shutdown,
+configured hosting and real signed two-version update acceptance remain required.
+Electron's native checker must not run unattended: it stages downloads that may
+install on next launch, which would bypass the approved consent policy.
+Failure-first locks reproduced omitted feeds, changed candidate bytes, partial
+publication and silent snapshot cleanup, then passed after repair. All 136 desktop
+unit tests and the complete unsigned arm64 packaged acceptance pass; direct ASAR inspection also confirms
+the release generator/publisher do not ship. The complete local verifier passed
+all five lanes and 432 browser tests. Final review aligned the older release
+ledger with the new eight-file set. A subsequent full run hit an intermittent
+MCP proposal timeout; the unchanged trace-enabled full gate and twelve focused
+traced repetitions passed. That failure is not claimed repaired; see the open
+verification follow-up below. The final revision remains subject to the same
+full local gate. No signed update installation or hosted publication is claimed.
+
+The preceding checkpoint integrates the recoverable half of approved default 3.
 Trash is a permanent nested collection inside Artifacts, mirrored in the rail;
 the canonical artifact page owns confirmed Move to Trash and Restore. HTTP and
 MCP expose the same owner-only lifecycle contract. Account-scoped reviewed intent
@@ -1185,6 +1216,17 @@ version gate rather than silently reused for a future upgrade. Any dependency
 upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
+
+The release-feed checkpoint observed one first-attempt timeout in
+`e2e/mcp-tool-execution.spec.ts` (long external labels): after Enter, neither
+the user message nor the proposed tool call appeared. The reconnecting banner
+is expected because this fixture intentionally aborts live events. The unchanged
+trace-enabled complete verifier passed all 432 tests, as did twelve focused
+repetitions with always-on tracing; a successful trace confirms the message POST
+returned 200. There is no failure trace establishing whether the original send
+was issued or later state was replaced. Keep this unresolved; capture the next
+failure's request and transcript sequence before changing product logic, test
+readiness, timeouts or retries. No speculative MCP fix is included here.
 
 Read-only MCP inspection now recovers once when a legacy peer expires its
 initialized session during catalog listing. It retires the old private ID,

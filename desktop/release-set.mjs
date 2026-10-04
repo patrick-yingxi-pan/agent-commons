@@ -11,6 +11,7 @@ import {
   validateReleaseReceipt,
 } from './release-plan.mjs'
 import { publishImmutableReleaseSet } from './release-publish.mjs'
+import { releaseUpdateFeedJson, validateUpdateBaseUrl } from './updateFeed.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -67,22 +68,49 @@ async function inspectCandidate(candidate, version) {
   }
 }
 
-export async function finalizeMacDirectDownloadSet({ root = ROOT } = {}) {
+export async function finalizeMacDirectDownloadSet({ root = ROOT, baseUrl = process.env.AGENT_COMMONS_UPDATE_BASE_URL, copy = copyFile, remove = rm } = {}) {
+  validateUpdateBaseUrl(baseUrl)
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   const plan = directDownloadReleaseSetPlan({ root, manifest })
   const publicPaths = [
     plan.manifestPath,
-    ...plan.artifacts.flatMap((candidate) => [candidate.receiptPath, candidate.checksumPath, candidate.archivePath]),
+    ...plan.artifacts.flatMap((candidate) => [candidate.receiptPath, candidate.checksumPath, candidate.archivePath, candidate.updatePath]),
   ]
   if (publicPaths.some((path) => existsSync(path))) {
     throw new Error('This version already has a public or partial direct-download release set. Bump the package version or audit the existing output.')
   }
-  const artifacts = []
-  for (const candidate of plan.artifacts) artifacts.push(await inspectCandidate(candidate, manifest.version))
-
   const staging = await mkdtemp(join(tmpdir(), 'agent-commons-release-set-'))
   const stagedManifest = join(staging, plan.manifestName)
+  const failures = []
   try {
+    // Hash and validate private snapshots, not mutable candidate paths that a
+    // concurrent build could replace between verification and publication.
+    const artifacts = []
+    const candidateFiles = []
+    for (const candidate of plan.artifacts) {
+      const staged = { ...candidate }
+      for (const [sourceKey, nameKey, destinationKey] of [
+        ['candidateReceiptPath', 'receiptName', 'receiptPath'],
+        ['candidateChecksumPath', 'checksumName', 'checksumPath'],
+        ['candidateArchivePath', 'archiveName', 'archivePath'],
+      ]) {
+        await requireRegularFile(candidate[sourceKey], `${candidate.label} ${candidate[nameKey]}`)
+        staged[sourceKey] = join(staging, candidate[nameKey])
+        await copyFile(candidate[sourceKey], staged[sourceKey])
+        candidateFiles.push({ stagedPath: staged[sourceKey], destinationPath: candidate[destinationKey] })
+      }
+      artifacts.push(await inspectCandidate(staged, manifest.version))
+    }
+    const updateFeeds = []
+    for (const artifact of artifacts) {
+      const candidate = plan.artifacts.find((row) => row.architecture === artifact.architecture)
+      const stagedPath = join(staging, candidate.updateName)
+      const { architecture, archiveName, bytes, sha256 } = artifact
+      await writeFile(stagedPath, releaseUpdateFeedJson({
+        baseUrl, version: manifest.version, artifact: { architecture, archiveName, bytes, sha256 },
+      }), { encoding: 'utf8', mode: 0o644 })
+      updateFeeds.push({ stagedPath, destinationPath: candidate.updatePath })
+    }
     await writeFile(stagedManifest, releaseSetJson({
       productName: manifest.productName,
       version: manifest.version,
@@ -90,16 +118,22 @@ export async function finalizeMacDirectDownloadSet({ root = ROOT } = {}) {
     }), { encoding: 'utf8', mode: 0o644 })
     await mkdir(plan.releaseDirectory, { recursive: true })
     await publishImmutableReleaseSet({
-      artifacts: plan.artifacts.flatMap((candidate) => [
-        { stagedPath: candidate.candidateReceiptPath, destinationPath: candidate.receiptPath },
-        { stagedPath: candidate.candidateChecksumPath, destinationPath: candidate.checksumPath },
-        { stagedPath: candidate.candidateArchivePath, destinationPath: candidate.archivePath },
-      ]),
+      copy,
+      artifacts: [...candidateFiles, ...updateFeeds],
       completionArtifact: { stagedPath: stagedManifest, destinationPath: plan.manifestPath },
     })
-  } finally {
-    await rm(staging, { recursive: true, force: true }).catch(() => {})
+  } catch (error) {
+    failures.push(error)
   }
+  try {
+    await remove(staging, { recursive: true, force: true })
+  } catch (error) {
+    throw new AggregateError(
+      [...failures, error],
+      `Direct macOS release-set private snapshot cleanup failed: ${staging}. Inspect release outputs and temporary snapshots before retrying; any completed release outputs are preserved.`,
+    )
+  }
+  if (failures.length > 0) throw failures[0]
   console.log(`[desktop-release-set] ${plan.manifestPath}`)
   for (const candidate of plan.artifacts) console.log(`[desktop-release-set] ${candidate.archivePath}`)
   return plan

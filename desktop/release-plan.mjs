@@ -35,6 +35,7 @@ function releaseArtifactNames(version, architecture) {
     archiveName: `${stem}.zip`,
     checksumName: `${stem}.zip.sha256`,
     receiptName: `${stem}.release.json`,
+    updateName: `${stem}.update.json`,
   }
 }
 
@@ -151,6 +152,7 @@ export function directDownloadReleaseSetPlan({ root, manifest }) {
         archivePath: join(releaseDirectory, names.archiveName),
         checksumPath: join(releaseDirectory, names.checksumName),
         receiptPath: join(releaseDirectory, names.receiptName),
+        updatePath: join(releaseDirectory, names.updateName),
       }
     }),
   }
@@ -350,7 +352,7 @@ export function releaseSetJson({ productName, version, artifacts }) {
     throw new Error('Direct macOS release set requires one Apple Silicon and one Intel candidate.')
   }
   return `${JSON.stringify({
-    schemaVersion: 1,
+    schemaVersion: 2,
     product: productName,
     version,
     platform: 'macos',
@@ -363,6 +365,7 @@ export function releaseSetJson({ productName, version, artifacts }) {
       sha256: artifact.sha256,
       checksumFile: artifact.checksumName,
       receiptFile: artifact.receiptName,
+      updateFile: releaseArtifactNames(version, artifact.architecture).updateName,
     })),
   }, null, 2)}\n`
 }
