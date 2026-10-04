@@ -22,8 +22,8 @@ import type { SocialEntityRef } from '../../contract/index.ts'
 import { docBlockText } from '../../contract/index.ts'
 import { LocusGutter } from './LocusGutter'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
-import { onAccountSwitch, useArtifactContent, useFsText, fsContentUrl } from '../api'
-import { updateArtifactBlock } from '../controller/artifactContentMutations'
+import { useArtifactContent, useFsText, fsContentUrl } from '../api'
+import { artifactEditDrafts, useArtifactEditDraft } from '../controller/artifactEditDrafts'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { ProposalsPanel, type MainPageSectionComponent } from './ProposalsPanel'
@@ -53,7 +53,6 @@ import { StructuredArtifactView } from './StructuredArtifactView'
 import { StructuredArtifactEditor } from './StructuredArtifactEditor'
 import {
   isStructuredArtifactMutationHeld,
-  updateStructuredArtifactContent,
   useStructuredArtifactMutationStatus,
 } from '../controller/structuredArtifactMutations'
 
@@ -174,6 +173,30 @@ export interface DocEdit {
   onCancel: () => void
 }
 
+function DocumentBlockEditor({ edit, unavailable = false }: { edit: DocEdit; unavailable?: boolean }) {
+  return (
+    <div className="space-y-1.5" data-document-block-editor>
+      <textarea
+        aria-label={`Rewrite block ${(edit.index ?? 0) + 1}`}
+        value={edit.draft}
+        onChange={(e) => edit.onDraft(e.target.value)}
+        disabled={edit.saving}
+        rows={3}
+        autoFocus
+        className={`${FORM_INPUT_CLASS} w-full resize-y`}
+      />
+      <div className="flex items-center gap-1.5">
+        <button onClick={() => void edit.onSave()} disabled={unavailable || !edit.draft.trim() || edit.saving} className={INLINE_ACTION_CLASS}>
+          {edit.saving ? 'Saving…' : 'Save'}
+        </button>
+        <button onClick={edit.onCancel} disabled={edit.saving} className={INLINE_ACTION_CLASS}>Cancel</button>
+      </div>
+      {unavailable && <p className="text-[11px] text-ink-soft" role="status">The original block is no longer available for editing. Copy your draft, then cancel to review the latest saved content.</p>}
+      {edit.error && <p className="text-[11px] text-danger-text" role="status">{edit.error}</p>}
+    </div>
+  )
+}
+
 function DocView({
   doc,
   size,
@@ -207,28 +230,7 @@ function DocView({
         // anchor talk to a block the writer is mid-way through changing. It
         // still keeps its wrapper below, so a door aimed at this block lands.
         if (editable && edit.index === i) {
-          const editor = (
-            <div className="space-y-1.5">
-              <textarea
-                aria-label={`Rewrite block ${i + 1}`}
-                value={edit.draft}
-                onChange={(e) => edit.onDraft(e.target.value)}
-                disabled={edit.saving}
-                rows={3}
-                autoFocus
-                className={`${FORM_INPUT_CLASS} w-full resize-y`}
-              />
-              <div className="flex items-center gap-1.5">
-                <button onClick={() => void edit.onSave()} disabled={!edit.draft.trim() || edit.saving} className={INLINE_ACTION_CLASS}>
-                  {edit.saving ? 'Saving…' : 'Save'}
-                </button>
-                <button onClick={edit.onCancel} disabled={edit.saving} className={INLINE_ACTION_CLASS}>
-                  Cancel
-                </button>
-                {edit.error && <span className="min-w-0 truncate text-[11px] text-danger">{edit.error}</span>}
-              </div>
-            </div>
-          )
+          const editor = <DocumentBlockEditor edit={edit} />
           return discuss ?
               <DiscussableBlock key={i} subject={discuss} index={i} gutter={false}>
                 {editor}
@@ -246,9 +248,10 @@ function DocView({
               <DocBlockView block={b} size={size} />
               <button
                 onClick={() => edit.onStart(i, current)}
-                title="Edit this block"
+                title={edit.index !== null ? 'Save or cancel your current block edit first' : 'Edit this block'}
                 aria-label={`Edit block ${i + 1}`}
-                className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 group-hover/block:opacity-100"
+                disabled={edit.index !== null}
+                className="absolute right-0 top-0 flex h-6 w-6 items-center justify-center rounded-md text-ink-faint opacity-0 transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 group-hover/block:opacity-100 disabled:cursor-not-allowed"
               >
                 <Pencil size={12} />
               </button>
@@ -690,25 +693,23 @@ export function ArtifactDetailPage({
   const nameHintId = useId()
   const currentArtifactId = useRef(artifact.id)
   currentArtifactId.current = artifact.id
-  const [editingStructured, setEditingStructured] = useState(false)
-  const [structuredBaseRevision, setStructuredBaseRevision] = useState(0)
-  useEffect(() => { setEditingName(false); setEditingStructured(false) }, [artifact.id])
-  useEffect(() => onAccountSwitch(() => setEditingStructured(false)), [])
+  useEffect(() => { setEditingName(false) }, [artifact.id])
   const normalizedName = normalizeArtifactName(nameDraft)
   const invalidName = !normalizedName
 
-  // The owner's body edit (social S3): which block is open, and its draft. The
-  // save goes through the SAME mutator a landed `artifact-patch` runs — the
-  // owner simply needs no consent from themselves.
-  const [editing, setEditing] = useState<number | null>(null)
-  const [draft, setDraft] = useState('')
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [saving, setSaving] = useState(false)
+  const draftState = useArtifactEditDraft(artifact.id)
+  const documentDraft = own && draftState?.draft.kind === 'document' ? draftState.draft : undefined
+  const structuredDraft = own && draftState?.draft.kind === 'structured' ? draftState.draft : undefined
+  const editing = documentDraft?.block ?? null
+  const saving = draftState?.held ?? false
+  const editingStructured = structuredDraft !== undefined
   const artifactContent = useArtifactContent()
   const structuredMutation = useStructuredArtifactMutationStatus()
   const structuredBody = artifactContent.data?.[artifact.id]
+  const draftBlock = structuredBody?.type === 'doc' && editing !== null ? structuredBody.blocks[editing] : undefined
+  const documentTargetUnavailable = Boolean(documentDraft && (!draftBlock || docBlockText(draftBlock) === undefined))
   const editableStructuredBody = structuredBody?.type === 'sheet' || structuredBody?.type === 'slides' ? structuredBody : undefined
-  const structuredBusy = isStructuredArtifactMutationHeld(artifact.id) ||
+  const structuredBusy = saving || isStructuredArtifactMutationHeld(artifact.id) ||
     (structuredMutation.busy && structuredMutation.activeResourceId === artifact.id)
   const [sharing, setSharing] = useState(false)
   const [sharingHeld, setSharingHeld] = useState(false)
@@ -720,38 +721,17 @@ export function ArtifactDetailPage({
   const edit: DocEdit | undefined = own
     ? {
         index: editing,
-        draft,
-        error: saveError,
+        draft: documentDraft?.text ?? '',
+        error: draftState?.error ?? null,
         saving,
         onStart: (index, current) => {
-          setEditing(index)
-          setDraft(current)
-          setSaveError(null)
+          artifactEditDrafts.start(artifact.id, { kind: 'document', block: index, text: current })
         },
-        onDraft: setDraft,
-        // Close only once the write has actually landed. Closing first and
-        // firing the request into the void lost the rewrite on any refusal and
-        // left the rejection unhandled — the offer form next door has always
-        // done the opposite.
-        onSave: async () => {
-          const index = editing
-          if (index === null) return
-          setSaving(true)
-          setSaveError(null)
-          try {
-            const outcome = await updateArtifactBlock(artifact.id, index, draft)
-            if (outcome === 'applied') setEditing(null)
-            else setSaveError('Edit dismissed. Your draft is still here; cancel to review the latest text.')
-          } catch (e) {
-            setSaveError(e instanceof Error ? e.message : 'Could not save that edit.')
-          } finally {
-            setSaving(false)
-          }
+        onDraft: (text) => {
+          if (documentDraft) artifactEditDrafts.update(artifact.id, { ...documentDraft, text })
         },
-        onCancel: () => {
-          setEditing(null)
-          setSaveError(null)
-        },
+        onSave: () => { void artifactEditDrafts.save(artifact.id) },
+        onCancel: () => artifactEditDrafts.cancel(artifact.id),
       }
     : undefined
 
@@ -773,12 +753,8 @@ export function ArtifactDetailPage({
   }
   const startStructuredEdit = () => {
     if (!own || !editableStructuredBody || structuredBusy) return
-    setStructuredBaseRevision(editableStructuredBody.revision ?? 0)
-    setEditingStructured(true)
-  }
-  const saveStructured = async (next: Extract<typeof editableStructuredBody, { type: 'sheet' | 'slides' }>) => {
-    const outcome = await updateStructuredArtifactContent(artifact.id, next, structuredBaseRevision)
-    if (outcome === 'applied' && currentArtifactId.current === artifact.id) setEditingStructured(false)
+    const { revision = 0, ...content } = editableStructuredBody
+    artifactEditDrafts.start(artifact.id, { kind: 'structured', content, expectedRevision: revision })
   }
 
   return (
@@ -889,7 +865,7 @@ export function ArtifactDetailPage({
             {own && editableStructuredBody && <SectionAction
               label={editingStructured ? 'Cancel editing' : editableStructuredBody.type === 'sheet' ? 'Edit sheet' : 'Edit slides'}
               icon={editingStructured ? <X size={14} /> : <Pencil size={14} />}
-              onClick={editingStructured ? () => setEditingStructured(false) : startStructuredEdit}
+              onClick={editingStructured ? () => artifactEditDrafts.cancel(artifact.id) : startStructuredEdit}
               disabled={structuredBusy}
               disabledReason={structuredBusy ? 'Finish the current structure edit first' : undefined}
             />}
@@ -914,14 +890,17 @@ export function ArtifactDetailPage({
           </div>}
         >
           {artifactDownload.notice && <InlineOperationStatus {...artifactDownload.notice} />}
-          {own && editingStructured && editableStructuredBody ? (
+          {documentTargetUnavailable && edit && <DocumentBlockEditor edit={edit} unavailable />}
+          {own && structuredDraft ? (
             <StructuredArtifactEditor
-              body={editableStructuredBody}
+              body={structuredDraft.content}
+              onChange={(content) => artifactEditDrafts.update(artifact.id, { ...structuredDraft, content })}
               latestBody={structuredMutation.activeResourceId === artifact.id && structuredMutation.error ? editableStructuredBody : undefined}
               showLatest={structuredMutation.activeResourceId === artifact.id && Boolean(structuredMutation.error)}
               saving={structuredBusy}
-              onSave={saveStructured}
-              onCancel={() => setEditingStructured(false)}
+              error={draftState?.error}
+              onSave={() => { void artifactEditDrafts.save(artifact.id) }}
+              onCancel={() => artifactEditDrafts.cancel(artifact.id)}
             />
           ) : <ArtifactBodyView
               kind={artifact.kind}

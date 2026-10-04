@@ -20,7 +20,32 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint fixes a relay deadline defect exposed by Linux CI on
+The current checkpoint addresses a demonstrated core authoring defect: after a
+failed save, navigating away from a Document, Sheet or Slides page erased its
+visible draft while the shell still promised recovery. All three failure-first
+browser walks reproduced the missing editor. One account-scoped memory store now
+owns body drafts across navigation and duplicate panes, including ordinary
+unsaved edits. Save acknowledgement and explicit Cancel clear the draft; Dismiss
+keeps it editable. Account changes clear it and fence late outcomes. Existing
+revision checks and exact-key Retry remain unchanged, with no browser-storage or
+server draft persistence. Structural Document editing still awaits the separate
+block-identity/comment-anchor decision; this repair does not select that policy.
+Review also reproduced a reconciled Document losing its edited block. Its exact
+draft now remains available to copy or Cancel with Save disabled; no replacement
+block is guessed. A deliberately removed account-disposal hook failed both
+source locks before restoration. The signed-in preview retained an unsaved Sheet
+note across navigation, then Cancel preserved the saved body; all six accounts
+remain stacked with Ada active. Complete verification and the isolated visual
+sweep remain this checkpoint's landing gates.
+The isolated sweep completed 135/135 cells with no skips or violations, and all
+142 screenshots plus 114 focused artifact captures were visually reviewed.
+Focused recovery review exposed 3.58:1 dismissal guidance; the new WCAG 2.2 AA
+checks failed in Document, Sheet and Slides before both editor surfaces adopted
+the shared readable danger-text token. Recovery states are rechecked at all five
+viewports after that repair. The preceding `304388de` checkpoint is also green
+in GitHub run `37200291313`.
+
+The preceding checkpoint `304388de` fixes a relay deadline defect exposed by Linux CI on
 `60d4255c`: a whole-turn-clamped tool timer could expire while wall time still
 reported a millisecond remaining, dispatching a sibling call or delivering an
 unusable continuation. The shared executor now returns sticky whole-turn expiry
@@ -29,7 +54,7 @@ recoverable; budgets, retries and authority are unchanged. Deterministic
 lagging-clock locks failed against the old code at both boundaries before the
 fix. Complete repository and packaged verification remain the landing gates.
 
-This checkpoint also closes actual native-dialog acceptance for the selected
+That checkpoint also closes actual native-dialog acceptance for the selected
 XLSX worksheet workflow on `60d4255c`. The [native workbook record](acceptance/native-workbook-2026-10-04.md)
 documents real Open/Save dialogs, cancellation, visible worksheet choice,
 missing-cache refusal, header mapping, explicit adoption, canonical creation,

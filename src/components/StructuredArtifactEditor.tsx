@@ -1,5 +1,4 @@
 import { ArrowDown, ArrowUp, Minus, Plus, Save, X } from 'lucide-react'
-import { useState } from 'react'
 import {
   MAX_AUTHORED_CELL_CHARS,
   MAX_AUTHORED_LABEL_CHARS,
@@ -16,10 +15,12 @@ import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 
 type Props = {
   body: StructuredArtifactBody
+  onChange: (body: StructuredArtifactBody) => void
   latestBody?: StructuredArtifactBody
-  onSave: (body: StructuredArtifactBody) => void | Promise<void>
+  onSave: () => void
   onCancel: () => void
   saving?: boolean
+  error?: string | null
   /** The latest read is shown beside a held draft after a conflict. */
   showLatest?: boolean
 }
@@ -27,28 +28,23 @@ type Props = {
 const buttonClass = INLINE_ACTION_CLASS
 
 /** Owner-only full-page editor for one complete structured body. Previews keep
- * using StructuredArtifactView; this component owns a local draft and emits
- * exactly one replacement on Save. */
-export function StructuredArtifactEditor({ body, latestBody, onSave, onCancel, saving = false, showLatest = false }: Props) {
-  const [draft, setDraft] = useState<StructuredArtifactBody>(() => {
-    const snapshot = structuredClone(body) as StructuredArtifactBody & { revision?: number }
-    delete snapshot.revision
-    return snapshot
-  })
-  const valid = parseStructuredArtifactBody(draft) !== undefined
-  const update = (next: StructuredArtifactBody) => setDraft(next)
+ * using StructuredArtifactView; the account-scoped draft store owns lifetime
+ * across navigation and duplicate panes. Save emits one complete replacement. */
+export function StructuredArtifactEditor({ body, onChange, latestBody, onSave, onCancel, saving = false, error, showLatest = false }: Props) {
+  const valid = parseStructuredArtifactBody(body) !== undefined
 
   return (
-    <div className="space-y-3" data-structured-artifact-editor={draft.type}>
-      <StructuredArtifactFields body={draft} onChange={update} disabled={saving} />
+    <div className="space-y-3" data-structured-artifact-editor={body.type}>
+      <StructuredArtifactFields body={body} onChange={onChange} disabled={saving} />
       <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
-        <button type="button" data-inline-action className={buttonClass} disabled={saving || !valid} onClick={() => void onSave(draft)}>
+        <button type="button" data-inline-action className={buttonClass} disabled={saving || !valid} onClick={onSave}>
           <Save size={13} /> {saving ? 'Saving…' : 'Save changes'}
         </button>
         <button type="button" data-inline-action className={buttonClass} disabled={saving} onClick={onCancel}>
           <X size={13} /> Cancel
         </button>
       </div>
+      {error && <p className="text-[11px] text-danger-text" role="status">{error}</p>}
       {!valid && <p className="text-[11px] text-removed" role="alert">Review blank labels or the saved size limits before saving.</p>}
       {showLatest && latestBody && (
         <div className="space-y-1.5 rounded-lg border border-line bg-panel-2/40 p-2.5" role="status">

@@ -4,6 +4,7 @@ import type { ArtifactContent, ArtifactItem, Grant, StructuredArtifactBody } fro
 import { API, newUser } from './social-helpers.ts'
 import { ms } from './budget.ts'
 import { settleArtifactPageRail } from './artifact-page-helpers.ts'
+import { assertWcag22Aa } from './accessibility-helpers.ts'
 
 const VIEWPORTS = [
   { width: 320, height: 700 }, { width: 375, height: 812 },
@@ -96,6 +97,138 @@ async function capture(page: Page, detail: Locator, testInfo: TestInfo, label: s
     }
   }
 }
+
+async function leaveAndReturnToArtifact(page: Page, id: string, name: string) {
+  const expandSidebar = page.getByRole('button', { name: 'Expand sidebar', exact: true }).first()
+  if (await expandSidebar.isVisible()) await expandSidebar.click()
+  await page.getByRole('button', { name: 'Artifacts', exact: true }).first().click()
+  const row = page.locator('[data-artifact-preview-row]').filter({ has: page.getByRole('button', { name, exact: true }) })
+  await expect(row).toBeVisible()
+  await row.getByRole('button', { name, exact: true }).click()
+  await expect(page.locator(`[data-artifact-page="${id}"]`).last()).toBeVisible()
+}
+
+async function captureRecoveryState(page: Page, detail: Locator, editor: Locator, competingEdit: Locator, testInfo: TestInfo, label: string, expected: string, held: boolean) {
+  const original = page.viewportSize() ?? { width: 1280, height: 800 }
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await settleArtifactPageRail(page)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    await expect(detail).toBeVisible()
+    await expect(editor).toHaveValue(expected)
+    await editor.scrollIntoViewIfNeeded()
+    if (held) {
+      await expect(editor).toBeDisabled()
+      await expect(competingEdit).toBeDisabled()
+    } else {
+      await expect(editor).toBeEnabled()
+      await expect(competingEdit).toBeEnabled()
+    }
+    await page.screenshot({ path: testInfo.outputPath(`${label}-${viewport.width}x${viewport.height}.png`) })
+    await assertWcag22Aa(page, `${label} ${viewport.width}x${viewport.height}`)
+  }
+  await page.setViewportSize(original)
+  await settleArtifactPageRail(page)
+}
+
+async function exerciseStructuredNavigationRecovery(page: Page, kind: 'sheet' | 'slide', stamp: string, testInfo: TestInfo) {
+  const { artifact, name } = await createArtifact(page, kind, `navigation-recovery-${stamp}`)
+  const detail = page.locator(`[data-artifact-page="${artifact.id}"]`)
+  const requests: Array<{ key: string; body: unknown }> = []
+  let retryKey: string | null = null
+  await page.route(`**${API}/artifacts/${artifact.id}/content`, async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue()
+    const key = route.request().headers()['idempotency-key'] ?? ''
+    requests.push({ key, body: route.request().postDataJSON() })
+    if (retryKey === key) return route.continue()
+    await route.abort('failed')
+  })
+
+  await page.goto(`/artifacts/${artifact.id}`)
+  const fieldName = kind === 'sheet' ? 'Sheet row 1 value 2' : 'Slide 1 title'
+  const openEditor = async () => {
+    await page.getByRole('button', { name: kind === 'sheet' ? 'Edit sheet' : 'Edit slides', exact: true }).click()
+  }
+  const field = () => detail.getByRole('textbox', { name: fieldName, exact: true })
+  const addControl = detail.getByRole('button', { name: kind === 'sheet' ? 'Add row' : 'Add slide', exact: true })
+  const competingEdit = detail.getByRole('textbox', {
+    name: kind === 'sheet' ? 'Sheet row 1 value 1' : 'Slide 1 bullet 1', exact: true,
+  })
+  await openEditor()
+  const dismissedDraft = `Held through Dismiss ${stamp}.`
+  await field().fill(dismissedDraft)
+  await detail.getByRole('button', { name: 'Save changes', exact: true }).click()
+  const notice = page.locator('[data-revisioned-mutation="structured-artifact"]')
+  await expect(notice).toContainText('Couldn’t confirm the content edit')
+
+  await leaveAndReturnToArtifact(page, artifact.id, name)
+  await expect(field()).toHaveValue(dismissedDraft)
+  await expect(field()).toBeDisabled()
+  await expect(addControl).toBeDisabled()
+  await captureRecoveryState(page, detail, field(), competingEdit, testInfo, `${kind}-edit-held`, dismissedDraft, true)
+  await notice.getByRole('button', { name: 'Dismiss', exact: true }).click()
+  await expect(notice).toHaveCount(0)
+  await expect(field()).toBeEnabled()
+  await expect(field()).toHaveValue(dismissedDraft)
+  await leaveAndReturnToArtifact(page, artifact.id, name)
+  await expect(field()).toBeEnabled()
+  await expect(field()).toHaveValue(dismissedDraft)
+  await captureRecoveryState(page, detail, field(), competingEdit, testInfo, `${kind}-edit-dismissed`, dismissedDraft, false)
+
+  const retriedDraft = `Exact retry payload ${stamp}.`
+  await field().fill(retriedDraft)
+  await detail.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(notice).toContainText('Couldn’t confirm the content edit')
+  await leaveAndReturnToArtifact(page, artifact.id, name)
+  await expect(field()).toHaveValue(retriedDraft)
+  await expect(field()).toBeDisabled()
+  await expect(addControl).toBeDisabled()
+  expect(requests).toHaveLength(2)
+  const submitted = requests[1]!
+  expect(submitted.key).toBeTruthy()
+
+  retryKey = submitted.key
+  await notice.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(notice).toHaveCount(0)
+  await expect(detail.locator('[data-structured-artifact-editor]')).toHaveCount(0)
+  expect(requests).toHaveLength(3)
+  expect(requests[2]!.key).toBe(submitted.key)
+  expect(requests[2]!.body).toEqual(submitted.body)
+
+  const response = await page.request.get(`${API}/artifact-content`)
+  expect(response.ok()).toBeTruthy()
+  const library = await response.json() as Record<string, ArtifactContent>
+  const saved = library[artifact.id]
+  if (kind === 'sheet') {
+    expect(saved?.type).toBe('sheet')
+    if (!saved || saved.type !== 'sheet') throw new Error('saved body must remain a sheet')
+    expect(saved.rows[0]?.[1]).toBe(retriedDraft)
+  } else {
+    expect(saved?.type).toBe('slides')
+    if (!saved || saved.type !== 'slides') throw new Error('saved body must remain slides')
+    expect(saved.slides[0]?.title).toBe(retriedDraft)
+  }
+}
+
+test('a failed sheet edit survives in-app navigation; Dismiss keeps its draft and Retry reuses its exact write', async ({ browser }) => {
+  test.setTimeout(ms(120_000))
+  const owner = await newUser(browser)
+  try {
+    await exerciseStructuredNavigationRecovery(owner.page, 'sheet', Date.now().toString(36), test.info())
+  } finally {
+    await owner.context.close()
+  }
+})
+
+test('a failed Slides edit survives in-app navigation; Dismiss keeps its draft and Retry reuses its exact write', async ({ browser }) => {
+  test.setTimeout(ms(120_000))
+  const owner = await newUser(browser)
+  try {
+    await exerciseStructuredNavigationRecovery(owner.page, 'slide', Date.now().toString(36), test.info())
+  } finally {
+    await owner.context.close()
+  }
+})
 
 test('successful structured save refreshes Edited recency without ambient events', async ({ browser }) => {
   test.setTimeout(ms(45_000))

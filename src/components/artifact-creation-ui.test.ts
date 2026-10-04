@@ -56,8 +56,8 @@ test('New artifact authors every supported format through the shared bounded fie
   const creation = stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
   assert.match(creation, /projects\.filter\(\(project\) => project\.own === true\)\.map\(/,
     'optional filing offers only projects whose server projection grants owner acts')
-  assert.match(fields, /<StructuredArtifactFields body=\{draft\}/,
-    'saved sheet/deck editing uses that shared controlled field component')
+  assert.match(fields, /<StructuredArtifactFields body=\{body\} onChange=\{onChange\} disabled=\{saving\}/,
+    'saved sheet/deck editing controls the shared fields through the account-scoped draft and held-save state')
   for (const bound of [
     'MAX_AUTHORED_SHEET_COLUMNS', 'MAX_AUTHORED_SHEET_ROWS', 'MAX_AUTHORED_SLIDES',
     'MAX_AUTHORED_SLIDE_BULLETS', 'MAX_AUTHORED_LABEL_CHARS', 'MAX_AUTHORED_CELL_CHARS',
