@@ -153,9 +153,41 @@ export async function preserveSmokeFailure(originalError, capture) {
   try {
     await capture()
   } catch (diagnosticError) {
-    console.error(`[desktop-attachment-smoke] unable to capture detach evidence: ${String(diagnosticError)}`)
+    console.error(`[desktop-attachment-smoke] unable to capture failure evidence: ${String(diagnosticError)}`)
   }
   throw originalError
+}
+
+async function capturePickerFailure(page, picker) {
+  const evidenceRoot = await mkdtemp(join(tmpdir(), 'agent-commons-picker-failure-'))
+  const geometry = await boundedDiagnostic('picker geometry', () => picker.evaluate((dialog) => {
+    const describe = (element) => {
+      if (!element) return null
+      const rect = element.getBoundingClientRect()
+      const style = getComputedStyle(element)
+      return {
+        tag: element.tagName, text: element.textContent, className: element.className,
+        rect: rect.toJSON(), clientWidth: element.clientWidth, clientHeight: element.clientHeight,
+        scrollWidth: element.scrollWidth, scrollHeight: element.scrollHeight,
+        scrollLeft: element.scrollLeft, scrollTop: element.scrollTop,
+        overflowX: style.overflowX, overflowY: style.overflowY,
+      }
+    }
+    return {
+      viewport: { width: innerWidth, height: innerHeight, scale: devicePixelRatio },
+      dialog: describe(dialog),
+      buttons: [...dialog.querySelectorAll('button')].map((button) => {
+        const rect = button.getBoundingClientRect()
+        return {
+          button: describe(button), parent: describe(button.parentElement),
+          centerHit: describe(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)),
+        }
+      }),
+    }
+  })).catch((error) => ({ readError: String(error) }))
+  await writeDetachEvidence(join(evidenceRoot, 'geometry.json'), geometry)
+  await boundedDiagnostic('picker screenshot', () => page.screenshot({ path: join(evidenceRoot, 'picker.png') }))
+  console.error(`[desktop-attachment-smoke] picker failure evidence ${evidenceRoot}`)
 }
 
 async function captureDetachFailure(page, sessionId, endpoint, stage) {
@@ -862,7 +894,11 @@ export async function smokePackagedAttachments({ executable }) {
     await page.getByRole('button', { name: 'Add context' }).click()
     const folderPicker = page.getByRole('dialog', { name: 'Add context' })
     await folderPicker.getByRole('button', { name: /^Folder/ }).click()
-    await folderPicker.getByRole('button', { name: 'This computer', exact: true }).click()
+    try {
+      await folderPicker.getByRole('button', { name: 'This computer', exact: true }).click()
+    } catch (error) {
+      await preserveSmokeFailure(error, () => capturePickerFailure(page, folderPicker))
+    }
     await folderPicker.getByRole('button', { name: /Choose a folder from this computer/ }).click()
     await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)
     await page.locator('[data-overlay-dock="narrow"]').getByRole('button', { name: 'Close', exact: true }).click()

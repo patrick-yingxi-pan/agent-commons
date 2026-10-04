@@ -71,6 +71,7 @@ export function ignoreFromPackage(path) {
       'desktop/attachmentSmoke.mjs',
       'desktop/attachmentSmokeFixture.mjs',
       'desktop/artifactSheetImportSmoke.mjs',
+      'desktop/restoreSmoke.mjs',
     ].includes(normalized)
   ) return true
   if (root === 'scripts' && normalized !== 'scripts/start.mjs') return true

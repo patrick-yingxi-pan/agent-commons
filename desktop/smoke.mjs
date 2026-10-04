@@ -14,6 +14,7 @@ import { AUTH_ROOT_FILE } from './authRoot.mjs'
 import { smokePackagedAttachments } from './attachmentSmoke.mjs'
 import { smokePackagedMcpCredentials } from './mcpCredentialSmoke.mjs'
 import { smokePackagedMcpSchema } from './mcpSchemaSmoke.mjs'
+import { smokePackagedRestore } from './restoreSmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
@@ -500,6 +501,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   await smokePackagedAttachments({ executable })
   await smokePackagedMcpCredentials({ executable })
   await smokePackagedMcpSchema({ executable })
+  await smokePackagedRestore({ executable })
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await smokePackagedDesktop()

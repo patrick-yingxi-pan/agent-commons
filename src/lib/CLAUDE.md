@@ -35,6 +35,14 @@ navigation, or workspace category. Rendered consumers live under
 | UILIB-V1 | verification | Pure derivations live here so behavior can be locked exactly without a DOM. | [`paneHistory.ts`](paneHistory.ts) · [`replyTree.ts`](replyTree.ts) · [`railSplit.ts`](railSplit.ts) | [`pane-history.test.ts`](pane-history.test.ts) · [`reply-tree.test.ts`](reply-tree.test.ts) · [`rail-split.test.ts`](rail-split.test.ts) | refines UI-V1 |
 <!-- context-rules:end -->
 
+## Filesystem source layout
+
+Files, Photos and Folder use `fsSourceLayout.ts` through the shared
+`SourceSwitcher`. Source choices wrap; a bounded label can truncate without
+putting the buttons under a horizontal scrollbar. The source enumeration in
+`fs-source-layout.test.ts` and five-viewport `e2e/fs-source-layout.spec.ts`
+lock this layout (UI-158 / CTX-FS-19).
+
 ## What lives here
 
 The UI's shared vocabulary — the pure, framework-light half of `src/`: the

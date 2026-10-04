@@ -20,13 +20,41 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint removes fictional context inventory exposed by the clean
+The current checkpoint closes the missing packaged backup-restore acceptance
+path. Rendered controls reach the real trusted IPC, pre-restore safety copy,
+backend shutdown, ASAR worker and SQLite replacement. Exact before/after
+Documents, Sheets, Slides and conversations distinguish restoration from a
+restart that does nothing; restoring the safety copy recovers the newer work.
+Cancellation and malformed-snapshot refusal preserve current data. The existing
+pre-backup provider vault, device auth root and personal token remain intact.
+Only generated throwaway profiles are used. Dialog answers and relaunch spawning
+are controlled by the test, so this does not claim actual OS-dialog interaction,
+automatic OS relaunch, rotated/deleted credential recovery, or signed/Intel
+release acceptance. The ordinary executable smoke retains its separate real
+OS-storage gate. An isolated package whose restore worker acknowledged success
+without writing data was rejected by the new exact-workspace assertion.
+
+The fresh packaged gate also exposed a separate source-picker defect: at phone
+width, the horizontal source scrollport intercepted clicks on its own visible
+buttons. Retained screenshot/geometry evidence reproduced the failure. Files,
+Photos and Folder now share wrapping, width-bounded source choices; long-name
+browser coverage failed on the old overflow before the layout correction.
+The complete packaged desktop gate passes, including the native folder path and
+all new restore scenarios. The separate UI sweep covers 135/135 cells with no
+skips or violations. The Files picker at short landscape uses its existing
+vertical scroll; an ordinary Done click remains reachable and is locked in the
+new five-viewport walk alongside WCAG 2.2 AA checks.
+
+The preceding checkpoint `b46fddec` removes fictional context inventory exposed by the clean
 native review. The shared estimate now sums only supplied categories and keeps
 the snapshot's own deferred rows through live-message/model overlays. Base-tool
 estimates follow the Agent allowlist and transport capability; the popover names
 the four-character approximation, omitted runtime inputs and local-only limits.
 This is honest partial accounting, not a full request tokenizer or provider bill.
 Failure-first contract/store and five-viewport browser locks cover the defect.
+Its final complete verifier passed all five lanes and 384 browser tests in
+281.7 seconds; the separate UI review passed 135/135 cells without skips or
+violations. The reviewed checkpoint is published on main.
 
 The preceding checkpoint `af66da4e` completes the unfinished native CSV/TSV Sheet workflow
 checks. Actual OS selection, explicit header mapping/adoption, canonical save,

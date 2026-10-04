@@ -43,6 +43,7 @@ import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, useFsPickerSource } from '../lib/fsSources'
 import { fsReadPhase } from '../lib/fsReadState.ts'
+import { FS_SOURCE_GROUP_CLASS, FS_SOURCE_OPTION_CLASS } from '../lib/fsSourceLayout.ts'
 import { FsReadNotice } from './FsReadNotice.tsx'
 import type { UiHostFile } from '../lib/uiHostFs'
 import { useUiHostFs, type UiHostFsModule } from '../lib/useUiHostFs'
@@ -729,7 +730,7 @@ function SourceSwitcher({
   onPick: (id: string) => void
 }) {
   return (
-    <div className="mb-2 flex items-center gap-0.5 overflow-x-auto rounded-lg bg-panel-2 p-0.5">
+    <div data-fs-source-switcher="" className={FS_SOURCE_GROUP_CLASS}>
       {sources.map((s) => {
         const Icon = SOURCE_ICON[s.kind]
         const on = s.id === active
@@ -740,12 +741,12 @@ function SourceSwitcher({
             onClick={() => onPick(s.id)}
             aria-pressed={on}
             title={s.label}
-            className={`flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition ${
+            className={`${FS_SOURCE_OPTION_CLASS} ${
               on ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-soft hover:text-ink'
             }`}
           >
-            <Icon size={13} />
-            {s.label}
+            <Icon size={13} className="shrink-0" />
+            <span className="min-w-0 truncate">{s.label}</span>
           </button>
         )
       })}

@@ -260,6 +260,11 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(packagedExecutable('/repo', 'win32', 'x64'), join('/repo', 'out', 'Agent Commons-win32-x64', 'Agent Commons.exe'))
 
   const smoke = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
+  assert.ok(
+    smoke.replaceAll(/\s+/g, ' ').includes('await smokePackagedRestore({ executable })'),
+    'ordinary packaged smoke awaits the independent restore acceptance phase',
+  )
+  assert.equal(ignoreFromPackage('/desktop/restoreSmoke.mjs'), true)
   assert.match(smoke, /getByPlaceholder\('Paste API key'/)
   assert.match(smoke, /Connect a model to begin/)
   assert.match(smoke, /first-run model handoff/)
