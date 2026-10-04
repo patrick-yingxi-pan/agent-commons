@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
@@ -23,6 +23,8 @@ export { packagedExecutable } from './smokePaths.mjs'
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const TIMEOUT_MS = 30_000
 const OUTPUT_LIMIT = 16_384
+const USER_DATA_SENTINEL = '.user-data-permissions-smoke'
+const USER_DATA_SENTINEL_BYTES = Buffer.from('preserve this user-data file across permission repair\0\x01')
 
 function appendTail(current, chunk) {
   return `${current}${chunk}`.slice(-OUTPUT_LIMIT)
@@ -133,6 +135,32 @@ async function closePackagedDesktop(run) {
   await stop(run.child)
 }
 
+async function makeUserDataFixturePermissive(userDataPath, { createSentinel = false } = {}) {
+  if (process.platform === 'win32') return
+  const sentinelPath = join(userDataPath, USER_DATA_SENTINEL)
+  if (createSentinel) await writeFile(sentinelPath, USER_DATA_SENTINEL_BYTES, { mode: 0o600, flag: 'wx' })
+  await chmod(userDataPath, 0o755)
+  const mode = (await stat(userDataPath)).mode & 0o777
+  if (mode !== 0o755) throw new Error(`The smoke profile could not be prepared with permissive mode ${mode.toString(8)}.`)
+  if (!USER_DATA_SENTINEL_BYTES.equals(await readFile(sentinelPath))) {
+    throw new Error('The user-data permission smoke sentinel changed before startup.')
+  }
+}
+
+async function assertPrivateUserDataFixture(userDataPath, phase) {
+  if (process.platform === 'win32') return
+  const [directoryStat, sentinel] = await Promise.all([
+    stat(userDataPath),
+    readFile(join(userDataPath, USER_DATA_SENTINEL)),
+  ])
+  if ((directoryStat.mode & 0o777) !== 0o700) {
+    throw new Error(`Packaged desktop did not repair the user-data directory to mode 0700 after ${phase}.`)
+  }
+  if (!USER_DATA_SENTINEL_BYTES.equals(sentinel)) {
+    throw new Error(`Packaged desktop changed the user-data sentinel during ${phase}.`)
+  }
+}
+
 export async function smokePackagedDesktop({ executable = packagedExecutable() } = {}) {
   if (!existsSync(executable)) throw new Error(`Packaged desktop executable is missing: ${executable}`)
   const userDataPath = await mkdtemp(join(tmpdir(), 'agent-commons-desktop-smoke-'))
@@ -140,12 +168,14 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   const modelServer = startModelServer(Number(new URL(modelOrigin).port), '127.0.0.1')
   let run
   try {
+    await makeUserDataFixturePermissive(userDataPath, { createSentinel: true })
     await new Promise((resolve, reject) => {
       if (modelServer.listening) return resolve()
       modelServer.once('listening', resolve)
       modelServer.once('error', reject)
     })
     run = await launchPackagedDesktop(executable, userDataPath)
+    await assertPrivateUserDataFixture(userDataPath, 'initial startup')
     let { origin, page } = run
     const response = await fetch(origin, { redirect: 'error' })
     const html = await response.text()
@@ -377,10 +407,12 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
           retiredOrigin.once('error', reject)
           retiredOrigin.listen(Number(new URL(firstOrigin).port), '127.0.0.1', resolve)
         })
+        await makeUserDataFixturePermissive(userDataPath)
         run = await launchPackagedDesktop(executable, userDataPath)
       } finally {
         await new Promise((resolve) => retiredOrigin.close(resolve))
       }
+      await assertPrivateUserDataFixture(userDataPath, 'relaunch')
       ;({ origin, page } = run)
       if (origin === firstOrigin) throw new Error('The packaged relaunch did not exercise a different loopback origin.')
       const reopenedIdentity = await page.evaluate(async () => (await fetch('/api/v1/me')).json())

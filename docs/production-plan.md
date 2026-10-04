@@ -20,7 +20,25 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint fixes a defect observed while reviewing native recovery:
+The current checkpoint closes the demonstrated desktop POSIX-mode gap: startup
+admits and, if needed, tightens the owned profile directory to 0700 before
+application credentials or SQLite open. Repair operates on a no-follow directory
+descriptor and preserves existing work; wrong owners, symlinks, broad paths and
+aliases, unsuccessful repair and changed identity stop startup without offering
+an unrelated database restore. Failure-first locks cover these boundaries, and
+ordinary packaged startup/relaunch checks use only a generated 0755 profile and
+an exact preservation sentinel. Those post-readiness checks also passed the prior
+package because later MCP reconciliation already tightens mode; they do not prove
+the early boundary. The separate source-order lock failed an unawaited guard, and
+filesystem locks failed unsafe permission/identity mutations.
+This is not complete local filesystem isolation:
+extended macOS ACLs are neither audited nor removed, parent directories must be
+trusted, Windows retains OS-managed ACL policy, and earlier Chromium/session or
+instance-lock writes are outside this startup-order guarantee. ACL-managed macOS
+profiles remain a separate release-review gap; no administrator/same-user defense
+is claimed.
+
+The preceding checkpoint `4802b9fa` fixes a defect observed while reviewing native recovery:
 editing a document changed its body and Edited time, but left its index preview
 showing the creation text. Automatic previews now follow the exact saved body
 for Documents, Sheets and Slides, including granted readers. Explicit summaries
@@ -34,10 +52,8 @@ document and backup, added distinguishable later work, and proved picker
 cancellation preserved both documents, the process and the backup list. Actual
 restore/relaunch remains awaiting owner approval; no normal workspace was used
 or restored. The test app exited normally and its generated profile is retained.
-The review also found that startup does not explicitly tighten an already
-permissive user-data directory before SQLite opens; effective exposure depends
-on parent permissions. Enforcing the desktop profile boundary is a follow-up,
-not yet a completed security claim.
+The review also found the permissive user-data directory addressed by the current
+mode guard; effective access additionally depends on parent permissions and ACLs.
 
 The preceding checkpoint `1a2ce9e2` closes the missing packaged backup-restore acceptance
 path. Rendered controls reach the real trusted IPC, pre-restore safety copy,

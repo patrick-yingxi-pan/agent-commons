@@ -5,6 +5,7 @@ import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './authRoot.mjs'
+import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
@@ -82,6 +83,9 @@ function focusMainWindow() {
 }
 
 async function startDesktop() {
+  await ensureDesktopUserDataDirectory(app.getPath('userData'), {
+    protectedPaths: [app.getPath('appData')],
+  })
   app.setAppUserModelId(APP_ID)
   installApplicationMenu()
   const authSecret = await loadDesktopAuthSecret({
@@ -568,6 +572,11 @@ async function createMainWindow(url, origin) {
 }
 
 async function failStartup(error) {
+  if (error instanceof DesktopUserDataError) {
+    dialog.showErrorBox('Couldn’t protect Agent Commons data', error.message)
+    app.quit()
+    return
+  }
   if (error instanceof DesktopAuthRootError) {
     dialog.showErrorBox('Couldn’t unlock Agent Commons', error.message)
     app.quit()

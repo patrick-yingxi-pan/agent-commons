@@ -90,6 +90,25 @@ test('the one-shot restore worker receives persistence coordinates and no ambien
   })
 })
 
+test('profile admission is awaited before product startup and failure cannot offer restore', () => {
+  const main = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
+  const start = main.indexOf('async function startDesktop()')
+  const end = main.indexOf('async function openDesktopCredentialVault()')
+  assert.ok(start >= 0 && end > start)
+  const startup = main.slice(start, end)
+  assert.match(startup, /async function startDesktop\(\) \{\s*await ensureDesktopUserDataDirectory\(app.getPath\('userData'\),/)
+  assert.match(startup, /protectedPaths: \[app.getPath\('appData'\)\]/)
+  for (const boundary of ['await loadDesktopAuthSecret(', 'await openDesktopCredentialVault()', 'await openMcpCredentialVaultForDesktop()', 'await launchBackend(']) {
+    assert.ok(startup.indexOf(boundary) > startup.indexOf('await ensureDesktopUserDataDirectory('), boundary)
+  }
+  const failureStart = main.indexOf('async function failStartup(error)')
+  const failureEnd = main.indexOf('if (error instanceof DesktopAuthRootError)', failureStart)
+  assert.ok(failureStart >= 0 && failureEnd > failureStart)
+  const failure = main.slice(failureStart, failureEnd)
+  assert.match(failure, /if \(error instanceof DesktopUserDataError\) \{\s*dialog.showErrorBox\('Couldn’t protect Agent Commons data', error.message\)\s*app.quit\(\)\s*return\s*\}/)
+  assert.doesNotMatch(failure, /offerStartupRecovery|restoreFromManagedBackup|openPath/)
+})
+
 test('Electron owns a sandboxed utility-process lifecycle and Packager ships an ASAR runtime', () => {
   const main = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
   for (const contract of [
@@ -248,6 +267,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/artifactSheetImportSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/authRoot.mjs'), false)
+  assert.equal(ignoreFromPackage('/desktop/userDataDirectory.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/nativeRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/backendRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/rendererRecovery.mjs'), false)
