@@ -58,7 +58,7 @@ export function ContextPanelView({
     switch (panel.kind) {
       case 'workspace': {
         const w = live.workspaces.find((x) => x.id === panel.id)
-        return w ? <WorkspacePanel mode="workspace" workspace={w} inputAttachments={inputAttachments} onClose={noop} onRemoveFolder={writable ? removeFolder : undefined} /> : null
+        return w ? <WorkspacePanel mode="workspace" workspace={w} inputAttachments={inputAttachments} onClose={noop} onRemoveFolder={writable ? removeFolder : undefined} refreshSessionId={writable ? sessionId : undefined} refreshDisabled={isContextMutationHeld(contextMutation)} /> : null
       }
       case 'repo': {
         const r = live.repos.find((x) => x.id === panel.id)

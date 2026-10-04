@@ -70,6 +70,12 @@ export interface Workspace {
   /** Display name shown on the chip / panel header, e.g. `insights/`. */
   label: string
   artifacts: Artifact[]
+  /** Explicit attached served folders; snapshots are saved reference data. */
+  folders?: WorkspaceFolder[]
+}
+
+export interface WorkspaceFolder extends ArtifactSource {
+  snapshot?: import('./servedFolderSnapshot.ts').ServedFolderSnapshot
 }
 
 /** A repo attached to the conversation. A conversation can hold several — each
@@ -96,7 +102,7 @@ export interface Repo {
 /** The payload produced by the "Add context" flow. Every attachable thing is
  *  just context the conversation gains — so one entry point covers them all. */
 export type AddedContext =
-  | { kind: 'folder'; label: string; artifacts: Artifact[]; source?: import('./fs.ts').FsSource }
+  | { kind: 'folder'; label: string; artifacts: Artifact[]; source?: import('./fs.ts').FsSource; folder?: WorkspaceFolder }
   | {
       kind: 'repo'
       label: string

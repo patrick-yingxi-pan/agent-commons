@@ -21,6 +21,7 @@ import type {
 } from '../types'
 import type { UsageModelRef } from '../../contract/index.ts'
 import { planAttachmentInput, workspaceInputAttachments } from '../../contract/attachmentInput.ts'
+import { workspaceFolders as foldersOf } from '../../contract/workspaceFolders.ts'
 import type { ModelPick } from '../lib/models'
 import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
@@ -61,12 +62,7 @@ function loadSkipConfirm(): Record<string, boolean> {
  *  order. A workspace's artifacts are tagged with the folder they came from;
  *  seeded/demo outputs carry no source, so such a workspace has zero folders. */
 function workspaceFoldersOf(workspace: Workspace | undefined): { id: string; label: string }[] {
-  if (!workspace) return []
-  const seen = new Map<string, { id: string; label: string }>()
-  for (const a of workspace.artifacts) {
-    if (a.source && !seen.has(a.source.id)) seen.set(a.source.id, { id: a.source.id, label: a.source.label })
-  }
-  return [...seen.values()]
+  return workspace ? foldersOf(workspace) : []
 }
 
 /** The single composer for every conversation. The chips above it show what

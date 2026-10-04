@@ -11,6 +11,7 @@ import type {
 import { fsRecentKey } from '../../contract/fs.ts'
 import type { Attachment } from '../../contract/entities.ts'
 import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
+import { mergeServedFolderRefresh } from './servedFolderRefreshCore.ts'
 
 interface Deferred {
   request: UpdateSessionContextStateRequest
@@ -32,7 +33,9 @@ function harness(initialLive: Live = EMPTY_LIVE) {
       snapshot = {
         live: planned.attachmentRefresh
           ? mergeServedAttachmentRefresh(snapshot.live, returned, planned.attachmentRefresh)
-          : { ...planned.live, ...returned.workspace },
+          : planned.folderRefresh
+            ? mergeServedFolderRefresh(snapshot.live, returned, planned.folderRefresh)
+            : { ...planned.live, ...returned.workspace },
         focus: planned.focus,
       }
       commits.push(planned.live.connectors.map((connector) => connector.id).join(','))
@@ -232,6 +235,54 @@ test('failed refresh reconciliation retains its hold and account clearing aborts
   late.resolve({ contexts: [], workspace: { workspaces: [], repos: [], connectors: [], attachments: [] } })
   await tick()
   assert.deepEqual(h.commits, [], 'a late read after account clearing cannot publish')
+})
+
+test('folder save retry keeps one request id; read-only dismissal commits canonical folder snapshot before queued work', async () => {
+  const folderId = fsRecentKey('cloud', 'docs')
+  const currentWorkspace = {
+    id: 'ws', label: 'Workspace',
+    folders: [{ id: folderId, label: 'Docs' }],
+    artifacts: [{ id: 'legacy-doc', name: 'notes.md', kind: 'doc' as const, meta: '', source: { id: folderId, label: 'Docs' } }],
+  }
+  const h = harness({ ...EMPTY_LIVE, workspaces: [currentWorkspace] })
+  const attempts: Array<{ requestId: string; reject: (error: Error) => void }> = []
+  const savedId = '66666666-6666-4666-8666-666666666666'
+  const captured = {
+    version: 1 as const, snapshotId: savedId, capturedAt: '2026-10-04T12:00:00.000Z',
+    sourceId: 'cloud', path: 'docs', files: [{ name: 'notes.md', sizeBytes: 10, snapshot: { text: 'saved copy' } }],
+  }
+  const intent: ContextMutationIntent = {
+    plan: ({ live, focus }) => ({
+      live, focus, operations: [],
+      folderRefresh: { folderId, expectedSnapshotId: null, requestId: '77777777-7777-4777-8777-777777777777' },
+    }),
+    mutate: (_snapshot, plan) => new Promise<SessionContextState>((_resolve, reject) => {
+      attempts.push({ requestId: plan.folderRefresh!.requestId, reject })
+    }),
+    reconcile: async () => ({ contexts: [], workspace: {
+      workspaces: [{ ...currentWorkspace, folders: [{ id: folderId, label: 'Docs', snapshot: captured }], artifacts: [] }],
+      repos: [], connectors: [], attachments: [],
+    } }),
+  }
+  const outcome = h.controller.enqueue('s-folder', intent)
+  attempts[0]!.reject(new Error('response lost'))
+  await tick()
+  h.controller.retry('s-folder')
+  assert.equal(attempts[1]!.requestId, attempts[0]!.requestId)
+  attempts[1]!.reject(new Error('response lost again'))
+  await tick()
+
+  const later = h.controller.enqueue('s-folder', addConnector('slack'))
+  h.controller.dismiss('s-folder')
+  await tick()
+  assert.equal(h.calls.length, 0, 'the next context mutation waits for canonical reconciliation')
+  assert.equal(await outcome, 'discarded')
+  assert.equal(h.snapshot().live.workspaces[0]?.folders?.[0]?.snapshot?.snapshotId, savedId)
+  assert.equal(h.snapshot().live.workspaces[0]?.artifacts.length, 0, 'saved files are projected from snapshot.files, not legacy artifact rows')
+  assert.equal(h.calls.length, 1)
+  ack(h.calls[0]!)
+  await tick()
+  assert.equal(await later, 'applied')
 })
 
 test('an own SSE echo of the planned focus is still remembered; a later user focus wins', () => {

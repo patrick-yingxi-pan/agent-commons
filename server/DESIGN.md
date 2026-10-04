@@ -95,7 +95,7 @@ Revocation therefore closes a previously known content URL as well as the
 source switcher's discovery entry. Cloud storage remains a separately configured
 operator-owned source; this does not invent tenant provisioning or runner enrollment.
 
-The internal `folderSnapshot` capture foundation streams a selected directory,
+The `folderSnapshot` capture boundary streams a selected directory,
 refusing entry 501 before any file bodies are opened. Hidden files, subfolders,
 symlinks and unlisted names count toward that ceiling but do not become input.
 Visible regular-file metadata passes through the shared local-folder policy:
@@ -109,11 +109,14 @@ completion both the base reader and the facade recheck represented names and
 readable bodies through one predicate. A grant may narrow between those await
 continuations even when some other list/read scope remains. The facade never
 accepts caller predicates as a way to widen grants. The runner object is the
-caller's authority snapshot, so a future route must also re-resolve current
-store authority before committing an awaited capture. This is not an atomic
+caller's authority snapshot, so the store also re-resolves current registry
+authority before publishing or committing an awaited capture. This is not an atomic
 point-in-time image of all file contents: each body has its own checked read.
-The foundation has no public route, saved-session representation, model-input
-projection or Refresh UI yet; existing folder behavior is unchanged.
+Explicit `GET /fs/folder-snapshot` intake produces a closed folder value.
+`POST /sessions/:id/folders/:folderId/refresh` requires current ownership,
+exact folder binding and snapshot compare-and-swap; the committed snapshot ID
+is its durable replay receipt. Workspace folders own saved bodies once; artifacts
+and model attachments are projections. Legacy listings grant no automatic read.
 
 These are application-level defenses, not an OS filesystem sandbox. The
 configured directories and their ancestry must be controlled by the operator,

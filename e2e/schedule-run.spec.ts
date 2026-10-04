@@ -25,6 +25,25 @@ async function readRoutine(page: import('@playwright/test').Page, id: string): P
   return task!
 }
 
+test('routine detail exposes the full native title when its page heading truncates', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const routineName = `Standup digest from Linear for identity disclosure ${Date.now().toString(36)}`
+  const task = await createRoutine(page, routineName)
+  await page.goto(`/scheduled/${task.id}`)
+
+  const heading = page.locator('h1[data-identity-title]')
+  await expect(heading).toBeVisible({ timeout: ms(20_000) })
+  await expect(heading).toHaveText(routineName)
+  await expect(heading).toHaveAttribute('title', routineName)
+  await expect.poll(() => heading.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true)
+  for (const viewport of [{ width: 320, height: 700 }, { width: 768, height: 1024 }, { width: 844, height: 390 }, { width: 1280, height: 800 }]) {
+    await page.setViewportSize(viewport)
+    await expect(heading).toBeVisible()
+    await expect(heading).toHaveAttribute('title', routineName)
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  }
+})
+
 test('manual execution holds every routine action and Retry preserves one logical run', async ({ page }) => {
   test.setTimeout(ms(45_000))
   const task = await createRoutine(page, `Retryable run ${Date.now().toString(36)}`)

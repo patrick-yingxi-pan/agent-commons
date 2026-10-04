@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { FolderGit2, GitBranch, Github, PanelsTopLeft } from 'lucide-react'
 import type { Attachment, Repo, Workspace } from '../types'
+import { workspaceArtifacts, workspaceFolders } from '../../contract/workspaceFolders.ts'
 import { PanelShell } from './PanelShell'
 import { DeferredArtifactPanel } from './panels/DeferredArtifactPanel'
 import { CodePanel } from './panels/CodePanel'
@@ -26,6 +27,8 @@ export function WorkspacePanel({
   onClose,
   onRemoveFolder,
   inputAttachments = [],
+  refreshSessionId,
+  refreshDisabled = false,
 }: {
   mode: 'workspace' | 'repo'
   workspace?: Workspace
@@ -35,6 +38,8 @@ export function WorkspacePanel({
    *  list). Absent in repo mode. */
   onRemoveFolder?: (sourceId: string) => void
   inputAttachments?: Attachment[]
+  refreshSessionId?: string
+  refreshDisabled?: boolean
 }) {
   // The repo header shows its own origin — a local path and/or a GitHub remote.
   const originBadges =
@@ -70,10 +75,13 @@ export function WorkspacePanel({
             />
           ) : (
             <DeferredArtifactPanel
-              artifacts={workspace?.artifacts ?? []}
+              artifacts={workspace ? workspaceArtifacts(workspace) : []}
+              folders={workspace ? workspaceFolders(workspace) : []}
               workspaceName={workspace?.label ?? 'Workspace'}
               onRemoveFolder={onRemoveFolder}
               inputAttachments={inputAttachments}
+              refreshSessionId={refreshSessionId}
+              refreshDisabled={refreshDisabled}
             />
           )}
         </div>

@@ -11,6 +11,7 @@ import { createDraftController, type DraftDeps } from './draftCore.ts'
 import { DRAFT_ID, EMPTY_LIVE, type Live } from '../data/liveSession.ts'
 import type { Session } from '../../contract/index.ts'
 import type { PanelFocus } from '../types.ts'
+import type { WorkspaceFolder } from '../../contract/entities.ts'
 
 const session = (id: string): Session => ({ id, title: 'T', updatedAt: '', preview: '' }) as unknown as Session
 
@@ -25,6 +26,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   const creationKeys: string[] = []
   let contextAttempts = 0
   const contextRequests: Array<{ sid: string; operations: number }> = []
+  const contextWorkspaces: unknown[] = []
   const deps: DraftDeps = {
     createSession: (text, { idempotencyKey }) => {
       created += 1
@@ -35,6 +37,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
     updateContextState: (sid, request) => {
       contextAttempts += 1
       contextRequests.push({ sid, operations: request.operations.length })
+      contextWorkspaces.push(request.workspace)
       log.push(`context:${sid}:${request.operations.length}`)
       return opts?.failContextOnce && contextAttempts === 1
         ? Promise.reject(new Error('context unavailable'))
@@ -66,7 +69,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
       },
     },
   }
-  return { deps, log, prefs, patches, focuses, contextRequests, creationKeys, createdCount: () => created }
+  return { deps, log, prefs, patches, focuses, contextRequests, contextWorkspaces, creationKeys, createdCount: () => created }
 }
 
 test('first send materializes, adopts, then streams under the real id — in that order', async () => {
@@ -315,4 +318,40 @@ test('removeFolder purges exactly the removed folder seed; other seeds still flu
   draft.removeFolder('src-docs')
   await draft.sendDraftTurn('go', () => ({}))
   assert.deepEqual(log.filter((l) => l.startsWith('context:real-1')), ['context:real-1:1'], 'only the surviving connector seed flushed')
+})
+
+test('removeFolder purges an explicit empty served-folder seed with no artifact rows', async () => {
+  const { deps, log } = fakeDeps()
+  const draft = createDraftController(deps)
+  const emptyFolder: WorkspaceFolder = { id: 'cloud::empty', label: 'Empty' }
+  draft.attach({ kind: 'folder', label: 'Empty', folder: emptyFolder, artifacts: [], source: { id: 'cloud', kind: 'cloud', label: 'Cloud' } })
+  draft.removeFolder(emptyFolder.id)
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.equal(log.some((line) => line.startsWith('context:')), false, 'the explicit empty folder binding is not resurrected on first send')
+})
+
+test('a folder snapshot refreshed after draft intake survives first-send materialization', async () => {
+  const { deps, contextWorkspaces } = fakeDeps()
+  const draft = createDraftController(deps)
+  const folderId = 'cloud::docs'
+  draft.attach({
+    kind: 'folder', label: 'Docs', folder: { id: folderId, label: 'Docs' },
+    artifacts: [{ id: 'old-row', name: 'old.md', kind: 'doc', meta: '', source: { id: folderId, label: 'Docs' } }],
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud' },
+  } as never)
+  const captured: WorkspaceFolder = {
+    id: folderId, label: 'Docs', snapshot: {
+      version: 1, snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'docs',
+      files: [{ name: 'new.md', sizeBytes: 3, snapshot: { text: 'new' } }],
+    },
+  }
+  deps.store.setLive(DRAFT_ID, {
+    ...deps.store.get(DRAFT_ID).live,
+    workspaces: deps.store.get(DRAFT_ID).live.workspaces.map((workspace) => ({ ...workspace, artifacts: [], folders: [captured] })),
+  })
+  await draft.sendDraftTurn('go', () => ({}))
+  const savedWorkspace = (contextWorkspaces[0] as { workspaces: Array<{ folders?: WorkspaceFolder[]; artifacts: unknown[] }> }).workspaces[0]!
+  assert.equal(savedWorkspace.folders?.[0]?.snapshot?.snapshotId, captured.snapshot?.snapshotId)
+  assert.deepEqual(savedWorkspace.artifacts, [], 'the refreshed folder is materialized from snapshot.files, not stale intake rows')
 })

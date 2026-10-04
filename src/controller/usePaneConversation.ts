@@ -1,14 +1,13 @@
 /** ── A split pane's conversation (universal split Phase 3) ───────────────────
  *  Subscribes a pane to one session's keyed conversation state and runs the
  *  same open-time recipe the primary's selectSession runs — seed from the
- *  local mirror, reconcile from the server (the system of record), resurface a
+ *  account-scoped API cache, reconcile from the server, resurface a
  *  held escalation (C28), reattach to a still-generating turn (invariant I1) —
  *  WITHOUT touching the singleton's navigation. A pane on the session the
  *  primary already holds finds a non-pristine entry and simply shares it (the
  *  store dedupes by key); mounting never resets an entry that has state, so a
  *  duplicate pane can't stale its twin's stream. */
 import { useCallback, useEffect } from 'react'
-import { SESSIONS } from '../data/sessions'
 import { DRAFT_ID, focusValidIn, liveFromSession, unresolvedEscalation, type Live } from '../data/liveSession'
 import { keys, loadEarlierSession, loadSession, onSessionPush, peek } from '../api'
 import { getPanelPref } from '../lib/panelPrefs'
@@ -112,11 +111,11 @@ export function usePaneConversation(sessionId: string): ConversationState & { lo
     if (sessionId === DRAFT_ID) return
     const entry = conversations.get(sessionId)
     const pristine = entry.live.messages.length === 0 && !entry.composerText && !entry.busy && !entry.typing
-    // Seed a pristine entry from the local mirror so the thread paints at once
-    // (the primary's exact recipe); a lived-in entry is shared as-is.
+    // Only this account's previously read detail can seed an initial paint.
+    // Bundled demo transcripts are never evidence of access or saved content.
     if (pristine) {
-      const seed = SESSIONS.find((s) => s.id === sessionId)
-      if (seed) conversations.reset(sessionId, liveFromSession(seed))
+      const seed = peek<Session>(keys.session(sessionId))
+      if (seed?.id === sessionId) conversations.reset(sessionId, liveFromSession(seed))
       // Restore the session's remembered panel (FWD-2): a stored focus, or
       // null (explicitly closed) — both honoured over the auto-open; with no
       // stored choice, the strongest present context opens.

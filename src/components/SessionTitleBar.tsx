@@ -17,6 +17,7 @@ import { useRelations } from '../controller/useRelations'
 import { BackButton } from './BackButton'
 import { RunHistoryMenu } from './RunHistoryMenu'
 import { SessionShareButton } from './SessionShareButton'
+import { identityTitleProps } from '../lib/identityTitle'
 
 /** The slice of a Session the bar reads — a pane without the full server row
  *  (a run session outside the list) can pass a shell. */
@@ -68,7 +69,7 @@ export function SessionTitleBar({
           `ml-auto` would SPLIT the free space instead and strand the run
           switcher mid-bar — RunHistoryMenu already carries one.) */}
       <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <h1 className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
+        <h1 {...identityTitleProps(session.title)} className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
           {session.title}
         </h1>
         {runOf && (

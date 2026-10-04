@@ -4,6 +4,7 @@ import { isImageAssetRef } from './imageAssets.ts'
 import { IMAGE_MAX_COUNT, IMAGE_TURN_MAX_BYTES } from './imageInput.ts'
 import { isServedTextSnapshot } from './servedTextSnapshot.ts'
 import { fsRecentKey } from './fs.ts'
+import { workspaceArtifacts } from './workspaceFolders.ts'
 
 /** One ordered input projection for the composer, previews and both transports.
  * Folder bodies are durable snapshots, never a request to read a path. Direct
@@ -23,11 +24,27 @@ export function workspaceInputAttachments(workspace?: Pick<SessionWorkspace, 'at
         previewText: artifact.localSnapshot.text,
       }]
     }))
+  const served = (workspace.workspaces ?? []).flatMap((folder) =>
+    (!folder || typeof folder !== 'object' ? [] : workspaceArtifacts(folder)).flatMap((artifact): Attachment[] => {
+      if (!artifact || typeof artifact !== 'object') return []
+      const snapshot = artifact.savedFolderSnapshot
+      const folderSnapshot = folder.folders?.find((item) => item.id === artifact.source?.id)?.snapshot
+      if (!folderSnapshot || !snapshot || typeof artifact.name !== 'string') return []
+      const path = `${folderSnapshot.path}/${artifact.name}`
+      const attachment: Attachment = {
+        id: fsRecentKey(folderSnapshot.sourceId, path), label: `${artifact.source?.label ?? ''}${artifact.name}`,
+        kind: 'file', source: { id: folderSnapshot.sourceId, kind: folderSnapshot.sourceId === 'cloud' ? 'cloud' : 'runner', label: folderSnapshot.sourceId },
+        ...(typeof snapshot.text === 'string' ? { textSnapshot: { version: 1 as const, snapshotId: folderSnapshot.snapshotId, capturedAt: folderSnapshot.capturedAt, sourceId: folderSnapshot.sourceId, path, text: snapshot.text } } : {}),
+      }
+      return [attachment]
+    }))
   return [
     ...(workspace.attachments ?? []),
     // Metadata-only rows must not crowd readable folder text out of the cap.
+    ...served.filter((item) => typeof item.textSnapshot?.text === 'string'),
     ...imported.filter((item) => typeof item.previewText === 'string'),
     ...imported.filter((item) => typeof item.previewText !== 'string'),
+    ...served.filter((item) => typeof item.textSnapshot?.text !== 'string'),
   ]
 }
 

@@ -343,8 +343,12 @@ export const paths = {
     `/fs/text?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   fsSnapshot: (source: string, path: string) =>
     `/fs/snapshot?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+  fsFolderSnapshot: (source: string, path: string) =>
+    `/fs/folder-snapshot?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   refreshSessionAttachment: (sessionId: string, attachmentId: string) =>
     `/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/refresh`,
+  refreshSessionFolder: (sessionId: string, folderId: string) =>
+    `/sessions/${encodeURIComponent(sessionId)}/folders/${encodeURIComponent(folderId)}/refresh`,
   fsContent: (source: string, path: string) =>
     `/fs/content?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   projects: '/projects',

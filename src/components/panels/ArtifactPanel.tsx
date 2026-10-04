@@ -1,26 +1,35 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, X } from 'lucide-react'
-import type { Artifact, Attachment } from '../../types'
+import { ChevronDown, ChevronRight, RefreshCw, X } from 'lucide-react'
+import type { Artifact, Attachment, WorkspaceFolder } from '../../types'
+import { workspaceArtifactKey, type WorkspaceArtifact } from '../../../contract/workspaceFolders.ts'
 import { attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../../contract/attachmentInput.ts'
 import { ArtifactBodyView, KIND_ICON, KIND_LABEL } from '../artifactPreview'
 import { FOLD_HOVER } from '../../lib/foldHeader'
 import { DANGER_BUTTON_CLASS } from '../../lib/button'
 import { parseFsRecentKey } from '../../../contract/index'
+import { SectionAction } from '../SectionAction'
+import { refreshServedFolder } from '../../controller/servedFolderRefresh.ts'
 
 export function ArtifactPanel({
   artifacts,
   workspaceName,
   onRemoveFolder,
   inputAttachments = [],
+  folders = [],
+  refreshSessionId,
+  refreshDisabled = false,
 }: {
-  artifacts: Artifact[]
+  artifacts: WorkspaceArtifact[]
+  folders?: WorkspaceFolder[]
   inputAttachments?: Attachment[]
+  refreshSessionId?: string
+  refreshDisabled?: boolean
   workspaceName: string
   /** Remove a whole source folder from the workspace (the per-folder ✕). When
    *  absent, folder headers show no remove control. */
   onRemoveFolder?: (sourceId: string) => void
 }) {
-  const [selectedId, setSelectedId] = useState(artifacts[0]?.id)
+  const [selectedId, setSelectedId] = useState(artifacts[0] && workspaceArtifactKey(artifacts[0]))
   // Whether the bottom preview pane is showing. Closing it hands the list the
   // full height; clicking any artifact brings it back on that artifact.
   const [previewOpen, setPreviewOpen] = useState(true)
@@ -31,12 +40,12 @@ export function ArtifactPanel({
 
   // Keep the selection valid as the workspace fills in during the demo.
   useEffect(() => {
-    if (!artifacts.some((a) => a.id === selectedId)) {
-      setSelectedId(artifacts[0]?.id)
+    if (!artifacts.some((a) => workspaceArtifactKey(a) === selectedId)) {
+      setSelectedId(artifacts[0] && workspaceArtifactKey(artifacts[0]))
     }
   }, [artifacts, selectedId])
 
-  const selected = artifacts.find((a) => a.id === selectedId) ?? artifacts[0]
+  const selected = artifacts.find((a) => workspaceArtifactKey(a) === selectedId) ?? artifacts[0]
   const inputPlan = planAttachmentInput(inputAttachments)
 
   const openPreview = (id: string) => {
@@ -58,26 +67,28 @@ export function ArtifactPanel({
   // read as a folder named after the workspace. Folder subheaders appear once any
   // folder contributes; a purely sourceless workspace stays a flat list.
   const groups = useMemo(() => {
-    const m = new Map<string, { id: string; label: string; items: Artifact[] }>()
+    const m = new Map<string, { id: string; label: string; items: WorkspaceArtifact[]; folder?: WorkspaceFolder }>()
+    for (const folder of folders) m.set(folder.id, { id: folder.id, label: folder.label, items: [], folder })
     for (const a of artifacts) {
       const key = a.source?.id ?? '__default'
       if (!m.has(key)) m.set(key, { id: key, label: a.source?.label ?? 'This session', items: [] })
       m.get(key)!.items.push(a)
     }
     return [...m.values()]
-  }, [artifacts])
+  }, [artifacts, folders])
   // Show foldable folder headers once any folder has contributed; the pure
   // seeded/default workspace (no sourced artifacts) stays a flat list.
-  const showGroups = artifacts.some((a) => a.source)
+  const showGroups = folders.length > 0 || artifacts.some((a) => a.source)
   const folderCount = groups.filter((g) => g.id !== '__default').length
 
-  const renderRow = (a: Artifact) => {
+  const renderRow = (a: WorkspaceArtifact) => {
     const Icon = KIND_ICON[a.kind]
-    const active = previewOpen && a.id === selected?.id
+    const key = workspaceArtifactKey(a)
+    const active = previewOpen && !!selected && key === workspaceArtifactKey(selected)
     return (
       <button
-        key={a.id}
-        onClick={() => openPreview(a.id)}
+        key={key}
+        onClick={() => openPreview(key)}
         className={`mb-1 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
           active ? 'bg-surface ring-1 ring-line-strong' : 'hover:bg-surface/60'
         }`}
@@ -110,14 +121,16 @@ export function ArtifactPanel({
               // The default group holds the conversation's own (sourceless)
               // outputs — not a folder, so it has no per-folder remove.
               const canRemove = g.id !== '__default' && !!onRemoveFolder
+              const address = parseFsRecentKey(g.id)
+              const served = address && address.sourceId !== 'ui-host'
               const confirming = confirmRemoveId === g.id
               return (
-                <div key={g.id} className="mb-1.5">
+                <div key={g.id} data-workspace-folder={g.id} className="mb-1.5">
                   <div className={`group/fold mb-0.5 flex items-center gap-1 rounded-md px-1.5 py-1 ${FOLD_HOVER.panel}`}>
                     <button
                       onClick={() => toggleGroup(g.id)}
                       aria-expanded={!isCollapsed}
-                      className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                      className="flex min-h-6 min-w-0 flex-1 items-center gap-1 text-left"
                     >
                       {isCollapsed ? (
                         <ChevronRight size={12} className="shrink-0 text-ink-faint" />
@@ -129,17 +142,30 @@ export function ArtifactPanel({
                       </span>
                       <span className="shrink-0 text-[10px] font-medium text-ink-faint">{g.items.length}</span>
                     </button>
+                    {served && refreshSessionId && g.folder && (
+                      <SectionAction
+                        label={`${g.folder.snapshot ? 'Refresh' : 'Save snapshot of'} ${g.label}`}
+                        caption={g.folder.snapshot ? 'Refresh' : 'Save snapshot'}
+                        icon={<RefreshCw size={12} />}
+                        disabled={refreshDisabled}
+                        disabledReason="Resolve the current context update first"
+                        onClick={() => void refreshServedFolder(refreshSessionId, g.folder!)}
+                      />
+                    )}
                     {canRemove && !confirming && (
-                      <button
+                      <SectionAction
                         onClick={() => setConfirmRemoveId(g.id)}
-                        title="Remove folder from workspace"
-                        aria-label={`Remove ${g.label} from the workspace`}
-                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-ink-faint opacity-0 transition hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 group-hover/fold:opacity-100"
-                      >
-                        <X size={12} />
-                      </button>
+                        label={`Remove ${g.label} from the workspace`}
+                        disabled={refreshDisabled}
+                        icon={<X size={12} />}
+                      />
                     )}
                   </div>
+                  {!isCollapsed && served && (
+                    <p data-served-folder-state={g.folder?.snapshot ? 'saved' : 'missing'} className="px-2 pb-1 text-[11px] leading-snug text-ink-soft">
+                      {g.folder?.snapshot ? <>Saved <time dateTime={g.folder.snapshot.capturedAt}>{new Date(g.folder.snapshot.capturedAt).toLocaleString()}</time> · read-only. Refresh to capture later edits.</> : 'No saved copy yet. Save a snapshot to preview and send readable text.'}
+                    </p>
+                  )}
                   {/* Folder-scoped confirm, inline in the list. Intentionally
                       simpler than the composer chips' shared RemoveConfirm (no
                       cascade, no "don't ask again") — it removes a workspace
@@ -151,12 +177,14 @@ export function ArtifactPanel({
                       </span>
                       <div className="flex shrink-0 items-center gap-1">
                         <button
+                          disabled={refreshDisabled}
                           onClick={() => setConfirmRemoveId(null)}
                           className="rounded px-1.5 py-0.5 text-[11px] font-medium text-ink-soft transition hover:bg-panel-2"
                         >
                           Cancel
                         </button>
                         <button
+                          disabled={refreshDisabled}
                           onClick={() => {
                             onRemoveFolder?.(g.id)
                             setConfirmRemoveId(null)
@@ -169,6 +197,7 @@ export function ArtifactPanel({
                     </div>
                   )}
                   {!isCollapsed && g.items.map(renderRow)}
+                  {!isCollapsed && g.items.length === 0 && <p className="px-2 py-2 text-[12px] text-ink-soft">No visible top-level files in this saved folder.</p>}
                 </div>
               )
             })
@@ -177,21 +206,17 @@ export function ArtifactPanel({
 
       {previewOpen && selected && (
         <div className="flex-1 overflow-y-auto border-t border-line bg-surface p-3">
-          <ArtifactPreview artifact={selected} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id)?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
+          <ArtifactPreview artifact={selected} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id && item.attachment.textSnapshot?.snapshotId === selected.savedFolderSnapshotId)?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
         </div>
       )}
     </div>
   )
 }
 
-function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: Artifact; inputStatus: AttachmentInputStatus; onClose: () => void }) {
-  // A folder artifact served from a real filesystem carries its source on
-  // `artifact.source.id` (`<source>::<folderPath>`) and its path on `artifact.id`,
-  // so its real content is fetched. UI-host folders + seeded artifacts have no
-  // served source. Local snapshots never fall back to the authored library.
+function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: WorkspaceArtifact; inputStatus: AttachmentInputStatus; onClose: () => void }) {
+  // Attached folders are saved copies, never live source or library aliases.
   const parsed = artifact.source ? parseFsRecentKey(artifact.source.id) : null
-  const served =
-    parsed && parsed.sourceId !== 'ui-host' ? { sourceId: parsed.sourceId, path: artifact.id } : undefined
+  const snapshot = parsed?.sourceId === 'ui-host' ? artifact.localSnapshot : artifact.savedFolderSnapshot
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -208,18 +233,20 @@ function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: Artifac
         </button>
       </div>
       <div className="mb-3 truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
-      {parsed?.sourceId === 'ui-host' ? (
+      {parsed ? (
         <div data-folder-snapshot-preview>
-          <p className="mb-2 text-[11px] leading-snug text-ink-soft">Imported snapshot · read-only. Reattach the folder to import later edits.</p>
-          <p className="mb-3 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(inputStatus)}</p>
-          {typeof artifact.localSnapshot?.text === 'string' ? (
-            <pre className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">{artifact.localSnapshot.text || '(Empty file)'}</pre>
+          <p className="mb-2 text-[11px] leading-snug text-ink-soft">{parsed.sourceId === 'ui-host'
+            ? 'Imported snapshot · read-only. Reattach the folder to import later edits.'
+            : snapshot ? 'Saved snapshot · read-only. Original files are never changed or read automatically.' : 'No saved copy. Use Save snapshot on the folder to capture its readable text.'}</p>
+          {snapshot && <p className="mb-3 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(inputStatus)}</p>}
+          {typeof snapshot?.text === 'string' ? (
+            <pre className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">{snapshot.text || '(Empty file)'}</pre>
           ) : (
-            <p className="text-[12px] leading-snug text-ink-faint">{folderOmissionCopy(artifact.localSnapshot?.omitted)}</p>
+            snapshot && <p className="text-[12px] leading-snug text-ink-faint">{folderOmissionCopy(snapshot.omitted)}</p>
           )}
         </div>
       ) : (
-        <ArtifactBodyView kind={artifact.kind} name={artifact.name} artifactId={artifact.id} size="compact" served={served} />
+        <ArtifactBodyView kind={artifact.kind} name={artifact.name} artifactId={artifact.id} size="compact" />
       )}
     </div>
   )

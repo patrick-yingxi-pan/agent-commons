@@ -42,6 +42,7 @@ import type {
   WorkItemComment,
 } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { validWorkspaceFolders } from '../../contract/workspaceFolders.ts'
 import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseStructuredArtifactBody } from '../../contract/artifactAuthoring.ts'
@@ -725,6 +726,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     for (const entry of workspaces) {
       if (!Array.isArray(entry) || entry.length !== 2) continue
       const workspace = entry[1]
+      if (record(workspace) && Array.isArray(workspace.workspaces) && !validWorkspaceFolders(workspace.workspaces)) return false
       if (!record(workspace) || !Array.isArray(workspace.attachments)) continue
       for (const attachment of workspace.attachments) {
         if (record(attachment) && Object.hasOwn(attachment, 'textSnapshot') && !isAttachmentInput(attachment)) return false

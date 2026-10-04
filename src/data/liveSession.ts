@@ -14,6 +14,7 @@ import type {
 } from '../types'
 import { opAppliedInGraph } from '../../contract/graph.ts'
 import { panelFocusInWorkspace } from '../../contract/entities.ts'
+import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 
 /** ── Model: the live session ──────────────────────────────────────────────
  *  Pure domain logic for the unit a user works in. A `Session` (sessions.ts) is
@@ -80,8 +81,8 @@ export function bindingsFor(ctx: AddedContext): AttachContextRequest[] {
     case 'folder': {
       // The folder key is source-qualified (`<source>::<path>`); its scope is the
       // path within the source, and `source` records which host it came from.
-      const folderId = ctx.artifacts[0]?.source?.id ?? slug(ctx.label)
-      const scope = parseFsRecentKey(folderId)?.entryId ?? ctx.label
+      const folderId = ctx.folder?.id ?? ctx.artifacts[0]?.source?.id ?? slug(ctx.label)
+      const scope = ctx.folder?.snapshot?.path ?? parseFsRecentKey(folderId)?.entryId ?? ctx.label
       return [{ id: folderId, type: 'folder', label: ctx.label, scope, source: ctx.source }]
     }
     case 'repo':
@@ -257,14 +258,29 @@ export function workspaceOf(l: Live) {
 export function addContextToLive(l: Live, ctx: AddedContext): Live {
   switch (ctx.kind) {
     case 'folder': {
-      const existing = l.workspaces[0]
-      if (!existing) {
-        return { ...l, workspaces: [{ id: WS_ID, label: 'Workspace', artifacts: ctx.artifacts }] }
+      if (ctx.folder) {
+        if (l.workspaces.some((workspace) => workspaceFolders(workspace).some((folder) => folder.id === ctx.folder!.id))) return l
+        const index = l.workspaces.length ? 0 : -1
+        if (index < 0) {
+          return { ...l, workspaces: [...l.workspaces, { id: WS_ID, label: 'Workspace', artifacts: ctx.folder.snapshot ? [] : ctx.artifacts, folders: [ctx.folder] }] }
+        }
+        const workspaces = [...l.workspaces]
+        const existing = workspaces[index]!
+        const addedArtifacts = ctx.folder.snapshot ? [] : ctx.artifacts.filter((artifact) => !existing.artifacts.some((current) => current.id === artifact.id))
+        workspaces[index] = { ...existing, artifacts: [...existing.artifacts, ...addedArtifacts], folders: [...(existing.folders ?? []), ctx.folder] }
+        return { ...l, workspaces }
       }
+
+      // Legacy/local folder imports keep their artifact-based representation.
+      const index = l.workspaces.length ? 0 : -1
+      if (index < 0) return { ...l, workspaces: [{ id: WS_ID, label: 'Workspace', artifacts: ctx.artifacts }] }
+      const workspaces = [...l.workspaces]
+      const existing = workspaces[index]!
       const seen = new Set(existing.artifacts.map((a) => a.id))
       const added = ctx.artifacts.filter((a) => !seen.has(a.id))
       if (added.length === 0) return l
-      return { ...l, workspaces: [{ ...existing, artifacts: [...existing.artifacts, ...added] }] }
+      workspaces[index] = { ...existing, artifacts: [...existing.artifacts, ...added] }
+      return { ...l, workspaces }
     }
     case 'repo': {
       const id = repoIdForLabel(ctx.label)
@@ -360,8 +376,12 @@ export function approvalView(esc: EscalationProposal) {
  *  workspace, so its id is read from there). Pure, so it's unit-tested directly. */
 export function focusForAdded(ctx: AddedContext, live: Live): PanelFocus | null {
   switch (ctx.kind) {
-    case 'folder':
-      return { kind: 'workspace', id: live.workspaces[0]?.id ?? WS_ID }
+    case 'folder': {
+      const containing = ctx.folder
+        ? live.workspaces.find((workspace) => workspaceFolders(workspace).some((folder) => folder.id === ctx.folder!.id))
+        : undefined
+      return { kind: 'workspace', id: containing?.id ?? live.workspaces[0]?.id ?? WS_ID }
+    }
     case 'repo':
       return { kind: 'repo', id: repoIdForLabel(ctx.label) }
     case 'connector':
@@ -410,6 +430,7 @@ export function detachOperationsForFocuses(live: Live, focuses: PanelFocus[]): S
     if (!wsIds.has(workspace.id)) continue
     ids.add(workspace.id)
     for (const artifact of workspace.artifacts) if (artifact.source?.id) ids.add(artifact.source.id)
+    for (const folder of workspace.folders ?? []) ids.add(folder.id)
   }
   return [...ids].map((contextId) => ({ action: 'detach' as const, contextId }))
 }
@@ -431,11 +452,18 @@ export function removeContextsFromLive(l: Live, focuses: PanelFocus[]): Live {
  *  contributed, and drop the workspace itself if that empties it. Seeded/default
  *  artifacts (no source) are never touched. */
 export function removeFolderFromLive(l: Live, sourceId: string): Live {
+  const workspaces = l.workspaces
+    .map((w) => {
+      const artifacts = w.artifacts.filter((a) => a.source?.id !== sourceId)
+      const folders = w.folders?.filter((folder) => folder.id !== sourceId)
+      if (artifacts.length === w.artifacts.length && (folders?.length ?? 0) === (w.folders?.length ?? 0)) return w
+      if (artifacts.length === 0 && (folders?.length ?? 0) === 0) return null
+      return { ...w, artifacts, ...(w.folders ? { folders: folders ?? [] } : {}) }
+    })
+    .filter((w): w is Workspace => w !== null)
   return {
     ...l,
-    workspaces: l.workspaces
-      .map((w) => ({ ...w, artifacts: w.artifacts.filter((a) => a.source?.id !== sourceId) }))
-      .filter((w) => w.artifacts.length > 0),
+    workspaces,
   }
 }
 

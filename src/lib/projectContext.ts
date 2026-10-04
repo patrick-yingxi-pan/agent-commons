@@ -24,7 +24,10 @@ export function projectContextTone(kind: ProjectContext['kind']): ChipTone {
 export function addedToProjectContexts(ctx: AddedContext): ProjectContext[] {
   switch (ctx.kind) {
     case 'folder':
-      return [{ kind: 'folder', label: ctx.label, meta: `${ctx.artifacts.length} file${ctx.artifacts.length === 1 ? '' : 's'}` }]
+      {
+        const count = ctx.folder?.snapshot?.files.length ?? ctx.artifacts.length
+        return [{ kind: 'folder', label: ctx.label, meta: `${count} file${count === 1 ? '' : 's'}` }]
+      }
     case 'repo':
       return [{ kind: 'repo', label: ctx.label, meta: `${ctx.origin} · ${ctx.branch}` }]
     case 'connector':

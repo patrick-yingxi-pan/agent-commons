@@ -86,6 +86,8 @@ import type {
 } from '../../contract/index.ts'
 import { randomUUID } from 'node:crypto'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
+import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
+import { validWorkspaceFolders, workspaceFolders, replaceServedFolderSnapshot } from '../../contract/workspaceFolders.ts'
 import {
   applyGraphOp,
   artifactFromDraft,
@@ -2517,6 +2519,13 @@ function resolveFsReader(sourceId: string, capability: 'fs.read' | 'fs.list'): {
   return undefined
 }
 
+function folderSnapshotStillPermitted(snapshot: ServedFolderSnapshot): boolean {
+  if (snapshot.sourceId === 'cloud') return true
+  const runner = registry.get(snapshot.sourceId.slice('runner:'.length))
+  return !!runner && runner.status === 'online' &&
+    !!runnerFs(runner)?.permitsFolderSnapshot(snapshot.path, snapshot.files)
+}
+
 /** The server-known filesystem sources for the picker's source switcher — the web
  *  backend's cloud storage, plus any online runner advertising fs access that the
  *  broker can actually read (has a mapped root). The client prepends its own
@@ -3527,10 +3536,21 @@ function preserveSessionWorkspaceSnapshots(
   sessionId: string,
   workspace: SessionWorkspace,
   refreshAttachmentId?: string,
+  refreshFolderId?: string,
 ): SessionWorkspace {
+  if (!validWorkspaceFolders(workspace.workspaces)) throw new ValidationError('Folder snapshots must match their attached source and path.')
   const previousAttachments = new Map((sessionWorkspaces.get(sessionId)?.attachments ?? []).map((item) => [item.id, item]))
+  const previousFolders = new Map((sessionWorkspaces.get(sessionId)?.workspaces ?? []).flatMap(workspaceFolders).map((item) => [item.id, item]))
   return {
     ...workspace,
+    workspaces: workspace.workspaces.map((item) => {
+      let preserved = item
+      for (const folder of workspaceFolders(item)) {
+        const saved = previousFolders.get(folder.id)?.snapshot
+        if (saved && refreshFolderId !== folder.id) preserved = replaceServedFolderSnapshot(preserved, folder.id, saved)
+      }
+      return preserved
+    }),
     attachments: workspace.attachments.map((item) => {
       const saved = previousAttachments.get(item.id)?.textSnapshot
       if (!saved || refreshAttachmentId === item.id) return item
@@ -3552,6 +3572,7 @@ function commitSessionContextState(
   operations: SessionContextOperation[],
   workspace: SessionWorkspace,
   refreshAttachmentId?: string,
+  refreshFolderId?: string,
 ): SessionContextState {
   let contexts = sessionContextBindings.get(sessionId) ?? []
   const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
@@ -3564,7 +3585,7 @@ function commitSessionContextState(
       throw new ValidationError('Inspect and connect this MCP server before attaching it.')
     }
   }
-  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId)
+  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId, refreshFolderId)
   for (const operation of operations) {
     if (operation.action === 'detach') {
       contexts = contexts.filter((context) => context.id !== operation.contextId)
@@ -3935,6 +3956,56 @@ export const store = {
     if (!content) return undefined
     const snapshot = { version: 1 as const, snapshotId, capturedAt: new Date().toISOString(), sourceId, path, text: content.text }
     return isServedTextSnapshot(snapshot) ? snapshot : undefined
+  },
+  async fsFolderSnapshot(sourceId: string, path: string, snapshotId = randomUUID()): Promise<ServedFolderSnapshot | undefined> {
+    const files = await resolveFsReader(sourceId, 'fs.list')?.reader.folderSnapshot(path)
+    if (!files) return undefined
+    const snapshot = { version: 1 as const, snapshotId, capturedAt: new Date().toISOString(), sourceId, path, files }
+    return isServedFolderSnapshot(snapshot) && folderSnapshotStillPermitted(snapshot) ? snapshot : undefined
+  },
+  async refreshSessionFolder(sessionId: string, folderId: string, request: RefreshServedAttachmentRequest, tenantId: string): Promise<SessionContextState> {
+    const owned = () => {
+      const session = store.getSession(sessionId)
+      return session && store.sessionOwnedBy(session, tenantId)
+    }
+    if (!owned()) throw new ConflictError('Only the current conversation owner may refresh attached folders.')
+    const workspace = store.sessionWorkspace(sessionId)
+    const container = workspace?.workspaces.find((item) => workspaceFolders(item).some((folder) => folder.id === folderId))
+    const folder = container && workspaceFolders(container).find((item) => item.id === folderId)
+    const address = parseFsRecentKey(folderId)
+    const binding = store.sessionContexts(sessionId).find((item) => item.id === folderId)
+    const matchesBinding = () => {
+      const current = store.sessionContexts(sessionId).find((item) => item.id === folderId)
+      return current === binding && current?.type === 'folder' && current.source?.id === address?.sourceId &&
+        current.source?.kind === (address?.sourceId === 'cloud' ? 'cloud' : 'runner') && current.scope === address?.entryId
+    }
+    if (!folder || !address || address.sourceId === 'ui-host' || !binding || !matchesBinding()) {
+      throw new ConflictError('This served folder is no longer attached. Reopen the conversation before refreshing.')
+    }
+    if (folder.snapshot?.snapshotId === request.requestId) return { contexts: store.sessionContexts(sessionId), workspace }
+    if ((folder.snapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+      throw new ConflictError('This saved folder changed. Reopen it before refreshing again.')
+    }
+    const snapshot = await store.fsFolderSnapshot(address.sourceId, address.entryId, request.requestId)
+    // Capture yields: ownership, exact binding, grants and target receipt must
+    // still be current. Unrelated workspace changes are retained below.
+    if (!owned() || !matchesBinding()) throw new ConflictError('The attached folder changed while reading. The saved copy is unchanged.')
+    if (!snapshot || !isServedFolderSnapshot(snapshot) || snapshot.sourceId !== address.sourceId ||
+        snapshot.path !== address.entryId || snapshot.snapshotId !== request.requestId || !folderSnapshotStillPermitted(snapshot)) {
+      throw new ValidationError('Could not capture this folder with its current permissions and limits. The saved copy is unchanged.')
+    }
+    const latest = store.sessionWorkspace(sessionId)
+    const currentContainer = latest?.workspaces.find((item) => item.id === container.id)
+    const current = currentContainer && workspaceFolders(currentContainer).find((item) => item.id === folderId)
+    if (!current || (current.snapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+      // Another identical request may have committed during capture.
+      if (current?.snapshot?.snapshotId === request.requestId) return { contexts: store.sessionContexts(sessionId), workspace: latest }
+      throw new ConflictError('The attached folder changed while reading. The saved copy is unchanged.')
+    }
+    return commitSessionContextState(sessionId, [], {
+      ...latest,
+      workspaces: latest.workspaces.map((item) => item.id === currentContainer.id ? replaceServedFolderSnapshot(item, folderId, snapshot) : item),
+    }, undefined, folderId)
   },
   refreshSessionAttachment(sessionId: string, attachmentId: string, request: RefreshServedAttachmentRequest): SessionContextState {
     const workspace = store.sessionWorkspace(sessionId)

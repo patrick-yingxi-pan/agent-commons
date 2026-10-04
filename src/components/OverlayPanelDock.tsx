@@ -83,6 +83,8 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
               repo={focusedRepo}
               onClose={closePanel}
               onRemoveFolder={writable ? removeFolder : undefined}
+              refreshSessionId={writable ? sessionId : undefined}
+              refreshDisabled={isContextMutationHeld(contextMutation)}
             />
           )}
         </AnimatePresence>

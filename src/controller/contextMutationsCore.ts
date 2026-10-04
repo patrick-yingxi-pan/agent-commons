@@ -16,6 +16,7 @@ import { focusValidIn, workspaceOf, type Live } from '../data/liveSession.ts'
 import { sameFocus } from '../lib/focus.ts'
 import type { ContextMutationStatus } from './conversationCore.ts'
 import type { RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
+import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 
 export interface ContextMutationSnapshot {
   live: Live
@@ -28,6 +29,11 @@ export interface ContextMutationPlan {
   operations: SessionContextOperation[]
   attachmentRefresh?: RefreshServedAttachmentRequest & {
     attachmentId: string
+    reconciled?: boolean
+    baselineSnapshotId?: string | null
+  }
+  folderRefresh?: RefreshServedAttachmentRequest & {
+    folderId: string
     reconciled?: boolean
     baselineSnapshotId?: string | null
   }
@@ -200,7 +206,18 @@ export function createContextMutationController(deps: ContextMutationDeps) {
               ?.textSnapshot?.snapshotId ?? null,
           },
         }
-      : entry.failedPlan
+      : entry.failedPlan.folderRefresh
+        ? {
+            ...entry.failedPlan,
+            focus: before.focus,
+            folderRefresh: {
+              ...entry.failedPlan.folderRefresh,
+              reconciled: true,
+              baselineSnapshotId: before.live.workspaces.flatMap((workspace) => workspaceFolders(workspace))
+                .find((folder) => folder.id === entry.failedPlan!.folderRefresh!.folderId)?.snapshot?.snapshotId ?? null,
+            },
+          }
+        : entry.failedPlan
     const controller = new AbortController()
     entry.reconcileController = controller
     entry.running = true

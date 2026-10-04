@@ -77,6 +77,7 @@ import type {
 } from '../../contract/index.ts'
 import { CONTEXT_TYPE_IDS, MAX_DISCUSSION_POSTS, NOTIFICATION_CAP, SOCIAL_ENTITY_KINDS, isAnchorLocus, isPanelFocus, isProjectContextSource, parseUpdateModelPreferencesRequest } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { validWorkspaceFolders } from '../../contract/workspaceFolders.ts'
 import { IMAGE_UPLOAD_BODY_BYTES } from '../../contract/imageAssets.ts'
 import { timingSafeEqual } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -4405,6 +4406,9 @@ export function buildRouter(): Router {
     }
     if (!ws.attachments.every(isAttachmentInput)) {
       return sendError(res, 'bad_request', 'attachments require valid id, label, kind, source, and optional text/URL previews')
+    }
+    if (!validWorkspaceFolders(ws.workspaces)) {
+      return sendError(res, 'bad_request', 'Folder snapshots must match their attached source and path.')
     }
     if (!store.imageReferencesAttachable(ws.attachments, params.id, tenantId)) {
       return sendError(res, 'bad_request', 'An attached image is unavailable. Select it again.')

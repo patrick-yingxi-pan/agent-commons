@@ -36,6 +36,7 @@ import { relativeTime } from '../lib/relativeTime'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
+import { identityTitleProps } from '../lib/identityTitle'
 import { BackButton } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SectionAction } from './SectionAction'
@@ -826,11 +827,11 @@ export function ArtifactDetailPage({
                 aria-label="Rename artifact"
                 className="group flex min-w-0 max-w-full items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
+                <h1 {...identityTitleProps(artifact.name)} className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
                 <Pencil size={14} className={`shrink-0 text-ink-faint ${HOVER_CUE}`} />
               </button>
             ) : (
-              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
+              <h1 {...identityTitleProps(artifact.name)} className={`${PAGE_TITLE_CLASS} truncate`}>{artifact.name}</h1>
             )}
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-faint">
               {/* S6 — the canonical page should be at least as specific as the humble

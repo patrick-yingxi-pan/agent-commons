@@ -20,6 +20,43 @@ export function registerServedFileSnapshotRoutes(
     sendJson(res, snapshot)
   })
 
+  router.get('/fs/folder-snapshot', async ({ res, url }) => {
+    const source = url.searchParams.get('source')
+    const path = url.searchParams.get('path')
+    if (!source || !path) return sendError(res, 'bad_request', 'source and path are required')
+    const snapshot = await store.fsFolderSnapshot(source, path)
+    if (!snapshot) return sendError(res, 'not_found', 'A readable folder within the capture limits is unavailable on this source.')
+    sendJson(res, snapshot)
+  })
+
+  router.post('/sessions/:id/folders/:folderId/refresh', async ({ req, res, params, body }) => {
+    const tenantId = store.identity(req.headers).tenant.id
+    const owner = () => {
+      if (denyForeignSession(req, res, params.id)) return false
+      const session = store.getSession(params.id)
+      if (!session) { sendError(res, 'not_found', 'This conversation is unavailable.'); return false }
+      if (!store.sessionOwnedBy(session, tenantId)) {
+        sendError(res, 'forbidden', 'Only the conversation owner may refresh attached folders.'); return false
+      }
+      return true
+    }
+    if (!owner()) return
+    const input = await body<unknown>()
+    if (!owner()) return
+    if (!isRefreshServedAttachmentRequest(input)) {
+      return sendError(res, 'bad_request', 'expectedSnapshotId (UUID or null) and a distinct requestId UUID are required.')
+    }
+    try {
+      const state = await store.refreshSessionFolder(params.id, params.folderId, input, tenantId)
+      if (!owner()) return
+      sendJson(res, state)
+    } catch (error) {
+      if (!owner()) return
+      if (error instanceof ConflictError || error instanceof ValidationError) return sendError(res, error.code, error.message)
+      throw error
+    }
+  })
+
   router.post('/sessions/:id/attachments/:attachmentId/refresh', async ({ req, res, params, body }) => {
     if (denyForeignSession(req, res, params.id)) return
     const session = store.getSession(params.id)

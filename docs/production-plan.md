@@ -44,7 +44,39 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint adds the internal served-folder capture foundation:
+The current checkpoint integrates saved served-folder snapshots end to end:
+explicit intake, independent identity even for empty folders, derived read-only
+previews, model input, and owner-only Refresh. A folder owns one closed snapshot;
+displayed artifacts never duplicate its saved bodies. Refresh pins the reviewed
+copy and request receipt, rechecks current ownership, binding and runner grants
+after capture, and preserves unrelated workspace changes. Stale ordinary writes
+cannot rewind retained copies. Shared readers see saved text without source
+reads or mutation controls. Legacy folders require an explicit Save snapshot;
+failure retains the copy through the existing Retry / Use saved state workflow.
+JSON and SQLite fresh-process locks cover source-absent reopen and replay plus
+malformed snapshot refusal. Empty-folder, local-import, draft materialization,
+cross-source identity and targeted reconciliation locks cover integration seams.
+Adversarial review reproduced duplicate legacy folder identities across workspace
+containers. The shared validator now rejects both legacy/legacy and mixed
+legacy/explicit ambiguity at intake and JSON/SQLite startup, with observed failing
+locks at all three boundaries; multiple files inside one folder remain valid.
+The startup budget remains unchanged: conversation panes now seed only from
+exact account-scoped API cache, never bundled demo transcripts. The old static
+fallback was caught by a failure-first lock while diagnosing bundle growth.
+The initial five-viewport sweep covered 135/135 cells with no mechanical
+violations or skips. Visual review found eight truncated identity headings that
+lacked full-value disclosure; one shared helper now supplies it without changing
+layout or rename labels. Native review also corrected the smoke's old file-count
+expectation to the new independent folder count while retaining exact file/model
+assertions. Final adversarial review then reproduced a committed Refresh whose
+lost response left Retry rejecting its own already-synced receipt. Persisted
+retries now admit that exact request ID while drafts and unrelated newer copies
+remain fenced; the failure-first browser lock proves identical request replay
+and the unchanged saved snapshot, including its capture time. The final local
+verifier, UI review and packaged Electron smoke remain
+landing gates; no GitHub CI is used.
+
+The preceding checkpoint added the internal served-folder capture foundation:
 streamed 500-entry admission, the existing local whole-text budgets and omission
 policy, independently enforced list/read grants, and refusal after folder or
 represented-authority changes during capture. The limits apply before filtering
@@ -96,8 +128,8 @@ Complete local verification and packaged Electron acceptance remain mandatory
 landing gates; no GitHub check substitutes for either. These are not signed,
 notarized or Intel release receipts.
 
-This is the file slice of approved policy 2, not completion of all remote
-context. Folder snapshots with the same explicit Refresh policy are next;
+The saved-file and folder slices implement approved policy 2 for served text;
+unsupported formats remain explicit omissions. They do not complete all six defaults:
 remembered local/Git connections, workbook tabs, Trash, update consent and unsafe
 profile refusal all remain required milestones under the approved defaults.
 

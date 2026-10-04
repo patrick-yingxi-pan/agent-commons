@@ -13,6 +13,11 @@ function errorBody(message = 'Temporary filesystem outage') {
   return { error: { code: 'internal', message } }
 }
 
+const FOLDER_SNAPSHOT = {
+  version: 1, snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', capturedAt: '2026-10-04T12:00:00.000Z',
+  sourceId: 'cloud', path: 'insights-dashboard', files: [{ name: 'readme.md', sizeBytes: 5, snapshot: { text: 'hello' } }],
+}
+
 async function createOwnedSession(page: Page): Promise<string> {
   const identity = `served-fs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
   await page.context().setExtraHTTPHeaders({ 'x-user-id': 'user-ada', 'x-tenant-id': `tenant-${identity}` })
@@ -189,7 +194,7 @@ test('served folder read failure never attaches, retries once, and fences pendin
       }),
     })
   })
-  await page.route('**/api/v1/fs/folder?source=cloud&path=insights-dashboard', async (route) => {
+  await page.route('**/api/v1/fs/folder-snapshot?source=cloud&path=insights-dashboard', async (route) => {
     folderAttempts += 1
     if (folderAttempts === 1) {
       await heldFolder
@@ -199,7 +204,7 @@ test('served folder read failure never attaches, retries once, and fences pendin
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ id: 'insights-dashboard', label: 'insights-dashboard/', meta: '1 file', artifacts: [{ id: 'insights-dashboard/readme.md', name: 'readme.md', kind: 'doc', meta: 'MD · 5 B' }] }),
+      body: JSON.stringify(FOLDER_SNAPSHOT),
     })
   })
   await page.route('**/api/v1/sessions/*/context-state', async (route) => {
@@ -253,12 +258,12 @@ test('closing or switching source fences a late served-folder result', async ({ 
   await page.route('**/api/v1/fs/catalog?source=cloud', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...EMPTY_CATALOG, folders: [{ id: 'insights-dashboard', name: 'insights-dashboard', path: 'insights-dashboard', fileCount: 1, mtime: 1 }] }) })
   })
-  await page.route('**/api/v1/fs/folder?source=cloud&path=insights-dashboard', async (route) => {
+  await page.route('**/api/v1/fs/folder-snapshot?source=cloud&path=insights-dashboard', async (route) => {
     folderAttempts += 1
     if (folderAttempts === 1) {
       try {
         await heldSuccess
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'insights-dashboard', label: 'insights-dashboard/', meta: '1 file', artifacts: [{ id: 'insights-dashboard/readme.md', name: 'readme.md', kind: 'doc', meta: 'MD · 5 B' }] }) })
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(FOLDER_SNAPSHOT) })
       } finally { resolveFirstRoute?.() }
       return
     }
@@ -274,7 +279,7 @@ test('closing or switching source fences a late served-folder result', async ({ 
   await expect(row).toBeVisible({ timeout: ms(15_000) })
   await row.click()
   await expect(picker.locator('[data-fs-folder-read="loading"]')).toBeVisible()
-  const lateSuccess = page.waitForEvent('requestfailed', (request) => request.url().includes('/api/v1/fs/folder?source=cloud&path=insights-dashboard'))
+  const lateSuccess = page.waitForEvent('requestfailed', (request) => request.url().includes('/api/v1/fs/folder-snapshot?source=cloud&path=insights-dashboard'))
   await picker.getByRole('button', { name: 'Done', exact: true }).click()
   releaseSuccess?.()
   await lateSuccess
@@ -287,7 +292,7 @@ test('closing or switching source fences a late served-folder result', async ({ 
   await expect(switchedRow).toBeVisible({ timeout: ms(15_000) })
   await switchedRow.click()
   await expect(switched.locator('[data-fs-folder-read="loading"]')).toBeVisible()
-  const lateError = page.waitForEvent('requestfailed', (request) => request.url().includes('/api/v1/fs/folder?source=cloud&path=insights-dashboard'))
+  const lateError = page.waitForEvent('requestfailed', (request) => request.url().includes('/api/v1/fs/folder-snapshot?source=cloud&path=insights-dashboard'))
   await switched.getByRole('button', { name: 'This computer', exact: true }).click()
   releaseError?.()
   await lateError

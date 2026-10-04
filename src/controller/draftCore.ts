@@ -25,6 +25,7 @@
 import type { Session, UpdateSessionContextStateRequest } from '../../contract/index'
 import type { AddedContext, PanelFocus } from '../types'
 import type { ModelPick } from '../lib/models'
+import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 // Extension-qualified: this module is node-tested (src/controller/draft-core.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
 import {
@@ -174,7 +175,7 @@ export function createDraftController(deps: DraftDeps) {
     const next = removeFolderFromLive(deps.store.get(DRAFT_ID).live, sourceId)
     deps.store.setLive(DRAFT_ID, next)
     purgeBuffer((ctx) =>
-      ctx.kind === 'folder' && (ctx.artifacts[0]?.source?.id ?? slug(ctx.label)) === sourceId ? null : ctx,
+      ctx.kind === 'folder' && (ctx.folder?.id ?? ctx.artifacts[0]?.source?.id ?? slug(ctx.label)) === sourceId ? null : ctx,
     )
     reconcileFocus(next)
   }
@@ -268,7 +269,17 @@ export function createDraftController(deps: DraftDeps) {
       // derived from the SAME seeds (not a live read — a mid-flight navigation
       // could have replaced the live state), keeping binding-of-record and
       // panels in lock-step.
-      const seeded = pendingContexts
+      // Served-folder Refresh updates the draft's canonical snapshot after its
+      // intake seed was buffered. Rebase that seed onto the same live draft
+      // just before materialization so the first persisted workspace and its
+      // source binding keep the acknowledged captured folder.
+      const draftLive = deps.store.get(DRAFT_ID).live
+      const seeded = pendingContexts.map((ctx) => {
+        if (ctx.kind !== 'folder' || !ctx.folder) return ctx
+        const latest = draftLive.workspaces.flatMap((workspace) => workspaceFolders(workspace))
+          .find((folder) => folder.id === ctx.folder!.id)
+        return latest ? { ...ctx, folder: latest } : ctx
+      })
       if (seeded.length) {
         const seededLive = seeded.reduce((l, ctx) => addContextToLive(l, ctx), EMPTY_LIVE)
         await deps.updateContextState(sid, {

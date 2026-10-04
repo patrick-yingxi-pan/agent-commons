@@ -66,6 +66,7 @@ import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
 import { collectionEmptyCopy } from '../lib/collectionEmpty'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
+import { identityTitleProps } from '../lib/identityTitle'
 import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
@@ -8767,7 +8768,7 @@ function ContextDetail({
           </span>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{ctx.label}</h1>
+              <h1 {...identityTitleProps(ctx.label)} className={`${PAGE_TITLE_CLASS} truncate`}>{ctx.label}</h1>
               {isRepo && (
                 <span className="shrink-0 rounded bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-soft">
                   {ctx.origin === 'local' ? 'Local' : 'GitHub'}
@@ -10381,7 +10382,7 @@ function ProviderDetailPage({
           <BackButton to={backTo ?? { kind: 'section', section: 'models', projectId: null, scheduleId: null }} onBack={onBack} />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{provider.label}</h1>
+              <h1 {...identityTitleProps(provider.label)} className={`${PAGE_TITLE_CLASS} truncate`}>{provider.label}</h1>
               {provider.isDefault && <DefaultBadge />}
               {deleting && <Spinner size={13} />}
             </div>
@@ -13067,7 +13068,7 @@ function AdminUserDetail({ userId, onBack, backTo }: { userId: string; onBack: (
           />
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{row ? row.user.name : 'Account'}</h1>
+              <h1 {...identityTitleProps(row ? row.user.name : 'Account')} className={`${PAGE_TITLE_CLASS} truncate`}>{row ? row.user.name : 'Account'}</h1>
               {row?.seeded && <AdminBadge>Seeded</AdminBadge>}
               {row?.deactivated && <AdminBadge tone="danger">Deactivated</AdminBadge>}
             </div>
@@ -14417,12 +14418,12 @@ function ScheduledDetail({
                   title={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Rename routine'}
                   className="group flex min-w-0 items-center gap-1.5 rounded-md text-left transition hover:bg-panel-2/60 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
+                  <h1 {...identityTitleProps(task.name)} className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
                   <Pencil size={14} className={`shrink-0 text-ink-faint ${HOVER_CUE}`} />
                 </button>
               ) : (
                 // A visitor reads the name; renaming is the owner's act.
-                <h1 className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
+                <h1 {...identityTitleProps(task.name)} className={`${PAGE_TITLE_CLASS} truncate`}>{task.name}</h1>
               )}
               {running ? (
                 <StatusPill tone="warn" label="Running…" />

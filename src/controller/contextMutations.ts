@@ -10,6 +10,7 @@ import {
 } from './contextMutationsCore'
 import { rememberPanelPreference } from './panelPreferences'
 import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
+import { mergeServedFolderRefresh } from './servedFolderRefreshCore.ts'
 
 const controller = createContextMutationController({
   snapshot: (sessionId) => {
@@ -21,7 +22,9 @@ const controller = createContextMutationController({
     const current = conversations.get(sessionId)
     const live: Live = planned.attachmentRefresh
       ? mergeServedAttachmentRefresh(current.live, returned, planned.attachmentRefresh)
-      : { ...current.live, ...returned.workspace }
+      : planned.folderRefresh
+        ? mergeServedFolderRefresh(current.live, returned, planned.folderRefresh)
+        : { ...current.live, ...returned.workspace }
     conversations.setLive(sessionId, live)
 
     // The acknowledgement may arrive after the user deliberately picked a

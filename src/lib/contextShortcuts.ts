@@ -19,6 +19,8 @@
 import type { AddedContext } from '../types'
 import { GITHUB_REPO_OPTIONS, LOCAL_REPO_OPTIONS } from '../data/contextOptions'
 import { pushRecent } from './recents'
+import { folderRecentId } from './folderShortcut'
+export { folderRecentId } from './folderShortcut'
 
 /** Recover a repo's catalog id from the attached context. Local repos are keyed
  *  by working-tree path, GitHub repos by remote — each unique within its origin,
@@ -51,8 +53,7 @@ export function rememberAttached(ctx: AddedContext) {
       // Every artifact is tagged with the folder as its source on attach, so the
       // folder's source-qualified id rides along on the payload. UI-host folders
       // aren't promoted (session-only, like files/photos above).
-      if (ctx.source?.kind === 'ui-host') break
-      const folderId = ctx.artifacts.find((a) => a.source)?.source?.id
+      const folderId = folderRecentId(ctx)
       if (folderId) pushRecent('folder', folderId)
       break
     }

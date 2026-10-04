@@ -23,7 +23,7 @@ test('served folder intake is cancellable, single-flight, and fenced before muta
   assert.match(body, /if \(intake\.current\) return/)
   assert.match(body, /intake\.current\?\.abort\(\)/)
   assert.match(body, /onAccountSwitch/)
-  assert.match(body, /readFsFolder\(source\.id, entry\.path, controller\.signal\)/)
+  assert.match(body, /readFsFolderSnapshot\(source\.id, entry\.path, controller\.signal\)/)
   assert.match(body, /if \(controller\.signal\.aborted \|\| issuedAccount !== accountGeneration\(\)\) return/)
   assert.match(body, /<fieldset disabled=\{read\?\.status === 'loading'\}/)
   assert.match(body, /data-fs-folder-read=\{read\.status\}/)

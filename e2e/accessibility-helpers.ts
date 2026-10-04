@@ -13,12 +13,12 @@ const WCAG_22_AA_TAGS = [
 /** A resize can leave the old, opaque phone preview mounted briefly before the
  * tablet drawer's JS-driven entrance starts. Presence alone cannot identify the
  * requested tier, and document.getAnimations() does not own Framer's springs. */
-export async function settledAttachmentPreview(page: Page) {
+export async function settledAttachmentPreview(page: Page, selector = '[data-attachment-preview]') {
   const tier = tierFor(page.viewportSize()!.width)
   const dock = page.locator('[data-overlay-dock]')
   if (tier === 'wide') await expect(dock).toHaveCount(0)
   else await expect(dock).toHaveAttribute('data-overlay-dock', tier)
-  await expect.poll(() => page.locator('[data-attachment-preview]').evaluate(async (element) => {
+  await expect.poll(() => page.locator(selector).filter({ visible: true }).evaluate(async (element) => {
     const paint = () => {
       if (!element.isConnected) return null
       for (let node: Element | null = element; node; node = node.parentElement) {

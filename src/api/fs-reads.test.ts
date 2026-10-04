@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFsCatalog, readFsFolder, readFsSources, readFsSnapshot } from './fsReads.ts'
+import { readFsCatalog, readFsFolder, readFsFolderSnapshot, readFsSources, readFsSnapshot } from './fsReads.ts'
 import { accountGeneration, switchAccount } from './account.ts'
 
 test('all picker reads share a 30-second deadline that also covers delayed response bodies', async (t) => {
-  for (const read of [readFsSources, () => readFsCatalog('cloud'), () => readFsFolder('cloud', 'notes'), () => readFsSnapshot('cloud', 'notes.txt')]) {
+  for (const read of [readFsSources, () => readFsCatalog('cloud'), () => readFsFolder('cloud', 'notes'), () => readFsSnapshot('cloud', 'notes.txt'), () => readFsFolderSnapshot('cloud', 'notes')]) {
     const deadline = new AbortController()
     let suppliedSignal: AbortSignal | undefined
     let deadlineMs = 0
@@ -74,6 +74,58 @@ test('snapshot reads fence cancellation and switched-account response bodies', a
       },
     }) as Response)
     try { await assert.rejects(readFsSnapshot('cloud', 'notes.txt', intake.signal), /aborted|response dropped/i) }
+    finally { t.mock.restoreAll(); switchAccount(null) }
+  }
+})
+
+test('folder snapshot reads are uncached and validate exact source, path, and bounded file projections', async (t) => {
+  const snapshot = {
+    version: 1,
+    snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    capturedAt: '2026-10-04T12:00:00.000Z',
+    sourceId: 'cloud',
+    path: 'docs/notes',
+    files: [
+      { name: 'a.md', sizeBytes: 4, snapshot: { text: 'body' } },
+      { name: 'b.png', sizeBytes: 8, snapshot: { omitted: 'unsupported' } },
+    ],
+  }
+  let response: unknown = snapshot
+  const urls: string[] = []
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    urls.push(String(url))
+    return new Response(JSON.stringify(response), { status: 200 })
+  })
+  assert.deepEqual(await readFsFolderSnapshot('cloud', snapshot.path), snapshot)
+  assert.deepEqual(await readFsFolderSnapshot('cloud', snapshot.path), snapshot)
+  assert.equal(urls.length, 2, 'each explicit folder capture reads once without query-cache reuse')
+  assert.ok(urls.every((url) => url.endsWith('/fs/folder-snapshot?source=cloud&path=docs%2Fnotes')))
+  await assert.rejects(readFsFolderSnapshot('ui-host', snapshot.path), /requested folder is invalid/)
+  await assert.rejects(readFsFolderSnapshot('cloud', '../private'), /requested folder is invalid/)
+  assert.equal(urls.length, 2, 'invalid source/path input is rejected before network I/O')
+  for (const bad of [
+    { ...snapshot, sourceId: 'runner:other' },
+    { ...snapshot, path: 'docs/other' },
+    { ...snapshot, files: [{ name: 'a.md', sizeBytes: 3, snapshot: { text: 'body' } }] },
+    { ...snapshot, files: [{ name: 'a.md', sizeBytes: 4, snapshot: { text: 'body' }, extra: true }] },
+  ]) {
+    response = bad
+    await assert.rejects(readFsFolderSnapshot('cloud', snapshot.path), /invalid saved folder copy/)
+  }
+})
+
+test('folder snapshot reads fence cancellation and switched-account response bodies', async (t) => {
+  for (const change of ['cancel', 'account']) {
+    const intake = new AbortController()
+    t.mock.method(globalThis, 'fetch', async () => ({
+      status: 200, ok: true, headers: new Headers(),
+      text: async () => {
+        if (change === 'cancel') intake.abort()
+        else switchAccount({ userId: 'folder-snapshot-other-user', tenantId: 'folder-snapshot-other-tenant' })
+        return '{}'
+      },
+    }) as Response)
+    try { await assert.rejects(readFsFolderSnapshot('cloud', 'docs', intake.signal), /aborted|response dropped/i) }
     finally { t.mock.restoreAll(); switchAccount(null) }
   }
 })

@@ -54,7 +54,8 @@ import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button'
 import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
 import { useMcpConnections } from '../api/mcpConnectionHooks.ts'
-import { readFsFolder, readFsSnapshot, retryFsCatalog } from '../api/fsReads.ts'
+import { readFsFolderSnapshot, readFsSnapshot, retryFsCatalog } from '../api/fsReads.ts'
+import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { isLocalTextFileName } from '../../contract/localTextFile.mjs'
@@ -79,7 +80,7 @@ const RECENT_CHROME_H = 156
 const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Paperclip }[] = [
   { id: 'files', label: 'Files', desc: 'Text, documents, spreadsheets, slides and images', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
-  { id: 'folder', label: 'Folder', desc: 'List a folder’s files in your workspace', Icon: FolderOpen },
+  { id: 'folder', label: 'Folder', desc: 'Save a read-only copy of top-level text files', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
   { id: 'connector', label: 'Connector', desc: 'Google Drive, Slack, Notion, Linear…', Icon: Plug },
   { id: 'mcp', label: 'MCP server', desc: 'Add a Model Context Protocol server', Icon: Server },
@@ -285,7 +286,7 @@ function WorkflowBody({
   const addedFileIds = attachments.filter((a) => a.kind === 'file').map((a) => a.id)
   const addedPhotoIds = attachments.filter((a) => a.kind === 'photo').map((a) => a.id)
   const addedRepoIds = repos.map((r) => r.id)
-  const addedFolderIds = workspaces.flatMap((w) => w.artifacts).flatMap((a) => (a.source ? [a.source.id] : []))
+  const addedFolderIds = workspaces.flatMap(workspaceFolders).map((folder) => folder.id)
 
   if (type === 'folder') {
     return <FolderPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFolderIds} />
@@ -1236,11 +1237,13 @@ function ServedFolders({
   maxRows,
   addedIds,
   onAttach,
+  disabled = false,
 }: {
   source: FsSource
   maxRows: number
   addedIds: readonly string[]
   onAttach: (f: FsFolderEntry) => void
+  disabled?: boolean
 }) {
   const cat = useFsCatalog(source.id)
   const recentKeys = useRecentIds('folder')
@@ -1261,6 +1264,7 @@ function ServedFolders({
             label={f.name}
             meta={`${f.fileCount} file${f.fileCount === 1 ? '' : 's'}`}
             added={addedIds.includes(fsRecentKey(source.id, f.path))}
+            disabled={disabled}
             onClick={() => onAttach(f)}
           />
         ),
@@ -1293,11 +1297,11 @@ function ServedFolderPicker({ source, maxRows, addedIds, onAdd }: {
     intake.current = controller
     setRead({ entry, status: 'loading' })
     try {
-      const contents = await readFsFolder(source.id, entry.path, controller.signal)
+      const snapshot = await readFsFolderSnapshot(source.id, entry.path, controller.signal)
       if (controller.signal.aborted || issuedAccount !== accountGeneration()) return
       const src = { id: fsRecentKey(source.id, entry.path), label: `${entry.name}/` }
       setRead(null)
-      onAdd({ kind: 'folder', label: entry.name, artifacts: contents.artifacts.map((a) => ({ ...a, source: src })), source })
+      onAdd({ kind: 'folder', label: entry.name, folder: { ...src, snapshot }, artifacts: [], source })
     } catch {
       if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error' })
     } finally {
@@ -1307,8 +1311,9 @@ function ServedFolderPicker({ source, maxRows, addedIds, onAdd }: {
 
   return <>
     <fieldset disabled={read?.status === 'loading'}>
-      <ServedFolders source={source} maxRows={maxRows} addedIds={addedIds} onAttach={(entry) => void take(entry)} />
+      <ServedFolders source={source} maxRows={maxRows} addedIds={addedIds} disabled={read?.status === 'loading'} onAttach={(entry) => void take(entry)} />
     </fieldset>
+    <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Save up to 24 readable top-level text files, 64 KB each and 128 KB total. Hidden files and subfolders are excluded. Saved copies feed the model; Refresh is explicit and never changes originals.</p>
     {read && <div data-fs-folder-read={read.status} role={read.status === 'error' ? 'alert' : 'status'} aria-busy={read.status === 'loading'} className="break-words px-1 py-2 text-[12px] text-ink-soft">
       {read.status === 'loading' ? <p>Reading {read.entry.name}… Close this picker or choose another source to cancel.</p> : <>
         <p className="break-words text-danger-text">Could not read {read.entry.name}. Nothing was attached.</p>
@@ -1374,14 +1379,11 @@ function UiHostFolderPicker({ hostFs, onAdd }: { hostFs: UiHostFsModule; onAdd: 
       const picked = await hostFs.pickUiHostFolder()
       if (!mounted.current || accountGeneration() !== issuedAccount) return
       if (!picked) return
-      if (!picked.artifacts.length) {
-        setFailure('No visible top-level files were found. Choose a folder containing files; hidden files and subfolders are excluded.')
-        return
-      }
       const src = { id: fsRecentKey('ui-host', picked.id), label: `${picked.name}/` }
       onAdd({
         kind: 'folder',
         label: picked.name,
+        folder: src,
         artifacts: picked.artifacts.map((a) => ({ ...a, source: src })),
         source: UI_HOST_SOURCE,
       })

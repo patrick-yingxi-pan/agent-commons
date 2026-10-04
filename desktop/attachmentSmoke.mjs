@@ -909,7 +909,8 @@ export async function smokePackagedAttachments({ executable }) {
       await preserveSmokeFailure(error, () => capturePickerFailure(page, folderPicker))
     }
     await folderPicker.getByRole('button', { name: /Choose a folder from this computer/ }).click()
-    await expect(folderPicker).toContainText('2 added', { timeout: TIMEOUT_MS })
+    // Folder intake counts independent folder identities, not its file rows.
+    await expect(folderPicker).toContainText('1 added', { timeout: TIMEOUT_MS })
     await folderPicker.getByRole('button', { name: 'Done', exact: true }).click()
     await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)
     await page.locator('[data-overlay-dock="narrow"]').getByRole('button', { name: 'Close', exact: true }).click()
