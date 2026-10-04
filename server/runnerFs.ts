@@ -25,12 +25,17 @@ export function runnerFs(runner: Runner) {
     list() {
       if (!browsable('')) return { files: [], photos: [], folders: [] }
       const catalog = base.list()
+      if (!catalog) return undefined
+      const folders = []
+      for (const entry of catalog.folders.filter((entry) => browsable(entry.id))) {
+        const folder = reader.folderContents(entry.id)
+        if (!folder) return undefined
+        folders.push({ ...entry, fileCount: folder.artifacts.length })
+      }
       return {
         files: catalog.files.filter((entry) => permits('fs.list', entry.id)),
         photos: catalog.photos.filter((entry) => permits('fs.list', entry.id)),
-        folders: catalog.folders.filter((entry) => browsable(entry.id)).map((entry) => ({
-          ...entry, fileCount: reader.folderContents(entry.id)?.artifacts.length ?? 0,
-        })),
+        folders,
       }
     },
     folderContents(path) {

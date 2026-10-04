@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-09-22 UTC. The standing goal remains production readiness for Agent
+Reviewed 2026-10-04 UTC. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -20,7 +20,33 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint repairs served-file intake recovery before extending
+The current checkpoint closes a demonstrated backend gap in served-file intake:
+directory enumeration failure was still acknowledged as an empty catalog or
+workspace, despite the picker's recovery states. Missing/replaced roots and
+failed root/folder scans now remain unavailable through cloud and mapped-runner
+reads; unknown child counts are never fabricated as zero. Genuinely empty
+directories still succeed. Failure-first reader tests reproduced the false-empty
+responses; route and journal tests cover refusal, recovery and no successful
+effect. Restoring the empty fallback, zero-count recount fallback, and missing
+runner refusal each made the new route lock fail before restoration. The
+complete verifier and diff review gate this checkpoint. No new
+model input, source lifetime or native authority is inferred.
+The first complete run passed all five lanes and 383 browser tests. Final review
+then reproduced root replacement during child inspection publishing a partial
+catalog; a final anchor check now refuses it, with a failure-first regression.
+The complete verifier must pass again on that corrected immutable revision.
+
+The preceding five checkpoints are published through `fc42d8f` on main; the
+owner's renewed push instruction resolved the private-repository upload gate.
+The final picker verifier passed all five lanes and 383 browser tests, and the
+separate responsive review passed 135/135 cells without violations or skips.
+GitHub run `35867243830` did not start its jobs because of account billing or
+spending-limit annotations; that remains external release evidence, not a local
+test failure. Remote-source snapshot-plus-Refresh versus live per-turn input
+still awaits the owner. The manual native acceptance record also retains its
+unverified XLSX/PPTX/image/folder detach cells; automated smoke is not a substitute.
+
+The picker checkpoint repaired served-file intake recovery before extending
 remote-source model input. Failed source/catalog reads must not appear empty or
 silently select the local disk, and a failed folder read must not create an empty
 workspace. One shared read-state/retry face, bounded reads and source/account/
@@ -41,14 +67,14 @@ share one intake component, and the local drop zone joins the existing lazy
 admission boundary before file selection. Review also caught cached success on
 the first render before passive revalidation: a failure-first render lock and
 held-response browser walk now require loading from that first render onward.
-The final focused browser walk passes all ten recovery/loading tests. The
+The final focused browser walk passed all ten recovery/loading tests. The
 separate responsive sweep covers 135/135 cells with zero violations or skips;
 the static/build lane is green after the image-boundary lock followed its
-extracted chooser. Final landing still requires the complete immutable-tree
-verifier, without changing the startup budget or adding retries.
+extracted chooser. The final immutable-tree verifier subsequently passed,
+without changing the startup budget or adding retries.
 
 The preceding checkpoint `36a50ef` passed the complete verifier in 249.2 seconds,
-including all 375 browser tests, and is committed locally. It closes a pre-existing runner grant bypass found during
+including all 375 browser tests, and is published on main. It closes a pre-existing runner grant bypass found during
 the filesystem review: revoking both advertised filesystem capabilities still
 left known catalog/folder/text/content URLs returning 200. Source routes and
 mediated invokes now share one fixed logical/physical binding and one cached
@@ -65,9 +91,9 @@ assertions finish; root-replacement tests run afterward so missing data cannot
 make permission assertions pass vacuously.
 
 The preceding checkpoint `47c05ee` passed the complete verifier in 257.8 seconds,
-including all 375 browser tests, and is committed locally. Publishing remains
-blocked on the same explicit approval requirement as the two image checkpoints;
-no push is retried. That checkpoint repaired the shared served-filesystem boundary before
+including all 375 browser tests, and is published on main. Its earlier publishing
+block was resolved by the owner's renewed push instruction.
+That checkpoint repaired the shared served-filesystem boundary before
 extending remote-source input. Failure-first tests reproduced outside bytes via
 a descendant symlink, an outside folder listing and a catalog crash on a broken
 link. Readers now pin their configured canonical root, accept exact visible
@@ -90,11 +116,10 @@ invoke/journal tests that expected successful mapped reads of nonexistent files.
 They now use actual committed runner fixture files, preserving success, cursor,
 permission and coordination assertions; no refusal was changed back to success.
 
-The preceding SVG checkpoint is committed locally as `2be75d3`; its final full
+The preceding SVG checkpoint is published as `2be75d3`; its final full
 verifier passed all 375 browser tests, unsigned arm64 packaged smoke passed and
 the separately run rendered review covered all 135 cells without violations.
-Both it and `f398685` remain unpublished: the automated private-repository
-permission gate requires explicit owner approval. No push is retried without it.
+Both it and `f398685` were subsequently published with explicit owner approval.
 
 That checkpoint added self-contained static SVG local image input through
 the existing Photos workflow. XML is admitted in the shared isolated parser
@@ -125,9 +150,9 @@ The provider-form viewport walk also sampled before the existing resize/observer
 geometry update; it now waits for the same 7 px panel/footer bounds before
 measuring, with unchanged test budgets and no retries.
 
-The preceding BMP/ICO checkpoint is committed locally as `f398685`. Publishing
-private repository changes was rejected by the automated permission gate; explicit
-owner approval is pending and no further push is attempted. The existing remote
+The preceding BMP/ICO checkpoint is published as `f398685`. Publishing
+was initially rejected by the automated permission gate; the owner's renewed
+instruction resolved that upload gate. The existing remote
 CSV/TSV CI failure remains the billing gate described below, not SVG acceptance.
 
 That checkpoint added bounded BMP/ICO local image attachments through

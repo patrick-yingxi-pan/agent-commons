@@ -87,8 +87,9 @@ function humanSize(bytes: number): string {
 export interface FsReader {
   /** The absolute root this reader serves. */
   root: string
-  /** Top-level files / photos / folders directly under the root (one level). */
-  list(): { files: FsFileEntry[]; photos: FsPhotoEntry[]; folders: FsFolderEntry[] }
+  /** Top-level files / photos / folders, or undefined when the tree cannot be
+   * scanned. Only a successful scan may report an empty catalog or file count. */
+  list(): { files: FsFileEntry[]; photos: FsPhotoEntry[]; folders: FsFolderEntry[] } | undefined
   /** Scan a sub-folder (root-relative path) into the artifacts it holds, or
    *  `undefined` when the path is missing / not a directory / escapes the root. */
   folderContents(relPath: string): FsFolderContents | undefined
@@ -100,8 +101,8 @@ export interface FsReader {
   readBytes(relPath: string): { bytes: Uint8Array; contentType: string } | undefined
 }
 
-/** A reader rooted at `root`. A missing root yields empty listings (a fresh
- *  deployment with nothing provisioned), never a throw. */
+/** A reader rooted at `root`. Missing or unreadable trees remain unavailable,
+ * never a successful empty listing or a filesystem exception. */
 export function fsReader(root: string): FsReader {
   const rootAbs = resolve(root)
   // Resolve operator-configured aliases once (including macOS /var → /private/var).
@@ -145,15 +146,15 @@ export function fsReader(root: string): FsReader {
     } catch { return undefined }
   }
 
-  /** A disappearing, unreadable or replaced directory is an empty listing. */
-  function entries(relPath: string): string[] {
+  /** Keep failed enumeration distinct from an acknowledged empty directory. */
+  function entries(relPath: string): string[] | undefined {
     const before = inspect(relPath, true)
-    if (!before?.st.isDirectory()) return []
+    if (!before?.st.isDirectory()) return undefined
     try {
       const names = readdirSync(before.abs).filter((name) => !name.startsWith('.'))
       const after = inspect(relPath, true)
-      return after && sameFile(before.st, after.st) ? names : []
-    } catch { return [] }
+      return after && sameFile(before.st, after.st) ? names : undefined
+    } catch { return undefined }
   }
 
   /** Open once, validate that descriptor, and read only the admitted size + one
@@ -189,19 +190,23 @@ export function fsReader(root: string): FsReader {
     root: rootAbs,
 
     list() {
+      const names = entries('')
+      if (!names) return undefined
       const files: FsFileEntry[] = []
       const photos: FsPhotoEntry[] = []
       const folders: FsFolderEntry[] = []
-      for (const name of entries('')) {
+      for (const name of names) {
         const entry = inspect(name)
         if (!entry) continue
         const { st } = entry
         if (st.isDirectory()) {
+          const children = entries(name)
+          if (!children) return undefined
           folders.push({
             id: name,
             name,
             path: name,
-            fileCount: entries(name).filter((c) => inspect(`${name}/${c}`)?.st.isFile()).length,
+            fileCount: children.filter((c) => inspect(`${name}/${c}`)?.st.isFile()).length,
             mtime: st.mtimeMs,
           })
         } else if (isImageExt(extOf(name))) {
@@ -210,13 +215,16 @@ export function fsReader(root: string): FsReader {
           files.push(fileEntry(name, name, st))
         }
       }
-      return { files, photos, folders }
+      // Child inspection can outlive the root enumeration. A lost/replaced
+      // anchor must not turn skipped entries into a partial or empty success.
+      return inspect('', true) ? { files, photos, folders } : undefined
     },
 
     folderContents(relPath) {
       const entry = inspect(relPath)
       if (!entry?.st.isDirectory()) return undefined
       const names = entries(relPath)
+      if (!names) return undefined
       const artifacts: Artifact[] = []
       for (const name of names) {
         const childRel = `${relPath}/${name}`

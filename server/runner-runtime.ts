@@ -46,11 +46,11 @@ function fulfil(runner: Runner, request: CapabilityRequest): unknown {
     case 'fs.list': {
       const fs = runnerFs(runner)
       const rel = fs?.relativeTarget(request.target)
-      const listed = fs && rel !== undefined ? (rel ? fs.reader.folderContents(rel) : { artifacts: fsRootEntries(fs.reader) }) : undefined
-      if (fs && !listed) {
+      const entries = fs && rel !== undefined ? (rel ? fs.reader.folderContents(rel)?.artifacts : fsRootEntries(fs.reader)) : undefined
+      if (fs && !entries) {
         throw new CapabilityError('capability_unavailable', `Runner '${runner.id}' could not list '${request.target}'`)
       }
-      return { entries: listed?.artifacts?.map((a) => ({ name: a.name, kind: a.kind })) ?? [] }
+      return { entries: entries?.map((a) => ({ name: a.name, kind: a.kind })) ?? [] }
     }
     case 'fs.write': {
       const content = typeof request.args?.content === 'string' ? request.args.content : ''
@@ -68,7 +68,9 @@ function fulfil(runner: Runner, request: CapabilityRequest): unknown {
 /** Top-level entries of a reader as `{name, kind}`-shaped artifacts (for `fs.list`
  *  at the scope root, where there's no sub-folder path to scan). */
 function fsRootEntries(reader: FsReader) {
-  const { files, photos, folders } = reader.list()
+  const catalog = reader.list()
+  if (!catalog) return undefined
+  const { files, photos, folders } = catalog
   return [
     ...folders.map((d) => ({ name: d.name, kind: 'doc' as const })),
     ...files.map((f) => ({ name: f.name, kind: f.kind })),

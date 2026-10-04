@@ -2111,6 +2111,9 @@ const CONTEXT_TYPES: ContextTypeId[] = ['files', 'photos', 'folder', 'repo', 'co
 // Seed the fs types from the cloud catalog (the always-present source), newest first.
 const seedFsRecents = (): { files: string[]; photos: string[]; folder: string[] } => {
   const cat = cloudReader.list()
+  // Failed demo suggestion seeding must not prevent startup. Live catalog
+  // reads below still preserve this unavailable result instead of returning [].
+  if (!cat) return { files: [], photos: [], folder: [] }
   const key = (id: string) => fsRecentKey(CLOUD_SOURCE.id, id)
   return {
     files: cat.files.slice(0, 6).map((f) => key(f.id)),
@@ -3832,7 +3835,9 @@ export const store = {
   fsCatalog(sourceId: string): FsCatalog | undefined {
     const r = resolveFsReader(sourceId, 'fs.list')
     if (!r) return undefined
-    const { files, photos, folders } = r.reader.list()
+    const catalog = r.reader.list()
+    if (!catalog) return undefined
+    const { files, photos, folders } = catalog
     return { source: r.source, files, photos, folders }
   },
   /** Scan a folder under a source → its artifacts (what the workspace shows). */

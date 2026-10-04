@@ -75,8 +75,7 @@ test('ext → kind map + helpers', () => {
   assert.equal(contentTypeForExt('json'), 'application/json; charset=utf-8')
 })
 
-test('a missing root yields empty listings, never a throw', () => {
+test('a missing root is unavailable, never a successful empty scan or a throw', () => {
   const empty = fsReader(join(process.cwd(), 'does-not-exist-xyz'))
-  const { files, photos, folders } = empty.list()
-  assert.deepEqual([files.length, photos.length, folders.length], [0, 0, 0])
+  assert.equal(empty.list(), undefined)
 })

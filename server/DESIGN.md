@@ -68,7 +68,13 @@ Special files, broken links and entries that disappear while scanning are skippe
 Each reader resolves the operator-configured root once, including legitimate
 configuration aliases such as macOS `/var`, and pins its directory identity.
 A missing or replaced root requires a new reader; a live reader never silently
-adopts a replacement tree. Reads use a single no-follow/nonblocking descriptor
+adopts a replacement tree. Catalog and folder scans return unavailable when the
+directory cannot be enumerated; only a successful scan can report an empty
+list. A catalog also refuses an unreadable child-folder count rather than
+inventing zero. Cloud/runner routes preserve this as 404, and mapped runner
+invocations refuse it without journaling success. Optional demo recent-item
+seeding may omit unavailable suggestions, but never supplies a live catalog.
+Reads use a single no-follow/nonblocking descriptor
 where the platform supports those flags, check regular-file identity/version
 before and after I/O, and allocate/read no more than the admitted size plus one
 byte. Text retains its existing 256 KiB preview and oversize-note behavior; raw

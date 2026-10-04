@@ -84,7 +84,7 @@ test('runnerFs caches its configured root, filters exact file grants, and keeps 
   renameSync(firstRoot, replacementRoot)
   mkdirSync(firstRoot)
   writeFileSync(join(firstRoot, 'allowed.md'), 'replacement must not be adopted')
-  assert.deepEqual(runnerFs(wildcard)!.reader.list(), { files: [], photos: [], folders: [] })
+  assert.equal(runnerFs(wildcard)!.reader.list(), undefined, 'a replaced root is unavailable, not empty')
   assert.equal(runnerFs(wildcard)!.reader.readText('allowed.md'), undefined)
 })
 

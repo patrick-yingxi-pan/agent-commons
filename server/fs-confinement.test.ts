@@ -131,7 +131,7 @@ test('configured root aliases are pinned, and replacement roots are not silently
   renameSync(root, join(parent, 'old-root'))
   mkdirSync(root)
   writeFileSync(join(root, 'notes.md'), 'replacement')
-  assert.deepEqual(reader.list(), { files: [], photos: [], folders: [] })
+  assert.equal(reader.list(), undefined)
   assert.equal(reader.readText('notes.md'), undefined)
   assert.equal(reader.readBytes('notes.md'), undefined)
   assert.equal(fsReader(alias).readText('notes.md')?.text, 'replacement', 'only a new reader adopts a configured root')
