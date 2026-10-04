@@ -1,10 +1,8 @@
 name: Verify
 
+# Optional diagnostics only. Local npm run verify is the required pre-push gate.
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read

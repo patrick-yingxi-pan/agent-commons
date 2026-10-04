@@ -13,6 +13,9 @@ milestones or address a demonstrated defect.
   device signing root protected by macOS Keychain (approved 2026-09-06).
 - Keep the HTTP/SSE contract portable to the later hosted service.
 - Verify, review, commit, and push each completed checkpoint directly to main.
+- The complete local verifier is the delivery gate (owner decision 2026-10-04).
+  GitHub Actions is manual-only optional diagnostics, not a prerequisite or a
+  routine monitoring task. Earlier CI references below are historical evidence.
 - Ask before selecting an updater policy or materially widening the supported
   external integration scope.
 - Sequencing is delegated: all planned core capabilities remain required;

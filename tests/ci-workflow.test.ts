@@ -1,5 +1,5 @@
-/** The remote quality gate is intentionally a projection of the repository's
- * one complete local verifier. Its source is scanned here because a workflow
+/** Optional, manually dispatched remote diagnostics project the repository's
+ * mandatory local verifier. Their source is scanned here because a workflow
  * that quietly drops E2E, floats executable actions, or gains write authority
  * can stay green while ceasing to be evidence. */
 import { test } from 'node:test'
@@ -16,8 +16,14 @@ test('the repository declares its supported Node floor in both npm manifests', (
   assert.equal(lockfile.packages?.['']?.engines?.node, manifest.engines.node)
 })
 
-test('main and pull requests run the complete verifier plan with bounded read-only authority', () => {
-  assert.match(workflow, /pull_request:\s*\n\s*push:\s*\n\s*branches:\s*\n\s*- main/)
+test('remote verification is manual-only and cannot consume Actions on repository events', () => {
+  const triggers = workflow.match(/^on:\s*\n((?:[ \t]+[^\n]*\n|\n)*)/m)
+  assert.ok(triggers, 'the optional workflow declares its trigger block')
+  assert.equal(triggers[1].trim(), 'workflow_dispatch:',
+    'only an explicit manual dispatch may run optional remote diagnostics')
+})
+
+test('optional remote diagnostics retain the complete verifier plan with bounded read-only authority', () => {
   assert.match(workflow, /permissions:\s*\n\s*contents: read/)
   assert.match(workflow, /concurrency:\s*\n\s*group: verify-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\s*\n\s*cancel-in-progress: true/)
   assert.match(workflow, /runs-on: ubuntu-24\.04/)

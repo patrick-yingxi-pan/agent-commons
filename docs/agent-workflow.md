@@ -18,12 +18,15 @@ procedure so the always-loaded map stays small.
   scripts and documentation. Vite can reload after watched-file changes outside
   the product modules; a code-only freeze is insufficient. Apply review findings
   between runs, then verify the final revision without edits or relaxed retries.
-- Pull requests and pushes to `main` run that complete verifier plan again in
-  GitHub Actions on Node 26. The checks lane and two deterministic E2E manifest
-  partitions run through the verifier on isolated hosts; their union is the
-  local command's complete plan, not a second hand-maintained list of checks.
-  The bounded E2E timing input is the measured hosted-runner profile. Local
-  runs continue to select their own shard count and calibrate themselves.
+- The complete local `npm run verify` is the mandatory pre-push gate. Do not
+  rely on GitHub Actions, wait for a remote check, or dispatch/monitor workflows
+  as part of routine delivery. Record the local command and outcome in the
+  checkpoint handoff, including any separate UI or packaged-native acceptance.
+  GitHub diagnostics are manual-only and require an explicit owner request.
+  If requested, their checks lane and two deterministic E2E manifest partitions
+  project the same complete verifier plan on isolated Node 26 hosts. Local runs
+  retain their own shard selection and calibrated timing; optional hosted runs
+  retain the measured bounded runner profile.
 - Review the working diff adversarially after tests pass. Fix confirmed findings
   before commit; do not leave finished work uncommitted.
 - Diagnose intermittent first-attempt browser failures with
@@ -31,9 +34,10 @@ procedure so the always-loaded map stays small.
   browser traces in shard-owned directories under `test-results/` without adding
   local retries or extending timeouts; ordinary runs keep their lower-overhead
   trace policy.
-  CI explicitly fails retry-only passes and retains first-attempt browser traces
-  from failed jobs for three days. A coverage mismatch prints lane tails even
-  when Playwright exited successfully; do not treat a retry as a repaired defect.
+  Local runs do not retry tests; optional remote runs explicitly fail retry-only
+  passes and retain failed browser traces for three days. A coverage mismatch
+  prints lane tails even when Playwright exited successfully; do not treat a
+  retry as a repaired defect.
 
 ## Review UI changes
 

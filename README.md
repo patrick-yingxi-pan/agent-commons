@@ -151,10 +151,10 @@ npm run ui:sweep     # signed-in surface × viewport review harness
 npm run verify       # typecheck + Node suite + build + sharded E2E
 ```
 
-Node 26 or newer is required. Pull requests and pushes to `main` repeat the
-complete `npm run verify` plan in the repository's read-only GitHub Actions
-gate, distributing its deterministic browser manifest across isolated runners;
-local verification remains the pre-push requirement.
+Node 26 or newer is required. The complete local `npm run verify` plan is the
+required pre-push gate; delivery does not depend on GitHub Actions. The read-only
+Actions workflow is retained only for explicitly requested, manually dispatched
+diagnostics. Pull requests and pushes do not start it.
 
 `npm run dev` and `npm run server` retain the review/demo posture. Release-shaped
 boots use explicit profiles:
