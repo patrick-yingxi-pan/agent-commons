@@ -20,7 +20,27 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint extends the existing Sheet review/adopt/Create workflow
+The current checkpoint fixes a relay deadline defect exposed by Linux CI on
+`60d4255c`: a whole-turn-clamped tool timer could expire while wall time still
+reported a millisecond remaining, dispatching a sibling call or delivering an
+unusable continuation. The shared executor now returns sticky whole-turn expiry
+and the relay stops before another offer. Shorter per-tool timeouts remain
+recoverable; budgets, retries and authority are unchanged. Deterministic
+lagging-clock locks failed against the old code at both boundaries before the
+fix. Complete repository and packaged verification remain the landing gates.
+
+This checkpoint also closes actual native-dialog acceptance for the selected
+XLSX worksheet workflow on `60d4255c`. The [native workbook record](acceptance/native-workbook-2026-10-04.md)
+documents real Open/Save dialogs, cancellation, visible worksheet choice,
+missing-cache refusal, header mapping, explicit adoption, canonical creation,
+editing and byte-identical export. After the source path was removed by moving
+only the generated input aside, a full app relaunch retained exact identity,
+literal body, revision and export. This uses a clean disposable profile and an
+unsigned arm64 package; generated XLSX input does not prove Excel-application
+or corpus compatibility, rich Office fidelity, signing, notarization or Intel.
+The native acceptance itself changed no implementation or permission policy.
+
+The preceding checkpoint `60d4255c` extends the existing Sheet review/adopt/Create workflow
 to XLSX. A separate bounded worker result preserves visible worksheet identity
 and sparse literal cells. Users choose one worksheet and header mapping; its
 used rectangle is checked before allocation, with no clipping. Missing formula
@@ -56,7 +76,11 @@ extended macOS ACLs are neither audited nor removed, parent directories must be
 trusted, Windows retains OS-managed ACL policy, and earlier Chromium/session or
 instance-lock writes are outside this startup-order guarantee. ACL-managed macOS
 profiles remain a separate release-review gap; no administrator/same-user defense
-is claimed.
+is claimed. A subsequent disposable-directory probe confirmed that an explicit
+macOS `everyone` list/search ACL remains after the current guard admits mode
+0700. The fixture stayed inside its own private temporary parent; no other
+account access or normal profile was tested. Refuse-and-preserve versus removing
+the app folder's ACL is awaiting the owner; a mode-only pass is not ACL evidence.
 
 The preceding checkpoint `4802b9fa` fixes a defect observed while reviewing native recovery:
 editing a document changed its body and Edited time, but left its index preview

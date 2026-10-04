@@ -811,14 +811,60 @@ test('the relay path enforces the shared batch ceiling and marks excess results 
   })
 })
 
-test('a tool consuming the whole relay deadline cannot offer a doomed continuation entry', async () => {
-  await withEnv({ RELAY_POLL_MS: '120', RELAY_TIMEOUT_MS: '50', MODEL_TOOL_TIMEOUT_MS: '500' }, async () => {
+for (const clock of ['wall clock', 'lagging wall clock'] as const) {
+  test(`a tool consuming the whole relay deadline cannot offer a doomed continuation entry (${clock})`, async (t) => {
+    let now = 1_000
+    if (clock === 'lagging wall clock') t.mock.method(Date, 'now', () => now)
+    await withEnv({ RELAY_POLL_MS: '120', RELAY_TIMEOUT_MS: '50', MODEL_TOOL_TIMEOUT_MS: '500' }, async () => {
+      const relay = new RelayRuntime(() => {})
+      const providerId = 'provider-deadline-guard'
+      const reply = relayReply(
+        { id: 'session-deadline-guard', title: 'Deadline guard' },
+        DEFAULT_AGENT,
+        'read usage',
+        { onStart: () => {}, onDelta: () => {} },
+        undefined,
+        relay,
+        providerId,
+        undefined,
+        [],
+        [],
+        {
+          catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+          dispatch: async () => {
+            now = 1_049 // Deliberately leave 1ms when the real clamped timer expires.
+            return await new Promise(() => {})
+          },
+        },
+      )
+      const first = await relay.poll(providerId).result
+      assert.ok('entryId' in first)
+      if (!('entryId' in first)) return
+      relay.submit(providerId, first.entryId, {
+        kind: 'toolCalls',
+        calls: [{ id: 'rtc-deadline', name: 'api__get_usage', input: {} }],
+      })
+      // Park the connector while the API read consumes the remaining turn budget.
+      // A continuation offered after expiry would wake this poll with a doomed id.
+      const continuation = relay.poll(providerId).result
+      const result = await reply
+      assert.equal(result.outcome, 'fallback')
+      assert.match(result.message.content, /didn’t answer in time/)
+      assert.deepEqual(await continuation, { idle: true }, 'no post-deadline continuation reached the far side')
+      assert.equal(relay.activeConversations(providerId), 0)
+    })
+  })
+}
+
+test('a shorter tool timeout still permits a relay continuation and preserves completed proposals', async (t) => {
+  t.mock.method(Date, 'now', () => 1_000)
+  await withEnv({ RELAY_POLL_MS: '120', RELAY_TIMEOUT_MS: '500', MODEL_TOOL_TIMEOUT_MS: '20' }, async () => {
     const relay = new RelayRuntime(() => {})
-    const providerId = 'provider-deadline-guard'
+    const providerId = 'provider-local-timeout'
     const reply = relayReply(
-      { id: 'session-deadline-guard', title: 'Deadline guard' },
-      DEFAULT_AGENT,
-      'read usage',
+      { id: 'session-local-timeout', title: 'Recoverable tool timeout' },
+      { ...DEFAULT_AGENT, tools: ['create_project'] },
+      'propose a project and read usage',
       { onStart: () => {}, onDelta: () => {} },
       undefined,
       relay,
@@ -836,15 +882,21 @@ test('a tool consuming the whole relay deadline cannot offer a doomed continuati
     if (!('entryId' in first)) return
     relay.submit(providerId, first.entryId, {
       kind: 'toolCalls',
-      calls: [{ id: 'rtc-deadline', name: 'api__get_usage', input: {} }],
+      calls: [
+        { id: 'rtc-project', name: 'create_project', input: { name: 'Retained proposal' } },
+        { id: 'rtc-local-timeout', name: 'api__get_usage', input: {} },
+      ],
     })
-    // Park the connector while the API read consumes the remaining turn budget.
-    // A continuation offered after expiry would wake this poll with a doomed id.
-    const continuation = relay.poll(providerId).result
+    const continuation = await relay.poll(providerId).result
+    assert.ok('entryId' in continuation, 'a local timeout does not terminate the whole turn')
+    const results = continuation.prompt.messages.find((turn) => turn.toolResults)?.toolResults
+    assert.equal(results?.[0].isError, undefined)
+    assert.equal(results?.[1].isError, true)
+    assert.match(results[1].content, /deadline/)
+    relay.submit(providerId, continuation.entryId, { kind: 'completion', text: 'Project proposed; usage unavailable.' })
     const result = await reply
-    assert.equal(result.outcome, 'fallback')
-    assert.match(result.message.content, /didn’t answer in time/)
-    assert.deepEqual(await continuation, { idle: true }, 'no post-deadline continuation reached the far side')
+    assert.equal(result.outcome, 'ok')
+    assert.equal(result.message.escalation?.project.name, 'Retained proposal')
   })
 })
 

@@ -105,6 +105,8 @@ export interface ToolBatchOptions {
 export interface ToolBatchOutcome {
   results: ExecutedToolResult[]
   escalation?: EscalationProposal
+  /** Terminal even if wall time still lags behind an expired clamped timer. */
+  turnDeadlineReached: boolean
 }
 
 interface PendingEffect {
@@ -224,6 +226,7 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
   const limits = options.limits ?? toolExecutionLimits()
   const results: ExecutedToolResult[] = []
   let escalation = options.escalation
+  let turnDeadlineReached = false
   // Same-turn chaining: built-in tools see exactly the successfully committed
   // relation proposals made by earlier calls and earlier relay rounds.
   options.context.pending = options.relationOps
@@ -252,7 +255,8 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
     }
 
     const remainingTurnMs = options.deadlineAt === undefined ? limits.timeoutMs : options.deadlineAt - Date.now()
-    if (remainingTurnMs <= 0) {
+    if (turnDeadlineReached || remainingTurnMs <= 0) {
+      turnDeadlineReached = true
       if (call.name === ROUTINE_ARTIFACT_TOOL_NAME && options.routineArtifact) {
         poisonRepeatedRoutineArtifact(options.routineArtifact)
       }
@@ -266,6 +270,11 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
     const settled = await settle((signal) => invoke(call, options, signal), Math.min(limits.timeoutMs, remainingTurnMs), options.signal)
     if (settled.kind === 'cancelled') throw new ToolExecutionCancelledError()
     if (settled.kind === 'timeout') {
+      // A whole-turn-clamped timer is authoritative once it expires. Do not
+      // let clock granularity/skew revive the turn for a sibling or next round.
+      if (options.deadlineAt !== undefined && remainingTurnMs <= limits.timeoutMs) {
+        turnDeadlineReached = true
+      }
       results.push({
         callId: call.id,
         content: `Tool '${call.name}' did not complete before its deadline; its result was discarded.`,
@@ -297,5 +306,5 @@ export async function executeToolBatch(calls: readonly ModelToolCall[], options:
     })
   }
 
-  return { results, escalation }
+  return { results, escalation, turnDeadlineReached }
 }

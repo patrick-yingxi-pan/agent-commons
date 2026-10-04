@@ -101,6 +101,70 @@ test('a hung executor is timed out and cannot monopolize the remaining batch', a
   assert.equal(out.results[1].isError, undefined)
 })
 
+for (const timeoutMs of [100, 20]) {
+  test(`a whole-turn timeout stops later calls even while wall time lags (tool budget ${timeoutMs}ms)`, async (t) => {
+    let now = 1_000
+    t.mock.method(Date, 'now', () => now)
+    let attempts = 0
+    const h = harness(async () => {
+      attempts += 1
+      // The timer expires while the wall clock still reports 1ms remaining.
+      now = 1_019
+      if (attempts === 1) return await new Promise<ReturnType<typeof ok>>(() => {})
+      return ok()
+    })
+    const out = await executeToolBatch(calls, {
+      ...h.options,
+      deadlineAt: 1_020,
+      limits: { maxCalls: 2, timeoutMs },
+    })
+
+    assert.equal(attempts, 1, 'an expired turn never dispatches the sibling call')
+    assert.deepEqual(out.results.map((result) => result.callId), ['tc-1', 'tc-2'])
+    assert.ok(out.results.every((result) => result.isError))
+    assert.match(out.results[1].content, /turn deadline/)
+    assert.deepEqual(h.toolActivities, [], 'no expired read commits provenance')
+    assert.equal(out.turnDeadlineReached, true, 'the caller must not start another round')
+  })
+}
+
+test('a shorter per-tool timeout remains recoverable inside a live turn', async (t) => {
+  t.mock.method(Date, 'now', () => 1_000)
+  let attempts = 0
+  const h = harness(async () => {
+    attempts += 1
+    if (attempts === 1) return await new Promise<ReturnType<typeof ok>>(() => {})
+    return ok()
+  })
+  const out = await executeToolBatch(calls, {
+    ...h.options,
+    deadlineAt: 1_100,
+    limits: { maxCalls: 2, timeoutMs: 20 },
+  })
+
+  assert.equal(attempts, 2)
+  assert.equal(out.results[0].isError, true)
+  assert.equal(out.results[1].isError, undefined)
+  assert.deepEqual(h.toolActivities.map((activity) => activity.id), ['tc-2'])
+  assert.equal(out.turnDeadlineReached, false)
+})
+
+test('a turn already at its deadline dispatches nothing and returns terminal expiry', async (t) => {
+  t.mock.method(Date, 'now', () => 1_000)
+  let attempts = 0
+  const h = harness(async () => { attempts += 1; return ok() })
+  const out = await executeToolBatch(calls, {
+    ...h.options,
+    deadlineAt: 1_000,
+    limits: { maxCalls: 2, timeoutMs: 100 },
+  })
+
+  assert.equal(attempts, 0)
+  assert.equal(out.results.length, calls.length)
+  assert.ok(out.results.every((result) => result.isError && /turn deadline/.test(result.content)))
+  assert.equal(out.turnDeadlineReached, true)
+})
+
 test('caller cancellation stops a hung tool batch instead of becoming a recoverable tool error', async () => {
   const h = harness(async () => await new Promise<ReturnType<typeof ok>>(() => {}))
   const controller = new AbortController()

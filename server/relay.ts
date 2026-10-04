@@ -654,6 +654,7 @@ export async function relayReply(
         limits: toolExecutionLimits(),
       })
       escalation = executed.escalation
+      if (executed.turnDeadlineReached) return fallback(FALLBACK_TIMEOUT)
       const results = executed.results.map((result) => ({
         toolCallId: result.callId,
         content: result.content,
