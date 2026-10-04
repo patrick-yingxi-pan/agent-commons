@@ -844,7 +844,7 @@ export async function smokePackagedAttachments({ executable }) {
       await expect(sheetPreview).toContainText(imported.body.columns[0])
       await expect(sheetPreview).toContainText(imported.body.rows[0][0])
     }
-    console.log('[desktop-artifact-sheet-import-smoke] exact saved sheet identities + bodies survive full relaunch without source CSV/TSV files')
+    console.log('[desktop-artifact-sheet-import-smoke] exact saved sheet identities + bodies survive full relaunch without source CSV/TSV/XLSX files')
     console.log('[desktop-artifact-import-smoke] exact saved document identities + rendered bodies survive full relaunch without source files')
     await page.goto(`${origin}${sessionPath}`)
     await inspectPair(page, ids)

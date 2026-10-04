@@ -143,6 +143,7 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
   const pipelines = [
     ['docx', 'docxImport.ts'],
     ['xlsx', 'xlsxImport.ts'],
+    ['xlsx-workbook', 'workbookImport.ts'],
     ['pptx', 'pptxImport.ts'],
     ['pptx-presentation', 'presentationImport.ts'],
   ] as const
@@ -162,6 +163,9 @@ test('Office parsing stays lazy, shared, worker-only, and resource-free', () => 
   assert.ok(officeWorker.includes("value.format === 'docx'") && officeWorker.includes("value.format === 'xlsx'"))
   assert.ok(officeWorker.includes('extractPptx(') && officeWorker.includes("value.format === 'pptx'"))
   assert.ok(officeWorker.includes('extractPresentation(') && officeWorker.includes("value.format === 'pptx-presentation'"))
+  assert.ok(officeWorker.includes('extractWorkbook(') && officeWorker.includes("value.format === 'xlsx-workbook'"))
+  const workbook = stripComments(read(join(ROOT, 'src/lib/workbookImport.ts')))
+  assert.ok(workbook.includes('acceptedResult: parseWorkbookImportResult'), 'workbook worker results cross the closed structural validator')
   const presentation = stripComments(read(join(ROOT, 'src/lib/presentationImport.ts')))
   assert.ok(presentation.includes('acceptedResult: parsePresentationImportResult'), 'worker data passes the shared closed structural validator')
   const mapping = stripComments(read(join(ROOT, 'src/lib/artifactPresentationImport.ts')))

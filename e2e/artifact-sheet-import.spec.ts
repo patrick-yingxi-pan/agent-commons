@@ -1,8 +1,9 @@
-/** Browser proof for the bounded CSV/TSV-to-authored-sheet intake path. */
+/** Browser proof for bounded CSV/TSV and XLSX-to-authored-sheet intake. */
 import { mkdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { test, expect, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { extractXlsx } from '../src/lib/xlsxExtraction.ts'
+import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
 import type { Grant } from '../contract/index.ts'
 import { assertWcag22Aa } from './accessibility-helpers.ts'
 import { settleArtifactPageRail } from './artifact-page-helpers.ts'
@@ -18,6 +19,11 @@ const VIEWPORTS = [
 mkdirSync(REVIEW_DIR, { recursive: true })
 
 type PickedFile = { name: string; mimeType: string; buffer: Buffer }
+const workbookFile = (name: string): PickedFile => ({ name, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: xlsxFixture({ sheets: [
+  { name: 'Overview', rows: [['Not selected'], ['Do not save this worksheet']] },
+  { name: 'Hidden', hidden: true, rows: [['Private hidden values']] },
+  { name: 'Selected sales', rows: [['Metric', 'Value', 'Formula', 'Saved result'], ['Revenue', '00042', '=1+1', { formula: '1+1', cached: 2 }]] },
+] }) })
 
 async function openSheetDialog(page: Page) {
   await page.goto('/artifacts')
@@ -159,6 +165,66 @@ test('CSV review toggles headers, adopts literal values, and creates a real XLSX
   await exportXlsx(page, name)
 })
 
+test('XLSX review chooses a worksheet, keeps cached values literal and saves only that reviewed body', async ({ page }, testInfo) => {
+  test.setTimeout(ms(120_000))
+  const stamp = Date.now().toString(36)
+  const name = `workbook-${stamp}.xlsx`
+  const dialog = await openSheetDialog(page)
+  await chooseSheet(page, dialog, workbookFile(name))
+  const worksheet = dialog.getByRole('combobox', { name: 'Worksheet', exact: true })
+  await expect(worksheet.locator('option')).toHaveText(['Overview', 'Selected sales'])
+  await expect(worksheet).toHaveValue('1')
+  await worksheet.selectOption({ label: 'Selected sales' })
+  const preview = dialog.getByRole('region', { name: 'Imported sheet', exact: true })
+  await expect(preview.locator('td')).toHaveText(['Revenue', '00042', '=1+1', '2'])
+  await expect(preview).toContainText(/cached/i)
+  await expect(preview).not.toContainText('Do not save')
+  await expect(preview).not.toContainText('Private hidden')
+  await captureAllDialogViewports(page, dialog, testInfo, 'xlsx-selected')
+  const headers = dialog.getByRole('checkbox', { name: 'First row contains column names', exact: true })
+  await headers.click()
+  await expect(preview.locator('th').first()).toHaveText('Column A')
+  await expect(preview.locator('td').first()).toHaveText('Metric')
+  await headers.click()
+  // The review actions begin below the short viewport's fold. Trusted clicks
+  // must scroll them above the sticky footer, not bypass its hit testing.
+  await page.setViewportSize(VIEWPORTS[3])
+  const id = await createSheetFromDialog(page, dialog, name, name)
+  const response = await page.request.get(`${API}/artifact-content`)
+  expect((await response.json())[id]).toEqual({ type: 'sheet', revision: 0, columns: ['Metric', 'Value', 'Formula', 'Saved result'], rows: [['00043', '00042', '=1+1', '2']] })
+  await page.reload()
+  await exportXlsx(page, name)
+})
+
+test('XLSX missing formula results refuse adoption without changing the draft and a new candidate resets worksheet choice', async ({ page }, testInfo) => {
+  test.setTimeout(ms(120_000))
+  const dialog = await openSheetDialog(page)
+  await dialog.getByLabel('Name').fill('My unchanged sheet.xlsx')
+  await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Original')
+  await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Keep this draft')
+  await chooseSheet(page, dialog, { name: 'uncalculated.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: xlsxFixture({ sheets: [
+    { name: 'Empty', rows: [] },
+    { name: 'Missing saved result', rows: [['Metric', 'Value'], ['Revenue', { formula: '1+1' }]] },
+  ] }) })
+  const worksheet = dialog.getByRole('combobox', { name: 'Worksheet', exact: true })
+  await expect(dialog.getByRole('alert')).toBeVisible()
+  await worksheet.selectOption({ label: 'Missing saved result' })
+  await expect(dialog.getByRole('alert')).toContainText(/recalculate/i)
+  await expect(dialog.getByRole('button', { name: 'Replace sheet with imported sheet', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Create sheet', exact: true })).toBeDisabled()
+  await captureAllDialogViewports(page, dialog, testInfo, 'xlsx-missing-cache', true)
+  await page.setViewportSize(VIEWPORTS[0])
+  await dialog.getByRole('button', { name: 'Discard import', exact: true }).click()
+  await chooseSheet(page, dialog, workbookFile('replacement.xlsx'))
+  await expect(worksheet).toHaveValue('1')
+  await expect(dialog.getByRole('region', { name: 'Imported sheet', exact: true })).toContainText('Do not save this worksheet')
+  await dialog.getByRole('button', { name: 'Discard import', exact: true }).click()
+  await expect(dialog.getByLabel('Name')).toHaveValue('My unchanged sheet.xlsx')
+  await expect(dialog.getByLabel('Sheet column 1', { exact: true })).toHaveValue('Original')
+  await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Keep this draft')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+})
+
 test('the saved imported sheet is visible to its owner and granted reader, but not a foreign account', async ({ browser }, testInfo) => {
   test.setTimeout(ms(120_000))
   const owner = await newUser(browser)
@@ -168,7 +234,8 @@ test('the saved imported sheet is visible to its owner and granted reader, but n
   const name = `shared-import-${stamp}.xlsx`
   try {
     const dialog = await openSheetDialog(owner.page)
-    await chooseSheet(owner.page, dialog, { name: `shared-${stamp}.csv`, mimeType: 'text/csv', buffer: Buffer.from(`Metric,Value\nRevenue,00042\n`) })
+    await chooseSheet(owner.page, dialog, workbookFile(`shared-${stamp}.xlsx`))
+    await dialog.getByRole('combobox', { name: 'Worksheet', exact: true }).selectOption({ label: 'Selected sales' })
     await createSheetFromDialog(owner.page, dialog, `shared-${stamp}.xlsx`, name)
     const artifactId = owner.page.url().split('/').at(-1)!
     await grantSheet(owner.page, artifactId)

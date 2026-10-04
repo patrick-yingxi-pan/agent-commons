@@ -18,6 +18,8 @@ import type { DocumentImportOutcome } from '../../contract/documentImport.mjs'
 import { importPdf } from './pdfImport.ts'
 import { importDocx } from './docxImport.ts'
 import { importXlsx } from './xlsxImport.ts'
+import { importWorkbook } from './workbookImport.ts'
+import type { WorkbookSnapshot } from '../../contract/workbookImport.ts'
 import { importPptx } from './pptxImport.ts'
 import { importPresentation } from './presentationImport.ts'
 import type { PresentationSnapshot } from '../../contract/presentationImport.ts'
@@ -41,6 +43,7 @@ export interface UiHostFile {
   documentImport?: DocumentImportOutcome
   /** Transient structured review only; saved artifacts use their normal body. */
   presentation?: PresentationSnapshot
+  workbook?: WorkbookSnapshot
   imageInput?: ImageSnapshot
   image?: ImageAssetRef
 }
@@ -120,6 +123,7 @@ const DOCUMENT_READERS = [
   PPTX_READER,
 ] as const
 const PRESENTATION_READER = { ...PPTX_READER, read: importPresentation }
+const WORKBOOK_READER = { matches: isXlsxFileName, maxBytes: MAX_XLSX_FILE_BYTES, failure: xlsxImportFailure, read: importWorkbook }
 
 async function toUiHostFile(file: File, documentBudget: { used: number }, imageBudget: { used: number }, accept: UiHostFileAccept, signal?: AbortSignal): Promise<UiHostFile> {
   const name = file.name
@@ -136,7 +140,9 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
       throw new UiHostPickerError('unreadable')
     }
   }
-  const document = accept === 'slides' ? PRESENTATION_READER : DOCUMENT_READERS.find((reader) => reader.matches(name))
+  const document = accept === 'slides' ? PRESENTATION_READER
+    : accept === 'sheet' && isXlsxFileName(name) ? WORKBOOK_READER
+    : DOCUMENT_READERS.find((reader) => reader.matches(name))
   if (document) {
     if (file.size > document.maxBytes) return selectedFile({ name, kind: 'file', ...document.failure('file-too-large') })
     if (documentBudget.used + file.size > MAX_DOCUMENT_SELECTION_BYTES) return selectedFile({ name, kind: 'file', ...document.failure('selection-limit') })
@@ -212,7 +218,7 @@ export async function pickUiHostFiles(
             : file.docxBytes ? await importDocx(file.docxBytes, signal) : docxImportFailure('unavailable')
         : isXlsxFileName(file.name)
           ? file.xlsxFailure ? xlsxImportFailure(file.xlsxFailure)
-            : file.xlsxBytes ? await importXlsx(file.xlsxBytes, signal) : xlsxImportFailure('unavailable')
+            : file.xlsxBytes ? await (accept === 'sheet' ? importWorkbook : importXlsx)(file.xlsxBytes, signal) : xlsxImportFailure('unavailable')
         : isPptxFileName(file.name)
           ? file.pptxFailure ? pptxImportFailure(file.pptxFailure)
             : file.pptxBytes ? await (accept === 'slides' ? importPresentation : importPptx)(file.pptxBytes, signal) : pptxImportFailure('unavailable')

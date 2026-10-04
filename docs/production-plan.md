@@ -20,7 +20,27 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint closes the demonstrated desktop POSIX-mode gap: startup
+The current checkpoint extends the existing Sheet review/adopt/Create workflow
+to XLSX. A separate bounded worker result preserves visible worksheet identity
+and sparse literal cells. Users choose one worksheet and header mapping; its
+used rectangle is checked before allocation, with no clipping. Missing formula
+caches refuse adoption; cached values are disclosed as potentially stale. Styles,
+merges, media, hidden content and calculation are not imported. The ordinary
+artifact body, creation, editing, permissions and export remain authoritative.
+Focused browser acceptance passed all 11 Sheet/import-recovery/XLSX-attachment
+tests; the isolated UI sweep covered 135/135 cells without skips or violations.
+Packaged unsigned arm64 acceptance imported a selected worksheet through real
+native bytes and IPC, then preserved the exact saved body after source removal
+and a full relaunch. The live preview was reviewed with all six demo accounts
+stacked and left on Ada's saved Sheet. Failure-first locks caught missing-cache
+adoption, name collisions and accidental use of the flattened attachment mode.
+A final Unicode probe caught rejection of leading BOM cell text; failure-first
+contract/package locks now preserve that literal character without accepting
+lossy lone surrogates, and the native fixture includes it in the exact body.
+The complete repository verifier remains the landing gate; actual Excel corpus,
+signed/notarized binaries and Intel acceptance are not claimed by these fixtures.
+
+The preceding checkpoint `3d1d5ac5` closes the demonstrated desktop POSIX-mode gap: startup
 admits and, if needed, tightens the owned profile directory to 0700 before
 application credentials or SQLite open. Repair operates on a no-follow directory
 descriptor and preserves existing work; wrong owners, symlinks, broad paths and
@@ -739,8 +759,10 @@ for the edit to finish. Prose and structured edits update the existing Edited
 timestamp through one body commit, without advancing independent name ordering.
 JSON/SQLite preserve edited bodies, timestamps and revisions without changing
 names, grants or immutable save provenance. New slides begin without invented
-blank bullets; explicitly authored blank values remain lossless. Spreadsheet calculation,
-arbitrary layout/styling and structured standing-routine output remain required.
+blank bullets; explicitly authored blank values remain lossless. Spreadsheet calculation
+and arbitrary layout/styling remain required. Structured standing-routine output
+is implemented and verified under REL-13 / MODEL-29; the older wording here had
+incorrectly continued to list it as missing.
 
 Adversarial review closed two follow-on gaps: accepted body acknowledgements
 refresh artifact metadata even when ambient sync is unavailable, and all new

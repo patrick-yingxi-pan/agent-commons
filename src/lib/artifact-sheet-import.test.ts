@@ -1,16 +1,185 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import type { WorkbookSnapshot } from '../../contract/workbookImport.ts'
 import { mapArtifactSheetImport, reviewArtifactSheetImport, isArtifactSheetFileName } from './artifactSheetImport.ts'
+import { MAX_AUTHORED_CELL_CHARS } from '../../contract/artifactAuthoring.ts'
 
 function file(name: string, text: string) {
   return { name, kind: 'file' as const, text }
 }
 
-test('recognizes only CSV and TSV names case-insensitively', () => {
+function workbookFile(workbook: WorkbookSnapshot, overrides: Record<string, unknown> = {}) {
+  return {
+    name: 'budget.xlsx',
+    kind: 'file' as const,
+    documentImport: { format: 'xlsx', status: 'ready' },
+    workbook,
+    ...overrides,
+  }
+}
+
+function sourceWorkbook(worksheets: WorkbookSnapshot['worksheets'], options: Partial<WorkbookSnapshot> = {}): WorkbookSnapshot {
+  return {
+    totalSheets: options.totalSheets ?? worksheets.length,
+    hiddenSheets: options.hiddenSheets ?? 0,
+    unsupportedSheets: options.unsupportedSheets ?? 0,
+    worksheets,
+  }
+}
+
+test('recognizes CSV, TSV and XLSX names case-insensitively', () => {
   assert.equal(isArtifactSheetFileName('metrics.CSV'), true)
   assert.equal(isArtifactSheetFileName('metrics.tsv'), true)
   assert.equal(isArtifactSheetFileName('metrics.csv.bak'), false)
-  assert.equal(isArtifactSheetFileName('metrics.xlsx'), false)
+  assert.equal(isArtifactSheetFileName('metrics.xlsx'), true)
+})
+
+test('XLSX review requires one file, ready workbook outcome, validated workbook and no text mixing', () => {
+  const workbook = sourceWorkbook([{ sourceSheet: 1, name: 'Summary', cells: [{ row: 1, column: 1, value: 'Revenue' }] }])
+  const reviewed = reviewArtifactSheetImport([workbookFile(workbook)])
+  assert.equal(reviewed.status, 'ready')
+  if (reviewed.status === 'ready') {
+    assert.equal('workbook' in reviewed, true)
+    assert.equal(reviewed.name, 'budget.xlsx')
+    assert.deepEqual(reviewed.workbook, workbook)
+    workbook.worksheets[0]!.cells[0]!.value = 'mutated after review'
+    assert.equal(reviewed.workbook.worksheets[0]!.cells[0]!.value, 'Revenue', 'review owns a detached workbook snapshot')
+  }
+
+  assert.equal(reviewArtifactSheetImport([]).status, 'cancelled')
+  assert.equal(reviewArtifactSheetImport([workbookFile(workbook), workbookFile(workbook)]).status, 'error')
+  assert.equal(reviewArtifactSheetImport([workbookFile(workbook, { kind: 'photo' })]).status, 'error')
+  assert.equal(reviewArtifactSheetImport([workbookFile(workbook, { name: 'budget.csv' })]).status, 'error')
+  assert.equal(reviewArtifactSheetImport([workbookFile(workbook, { text: '' })]).status, 'error', 'even empty text cannot mix with a workbook payload')
+  assert.equal(reviewArtifactSheetImport([workbookFile(workbook, { workbook: undefined })]).status, 'error')
+  assert.equal(reviewArtifactSheetImport([workbookFile(workbook, { documentImport: { format: 'pptx', status: 'ready' } })]).status, 'error')
+  const failed = reviewArtifactSheetImport([workbookFile(workbook, { documentImport: { format: 'xlsx', status: 'file-too-large' }, workbook: undefined })])
+  assert.equal(failed.status, 'error')
+  if (failed.status === 'error') assert.match(failed.message, /up to 8 MB/)
+  assert.equal(reviewArtifactSheetImport([workbookFile(workbook, { workbook: { ...workbook, extra: true } as any })]).status, 'error')
+  assert.equal(reviewArtifactSheetImport([file('budget.csv', 'A,B\n1,2')]).status, 'ready', 'delimited acceptance remains unchanged')
+})
+
+test('XLSX mapping selects one visible worksheet and preserves sparse literal cached values', () => {
+  const workbook = sourceWorkbook([
+    { sourceSheet: 1, name: 'Instructions', cells: [{ row: 1, column: 1, value: 'Do not import me' }] },
+    { sourceSheet: 3, name: 'Revenue', cells: [
+      { row: 3, column: 4, value: 'Metric' },
+      { row: 3, column: 5, value: 'Secondary' },
+      { row: 3, column: 6, value: 'Cached formula' },
+      { row: 4, column: 4, value: 'Revenue' },
+      { row: 4, column: 6, value: '=SUM(A1:A2)', formula: 'cached' },
+    ] },
+  ], { totalSheets: 4, hiddenSheets: 1, unsupportedSheets: 1 })
+  const candidate = reviewArtifactSheetImport([workbookFile(workbook)])
+  assert.equal(candidate.status, 'ready')
+  if (candidate.status !== 'ready') return
+
+  const selected = mapArtifactSheetImport(candidate, true, 3)
+  assert.equal(selected.status, 'ready')
+  if (selected.status === 'ready') {
+    assert.deepEqual(selected.body, {
+      type: 'sheet',
+      columns: ['Metric', 'Secondary', 'Cached formula'],
+      rows: [['Revenue', '', '=SUM(A1:A2)']],
+    })
+    assert.deepEqual(selected.worksheet, { sourceSheet: 3, name: 'Revenue' })
+    assert.match(selected.disclosure, /D3:F4.*cropped/i)
+    assert.match(selected.disclosure, /1 hidden sheet.*1 unsupported/i)
+    assert.match(selected.disclosure, /cached.*may be out of date/i)
+    assert.match(selected.disclosure, /not calculated|not evaluated/i)
+    assert.match(selected.disclosure, /dates.*raw values/i)
+    assert.match(selected.disclosure, /formatting.*merged/i)
+  }
+
+  const defaulted = mapArtifactSheetImport(candidate, false)
+  assert.equal(defaulted.status, 'ready')
+  if (defaulted.status === 'ready') {
+    assert.deepEqual(defaulted.worksheet, { sourceSheet: 1, name: 'Instructions' })
+    assert.deepEqual(defaulted.body.rows, [['Do not import me']])
+  }
+  assert.equal(mapArtifactSheetImport(candidate, true, 2).status, 'error', 'hidden and unsupported sheets are not selectable')
+})
+
+test('XLSX sparse source rectangles are bounded before allocation and still obey sheet authoring limits', () => {
+  const candidate = reviewArtifactSheetImport([workbookFile(sourceWorkbook([{
+    sourceSheet: 1,
+    name: 'Sparse',
+    cells: [
+      { row: 1, column: 1, value: 'Header' },
+      { row: 203, column: 1, value: 'Far away' },
+    ],
+  }]))])
+  assert.equal(candidate.status, 'ready')
+  if (candidate.status === 'ready') {
+    const tooTall = mapArtifactSheetImport(candidate, true)
+    assert.equal(tooTall.status, 'error')
+    if (tooTall.status === 'error') assert.match(tooTall.message, /rectangle|201 source rows|No cells were imported/i)
+  }
+
+  const tooWide = reviewArtifactSheetImport([workbookFile(sourceWorkbook([{
+    sourceSheet: 1, name: 'Wide', cells: [
+      { row: 1, column: 1, value: 'A' },
+      { row: 1, column: 34, value: 'AH' },
+    ],
+  }]))])
+  assert.equal(tooWide.status, 'ready')
+  if (tooWide.status === 'ready') assert.equal(mapArtifactSheetImport(tooWide, false).status, 'error')
+
+  const emptyGapRows = Array.from({ length: 201 }, (_, index) => ({ row: index + 1, column: 1, value: index === 0 ? 'Header' : `row ${index}` }))
+  const exactSourceRect = reviewArtifactSheetImport([workbookFile(sourceWorkbook([{ sourceSheet: 1, name: 'Boundary', cells: emptyGapRows }]))])
+  assert.equal(exactSourceRect.status, 'ready')
+  if (exactSourceRect.status === 'ready') assert.equal(mapArtifactSheetImport(exactSourceRect, true).status, 'ready', '201 source rows allow one header plus 200 data rows')
+
+  const oversizedCell = reviewArtifactSheetImport([workbookFile(sourceWorkbook([{ sourceSheet: 1, name: 'Long', cells: [{ row: 1, column: 1, value: 'x'.repeat(MAX_AUTHORED_CELL_CHARS + 1) }] }]))])
+  assert.equal(oversizedCell.status, 'ready')
+  if (oversizedCell.status === 'ready') {
+    const result = mapArtifactSheetImport(oversizedCell, false)
+    assert.equal(result.status, 'error')
+    if (result.status === 'error') assert.match(result.message, /cell.*2,000|2,000.*character/i)
+  }
+
+  const blankHeader = reviewArtifactSheetImport([workbookFile(sourceWorkbook([{ sourceSheet: 1, name: 'Blank header', cells: [
+    { row: 1, column: 1, value: 'Name' }, { row: 1, column: 2, value: '' },
+    { row: 2, column: 1, value: 'Ada' }, { row: 2, column: 2, value: 'value' },
+  ] }]))])
+  assert.equal(blankHeader.status, 'ready')
+  if (blankHeader.status === 'ready') {
+    const result = mapArtifactSheetImport(blankHeader, true)
+    assert.equal(result.status, 'error')
+    if (result.status === 'error') assert.match(result.message, /Uncheck “First row contains column names”/)
+  }
+})
+
+test('XLSX missing cached formulas fail only for the selected worksheet; empty sheets and forged candidates fail closed', () => {
+  const candidate = reviewArtifactSheetImport([workbookFile(sourceWorkbook([
+    { sourceSheet: 1, name: 'Complete', cells: [{ row: 1, column: 1, value: 'Safe value' }] },
+    { sourceSheet: 2, name: 'Needs Recalc', cells: [
+      { row: 1, column: 1, value: 'Visible value' },
+      { row: 50, column: 50, value: '', formula: 'missing' },
+    ] },
+  ]))])
+  assert.equal(candidate.status, 'ready')
+  if (candidate.status !== 'ready') return
+  const safe = mapArtifactSheetImport(candidate, false, 1)
+  assert.equal(safe.status, 'ready', 'unselected formula metadata does not contaminate the chosen sheet')
+  const refused = mapArtifactSheetImport(candidate, false, 2)
+  assert.equal(refused.status, 'error')
+  if (refused.status === 'error') {
+    assert.match(refused.message, /recalculate.*save.*Excel/i)
+    assert.match(refused.message, /No cells were imported/i)
+  }
+
+  const empty = reviewArtifactSheetImport([workbookFile(sourceWorkbook([{ sourceSheet: 1, name: 'Blank', cells: [] }]))])
+  assert.equal(empty.status, 'ready')
+  if (empty.status === 'ready') {
+    const result = mapArtifactSheetImport(empty, false)
+    assert.equal(result.status, 'error')
+    if (result.status === 'error') assert.match(result.message, /No nonempty cells/i)
+  }
+
+  const forged = { ...candidate, workbook: { ...candidate.workbook, worksheets: [{ sourceSheet: 1, name: 'Forged', cells: [{ row: 2, column: 1, value: 'x' }, { row: 1, column: 1, value: 'y' }] }] } }
+  assert.equal(mapArtifactSheetImport(forged as any, false).status, 'error', 'mapping revalidates the detached review snapshot')
 })
 
 test('parses quoted delimiters, doubled quotes, embedded newlines, BOM, and literal values without loss', () => {

@@ -3,11 +3,22 @@ import {
   xlsxImportFailure, type XlsxImportResult,
 } from '../../contract/xlsxImport.mjs'
 import { OfficeExtractionError, readOfficePackage, officeMainPart, assertOfficeContentType } from './officePackage.ts'
+import { parseWorkbookImportResult, type WorkbookImportResult, type WorkbookSnapshot } from '../../contract/workbookImport.ts'
 import { workbookMainType, worksheetType, sharedStringsType, workbookRelationships, workbookSheets, workbookStrings, worksheetValues, relationshipKind } from './xlsxText.ts'
 
 /** Worker-only package projection. No relationship can grant network/file
  * access, and no formula, macro, chart or embedded object is executed. */
 export async function extractXlsx(bytes: Uint8Array): Promise<XlsxImportResult> {
+  return extractWorkbookProjection(bytes, false)
+}
+
+/** Structured review has its own closed result; attachment text is never parsed
+ * back into cells and never accompanies this transient workbook snapshot. */
+export async function extractWorkbook(bytes: Uint8Array): Promise<WorkbookImportResult> {
+  return parseWorkbookImportResult(await extractWorkbookProjection(bytes, true))
+}
+
+async function extractWorkbookProjection(bytes: Uint8Array, structured: boolean): Promise<XlsxImportResult & WorkbookImportResult> {
   if (bytes.byteLength > MAX_XLSX_FILE_BYTES) return xlsxImportFailure('file-too-large')
   let archive: Awaited<ReturnType<typeof readOfficePackage>> | undefined
   try {
@@ -23,30 +34,46 @@ export async function extractXlsx(bytes: Uint8Array): Promise<XlsxImportResult> 
     const strings = shared[0] ? (assertOfficeContentType(types, shared[0].target, sharedStringsType), workbookStrings(await archive.readPart(shared[0].target))) : []
     const targets = new Set<string>()
     const output: string[] = []
+    const workbook: WorkbookSnapshot = { totalSheets: sheets.length, hiddenSheets: 0, unsupportedSheets: 0, worksheets: [] }
     const encoder = new TextEncoder()
     const budget = { cells: 0 }
     let used = 0
-    for (const sheet of sheets) {
+    for (const [index, sheet] of sheets.entries()) {
       const relation = relationships.get(sheet.relation)
       if (!relation) throw new OfficeExtractionError('invalid')
       if (relation.external) throw new OfficeExtractionError('unsupported')
       if (targets.has(relation.target)) throw new OfficeExtractionError('invalid')
       targets.add(relation.target)
       // Chart/dialog sheets and hidden sheets are intentionally not text input.
-      if (sheet.hidden) continue
+      if (sheet.hidden) { workbook.hiddenSheets++; continue }
       if (!relationshipKind(relation.type, 'worksheet')) {
-        if (relationshipKind(relation.type, 'chartsheet') || relationshipKind(relation.type, 'dialogsheet')) continue
+        if (relationshipKind(relation.type, 'chartsheet') || relationshipKind(relation.type, 'dialogsheet')) { workbook.unsupportedSheets++; continue }
         throw new OfficeExtractionError('unsupported')
       }
       assertOfficeContentType(types, relation.target, worksheetType)
+      const worksheet: WorkbookSnapshot['worksheets'][number] = { sourceSheet: index + 1, name: sheet.name, cells: [] }
+      if (structured) {
+        workbook.worksheets.push(worksheet)
+        used += encoder.encode(sheet.name).byteLength
+        if (used > MAX_XLSX_TEXT_BYTES) throw new OfficeExtractionError('text-limit')
+      }
       let heading = `${output.length ? '\n\n' : ''}Sheet: ${JSON.stringify(sheet.name)}\n`
-      worksheetValues(await archive.readPart(relation.target), strings, budget, (address, value) => {
+      worksheetValues(await archive.readPart(relation.target), strings, budget, (address, value, literal) => {
+        if (structured) {
+          used += encoder.encode(literal.value).byteLength
+          if (used > MAX_XLSX_TEXT_BYTES) throw new OfficeExtractionError('text-limit')
+          worksheet.cells.push(literal)
+          return
+        }
         const line = `${heading}${address}: ${value}\n`
         used += encoder.encode(line).byteLength
         if (used > MAX_XLSX_TEXT_BYTES) throw new OfficeExtractionError('text-limit')
         output.push(line); heading = ''
       })
     }
+    if (structured) return workbook.worksheets.length
+      ? { workbook, documentImport: { format: 'xlsx', status: 'ready' } }
+      : { documentImport: { format: 'xlsx', status: 'no-text' } }
     return output.length ? { text: output.join(''), documentImport: { format: 'xlsx', status: 'ready' } } : { documentImport: { format: 'xlsx', status: 'no-text' } }
   } catch (error) {
     return xlsxImportFailure(error instanceof OfficeExtractionError ? error.status : 'invalid')

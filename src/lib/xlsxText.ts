@@ -1,4 +1,5 @@
 import type { SaxesTagNS } from 'saxes'
+import type { WorkbookSnapshot } from '../../contract/workbookImport.ts'
 import { MAX_XLSX_CELLS, MAX_XLSX_SHARED_STRINGS, MAX_XLSX_SHEETS } from '../../contract/xlsxImport.mjs'
 import { OfficeExtractionError, officeAttribute as attr, packagePartName, resolvePackagePartName, parseOfficeXml as parseXml } from './officePackage.ts'
 
@@ -108,7 +109,7 @@ function columnName(number: number): string {
 interface Cell { column: number; address: string; type: string; value: string; inline: string; formula: boolean; values: number; inlines: number }
 /** Sparse cell-address lines preserve exact coordinates without allocating a
  * million-row rectangle. Hidden sheet/row/column values never enter the output. */
-export function worksheetValues(xml: string, strings: readonly string[], budget: { cells: number }, emit: (address: string, value: string) => void): void {
+export function worksheetValues(xml: string, strings: readonly string[], budget: { cells: number }, emit: (address: string, value: string, literal: WorkbookSnapshot['worksheets'][number]['cells'][number]) => void): void {
   const stack: SaxesTagNS[] = []
   const columns: Array<{ first: number; last: number; hidden: boolean }> = []
   let namespace = ''
@@ -120,11 +121,13 @@ export function worksheetValues(xml: string, strings: readonly string[], budget:
   let defaultHidden = false
   let cell: Cell | undefined
   const path = (...names: string[]) => stack.length === names.length && stack.every((tag, index) => tag.uri === namespace && tag.local === names[index])
-  const rendered = (item: Cell): string | undefined => {
+  const rendered = (item: Cell): { text: string; literal: string; formula?: 'cached' | 'missing' } | undefined => {
     let value: string | undefined
+    let literal: string | undefined
     if (item.type === 'inlineStr') {
       if (item.values || item.formula || item.inlines !== 1) invalid()
-      if (item.inline) value = JSON.stringify(cellString(item.inline))
+      literal = cellString(item.inline)
+      if (item.inline) value = JSON.stringify(literal)
     } else if (item.inlines) invalid()
     else if (item.value !== '' || item.type === 'str' && item.values === 1) {
       switch (item.type) {
@@ -132,17 +135,21 @@ export function worksheetValues(xml: string, strings: readonly string[], budget:
           if (!/^(0|[1-9]\d*)$/.test(item.value)) invalid()
           const index = Number(item.value)
           if (!Number.isSafeInteger(index) || index >= strings.length) invalid()
-          if (strings[index]) value = JSON.stringify(strings[index])
+          literal = strings[index]!
+          if (literal) value = JSON.stringify(literal)
           break
         }
-        case 'b': if (!['0', '1'].includes(item.value)) invalid(); value = item.value === '1' ? 'TRUE' : 'FALSE'; break
-        case 'n': if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(item.value) || !Number.isFinite(Number(item.value))) invalid(); value = item.value; break
-        case 'str': value = JSON.stringify(cellString(item.value)); break
-        case 'd': value = `${JSON.stringify(item.value)} [stored date]`; break
-        case 'e': value = `${JSON.stringify(item.value)} [cell error]`; break
+        case 'b': if (!['0', '1'].includes(item.value)) invalid(); literal = value = item.value === '1' ? 'TRUE' : 'FALSE'; break
+        case 'n': if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(item.value) || !Number.isFinite(Number(item.value))) invalid(); literal = value = item.value; break
+        case 'str': literal = cellString(item.value); value = JSON.stringify(literal); break
+        case 'd': literal = item.value; value = `${JSON.stringify(literal)} [stored date]`; break
+        case 'e': literal = item.value; value = `${JSON.stringify(literal)} [cell error]`; break
       }
     }
-    return item.formula ? value === undefined ? '[formula value not saved]' : `${value} [cached formula value]` : value
+    if (item.formula) return literal === undefined
+      ? { text: '[formula value not saved]', literal: '', formula: 'missing' }
+      : { text: `${value ?? JSON.stringify(literal)} [cached formula value]`, literal, formula: 'cached' }
+    return value === undefined ? undefined : { text: value, literal: literal! }
   }
   parseXml(xml, {
     open(tag, depth) {
@@ -191,7 +198,9 @@ export function worksheetValues(xml: string, strings: readonly string[], budget:
     close() {
       if (cell && path('worksheet', 'sheetData', 'row', 'c')) {
         const value = rendered(cell)
-        if (value !== undefined && !rowHidden && !columns.some((range) => range.hidden && cell!.column >= range.first && cell!.column <= range.last)) emit(cell.address, value)
+        if (value !== undefined && !rowHidden && !columns.some((range) => range.hidden && cell!.column >= range.first && cell!.column <= range.last)) {
+          emit(cell.address, value.text, { row, column: cell.column, value: value.literal, ...(value.formula ? { formula: value.formula } : {}) })
+        }
         cell = undefined
       }
       stack.pop()

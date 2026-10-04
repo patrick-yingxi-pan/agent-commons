@@ -70,7 +70,7 @@ gate. An isolated ASAR mutation that acknowledged restore without writing it
 failed the exact post-restart workspace assertion before acceptance.
 
 The packaged attachment phase also imports text, PDF and DOCX into saved
-Documents, PPTX into saved Slides, and CSV/TSV into saved Sheets through the
+Documents, PPTX into saved Slides, and CSV/TSV or selected XLSX worksheets into saved Sheets through the
 built New artifact form. [`artifactSheetImportSmoke.mjs`](artifactSheetImportSmoke.mjs)
 keeps first-row/headerless mapping and exact saved identity/body checks separate
 from the attachment driver; it is excluded from the shipped package. Only the native dialog result

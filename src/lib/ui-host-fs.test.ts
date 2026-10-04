@@ -111,7 +111,7 @@ for (const mode of ['document', 'slides', 'sheet'] as const) test(`browser ${mod
 test('sheet intake preserves whole CSV/TSV text and rejects unsupported or multiple sources before reading', async () => {
   let reads = 0
   const unreadable = (name: string) => ({ name, size: 10, slice() { reads++; throw new Error('unexpected read') } }) as unknown as File
-  for (const files of [[unreadable('book.xlsx')], [unreadable('image.png')], [unreadable('one.csv'), unreadable('two.tsv')]]) {
+  for (const files of [[unreadable('book.xls')], [unreadable('image.png')], [unreadable('one.csv'), unreadable('two.tsv')]]) {
     const picked = await readDroppedFiles(dropped(files), 'sheet')
     assert.equal(picked.length, files.length)
     assert.ok(picked.every((file) => file.text === undefined && file.documentImport === undefined))
@@ -127,13 +127,18 @@ test('sheet intake preserves whole CSV/TSV text and rejects unsupported or multi
   assert.equal(oversized.text, undefined)
   const [invalid] = await readDroppedFiles(dropped([new File([Uint8Array.of(0xc3, 0x28)], 'invalid.csv')]), 'sheet')
   assert.equal(invalid.text, undefined)
+  const [oversizedXlsx] = await readDroppedFiles(dropped([{
+    name: 'large.xlsx', size: MAX_XLSX_FILE_BYTES + 1,
+    slice() { throw new Error('oversized workbook must not be read') },
+  } as unknown as File]), 'sheet')
+  assert.deepEqual(oversizedXlsx.documentImport, { format: 'xlsx', status: 'file-too-large' })
 })
 
-test('native sheet intake narrows existing one-shot authority before any Office extraction', async () => {
+test('native sheet intake imports bounded XLSX bytes and refuses supplied text or workbook snapshots', async () => {
   const calls: unknown[] = []
   let byteReads = 0
-  let files = [{ name: 'wrong.xlsx', kind: 'file' as const, sizeBytes: 1,
-    get xlsxBytes() { byteReads++; throw new Error('must not extract') },
+  let files = [{ name: 'legacy.xls', kind: 'file' as const, sizeBytes: 1,
+    get xlsxBytes() { byteReads++; throw new Error('unsupported format must not extract') },
   }]
   const scope: DesktopBridgeScope = { agentCommonsDesktop: { context: {
     pickFiles: async (accept) => { calls.push(accept); return { status: 'selected', files } },
@@ -142,14 +147,23 @@ test('native sheet intake narrows existing one-shot authority before any Office 
   const [unsupported] = await pickUiHostFiles('sheet', scope)
   assert.equal(byteReads, 0)
   assert.equal(unsupported.text, undefined)
-  files = [{ name: 'source.tsv', kind: 'file', sizeBytes: 7, text: 'A\tB\n1\t2' }] as unknown as typeof files
-  const [selected] = await pickUiHostFiles('sheet', scope)
-  assert.equal(selected.text, 'A\tB\n1\t2')
-  assert.deepEqual(Object.keys(selected).sort(), ['id', 'kind', 'name', 'text'])
+  files = [{ name: 'source.xlsx', kind: 'file', sizeBytes: 4, text: 'forged', workbook: { worksheets: ['forged'] } }] as unknown as typeof files
+  const [missing] = await pickUiHostFiles('sheet', scope)
+  assert.deepEqual(missing.documentImport, { format: 'xlsx', status: 'unavailable' })
+  assert.equal(missing.text, undefined)
+  assert.equal(missing.workbook, undefined)
+  files = [{ name: 'source.tsv', kind: 'file', sizeBytes: 7, text: 'A\tB\n1\t2', workbook: { worksheets: ['forged'] } }] as unknown as typeof files
+  const [textOnly] = await pickUiHostFiles('sheet', scope)
+  assert.equal(textOnly.text, 'A\tB\n1\t2')
+  assert.equal(textOnly.workbook, undefined)
+  files = [{ name: 'large.xlsx', kind: 'file', sizeBytes: MAX_XLSX_FILE_BYTES + 1, xlsxFailure: 'file-too-large' }]
+  const [oversized] = await pickUiHostFiles('sheet', scope)
+  assert.deepEqual(oversized.documentImport, { format: 'xlsx', status: 'file-too-large' })
+  assert.equal(byteReads, 0)
   const aborted = new AbortController()
   aborted.abort()
   assert.deepEqual(await pickUiHostFiles('sheet', scope, aborted.signal), [])
-  assert.deepEqual(calls, ['any', 'any'])
+  assert.deepEqual(calls, ['any', 'any', 'any', 'any'])
 })
 function installImageGlobals() {
   const previousBitmap = globalThis.createImageBitmap

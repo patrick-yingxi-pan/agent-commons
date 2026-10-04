@@ -51,7 +51,10 @@ boundaries into editable title/bullet outlines. Neither borrows seeded content,
 preserves rich Office fidelity, nor saves before explicit adoption and Create.
 ADAPT-37 maps actual CSV/TSV records into editable literal Sheets with an explicit
 first-row header choice; it does not infer spreadsheet types, calculate formulas
-or determine XLSX workbook identity. Saved bodies and XLSX exports use the same
+or determine XLSX workbook identity. ADAPT-38 adds explicit visible-worksheet
+selection from actual bounded XLSX cells, importing only saved literal values
+after review. Missing formula caches refuse adoption; rich formatting, merges,
+media and calculation remain unbuilt. Saved bodies and XLSX exports use the same
 canonical authored-artifact boundary, never fixture content.
 
 Saved authored Documents and draft emails also export through the authenticated
