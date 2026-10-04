@@ -75,6 +75,8 @@ test('repeated runs refresh one artifact, advance body revision, and reject stal
   const firstBody = contentFor(task)[first.id] as { revision: number }
   const edited = store.updateArtifactBlock(first.id, 0, 'A reviewed edit.', firstBody.revision)
   assert.ok(edited, 'the ordinary artifact editor can create a newer body revision')
+  assert.equal(store.listArtifacts(task.tenantId).find((row) => row.id === first.id)?.excerpt, 'A reviewed edit.',
+    'a routine-derived preview follows an accepted manual body edit too')
 
   const secondRun = complete(task, 'Second digest, replacing the prior run.')
   const rows = authoredArtifacts(name).filter((row) => row.sourceScheduleId === task.id)

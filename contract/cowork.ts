@@ -322,6 +322,9 @@ export interface ArtifactItem {
   projectId: string
   /** A one-line synopsis shown in the index and on the artifact page. */
   excerpt?: string
+  /** Server-stamped provenance: body previews follow current saved content.
+   * Absence preserves an explicit or legacy synopsis without guessing intent. */
+  excerptSource?: 'body'
   /** When it was last edited (epoch ms). The UI renders a live "time ago" label
    *  from it (src/lib/relativeTime) so the stamp advances instead of freezing. */
   editedAt: number

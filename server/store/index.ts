@@ -22,6 +22,7 @@ import { documentDocx, hasWordText } from '../artifactDocx.ts'
 import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
 import { authoredArtifact, parseStructuredArtifactBody, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
+import { artifactBodyExcerpt } from '../../contract/artifactExcerpt.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { isArtifactCreationId, type CreateArtifactRequest, type CreateArtifactResponse } from '../../contract/artifactCreation.ts'
 import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
@@ -1090,8 +1091,11 @@ const artifactBodies = new Map<string, ArtifactContent>()
 // Display metadata is independent of authored bytes and immutable save origin.
 // This also lets demo rows be renamed without mutating the fixture library.
 const artifactMetadata = new Map<string, ArtifactMetadata>()
-const artifactWithMetadata = (artifact: ArtifactItem): ArtifactItem =>
-  projectArtifactMetadata(artifact, artifactMetadata.get(artifact.id))
+const artifactWithMetadata = (artifact: ArtifactItem): ArtifactItem => {
+  const projected = projectArtifactMetadata(artifact, artifactMetadata.get(artifact.id))
+  const body = artifact.excerptSource === 'body' ? artifactBodyOf(artifact.id) : undefined
+  return body ? { ...projected, excerpt: artifactBodyExcerpt(body) ?? projected.excerpt } : projected
+}
 
 /** Commit one accepted body replacement together with the artifact row's shared
  * edit timestamp. The metadata overlay already owns that timestamp durably;
@@ -3116,14 +3120,22 @@ function rehydrate(s: PersistedState): boolean {
   // code-owned demo seeds intentionally remain unstamped because `seedVisibleTo`
   // exposes that flagship dataset to both faces of the default seat.
   const seedArtifactIds = new Set(baseArtifacts().map((artifact) => artifact.id))
+  let recoveredArtifactExcerpts = false
   graph = {
     ...emptyGraph(),
     ...s.graph,
-    extraArtifacts: (s.graph.extraArtifacts ?? []).map((artifact) =>
-      artifact.tenantId === undefined && !seedArtifactIds.has(artifact.id)
-        ? { ...artifact, tenantId: defaultTenantId() }
-        : artifact,
-    ),
+    extraArtifacts: (s.graph.extraArtifacts ?? []).map((artifact) => {
+      // The direct-create namespace has never accepted caller synopses. Only
+      // that provable legacy case can recover intent; old consent saves cannot.
+      const derived = artifact.excerptSource === undefined && isArtifactCreationId(artifact.id)
+      recoveredArtifactExcerpts ||= derived
+      return {
+        ...artifact,
+        ...(artifact.tenantId === undefined && !seedArtifactIds.has(artifact.id)
+          ? { tenantId: defaultTenantId() } : {}),
+        ...(derived ? { excerptSource: 'body' as const } : {}),
+      }
+    }),
   }
   sessionContextBindings.clear()
   for (const [k, v] of s.bindings) sessionContextBindings.set(k, v)
@@ -3402,7 +3414,7 @@ function rehydrate(s: PersistedState): boolean {
   materializeRunSessions()
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -3466,6 +3478,7 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, spec: Sche
     ...artifactFromDraft(op.artifact, id, source, existing?.projectId ?? task.projectId ?? '',
       existing ? Math.max(at, existing.editedAt) : at, sessionId, ownerTenantId),
     sourceScheduleId: task.id,
+    excerptSource: 'body',
     ...(existing ? { saveOrigin: existing.saveOrigin ?? { name: existing.name, source: existing.source } } : {}),
   }
   if (existing) {
@@ -6631,6 +6644,7 @@ export const store = {
       undefined,
       tenantId,
     )
+    artifact.excerptSource = 'body'
     graph = {
       ...graph,
       revision: (graph.revision ?? 0) + 1,
@@ -11240,6 +11254,7 @@ export const store = {
     // the body under the minted id before the single persist below. Historical
     // metadata-only saves remain replayable; new producers always supply body.
     let authored: AuthoredArtifact | undefined
+    let bodyDerivedExcerpt = false
     let existingArtifactId: string | undefined
     if (op.kind === 'save-artifact') {
       if (!op.artifact || typeof op.artifact.name !== 'string') {
@@ -11251,6 +11266,7 @@ export const store = {
       if (op.artifact.excerpt !== undefined && typeof op.artifact.excerpt !== 'string') {
         throw new ValidationError('Artifact excerpt must be a string when supplied.')
       }
+      bodyDerivedExcerpt = !op.artifact.excerpt?.trim()
       // Replay identity is tenant-scoped. The incoming owner stamp is never
       // trusted: the authenticated caller (or fixed desktop tenant) supplies it
       // here before the tenant-agnostic shared reducer sees the operation.
@@ -11376,6 +11392,7 @@ export const store = {
           const created = graph.extraArtifacts.find((candidate) => artifactMatchesSave(candidate, saveOp))
           if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
           if (created && authored && !existingArtifactId) {
+            if (bodyDerivedExcerpt) created.excerptSource = 'body'
             artifactBodies.set(created.id, authored.body)
             emit({ type: 'artifact.changed', artifactId: created.id })
           }

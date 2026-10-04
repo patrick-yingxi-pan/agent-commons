@@ -1,4 +1,5 @@
-import { authoredDocument, MAX_ARTIFACT_EXCERPT_CHARS, type ArtifactContent } from './content.ts'
+import { authoredDocument, type ArtifactContent } from './content.ts'
+import { artifactBodyExcerpt } from './artifactExcerpt.ts'
 import { normalizeArtifactName } from './artifactMetadata.ts'
 
 /** Authored values, not spreadsheet execution or an Office file format. Body
@@ -91,13 +92,10 @@ export function authoredArtifact(name: string, kind: unknown, raw: unknown): Aut
   if (!normalizeArtifactName(name)) return undefined
   if (kind === 'doc') {
     const document = authoredDocument(name, raw)
-    return document && { body: document.body, draftBody: document.text, excerpt: document.excerpt }
+    return document && { body: document.body, draftBody: document.text, excerpt: artifactBodyExcerpt(document.body)! }
   }
   if (kind !== 'sheet' && kind !== 'slide') return undefined
   const structured = parseStructuredArtifactBody(raw)
   if (!structured || (kind === 'sheet' ? structured.type !== 'sheet' : structured.type !== 'slides')) return undefined
-  const excerpt = structured.type === 'sheet'
-    ? `${structured.rows.length} rows · ${structured.columns.join(' · ')}`
-    : `${structured.slides.length} slides · ${structured.slides[0].title}`
-  return { body: { ...structured, revision: 0 }, draftBody: structured, excerpt: excerpt.slice(0, MAX_ARTIFACT_EXCERPT_CHARS) }
+  return { body: { ...structured, revision: 0 }, draftBody: structured, excerpt: artifactBodyExcerpt(structured)! }
 }

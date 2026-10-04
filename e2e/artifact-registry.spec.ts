@@ -11,7 +11,7 @@ test('authored document stays unique and a live grant opens and closes its canon
   const foreign = await newUser(browser, { 'x-user-id': 'user-maya', 'x-tenant-id': 'tenant-growthworks' })
   for (const user of [owner, reader, foreign]) user.page.setDefaultTimeout(ms(15_000))
   const name = `registry-${Date.now().toString(36)}.md`
-  const body = 'An authored document shared from the canonical artifact registry.'
+  let body = 'An authored document shared from the canonical artifact registry.'
   try {
     await owner.page.goto('/artifacts')
     await owner.page.getByRole('button', { name: 'New artifact' }).click()
@@ -38,6 +38,20 @@ test('authored document stays unique and a live grant opens and closes its canon
     const grant = await granted.json() as Grant
     await expect(reader.page.locator(artifactPage).locator('p', { hasText: body })).toBeVisible()
 
+    // A reader already on the index must receive the accepted body edit's new
+    // preview through ordinary invalidation, without a reload or another save.
+    await reader.page.goto('/artifacts')
+    const livePreview = reader.page.locator('[data-artifact-preview-row]')
+      .filter({ has: reader.page.getByRole('button', { name, exact: true }) })
+      .locator('[data-artifact-preview-copy]')
+    await expect(livePreview).toHaveText(body)
+    await owner.page.locator(artifactPage).getByRole('button', { name: 'Edit block 1' }).click()
+    body = 'The edited opening now appears in both owner and shared-reader previews.'
+    await owner.page.getByRole('textbox', { name: 'Rewrite block 1' }).fill(body)
+    await owner.page.locator(artifactPage).getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(owner.page.getByRole('textbox', { name: 'Rewrite block 1' })).toHaveCount(0)
+    await expect(livePreview).toHaveText(body)
+
     for (const viewport of [
       { width: 320, height: 700 }, { width: 375, height: 812 },
       { width: 768, height: 1024 }, { width: 844, height: 390 },
@@ -48,6 +62,7 @@ test('authored document stays unique and a live grant opens and closes its canon
         await user.page.goto('/artifacts')
         const synopsis = user.page.locator('[data-artifact-preview-row]').filter({ has: user.page.getByRole('button', { name, exact: true }) })
         await expect(synopsis).toHaveCount(1)
+        await expect(synopsis.locator('[data-artifact-preview-copy]')).toHaveText(body)
         if (viewport.width === 1280) {
           const reopen = user.page.getByRole('button', { name: 'Expand sidebar', exact: true })
           if (await reopen.count()) await reopen.click()

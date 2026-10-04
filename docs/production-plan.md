@@ -20,7 +20,26 @@ milestones or address a demonstrated defect.
 
 ## Progress and next milestones
 
-The current checkpoint closes the missing packaged backup-restore acceptance
+The current checkpoint fixes a defect observed while reviewing native recovery:
+editing a document changed its body and Edited time, but left its index preview
+showing the creation text. Automatic previews now follow the exact saved body
+for Documents, Sheets and Slides, including granted readers. Explicit summaries
+remain independent; legacy direct-create identities upgrade because their
+creation contract never accepted a synopsis, while ambiguous older consent
+saves retain theirs. The preview oracle is shared with authoring and does not
+change edit/rename ordering, grants or save identity.
+
+The actual native recovery walk created a disposable profile, saved a baseline
+document and backup, added distinguishable later work, and proved picker
+cancellation preserved both documents, the process and the backup list. Actual
+restore/relaunch remains awaiting owner approval; no normal workspace was used
+or restored. The test app exited normally and its generated profile is retained.
+The review also found that startup does not explicitly tighten an already
+permissive user-data directory before SQLite opens; effective exposure depends
+on parent permissions. Enforcing the desktop profile boundary is a follow-up,
+not yet a completed security claim.
+
+The preceding checkpoint `1a2ce9e2` closes the missing packaged backup-restore acceptance
 path. Rendered controls reach the real trusted IPC, pre-restore safety copy,
 backend shutdown, ASAR worker and SQLite replacement. Exact before/after
 Documents, Sheets, Slides and conversations distinguish restoration from a

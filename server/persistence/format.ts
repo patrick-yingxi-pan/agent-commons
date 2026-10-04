@@ -710,6 +710,8 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     if (!Array.isArray(artifacts)) return false
     return artifacts.every((artifact) => {
       if (!record(artifact)) return false
+      const excerptSource = (artifact as { excerptSource?: unknown }).excerptSource
+      if (excerptSource !== undefined && excerptSource !== 'body') return false
       const origin = (artifact as { saveOrigin?: unknown }).saveOrigin
       if (origin === undefined) return true
       if (!record(origin)) return false
