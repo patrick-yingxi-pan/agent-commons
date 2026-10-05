@@ -104,6 +104,33 @@ test('a completed send carries turnId + monotonic delta seq, and clears activeTu
   assert.equal(msgs.at(-1)?.role, 'assistant', 'the assistant turn persisted')
 })
 
+test('retrying an orphaned user turn announces the new live handle before reply frames', async () => {
+  const tenant = 'tenant-turn-retry-observation'
+  const session = store.createSession('Observe a restarted reply', tenant)
+  store.appendMessage(session.id, { id: 'orphan-observation-user', role: 'user', content: 'hello retry observer' })
+  const announced: Array<{ turnId: string; sequence: number; userCount: number }> = []
+  const unsubscribe = store.subscribe((event) => {
+    if (event.type !== 'session.updated' || event.session.id !== session.id) return
+    const current = store.getSession(session.id)
+    const turn = turns.bySession(session.id)
+    if (current?.messages.at(-1)?.role === 'user' && turn) {
+      announced.push({ turnId: turn.id, sequence: turn.seq, userCount: current.messages.length })
+    }
+  })
+  try {
+    const response = await callRaw('POST', `/sessions/${session.id}/messages`, {
+      text: 'hello retry observer', retryLastUser: true,
+    }, { 'x-tenant-id': tenant, 'idempotency-key': 'observer-restarted-turn' })
+    assert.equal(response.status, 200)
+    const start = frames(response.body).find((event) => event.type === 'message.start')
+    assert.ok(start?.turnId, 'the retry actually started generation')
+    assert.deepEqual(announced, [{ turnId: start.turnId, sequence: 0, userCount: 1 }],
+      'open readers get the start hint without a second persisted user row')
+  } finally {
+    unsubscribe()
+  }
+})
+
 test('a viewer disconnect mid-turn detaches the view — the turn completes and persists (I1)', async () => {
   const s = store.createSession('detach not abort')
   const outcomesBefore = store.generationOutcomes()

@@ -195,6 +195,10 @@ export function createConversationStore(
   const epochs = new Map<string, number>()
   const contextGenerations = new Map<string, number>()
   const paneReadSequences = new Map<string, number>()
+  // One recent handle per session, not an ever-growing turn history. Ambient
+  // pushes may discover a new stream, but never automatically retry one that
+  // already completed or failed in this account/session epoch.
+  const observedTurns = new Map<string, string>()
   /** Per-session send chains — a rapid second send queues behind the first
    *  (the server's one-live-turn-per-session slot), never behind ANOTHER
    *  session's turn. */
@@ -295,6 +299,7 @@ export function createConversationStore(
 
   const bump = (id: string): void => {
     epochs.set(id, epoch(id) + 1)
+    observedTurns.delete(id)
     retireStop(id)
   }
 
@@ -475,6 +480,7 @@ export function createConversationStore(
     return {
       onStart: (_mid, message, turnId) => {
         if (stale()) return
+        if (turnId) observedTurns.set(id, turnId)
         if (turnId && get(id).stopRequest?.turnId !== turnId) {
           retireStop(id)
           patch(id, { stopRequest: null })
@@ -683,11 +689,14 @@ export function createConversationStore(
   const reattach = (id: string, turnId: string): Promise<void> => {
     const since = epoch(id)
     const capturedLogical = logicalForLastUser(id)
+    observedTurns.set(id, turnId)
     if (get(id).liveTurn?.turnId !== turnId) retireStop(id)
     patch(id, {
       typing: true, busy: true, liveTurn: { sessionId: id, turnId },
       stopRequest: get(id).stopRequest?.turnId === turnId ? get(id).stopRequest : null,
     })
+    // Subscribers can dispose the account synchronously during publication.
+    if (epoch(id) !== since) return Promise.resolve()
     const staleLiveTurn = (error: unknown): boolean => transport.isStaleReattachError?.(error) === true
     const logicalOnFailure = (): RetryableSend | undefined =>
       capturedLogical ? { ...capturedLogical, turnId } : undefined
@@ -746,6 +755,18 @@ export function createConversationStore(
         ordinaryReattachFailure(error)
       },
     )
+  }
+
+  /** A fresh authoritative pane read may discover a turn started elsewhere.
+   * Claim it synchronously in this shared store so duplicate panes cannot
+   * replay deltas twice. Local sends and deliberate recovery retain priority. */
+  const observeTurn = (id: string, turnId: string, receipt: PaneReadReceipt): Promise<void> => {
+    if (!isPaneReadLatest(id, receipt)) return Promise.resolve()
+    const state = get(id)
+    if (state.busy || state.typing || state.liveTurn || state.retryableSend || observedTurns.get(id) === turnId) {
+      return Promise.resolve()
+    }
+    return reattach(id, turnId)
   }
 
   /** Acknowledge one bounded Stop intent without inventing reply completion.
@@ -816,6 +837,7 @@ export function createConversationStore(
     retryTurn,
     nextUserMessageId,
     reattach,
+    observeTurn,
     stop,
   }
 }

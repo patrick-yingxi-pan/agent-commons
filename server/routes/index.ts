@@ -5,6 +5,7 @@ import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
 import { messageHistoryText } from '../toolActivityHistory.ts'
 import { exportArtifact } from './artifactExport.ts'
+import { serveSessionTurn } from './sessionTurnStream.ts'
 import { updateArtifactContent } from './artifactContent.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
@@ -175,7 +176,7 @@ import { apiCatalog, apiDispatch, bindApiSurface } from '../apiSurface.ts'
 import { renderConnectorSetup } from '../connectorSetup.ts'
 import { platformCard, agentCard, taskFromOpenSubGoal, rejectedAgentTask, rpcResult, rpcError } from '../a2a.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
-import { turns, type TurnFrame } from '../turns.ts'
+import { turns } from '../turns.ts'
 import { eventlog } from '../eventlog.ts'
 import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.ts'
 import { GuardianError } from '../guardian.ts'
@@ -4480,24 +4481,7 @@ export function buildRouter(): Router {
     if (idemKey) {
       const liveTurn = turns.byIdempotencyKey(params.id, idemKey)
       if (liveTurn) {
-        const channel = openSse(res)
-        const sendFrame = (frame: TurnFrame) => {
-          channel.send(frame.event.type === 'message.delta' ? { ...frame.event, seq: frame.seq } : frame.event)
-        }
-        const att = turns.attach(liveTurn.id, 0, (frame) => {
-          if (frame) sendFrame(frame)
-          else channel.close()
-        })
-        if (att) {
-          for (const frame of att.replay) sendFrame(frame)
-          req.on('close', () => {
-            att.unsubscribe()
-            channel.close()
-          })
-          return
-        }
-        channel.close() // finished between lookup and attach — the client refetches
-        return
+        return serveSessionTurn(req, res, params.id, liveTurn.id, tenantId, 0)
       }
       const doneMessageId = turns.completedByKey(params.id, idemKey)
       if (doneMessageId) {
@@ -4636,6 +4620,11 @@ export function buildRouter(): Router {
             role: 'user',
             content: text ?? '',
           })
+        } else if (persist && known) {
+          // Retry reuses its persisted user row, so appendMessage emits no
+          // start hint. Other open readers still need to discover this new
+          // live handle before the first reply frame, without a fake write.
+          store.emit({ type: 'session.updated', session: known })
         }
         return openSse(res)
       } catch (err) {
@@ -4911,28 +4900,8 @@ export function buildRouter(): Router {
   // same `message.end` the original stream carries. 404 once the turn is gone —
   // the persisted message is the authority and the client refetches the session.
   r.uiFormGet('/sessions/:id/turns/:turnId/stream', 'live turn SSE replay — synchronization transport, not a workspace capability', ({ req, res, params, url }) => {
-    if (denyForeignSession(req, res, params.id)) return
-    const turn = turns.get(params.turnId)
-    if (!turn || turn.sessionId !== params.id) {
-      return sendError(res, 'not_found', `No live turn '${params.turnId}' on session '${params.id}'`)
-    }
     const after = Math.max(0, Number(url.searchParams.get('after')) || 0)
-    const channel = openSse(res)
-    // Deltas are re-stamped with their frame seq on the way out, so replayed and
-    // live frames carry the same dedupe key the original stream used.
-    const sendFrame = (frame: TurnFrame) => {
-      channel.send(frame.event.type === 'message.delta' ? { ...frame.event, seq: frame.seq } : frame.event)
-    }
-    const att = turns.attach(params.turnId, after, (frame) => {
-      if (frame) sendFrame(frame)
-      else channel.close() // the turn finished — `message.end` was the last frame
-    })
-    if (!att) return channel.close() // finished between the check and the attach
-    for (const frame of att.replay) sendFrame(frame)
-    req.on('close', () => {
-      att.unsubscribe()
-      channel.close()
-    })
+    serveSessionTurn(req, res, params.id, params.turnId, store.identity(req.headers).tenant.id, after)
   })
 
   // Confirm / decline a proposed connector ACTION (P6 §2.1, PD43). Legacy

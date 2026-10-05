@@ -31,7 +31,7 @@ test('every dialog scrim sources the shared module', () => {
   const consumers = [
     'src/components/SearchPanel.tsx',
     'src/components/SectionView.tsx',
-    'src/components/AddContextButton.tsx',
+    'src/components/ContextBrowseDialog.tsx',
   ]
   for (const rel of consumers) {
     const src = read(join(ROOT, ...rel.split('/')))

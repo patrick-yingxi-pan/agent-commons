@@ -5,6 +5,25 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
 
+test('context browsing loads only after explicit Browse with local cancel and warned reload', () => {
+  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextBrowseDialog.tsx')))
+  assert.match(picker, /DeferredContextBrowseDialog as BrowseDialog/)
+  assert.doesNotMatch(picker, /from ['"]\.\/ContextBrowseDialog/)
+  assert.equal((picker.match(/browsing && \(\s*<BrowseDialog/g) ?? []).length, 2,
+    'both repository and connector/MCP browsing stay behind explicit intent')
+  assert.equal((picker.match(/return \(\s*<>\s*\{browsing && \(\s*<BrowseDialog/g) ?? []).length, 2,
+    'optional browsing recovery precedes both potentially tall recent lists')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ContextBrowseDialog\.tsx'\)/)
+  assert.match(deferred, /ComponentProps<typeof ContextBrowseDialog>/)
+  assert.match(deferred, /data-context-browse-loading[\s\S]*tone="status"/)
+  assert.match(deferred, /getDerivedStateFromError[\s\S]*data-context-browse-load-error[\s\S]*tone="alert"/)
+  assert.match(deferred, /Copy any unsent text before reloading/)
+  assert.match(deferred, /label: 'Cancel browsing', onClick: this\.props\.onCancel/)
+  assert.match(deferred, /label: 'Reload app', onClick: \(\) => window\.location\.reload\(\)/)
+  assert.doesNotMatch(deferred, /onConfirm\(/, 'loading and failure cannot attach a candidate')
+})
+
 test('MainSplit lazy-loads SectionPane behind accessible in-pane loading and failure states', () => {
   const source = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
   assert.doesNotMatch(source, /import\s+\{\s*SectionPane\s*\}\s+from/, 'SectionPane must stay out of the boot graph')

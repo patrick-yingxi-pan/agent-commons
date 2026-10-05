@@ -135,13 +135,13 @@ test('the focus flash is one cue: tint + ring, tokens only', () => {
  *  string only; the density sprawl is recorded in docs/design/social-layer.md's
  *  backlog rather than silently asserted away. */
 test('no component re-hardcodes either cue', () => {
-  // Out of scope, deliberately: AddContextButton's picker paints the SELECTED
+  // Out of scope, deliberately: ContextBrowseDialog paints the SELECTED
   // row with the same tint+ring. Same look, different role — persistent
   // selection state rather than "a door brought you here" — and the rule is
   // same-role-same-look, not same-look-same-name. Conflating them would make
   // one component import a constant called FOCUS_FLASH for something no focus
   // target ever consumes.
-  const owners = ['lib/formInput.ts', 'lib/focusContext.ts', 'components/AddContextButton.tsx']
+  const owners = ['lib/formInput.ts', 'lib/focusContext.ts', 'components/ContextBrowseDialog.tsx']
   for (const file of filesUnder('src')) {
     const rel = file.replace(/\\/g, '/')
     if (owners.some((o) => rel.endsWith(o))) continue

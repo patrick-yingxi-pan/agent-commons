@@ -240,12 +240,12 @@ test('session pushes reach the panes through the one narrow seam (one-door holds
   const push = controller.slice(controller.indexOf('onSessionPush(('))
   assert.match(
     push.slice(0, 500),
-    /reconcileNow\(sessionId, bootstrap\.pending \? reattachBootstrap : undefined\)/,
-    'a superseding push read carries the still-pending mount reattach obligation only during bootstrap',
+    /reconcileNow\(sessionId, observeActiveTurn\)/,
+    'every push can discover a new remote turn through the same authoritative read',
   )
-  assert.match(controller, /pending: true,[\s\S]*?active: true/, 'mount creates one active bootstrap lease')
-  assert.match(controller, /bootstrap\.pending = false[\s\S]*?!bootstrap\.active[\s\S]*?conversations\.epoch\(sessionId\) !== bootstrap\.epoch/, 'the one-shot callback is fenced by cleanup and account/session epoch')
-  assert.match(controller, /bootstrap\.active = false\s+bootstrap\.pending = false\s+unsubscribe\(\)/, 'effect cleanup retires the lease and push listener')
+  assert.match(controller, /!observation\.active[\s\S]*?conversations\.epoch\(sessionId\) !== observation\.epoch/, 'observation is fenced by cleanup and account/session epoch')
+  assert.match(controller, /observation\.active = false\s+unsubscribe\(\)/, 'effect cleanup retires the lease and push listener')
+  assert.match(controller, /conversations\.observeTurn\(sessionId, s\.activeTurnId, receipt\)/, 'the shared keyed store owns stream dedupe')
   assert.match(controller, /if \(!conversations\.isPaneReadCurrent\(sessionId, receipt\)\) return[\s\S]*const now = conversations\.get/, 'read authority is checked before the streaming branch')
   assert.match(controller, /if \(!conversations\.isPaneReadLatest\(sessionId, receipt\)\) return\s+const landed/, 'publication cannot let an older read change panel preference after a newer read starts')
   assert.match(controller, /reconcilePanelPreference\(sessionId, s, landed\)\s+if \(!conversations\.isPaneReadLatest\(sessionId, receipt\)\) return\s+const held/, 'preference publication is fenced before resurfacing an escalation')

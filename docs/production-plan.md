@@ -44,7 +44,48 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint implements the tabbed-workbook portion of approved
+The current checkpoint closes the already-open conversation live-observation
+gap recorded below. Every authoritative pane read can discover a remotely
+started reply, including a restarted orphaned turn. One account-scoped stream
+claim per conversation prevents duplicate panes, repeated pushes and late active
+snapshots from replaying completed/failed turns automatically. Unsent drafts and
+local sends keep their identity; idle-boundary reconciliation catches a next
+turn whose start arrived while the prior stream was settling. Shared readers
+remain read-only. Reply observation rechecks current access throughout replay
+and live delivery and closes on revocation without cancelling owner generation;
+an unpersisted handle is not a readable conversation capability.
+Controller and route regressions are failure-first; a deliberate dedupe removal
+also fails the completed-turn lock. Browser mutations separately disabled ambient
+observation and idle-boundary recovery; both failed on the missing live reply.
+Restored focused tests pass, including successive owner/reader replies, the
+held-prior-stream race, Stop and stale-handle recovery. Responsive captures wait
+for the actual rail geometry to settle and inspect the latest reply at all five
+viewport sizes. The final local verifier and separate UI sweep remain required
+before landing.
+The first full gate exposed two old test assumptions: consent resurfacing counted
+only mount/push reads, and the manual-Retry walk disabled ambient events but still
+allowed the new idle read to prove a lost-response turn completed. The shared
+consent lock now includes all three read entries. Manual recovery must keep the
+authoritative detail read unavailable through the held failure; a separate
+browser walk checks automatic saved-result recovery without another send.
+The restored run passed all 3,864 unit tests and every browser shard, but the
+production build caught a 280-byte cold-graph overrun. The optional context
+browsing dialog now loads only after explicit Browse, while its ready trigger
+and attachment workflows remain eager. Loading/failure stay local, cancellable,
+and non-mutating; reload warns about unsent text. Its accessibility announcement
+was deliberately broken and observed failing both source and browser locks.
+The unchanged bundle budgets pass the extracted-dialog build, and the subsequent
+complete verifier passed all five lanes and 445 browser tests. Screenshot review
+then caught short-landscape recovery controls below the picker's visible edge.
+Both browsing entry points now place recovery before the recent-items list;
+source-order and full-notice/action geometry checks failed before this repair
+and pass afterward. The final revision must pass the complete verifier again and
+the separate UI sweep; no retry or timeout budget was relaxed.
+No GitHub CI, paid provider or signed/Intel release evidence is implied.
+
+The preceding workbook checkpoint `ba00e035` passed the complete local verifier
+(all five lanes and 440 browser tests), 135/135 responsive sweep cells and the
+unsigned arm64 native gate. It implements the tabbed-workbook portion of approved
 default 4. One artifact contains ordered named worksheets and shares access,
 filing, Trash, and one revision-checked Save. Legacy single-sheet content remains
 readable and promotes only when a tab-level edit needs the workbook shape.

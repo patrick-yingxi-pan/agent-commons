@@ -221,17 +221,17 @@ test('unresolvedEscalation reads the projected carrier when bounded history omit
   })
 })
 
-test('the controller resurfaces the held proposal at BOTH reconcile sites — the record is the authority (C28)', () => {
+test('the controller resurfaces the held proposal at every reconcile entry — the record is the authority (C28)', () => {
   // Every pane runs the open recipe through usePaneConversation now (Phase 6):
-  // BOTH its reconcile sites — the mount-time read and the session-push
-  // re-read — flow through the ONE shared tail (reconcileNow), which derives
-  // the still-pending proposal from the record. (Two hand-copied tails once
-  // let the push site silently miss the resurface — the shared tail is the
+  // Mount, session-push and busy-to-idle reads all flow through the ONE shared
+  // tail (reconcileNow), which derives the still-pending proposal from the
+  // record. (Two hand-copied tails once let the push site silently miss the
+  // resurface — the shared tail is the
   // fix, so the lock asserts the sharing, not a copy count.)
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'usePaneConversation.ts')))
   assert.match(controller, /unresolvedEscalation\(s, landed/, 'the shared reconcile tail derives the held proposal from the merged page state')
   const calls = (controller.match(/reconcileNow\(sessionId[,)]/g) ?? []).length // calls, not the definition
-  assert.equal(calls, 2, 'the mount-time read AND the session-push re-read both run the shared tail')
+  assert.equal(calls, 3, 'mount, session-push and busy-to-idle reads all run the shared tail')
   // Resurfacing never stomps a live-stream pending proposal: holdEscalation is
   // the store's keep-the-first-prompt door (universal split Phase 1 moved the
   // held escalation into the per-session conversation store).

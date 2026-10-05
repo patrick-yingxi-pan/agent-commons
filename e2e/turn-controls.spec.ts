@@ -13,8 +13,9 @@ const PACED_MESSAGE = `paced stop me please ${STAMP}`
 const RETRY_MESSAGE = `recover one logical turn ${STAMP}`
 const DRAFT_RETRY_MESSAGE = `recover draft materialization ${STAMP}`
 const LOST_DRAFT_RESPONSE_MESSAGE = `recover one committed draft ${STAMP}`
+const CANNED_REPLY = 'The model here is a local mock, so free-form chat is canned — but every organizing act is real. Ask me to *open a workspace*, *connect the repo*, *save a document, sheet, or slide deck*, *file this under a project*, or *have a schedule save a digest*.'
 
-// These four tests deliberately spend several complete turns. Keep their plan
+// These tests deliberately spend several complete turns. Keep their plan
 // window independent of whatever model-heavy specs share this balanced shard.
 test.beforeEach(async ({ page }) => {
   await page.context().setExtraHTTPHeaders({
@@ -65,17 +66,37 @@ test('Retry replays one logical send without duplicating the user turn or work',
   test.setTimeout(ms(60_000))
   const attempts: Array<{ key: string | null; body: { text?: string; retryLastUser?: boolean } }> = []
   let dropFirstResponse = true
+  let sessionPath: string | undefined
+  let holdDetailReads = false
+  let retryPostSeen = false
+  let deniedDetailReads = 0
   // Keep this specifically a MANUAL recovery walk. With ambient events live,
-  // session.updated truthfully reconciles the persisted assistant before the
-  // lost response can surface Retry (covered by the pure controller lock).
+  // or a successful detail read, the persisted assistant would reconcile
+  // before the lost response can surface Retry. Ambient events are offline and
+  // detail reads are denied only after the response loss is armed.
   await page.route('**/api/v1/events*', (route) => route.abort('connectionrefused'))
+  await page.route('**/api/v1/sessions/*', async (route) => {
+    const request = route.request()
+    const pathname = new URL(request.url()).pathname
+    if (
+      request.method() === 'GET' && sessionPath && pathname === sessionPath &&
+      holdDetailReads && !retryPostSeen
+    ) {
+      deniedDetailReads += 1
+      await route.abort('connectionrefused')
+      return
+    }
+    await route.continue()
+  })
   await page.route('**/api/v1/sessions/*/messages', async (route) => {
     const request = route.request()
+    sessionPath = new URL(request.url()).pathname.replace(/\/messages$/, '')
     attempts.push({
       key: await request.headerValue('idempotency-key'),
       body: request.postDataJSON() as { text?: string; retryLastUser?: boolean },
     })
     if (!dropFirstResponse) {
+      retryPostSeen = true
       await route.continue()
       return
     }
@@ -86,6 +107,7 @@ test('Retry replays one logical send without duplicating the user turn or work',
     const response = await route.fetch()
     expect(response.ok(), 'the server completed the original logical send').toBe(true)
     await response.body()
+    holdDetailReads = true
     await route.abort('connectionrefused')
   })
 
@@ -96,6 +118,9 @@ test('Retry replays one logical send without duplicating the user turn or work',
 
   const interrupted = page.getByRole('alert')
   await expect(interrupted).toBeVisible({ timeout: ms(20_000) })
+  await expect(interrupted.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+  await expect.poll(() => deniedDetailReads, { timeout: ms(10_000) })
+    .toBeGreaterThan(0)
   await expect(interrupted.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
   await interrupted.getByRole('button', { name: 'Retry', exact: true }).click()
 
@@ -113,6 +138,77 @@ test('Retry replays one logical send without duplicating the user turn or work',
   const full = await (await page.request.get(`/api/v1/sessions/${session.id}`)).json()
   expect((full.messages ?? []).map((message: { role: string }) => message.role)).toEqual(['user', 'assistant'])
   expect((full.messages ?? []).filter((message: { role: string }) => message.role === 'user')).toHaveLength(1)
+})
+
+test('a committed send heals automatically after its response is lost', async ({ page }) => {
+  test.setTimeout(ms(60_000))
+  const message = `recover automatically after commit ${STAMP}`
+  const attempts: Array<{ key: string | null; body: { text?: string; retryLastUser?: boolean } }> = []
+  let sessionPath: string | undefined
+  let responseLost = false
+  let postLossDetailReads = 0
+  let completedDetailRead: { roles: string[]; assistant?: string } | undefined
+
+  await page.route('**/api/v1/events*', (route) => route.abort('connectionrefused'))
+  await page.route('**/api/v1/sessions/*', async (route) => {
+    const request = route.request()
+    const pathname = new URL(request.url()).pathname
+    if (request.method() !== 'GET' || !sessionPath || pathname !== sessionPath || !responseLost) {
+      await route.continue()
+      return
+    }
+    postLossDetailReads += 1
+    const response = await route.fetch()
+    const session = await response.json() as { messages?: Array<{ role: string; content: string }> }
+    const messages = session.messages ?? []
+    if (messages.length >= 2 && messages.at(-1)?.role === 'assistant') {
+      completedDetailRead = {
+        roles: messages.map((item) => item.role),
+        assistant: messages.at(-1)?.content,
+      }
+    }
+    await route.fulfill({ response, json: session })
+  })
+  await page.route('**/api/v1/sessions/*/messages', async (route) => {
+    const request = route.request()
+    sessionPath = new URL(request.url()).pathname.replace(/\/messages$/, '')
+    attempts.push({
+      key: await request.headerValue('idempotency-key'),
+      body: request.postDataJSON() as { text?: string; retryLastUser?: boolean },
+    })
+    const response = await route.fetch()
+    expect(response.ok(), 'the server committed the first logical send before its response was lost').toBe(true)
+    await response.body()
+    responseLost = true
+    await route.abort('connectionrefused')
+  })
+
+  await page.goto('/')
+  await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
+  await page.getByPlaceholder('Reply to Claude…').fill(message)
+  await page.keyboard.press('Enter')
+
+  const reply = page.locator('[data-turn]').filter({ hasText: 'free-form chat is canned' })
+  await expect(reply).toBeVisible({ timeout: ms(20_000) })
+  await expect(page.getByRole('alert')).toHaveCount(0, { timeout: ms(20_000) })
+  await expect.poll(() => postLossDetailReads, { timeout: ms(20_000) }).toBeGreaterThan(0)
+  await expect.poll(() => completedDetailRead, { timeout: ms(20_000) }).toEqual({
+    roles: ['user', 'assistant'],
+    assistant: CANNED_REPLY,
+  })
+  expect(attempts, 'the completed logical send was not automatically posted again').toHaveLength(1)
+  expect(attempts[0]!.key).toBeTruthy()
+  expect(attempts[0]!.body).toEqual({ text: message })
+
+  const list = await (await page.request.get('/api/v1/sessions')).json()
+  const session = list.find((candidate: { title: string }) => candidate.title.startsWith(message.slice(0, 20)))
+  expect(session, 'the automatically recovered session exists').toBeTruthy()
+  const full = await (await page.request.get(`/api/v1/sessions/${session.id}`)).json()
+  expect((full.messages ?? []).map((item: { role: string }) => item.role)).toEqual(['user', 'assistant'])
+  expect((full.messages ?? []).filter((item: { role: string }) => item.role === 'user')).toHaveLength(1)
+  expect(full.messages[1].content).toBe(CANNED_REPLY)
+  await expect(page.locator('[data-turn]')).toHaveCount(2)
+  await expect(reply).toContainText(CANNED_REPLY.replace(/\*/g, ''))
 })
 
 test('Retry rematerializes a failed draft before sending its preserved user turn', async ({ page }) => {
