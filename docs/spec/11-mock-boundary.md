@@ -83,7 +83,12 @@ REL-25 adds owner-only retained body history and explicit restoration as a new
 revision. The current body becomes the baseline on its first history-aware
 replacement; earlier unrecorded edits cannot be reconstructed. Shared readers
 and ordinary model input still receive only current content. This does not
-execute formulas, retain rich Office fidelity or add permanent deletion.
+execute formulas or retain rich Office fidelity. REL-24 separately adds reviewed
+permanent deletion from Trash: current content, retained versions, shares and
+artifact-only social material are removed together. Conversations and content-free
+audit/retirement records remain. Old save/create retries and routine output cannot
+resurrect the artifact. Existing backups are not erased; an explicit later whole
+backup restore may intentionally restore older content.
 
 Saved authored Documents and draft emails also export through the authenticated
 boundary as bounded DOCX projections of the current saved text snapshot. The

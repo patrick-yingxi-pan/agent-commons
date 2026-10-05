@@ -851,6 +851,54 @@ export async function smokePackagedAttachments({ executable }) {
     assert.deepEqual(savedArtifactHistory.page.versions.map(({ revision }) => revision), [2, 1, 0])
     assert.deepEqual(savedArtifactHistory.original.version.body, presentationBody)
     assert.deepEqual(savedArtifactHistory.current, { ...presentationBody, revision: 2 })
+
+    // A separate generated artifact is deliberately destroyed. Existing history
+    // fixtures stay intact, so the same relaunch proves both retention policies.
+    const deletionFixture = await page.evaluate(async () => {
+      const write = async (path, method, body) => {
+        const response = await fetch(path, {
+          method, headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
+          body: JSON.stringify(body),
+        })
+        if (!response.ok) throw new Error(`Deletion fixture failed: HTTP ${response.status}`)
+        return response.json()
+      }
+      const created = await write('/api/v1/artifacts', 'POST', {
+        name: 'Disposable permanent-delete smoke.md', kind: 'doc', body: 'Original disposable body.',
+      })
+      const path = `/api/v1/artifacts/${encodeURIComponent(created.artifact.id)}`
+      await write(`${path}/content`, 'PATCH', { block: 0, text: 'Edited disposable body.', expectedRevision: 0 })
+      await write(`${path}/lifecycle`, 'PATCH', { state: 'trashed', expectedRevision: 0 })
+      return created.artifact
+    })
+    const deletionPath = `/api/v1/artifacts/${encodeURIComponent(deletionFixture.id)}`
+    let deletionIntent
+    const observeDeletion = (request) => {
+      if (request.method() === 'DELETE' && new URL(request.url()).pathname === deletionPath) {
+        deletionIntent = { key: request.headers()['idempotency-key'], body: request.postDataJSON() }
+      }
+    }
+    page.on('request', observeDeletion)
+    await page.goto(`${origin}/artifacts/${encodeURIComponent(deletionFixture.id)}`)
+    const deletionSection = page.locator('section.group\\/section > div > button[aria-expanded]')
+      .filter({ has: page.locator('[data-section-title]', { hasText: /^Delete permanently$/i }) })
+    await expect(deletionSection).toHaveAttribute('aria-expanded', /true|false/)
+    if (await deletionSection.getAttribute('aria-expanded') === 'false') await deletionSection.click()
+    await page.getByRole('button', { name: 'Delete permanently…', exact: true }).click()
+    let deletionConfirm = page.getByRole('dialog', { name: 'Delete artifact permanently?', exact: true })
+    await expect(deletionConfirm).toContainText('Disposable permanent-delete smoke.md')
+    await expect(deletionConfirm).toContainText(/backups/i)
+    await expect(deletionConfirm.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused()
+    await deletionConfirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+    assert.equal(deletionIntent, undefined, 'Cancel sends no permanent-deletion request')
+    await page.getByRole('button', { name: 'Delete permanently…', exact: true }).click()
+    deletionConfirm = page.getByRole('dialog', { name: 'Delete artifact permanently?', exact: true })
+    await deletionConfirm.getByRole('button', { name: 'Delete permanently', exact: true }).click()
+    await expect(page).toHaveURL(/\/artifacts\/groups\/__trash$/)
+    page.off('request', observeDeletion)
+    assert.ok(deletionIntent?.key, 'permanent deletion has one durable logical key')
+    assert.equal(deletionIntent.body.expectedLifecycleRevision, 1)
+    assert.equal(typeof deletionIntent.body.reviewToken, 'string')
     await page.goto(`${origin}${sessionPath}`)
 
     const calls = await run.app.evaluateHandle(({ dialog, BrowserWindow }, filePaths) => {
@@ -920,6 +968,21 @@ export async function smokePackagedAttachments({ executable }) {
     }, { id: presentationArtifact.id, key: historyRestoreKey })
     assert.deepEqual(relaunchedHistory, savedArtifactHistory, 'full packaged relaunch retains exact versions and replays restore without another revision')
     console.log('[desktop-artifact-history-smoke] retained slide baseline + edit · reviewed UI restore · exact history and receipt survive full relaunch')
+    const relaunchedDeletion = await page.evaluate(async ({ path, intent, sessionId }) => {
+      const replay = await fetch(path, {
+        method: 'DELETE', headers: { 'content-type': 'application/json', 'idempotency-key': intent.key },
+        body: JSON.stringify(intent.body),
+      })
+      if (!replay.ok) throw new Error(`Deletion replay failed: HTTP ${replay.status}`)
+      const lifecycle = await fetch(`${path}/lifecycle`)
+      const history = await fetch(`${path}/history`)
+      const conversation = await fetch(`/api/v1/sessions/${encodeURIComponent(sessionId)}`)
+      return { receipt: await replay.json(), lifecycle: lifecycle.status, history: history.status, conversation: conversation.status }
+    }, { path: deletionPath, intent: deletionIntent, sessionId: session.id })
+    assert.deepEqual(relaunchedDeletion, {
+      receipt: { artifactId: deletionFixture.id, deleted: true }, lifecycle: 404, history: 404, conversation: 200,
+    }, 'full relaunch preserves deletion, exact receipt and independent conversation')
+    console.log('[desktop-artifact-deletion-smoke] Cancel is inert · explicit reviewed delete · history absent after full relaunch · exact receipt replay · conversation preserved')
     for (const imported of importedDocuments) {
       await page.goto(`${origin}/artifacts/${encodeURIComponent(imported.id)}`)
       await expect(page.getByRole('heading', { name: imported.name, exact: true })).toBeVisible()

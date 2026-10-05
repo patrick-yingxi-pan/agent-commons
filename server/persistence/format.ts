@@ -38,6 +38,7 @@ import type {
   SessionContext,
   SessionPreferences,
   SessionWorkspace,
+  SocialEntityRef,
   SystemPromptEntry,
   WorkItemComment,
 } from '../../contract/index.ts'
@@ -52,6 +53,7 @@ import { parseArtifactLifecycleEntries } from '../artifactLifecycle.ts'
 import type { ArtifactLifecycle } from '../../contract/artifactLifecycle.ts'
 import { parseArtifactHistoryEntries, historyBodyWithoutRevision, type ArtifactHistoryEntries } from '../../contract/artifactHistory.ts'
 import type { StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
+import { parseArtifactRetirements, parseArtifactDeletionReceipts, type ArtifactRetirement, type StoredArtifactDeletionReceipt } from '../artifactDeletion.ts'
 import { parseStructuredArtifactBody } from '../../contract/artifactAuthoring.ts'
 import type { ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import type { ProviderConfig } from '../data/providers.ts'
@@ -417,6 +419,10 @@ export interface PersistedState {
   artifactMetadata?: [string, ArtifactMetadata][]
   /** Recoverable Trash ordering. Retained rows and bodies remain canonical. */
   artifactLifecycle?: [string, ArtifactLifecycle][]
+  /** Permanent Artifact retirement tombstones prevent fixture/keyed/provenance resurrection. */
+  artifactRetirements?: ArtifactRetirement[]
+  /** Exact owner-scoped lost-ack receipts for permanent deletion. */
+  artifactDeletionReceipts?: [string, StoredArtifactDeletionReceipt][]
   /** S5 guardrails — per-viewer mute lists (`[tenantId, names[]]`).
    *  Additive-optional. */
   mutes?: [string, string[]][]
@@ -561,6 +567,8 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   artifactHistoryRestoreReceipts: 'mapEntries',
   artifactMetadata: 'mapEntries',
   artifactLifecycle: 'mapEntries',
+  artifactRetirements: 'array',
+  artifactDeletionReceipts: 'mapEntries',
   mutes: 'mapEntries',
   follows: 'mapEntries',
   discussionReads: 'mapEntries',
@@ -666,6 +674,90 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   }
   if (state?.artifactLifecycle !== undefined) {
     try { parseArtifactLifecycleEntries(state.artifactLifecycle) } catch { return false }
+  }
+  if (state?.artifactRetirements !== undefined || state?.artifactDeletionReceipts !== undefined) {
+    let retirements: ArtifactRetirement[]
+    let receipts: Array<[string, StoredArtifactDeletionReceipt]>
+    try {
+      retirements = parseArtifactRetirements(state.artifactRetirements)
+      receipts = parseArtifactDeletionReceipts(state.artifactDeletionReceipts)
+    } catch { return false }
+    const retired = new Map(retirements.map((row) => [row.artifactId, row]))
+    const retiredDiscussionIds = new Set<string>()
+    const retiredProposalIds = new Set<string>()
+    for (const retirement of retirements) {
+      for (const id of retirement.discussionIds ?? []) {
+        if (retiredDiscussionIds.has(id)) return false
+        retiredDiscussionIds.add(id)
+      }
+      for (const id of retirement.proposalIds ?? []) {
+        if (retiredProposalIds.has(id)) return false
+        retiredProposalIds.add(id)
+      }
+    }
+    for (const [id, receipt] of receipts) {
+      if (retired.get(receipt.artifactId)?.tenantId !== receipt.tenantId ||
+        id !== JSON.stringify([receipt.tenantId, receipt.userId, receipt.keyHash])) return false
+    }
+    const pairsContain = (value: unknown, key: string): boolean =>
+      Array.isArray(value) && value.some((entry) => Array.isArray(entry) && entry[0] === key)
+    const graph = state.graph as RelationGraph
+    for (const id of retired.keys()) {
+      if (graph.extraArtifacts.some((artifact) => artifact.id === id) ||
+        pairsContain(state.artifactBodies, id) || pairsContain(state.artifactHistory, id) ||
+        pairsContain(state.artifactHistoryRestoreReceipts, id) || pairsContain(state.artifactMetadata, id) ||
+        pairsContain(state.artifactLifecycle, id) || Object.hasOwn(graph.artifactProject, id) ||
+        Object.hasOwn(graph.artifactSource, id) || (state.grants ?? []).some((grant) => grant.subject.kind === 'artifact' && grant.subject.id === id) ||
+        (state.artifactHistoryRestoreReceipts ?? []).some(([, receipt]) => receipt.artifactId === id) ||
+        (state.socialProposals ?? []).some((proposal) => proposal.subject.kind === 'artifact' && proposal.subject.id === id) ||
+        (state.discussions ?? []).some((discussion) => discussion.anchor.ref.kind === 'artifact' && discussion.anchor.ref.id === id)) return false
+    }
+    const retiredSubject = (kind: unknown, id: unknown): boolean => typeof id === 'string' && (
+      (kind === 'artifact' && retired.has(id)) ||
+      (kind === 'discussion' && retiredDiscussionIds.has(id)) ||
+      (kind === 'proposal' && retiredProposalIds.has(id)))
+    if ((state.discussions ?? []).some((discussion) => retiredDiscussionIds.has(discussion.id) ||
+      retiredSubject(discussion.anchor.ref.kind, discussion.anchor.ref.id)) ||
+      (state.socialProposals ?? []).some((proposal) => retiredProposalIds.has(proposal.id) ||
+        retiredSubject(proposal.subject.kind, proposal.subject.id)) ||
+      (state.grants ?? []).some((grant) => retiredSubject(grant.subject.kind, grant.subject.id))) return false
+    const hasRetiredAncestor = (ref: SocialEntityRef, root: string, seen = new Set<string>()): boolean => {
+      const key = `${ref.kind}:${ref.id}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      if (ref.kind === 'artifact') return retired.has(ref.id) && ref.id === root
+      if (ref.kind === 'discussion') {
+        const row = state.discussions?.find((candidate) => candidate.id === ref.id)
+        return row ? hasRetiredAncestor(row.anchor.ref, root, seen) : false
+      }
+      if (ref.kind === 'proposal') {
+        const row = state.socialProposals?.find((candidate) => candidate.id === ref.id)
+        return row ? hasRetiredAncestor(row.subject, root, seen) : false
+      }
+      return false
+    }
+    for (const id of retired.keys()) {
+      if ((state.discussions ?? []).some((discussion) => hasRetiredAncestor(discussion.anchor.ref, id)) ||
+        (state.socialProposals ?? []).some((proposal) => hasRetiredAncestor(proposal.subject, id))) return false
+    }
+    for (const notification of state.notifications ?? []) {
+      if ((notification.subjectKind === 'artifact' && typeof notification.subjectId === 'string' && retired.has(notification.subjectId)) ||
+        retiredSubject(notification.subjectKind, notification.subjectId) ||
+        (typeof notification.discussionId === 'string' && retiredDiscussionIds.has(notification.discussionId) ) ||
+        (typeof notification.proposalId === 'string' && retiredProposalIds.has(notification.proposalId))) return false
+    }
+    const subjectKeyRetired = (key: unknown): boolean => {
+      if (typeof key !== 'string') return false
+      const split = key.indexOf(':')
+      return split > 0 && retiredSubject(key.slice(0, split), key.slice(split + 1))
+    }
+    if ((state.watches ?? []).some((entry) => Array.isArray(entry) && subjectKeyRetired(entry[1])) ||
+      (state.commonsLikes ?? []).some((entry) => Array.isArray(entry) && typeof entry[1] === 'string' &&
+        ([...retiredDiscussionIds].some((id) => entry[1] === `post:${id}`) ||
+          [...retiredProposalIds].some((id) => entry[1] === `landing:${id}`))) ||
+      (state.views ?? []).some((entry) => Array.isArray(entry) && retiredSubject(entry[1], entry[2])) ||
+      (state.discussionReads ?? []).some((entry) => Array.isArray(entry) && Array.isArray(entry[1]) &&
+        entry[1].some((read) => Array.isArray(read) && retiredDiscussionIds.has(read[0])))) return false
   }
   if (state?.usageMeters !== undefined) {
     try { parseUsageMeterEntries(state.usageMeters) } catch { return false }

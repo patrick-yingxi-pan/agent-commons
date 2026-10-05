@@ -36,7 +36,7 @@ const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
 const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
 const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
-const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences', 'artifactHistory', 'artifactHistoryRestoreReceipts'] as const
+const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences', 'artifactHistory', 'artifactHistoryRestoreReceipts', 'artifactRetirements', 'artifactDeletionReceipts'] as const
 
 const snapshotImage: ImageSnapshot = {
   mimeType: 'image/png',

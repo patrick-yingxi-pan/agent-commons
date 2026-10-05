@@ -96,6 +96,8 @@ import {
   historyBodyWithoutRevision,
 } from '../../contract/artifactHistory.ts'
 import { prepareArtifactHistoryAppend, type StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
+import type { ArtifactDeletionPreview, ArtifactDeletionRequest, ArtifactDeletionResult } from '../../contract/artifactDeletion.ts'
+import { parseArtifactRetirements, type ArtifactRetirement, type StoredArtifactDeletionReceipt } from '../artifactDeletion.ts'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 import { isServedImageSnapshot, type ServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
 import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
@@ -320,7 +322,7 @@ const NATIVE = BACKEND_MODE !== 'remote'
  * discriminator and are therefore demo worlds; new release stores stamp clean. */
 let worldMode: InitialWorld = 'demo'
 const baseProjects = (): Project[] => worldMode === 'demo' ? PROJECTS : []
-const baseArtifacts = (): ArtifactItem[] => worldMode === 'demo' ? ALL_ARTIFACTS : []
+const baseArtifacts = (): ArtifactItem[] => worldMode === 'demo' ? ALL_ARTIFACTS.filter((artifact) => !artifactIsRetired(artifact.id)) : []
 
 /** The tenant a tenant-scoped entity belongs to when it carries none — the backend's
  *  default principal's tenant (personal on desktop/mock; the web tenant on remote). Used
@@ -1133,7 +1135,14 @@ const artifactMetadata = new Map<string, ArtifactMetadata>()
 // Retention is independent of body/name ordering. The canonical row remains
 // present so historical saves and keyed creation can never silently recreate it.
 const artifactLifecycle = new Map<string, ArtifactLifecycle>()
-const artifactIsTrashed = (id: string): boolean => artifactLifecycle.get(id)?.state === 'trashed'
+const artifactRetirements = new Map<string, ArtifactRetirement>()
+const artifactDeletionReceipts = new Map<string, StoredArtifactDeletionReceipt>()
+const artifactDeletionReviews = new Map<string, { artifactId: string; tenantId: string; fingerprint: string; lifecycleRevision: number }>()
+const artifactIsRetired = (id: string): boolean => artifactRetirements.has(id)
+const artifactIsTrashed = (id: string): boolean => !artifactIsRetired(id) && artifactLifecycle.get(id)?.state === 'trashed'
+const artifactRetirementTenant = (id: string): string | undefined => artifactRetirements.get(id)?.tenantId
+const artifactSaveOriginHash = (tenantId: string, origin: { name: string; source: string }): string =>
+  createHash('sha256').update(JSON.stringify([tenantId, origin.name, origin.source])).digest('hex')
 const artifactWithMetadata = (artifact: ArtifactItem): ArtifactItem => {
   const projected = { ...projectArtifactMetadata(artifact, artifactMetadata.get(artifact.id)),
     lifecycleRevision: artifactLifecycle.get(artifact.id)?.revision ?? 0 }
@@ -1759,6 +1768,41 @@ function socialSubjectHasArtifactAncestor(ref: SocialEntityRef, artifactId: stri
     } else return false
   }
   return false
+}
+
+function artifactDeletionCascade(artifactId: string) {
+  const discussionsInCascade = discussions.filter((row) => socialSubjectHasArtifactAncestor(row.anchor.ref, artifactId))
+  const discussionIds = new Set(discussionsInCascade.map((row) => row.id))
+  const proposalsInCascade = socialProposals.filter((row) => socialSubjectHasArtifactAncestor(row.subject, artifactId))
+  const proposalIds = new Set(proposalsInCascade.map((row) => row.id))
+  const refs = new Set([
+    `artifact:${artifactId}`,
+    ...[...discussionIds].map((id) => `discussion:${id}`),
+    ...[...proposalIds].map((id) => `proposal:${id}`),
+  ])
+  const shares = grants.filter((grant) => refs.has(`${grant.subject.kind}:${grant.subject.id}`))
+  return { discussions: discussionsInCascade, proposals: proposalsInCascade, shares }
+}
+
+function artifactDeletionFingerprint(artifact: ArtifactItem, tenantId: string): string {
+  const cascade = artifactDeletionCascade(artifact.id)
+  const currentLifecycle = artifactLifecycle.get(artifact.id) ?? { state: 'active', revision: 0, changedAt: 0 }
+  const bodyHistory = artifactHistory.get(artifact.id) ?? []
+  const stable = <T extends { id: string }>(rows: T[]): T[] => [...rows].sort((a, b) => a.id.localeCompare(b.id))
+  const payload = {
+    artifact: { ...artifact, projectId: graph.artifactProject[artifact.id] ?? artifact.projectId },
+    lifecycle: currentLifecycle,
+    body: artifactBodies.get(artifact.id) ?? null,
+    history: bodyHistory,
+    metadata: artifactMetadata.get(artifact.id) ?? null,
+    artifactProject: graph.artifactProject[artifact.id] ?? null,
+    artifactSource: graph.artifactSource[artifact.id] ?? null,
+    discussions: stable(cascade.discussions),
+    proposals: stable(cascade.proposals),
+    shares: stable(cascade.shares),
+    tenantId,
+  }
+  return createHash('sha256').update(JSON.stringify(payload)).digest('hex')
 }
 
 /** Agent-Commons registry visibility (F2/PD9). Unlike CONTENT (sessions/projects/artifacts,
@@ -2785,6 +2829,8 @@ function snapshot(): PersistedState {
     artifactHistoryRestoreReceipts: [...artifactHistoryRestoreReceipts.entries()],
     artifactMetadata: [...artifactMetadata.entries()],
     artifactLifecycle: [...artifactLifecycle.entries()],
+    artifactRetirements: [...artifactRetirements.values()],
+    artifactDeletionReceipts: [...artifactDeletionReceipts.entries()],
     mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
     // S7 — the person layer: who each viewer follows, and how far they've read
     // each thread (the DM inbox's unread count).
@@ -2884,6 +2930,8 @@ function cleanFirstBootState(): PersistedState {
   clean.artifactHistoryRestoreReceipts = []
   clean.artifactMetadata = []
   clean.artifactLifecycle = []
+  clean.artifactRetirements = []
+  clean.artifactDeletionReceipts = []
   clean.mutes = []
   clean.follows = []
   clean.discussionReads = []
@@ -3192,6 +3240,11 @@ function rehydrate(s: PersistedState): boolean {
   // The snapshot owns its world after first boot. Missing means historical demo;
   // the current environment must never reinterpret an established database.
   worldMode = s.initialWorld ?? 'demo'
+  artifactRetirements.clear()
+  for (const row of parseArtifactRetirements(s.artifactRetirements)) artifactRetirements.set(row.artifactId, row)
+  artifactDeletionReceipts.clear()
+  for (const [key, receipt] of s.artifactDeletionReceipts ?? []) artifactDeletionReceipts.set(key, receipt)
+  artifactDeletionReviews.clear()
   const demoWorld = worldMode === 'demo'
   if (!demoWorld) {
     guardian.clear()
@@ -3639,6 +3692,9 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, spec: Sche
       artifact.name === spec.name && artifact.source === source &&
       artifact.sourceSessionId !== undefined && runSessions.has(artifact.sourceSessionId) &&
       !artifactBodies.has(artifact.id))
+  if (!existing && [...artifactRetirements.values()].some((row) => row.tenantId === ownerTenantId && row.sourceScheduleId === task.id)) {
+    throw new ConflictError('This routine’s saved Artifact was permanently deleted; it cannot create another output.')
+  }
   const id = existing?.id ?? mintArtifactId()
   if (artifactIsTrashed(id)) throw new ConflictError('Restore this routine’s saved artifact from Trash before running it again.')
   const priorBody = existing ? retainedArtifactBody(id) : undefined
@@ -3692,6 +3748,9 @@ function scheduleArtifactFormatFailure(task: ScheduledTask, spec: ScheduledArtif
   if (!spec) return undefined
   const existing = graph.extraArtifacts.find((artifact) => artifact.sourceScheduleId === task.id &&
     (artifact.tenantId ?? defaultTenantId()) === (task.tenantId ?? defaultTenantId()))
+  if (!existing && [...artifactRetirements.values()].some((row) => row.tenantId === (task.tenantId ?? defaultTenantId()) && row.sourceScheduleId === task.id)) {
+    return 'This routine’s saved Artifact was permanently deleted; its output binding is retired.'
+  }
   if (existing && artifactIsTrashed(existing.id)) return 'This routine’s saved artifact is in Trash. Restore it before running again; its saved content was not changed.'
   return existing && existing.kind !== spec.kind
     ? 'This routine already has a saved artifact in a different format. Keep its current format for now; its saved artifact was not changed.'
@@ -4618,6 +4677,8 @@ export const store = {
         // after Trash closes reads. Nested-only readers receive the separate
         // tenant-targeted social-access.changed hint below.
         const a = retainedArtifact(e.artifactId)
+        const retiredOwner = artifactRetirementTenant(e.artifactId)
+        if (retiredOwner) return retiredOwner === tenantId
         return a ? rowVisibleTo(a, tenantId) || grantedTierFor({ kind: 'artifact', id: a.id }, tenantId) !== undefined
           : seedVisibleTo(tenantId)
       }
@@ -7224,7 +7285,7 @@ export const store = {
    * derives `id` from its authenticated tenant + logical key before accepting a
    * retry body, so this exact lookup is the durable acknowledgement boundary. */
   getArtifactCreation(id: string, tenantId: string): CreateArtifactResponse | 'invalid' | undefined {
-    if (!isArtifactCreationId(id)) return 'invalid'
+    if (!isArtifactCreationId(id) || artifactIsRetired(id)) return 'invalid'
     if (artifactIsTrashed(id)) return 'invalid'
     const artifact = findArtifact(id)
     if (!artifact) return undefined
@@ -7244,6 +7305,7 @@ export const store = {
     logicalId: string,
   ): CreateArtifactResponse | 'invalid' | undefined {
     if (!isArtifactCreationId(logicalId)) return 'invalid'
+    if (artifactIsRetired(logicalId)) return 'invalid'
     const represented = this.getArtifactCreation(logicalId, tenantId)
     if (represented !== undefined) return represented
 
@@ -11195,6 +11257,149 @@ export const store = {
       lifecycle: { ...lifecycle },
     }
   },
+  /** Owner-only review snapshot for permanent deletion. The opaque token is
+   * transient and binds every row that the reviewed cascade would remove. */
+  previewArtifactDeletion(id: string, tenantId: string): ArtifactDeletionPreview | undefined {
+    const artifact = retainedArtifact(id)
+    if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
+    if (!artifactIsTrashed(id)) throw new ConflictError('Move this Artifact to Trash before permanently deleting it.')
+    const lifecycle = artifactLifecycle.get(id)!
+    const cascade = artifactDeletionCascade(id)
+    const reviewToken = randomBytes(32).toString('hex')
+    this.pruneArtifactDeletionReviews()
+    artifactDeletionReviews.set(reviewToken, {
+      artifactId: id,
+      tenantId,
+      lifecycleRevision: lifecycle.revision,
+      fingerprint: artifactDeletionFingerprint(artifact, tenantId),
+    })
+    return {
+      artifactId: id,
+      artifactName: artifact.name,
+      lifecycleRevision: lifecycle.revision,
+      reviewToken,
+      counts: {
+        versions: artifactHistory.get(id)?.length ?? 0,
+        shares: cascade.shares.length,
+        discussions: cascade.discussions.length,
+        proposals: cascade.proposals.length,
+      },
+    }
+  },
+  pruneArtifactDeletionReviews(): void {
+    while (artifactDeletionReviews.size >= 512) {
+      const oldest = artifactDeletionReviews.keys().next().value as string | undefined
+      if (!oldest) break
+      artifactDeletionReviews.delete(oldest)
+    }
+  },
+  /** Durable owner+key receipt is checked before row lookup, so a lost
+   * acknowledgement can replay after deletion/restart without exposing whether
+   * another account owned the target. */
+  permanentlyDeleteArtifact(
+    id: string,
+    request: ArtifactDeletionRequest,
+    tenantId: string,
+    userId: string,
+    idempotencyKey: string,
+  ): ArtifactDeletionResult | undefined {
+    const keyHash = createHash('sha256').update(idempotencyKey).digest('hex')
+    const receiptKey = JSON.stringify([tenantId, userId, keyHash])
+    const requestTokenHash = createHash('sha256').update(request.reviewToken).digest('hex')
+    const represented = artifactDeletionReceipts.get(receiptKey)
+    if (represented) {
+      if (represented.artifactId !== id || represented.expectedLifecycleRevision !== request.expectedLifecycleRevision ||
+        represented.reviewTokenHash !== requestTokenHash) {
+        throw new ConflictError('This deletion key already represents a different request.')
+      }
+      return { artifactId: id, deleted: true }
+    }
+    const artifact = retainedArtifact(id)
+    if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
+    if (!artifactIsTrashed(id)) throw new ConflictError('Move this Artifact to Trash before permanently deleting it.')
+    const review = artifactDeletionReviews.get(request.reviewToken)
+    const lifecycle = artifactLifecycle.get(id)!
+    if (!review || review.artifactId !== id || review.tenantId !== tenantId ||
+      request.expectedLifecycleRevision !== review.lifecycleRevision || lifecycle.revision !== review.lifecycleRevision ||
+      artifactDeletionFingerprint(artifact, tenantId) !== review.fingerprint) {
+      throw new ConflictError('This Artifact or its deletion cascade changed after review. Review the current deletion details again.')
+    }
+
+    const cascade = artifactDeletionCascade(id)
+    const deletedDiscussionIds = new Set(cascade.discussions.map((row) => row.id))
+    const deletedProposalIds = new Set(cascade.proposals.map((row) => row.id))
+    const subjectKeys = new Set([
+      `artifact:${id}`,
+      ...[...deletedDiscussionIds].map((subjectId) => `discussion:${subjectId}`),
+      ...[...deletedProposalIds].map((subjectId) => `proposal:${subjectId}`),
+    ])
+    const removedFeedIds = new Set([
+      ...cascade.shares.filter((grant) => grant.note !== undefined).map((grant) => `share:${grant.id}`),
+      ...cascade.proposals.filter((proposal) => proposal.state === 'landed').map((proposal) => `landing:${proposal.id}`),
+      ...cascade.discussions.map((discussion) => `post:${discussion.id}`),
+    ])
+    const retirement: ArtifactRetirement = {
+      artifactId: id,
+      tenantId,
+      ...(!isArtifactCreationId(id) && artifact.saveOrigin ? { saveOriginHash: artifactSaveOriginHash(tenantId, artifact.saveOrigin) } :
+        (artifact.sourceSessionId && !isArtifactCreationId(artifact.id) && typeof artifact.source === 'string'
+          ? { saveOriginHash: artifactSaveOriginHash(tenantId, { name: artifact.name, source: artifact.source }) }
+          : {})),
+      ...(artifact.sourceScheduleId ? { sourceScheduleId: artifact.sourceScheduleId } : {}),
+      discussionIds: cascade.discussions.map((row) => row.id).sort(),
+      proposalIds: cascade.proposals.map((row) => row.id).sort(),
+    }
+    const receipt: StoredArtifactDeletionReceipt = {
+      tenantId,
+      userId,
+      artifactId: id,
+      keyHash,
+      expectedLifecycleRevision: request.expectedLifecycleRevision,
+      reviewTokenHash: requestTokenHash,
+    }
+    const audiences = new Set<string>([tenantId])
+    for (const grant of cascade.shares) {
+      if (grant.granterTenant) audiences.add(grant.granterTenant)
+      if (grant.audienceTenant) audiences.add(grant.audienceTenant)
+      for (const audience of grant.redeemedBy ?? []) audiences.add(audience)
+    }
+    for (const discussion of cascade.discussions) audiences.add(discussion.openerTenant)
+    for (const proposal of cascade.proposals) audiences.add(proposal.offererTenant)
+
+    artifactRetirements.set(id, retirement)
+    graph = {
+      ...graph,
+      extraArtifacts: graph.extraArtifacts.filter((row) => row.id !== id),
+      artifactProject: Object.fromEntries(Object.entries(graph.artifactProject).filter(([key]) => key !== id)),
+      artifactSource: Object.fromEntries(Object.entries(graph.artifactSource).filter(([key]) => key !== id)),
+      revision: (graph.revision ?? 0) + 1,
+    }
+    artifactBodies.delete(id)
+    artifactHistory.delete(id)
+    for (const [key, row] of artifactHistoryRestoreReceipts) if (row.artifactId === id) artifactHistoryRestoreReceipts.delete(key)
+    artifactMetadata.delete(id)
+    artifactLifecycle.delete(id)
+    grants.splice(0, grants.length, ...grants.filter((grant) => !subjectKeys.has(`${grant.subject.kind}:${grant.subject.id}`)))
+    discussions.splice(0, discussions.length, ...discussions.filter((row) => !deletedDiscussionIds.has(row.id)))
+    socialProposals.splice(0, socialProposals.length, ...socialProposals.filter((row) => !deletedProposalIds.has(row.id)))
+    for (const [, reads] of discussionReads) for (const discussionId of deletedDiscussionIds) reads.delete(discussionId)
+    for (const key of [...watches.keys()]) if (subjectKeys.has(key)) watches.delete(key)
+    for (const key of removedFeedIds) commonsLikes.delete(key)
+    for (const [tenant, rows] of views) views.set(tenant, rows.filter((row) => !subjectKeys.has(`${row.kind}:${row.id}`)))
+    notifications.splice(0, notifications.length, ...notifications.filter((row) =>
+      !(row.subjectKind && row.subjectId && subjectKeys.has(`${row.subjectKind}:${row.subjectId}`)) &&
+      !(row.discussionId && deletedDiscussionIds.has(row.discussionId)) &&
+      !(row.proposalId && deletedProposalIds.has(row.proposalId))))
+    for (const [key, value] of artifactDeletionReviews) if (value.artifactId === id) artifactDeletionReviews.delete(key)
+    artifactDeletionReceipts.set(receiptKey, receipt)
+    persist()
+    emit({ type: 'artifact.changed', artifactId: id })
+    for (const recipient of audiences) if (recipient !== tenantId) emit({ type: 'social-access.changed', tenantId: recipient })
+    return { artifactId: id, deleted: true }
+  },
+  artifactIsRetired(id: string): boolean {
+    return artifactIsRetired(id)
+  },
   /** One durable CAS for Trash and restore. Replaying its immediate represented
    * step acknowledges it; old retries cannot cross a later opposite transition.
    * Body, metadata, filing, source, proposals and current grants are retained. */
@@ -11994,6 +12199,13 @@ export const store = {
         op = { ...op, artifact: { ...op.artifact, name: artifactName } }
       }
       const saveOp = op
+      const saveOriginHash = artifactSaveOriginHash(ownerTenantId, {
+        name: artifactName,
+        source: saveOp.sessionTitle ?? 'Created here',
+      })
+      if ([...artifactRetirements.values()].some((row) => row.tenantId === ownerTenantId && row.saveOriginHash === saveOriginHash)) {
+        throw new ConflictError('This Artifact’s saved origin was permanently deleted and cannot be recreated by replaying the same save.')
+      }
       existingArtifactId = graph.extraArtifacts.find((candidate) => artifactMatchesSave(candidate, saveOp))?.id
       if (op.artifact.body !== undefined) {
         authored = authoredArtifact(artifactName, op.artifact.kind, op.artifact.body)
@@ -12196,7 +12408,7 @@ export const store = {
     // — a non-default caller keying a ghost/'' artifact row is refused. (save-artifact
     // MINTS a new id internally, carries no `artifactId`, so it's naturally exempt here.)
     const aid = (op as { artifactId?: string }).artifactId
-    if (aid != null && artifactIsTrashed(aid)) return true
+    if (aid != null && (artifactIsTrashed(aid) || artifactIsRetired(aid))) return true
     if (aid != null && artifactTenant(aid) !== tenantId) return true
     // A routine's standing bindings are writes, not shared-reader actions.
     // Unknown and blank ids have no owner and cannot mint ghost authority.

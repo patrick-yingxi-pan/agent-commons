@@ -74,7 +74,8 @@ export function mcpToolRoutes(router: Router): ApiOperation[] {
  * not optional replay optimization. Keep schema and protocol aligned. */
 function requiresIdempotencyKey(operation: ApiOperation): boolean {
   return operation.method === 'POST' && (operation.pattern === '/artifacts' ||
-    /^\/artifacts\/:id\/history\/:revision\/restore$/.test(operation.pattern))
+    /^\/artifacts\/:id\/history\/:revision\/restore$/.test(operation.pattern)) ||
+    operation.method === 'DELETE' && operation.pattern === '/artifacts/:id'
 }
 
 function toolDefinition(t: ApiOperation) {

@@ -6,7 +6,7 @@ const read = (file: string) => readFileSync(new URL(file, import.meta.url), 'utf
 
 test('Artifact Trash is one owner-only canonical lifecycle and shared recovery projection', () => {
   const page = read('./artifactPreview.tsx')
-  assert.match(page, /if \(inTrash \|\| lifecycleHeld\) return/)
+  assert.match(page, /if \(inTrash \|\| lifecycleHeld \|\| permanentDeletionHeld\) return/)
   assert.match(page, /useArtifactContent\(!inTrash && !lifecycleHeld\)/)
   assert.match(page, /own && !lifecycleHeld && <button/)
   assert.match(page, /<ConfirmDialog title="Move artifact to Trash\?"/)
@@ -15,7 +15,9 @@ test('Artifact Trash is one owner-only canonical lifecycle and shared recovery p
   assert.match(page, /draftState !== undefined/)
   for (const file of ['./SectionView.tsx', './ArtifactChildren.tsx']) {
     const projection = read(file)
-    assert.match(projection, /artifactTrashProjection\(rel\.allArtifacts\(\), trashQ\.data \?\? \[\], heldArtifactLifecycles\(\)\.map/)
+    assert.match(projection, /artifactTrashProjection\(rel\.allArtifacts\(\), trashQ\.data \?\? \[\], \[/)
+    assert.match(projection, /\.\.\.heldArtifactLifecycles\(\)\.map\(held => held\.artifact\)/)
+    assert.match(projection, /\.\.\.heldDeletionRows/)
     assert.match(projection, /useArtifactLifecycleStatus\(\)/)
     assert.match(projection, /artifactCollectionSections\([^\n]+library\.trashed/)
   }

@@ -7,9 +7,10 @@ import type {
 import type { ArtifactItem } from '../../contract/cowork.ts'
 import type { RelationGraph } from '../../contract/api.ts'
 import { ApiRequestError, apiGet, apiPatch } from './client.ts'
-import { invalidate, invalidatePrefix, peek, setData, useQuery, type QueryState } from './cache.ts'
+import { evict, invalidate, invalidatePrefix, peek, setData, useQuery, type QueryState } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { mergeArtifactMetadata } from './artifactMetadata.ts'
+import { isArtifactPermanentlyAbsent, markArtifactPermanentlyAbsent } from './artifactPermanentAbsences.ts'
 
 /** Lifecycle revision is independent of metadata and body revisions. A delayed
  * read or acknowledgement may refresh other fields, but cannot rewind it. */
@@ -76,6 +77,7 @@ function projectAcceptedArtifactLifecycle(snapshot: ArtifactLifecycleSnapshot): 
 }
 
 function acceptArtifactLifecycleSnapshot(incoming: ArtifactLifecycleSnapshot): ArtifactLifecycleSnapshot {
+  if (isArtifactPermanentlyAbsent(incoming.artifact.id)) return incoming
   const key = keys.artifactLifecycle(incoming.artifact.id)
   const activeRows = peek<ArtifactItem[]>(keys.artifacts) ?? []
   const graphRows = peek<RelationGraph>(keys.relations)?.extraArtifacts ?? []
@@ -117,7 +119,8 @@ function acceptArtifactLifecycleSnapshot(incoming: ArtifactLifecycleSnapshot): A
 
 /** The owner-only list of retained artifacts. */
 export function useTrashedArtifacts(enabled = true): QueryState<TrashedArtifact[]> {
-  return useQuery(keys.artifactTrash, () => apiGet<TrashedArtifact[]>(paths.artifactTrash), enabled)
+  return useQuery(keys.artifactTrash, async () =>
+    (await apiGet<TrashedArtifact[]>(paths.artifactTrash)).filter((entry) => !isArtifactPermanentlyAbsent(entry.artifact.id)), enabled)
 }
 
 /** One artifact's canonical row plus its independent, monotonically ordered
@@ -125,25 +128,31 @@ export function useTrashedArtifacts(enabled = true): QueryState<TrashedArtifact[
 export function useArtifactLifecycle(id: string, enabled = true): QueryState<ArtifactLifecycleSnapshot> {
   return useQuery(
     keys.artifactLifecycle(id),
-    async () => mergeArtifactLifecycleSnapshot(
-      peek<ArtifactLifecycleSnapshot>(keys.artifactLifecycle(id)),
-      await apiGet<ArtifactLifecycleSnapshot>(paths.artifactLifecycle(id)),
-    ),
+    async () => {
+      const incoming = await apiGet<ArtifactLifecycleSnapshot>(paths.artifactLifecycle(id))
+      if (isArtifactPermanentlyAbsent(id)) throw new ApiRequestError('not_found', 'Artifact was permanently deleted.', 404)
+      return acceptArtifactLifecycleSnapshot(mergeArtifactLifecycleSnapshot(
+        peek<ArtifactLifecycleSnapshot>(keys.artifactLifecycle(id)), incoming,
+      ))
+    },
     !!id && enabled,
   )
 }
 
 /** Read the exact lifecycle snapshot for controller admission and reconciliation. */
 export async function getArtifactLifecycle(id: string, sourceUserId?: string | null): Promise<ArtifactLifecycleSnapshot> {
-  return acceptArtifactLifecycleSnapshot(await apiGet<ArtifactLifecycleSnapshot>(paths.artifactLifecycle(id), { expectedSessionUserId: sourceUserId }))
+  if (isArtifactPermanentlyAbsent(id)) throw new ApiRequestError('not_found', 'Artifact was permanently deleted.', 404)
+  const incoming = await apiGet<ArtifactLifecycleSnapshot>(paths.artifactLifecycle(id), { expectedSessionUserId: sourceUserId })
+  if (isArtifactPermanentlyAbsent(id)) throw new ApiRequestError('not_found', 'Artifact was permanently deleted.', 404)
+  return acceptArtifactLifecycleSnapshot(incoming)
 }
 
-function refreshArtifactLifecycleProjections(id: string): void {
+function refreshArtifactLifecycleProjections(id: string, refreshLifecycle = true): void {
   invalidate(keys.artifacts)
   invalidate(keys.relations)
   invalidate(keys.artifactContent)
   invalidate(keys.artifactTrash)
-  invalidate(keys.artifactLifecycle(id))
+  if (refreshLifecycle) invalidate(keys.artifactLifecycle(id))
   invalidate(keys.commons)
   invalidatePrefix(keys.grants())
   invalidatePrefix(keys.discussions())
@@ -212,6 +221,14 @@ export function invalidateArtifactLifecycle(id: string): void {
   refreshArtifactLifecycleProjections(id)
 }
 
+/** Permanent deletion is authoritative absence, not a trashed lifecycle state.
+ *  Drop the old snapshot before refreshing every derived projection. */
+export function acceptArtifactLifecycleAbsence(id: string): void {
+  markArtifactPermanentlyAbsent(id)
+  evict(keys.artifactLifecycle(id))
+  refreshArtifactLifecycleProjections(id, false)
+}
+
 /** Publish an ambient/event snapshot without allowing a stale event to rewind
  * a read or acknowledgement already accepted for this artifact. */
 export function acceptArtifactLifecycle(incoming: ArtifactLifecycleSnapshot): ArtifactLifecycleSnapshot {
@@ -229,6 +246,7 @@ export function artifactLifecycleIsActive(
   artifact: ArtifactItem,
   knownSnapshot: ArtifactLifecycleSnapshot | undefined,
 ): boolean {
+  if (isArtifactPermanentlyAbsent(artifact.id)) return false
   const rowRevision = artifact.lifecycleRevision ?? 0
   if (knownSnapshot && knownSnapshot.lifecycle.revision >= rowRevision) {
     return knownSnapshot.lifecycle.state === 'active'

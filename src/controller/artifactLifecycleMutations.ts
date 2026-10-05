@@ -6,7 +6,7 @@ import { reconcileArtifactLifecycle, transitionArtifactLifecycle } from '../api/
 import { createAcknowledgedActionMutationController } from './acknowledgedActionMutationCore.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
 import type { RevisionedMutationFailure, RevisionedMutationOutcome } from './revisionedMutationCore.ts'
-import { isArtifactHistoryRestoreHeld } from './artifactBodyOperationHolds.ts'
+import { isArtifactHistoryRestoreHeld, isArtifactPermanentDeletionHeld } from './artifactBodyOperationHolds.ts'
 
 export interface ArtifactLifecycleIntent {
   readonly artifact: ArtifactItem
@@ -82,7 +82,7 @@ export function enqueueArtifactLifecycle(
   sourceUserId: string | null,
   expectedRevision = artifact.lifecycleRevision ?? 0,
 ): Promise<RevisionedMutationOutcome> {
-  if (isArtifactHistoryRestoreHeld(artifact.id)) return Promise.resolve('discarded')
+  if (isArtifactHistoryRestoreHeld(artifact.id) || isArtifactPermanentDeletionHeld(artifact.id)) return Promise.resolve('discarded')
   const existing = held.get(artifact.id)
   if (existing) return existing.result
 

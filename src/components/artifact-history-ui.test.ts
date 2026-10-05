@@ -11,7 +11,7 @@ test('canonical Artifact history is owner-only, lazy, bounded, and previews an i
   assert.match(historySection, /const Panel = lazy\(loadHistoryPanel\)/)
   assert.match(historySection, /Promise\.all\([\s\S]*import\('\.\/ArtifactHistoryPanel'\)[\s\S]*import\('\.\/ShellMutationNotices'\)/,
     'restore controls are admitted only after the same deferred shell recovery module loads')
-  assert.match(page, /own && artifact\.kind !== 'image' && <ArtifactHistorySectionBoundary/)
+  assert.match(page, /own && artifact\.kind !== 'image' && !permanentDeletionHeld && <ArtifactHistorySectionBoundary/)
   assert.match(historySection, /onClick=\{\(\) => setOpened\(true\)\}>Load history/)
   assert.match(page, /<ArtifactHistorySectionBoundary key=\{artifact\.id\}>[\s\S]*DeferredArtifactHistorySection/)
   assert.match(page, /class ArtifactHistorySectionBoundary[\s\S]*<Suspense fallback=/)

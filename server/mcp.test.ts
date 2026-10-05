@@ -79,6 +79,12 @@ test('tools/call: mutation retry identities are bounded and invalid values fail 
   const create = listed.json.result.tools.find((tool: any) => tool.name === 'post_artifacts')
   assert.ok(create.inputSchema.required.includes('idempotencyKey'), 'intrinsic Artifact creation advertises its mandatory logical identity')
   assert.equal(create.annotations.idempotentHint, true, 'its mandatory stable key makes exact retries safe')
+  const deletion = listed.json.result.tools.find((tool: any) => tool.name === 'delete_artifacts_by_id')
+  assert.ok(deletion.inputSchema.required.includes('idempotencyKey'), 'permanent deletion advertises its durable receipt key')
+  const missingDeletionKey = await rpc('tools/call', {
+    name: 'delete_artifacts_by_id', arguments: { id: 'missing', body: { expectedLifecycleRevision: 1, reviewToken: 'a'.repeat(64) } },
+  })
+  assert.equal(missingDeletionKey.json.error.code, -32602)
   const missingCreateKey = await rpc('tools/call', {
     name: 'post_artifacts',
     arguments: { body: { name: 'missing-key.md', kind: 'doc', body: 'Must not create.' } },

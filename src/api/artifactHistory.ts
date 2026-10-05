@@ -7,7 +7,7 @@ import {
   type RestoreArtifactHistoryResult,
 } from '../../contract/artifactHistory.ts'
 import { apiGet, apiPost } from './client.ts'
-import { invalidate, invalidatePrefix, useQuery, type QueryState } from './cache.ts'
+import { evictPrefix, invalidate, invalidatePrefix, useQuery, type QueryState } from './cache.ts'
 import { artifactHistoryKey } from './artifactHistoryKeys.ts'
 import { paths } from './keys.ts'
 
@@ -77,4 +77,10 @@ export function invalidateArtifactHistory(artifactId: string): void {
 
 export function invalidateArtifactHistoryVersion(artifactId: string, revision: number): void {
   invalidate(`${artifactHistoryKey(artifactId)}:version:${revision}`)
+}
+
+/** Authorization and permanent-removal changes clear reviewed history bodies
+ *  before any revalidation, so a slow/failed read cannot leave stale versions on screen. */
+export function evictArtifactHistory(artifactId?: string): void {
+  evictPrefix(artifactHistoryKey(artifactId))
 }

@@ -37,6 +37,9 @@ export const graphReplayVisible: ReplayVisibility = ({ req }, response) => {
   const body = JSON.parse(response.body) as RelationGraph | { graph: RelationGraph }
   const graph = 'graph' in body ? body.graph : body
   const hidden = new Set(store.listTrashedArtifacts(store.identity(req.headers).tenant.id).map((row) => row.artifact.id))
+  for (const id of [...Object.keys(graph.artifactProject), ...Object.keys(graph.artifactSource), ...graph.extraArtifacts.map((row) => row.id)]) {
+    if (store.artifactIsRetired(id)) hidden.add(id)
+  }
   return !graph.extraArtifacts.some((artifact) => hidden.has(artifact.id)) &&
     !Object.keys(graph.artifactProject).some((id) => hidden.has(id)) &&
     !Object.keys(graph.artifactSource).some((id) => hidden.has(id))

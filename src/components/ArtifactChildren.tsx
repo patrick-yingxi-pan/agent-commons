@@ -1,5 +1,6 @@
 import { useTrashedArtifacts } from '../api/artifactLifecycle'
 import { heldArtifactLifecycles, useArtifactLifecycleStatus } from '../controller/artifactLifecycleMutations'
+import { useArtifactPermanentDeletionRows } from '../controller/artifactPermanentDeletionProjection.ts'
 import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { useRelations } from '../controller/useRelations'
 import { listArtifacts } from '../lib/sectionLists'
@@ -19,7 +20,11 @@ export function ArtifactChildren({ renderRows: Rows, foldSignal, ...props }: Ins
   const rel = useRelations()
   const trashQ = useTrashedArtifacts()
   useArtifactLifecycleStatus()
-  const library = artifactTrashProjection(rel.allArtifacts(), trashQ.data ?? [], heldArtifactLifecycles().map(held => held.artifact))
+  const heldDeletionRows = useArtifactPermanentDeletionRows()
+  const library = artifactTrashProjection(rel.allArtifacts(), trashQ.data ?? [], [
+    ...heldArtifactLifecycles().map(held => held.artifact),
+    ...heldDeletionRows,
+  ])
   const artifacts = library.active
   const rows = listArtifacts(artifacts, filter)
   const allGroups = artifactCollectionSections(artifacts, rel.allProjects(), rel.artifactProjectId, library.trashed)

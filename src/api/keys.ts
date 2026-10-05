@@ -338,6 +338,8 @@ export const paths = {
   artifactContent: '/artifact-content',
   /** The owner's body-edit door (social S3) — one addressed prose block. */
   artifactContentEdit: (id: string) => `/artifacts/${encodePathSegment(id)}/content`,
+  /** Owner-only reviewed permanent deletion from Trash. */
+  artifactDeletionPreview: (id: string) => `/artifacts/${encodePathSegment(id)}/deletion-preview`,
   /** Owner-only retained Artifact body history and exact revision restore. */
   artifactHistory: (id: string, beforeRevision?: number, limit = 50) => {
     const query = new URLSearchParams({ limit: String(limit) })

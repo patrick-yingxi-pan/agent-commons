@@ -141,6 +141,15 @@ export function evict(key: string): void {
   if (fetcher) run(key, fetcher)
 }
 
+/** Drop every cached variant in a resource family before refetching. Unlike
+ *  invalidation, eviction is for authorization or permanent-removal changes:
+ *  stale bodies must not remain visible while the fresh read is pending. */
+export function evictPrefix(prefix: string): void {
+  for (const key of entries.keys()) {
+    if (key === prefix || key.startsWith(`${prefix}:`)) evict(key)
+  }
+}
+
 /** Read a key's cached data without subscribing — for imperative lookups outside
  *  React (e.g. the controller resolving a run session from the recent-runs feed).
  *  Returns undefined if the key was never queried / hasn't loaded. */

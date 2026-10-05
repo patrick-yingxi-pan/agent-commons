@@ -22,6 +22,7 @@ import type { SectionId } from '../types'
 import { navLocationOfLoc } from '../lib/paneHistory'
 import { SectionNavOverride } from '../controller/useRelations'
 import { PANE_SEED_KEYS, locOfSeed, paneNavTarget, seedOfLoc, type PaneSeed } from '../lib/paneNav'
+import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 
 /** The pane's open detail, as the explicit null-carrying form of a `PaneSeed`.
  *  DERIVED from `PANE_SEED_KEYS` rather than hand-listed: this was the third
@@ -171,6 +172,11 @@ export function SectionPane({
         }
         onOpenProposal={nav.onOpenProposal}
         onBack={onBack}
+        onOpenArtifactTrash={() => {
+          setSubview(null)
+          setFocus({ ...NO_FOCUS, collectionSectionId: ARTIFACT_TRASH_SECTION.id })
+          setStack([])
+        }}
         backTo={backTo}
         focusCollectionSectionId={focus.collectionSectionId}
         focusProjectId={focus.projectId}

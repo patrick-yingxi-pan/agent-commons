@@ -8,6 +8,7 @@ import { exportArtifact } from './artifactExport.ts'
 import { serveSessionTurn } from './sessionTurnStream.ts'
 import { updateArtifactContent } from './artifactContent.ts'
 import { registerArtifactHistoryRoutes } from './artifactHistory.ts'
+import { parseArtifactDeletionRequest } from '../../contract/artifactDeletion.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
   ApplyOpRequest,
@@ -5456,6 +5457,40 @@ export function buildRouter(): Router {
       sendJson(res, snapshot satisfies ArtifactLifecycleSnapshot)
     } catch (error) {
       if (error instanceof ValidationError || error instanceof ConflictError) return sendError(res, error.code, error.message)
+      throw error
+    }
+  })
+  r.get('/artifacts/:id/deletion-preview', ({ req, res, params }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
+    const tenantId = store.identity(req.headers).tenant.id
+    try {
+      const preview = store.previewArtifactDeletion(params.id, tenantId)
+      if (!preview) return sendError(res, 'not_found', 'No such artifact')
+      sendJson(res, preview)
+    } catch (error) {
+      if (error instanceof ConflictError || error instanceof ValidationError) return sendError(res, error.code, error.message)
+      throw error
+    }
+  })
+  // This route owns a durable, exact receipt rather than the generic response
+  // cache: changed bodies under a reused key must conflict, and a lost-ack
+  // retry remains answerable after the artifact row is gone or the server restarts.
+  r.delete('/artifacts/:id', async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
+    const identity = store.identity(req.headers)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    if (!idempotencyKey?.trim()) return sendError(res, 'bad_request', 'Idempotency-Key is required for permanent Artifact deletion.')
+    if (idempotencyKey.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      return sendError(res, 'bad_request', `Idempotency-Key must be at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`)
+    }
+    const input = parseArtifactDeletionRequest(await body<unknown>())
+    if (!input) return sendError(res, 'bad_request', 'expectedLifecycleRevision and reviewToken are required for permanent Artifact deletion.')
+    try {
+      const result = store.permanentlyDeleteArtifact(params.id, input, identity.tenant.id, identity.user.id, idempotencyKey)
+      if (!result) return sendError(res, 'not_found', 'No such artifact')
+      sendJson(res, result)
+    } catch (error) {
+      if (error instanceof ConflictError || error instanceof ValidationError) return sendError(res, error.code, error.message)
       throw error
     }
   })

@@ -63,9 +63,10 @@ import {
   isStructuredArtifactMutationHeld,
   useStructuredArtifactMutationStatus,
 } from '../controller/structuredArtifactMutations'
-import { useArtifactHistoryRestoreHeld } from '../controller/artifactBodyOperationHolds.ts'
+import { useArtifactHistoryRestoreHeld, useArtifactPermanentDeletionHeld } from '../controller/artifactBodyOperationHolds.ts'
 
 const DeferredArtifactHistorySection = lazy(() => import('./ArtifactHistorySection'))
+const DeferredArtifactPermanentDeletionSection = lazy(() => import('./DeferredArtifactPermanentDeletionSection'))
 
 class ArtifactHistorySectionBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
@@ -73,6 +74,15 @@ class ArtifactHistorySectionBoundary extends Component<{ children: ReactNode }, 
   render() {
     if (this.state.failed) return <InlineOperationStatus tone="alert" message="Couldn’t display history. Check recovery and copy unsent text before reloading." action={{ label: 'Reload app', onClick: () => window.location.reload() }} />
     return <Suspense fallback={<p role="status">Loading history…</p>}>{this.props.children}</Suspense>
+  }
+}
+
+class ArtifactPermanentDeletionSectionBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    if (this.state.failed) return <InlineOperationStatus tone="alert" message="Couldn’t load permanent deletion recovery. Nothing was deleted; reload the app to retry." action={{ label: 'Reload app', onClick: () => window.location.reload() }} />
+    return <Suspense fallback={<p role="status">Loading deletion controls…</p>}>{this.props.children}</Suspense>
   }
 }
 
@@ -686,6 +696,7 @@ export function ArtifactDetailPage({
   onAssignProject,
   onOpenSource,
   onBack,
+  onDeleted,
   backTo,
   Section,
 }: {
@@ -710,6 +721,7 @@ export function ArtifactDetailPage({
    *  provenance stays a plain label rather than a dead link. */
   onOpenSource?: () => void
   onBack: () => void
+  onDeleted?: () => void
   backTo: NavLocation | null
   /** The same FoldSection every other main page uses. Injected by SectionView
    * so this body module stays reusable without importing its parent. */
@@ -740,6 +752,7 @@ export function ArtifactDetailPage({
   useArtifactLifecycleStatus()
   const lifecycleHeld = heldArtifactLifecycle(artifact.id)
   const historyRestoreHeld = useArtifactHistoryRestoreHeld(artifact.id)
+  const permanentDeletionHeld = useArtifactPermanentDeletionHeld(artifact.id)
   const artifactContent = useArtifactContent(!inTrash && !lifecycleHeld)
   const structuredMutation = useStructuredArtifactMutationStatus()
   const structuredBody = artifactContent.data?.[artifact.id]
@@ -796,7 +809,7 @@ export function ArtifactDetailPage({
     const { revision = 0, ...content } = editableStructuredBody
     artifactEditDrafts.start(artifact.id, { kind: 'structured', content, expectedRevision: revision })
   }
-  const historySection = own && artifact.kind !== 'image' && <ArtifactHistorySectionBoundary key={artifact.id}>
+  const historySection = own && artifact.kind !== 'image' && !permanentDeletionHeld && <ArtifactHistorySectionBoundary key={artifact.id}>
     <DeferredArtifactHistorySection Section={Section} artifact={artifact} sourceUserId={sourceUserId}
       allowRestore={!inTrash && !lifecycleHeld} restoreBlocked={draftState !== undefined || structuredBusy} />
   </ArtifactHistorySectionBoundary>
@@ -804,25 +817,28 @@ export function ArtifactDetailPage({
   // The same canonical identity becomes a recovery surface. No retained body,
   // download, sharing or edit controls confer authority while access is suspended
   // or while the initiating action has an uncertain acknowledgement.
-  if (inTrash || lifecycleHeld) return (
-    <div data-artifact-page={artifact.id} data-artifact-lifecycle={lifecycleHeld ? 'held' : 'trashed'} className="mx-auto w-full max-w-3xl">
+  if (inTrash || lifecycleHeld || permanentDeletionHeld) return (
+    <div data-artifact-page={artifact.id} data-artifact-lifecycle={permanentDeletionHeld ? 'deleting' : lifecycleHeld ? 'held' : 'trashed'} data-artifact-permanent-deletion={permanentDeletionHeld ? 'held' : undefined} className="mx-auto w-full max-w-3xl">
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo ?? { kind: 'section', section: 'artifacts', projectId: null, scheduleId: null, collectionSectionId: '__trash' }} onBack={onBack} />
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-cap-workspace"><Icon size={20} /></span>
           <div className="min-w-0 flex-1">
             <h1 className={`${PAGE_TITLE_CLASS} truncate`} {...identityTitleProps(artifact.name)}>{artifact.name}</h1>
-            <p className="mt-1 text-[12px] text-ink-soft"><span>{lifecycleHeld ? 'Waiting for confirmation' : 'In Trash'}</span> · {KIND_LABEL[artifact.kind]}</p>
+            <p className="mt-1 text-[12px] text-ink-soft"><span>{permanentDeletionHeld ? 'Permanent deletion awaiting confirmation' : lifecycleHeld ? 'Waiting for confirmation' : 'In Trash'}</span> · {KIND_LABEL[artifact.kind]}</p>
           </div>
         </div>
       </header>
-      <Section title="Recovery" summary={lifecycleHeld ? 'Your reviewed action is held' : 'Restore this artifact'}>
-        <p className="text-[13px] leading-relaxed text-ink-soft">{lifecycleHeld
+      <Section title="Recovery" summary={permanentDeletionHeld || lifecycleHeld ? 'Your reviewed action is held' : 'Restore this artifact'}>
+        <p className="text-[13px] leading-relaxed text-ink-soft">{permanentDeletionHeld
+          ? 'Use the permanent deletion recovery notice to retry this exact reviewed request or Dismiss to check saved state. Restore stays unavailable until the result is confirmed.'
+          : lifecycleHeld
           ? 'Use the recovery notice to retry this exact action, or Dismiss to check its saved state. The artifact stays here until the outcome is confirmed.'
           : 'This artifact is kept in Trash and is unavailable to shared readers, discussions and routines. Restoring keeps its contents, filing and current sharing settings.'}</p>
-        {own && !lifecycleHeld && <button type="button" disabled={!identity || historyRestoreHeld} title={historyRestoreHeld ? 'Wait for the version restore to be confirmed' : undefined} className={`${SECONDARY_BUTTON_CLASS} mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]`} onClick={() => { if (identity) void enqueueArtifactLifecycle(artifact, 'active', sourceUserId) }}><RotateCcw size={14} />Restore artifact</button>}
+        {own && !lifecycleHeld && <button type="button" disabled={!identity || historyRestoreHeld || permanentDeletionHeld} title={permanentDeletionHeld ? 'Wait for permanent deletion to be confirmed' : historyRestoreHeld ? 'Wait for the version restore to be confirmed' : undefined} className={`${SECONDARY_BUTTON_CLASS} mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]`} onClick={() => { if (identity) void enqueueArtifactLifecycle(artifact, 'active', sourceUserId) }}><RotateCcw size={14} />Restore artifact</button>}
       </Section>
       {historySection}
+      {own && inTrash && !lifecycleHeld && identity && <ArtifactPermanentDeletionSectionBoundary><DeferredArtifactPermanentDeletionSection Section={Section} artifact={artifact} sourceUserId={sourceUserId} onDeleted={onDeleted ?? onBack} /></ArtifactPermanentDeletionSectionBoundary>}
     </div>
   )
 

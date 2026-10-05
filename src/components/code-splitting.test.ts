@@ -138,6 +138,20 @@ test('MainSplit lazy-loads SectionPane behind accessible in-pane loading and fai
   assert.match(source, /window\.location\.reload\(\)/, 'retry reloads the document so a stale deployment gets fresh asset URLs')
 })
 
+test('desktop backup controls stay outside the general section graph until Customize opens', () => {
+  const source = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  assert.doesNotMatch(source, /import\s+\{\s*DesktopDataCard\s*\}\s+from/,
+    'desktop-only backup APIs are absent from the ordinary SectionPane graph')
+  assert.match(source, /lazy\(\(\)\s*=>\s*import\('\.\/DesktopDataCard'\)/,
+    'the local backup card is split as one cohesive optional feature')
+  assert.match(source, /<Suspense\s+fallback=\{<p role="status"[^>]*>Loading backup controls…<\/p>\}>\s*<DeferredDesktopDataCard\s*\/>/,
+    'opening Customize keeps a visible loading state while the optional card loads')
+  assert.match(source, /<DesktopDataBoundary><Suspense/,
+    'a rejected backup module does not replace the rest of Customize')
+  assert.match(source, /Couldn’t load backup controls\. Your data was not changed\. Copy unsent text before reloading/,
+    'reload recovery discloses unsent-text loss')
+})
+
 test('durable shell recovery stays local when its deferred chunk fails and history waits for it', () => {
   const app = stripComments(read(join(ROOT, 'src/App.tsx')))
   const shell = stripComments(read(join(ROOT, 'src/components/ShellMutationNotices.tsx')))

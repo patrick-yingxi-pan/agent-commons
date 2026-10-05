@@ -6,7 +6,7 @@ import { acceptArtifactContent, reconcileArtifactContent } from '../api/commands
 import { artifactEditDrafts } from './artifactEditDrafts.ts'
 import { heldArtifactLifecycle } from './artifactLifecycleMutations.ts'
 import { isStructuredArtifactMutationHeld } from './structuredArtifactMutations.ts'
-import { holdArtifactHistoryRestore, releaseArtifactHistoryRestore, clearArtifactHistoryRestoreHolds } from './artifactBodyOperationHolds.ts'
+import { holdArtifactHistoryRestore, isArtifactPermanentDeletionHeld, releaseArtifactHistoryRestore, clearArtifactHistoryRestoreHolds } from './artifactBodyOperationHolds.ts'
 import { createAcknowledgedActionMutationController } from './acknowledgedActionMutationCore.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
 import type { RevisionedMutationFailure, RevisionedMutationOutcome } from './revisionedMutationCore.ts'
@@ -124,7 +124,7 @@ export function enqueueArtifactHistoryRestore(
   sourceUserId: string | null,
 ): Promise<RevisionedMutationOutcome> {
   if (artifactEditDrafts.get(artifactId) || isStructuredArtifactMutationHeld(artifactId) ||
-    heldArtifactLifecycle(artifactId) || held.size > 0) return Promise.resolve('discarded')
+    heldArtifactLifecycle(artifactId) || isArtifactPermanentDeletionHeld(artifactId) || held.size > 0) return Promise.resolve('discarded')
   const issuedGeneration = generation
   const intent: ArtifactHistoryRestoreIntent = {
     artifactId,
@@ -133,7 +133,7 @@ export function enqueueArtifactHistoryRestore(
     sourceUserId,
     intentId: crypto.randomUUID(),
   }
-  holdArtifactHistoryRestore(artifactId)
+  if (!holdArtifactHistoryRestore(artifactId)) return Promise.resolve('discarded')
   const result = controller.enqueue(intent)
   const entry: HeldArtifactHistoryRestore = { ...intent, result }
   held.set(artifactId, entry)

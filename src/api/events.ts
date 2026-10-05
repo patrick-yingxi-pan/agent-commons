@@ -11,8 +11,9 @@ import { useEffect } from 'react'
 import type { ServerEvent } from '../../contract/index.ts'
 import { API_BASE } from './client.ts'
 import { keys } from './keys.ts'
-import { invalidate, invalidatePrefix, resetAll, revalidateAll } from './cache.ts'
+import { evictPrefix, invalidate, invalidatePrefix, resetAll, revalidateAll } from './cache.ts'
 import { invalidateForCommonsOp } from './commonsInvalidation.ts'
+import { clearArtifactPermanentAbsences } from './artifactPermanentAbsences.ts'
 import { helloRequiresReset } from './streamPolicy.ts'
 import { activeAccount, onAccountSwitch } from './account.ts'
 import { ambientSyncHealth } from './syncHealth.ts'
@@ -82,7 +83,10 @@ function invalidateProjectDependencies(projectId: string): void {
 function route(e: ServerEvent): void {
   switch (e.type) {
     case 'hello': {
-      if (helloRequiresReset(e, knownEpoch)) resetAll()
+      if (helloRequiresReset(e, knownEpoch)) {
+        clearArtifactPermanentAbsences()
+        resetAll()
+      }
       knownEpoch = e.epoch
       // `hello` is the health proof: by this point the identity echo has been
       // accepted, and its resumption bit has either preserved continuity or
@@ -315,6 +319,18 @@ function route(e: ServerEvent): void {
     // the audience's world projection: a granted project must appear in their
     // Projects list (the shared-with-me band) live, a revoked one must leave.
     case 'social-access.changed':
+      // An owner-only history page can outlive a grant transition in this
+      // browser. Remove cached version bodies immediately before the current
+      // account revalidates its access.
+      evictPrefix('artifact-history')
+      // This event intentionally carries no artifact id. Refresh the generic
+      // artifact projections so readers drop deleted/revoked rows without
+      // revealing which subject changed in their event stream.
+      invalidate(keys.artifacts)
+      invalidate(keys.artifactContent)
+      invalidate(keys.relations)
+      invalidate(keys.artifactTrash)
+      invalidatePrefix(keys.artifactLifecycle())
       invalidatePrefix(keys.grants())
       invalidatePrefix(keys.discussions())
       invalidatePrefix(keys.discussion())

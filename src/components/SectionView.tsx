@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
+import { Component, lazy, Suspense, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
@@ -166,7 +166,6 @@ import { CheckboxRow, DefaultBadge, DefaultToggle } from './Checkbox'
 import { Spinner } from './Spinner'
 import { BackButton, PageBackContext } from './BackButton'
 import { PageActionButton } from './PageActionButton'
-import { DesktopDataCard } from './DesktopDataCard'
 import {
   AtomicResourcePage,
   CompositePageControls,
@@ -705,6 +704,7 @@ import { heldArtifactCreation } from '../controller/artifactCreationMutations'
 import { InlineOperationStatus } from './InlineOperationStatus'
 import { useTrashedArtifacts } from '../api/artifactLifecycle'
 import { heldArtifactLifecycle, heldArtifactLifecycles, useArtifactLifecycleStatus } from '../controller/artifactLifecycleMutations'
+import { heldArtifactPermanentDeletionRow, useArtifactPermanentDeletionRows } from '../controller/artifactPermanentDeletionProjection.ts'
 import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
@@ -730,6 +730,18 @@ import { CompositeProjectionScope, useCompositeCommand } from '../lib/useComposi
  *  vocabulary while their payload keeps its honest form — an artifact detail
  *  is a document and a scannable project index remains a ledger row. Sessions
  *  join the same atomic template through ConversationPane's workspace layout. */
+const DeferredDesktopDataCard = lazy(() => import('./DesktopDataCard').then(({ DesktopDataCard }) => ({ default: DesktopDataCard })))
+
+class DesktopDataBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    return this.state.failed
+      ? <InlineOperationStatus tone="alert" message="Couldn’t load backup controls. Your data was not changed. Copy unsent text before reloading." action={{ label: 'Reload app', onClick: () => window.location.reload() }} />
+      : this.props.children
+  }
+}
+
 export function SectionView({
   section,
   subview,
@@ -741,6 +753,7 @@ export function SectionView({
   onOpenSchedule,
   onOpenProposal,
   onBack,
+  onOpenArtifactTrash,
   backTo,
   railCollapsed = false,
   focusCollectionSectionId = null,
@@ -785,6 +798,7 @@ export function SectionView({
   /** Pop navigation history (the dynamic "back"), and where it leads — so a detail
    *  back button returns to where you came from and can name that destination. */
   onBack: () => void
+  onOpenArtifactTrash?: () => void
   backTo: NavLocation | null
   /** When the left rail is collapsed, a floating expand toggle sits in the
    *  top-left of this panel; inset the content so it clears that button rather
@@ -858,6 +872,7 @@ export function SectionView({
         collectionSectionId={focusCollectionSectionId}
         artifactId={focusArtifactId}
         onBack={onBack}
+        onOpenArtifactTrash={onOpenArtifactTrash}
         backTo={backTo}
         onOpenSession={onOpenSession}
       />
@@ -7815,12 +7830,14 @@ function ArtifactsSection({
   collectionSectionId,
   artifactId,
   onBack,
+  onOpenArtifactTrash,
   backTo,
   onOpenSession,
 }: {
   collectionSectionId: string | null
   artifactId: string | null
   onBack: () => void
+  onOpenArtifactTrash?: () => void
   backTo: NavLocation | null
   onOpenSession: (id: string) => void
 }) {
@@ -7831,9 +7848,13 @@ function ArtifactsSection({
   const artifactsQ = useArtifacts()
   const trashQ = useTrashedArtifacts()
   useArtifactLifecycleStatus()
+  const heldDeletionRows = useArtifactPermanentDeletionRows()
   const artifactRelationsQ = useRelationGraph()
   const sourceSchedules = useSchedules().data ?? []
-  const library = artifactTrashProjection(rel.allArtifacts(), trashQ.data ?? [], heldArtifactLifecycles().map(held => held.artifact))
+  const library = artifactTrashProjection(rel.allArtifacts(), trashQ.data ?? [], [
+    ...heldArtifactLifecycles().map(held => held.artifact),
+    ...heldDeletionRows,
+  ])
   const artifacts = library.active
   const projects = rel.allProjects()
   const sessions = useSessions().data ?? []
@@ -7865,7 +7886,7 @@ function ArtifactsSection({
 
   // An id the registry doesn't know (a stale link, a deleted artifact) degrades
   // to the plain index — the same graceful read every detail page gives.
-  const openArtifact = artifactId ? (heldArtifactLifecycle(artifactId)?.artifact ?? artifacts.find((a) => a.id === artifactId) ?? library.trashed.find(a => a.id === artifactId) ?? null) : null
+  const openArtifact = artifactId ? (heldArtifactLifecycle(artifactId)?.artifact ?? heldArtifactPermanentDeletionRow(artifactId) ?? artifacts.find((a) => a.id === artifactId) ?? library.trashed.find(a => a.id === artifactId) ?? null) : null
   const inTrash = openArtifact ? (openArtifact.lifecycleRevision ?? 0) % 2 === 1 : false
   // The open artifact IS this section's detail page now, so it records a view
   // like every other one (only when it actually resolved).
@@ -7902,6 +7923,7 @@ function ArtifactsSection({
           onAssignProject={openArtifact.own !== false ? (projectId) => assignProject(openArtifact, projectId) : undefined}
           onOpenSource={sourceSessionId ? () => onOpenSession(sourceSessionId) : undefined}
           onBack={onBack}
+          onDeleted={onOpenArtifactTrash ?? onBack}
           backTo={backTo}
           Section={FoldSection}
         />
@@ -7998,7 +8020,7 @@ function ArtifactPreviewRow({
   onOpen: () => void
 }) {
   const Icon = KIND_ICON[artifact.kind]
-  const recovery = heldArtifactLifecycle(artifact.id) ? 'Waiting for confirmation' : (artifact.lifecycleRevision ?? 0) % 2 === 1 ? 'In Trash' : null
+  const recovery = heldArtifactPermanentDeletionRow(artifact.id) ? 'Permanent deletion awaiting confirmation' : heldArtifactLifecycle(artifact.id) ? 'Waiting for confirmation' : (artifact.lifecycleRevision ?? 0) % 2 === 1 ? 'In Trash' : null
   const preview = recovery ?? (artifact.excerpt?.trim() || 'No preview available.')
   const specificMeta = artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind])
   return (
@@ -15805,7 +15827,9 @@ function CustomizeView() {
       <AppearanceCard />
       <DefaultModelCard />
       <SystemPromptCard />
-      <DesktopDataCard />
+      <DesktopDataBoundary><Suspense fallback={<p role="status" className="text-[12px] text-ink-faint">Loading backup controls…</p>}>
+        <DeferredDesktopDataCard />
+      </Suspense></DesktopDataBoundary>
       <ToggleCard
         title="Weekly digest"
         desc="A Monday summary of everything you shipped."

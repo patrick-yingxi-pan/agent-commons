@@ -53,14 +53,70 @@ The owner approved the three recommendations requested after the Folder checkpoi
 - Previous artifact versions are owner-only and retained without automatic
   pruning until permanent deletion. Shared readers see only the current version.
 
-These are implementation targets, not completed acceptance. Permanent-deletion
-cascade semantics and original-image retention remain separate decisions. The
-Git milestone starts with the verified native executable and its source/license
-distribution, then connects capture, persistence, model input and user controls.
+The owner subsequently approved permanent-deletion cascade semantics: remove the
+artifact, all versions and shares, and artifact-only discussions/proposals;
+preserve conversations, content-free audit/retirement records and existing backup
+files. A later explicitly confirmed whole-backup restore can restore older
+content; permanent deletion is not a promise of forensic erasure. This approves
+the feature policy, not deletion of any real user artifact.
+Original-image retention remains a separate decision. Approval alone does not
+establish completed implementation or release acceptance; the checkpoint evidence
+below distinguishes those gates.
 
 ## Progress and next milestones
 
-The current checkpoint implements owner-only retained Artifact history. Each saved body
+The current checkpoint implements the approved permanent-delete workflow from
+Trash: a separate owner-only consequence preview and confirmation, exact reviewed
+state held through recovery, one atomic cascade, and durable retirement that
+prevents old saves, create retries or routine writes from resurrecting a deleted
+artifact. Current content, retained versions, shares and recursively artifact-only
+discussions/proposals are removed together. Conversations, audit records and
+existing backups remain; explicitly restoring an older whole backup is an
+intentional rollback exception, not a secure-erasure guarantee.
+
+The owner-only HTTP/MCP capabilities use the same reviewed lifecycle/cascade
+precondition and durable exact retry receipt. A lost response retains one
+display-only Trash row through navigation; Retry never rebases the confirmed
+scope, Dismiss only reads, failed reads retain recovery, and late responses cannot
+redirect a newly chosen page. Private history/body caches are removed, stale
+live acknowledgements cannot resurrect the identity, and former readers receive
+an ID-free access-change hint. Deferred controls wait for their recovery module
+and contain loading failures without losing Restore. Optional backup controls
+load only in Customize, keeping the unchanged startup and async bundle budgets.
+
+Focused browser acceptance passes all nine deletion workflows, including module
+refusal, stale consent, lost acknowledgement, exact retry and owner/shared/foreign
+walls. The separate responsive sweep passes 135/135 cells with zero violations
+or skips; all 142 sweep screenshots and ten new confirmation/recovery captures
+were visually reviewed across five viewports. The rebuilt unsigned arm64 package
+exercises Cancel, explicit reviewed deletion, a full relaunch, absent history,
+exact receipt replay and preserved conversations. JSON/SQLite restart and portable
+backup tests cover retirement, failed durable commits and explicit older-backup
+rollback. The complete local verifier remains the mandatory final landing gate;
+no GitHub CI is used.
+
+Adversarial review locked one graph revision per cascade, generic reader
+invalidation, direct-create provenance independence and orphaned social-reference
+refusal. Incidental notification reads do not invalidate consent; changes to the
+artifact, versions, sharing or discussions still require fresh review. Retirement
+admission accepts lawful large descendant sets rather than writing a record that
+would fail on restart. Regressions were watched fail before repair.
+The first complete verifier passed all four browser lanes but found the old Trash
+and history source locks still requiring their prior guards. They now explicitly
+require the deletion hold, its history exclusion and both lifecycle/deletion row projections. The
+three module-refusal browser cases use separate declarations so the unchanged
+coverage planner counts each case. A final complete verifier is required after
+these test-only corrections.
+
+The live preview remains signed in as Ada with all six demo accounts stacked,
+on an active disposable deletion walkthrough; no real user artifact was purged.
+Real native Git chooser acceptance remains the next open verification task and
+is not substituted by packaged dialog-result fixtures. Original-image retention,
+signing/notarization credentials, download hosting, native Intel and signed update
+acceptance remain separate production gates. This checkpoint is not a public
+production-release claim.
+
+The preceding checkpoint implemented owner-only retained Artifact history. Each saved body
 revision remains inspectable through the canonical Artifact page and the
 same authorized HTTP/MCP capabilities. Explicit restore creates a new current
 revision; it never rewinds ordering or erases intervening work. Its reviewed
@@ -74,7 +130,8 @@ history-aware replacement retains the then-current body as a baseline with an
 unknown original save time, and subsequent editor, proposal and routine writes
 retain their versions without automatic pruning. History belongs in JSON,
 SQLite and portable backups with strict admission and the same exact Artifact
-identity. Permanent deletion and its retention cascade remain a separate gate.
+identity. Permanent deletion and its retention cascade remained a separate gate
+at that history checkpoint and are implemented by the current checkpoint above.
 
 Focused acceptance passes all seven history browser workflows, beside the
 body-edit and Trash regression coverage.
@@ -107,10 +164,12 @@ Sharing its repeated URL encoder preserves all builder outputs and keeps the
 new recovery boundary within the unchanged cold bundle limit. The corrected
 135/135 sweep and rebuilt native gate pass. One verifier attempt overlapped the
 sweep's port 5193 and could not start a browser lane; its other lanes passed,
-but it is not a complete pass. Run the complete verifier alone before landing.
-The preview is left on the version-history walkthrough with Ada active and the
-six demo accounts stacked. The next product gate is the separately requested
-permanent-deletion cascade policy; no answer is inferred from history approval.
+but it is not a complete pass. The final standalone verifier passed all five
+lanes, including 481 browser tests, before the history checkpoint landed as
+`7d8d7ba4`; the separate sweep and rebuilt unsigned arm64 gate also passed.
+That checkpoint left the preview on the version-history walkthrough with Ada active and the
+six demo accounts stacked. The separately requested permanent-deletion policy
+was then explicitly approved for the current implementation checkpoint.
 
 The preceding Git checkpoint is committed and pushed as `dbfbb109`. Its final
 complete local verifier passed all five lanes, including 474 browser tests;
