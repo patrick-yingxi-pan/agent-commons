@@ -4,6 +4,19 @@ const ID = /^LOCAL_[A-F0-9]{32}$/
 const fail = () => { throw new LocalConnectionError() }
 const validText = (value) => typeof value === 'string' && value.length > 0 && value.length <= 256 && !/[\x00-\x1f\x7f-\x9f]/.test(value)
 
+function failureCode(error) {
+  return error instanceof LocalConnectionError && ['busy', 'limit-reached'].includes(error.code)
+    ? error.code : 'unavailable'
+}
+
+/** IPC transports a closed outcome, never an Error that Electron can decorate
+ * with an internal channel or native exception details. The preload restores
+ * the existing rejecting Promise API with fixed, path-free recovery guidance. */
+export async function localConnectionReply(operation) {
+  try { return { ok: true, value: await operation() } }
+  catch (error) { return { ok: false, error: failureCode(error) } }
+}
+
 function sourceParts(source) {
   const identity = source?.identity
   if (!identity || typeof identity !== 'object' || !validText(identity.user?.id) || !validText(identity.tenant?.id)) fail()
@@ -61,7 +74,7 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
     try {
       assertCaller(event)
       return await operation()
-    } catch { throw new LocalConnectionError() }
+    } catch (error) { throw new LocalConnectionError(failureCode(error)) }
   }
 
   return Object.freeze({

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron, expect } from '@playwright/test'
@@ -15,6 +15,7 @@ import { bitmapFixture, iconFixture } from '../tests/helpers/bitmapFixture.mjs'
 import { svgFixture } from '../tests/helpers/svgFixture.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
+import { settledAttachmentPreview } from '../e2e/accessibility-helpers.ts'
 
 const TIMEOUT_MS = 30_000
 const DIAGNOSTIC_TIMEOUT_MS = 2_000
@@ -1018,6 +1019,43 @@ export async function smokePackagedAttachments({ executable }) {
     await writeFile(join(ephemeralFolder, 'local-note.md'), refreshedLocalText)
     await ephemeralGroup.getByRole('button', { name: /Refresh folder-ephemeral\// }).click()
     await expect(localPreview).toContainText(refreshedLocalText, { timeout: TIMEOUT_MS })
+
+    // Move only our generated source aside. A real missing-source refusal must
+    // cross the packaged IPC/preload boundary without an Electron error wrapper,
+    // while the shared recovery controls preserve the exact saved workspace.
+    const beforeFailedRefresh = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(id)}`)
+      if (!response.ok) throw new Error('Pre-refusal saved-state read failed.')
+      return (await response.json()).workspace
+    }, localSession.id)
+    await rename(ephemeralFolder, `${ephemeralFolder}-held`)
+    try {
+      await ephemeralGroup.getByRole('button', { name: /Refresh folder-ephemeral\// }).click()
+      const message = 'Couldn’t confirm the context update. The local folder is unavailable. Your saved snapshots have not been changed.'
+      await expect(page.getByText(message, { exact: true }).filter({ visible: true }).first()).toBeVisible()
+      await expect(localPreview).toContainText(refreshedLocalText)
+      const evidenceRoot = await mkdtemp(join(tmpdir(), 'agent-commons-local-folder-recovery-'))
+      for (const [width, height] of [[320, 700], [375, 812], [768, 1024], [844, 390], [1280, 800]]) {
+        await page.setViewportSize({ width, height })
+        await settledAttachmentPreview(page, '[data-folder-snapshot-preview]')
+        const status = page.locator('[data-context-panel-status]').filter({ visible: true })
+        await expect(status.getByRole('button', { name: 'Use saved state', exact: true })).toBeInViewport({ ratio: 1 })
+        await expect(status.getByText(message, { exact: true })).toBeInViewport({ ratio: 1 })
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+        await page.screenshot({ path: join(evidenceRoot, `missing-source-${width}x${height}.png`) })
+      }
+      console.log(`[desktop-local-folder-recovery-smoke] exact path-free error + five-viewport recovery evidence: ${evidenceRoot}`)
+      await page.getByRole('button', { name: 'Use saved state', exact: true }).filter({ visible: true }).first().click()
+      const afterFailedRefresh = await page.evaluate(async (id) => {
+        const response = await fetch(`/api/v1/sessions/${encodeURIComponent(id)}`)
+        if (!response.ok) throw new Error('Post-refusal saved-state read failed.')
+        return (await response.json()).workspace
+      }, localSession.id)
+      assert.deepEqual(afterFailedRefresh, beforeFailedRefresh, 'failed native refresh and Use saved state preserve the exact saved workspace')
+      await page.setViewportSize({ width: 375, height: 812 })
+    } finally {
+      await rename(`${ephemeralFolder}-held`, ephemeralFolder)
+    }
     await closePreview(page, localPreview)
     await send(page, 'Read the refreshed local folder snapshot.', 'native-local-folder-refreshed')
     assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [

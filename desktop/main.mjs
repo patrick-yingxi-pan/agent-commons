@@ -10,7 +10,7 @@ import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './a
 import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
 import { desktopProfileAclInspector } from './profileAcl.mjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
-import { createLocalConnectionHost } from './localConnectionHost.mjs'
+import { createLocalConnectionHost, localConnectionReply } from './localConnectionHost.mjs'
 import { LocalConnectionError, LOCAL_CONNECTION_FILE, openLocalConnectionStore } from './localConnectionStore.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
@@ -665,13 +665,12 @@ function installLocalFolderIpc() {
   }
   for (const [name, method] of Object.entries(localFolderChannels)) {
     ipcMain.handle(method, async (event, ...args) => {
-      try {
+      const reply = await localConnectionReply(async () => {
         if (!localFolderHost) throw new LocalConnectionError()
         return await localFolderHost[name](event, ...args)
-      } catch {
-        console.warn(`[desktop] ${method} failed.`)
-        throw new Error('The local folder is unavailable. Your saved snapshots have not been changed.')
-      }
+      })
+      if (!reply.ok) console.warn(`[desktop] ${method} failed.`)
+      return reply
     })
   }
 }

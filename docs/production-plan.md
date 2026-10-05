@@ -44,6 +44,24 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
+The current checkpoint repairs native Folder recovery observed in the recorded
+macOS walk. A closed native outcome preserves busy and connection-limit guidance,
+while the sandboxed preload converts failures into fixed path-free messages
+instead of exposing Electron's IPC wrapper. Successful list, Connect, capture
+and Disconnect keep the existing renderer API and account fences. Unknown native
+exceptions and malformed replies retain the generic unavailable message; no new
+filesystem authority, automatic retry, capture or saved-state mutation is added.
+The new packaged missing-source regression was watched fail on the previous app
+at the exact wrapped message. The host/preload tests likewise failed before the
+repair, then passed. All 229 desktop tests and the rebuilt unsigned arm64 package's
+complete smoke gate pass. The missing-source journey verifies exact workspace
+preservation through Use saved state and retains saved-only model input. All five
+recovery screenshots were reviewed after reusing the existing exact-tier,
+ancestor-opacity and stable-geometry helper; the first captures caught motion,
+not a product defect, and were replaced. No renderer component or layout changes
+are included. The complete local verifier remains the final landing gate;
+actual OS-dialog, signed/Intel and paid-provider acceptance remain separate.
+
 The current implementation closes a first-run catalog mismatch found during the
 native Folder walk: clean profiles had empty saved Contexts but the two Add
 controls still offered bundled demo accounts and repositories. Both now read one

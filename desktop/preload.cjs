@@ -31,6 +31,24 @@ const mcpCredentialChannels = Object.freeze({
 })
 const MCP_CREDENTIAL_CAPABILITY = 'mcp-provision-v1'
 
+// Do not forward main-process error objects or IPC rejection strings. Only the
+// closed native outcome selects user guidance, keeping the renderer API intact.
+async function invokeLocalFolder(channel, ...args) {
+  const unavailable = 'The local folder is unavailable. Your saved snapshots have not been changed.'
+  let reply
+  try { reply = await ipcRenderer.invoke(channel, ...args) }
+  catch { throw new Error(unavailable) }
+  if (reply && typeof reply === 'object' && !Array.isArray(reply)) {
+    const keys = Object.keys(reply).sort().join(',')
+    if (keys === 'ok,value' && reply.ok === true) return reply.value
+    if (keys === 'error,ok' && reply.ok === false) {
+      if (reply.error === 'busy') throw new Error('Local folder reads are busy. Try again when the current reads finish.')
+      if (reply.error === 'limit-reached') throw new Error('This device has reached its local connection limit. Disconnect an unused connection first.')
+    }
+  }
+  throw new Error(unavailable)
+}
+
 // Backup and user-mediated context selection are available in every desktop
 // run. Credentials join only after OS-backed encryption is available. A
 // spoofed command-line flag gains no authority: every invocation is also
@@ -40,10 +58,10 @@ const bridge = {
     pickFiles: (accept) => ipcRenderer.invoke(contextChannels.pickFiles, accept),
     pickFolder: () => ipcRenderer.invoke(contextChannels.pickFolder),
     localFolders: Object.freeze({
-      list: (source) => ipcRenderer.invoke(localFolderChannels.list, source),
-      connect: (options, source) => ipcRenderer.invoke(localFolderChannels.connect, options, source),
-      snapshot: (id, source) => ipcRenderer.invoke(localFolderChannels.snapshot, id, source),
-      disconnect: (id, source) => ipcRenderer.invoke(localFolderChannels.disconnect, id, source),
+      list: (source) => invokeLocalFolder(localFolderChannels.list, source),
+      connect: (options, source) => invokeLocalFolder(localFolderChannels.connect, options, source),
+      snapshot: (id, source) => invokeLocalFolder(localFolderChannels.snapshot, id, source),
+      disconnect: (id, source) => invokeLocalFolder(localFolderChannels.disconnect, id, source),
     }),
   }),
   data: Object.freeze({

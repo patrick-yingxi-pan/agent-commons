@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createLocalConnectionHost } from './localConnectionHost.mjs'
+import { createLocalConnectionHost, localConnectionReply } from './localConnectionHost.mjs'
 import { LocalConnectionError } from './localConnectionStore.mjs'
 
 const event = { sender: 'trusted' }
@@ -123,4 +123,39 @@ test('stale UI identity preconditions cannot list or mutate the current account'
   }
   await assert.rejects(host.list(event, { namespace: 'tenant-a', userId: 'user-a' }, 'unexpected'), LocalConnectionError)
   assert.deepEqual(store.calls, [])
+})
+
+test('local connection replies retain only known store failure codes and never serialize error details', async () => {
+  assert.deepEqual(await localConnectionReply(async () => ({ safe: true })), { ok: true, value: { safe: true } })
+  for (const code of ['busy', 'limit-reached']) {
+    const failure = new LocalConnectionError(code)
+    failure.message = '/private/path must not cross IPC'
+    failure.cause = new Error('private native cause')
+    assert.deepEqual(await localConnectionReply(async () => { throw failure }), { ok: false, error: code })
+  }
+
+  for (const failure of [
+    new LocalConnectionError('future-code'),
+    Object.assign(new Error('/private/path'), { code: 'busy', cause: new Error('native cause') }),
+  ]) {
+    assert.deepEqual(await localConnectionReply(async () => { throw failure }), { ok: false, error: 'unavailable' })
+  }
+})
+
+test('host preserves known store guidance for snapshot and connect failures', async () => {
+  const busyStore = fakeStore({ async snapshot() { throw new LocalConnectionError('busy') } })
+  const { host: busyHost } = makeHost({ store: busyStore })
+  await assert.rejects(busyHost.snapshot(event, validId, { namespace: 'tenant-a', userId: 'user-a' }), (error) => {
+    assert.ok(error instanceof LocalConnectionError)
+    assert.equal(error.code, 'busy')
+    return true
+  })
+
+  const limitedStore = fakeStore({ async connect() { throw new LocalConnectionError('limit-reached') } })
+  const { host: limitedHost } = makeHost({ store: limitedStore })
+  await assert.rejects(limitedHost.connect(event, { remember: true }, { namespace: 'tenant-a', userId: 'user-a' }), (error) => {
+    assert.ok(error instanceof LocalConnectionError)
+    assert.equal(error.code, 'limit-reached')
+    return true
+  })
 })

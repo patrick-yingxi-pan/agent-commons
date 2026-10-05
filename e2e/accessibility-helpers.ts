@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, type Page } from '@playwright/test'
-import { tierFor } from '../src/lib/viewport'
+import { tierFor } from '../src/lib/viewport.ts'
 
 const WCAG_22_AA_TAGS = [
   'wcag2a',
