@@ -60,7 +60,64 @@ distribution, then connects capture, persistence, model input and user controls.
 
 ## Progress and next milestones
 
-The current checkpoint connects the approved native Git workflow end to end:
+The current checkpoint implements owner-only retained Artifact history. Each saved body
+revision remains inspectable through the canonical Artifact page and the
+same authorized HTTP/MCP capabilities. Explicit restore creates a new current
+revision; it never rewinds ordering or erases intervening work. Its reviewed
+current revision and selected source remain fixed through acknowledgement
+recovery. Shared readers and ordinary model input continue to receive only the
+current body. Owners may inspect retained history in Trash, but must restore
+the artifact before making a body version current again.
+
+The rollout cannot reconstruct versions that were never stored. The first
+history-aware replacement retains the then-current body as a baseline with an
+unknown original save time, and subsequent editor, proposal and routine writes
+retain their versions without automatic pruning. History belongs in JSON,
+SQLite and portable backups with strict admission and the same exact Artifact
+identity. Permanent deletion and its retention cascade remain a separate gate.
+
+Focused acceptance passes all seven history browser workflows, beside the
+body-edit and Trash regression coverage.
+The responsive sweep passes 135/135 cells with no violations or skips; all five
+columns and 55 history-specific captures were visually reviewed. The rebuilt
+unsigned arm64 Electron package passes its complete smoke gate, including a
+reviewed version restore, full relaunch and exact retry without another version.
+JSON/SQLite restart and portable backup tests retain exact history and receipts;
+portable admission rejects orphaned versions and forged ownership before writing.
+The complete local verifier remains the final landing gate. Native dialogs and
+model responses in packaged automation remain fixtures; this is not signed,
+Intel or paid-provider acceptance. No GitHub CI is required or used.
+
+Review reproduced a history Retry callback receiving a DOM event as display
+text, pagination losing a loaded boundary after a live edit, and reconciliation
+mistaking metadata resemblance for an exact restore receipt. Shared zero-argument
+recovery callbacks, stable page merging and read-only Dismiss now have regression
+locks watched fail before repair. Deferred history rendering and one shared
+active/Trash section keep the unchanged startup and async bundle budgets passing.
+Owner/shared/foreign browser checks preserve current-body-only sharing and model
+input, fixed restore consent, navigation recovery and late-account fencing.
+Final review also found an unguarded lazy recovery notice: the shell now contains
+module failures without dropping the workspace, and history admission waits for
+that same recovery module before accepting intent. Root/notice refusal walks
+preserve typed drafts, refuse premature restores and recover only on explicit
+warned reload across all five viewports. The admission source lock was watched
+fail before repair. The first full verifier passed all 480 browser tests but
+failed the canonical API-path parity lock; history now uses the shared registry.
+Sharing its repeated URL encoder preserves all builder outputs and keeps the
+new recovery boundary within the unchanged cold bundle limit. The corrected
+135/135 sweep and rebuilt native gate pass. One verifier attempt overlapped the
+sweep's port 5193 and could not start a browser lane; its other lanes passed,
+but it is not a complete pass. Run the complete verifier alone before landing.
+The preview is left on the version-history walkthrough with Ada active and the
+six demo accounts stacked. The next product gate is the separately requested
+permanent-deletion cascade policy; no answer is inferred from history approval.
+
+The preceding Git checkpoint is committed and pushed as `dbfbb109`. Its final
+complete local verifier passed all five lanes, including 474 browser tests;
+the separate UI sweep passed 135/135 cells, and the rebuilt unsigned arm64
+Electron package passed its complete smoke suite. No GitHub CI was used.
+
+That Git checkpoint connected the approved native workflow end to end:
 Repository → This computer offers an explicitly selected read-only connection,
 Remember is opt-in, and Attach/Refresh saves bounded current tracked text through
 the same portable workspace/model-input boundary. Contexts exposes symmetric
@@ -89,11 +146,10 @@ relaunch, saved-only model input, missing-source recovery and Disconnect. Final
 review caught case/HFS aliases bypassing the literal metadata-path guard; the
 new regression was watched fail before rejecting those aliases and disguised
 dot traversal at both native enumeration and portable ingress. The complete local
-verifier and a rebuilt packaged run remain the final landing gates, with outcomes
-recorded in the checkpoint handoff. Native OS-dialog, signed/Intel and paid-provider
-acceptance remain separate gates.
-Owner-only retained artifact history is the next approved core milestone after
-this capture workflow is accepted. No GitHub CI is required or monitored.
+verifier and rebuilt packaged run passed the final landing gates described above.
+Native OS-dialog, signed/Intel and paid-provider acceptance remain separate gates.
+Owner-only retained artifact history follows this accepted capture workflow.
+No GitHub CI is required or monitored.
 
 The preceding Git checkpoint built the approved bundled-executable prerequisite. macOS
 packaging builds the checksum-pinned upstream Git 2.56.0 source for the explicit

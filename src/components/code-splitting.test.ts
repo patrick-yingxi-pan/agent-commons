@@ -138,6 +138,37 @@ test('MainSplit lazy-loads SectionPane behind accessible in-pane loading and fai
   assert.match(source, /window\.location\.reload\(\)/, 'retry reloads the document so a stale deployment gets fresh asset URLs')
 })
 
+test('durable shell recovery stays local when its deferred chunk fails and history waits for it', () => {
+  const app = stripComments(read(join(ROOT, 'src/App.tsx')))
+  const shell = stripComments(read(join(ROOT, 'src/components/ShellMutationNotices.tsx')))
+  const history = stripComments(read(join(ROOT, 'src/components/ArtifactHistorySection.tsx')))
+
+  assert.match(app, /lazy\(\(\)\s*=>\s*import\('\.\/components\/ShellMutationNotices'\)/)
+  assert.match(app, /<ShellMutationNoticesBoundary>[\s\S]*<Suspense fallback=\{null\}>[\s\S]*<ShellMutationNotices\s*\/>[\s\S]*<\/ShellMutationNoticesBoundary>/,
+    'the outer lazy cluster sits behind the eager local failure boundary')
+  assert.match(app, /class ShellMutationNoticesBoundary[\s\S]*getDerivedStateFromError[\s\S]*data-shell-recovery-load-error/,
+    'a rejected initial shell chunk is caught without replacing the workspace')
+  assert.match(app, /data-shell-recovery-load-error className="shrink-0[^\"]*"/,
+    'the failure row reserves in-flow shell height rather than overlaying workspace content')
+  assert.match(app, /InlineOperationStatus[\s\S]*tone="alert"/)
+  assert.match(app, /retry details/i,
+    'the explicit reload warns that memory-only retry details may be lost')
+  assert.match(app, /saved state/i,
+    'the explicit reload tells the person to check saved state afterward')
+  assert.match(app, /unsent workspace text/i,
+    'the explicit reload warns about unsent workspace text')
+  assert.match(app, /label: 'Reload app'[\s\S]*window\.location\.reload\(\)/,
+    'reloading is explicit and never automatic')
+
+  assert.match(shell, /import \{ ArtifactHistoryRestoreMutationNotice \} from '\.\/ArtifactHistoryRestoreMutationNotice'/,
+    'the history recovery notice shares the already-deferred shell chunk')
+  assert.doesNotMatch(shell, /lazy\(\(\)\s*=>\s*import\('\.\/ArtifactHistoryRestoreMutationNotice'/,
+    'no independently failing history-notice chunk can strand a held restore')
+  assert.match(shell, /<ArtifactHistoryRestoreMutationNotice\s*\/>/)
+  assert.match(history, /Promise\.all\([\s\S]*import\('\.\/ArtifactHistoryPanel'\)[\s\S]*import\('\.\/ShellMutationNotices'\)/,
+    'history admission waits for the same shell module before mounting restore controls')
+})
+
 test('tool activity UI loads only for transcripts that contain tool activity', () => {
   const message = stripComments(read(join(ROOT, 'src', 'components', 'Message.tsx')))
   const source = stripComments(read(join(ROOT, 'src', 'components', 'DeferredToolActivityCard.tsx')))

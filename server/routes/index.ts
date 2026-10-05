@@ -7,6 +7,7 @@ import { messageHistoryText } from '../toolActivityHistory.ts'
 import { exportArtifact } from './artifactExport.ts'
 import { serveSessionTurn } from './sessionTurnStream.ts'
 import { updateArtifactContent } from './artifactContent.ts'
+import { registerArtifactHistoryRoutes } from './artifactHistory.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
   ApplyOpRequest,
@@ -5332,6 +5333,7 @@ export function buildRouter(): Router {
    *  revision-pinned sheet/workbook/deck. Grants widen reads, never this write door;
    *  missing and foreign identities share the same existence-hiding wall. */
   r.patch('/artifacts/:id/content', idempotent(updateArtifactContent, artifactReplayVisible))
+  registerArtifactHistoryRoutes(r, accountTransitionSourceMatches)
   r.get('/schedule-templates', ({ res }) => {
     sendJson(res, store.scheduleTemplates())
   })

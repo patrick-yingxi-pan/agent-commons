@@ -39,6 +39,7 @@ import { SyncHealthNotice } from './components/SyncHealthNotice'
 import { AppBootstrapScreen } from './components/AppBootstrapScreen'
 import { ModelPreferencesGate } from './components/ModelPreferencesGate'
 import { SharedLinkGate } from './components/SharedLinkGate'
+import { InlineOperationStatus } from './components/InlineOperationStatus'
 import { SkipToMain } from './components/SkipToMain'
 import { sharedLinkAddress } from './lib/sharedLink.ts'
 import { SECTION_META, sectionAvailable } from './lib/sections'
@@ -71,6 +72,29 @@ class AuthScreenLoadBoundary extends Component<{ children: ReactNode }, { failed
         onRetry={() => window.location.reload()}
       />
     )
+  }
+}
+
+/** Keep the deferred durable-recovery cluster local when its initial chunk
+ * fails; no retry or document reload is attempted without an explicit click. */
+class ShellMutationNoticesBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    if (this.state.failed) {
+      return <div data-shell-recovery-load-error className="shrink-0 border-b border-line bg-panel-2/95 px-2 pt-2">
+        <InlineOperationStatus
+          tone="alert"
+          message="Couldn’t load workspace recovery controls. Reloading can clear in-memory retry details. Copy unsent workspace text before reloading, then check saved state afterward."
+          action={{ label: 'Reload app', onClick: () => window.location.reload() }}
+        />
+      </div>
+    }
+    return this.props.children
   }
 }
 
@@ -552,9 +576,11 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
     <div className="flex h-dvh flex-col overflow-hidden bg-canvas text-ink">
       <SkipToMain onSkip={skipToMain} />
       <SyncHealthNotice />
-      <Suspense fallback={null}>
-        <ShellMutationNotices />
-      </Suspense>
+      <ShellMutationNoticesBoundary>
+        <Suspense fallback={null}>
+          <ShellMutationNotices />
+        </Suspense>
+      </ShellMutationNoticesBoundary>
       {/* ===== The product — no top bar; the rail owns its toggle ===== */}
       <div data-popover-viewport className="relative flex min-h-0 flex-1 flex-col">
         {/* Narrow tier: the rail is an off-canvas drawer over the app — a scrim

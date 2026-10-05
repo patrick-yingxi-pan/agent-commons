@@ -5,6 +5,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { docBlockText, type ArtifactContent, type ArtifactContentLibrary, type ArtifactItem } from '../../contract/index.ts'
 import { call } from '../testkit/http.ts'
+import { store } from '../store/index.ts'
 
 async function editableArtifact() {
   const artifacts = (await call('GET', '/artifacts')).json as ArtifactItem[]
@@ -44,6 +45,8 @@ test('artifact body PATCH refuses a stale revision and replays one logical retry
     const afterFirst = ((await call('GET', '/artifacts')).json as ArtifactItem[]).find((row) => row.id === artifact.id)
     assert.ok(afterFirst)
     assert.equal(afterFirst.editedAt, editNow, 'the canonical artifact row reflects the accepted body edit')
+    assert.equal(store.artifactHistoryPage(artifact.id, store.identity({}).tenant.id)?.versions[0]?.savedAt,
+      new Date(editNow).toISOString(), 'the retained version shares the body edit commit timestamp')
 
     const replay = await call('PATCH', `/artifacts/${artifact.id}/content`, {
       block,

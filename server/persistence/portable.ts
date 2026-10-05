@@ -19,6 +19,49 @@ import {
 } from './format.ts'
 import { migrateState } from './migrate.ts'
 import { writeTextFileAtomically } from './atomicFile.ts'
+import { ALL_ARTIFACTS } from '../data/cowork.ts'
+import { resolveIdentity } from '../identity.ts'
+
+function artifactHistoryReferencesAreCanonical(state: PersistedState): boolean {
+  if (!state.artifactHistory?.length && !state.artifactHistoryRestoreReceipts?.length) return true
+
+  const artifacts = new Map<string, { kind: string; tenantId?: string }>()
+  const world = state.initialWorld ?? 'demo'
+  if (world === 'demo') {
+    for (const artifact of ALL_ARTIFACTS) artifacts.set(artifact.id, artifact)
+  }
+  const extras = state.graph?.extraArtifacts
+  if (!Array.isArray(extras)) return false
+  for (const value of extras) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+    const artifact = value as { id?: unknown; kind?: unknown; tenantId?: unknown }
+    if (typeof artifact.id !== 'string' || !artifact.id || typeof artifact.kind !== 'string' ||
+      (artifact.tenantId !== undefined && typeof artifact.tenantId !== 'string') || artifacts.has(artifact.id)) return false
+    artifacts.set(artifact.id, {
+      kind: artifact.kind,
+      ...(typeof artifact.tenantId === 'string' ? { tenantId: artifact.tenantId } : {}),
+    })
+  }
+
+  const compatibleBody = (kind: string, type: string): boolean =>
+    kind === 'doc' || kind === 'email' ? type === 'doc'
+      : kind === 'sheet' ? type === 'sheet' || type === 'workbook'
+        : kind === 'slide' && type === 'slides'
+
+  for (const [id, versions] of state.artifactHistory ?? []) {
+    const artifact = artifacts.get(id)
+    if (!artifact || versions.some((version) => !compatibleBody(artifact.kind, version.body.type))) return false
+  }
+
+  const backend = process.env.BACKEND === 'remote' ? 'remote' : 'mock'
+  for (const receipt of state.artifactHistoryRestoreReceipts ?? []) {
+    const artifact = artifacts.get(receipt[1]?.artifactId)
+    const ownerTenantId = artifact?.tenantId ?? resolveIdentity(backend).tenant.id
+    if (!artifact || !state.artifactHistory?.some(([id]) => id === receipt[1].artifactId) ||
+      receipt[1].tenantId !== ownerTenantId) return false
+  }
+  return true
+}
 
 function canonical(state: PersistedState): PersistedState {
   return JSON.parse(JSON.stringify(state)) as PersistedState
@@ -46,6 +89,9 @@ export function readPortableSnapshot(file: string): PersistedState {
   if (!hasCorePersistedShape(state)) {
     throw new Error(`snapshot at ${file} has an unsupported or invalid store version`)
   }
+  if (!artifactHistoryReferencesAreCanonical(state)) {
+    throw new Error(`snapshot at ${file} has orphaned or incompatible Artifact history`)
+  }
   return canonical(state)
 }
 
@@ -53,6 +99,7 @@ export function readPortableSnapshot(file: string): PersistedState {
 export function writePortableSnapshot(file: string, state: PersistedState): void {
   const checked = migrateState(canonical(state))
   if (!hasCorePersistedShape(checked)) throw new Error('refusing to export an unsupported or invalid store version')
+  if (!artifactHistoryReferencesAreCanonical(checked)) throw new Error('refusing to export orphaned or incompatible Artifact history')
 
   try {
     writeTextFileAtomically(file, JSON.stringify(canonical(checked)), `.tmp-${process.pid}`)
@@ -92,6 +139,9 @@ export function restoreBackendState(
   const checked = migrateState(canonical(state))
   if (!hasCorePersistedShape(checked)) {
     throw new Error('refusing to restore an unsupported or invalid store version')
+  }
+  if (!artifactHistoryReferencesAreCanonical(checked)) {
+    throw new Error('refusing to restore orphaned or incompatible Artifact history')
   }
   backend.save(checked)
   const restored = backend.load()

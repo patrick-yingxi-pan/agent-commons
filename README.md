@@ -29,6 +29,9 @@ The current milestone order and remaining release gates are recorded in the
 - **Shared resource coordination.** Projects collect contributors, open work,
   artifacts, contexts, routines, discussions, proposals, and contribution
   history under one canonical resource model.
+- **Retained artifact versions.** Owners can inspect saved body history and
+  restore an earlier version as a new revision. Shared readers see current
+  content only; edits from before history capture cannot be reconstructed.
 - **Consent and delegation.** Model-requested mutations become explicit
   confirmation cards. Standing grants, routine approval, principal attribution,
   and audit records make delegated effects inspectable.

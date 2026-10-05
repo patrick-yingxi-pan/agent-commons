@@ -149,6 +149,9 @@ function route(e: ServerEvent): void {
     // Granted readers receive this hint but not the owner's private relation
     // event, so all body and metadata projections heal through this one door.
     case 'artifact.changed':
+      // Saved history is immutable per version but its newest page/current
+      // revision marker changes with each body write.
+      invalidatePrefix(`artifact-history:${e.artifactId}`)
       invalidate(keys.artifactTrash)
       invalidatePrefix(keys.artifactLifecycle())
       invalidatePrefix(keys.grants())

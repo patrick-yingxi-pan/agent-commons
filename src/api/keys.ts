@@ -3,6 +3,9 @@
  *  `API_BASE`. Both grow per resource as reads migrate. */
 import type { Connector } from '../../contract/index.ts'
 
+/** One shared encoder keeps every declared path builder byte-equivalent. */
+const encodePathSegment = encodeURIComponent
+
 export const keys = {
   capabilities: 'capabilities',
   /** The current principal + tenant (design F2 / P1 §4 — "Identity from /v1/me"). */
@@ -130,7 +133,7 @@ export const keys = {
 export const paths = {
   modelPreferences: '/viewer-preferences/model',
   imageAssets: '/image-assets',
-  imageAssetContent: (id: string) => `/image-assets/${encodeURIComponent(id)}/content`,
+  imageAssetContent: (id: string) => `/image-assets/${encodePathSegment(id)}/content`,
   capabilities: '/capabilities',
   me: '/me',
   /** Mint (POST) / clear (DELETE) the verified session cookie (multi-account P6). */
@@ -144,237 +147,247 @@ export const paths = {
   /** The minted-token registry (metadata list; DELETE by id revokes — the
    *  registry is the revocation authority, server/accounts.ts). */
   authTokens: '/auth/tokens',
-  authTokenRevoke: (id: string) => `/auth/tokens/${encodeURIComponent(id)}`,
+  authTokenRevoke: (id: string) => `/auth/tokens/${encodePathSegment(id)}`,
   /** The account stack (§12): every account signed in on this browser. */
   authAccounts: '/auth/accounts',
   /** Forget ONE remembered account (DELETE — the switcher rows' hover sign-out). */
-  authAccount: (userId: string) => `/auth/accounts/${encodeURIComponent(userId)}`,
+  authAccount: (userId: string) => `/auth/accounts/${encodePathSegment(userId)}`,
   /** Organizations (FWD-6): founding, the caller's seats/invites, the org ledger. */
   orgs: '/orgs',
   meOrgs: '/me/orgs',
   meInvites: '/me/invites',
-  myInvite: (inviteId: string) => `/me/invites/${encodeURIComponent(inviteId)}`,
+  myInvite: (inviteId: string) => `/me/invites/${encodePathSegment(inviteId)}`,
   meWork: '/me/work',
   orgMembers: (orgId: string) => `/orgs/${orgId}/members`,
   orgInvites: (orgId: string) => `/orgs/${orgId}/invites`,
   orgInvite: (orgId: string, inviteId: string) =>
-    `/orgs/${encodeURIComponent(orgId)}/invites/${encodeURIComponent(inviteId)}`,
-  myInviteAccept: (inviteId: string) => `/me/invites/${encodeURIComponent(inviteId)}/accept`,
-  myInviteDecline: (inviteId: string) => `/me/invites/${encodeURIComponent(inviteId)}/decline`,
+    `/orgs/${encodePathSegment(orgId)}/invites/${encodePathSegment(inviteId)}`,
+  myInviteAccept: (inviteId: string) => `/me/invites/${encodePathSegment(inviteId)}/accept`,
+  myInviteDecline: (inviteId: string) => `/me/invites/${encodePathSegment(inviteId)}/decline`,
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after
    *  `after`, then the live tail. 404 once persisted (refetch the session). */
   turnStream: (id: string, turnId: string, after: number) =>
-    `/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/stream?after=${after}`,
+    `/sessions/${encodePathSegment(id)}/turns/${encodePathSegment(turnId)}/stream?after=${after}`,
   turnCancel: (id: string, turnId: string) =>
-    `/sessions/${encodeURIComponent(id)}/turns/${encodeURIComponent(turnId)}/cancel`,
+    `/sessions/${encodePathSegment(id)}/turns/${encodePathSegment(turnId)}/cancel`,
   providers: '/providers',
-  provider: (id: string) => `/providers/${encodeURIComponent(id)}`,
-  providerConnection: (id: string) => `/providers/${encodeURIComponent(id)}/connection`,
-  providerRotate: (id: string) => `/providers/${encodeURIComponent(id)}/rotate`,
-  providerModelsRefresh: (id: string) => `/providers/${encodeURIComponent(id)}/models/refresh`,
+  provider: (id: string) => `/providers/${encodePathSegment(id)}`,
+  providerConnection: (id: string) => `/providers/${encodePathSegment(id)}/connection`,
+  providerRotate: (id: string) => `/providers/${encodePathSegment(id)}/rotate`,
+  providerModelsRefresh: (id: string) => `/providers/${encodePathSegment(id)}/models/refresh`,
   systemPrompts: '/system-prompts',
-  systemPrompt: (id: string) => `/system-prompts/${encodeURIComponent(id)}`,
+  systemPrompt: (id: string) => `/system-prompts/${encodePathSegment(id)}`,
   agentTools: '/agent-tools',
-  systemPromptProbe: (id: string) => `/system-prompts/${encodeURIComponent(id)}/probe`,
+  systemPromptProbe: (id: string) => `/system-prompts/${encodePathSegment(id)}/probe`,
   agents: '/agents',
-  agent: (id: string) => `/agents/${encodeURIComponent(id)}`,
+  agent: (id: string) => `/agents/${encodePathSegment(id)}`,
   commissions: (projectId?: string) =>
-    projectId ? `/commissions?project=${encodeURIComponent(projectId)}` : '/commissions',
-  commission: (id: string) => `/commissions/${encodeURIComponent(id)}`,
-  commissionAuthority: (id: string) => `/commissions/${encodeURIComponent(id)}/authority`,
-  projectSubGoals: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/subgoals`,
-  openSubGoals: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/open-subgoals`,
+    projectId ? `/commissions?project=${encodePathSegment(projectId)}` : '/commissions',
+  commission: (id: string) => `/commissions/${encodePathSegment(id)}`,
+  commissionAuthority: (id: string) => `/commissions/${encodePathSegment(id)}/authority`,
+  projectSubGoals: (projectId: string) => `/projects/${encodePathSegment(projectId)}/subgoals`,
+  openSubGoals: (projectId: string) => `/projects/${encodePathSegment(projectId)}/open-subgoals`,
   /** D23 — a work item's flat discussion thread + the honest close. */
   openSubGoalComments: (projectId: string, itemId: string) =>
-    `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/comments`,
+    `/projects/${encodePathSegment(projectId)}/open-subgoals/${encodePathSegment(itemId)}/comments`,
   openSubGoalRetract: (projectId: string, itemId: string) =>
-    `/projects/${encodeURIComponent(projectId)}/open-subgoals/${encodeURIComponent(itemId)}/retract`,
+    `/projects/${encodePathSegment(projectId)}/open-subgoals/${encodePathSegment(itemId)}/retract`,
   /** A resource's grant roster (social S1) — the generic subject-ref read. */
-  grants: (kind: string, id: string) => `/grants?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+  grants: (kind: string, id: string) => `/grants?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
   grantCreate: () => `/grants`,
-  grantRevoke: (gid: string) => `/grants/${encodeURIComponent(gid)}`,
+  grantRevoke: (gid: string) => `/grants/${encodePathSegment(gid)}`,
   grantRedeem: () => `/grants/redeem`,
   /** A subject's discussions (social S2) + the per-discussion faces. */
-  discussions: (kind: string, id: string) => `/discussions?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
-  socialCapability: (kind: string, id: string) => `/social/capability?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
-  sessionFork: (id: string) => `/sessions/${encodeURIComponent(id)}/fork`,
+  discussions: (kind: string, id: string) => `/discussions?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
+  socialCapability: (kind: string, id: string) => `/social/capability?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
+  sessionFork: (id: string) => `/sessions/${encodePathSegment(id)}/fork`,
   myDiscussions: () => `/discussions?mine=1`,
   /** The person layer (S7): the DM inbox, the follow list + its one act, and
    *  the per-thread read mark behind the inbox's unread count. */
   directMessages: () => `/discussions?direct=1`,
   follows: () => `/me/follows`,
   socialFollow: () => `/social/follow`,
-  discussionRead: (did: string) => `/discussions/${encodeURIComponent(did)}/read`,
+  discussionRead: (did: string) => `/discussions/${encodePathSegment(did)}/read`,
   discussionReadState: (did: string, throughPostId: string) =>
-    `/discussions/${encodeURIComponent(did)}/read?throughPostId=${encodeURIComponent(throughPostId)}`,
+    `/discussions/${encodePathSegment(did)}/read?throughPostId=${encodePathSegment(throughPostId)}`,
   /** The Commons feed (S4) + the acts behind its lenses: a like on one item, a
    *  watch on any subject, and the note that you opened one. */
   commons: () => `/commons`,
-  commonsLike: (itemId: string) => `/commons/${encodeURIComponent(itemId)}/like`,
+  commonsLike: (itemId: string) => `/commons/${encodePathSegment(itemId)}/like`,
   socialWatch: () => `/social/watch`,
   socialWatchState: (kind: string, id: string) =>
-    `/social/watch?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+    `/social/watch?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
   socialViewed: () => `/social/viewed`,
   /** A subject's proposals (social S3) + the per-proposal faces. */
-  socialProposals: (kind: string, id: string) => `/proposals?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+  socialProposals: (kind: string, id: string) => `/proposals?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
   socialProposalOpen: () => `/proposals`,
-  socialProposal: (pid: string) => `/proposals/${encodeURIComponent(pid)}`,
-  socialProposalLand: (pid: string) => `/proposals/${encodeURIComponent(pid)}/land`,
-  socialProposalDecline: (pid: string) => `/proposals/${encodeURIComponent(pid)}/decline`,
+  socialProposal: (pid: string) => `/proposals/${encodePathSegment(pid)}`,
+  socialProposalLand: (pid: string) => `/proposals/${encodePathSegment(pid)}/land`,
+  socialProposalDecline: (pid: string) => `/proposals/${encodePathSegment(pid)}/decline`,
   discussionOpen: () => `/discussions`,
-  discussion: (did: string) => `/discussions/${encodeURIComponent(did)}`,
-  discussionPosts: (did: string) => `/discussions/${encodeURIComponent(did)}/posts`,
-  discussionReact: (did: string, pid: string) => `/discussions/${encodeURIComponent(did)}/posts/${encodeURIComponent(pid)}/react`,
+  discussion: (did: string) => `/discussions/${encodePathSegment(did)}`,
+  discussionPosts: (did: string) => `/discussions/${encodePathSegment(did)}/posts`,
+  discussionReact: (did: string, pid: string) => `/discussions/${encodePathSegment(did)}/posts/${encodePathSegment(pid)}/react`,
   discussionPost: (did: string, pid: string, cascade = false) =>
-    `/discussions/${encodeURIComponent(did)}/posts/${encodeURIComponent(pid)}${cascade ? '?cascade=1' : ''}`,
-  discussionPostReport: (did: string, pid: string) => `/discussions/${encodeURIComponent(did)}/posts/${encodeURIComponent(pid)}/report`,
-  discussionResolve: (did: string) => `/discussions/${encodeURIComponent(did)}/resolve`,
+    `/discussions/${encodePathSegment(did)}/posts/${encodePathSegment(pid)}${cascade ? '?cascade=1' : ''}`,
+  discussionPostReport: (did: string, pid: string) => `/discussions/${encodePathSegment(did)}/posts/${encodePathSegment(pid)}/report`,
+  discussionResolve: (did: string) => `/discussions/${encodePathSegment(did)}/resolve`,
   /** The contribution ledger (agent-contribution workflow Phase A). */
-  contributions: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/contributions`,
+  contributions: (projectId: string) => `/projects/${encodePathSegment(projectId)}/contributions`,
   contributionComments: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/comments`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/comments`,
   contributionLand: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/land`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/land`,
   contributionEnvelope: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/envelope`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/envelope`,
   contributionEnvelopeApprove: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/envelope/approve`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/envelope/approve`,
   contributionEffects: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/effects`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/effects`,
   contributionChangeset: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/changeset`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/changeset`,
   contributionReview: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/review`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/review`,
   contributionRequireReview: (projectId: string, cid: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/require-review`,
-  delegations: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/delegations`,
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/require-review`,
+  delegations: (projectId: string) => `/projects/${encodePathSegment(projectId)}/delegations`,
   delegation: (projectId: string, did: string) =>
-    `/projects/${encodeURIComponent(projectId)}/delegations/${encodeURIComponent(did)}`,
-  attention: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/attention`,
+    `/projects/${encodePathSegment(projectId)}/delegations/${encodePathSegment(did)}`,
+  attention: (projectId: string) => `/projects/${encodePathSegment(projectId)}/attention`,
   contributionDelegated: (projectId: string, cid: string, did: string) =>
-    `/projects/${encodeURIComponent(projectId)}/contributions/${encodeURIComponent(cid)}/delegated/${encodeURIComponent(did)}`,
-  agentFork: (id: string) => `/agents/${encodeURIComponent(id)}/fork`,
-  directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodeURIComponent(q)}` : '/directory/projects'),
-  directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodeURIComponent(q)}` : '/directory/agents'),
+    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/delegated/${encodePathSegment(did)}`,
+  agentFork: (id: string) => `/agents/${encodePathSegment(id)}/fork`,
+  directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodePathSegment(q)}` : '/directory/projects'),
+  directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodePathSegment(q)}` : '/directory/agents'),
   /** Change proposals against a published definition (D25). */
-  agentProposals: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/proposals`,
-  agentResolvedWork: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/resolved-work`,
-  agentForks: (agentId: string) => `/agents/${encodeURIComponent(agentId)}/forks`,
+  agentProposals: (agentId: string) => `/agents/${encodePathSegment(agentId)}/proposals`,
+  agentResolvedWork: (agentId: string) => `/agents/${encodePathSegment(agentId)}/resolved-work`,
+  agentForks: (agentId: string) => `/agents/${encodePathSegment(agentId)}/forks`,
   agentProposalMerge: (agentId: string, pid: string) =>
-    `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/merge`,
+    `/agents/${encodePathSegment(agentId)}/proposals/${encodePathSegment(pid)}/merge`,
   agentProposalDecline: (agentId: string, pid: string) =>
-    `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/decline`,
+    `/agents/${encodePathSegment(agentId)}/proposals/${encodePathSegment(pid)}/decline`,
   agentProposalComments: (agentId: string, pid: string) =>
-    `/agents/${encodeURIComponent(agentId)}/proposals/${encodeURIComponent(pid)}/comments`,
+    `/agents/${encodePathSegment(agentId)}/proposals/${encodePathSegment(pid)}/comments`,
   /** The notification inbox + watch acts (D24). */
   notifications: '/notifications',
   notificationsRead: '/notifications/read',
   notificationsReadState: (...ids: string[]) =>
-    `/notifications/read?${ids.map((id) => `id=${encodeURIComponent(id)}`).join('&')}`,
-  projectWatch: (projectId: string) => `/projects/${encodeURIComponent(projectId)}/watch`,
+    `/notifications/read?${ids.map((id) => `id=${encodePathSegment(id)}`).join('&')}`,
+  projectWatch: (projectId: string) => `/projects/${encodePathSegment(projectId)}/watch`,
   /** The workspace profile (D21) — the display name IS the public handle. */
-  ownerProfile: (name: string) => `/directory/owners/${encodeURIComponent(name)}`,
+  ownerProfile: (name: string) => `/directory/owners/${encodePathSegment(name)}`,
   /** Global search (D22): typed grouped hits across everything the caller can see. */
-  search: (q: string) => `/search?q=${encodeURIComponent(q)}`,
+  search: (q: string) => `/search?q=${encodePathSegment(q)}`,
   /** The A2A edge (docs/a2a-integration.md, D20). `a2aAgentCard` is a public GET a
    *  foreign agent (or a curious human) can open; `agentImportCard` is the outbound
    *  fetch-a-remote-card mint. */
-  a2aAgentCard: (id: string) => `/a2a/agents/${encodeURIComponent(id)}/card`,
+  a2aAgentCard: (id: string) => `/a2a/agents/${encodePathSegment(id)}/card`,
   agentImportCard: '/agents/import-card',
   // The native-only endpoints (`/fs/pick`, `/fs/folders/:id`, `/git/repos/:id/diff`)
   // are intentionally absent here — no live UI flow calls them. They exist behind the
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`
   // (which 409s them); that gate, not a client caller, is what demonstrates portability.
   runners: '/runners',
-  runner: (id: string) => `/runners/${encodeURIComponent(id)}`,
-  runnerInvoke: (id: string) => `/runners/${encodeURIComponent(id)}/invoke`,
-  runnerEffects: (id: string) => `/runners/${encodeURIComponent(id)}/effects`,
-  runnerSync: (id: string) => `/runners/${encodeURIComponent(id)}/sync`,
-  resource: (key: string) => `/resources/${encodeURIComponent(key)}`,
-  resourceReserve: (key: string) => `/resources/${encodeURIComponent(key)}/reserve`,
-  reservationCommit: (id: string) => `/reservations/${encodeURIComponent(id)}/commit`,
-  reservationRelease: (id: string) => `/reservations/${encodeURIComponent(id)}/release`,
+  runner: (id: string) => `/runners/${encodePathSegment(id)}`,
+  runnerInvoke: (id: string) => `/runners/${encodePathSegment(id)}/invoke`,
+  runnerEffects: (id: string) => `/runners/${encodePathSegment(id)}/effects`,
+  runnerSync: (id: string) => `/runners/${encodePathSegment(id)}/sync`,
+  resource: (key: string) => `/resources/${encodePathSegment(key)}`,
+  resourceReserve: (key: string) => `/resources/${encodePathSegment(key)}/reserve`,
+  reservationCommit: (id: string) => `/reservations/${encodePathSegment(id)}/commit`,
+  reservationRelease: (id: string) => `/reservations/${encodePathSegment(id)}/release`,
   sessions: '/sessions',
   session: (id: string, page?: { limit: number; cursor?: string }) => {
-    const base = `/sessions/${encodeURIComponent(id)}`
+    const base = `/sessions/${encodePathSegment(id)}`
     if (!page) return base
-    const cursor = page.cursor ? `&messageCursor=${encodeURIComponent(page.cursor)}` : ''
+    const cursor = page.cursor ? `&messageCursor=${encodePathSegment(page.cursor)}` : ''
     return `${base}?messageLimit=${page.limit}${cursor}`
   },
-  sessionMessages: (id: string) => `/sessions/${encodeURIComponent(id)}/messages`,
-  sessionContexts: (id: string) => `/sessions/${encodeURIComponent(id)}/contexts`,
-  sessionContextState: (id: string) => `/sessions/${encodeURIComponent(id)}/context-state`,
-  sessionPreferences: (id: string) => `/sessions/${encodeURIComponent(id)}/preferences`,
+  sessionMessages: (id: string) => `/sessions/${encodePathSegment(id)}/messages`,
+  sessionContexts: (id: string) => `/sessions/${encodePathSegment(id)}/contexts`,
+  sessionContextState: (id: string) => `/sessions/${encodePathSegment(id)}/context-state`,
+  sessionPreferences: (id: string) => `/sessions/${encodePathSegment(id)}/preferences`,
   toolActivity: (id: string, activityId: string) =>
-    `/sessions/${encodeURIComponent(id)}/tool-activities/${encodeURIComponent(activityId)}`,
-  sessionCompact: (id: string) => `/sessions/${encodeURIComponent(id)}/compact`,
+    `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}`,
+  sessionCompact: (id: string) => `/sessions/${encodePathSegment(id)}/compact`,
   sessionCompactedMessages: (id: string, page: { limit: number; cursor?: string }) => {
-    const cursor = page.cursor ? `&cursor=${encodeURIComponent(page.cursor)}` : ''
-    return `/sessions/${encodeURIComponent(id)}/compacted-messages?limit=${page.limit}${cursor}`
+    const cursor = page.cursor ? `&cursor=${encodePathSegment(page.cursor)}` : ''
+    return `/sessions/${encodePathSegment(id)}/compacted-messages?limit=${page.limit}${cursor}`
   },
   messageRelations: (id: string, messageId: string) =>
-    `/sessions/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/relations`,
+    `/sessions/${encodePathSegment(id)}/messages/${encodePathSegment(messageId)}/relations`,
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
   contextCatalog: '/context-catalog',
-  savedContext: (id: string) => `/saved-contexts/${encodeURIComponent(id)}`,
+  savedContext: (id: string) => `/saved-contexts/${encodePathSegment(id)}`,
   mcpConnections: '/mcp-connections',
-  mcpConnection: (id: string) => `/mcp-connections/${encodeURIComponent(id)}`,
-  mcpConnectionInspect: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/inspect`,
-  mcpConnectionDisconnect: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/disconnect`,
-  mcpConnectionCleanup: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/credential-cleanup`,
-  mcpConnectionCredentialBinding: (id: string) => `/mcp-connections/${encodeURIComponent(id)}/credential-binding`,
+  mcpConnection: (id: string) => `/mcp-connections/${encodePathSegment(id)}`,
+  mcpConnectionInspect: (id: string) => `/mcp-connections/${encodePathSegment(id)}/inspect`,
+  mcpConnectionDisconnect: (id: string) => `/mcp-connections/${encodePathSegment(id)}/disconnect`,
+  mcpConnectionCleanup: (id: string) => `/mcp-connections/${encodePathSegment(id)}/credential-cleanup`,
+  mcpConnectionCredentialBinding: (id: string) => `/mcp-connections/${encodePathSegment(id)}/credential-binding`,
   connectorDetail: (c: Connector) => {
     const q = new URLSearchParams({ id: c.id, label: c.label })
     if (c.kind) q.set('kind', c.kind)
     return `/connectors/detail?${q.toString()}`
   },
-  usage: (sessionId?: string) => (sessionId ? `/usage?session=${encodeURIComponent(sessionId)}` : '/usage'),
+  usage: (sessionId?: string) => (sessionId ? `/usage?session=${encodePathSegment(sessionId)}` : '/usage'),
   /** S8 — the square's compose door: say something with no resource attached. */
   posts: '/posts',
   artifactContent: '/artifact-content',
   /** The owner's body-edit door (social S3) — one addressed prose block. */
-  artifactContentEdit: (id: string) => `/artifacts/${encodeURIComponent(id)}/content`,
+  artifactContentEdit: (id: string) => `/artifacts/${encodePathSegment(id)}/content`,
+  /** Owner-only retained Artifact body history and exact revision restore. */
+  artifactHistory: (id: string, beforeRevision?: number, limit = 50) => {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (beforeRevision !== undefined) query.set('beforeRevision', String(beforeRevision))
+    return `/artifacts/${encodePathSegment(id)}/history?${query.toString()}`
+  },
+  artifactHistoryVersion: (id: string, revision: number) =>
+    `/artifacts/${encodePathSegment(id)}/history/${encodePathSegment(String(revision))}`,
+  artifactHistoryRestore: (id: string, revision: number) =>
+    `/artifacts/${encodePathSegment(id)}/history/${encodePathSegment(String(revision))}/restore`,
   scheduleTemplates: '/schedule-templates',
   // Served filesystem sources (contract/fs.ts). `fsContent` returns raw bytes (an
   // image / binary), used directly as an `<img src>` — not via `apiGet` (which
   // JSON-parses); resolve it to an absolute URL with `fsContentUrl` in client.ts.
   fsSources: '/fs/sources',
-  fsCatalog: (source: string) => `/fs/catalog?source=${encodeURIComponent(source)}`,
+  fsCatalog: (source: string) => `/fs/catalog?source=${encodePathSegment(source)}`,
   fsFolder: (source: string, path: string) =>
-    `/fs/folder?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+    `/fs/folder?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
   fsText: (source: string, path: string) =>
-    `/fs/text?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+    `/fs/text?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
   fsSnapshot: (source: string, path: string) =>
-    `/fs/snapshot?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+    `/fs/snapshot?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
   fsFolderSnapshot: (source: string, path: string) =>
-    `/fs/folder-snapshot?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+    `/fs/folder-snapshot?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
   refreshSessionAttachment: (sessionId: string, attachmentId: string) =>
-    `/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(attachmentId)}/refresh`,
+    `/sessions/${encodePathSegment(sessionId)}/attachments/${encodePathSegment(attachmentId)}/refresh`,
   refreshSessionFolder: (sessionId: string, folderId: string) =>
-    `/sessions/${encodeURIComponent(sessionId)}/folders/${encodeURIComponent(folderId)}/refresh`,
+    `/sessions/${encodePathSegment(sessionId)}/folders/${encodePathSegment(folderId)}/refresh`,
   refreshLocalSessionFolder: (sessionId: string, folderId: string) =>
-    `/sessions/${encodeURIComponent(sessionId)}/local-folders/${encodeURIComponent(folderId)}/refresh`,
+    `/sessions/${encodePathSegment(sessionId)}/local-folders/${encodePathSegment(folderId)}/refresh`,
   refreshLocalGitSessionFolder: (sessionId: string, folderId: string) =>
-    `/sessions/${encodeURIComponent(sessionId)}/workspace/folders/${encodeURIComponent(folderId)}/local-git-refresh`,
+    `/sessions/${encodePathSegment(sessionId)}/workspace/folders/${encodePathSegment(folderId)}/local-git-refresh`,
   fsContent: (source: string, path: string) =>
-    `/fs/content?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
+    `/fs/content?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
   projects: '/projects',
   artifacts: '/artifacts',
-  artifact: (id: string) => `/artifacts/${encodeURIComponent(id)}`,
+  artifact: (id: string) => `/artifacts/${encodePathSegment(id)}`,
   artifactTrash: '/artifacts/trash',
-  artifactLifecycle: (id: string) => `/artifacts/${encodeURIComponent(id)}/lifecycle`,
+  artifactLifecycle: (id: string) => `/artifacts/${encodePathSegment(id)}/lifecycle`,
   artifactExport: (id: string, format?: 'xlsx' | 'pptx' | 'docx') => {
-    const path = `/artifacts/${encodeURIComponent(id)}/export`
+    const path = `/artifacts/${encodePathSegment(id)}/export`
     return format ? `${path}?format=${format}` : path
   },
   schedules: '/schedules',
-  schedule: (id: string) => `/schedules/${encodeURIComponent(id)}`,
-  scheduleRun: (id: string) => `/schedules/${encodeURIComponent(id)}/run`,
+  schedule: (id: string) => `/schedules/${encodePathSegment(id)}`,
+  scheduleRun: (id: string) => `/schedules/${encodePathSegment(id)}/run`,
   relations: '/relations',
   relationOps: '/relations/ops',
   recents: '/recents',
-  recentsType: (type: string) => `/recents/${encodeURIComponent(type)}`,
+  recentsType: (type: string) => `/recents/${encodePathSegment(type)}`,
   audit: '/audit',
   /** The maintainer console (`/admin/*` — maintainer-walled, contract/admin.ts). */
   adminUsers: '/admin/users',
@@ -383,8 +396,8 @@ export const paths = {
   adminTokens: '/admin/tokens',
   adminAudit: '/admin/audit',
   adminOps: '/admin/ops',
-  adminUserDeactivate: (id: string) => `/admin/users/${encodeURIComponent(id)}/deactivate`,
+  adminUserDeactivate: (id: string) => `/admin/users/${encodePathSegment(id)}/deactivate`,
   adminTokenRevoke: (userId: string, id: string) =>
-    `/admin/tokens/${encodeURIComponent(userId)}/${encodeURIComponent(id)}`,
-  adminInviteRevoke: (id: string) => `/admin/invites/${encodeURIComponent(id)}`,
+    `/admin/tokens/${encodePathSegment(userId)}/${encodePathSegment(id)}`,
+  adminInviteRevoke: (id: string) => `/admin/invites/${encodePathSegment(id)}`,
 }

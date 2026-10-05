@@ -184,6 +184,15 @@ send either the existing prose block body or `{content, expectedRevision}` for a
 complete sheet/deck; `content` excludes server revision metadata. Missing/stale
 preconditions and reader writes meet the same HTTP validation and owner walls.
 
+Artifact history has separate owner-only list/version reads. Its restore route
+requires an exact retained source revision, the reviewed current revision and a
+logical key. It owns a durable receipt rather than relying on the response cache:
+exact replay returns the original restored version alongside the current revision,
+and changed intent with the same key conflicts. Restore appends a new version;
+it never rewinds the body revision. Owners retain inspection in Trash, but a new
+body restore requires an active artifact. Shared readers and ordinary current-body
+reads do not include historical content.
+
 **Sessions and live push:** `initialize` returns an `Mcp-Session-Id` header
 (POSTs work without it — it's only required where state lives). `GET /mcp`
 with the id opens the server→client SSE stream: it refuses anonymous callers

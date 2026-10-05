@@ -1,21 +1,16 @@
 /** App wiring for revision-checked artifact body edits. */
 import { useSyncExternalStore } from 'react'
 import type { ArtifactContent, ArtifactContentPatch } from '../../contract/index.ts'
-import {
-  AccountSwitchedError,
-  ApiRequestError,
-  onAccountSwitch,
-  patchArtifactContent,
-  peekArtifactContent,
-  reconcileArtifactContent,
-} from '../api'
+import { AccountSwitchedError, ApiRequestError } from '../api/client.ts'
+import { onAccountSwitch } from '../api/account.ts'
+import { patchArtifactContent, peekArtifactContent, reconcileArtifactContent } from '../api/commands.ts'
 import {
   createRevisionedMutationController,
   IDLE_REVISIONED_MUTATION,
   type RevisionedMutationFailure,
   type RevisionedMutationOutcome,
   type RevisionedMutationStatus,
-} from './revisionedMutationCore'
+} from './revisionedMutationCore.ts'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {

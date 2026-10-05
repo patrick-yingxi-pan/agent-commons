@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Component, Fragment, lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowUpRight,
   Box,
@@ -20,6 +20,7 @@ import {
 import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
+import type { ArtifactHistoryBody } from '../../contract/artifactHistory.ts'
 import type { SocialEntityRef } from '../../contract/index.ts'
 import { docBlockText } from '../../contract/index.ts'
 import { LocusGutter } from './LocusGutter'
@@ -62,6 +63,18 @@ import {
   isStructuredArtifactMutationHeld,
   useStructuredArtifactMutationStatus,
 } from '../controller/structuredArtifactMutations'
+import { useArtifactHistoryRestoreHeld } from '../controller/artifactBodyOperationHolds.ts'
+
+const DeferredArtifactHistorySection = lazy(() => import('./ArtifactHistorySection'))
+
+class ArtifactHistorySectionBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    if (this.state.failed) return <InlineOperationStatus tone="alert" message="Couldn’t display history. Check recovery and copy unsent text before reloading." action={{ label: 'Reload app', onClick: () => window.location.reload() }} />
+    return <Suspense fallback={<p role="status">Loading history…</p>}>{this.props.children}</Suspense>
+  }
+}
 
 export const KIND_ICON: Record<ArtifactKind, LucideIcon> = {
   doc: FileText,
@@ -534,6 +547,7 @@ export function ArtifactBodyView({
   excerpt,
   served,
   artifactId,
+  bodyOverride,
   edit,
   discuss,
 }: {
@@ -558,13 +572,19 @@ export function ArtifactBodyView({
    *  name-keyed authored library). Absent for seeded artifacts and UI-host folders
    *  (which fall back to the library / scaffold). */
   served?: { sourceId: string; path: string }
+  /** Immutable history preview. Overrides the live cache without writing into it. */
+  bodyOverride?: ArtifactHistoryBody
 }) {
-  const content = useArtifactContent()
+  const content = useArtifactContent(!bodyOverride)
   const library = content.data
   const lib = artifactId ? library?.[artifactId] : library?.[name]
   const isImage = kind === 'image'
   // Real text for a served, non-image artifact (enabled-gated; rules of hooks).
   const servedText = useFsText(served?.sourceId ?? '', served?.path ?? '', !!served && !isImage)
+  if (bodyOverride) {
+    if (bodyOverride.type === 'doc') return <DocView doc={bodyOverride} size={size} />
+    return <StructuredArtifactView body={bodyOverride} size={size} />
+  }
   // Served real content wins over the authored library.
   if (served) {
     if (isImage) return <ServedImage url={fsContentUrl(served.sourceId, served.path)} name={name} size={size} />
@@ -719,6 +739,7 @@ export function ArtifactDetailPage({
   const editingStructured = structuredDraft !== undefined
   useArtifactLifecycleStatus()
   const lifecycleHeld = heldArtifactLifecycle(artifact.id)
+  const historyRestoreHeld = useArtifactHistoryRestoreHeld(artifact.id)
   const artifactContent = useArtifactContent(!inTrash && !lifecycleHeld)
   const structuredMutation = useStructuredArtifactMutationStatus()
   const structuredBody = artifactContent.data?.[artifact.id]
@@ -731,13 +752,13 @@ export function ArtifactDetailPage({
   const [sharingHeld, setSharingHeld] = useState(false)
   useGrantMutationStatus()
   const [trashReview, setTrashReview] = useState<{ artifact: ArtifactItem; sourceUserId: string | null } | null>(null)
-  const trashBlocked = !identity || editingName || metadataBusy || draftState !== undefined || structuredBusy || sharingHeld || isGrantMutationHeld({ kind: 'artifact', id: artifact.id }) || filingHeld
+  const trashBlocked = !identity || editingName || metadataBusy || draftState !== undefined || structuredBusy || historyRestoreHeld || sharingHeld || isGrantMutationHeld({ kind: 'artifact', id: artifact.id }) || filingHeld
   const downloadFormat = artifact.kind === 'sheet' ? 'xlsx' : artifact.kind === 'slide' ? 'pptx' : artifact.kind === 'doc' || artifact.kind === 'email' ? 'markdown' : null
   // One artifact-scoped operation owns both document downloads. This keeps
   // Markdown and Word mutually exclusive and gives account/artifact changes a
   // single abort fence.
   const artifactDownload = useArtifactDownload(artifact.id, downloadFormat ?? 'markdown')
-  const edit: DocEdit | undefined = own
+  const edit: DocEdit | undefined = own && !historyRestoreHeld
     ? {
         index: editing,
         draft: documentDraft?.text ?? '',
@@ -771,10 +792,14 @@ export function ArtifactDetailPage({
     if (outcome === 'applied' && currentArtifactId.current === artifact.id) setEditingName(false)
   }
   const startStructuredEdit = () => {
-    if (!own || !editableStructuredBody || structuredBusy) return
+    if (!own || !editableStructuredBody || structuredBusy || historyRestoreHeld) return
     const { revision = 0, ...content } = editableStructuredBody
     artifactEditDrafts.start(artifact.id, { kind: 'structured', content, expectedRevision: revision })
   }
+  const historySection = own && artifact.kind !== 'image' && <ArtifactHistorySectionBoundary key={artifact.id}>
+    <DeferredArtifactHistorySection Section={Section} artifact={artifact} sourceUserId={sourceUserId}
+      allowRestore={!inTrash && !lifecycleHeld} restoreBlocked={draftState !== undefined || structuredBusy} />
+  </ArtifactHistorySectionBoundary>
 
   // The same canonical identity becomes a recovery surface. No retained body,
   // download, sharing or edit controls confer authority while access is suspended
@@ -795,8 +820,9 @@ export function ArtifactDetailPage({
         <p className="text-[13px] leading-relaxed text-ink-soft">{lifecycleHeld
           ? 'Use the recovery notice to retry this exact action, or Dismiss to check its saved state. The artifact stays here until the outcome is confirmed.'
           : 'This artifact is kept in Trash and is unavailable to shared readers, discussions and routines. Restoring keeps its contents, filing and current sharing settings.'}</p>
-        {own && !lifecycleHeld && <button type="button" disabled={!identity} className={`${SECONDARY_BUTTON_CLASS} mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]`} onClick={() => { if (identity) void enqueueArtifactLifecycle(artifact, 'active', sourceUserId) }}><RotateCcw size={14} />Restore artifact</button>}
+        {own && !lifecycleHeld && <button type="button" disabled={!identity || historyRestoreHeld} title={historyRestoreHeld ? 'Wait for the version restore to be confirmed' : undefined} className={`${SECONDARY_BUTTON_CLASS} mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px]`} onClick={() => { if (identity) void enqueueArtifactLifecycle(artifact, 'active', sourceUserId) }}><RotateCcw size={14} />Restore artifact</button>}
       </Section>
+      {historySection}
     </div>
   )
 
@@ -909,8 +935,8 @@ export function ArtifactDetailPage({
               label={editingStructured ? 'Cancel editing' : editableStructuredBody.type === 'slides' ? 'Edit slides' : 'Edit sheet'}
               icon={editingStructured ? <X size={14} /> : <Pencil size={14} />}
               onClick={editingStructured ? () => artifactEditDrafts.cancel(artifact.id) : startStructuredEdit}
-              disabled={structuredBusy}
-              disabledReason={structuredBusy ? 'Finish the current structure edit first' : undefined}
+              disabled={structuredBusy || historyRestoreHeld}
+              disabledReason={historyRestoreHeld ? 'Wait for the version restore to be confirmed' : structuredBusy ? 'Finish the current structure edit first' : undefined}
             />}
             {downloadFormat && <>
               <SectionAction
@@ -957,6 +983,7 @@ export function ArtifactDetailPage({
               discuss={{ kind: 'artifact', id: artifact.id }}
             />}
         </Section>
+        {historySection}
         {/* Improvements (social S3) — the generic ProposalsPanel, the third
             social primitive on the one canonical surface. An artifact could be
             shared and discussed but never IMPROVED: `artifact-patch` had no

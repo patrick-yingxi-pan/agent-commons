@@ -70,11 +70,11 @@ export function mcpToolRoutes(router: Router): ApiOperation[] {
   })
 }
 
-/** Artifact creation's key is its durable row identity, not an optional replay
- * optimization. Keep the generated schema and protocol validation aligned with
- * that route-owned requirement. */
+/** Artifact creation and historical restore require durable exact identities,
+ * not optional replay optimization. Keep schema and protocol aligned. */
 function requiresIdempotencyKey(operation: ApiOperation): boolean {
-  return operation.method === 'POST' && operation.pattern === '/artifacts'
+  return operation.method === 'POST' && (operation.pattern === '/artifacts' ||
+    /^\/artifacts\/:id\/history\/:revision\/restore$/.test(operation.pattern))
 }
 
 function toolDefinition(t: ApiOperation) {
@@ -218,7 +218,7 @@ export const MCP_UI_COPY = {
 const SHARED_INSTRUCTIONS = [
   'Every tool is one HTTP operation of this workspace, dispatched through the same route table, auth wall, and tenancy checks as the web UI (access-parity INV-11) — the three access methods (UI, in-app session, MCP) differ in form, never in capability or policy.',
   'Tool results are the JSON {status, body} of the underlying HTTP response; the send-message tool returns the reply stream as a parsed event array.',
-  'Mutation tools accept an idempotencyKey argument separate from body; direct Artifact creation requires it because the key owns the durable row identity, while other mutations leave it optional. Reuse it for one logical retry, not a new edit. Outer transport keys are not forwarded, and durable restart replay depends on the underlying route.',
+  'Mutation tools accept an idempotencyKey argument separate from body; direct Artifact creation and historical body restore require it because their keys own durable identities/receipts, while other mutations leave it optional. Reuse it for one exact logical retry, not a new edit. Outer transport keys are not forwarded, and durable restart replay depends on the underlying route.',
   "Connecting with ?toolset=core on the endpoint URL lists only the curated everyday subset (sessions, messages, projects, artifacts, schedules, search, usage) — tools/call still accepts the full catalog either way, so any operation remains callable by name.",
   'Tool annotations mark reads (readOnlyHint) and deletes (destructiveHint) mechanically; where a mutation has a curated body example it rides in the input schema (properties.body.examples) — bodies follow the HTTP contract, and a malformed one is refused, never guessed at.',
   'For live push, keep the Mcp-Session-Id this initialize returned and open GET /mcp with it (SSE): ambient workspace events arrive as notifications/message frames, and subscribed resources signal notifications/resources/updated.',
@@ -518,7 +518,7 @@ export function registerMcp(router: Router): void {
       }
       let innerKey: string | undefined
       if (requiresIdempotencyKey(tool) && !Object.hasOwn(args, 'idempotencyKey')) {
-        return sendRpc(res, rpcError(id, -32602, 'Missing required idempotencyKey for Artifact creation.'))
+        return sendRpc(res, rpcError(id, -32602, 'Missing required idempotencyKey for this Artifact mutation.'))
       }
       if (tool.method !== 'GET' && Object.hasOwn(args, 'idempotencyKey')) {
         const candidate = args.idempotencyKey

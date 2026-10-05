@@ -125,6 +125,7 @@ export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, u
   ['POST /artifacts', { name: 'Launch notes.md', kind: 'doc', body: 'Decisions and next steps from the launch review.' }],
   ['PATCH /artifacts/:id/lifecycle', { state: 'trashed', expectedRevision: 0 }],
   ['PATCH /artifacts/:id/content', { block: 1, text: 'Rewritten paragraph.', expectedRevision: 0 }],
+  ['POST /artifacts/:id/history/:revision/restore', { expectedRevision: 1 }],
   [
     'POST /schedules',
     {

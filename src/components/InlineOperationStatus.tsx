@@ -28,7 +28,7 @@ export function InlineOperationStatus({
       {action && (
         <button
           type="button"
-          onClick={action.onClick}
+          onClick={() => action.onClick()}
           className="flex shrink-0 items-center gap-1 rounded-md border border-line bg-surface px-2 py-0.5 text-ink-soft transition hover:bg-panel-2 hover:text-ink"
         >
           {action.icon}
@@ -38,7 +38,7 @@ export function InlineOperationStatus({
       {secondaryAction && (
         <button
           type="button"
-          onClick={secondaryAction.onClick}
+          onClick={() => secondaryAction.onClick()}
           className="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-ink-faint transition hover:bg-panel-2 hover:text-ink"
         >
           {secondaryAction.icon}

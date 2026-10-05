@@ -10,6 +10,7 @@ import { ArtifactContentMutationNotice } from './ArtifactContentMutationNotice'
 import { StructuredArtifactMutationNotice } from './StructuredArtifactMutationNotice'
 import { ArtifactMetadataMutationNotice } from './ArtifactMetadataMutationNotice'
 import { ArtifactLifecycleMutationNotice } from './ArtifactLifecycleMutationNotice'
+import { ArtifactHistoryRestoreMutationNotice } from './ArtifactHistoryRestoreMutationNotice'
 import { CommissionMutationNotice } from './CommissionMutationNotice'
 import { CommissionCreationMutationNotice } from './CommissionCreationMutationNotice'
 import { DispatchMutationNotice } from './DispatchMutationNotice'
@@ -126,6 +127,7 @@ export function ShellMutationNotices() {
       <StructuredArtifactMutationNotice />
       <ArtifactMetadataMutationNotice />
       <ArtifactLifecycleMutationNotice />
+      <ArtifactHistoryRestoreMutationNotice />
       <ProposalVerdictMutationNotice />
       <AgentMutationNotice />
       <AgentCreationMutationNotice />

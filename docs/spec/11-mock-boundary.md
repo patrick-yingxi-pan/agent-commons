@@ -79,8 +79,11 @@ media and calculation remain unbuilt. Saved bodies and XLSX exports use the same
 canonical authored-artifact boundary, never fixture content. ADAPT-39 adds real
 ordered workbook tabs under one artifact identity and access boundary, with
 whole-workbook edits, all-visible-sheet adoption and multi-tab XLSX export.
-Revisions are conflict-detection counters, not browsable saved-version history.
-This still does not execute formulas or retain rich Office fidelity.
+REL-25 adds owner-only retained body history and explicit restoration as a new
+revision. The current body becomes the baseline on its first history-aware
+replacement; earlier unrecorded edits cannot be reconstructed. Shared readers
+and ordinary model input still receive only current content. This does not
+execute formulas, retain rich Office fidelity or add permanent deletion.
 
 Saved authored Documents and draft emails also export through the authenticated
 boundary as bounded DOCX projections of the current saved text snapshot. The

@@ -84,6 +84,11 @@ test('tools/call: mutation retry identities are bounded and invalid values fail 
     arguments: { body: { name: 'missing-key.md', kind: 'doc', body: 'Must not create.' } },
   })
   assert.equal(missingCreateKey.json.error.code, -32602)
+  const missingRestoreKey = await rpc('tools/call', {
+    name: 'post_artifacts_by_id_history_by_revision_restore',
+    arguments: { id: 'missing', revision: '0', body: { expectedRevision: 0 } },
+  })
+  assert.equal(missingRestoreKey.json.error.code, -32602, 'owner history restore advertises and enforces its durable receipt key')
   const invalidType = await rpc('tools/call', {
     name: 'patch_artifacts_by_id_content',
     arguments: { id: 'missing', body: {}, idempotencyKey: 7 },
@@ -306,6 +311,22 @@ test('curated body examples: every key is a real mutation route, the spine is co
       idempotencyKey: `mcp-direct-artifact-example-${Date.now()}`,
     }, seam)
   assert.equal(artifactExample.status, 201, 'POST /artifacts example creates under its required logical identity')
+  const historyExample = await toolCall('post_artifacts', {
+    ...ex('POST /artifacts'), idempotencyKey: `mcp-history-artifact-example-${Date.now()}`,
+  }, seam)
+  assert.equal(historyExample.status, 201, 'history test Artifact is created through the real tool route')
+  const historyArtifactId = historyExample.body.artifact.id
+  assert.equal((await toolCall('patch_artifacts_by_id_content', {
+    id: historyArtifactId,
+    body: { block: 0, text: 'MCP history example edit.', expectedRevision: 0 },
+  }, seam)).status, 200, 'the owner edit creates a retained baseline and version')
+  const historyRestore = await toolCall('post_artifacts_by_id_history_by_revision_restore', {
+    id: historyArtifactId, revision: '0',
+    ...ex('POST /artifacts/:id/history/:revision/restore'),
+    idempotencyKey: `mcp-history-restore-${Date.now()}`,
+  }, seam)
+  assert.equal(historyRestore.status, 200, 'owner restore is reachable through generated MCP tools')
+  assert.equal(historyRestore.body.version.reason, 'restore')
   assert.equal(
     (await toolCall('patch_artifacts_by_id_lifecycle', {
       id: artifactExample.body.artifact.id,
@@ -323,7 +344,7 @@ test('curated body examples: every key is a real mutation route, the spine is co
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 17, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 18, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

@@ -1,7 +1,11 @@
 import type { ArtifactContent, StructuredArtifactBody, StructuredArtifactContentPatch } from '../../contract/index.ts'
-import { AccountSwitchedError, ApiRequestError, onAccountSwitch, patchStructuredArtifactContent, peekArtifactContent, reconcileArtifactContent } from '../api'
+import { AccountSwitchedError, ApiRequestError } from '../api/client.ts'
+import { onAccountSwitch } from '../api/account.ts'
+import { peekArtifactContent, reconcileArtifactContent } from '../api/commands.ts'
+import { patchStructuredArtifactContent } from '../api/structuredArtifactContent.ts'
 import { createRevisionedMutationController, type RevisionedMutationFailure, type RevisionedMutationOutcome } from './revisionedMutationCore.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
+import { isArtifactHistoryRestoreHeld } from './artifactBodyOperationHolds.ts'
 
 /** Whole-body replacement is explicit in recovery copy: Retry is a reviewed
  * replacement, not a cell-level merge or a claim that no remote edit happened. */
@@ -36,6 +40,7 @@ onAccountSwitch(() => { generation += 1; holds.clear(); controller.clearAll() })
 
 export const isStructuredArtifactMutationHeld = (id: string): boolean => (holds.get(id) ?? 0) > 0
 export function updateStructuredArtifactContent(id: string, content: StructuredArtifactBody, expectedRevision: number): Promise<RevisionedMutationOutcome> {
+  if (isArtifactHistoryRestoreHeld(id)) return Promise.resolve('discarded')
   const issued = generation
   holds.set(id, (holds.get(id) ?? 0) + 1)
   const outcome = controller.enqueue(id, { content: structuredClone(content) }, expectedRevision)

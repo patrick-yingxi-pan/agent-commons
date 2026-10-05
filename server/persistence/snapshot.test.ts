@@ -36,7 +36,7 @@ const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
 const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
 const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
-const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences'] as const
+const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences', 'artifactHistory', 'artifactHistoryRestoreReceipts'] as const
 
 const snapshotImage: ImageSnapshot = {
   mimeType: 'image/png',
@@ -596,6 +596,9 @@ test('build produces a snapshot covering every persisted slice', async () => {
     ),
     'updateArtifactBlock → artifactBodies (S3, the artifact-patch body overlay), keyed by artifact id',
   )
+  assert.ok(s.artifactHistory?.some(([id, versions]) => id.length > 0 && versions.length >= 2 &&
+    versions[0]?.reason === 'baseline' && versions.at(-1)?.reason === 'edit'),
+  'the same body commit records an immutable baseline and current edit in portable state')
   assert.ok(
     s.artifactBodies?.some(
       ([id, body]) => id.length > 0 && body.type === 'doc' && JSON.stringify(body.blocks).includes('portable snapshot path'),

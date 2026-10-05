@@ -17,6 +17,7 @@ export interface ArtifactEditDraftState {
  * Dismiss preserves editable input, and account disposal fences late outcomes. */
 export function createArtifactEditDraftStore(
   write: (id: string, draft: ArtifactEditDraft) => Promise<RevisionedMutationOutcome>,
+  canStart: (id: string) => boolean = () => true,
 ) {
   const drafts = new Map<string, ArtifactEditDraftState>()
   const saves = new Map<string, { result: Promise<RevisionedMutationOutcome>; settle: (outcome: RevisionedMutationOutcome) => void }>()
@@ -28,7 +29,7 @@ export function createArtifactEditDraftStore(
   }
   const get = (id: string) => drafts.get(id)
   const start = (id: string, draft: ArtifactEditDraft) => {
-    if (drafts.has(id)) return
+    if (!canStart(id) || drafts.has(id)) return
     drafts.set(id, { draft: structuredClone(draft), held: false, error: null })
     publish()
   }
@@ -46,7 +47,7 @@ export function createArtifactEditDraftStore(
     const pending = saves.get(id)
     if (pending) return pending.result
     const current = drafts.get(id)
-    if (!current) return Promise.resolve('discarded')
+    if (!current || !canStart(id)) return Promise.resolve('discarded')
     const claim = { ...current, held: true, error: null }
     let settle!: (outcome: RevisionedMutationOutcome) => void
     const result = new Promise<RevisionedMutationOutcome>((resolve) => { settle = resolve })

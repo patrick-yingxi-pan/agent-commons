@@ -50,6 +50,8 @@ import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseArtifactLifecycleEntries } from '../artifactLifecycle.ts'
 import type { ArtifactLifecycle } from '../../contract/artifactLifecycle.ts'
+import { parseArtifactHistoryEntries, historyBodyWithoutRevision, type ArtifactHistoryEntries } from '../../contract/artifactHistory.ts'
+import type { StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
 import { parseStructuredArtifactBody } from '../../contract/artifactAuthoring.ts'
 import type { ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import type { ProviderConfig } from '../data/providers.ts'
@@ -407,6 +409,10 @@ export interface PersistedState {
    *  same-named artifact in another. Additive-optional like `socialProposals`
    *  (a pre-field snapshot loads with every body at its authored text). */
   artifactBodies?: [string, ArtifactContent][]
+  /** Append-only owner-visible body history; absent on older snapshots. */
+  artifactHistory?: ArtifactHistoryEntries
+  /** Private exact restore receipts; keys and principal anchors never cross API projections. */
+  artifactHistoryRestoreReceipts?: [string, StoredArtifactHistoryRestoreReceipt][]
   /** Independent display names, ordered by metadata revision rather than body revision. */
   artifactMetadata?: [string, ArtifactMetadata][]
   /** Recoverable Trash ordering. Retained rows and bodies remain canonical. */
@@ -551,6 +557,8 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   discussions: 'array',
   socialProposals: 'array',
   artifactBodies: 'mapEntries',
+  artifactHistory: 'mapEntries',
+  artifactHistoryRestoreReceipts: 'mapEntries',
   artifactMetadata: 'mapEntries',
   artifactLifecycle: 'mapEntries',
   mutes: 'mapEntries',
@@ -616,6 +624,41 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       const { revision, ...values } = body
       if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) return false
       if (!parseStructuredArtifactBody(values)) return false
+    }
+  }
+  if (state?.artifactHistory !== undefined) {
+    try {
+      const entries = parseArtifactHistoryEntries(state.artifactHistory)
+      const currentBodies = new Map(state.artifactBodies ?? [])
+      for (const [id, versions] of entries) {
+        const latest = versions.at(-1)!
+        const body = currentBodies.get(id)
+        if (!body || (body.revision ?? 0) !== latest.revision ||
+          JSON.stringify(historyBodyWithoutRevision(body)) !== JSON.stringify(latest.body)) return false
+      }
+    } catch { return false }
+  }
+  if (state?.artifactHistoryRestoreReceipts !== undefined) {
+    if (!Array.isArray(state.artifactHistoryRestoreReceipts)) return false
+    const receiptKeys = new Set<string>()
+    const histories = new Map(parseArtifactHistoryEntries(state.artifactHistory ?? []))
+    for (const entry of state.artifactHistoryRestoreReceipts) {
+      if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string' || !entry[0] || receiptKeys.has(entry[0])) return false
+      receiptKeys.add(entry[0])
+      const [storageKey, receipt] = entry
+      if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt) ||
+        Object.keys(receipt).sort().join(',') !== 'artifactId,expectedRevision,keyHash,restoredRevision,sourceRevision,tenantId,userId' ||
+        typeof receipt.tenantId !== 'string' || !receipt.tenantId || typeof receipt.userId !== 'string' || !receipt.userId ||
+        typeof receipt.artifactId !== 'string' || !receipt.artifactId || typeof receipt.keyHash !== 'string' || !/^[0-9a-f]{64}$/.test(receipt.keyHash) ||
+        !Number.isSafeInteger(receipt.sourceRevision) || receipt.sourceRevision < 0 ||
+        !Number.isSafeInteger(receipt.expectedRevision) || receipt.expectedRevision < 0 ||
+        !Number.isSafeInteger(receipt.restoredRevision) || receipt.restoredRevision !== receipt.expectedRevision + 1) return false
+      const versions = histories.get(receipt.artifactId)
+      const version = versions?.find((candidate) => candidate.revision === receipt.restoredRevision)
+      const sourceVersion = versions?.find((candidate) => candidate.revision === receipt.sourceRevision)
+      if (!version || version.reason !== 'restore' || version.restoredFromRevision !== receipt.sourceRevision ||
+        !sourceVersion || JSON.stringify(sourceVersion.body) !== JSON.stringify(version.body)) return false
+      if (storageKey !== JSON.stringify([receipt.tenantId, receipt.userId, receipt.keyHash])) return false
     }
   }
   if (state?.artifactMetadata !== undefined) {

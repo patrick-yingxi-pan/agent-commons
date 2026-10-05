@@ -52,6 +52,7 @@ export {
 export * from './artifactEditing.ts'
 export * from './artifactCreation.ts'
 export * from './artifactLifecycle.ts'
+export * from './artifactHistory.ts'
 export * from './scheduledArtifact.ts'
 export * from './modelPreferences.ts'
 export * from './mcpExecution.ts'

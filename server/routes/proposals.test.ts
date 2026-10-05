@@ -494,6 +494,9 @@ test('SOCIAL-7: an artifact-patch delta lands by running the REAL body mutator',
     beforeRevision + 1,
     'proposal landing advances the same body revision as the owner editor',
   )
+  const landedVersion = store.artifactHistoryVersion(artifactId, beforeRevision + 1, owner)?.version
+  assert.equal(landedVersion?.reason, 'edit', 'proposal landing flows through the retained body-history commit')
+  assert.equal(landedVersion?.body.type === 'doc' ? landedVersion.body.blocks[1]?.p : undefined, text)
 
   // …and the change is what the READERS see: the name-keyed library the previews
   // render carries it for the owner AND the granted audience, nobody else.

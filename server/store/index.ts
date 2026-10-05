@@ -87,7 +87,15 @@ import type {
   UsageSnapshot,
   ViewerModelPreferences,
 } from '../../contract/index.ts'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  type ArtifactHistoryPage,
+  type ArtifactHistoryVersion,
+  type ArtifactHistoryVersionMetadata,
+  type ArtifactHistoryVersionResult,
+  historyBodyWithoutRevision,
+} from '../../contract/artifactHistory.ts'
+import { prepareArtifactHistoryAppend, type StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 import { isServedImageSnapshot, type ServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
 import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
@@ -1117,6 +1125,8 @@ function publicDiscussion(d: StoredDiscussion, viewerTenant?: string): Discussio
  *  (the S7 lesson). `store.artifactContent(tenantId)` projects only readable
  *  identities; `artifactBodyOf(id)` is the canonical artifact resolver. */
 const artifactBodies = new Map<string, ArtifactContent>()
+const artifactHistory = new Map<string, ArtifactHistoryVersion[]>()
+const artifactHistoryRestoreReceipts = new Map<string, StoredArtifactHistoryRestoreReceipt>()
 // Display metadata is independent of authored bytes and immutable save origin.
 // This also lets demo rows be renamed without mutating the fixture library.
 const artifactMetadata = new Map<string, ArtifactMetadata>()
@@ -1135,18 +1145,34 @@ const artifactWithMetadata = (artifact: ArtifactItem): ArtifactItem => {
  * edit timestamp. The metadata overlay already owns that timestamp durably;
  * retaining its current name revision keeps body and rename CAS independent.
  * Publish only after the snapshot commits, matching the rename funnel. */
-function commitArtifactBodyEdit(artifact: ArtifactItem, updated: ArtifactContent): ArtifactContent {
+function commitArtifactBodyEdit(
+  artifact: ArtifactItem,
+  updated: ArtifactContent,
+  options: { reason?: 'edit' | 'restore'; restoredFromRevision?: number; beforePersist?: () => void } = {},
+): ArtifactContent {
   // Older snapshots admitted names outside today's metadata contract. Keep
   // those rows readable/renameable, but never persist an invalid name overlay.
   if (normalizeArtifactName(artifact.name) !== artifact.name) {
     throw new ValidationError('Rename this artifact to a valid name before editing its content.')
   }
+  const current = retainedArtifactBody(artifact.id)
+  if (!current || (updated.revision ?? 0) !== (current.revision ?? 0) + 1 ||
+    (current.revision ?? 0) >= Number.MAX_SAFE_INTEGER) {
+    throw new ConflictError('This artifact cannot accept another body revision. Refresh its current content before retrying.')
+  }
+  const editedAt = Math.max(Date.now(), artifact.editedAt)
+  const versions = prepareArtifactHistoryAppend(
+    artifact.id, current, updated, new Date(editedAt).toISOString(), options.reason ?? 'edit',
+    options.restoredFromRevision, artifactHistory.get(artifact.id),
+  )
   artifactBodies.set(artifact.id, updated)
+  artifactHistory.set(artifact.id, versions)
   artifactMetadata.set(artifact.id, {
     name: artifact.name,
     revision: artifact.metadataRevision ?? 0,
-    editedAt: Math.max(Date.now(), artifact.editedAt),
+    editedAt,
   })
+  options.beforePersist?.()
   persist()
   emit({ type: 'artifact.changed', artifactId: artifact.id })
   return updated
@@ -2755,6 +2781,8 @@ function snapshot(): PersistedState {
     discussions, // social S2 — anchored threads (talk survives a restart)
     socialProposals, // social S3 — offered changes + the per-subject ledger
     artifactBodies: [...artifactBodies.entries()], // social S3 — edited artifact bodies (id-keyed)
+    artifactHistory: [...artifactHistory.entries()],
+    artifactHistoryRestoreReceipts: [...artifactHistoryRestoreReceipts.entries()],
     artifactMetadata: [...artifactMetadata.entries()],
     artifactLifecycle: [...artifactLifecycle.entries()],
     mutes: [...mutes.entries()].map(([t, set]) => [t, [...set]] as [string, string[]]), // S5 earmuffs
@@ -2852,6 +2880,8 @@ function cleanFirstBootState(): PersistedState {
   clean.discussions = []
   clean.socialProposals = []
   clean.artifactBodies = []
+  clean.artifactHistory = []
+  clean.artifactHistoryRestoreReceipts = []
   clean.artifactMetadata = []
   clean.artifactLifecycle = []
   clean.mutes = []
@@ -3447,10 +3477,32 @@ function rehydrate(s: PersistedState): boolean {
   // pre-field snapshot restores with none, i.e. every body at its seed text.
   artifactBodies.clear()
   for (const [id, body] of s.artifactBodies ?? []) artifactBodies.set(id, body)
+  artifactHistory.clear()
+  for (const [id, versions] of s.artifactHistory ?? []) artifactHistory.set(id, versions)
+  artifactHistoryRestoreReceipts.clear()
+  for (const [key, receipt] of s.artifactHistoryRestoreReceipts ?? []) artifactHistoryRestoreReceipts.set(key, receipt)
   artifactMetadata.clear()
   for (const [id, metadata] of parseArtifactMetadataEntries(s.artifactMetadata)) artifactMetadata.set(id, metadata)
   artifactLifecycle.clear()
   for (const [id, lifecycle] of parseArtifactLifecycleEntries(s.artifactLifecycle)) artifactLifecycle.set(id, lifecycle)
+  const bodyMatchesArtifactKind = (artifact: ArtifactItem, body: ArtifactContent): boolean =>
+    artifact.kind === 'doc' || artifact.kind === 'email'
+      ? body.type === 'doc'
+      : artifact.kind === 'sheet'
+        ? body.type === 'sheet' || body.type === 'workbook'
+        : artifact.kind === 'slide' && body.type === 'slides'
+  for (const [id, versions] of artifactHistory) {
+    const artifact = retainedArtifact(id)
+    if (!artifact || versions.some((version) => !bodyMatchesArtifactKind(artifact, { ...version.body, revision: version.revision } as ArtifactContent))) {
+      throw new Error('Persisted Artifact history references an unknown Artifact or incompatible body kind.')
+    }
+  }
+  for (const receipt of artifactHistoryRestoreReceipts.values()) {
+    const artifact = retainedArtifact(receipt.artifactId)
+    if (!artifact || !store.artifactOwnedBy(artifact, receipt.tenantId)) {
+      throw new Error('Persisted Artifact restore receipt has no matching owner authority.')
+    }
+  }
   // S5 mutes — same restore shape.
   mutes.clear()
   for (const [t, names] of s.mutes ?? []) mutes.set(t, new Set(names))
@@ -3589,6 +3641,19 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, spec: Sche
       !artifactBodies.has(artifact.id))
   const id = existing?.id ?? mintArtifactId()
   if (artifactIsTrashed(id)) throw new ConflictError('Restore this routine’s saved artifact from Trash before running it again.')
+  const priorBody = existing ? retainedArtifactBody(id) : undefined
+  // A newly created artifact begins at revision 0. A metadata-only legacy row
+  // is already an identity the routine is adopting, so its first materialized
+  // body is revision 1 even though no pre-existing bytes can be archived.
+  const nextBodyRevision = priorBody ? (priorBody.revision ?? 0) + 1 : existing ? 1 : 0
+  const bodyEditedAt = existing ? Math.max(at, existing.editedAt) : at
+  if (priorBody && (priorBody.revision ?? 0) >= Number.MAX_SAFE_INTEGER) {
+    throw new ConflictError('This routine artifact cannot accept another body revision.')
+  }
+  const nextBody = { ...authored.body, revision: nextBodyRevision }
+  const nextHistory = priorBody
+    ? prepareArtifactHistoryAppend(id, priorBody, nextBody, new Date(bodyEditedAt).toISOString(), 'edit', undefined, artifactHistory.get(id))
+    : undefined
   const delivered: ArtifactItem = {
     ...artifactFromDraft(op.artifact, id, source, existing?.projectId ?? task.projectId ?? '',
       existing ? Math.max(at, existing.editedAt) : at, sessionId, ownerTenantId),
@@ -3611,10 +3676,8 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, spec: Sche
         ? { ...graph.artifactProject, [id]: delivered.projectId } : graph.artifactProject,
     }
   }
-  artifactBodies.set(id, {
-    ...authored.body,
-    revision: existing ? (artifactBodies.get(id)?.revision ?? 0) + 1 : 0,
-  })
+  artifactBodies.set(id, nextBody)
+  if (nextHistory) artifactHistory.set(id, nextHistory)
   graph = { ...graph, revision: (graph.revision ?? 0) + 1 }
   // Readers fetch the body through its read wall; private relation payloads do
   // not need to carry a second copy of the generated report.
@@ -6774,6 +6837,82 @@ export const store = {
       if (byName.get(name) === 1 && !visible.has(name)) bodies.set(name, body)
     }
     return Object.fromEntries(bodies)
+  },
+  artifactHistoryPage(artifactId: string, tenantId: string, beforeRevision?: number, limit = 50): ArtifactHistoryPage | undefined {
+    const artifact = retainedArtifact(artifactId)
+    const body = artifact && retainedArtifactBody(artifactId)
+    if (!artifact || !body || !this.artifactOwnedBy(artifact, tenantId) || !historyBodyWithoutRevision(body)) return undefined
+    const versions = artifactHistory.get(artifactId) ?? []
+    const eligible = versions.filter((version) => beforeRevision === undefined || version.revision < beforeRevision)
+    const page = eligible.slice(-Math.min(Math.max(limit, 1), 50)).reverse()
+    const more = eligible.length > page.length
+    const metadata: ArtifactHistoryVersionMetadata[] = page.map(({ body: _body, ...version }) => ({ ...version }))
+    return {
+      artifactId,
+      currentRevision: body.revision ?? 0,
+      versions: metadata,
+      ...(more && page.length ? { nextBeforeRevision: page.at(-1)!.revision } : {}),
+    }
+  },
+  artifactHistoryVersion(artifactId: string, revision: number, tenantId: string): ArtifactHistoryVersionResult | undefined {
+    const artifact = retainedArtifact(artifactId)
+    const body = artifact && retainedArtifactBody(artifactId)
+    if (!artifact || !body || !this.artifactOwnedBy(artifact, tenantId) || !historyBodyWithoutRevision(body)) return undefined
+    const version = artifactHistory.get(artifactId)?.find((candidate) => candidate.revision === revision)
+    return version ? { artifactId, currentRevision: body.revision ?? 0, version: structuredClone(version) } : undefined
+  },
+  restoreArtifactHistoryVersion(
+    artifactId: string,
+    sourceRevision: number,
+    expectedRevision: number,
+    tenantId: string,
+    userId: string,
+    idempotencyKey: string,
+  ): ArtifactHistoryVersionResult | undefined {
+    const artifact = retainedArtifact(artifactId)
+    const current = artifact && retainedArtifactBody(artifactId)
+    if (!artifact || !current || !this.artifactOwnedBy(artifact, tenantId) || !historyBodyWithoutRevision(current)) return undefined
+    const keyHash = createHash('sha256').update(idempotencyKey).digest('hex')
+    const receiptKey = JSON.stringify([tenantId, userId, keyHash])
+    const existingReceipt = artifactHistoryRestoreReceipts.get(receiptKey)
+    if (existingReceipt) {
+      if (existingReceipt.artifactId !== artifactId || existingReceipt.sourceRevision !== sourceRevision ||
+        existingReceipt.expectedRevision !== expectedRevision) {
+        throw new ConflictError('This Artifact restore key was already used for different reviewed intent.')
+      }
+      const version = artifactHistory.get(artifactId)?.find((candidate) => candidate.revision === existingReceipt.restoredRevision)
+      if (!version) throw new ConflictError('The saved restore receipt is unavailable. Refresh the Artifact history.')
+      return { artifactId, currentRevision: current.revision ?? 0, version: structuredClone(version) }
+    }
+    if (artifactIsTrashed(artifactId)) throw new ConflictError('Restore this Artifact from Trash before restoring a body version.')
+    const target = artifactHistory.get(artifactId)?.find((candidate) => candidate.revision === sourceRevision)
+    if (!target) return undefined
+    const currentRevision = current.revision ?? 0
+    if (currentRevision !== expectedRevision || currentRevision >= Number.MAX_SAFE_INTEGER) {
+      throw new ConflictError(`This Artifact changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`)
+    }
+    const matchingKind = artifact.kind === 'doc' || artifact.kind === 'email'
+      ? target.body.type === 'doc'
+      : artifact.kind === 'sheet'
+        ? target.body.type === 'sheet' || target.body.type === 'workbook'
+        : artifact.kind === 'slide' && target.body.type === 'slides'
+    if (!matchingKind) return undefined
+    const currentHistoryBody = historyBodyWithoutRevision(current)
+    if (sourceRevision === currentRevision || JSON.stringify(currentHistoryBody) === JSON.stringify(target.body)) {
+      throw new ConflictError('This Artifact already has that saved body version.')
+    }
+    const updated = { ...structuredClone(target.body), revision: currentRevision + 1 } as ArtifactContent
+    const receipt: StoredArtifactHistoryRestoreReceipt = {
+      tenantId, userId, artifactId, keyHash, sourceRevision, expectedRevision,
+      restoredRevision: currentRevision + 1,
+    }
+    commitArtifactBodyEdit(artifact, updated, {
+      reason: 'restore',
+      restoredFromRevision: sourceRevision,
+      beforePersist: () => artifactHistoryRestoreReceipts.set(receiptKey, receipt),
+    })
+    const version = artifactHistory.get(artifactId)!.at(-1)!
+    return { artifactId, currentRevision: updated.revision!, version: structuredClone(version) }
   },
   /** A fresh saved-document projection behind the exact artifact read wall.
    * Undefined hides existence; null means a readable row has no exportable

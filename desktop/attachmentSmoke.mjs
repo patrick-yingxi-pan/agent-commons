@@ -811,6 +811,46 @@ export async function smokePackagedAttachments({ executable }) {
     assert.deepEqual(downloadedPptx, pptxBytes, 'downloaded PPTX bytes equal the fresh authenticated export content')
     assert.equal(downloadedPptx.subarray(0, 2).toString('hex'), '504b', 'downloaded PPTX remains a ZIP package')
     console.log('[desktop-pptx-export-smoke] owner rename · authenticated literal slide export · ordered slide ZIP without external or macro parts · exact renamed .pptx download')
+
+    // The packaged renderer restores through the same reviewed history door as
+    // the web UI. Retain the real request key to prove its durable receipt after
+    // the full application relaunch below, not merely an in-process cache hit.
+    const historyRestorePath = `/api/v1/artifacts/${encodeURIComponent(presentationArtifact.id)}/history/0/restore`
+    let historyRestoreKey
+    const observeHistoryRestore = (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === historyRestorePath) {
+        historyRestoreKey = request.headers()['idempotency-key']
+        assert.deepEqual(request.postDataJSON(), { expectedRevision: 1 })
+      }
+    }
+    page.on('request', observeHistoryRestore)
+    await page.getByRole('button', { name: 'Load history', exact: true }).click()
+    await page.locator('[data-artifact-history-version="0"]').click()
+    await expect(page.locator('[data-artifact-history-body]')).toContainText('Launch plan')
+    await expect(page.locator('[data-artifact-history-body]')).not.toContainText('Launch plan edited')
+    await page.getByRole('button', { name: 'Restore version 0', exact: true }).click()
+    const historyConfirmation = page.getByRole('dialog', { name: 'Restore artifact version', exact: true })
+    await expect(historyConfirmation).toContainText('current version 1')
+    await historyConfirmation.getByRole('button', { name: 'Restore version', exact: true }).click()
+    await expect(page.locator('[data-resource-section="Content"] [data-structured-artifact-body="slides"]')).not.toContainText('Launch plan edited')
+    await expect(page.locator('[data-artifact-history-version="2"]')).toBeVisible()
+    page.off('request', observeHistoryRestore)
+    assert.ok(historyRestoreKey, 'the packaged restore supplies a durable logical key')
+    const savedArtifactHistory = await page.evaluate(async (id) => {
+      const read = async (path) => {
+        const response = await fetch(path)
+        if (!response.ok) throw new Error(`Artifact history read failed: HTTP ${response.status}`)
+        return response.json()
+      }
+      return {
+        page: await read(`/api/v1/artifacts/${encodeURIComponent(id)}/history`),
+        original: await read(`/api/v1/artifacts/${encodeURIComponent(id)}/history/0`),
+        current: (await read('/api/v1/artifact-content'))[id],
+      }
+    }, presentationArtifact.id)
+    assert.deepEqual(savedArtifactHistory.page.versions.map(({ revision }) => revision), [2, 1, 0])
+    assert.deepEqual(savedArtifactHistory.original.version.body, presentationBody)
+    assert.deepEqual(savedArtifactHistory.current, { ...presentationBody, revision: 2 })
     await page.goto(`${origin}${sessionPath}`)
 
     const calls = await run.app.evaluateHandle(({ dialog, BrowserWindow }, filePaths) => {
@@ -865,6 +905,21 @@ export async function smokePackagedAttachments({ executable }) {
     await Promise.all(paths.map((path) => rm(path)))
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
+    const relaunchedHistory = await page.evaluate(async ({ id, key }) => {
+      const prefix = `/api/v1/artifacts/${encodeURIComponent(id)}/history`
+      const replay = await fetch(`${prefix}/0/restore`, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key },
+        body: JSON.stringify({ expectedRevision: 1 }),
+      })
+      if (!replay.ok) throw new Error(`Artifact history replay failed: HTTP ${replay.status}`)
+      const history = await fetch(prefix)
+      const original = await fetch(`${prefix}/0`)
+      const bodies = await fetch('/api/v1/artifact-content')
+      if (!history.ok || !original.ok || !bodies.ok) throw new Error('Relaunched artifact history read failed')
+      return { page: await history.json(), original: await original.json(), current: (await bodies.json())[id] }
+    }, { id: presentationArtifact.id, key: historyRestoreKey })
+    assert.deepEqual(relaunchedHistory, savedArtifactHistory, 'full packaged relaunch retains exact versions and replays restore without another revision')
+    console.log('[desktop-artifact-history-smoke] retained slide baseline + edit · reviewed UI restore · exact history and receipt survive full relaunch')
     for (const imported of importedDocuments) {
       await page.goto(`${origin}/artifacts/${encodeURIComponent(imported.id)}`)
       await expect(page.getByRole('heading', { name: imported.name, exact: true })).toBeVisible()

@@ -92,6 +92,8 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(artifact.sourceSessionId, 'srun-schedule-artifact-test-run-schedule-first')
     assert.equal(first.body?.type, 'doc')
     assert.deepEqual(first.body?.blocks, [{ p: 'First durable digest.' }])
+    assert.equal(first.state?.artifactHistory?.some(([id]: [string]) => id === artifact.id), false,
+      'the first authored body has no invented predecessor to retain')
     assert.deepEqual(first.observed.map((row: any) => row.event), ['artifact.changed', 'relation.applied', 'session.updated', 'run.finished'])
     assert.ok(first.observed.every((row: any) => row.committed), 'terminal subscribers see committed body + metadata + run')
 
@@ -112,6 +114,11 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(second.body?.revision, (first.body?.revision ?? 0) + 1)
     assert.deepEqual(second.body?.blocks, [{ p: 'Second durable digest.' }])
     assert.ok(second.state?.graph.extraArtifacts.some((a: any) => a.id === artifact.id && a.sourceScheduleId === 'schedule-artifact-test'))
+    const history = second.state?.artifactHistory?.find(([id]: [string]) => id === artifact.id)?.[1]
+    assert.deepEqual(history?.map((version: any) => [version.revision, version.reason]), [[0, 'baseline'], [1, 'edit']],
+      `${backend}: a repeated routine write retains the exact prior saved body`)
+    assert.equal(history?.[1].savedAt, new Date(second.artifact.editedAt).toISOString(),
+      `${backend}: routine history and artifact editedAt share one commit timestamp`)
   })
 
   test(`${backend}: empty routine output does not replace the prior artifact body`, () => {
@@ -221,5 +228,20 @@ test('restart upgrades a legacy metadata-only scheduled artifact by its retained
   assert.equal(second.artifact.tenantId, 'tenant-personal', 'rehydrate and delivery stamp the default owner')
   assert.equal(second.artifact.sourceSessionId, 'srun-schedule-legacy-artifact-test-run-legacy-second')
   assert.deepEqual(second.body?.blocks, [{ p: 'Recovered scheduled digest.' }])
-  assert.equal(second.body?.revision, 1, 'adopting an existing metadata row records the authored body as its first update')
+    assert.equal(second.body?.revision, 1, 'adopting an existing metadata row records the authored body as its first update')
+    assert.equal(second.state.artifactHistory?.some(([id]: [string]) => id === first.artifactId), false,
+      'the legacy metadata row has no invented baseline body')
+
+    const third = ok(boot(file, 'json', `
+      const task = store.listSchedules().find(t => t.id === 'schedule-legacy-artifact-test');
+      const run = store.runSchedule(task.id, { manualRunId: 'run-legacy-third' });
+      const ctx = store.routineExecutionContext(task.id, run.id);
+      store.completeScheduleRun(task.id, run.id, { id: 'model-legacy-third', role: 'assistant', content: 'Third recovered digest.' }, { agentId: ctx.agent.id, providerId: ctx.provider.id });
+      const artifact = store.listArtifacts().find(a => a.sourceScheduleId === task.id);
+      console.log(JSON.stringify({ artifact, body: store.artifactContent('tenant-personal')[artifact.id], state: loadState() }));
+    `))
+    const history = third.state.artifactHistory?.find(([id]: [string]) => id === first.artifactId)?.[1]
+    assert.equal(third.body?.revision, 2)
+    assert.deepEqual(history?.map((version: any) => [version.revision, version.reason]), [[1, 'baseline'], [2, 'edit']],
+      'the first available legacy body becomes the baseline; no absent revision 0 is fabricated')
 })
