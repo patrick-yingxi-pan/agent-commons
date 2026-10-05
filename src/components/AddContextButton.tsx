@@ -5,11 +5,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Cloud,
-  FolderGit2,
   FolderOpen,
-  FolderSearch,
   GitBranch,
-  Github,
   Image as ImageIcon,
   Laptop,
   Paperclip,
@@ -32,13 +29,10 @@ import { AddTrigger } from './AddTrigger'
 import { SectionAction } from './SectionAction'
 import { PhotoThumb } from './PhotoThumb'
 import { DeferredContextBrowseDialog as BrowseDialog } from './DeferredContextBrowseDialog.tsx'
-import { GITHUB_CONNECTOR, GITHUB_CONNECTOR_ID } from '../lib/connectors'
-import { repoIdForLabel } from '../data/liveSession'
-import { getDecision, setDecision } from '../lib/prefs'
+import { GITHUB_CONNECTOR_ID } from '../lib/connectors'
 import { useDismissable } from '../lib/useDismissable'
 import { useContextIntake } from '../lib/contextIntake'
 import { POPOVER_SURFACE } from '../lib/popover'
-import { CheckSquare } from './Checkbox'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, useFsPickerSource } from '../lib/fsSources'
@@ -58,13 +52,12 @@ import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { RecentOverflowList, type OverflowRow } from './RecentOverflowList'
-import {
-  CONNECTOR_OPTIONS,
-  GITHUB_REPO_OPTIONS,
-  LOCAL_REPO_OPTIONS,
-  MCP_OPTIONS,
-  type ContextTypeId,
-} from '../data/contextOptions'
+import type { ContextTypeId } from '../../contract/contexts.ts'
+import { useContextCatalog } from '../api/contextCatalog.ts'
+import { ContextCatalogNotice } from './ContextCatalogNotice.tsx'
+import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
+import { DeferredRepoContextPicker as RepoPicker } from './DeferredRepoContextPicker.tsx'
+import { BrowseRow, MultiAddFooter, Section } from './ContextPickerParts.tsx'
 
 type TypeId = ContextTypeId
 
@@ -78,8 +71,8 @@ const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Pap
   { id: 'files', label: 'Files', desc: 'Text, documents, spreadsheets, slides and images', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
   { id: 'folder', label: 'Folder', desc: 'Save a read-only copy of top-level text files', Icon: FolderOpen },
-  { id: 'repo', label: 'Repository', desc: 'Connect a git repo to read & edit code', Icon: GitBranch },
-  { id: 'connector', label: 'Connector', desc: 'Google Drive, Slack, Notion, Linear…', Icon: Plug },
+  { id: 'repo', label: 'Repository', desc: 'View available repository connections', Icon: GitBranch },
+  { id: 'connector', label: 'Connector', desc: 'View available service connections', Icon: Plug },
   { id: 'mcp', label: 'MCP server', desc: 'Add a Model Context Protocol server', Icon: Server },
 ]
 
@@ -119,6 +112,7 @@ export function AddContextButton({
   label?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [mcpSetup, setMcpSetup] = useState(false)
   useContextIntake(sessionId, open)
   const [type, setType] = useState<TypeId | null>(null)
   // How many recent rows fit inline — measured from the space above the composer
@@ -236,6 +230,7 @@ export function AddContextButton({
                   maxRows={maxRecentRows}
                   onAttach={onAttach}
                   onClose={close}
+                  onMcpSetup={() => { close(); setMcpSetup(true) }}
                   connectors={connectors}
                   repos={repos}
                   attachments={attachments}
@@ -246,6 +241,7 @@ export function AddContextButton({
           )}
         </div>
       )}
+      {mcpSetup && <DeferredMcpConnectionCreateDialog onClose={() => setMcpSetup(false)} />}
     </div>
   )
 }
@@ -255,6 +251,7 @@ function WorkflowBody({
   maxRows,
   onAttach,
   onClose,
+  onMcpSetup,
   connectors,
   repos,
   attachments,
@@ -267,6 +264,7 @@ function WorkflowBody({
   onAttach: (ctx: AddedContext) => void
   /** Close the whole popover (the multi-add "Done"). */
   onClose: () => void
+  onMcpSetup: () => void
   connectors: Connector[]
   repos: Repo[]
   attachments: Attachment[]
@@ -284,6 +282,7 @@ function WorkflowBody({
   const addedPhotoIds = attachments.filter((a) => a.kind === 'photo').map((a) => a.id)
   const addedRepoIds = repos.map((r) => r.id)
   const addedFolderIds = workspaces.flatMap(workspaceFolders).map((folder) => folder.id)
+  const catalog = useContextCatalog(type === 'connector')
 
   if (type === 'folder') {
     return <FolderPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFolderIds} />
@@ -301,29 +300,38 @@ function WorkflowBody({
   }
   if (type === 'connector') {
     return (
-      <ListPicker
-        type="connector"
-        maxRows={maxRows}
-        options={CONNECTOR_OPTIONS}
-        connectedLabel="Connected"
-        browseLabel="Connect a new account…"
-        browseTitle="Connect an account"
-        location={['Connectors']}
-        rowIcon={<Plug size={16} />}
-        browseIcon={<Plug size={15} />}
-        rowMeta={(_c, connected) => (connected ? 'Ready to use' : 'Set up to connect')}
-        toContext={(c) => ({
-          kind: 'connector',
-          connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
-        })}
-        addedIds={addedConnectorIds}
-        onAdd={onAttach}
-        onClose={onClose}
-      />
+      <>
+        <ContextCatalogNotice query={catalog} />
+        {catalog.data?.connectors.length ? (
+          <ListPicker
+            type="connector"
+            maxRows={maxRows}
+            options={catalog.data.connectors}
+            developmentFixtures={catalog.data.developmentFixtures}
+            connectedLabel="Connected"
+            browseLabel="Connect a new account…"
+            browseTitle="Connect an account"
+            location={['Connectors']}
+            rowIcon={<Plug size={16} />}
+            browseIcon={<Plug size={15} />}
+            rowMeta={(_c, connected) => (connected ? 'Ready to use' : 'Set up to connect')}
+            toContext={(c) => ({
+              kind: 'connector',
+              connector: { id: c.id, label: c.label, kind: c.kind ?? 'connector' },
+            })}
+            addedIds={addedConnectorIds}
+            onAdd={onAttach}
+            onClose={onClose}
+          />
+        ) : <>
+          {catalog.data && <p className="px-1 py-3 text-[12px] text-ink-soft">No connector adapters are configured. You can add an MCP server from Contexts.</p>}
+          <MultiAddFooter count={addedConnectorIds.length} onDone={onClose} />
+        </>}
+      </>
     )
   }
   if (type === 'mcp') {
-    return <McpPicker maxRows={maxRows} addedIds={addedMcpIds} onAdd={onAttach} onClose={onClose} />
+    return <McpPicker maxRows={maxRows} addedIds={addedMcpIds} onAdd={onAttach} onClose={onClose} onSetup={onMcpSetup} />
   }
   if (type === 'files') {
     return <FilePicker kind="files" key="files" maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />
@@ -339,13 +347,16 @@ function McpPicker({
   addedIds,
   onAdd,
   onClose,
+  onSetup,
 }: {
   maxRows: number
   addedIds: readonly string[]
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
+  onSetup: () => void
 }) {
   const registry = useMcpConnections()
+  const catalog = useContextCatalog()
   const external = (registry.data?.connections ?? [])
     .filter((connection) => connection.status === 'connected' && connection.execution === 'approval-required')
     .map((connection) => ({
@@ -356,46 +367,40 @@ function McpPicker({
     }))
   const options = [
     ...external,
-    ...MCP_OPTIONS.map((option) => ({ ...option, external: false })),
+    ...(catalog.data?.mcp ?? []).map((option) => ({ ...option, external: false })),
   ]
-  return <ListPicker
-    type="mcp"
-    maxRows={maxRows}
-    options={options}
-    authoritativeIds={external.map((connection) => connection.id)}
-    connectedLabel="Available"
-    browseLabel="Add an MCP server…"
-    browseTitle="MCP Registry"
-    location={['MCP Registry']}
-    rowIcon={<Server size={16} />}
-    browseIcon={<Server size={15} />}
-    rowMeta={(m) => m.meta}
-    toContext={(m) => m.external ? ({
-      kind: 'mcp',
-      connector: { id: m.id, label: m.label, kind: 'mcp' },
-    }) : ({
-      kind: 'mcp',
-      connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' },
-    })}
-    addedIds={addedIds}
-    onAdd={onAdd}
-    onClose={onClose}
-  />
-}
-
-/** The dashed "Browse…" row that ends every recents list and opens the explorer. */
-function BrowseRow({ label, onClick }: { label: string; onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className="mt-0.5 flex w-full items-center gap-2.5 rounded-lg border border-dashed border-line-strong px-2 py-1.5 text-left text-ink-soft transition hover:bg-panel-2 hover:text-ink"
-    >
-      <FolderSearch size={16} className="shrink-0" />
-      <span className="min-w-0 flex-1 text-[13px] font-medium">{label}</span>
-      <ChevronRight size={15} className="shrink-0 text-ink-faint" />
-    </button>
+    <>
+      <ContextCatalogNotice query={catalog} />
+      <ListPicker
+        type="mcp"
+        maxRows={maxRows}
+        options={options}
+        developmentFixtures={catalog.data?.developmentFixtures}
+        authoritativeIds={external.map((connection) => connection.id)}
+        connectedLabel="Available"
+        browseLabel="Add an MCP server…"
+        browseTitle="MCP Registry"
+        location={['MCP Registry']}
+        rowIcon={<Server size={16} />}
+        browseIcon={<Server size={15} />}
+        rowMeta={(m) => m.meta}
+        toContext={(m) => m.external ? ({
+          kind: 'mcp',
+          connector: { id: m.id, label: m.label, kind: 'mcp' },
+        }) : ({
+          kind: 'mcp',
+          connector: { id: `mcp-${m.id}`, label: `MCP · ${m.label}`, kind: 'mcp' },
+        })}
+        addedIds={addedIds}
+        onAdd={onAdd}
+        onClose={onClose}
+        onBrowse={catalog.data?.developmentFixtures ? undefined : onSetup}
+      />
+    </>
   )
 }
+
 
 /* ------------------------------------------------------------- simple lists --
    Connectors and MCP servers: the auth/setup-heavy context. Their already
@@ -410,6 +415,7 @@ function ListPicker<T extends { id: string; label: string }>({
   type,
   maxRows,
   options,
+  developmentFixtures = false,
   authoritativeIds = [],
   connectedLabel,
   browseLabel,
@@ -422,10 +428,12 @@ function ListPicker<T extends { id: string; label: string }>({
   addedIds,
   onAdd,
   onClose,
+  onBrowse,
 }: {
   type: ContextTypeId
   maxRows: number
   options: readonly T[]
+  developmentFixtures?: boolean
   /** Registry-owned ready rows do not depend on local recency to be reusable. */
   authoritativeIds?: readonly string[]
   connectedLabel: string
@@ -442,6 +450,7 @@ function ListPicker<T extends { id: string; label: string }>({
   addedIds: readonly string[]
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
+  onBrowse?: () => void
 }) {
   const [browsing, setBrowsing] = useState(false)
   // The set-up ids read reactively from the one recents store (in recency order),
@@ -491,6 +500,7 @@ function ListPicker<T extends { id: string; label: string }>({
       {browsing && (
         <BrowseDialog
           title={browseTitle}
+          developmentFixtures={developmentFixtures}
           location={location}
           groups={[
             { items: rest.map((o) => ({ id: o.id, name: o.label, meta: rowMeta(o, false), icon: browseIcon })) },
@@ -505,32 +515,13 @@ function ListPicker<T extends { id: string; label: string }>({
       )}
       <Section label={connectedLabel}>
         <RecentOverflowList rows={rows} maxRows={maxRows} moreLabel={`More ${connectedLabel.toLowerCase()}`} />
-        <BrowseRow label={browseLabel} onClick={() => setBrowsing(true)} />
+        <BrowseRow label={browseLabel} onClick={onBrowse ?? (() => setBrowsing(true))} />
       </Section>
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
     </>
   )
 }
 
-/** Footer for the multi-add pickers: a running "N added" count and a Done button
- *  to close (click-outside / Esc also close). Signals that adds don't close the
- *  picker, so you can keep clicking. */
-function MultiAddFooter({ count, onDone }: { count: number; onDone: () => void }) {
-  return (
-    <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-1 pt-2">
-      <span className="min-w-0 truncate text-[11px] text-ink-faint">
-        {count === 0 ? 'Add as many as you need' : `${count} added`}
-      </span>
-      <button
-        type="button"
-        onClick={onDone}
-        className="shrink-0 rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2"
-      >
-        Done
-      </button>
-    </div>
-  )
-}
 
 /* ----------------------------------------------- served filesystem sources --
    Files / Photos / Folder are served from a real filesystem (contract/fs.ts),
@@ -645,259 +636,6 @@ function FilePicker({
   )
 }
 
-type RepoContext = Extract<AddedContext, { kind: 'repo' }>
-
-type RepoOption =
-  | ((typeof LOCAL_REPO_OPTIONS)[number] & { origin: 'local' })
-  | ((typeof GITHUB_REPO_OPTIONS)[number] & { origin: 'github' })
-
-/** Local + GitHub repos merged into one catalog so recents can mix origins. */
-const REPO_CATALOG: RepoOption[] = [
-  ...LOCAL_REPO_OPTIONS.map((r) => ({ ...r, origin: 'local' as const })),
-  ...GITHUB_REPO_OPTIONS.map((r) => ({ ...r, origin: 'github' as const })),
-]
-
-const isLocalRepo = (o: RepoOption): o is Extract<RepoOption, { origin: 'local' }> => o.origin === 'local'
-const isGithubRepo = (o: RepoOption): o is Extract<RepoOption, { origin: 'github' }> => o.origin === 'github'
-
-function repoOptionToContext(o: RepoOption): RepoContext {
-  if (isLocalRepo(o)) {
-    return {
-      kind: 'repo',
-      origin: 'local',
-      label: basename(o.path),
-      path: o.path,
-      remote: o.remote,
-      branch: o.branch,
-      files: o.files,
-      diff: o.diff,
-      terminal: o.terminal,
-    }
-  }
-  return {
-    kind: 'repo',
-    origin: 'github',
-    label: o.remote,
-    remote: o.remote,
-    branch: o.branch,
-    files: o.files,
-    diff: o.diff,
-    terminal: o.terminal,
-  }
-}
-
-/** The chip / panel name for a local repo — the trailing folder name. */
-function basename(path: string) {
-  const parts = path.replace(/\/+$/, '').split('/')
-  return parts[parts.length - 1] || path
-}
-
-/** A 3-choice attach confirmation shown inside the Add-context popover: Cancel
- *  aborts the whole attach; the secondary and primary buttons are the two
- *  outcomes; the ☐ remembers whichever outcome was picked. Used by both the
- *  repo connector prompt and the folder → repo / connector prompts. */
-function AttachPromptCard({
-  message,
-  dontAsk,
-  onToggleDontAsk,
-  onCancel,
-  secondaryLabel,
-  onSecondary,
-  primaryLabel,
-  onPrimary,
-}: {
-  message: ReactNode
-  dontAsk: boolean
-  onToggleDontAsk: () => void
-  onCancel: () => void
-  secondaryLabel: string
-  onSecondary: () => void
-  primaryLabel: string
-  onPrimary: () => void
-}) {
-  return (
-    <div className="pb-1">
-      <p className="px-1 text-[13px] leading-snug text-ink">{message}</p>
-      <button
-        type="button"
-        onClick={onToggleDontAsk}
-        className="mt-2 flex items-center gap-1.5 px-1 text-[11px] text-ink-soft transition hover:text-ink"
-      >
-        <CheckSquare checked={dontAsk} />
-        Don’t ask again
-      </button>
-      <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:bg-panel-2"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={onSecondary}
-          className="rounded-md px-2 py-1 text-[12px] font-medium text-ink ring-1 ring-line-strong transition hover:bg-panel-2"
-        >
-          {secondaryLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onPrimary}
-          className={`${SOFT_BUTTON_CLASS} px-2 py-1 text-[12px]`}
-        >
-          {primaryLabel}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-/** Repository picker: one merged "Recent repositories" list (local + GitHub,
- *  each row badged) plus a Browse explorer that groups the rest into Local /
- *  GitHub. Multi-add like the other pickers — a pick attaches without closing
- *  and the row flips to ✓ Added (off the live attached repos). Picking a repo
- *  that has a GitHub remote, when the connector isn't already attached, asks
- *  whether to add the connector too — Cancel returns to the list, "Just the repo"
- *  / "Add both" decide, and a remembered choice skips the prompt next time. */
-function RepoPicker({
-  maxRows,
-  onAdd,
-  onClose,
-  addedRepoIds,
-  hasGitHubConnector,
-}: {
-  maxRows: number
-  onAdd: (ctx: AddedContext) => void
-  onClose: () => void
-  /** Live-repo ids already attached — rows for these read ✓ Added. */
-  addedRepoIds: readonly string[]
-  hasGitHubConnector: boolean
-}) {
-  const [pending, setPending] = useState<{ ctx: RepoContext; id: string } | null>(null)
-  const [dontAsk, setDontAsk] = useState(false)
-  const [browsing, setBrowsing] = useState(false)
-
-  const labelOf = (o: RepoOption) => (o.origin === 'local' ? basename(o.path) : o.remote)
-  const isAdded = (o: RepoOption) => addedRepoIds.includes(repoIdForLabel(labelOf(o)))
-
-  const recentIds = useRecentIds('repo')
-  const byId = new Map(REPO_CATALOG.map((o) => [o.id, o]))
-  const recent = recentIds.map((id) => byId.get(id)).filter(Boolean) as RepoOption[]
-  // Browse lists what's neither recent nor already attached — so re-selecting an
-  // attached repo can't re-fire its attach (and re-attach the GitHub connector).
-  const rest = REPO_CATALOG.filter((o) => !recentIds.includes(o.id) && !isAdded(o))
-
-  // Attach without closing and return to the list (clears any prompt). The
-  // attach funnel promotes the repo into Recent (mapping it back by path/remote),
-  // which this list reads reactively — so a browsed-in repo joins it at once.
-  const finalize = (ctx: RepoContext, _id: string) => {
-    onAdd(ctx)
-    setPending(null)
-  }
-
-  const select = (o: RepoOption) => {
-    const ctx = repoOptionToContext(o)
-    // No GitHub remote, or the connector is already present → nothing to ask.
-    if (!ctx.remote || hasGitHubConnector) return finalize(ctx, o.id)
-    const decision = getDecision('linkOnAttach')
-    if (decision === 'always') {
-      onAdd({ kind: 'connector', connector: GITHUB_CONNECTOR })
-      return finalize(ctx, o.id)
-    }
-    if (decision === 'never') return finalize(ctx, o.id)
-    setDontAsk(false)
-    setPending({ ctx, id: o.id })
-  }
-
-  if (pending) {
-    return (
-      <AttachPromptCard
-        message={
-          <>
-            <span className="font-medium">{pending.ctx.label}</span> has a GitHub remote. Add the{' '}
-            <span className="font-medium">GitHub connector</span> too, so Claude can push and open PRs?
-          </>
-        }
-        dontAsk={dontAsk}
-        onToggleDontAsk={() => setDontAsk((v) => !v)}
-        onCancel={() => setPending(null)}
-        secondaryLabel="Just the repo"
-        onSecondary={() => {
-          if (dontAsk) setDecision('linkOnAttach', 'never')
-          finalize(pending.ctx, pending.id)
-        }}
-        primaryLabel="Add both"
-        onPrimary={() => {
-          if (dontAsk) setDecision('linkOnAttach', 'always')
-          onAdd({ kind: 'connector', connector: GITHUB_CONNECTOR })
-          finalize(pending.ctx, pending.id)
-        }}
-      />
-    )
-  }
-
-  const repoRow = (o: RepoOption) => (
-    <OptionRow
-      key={o.id}
-      icon={o.origin === 'local' ? <FolderGit2 size={16} /> : <Github size={16} />}
-      label={o.origin === 'local' ? o.path : o.remote}
-      meta={
-        o.origin === 'local'
-          ? `local · ${o.remote ?? 'local only'} · ${o.branch}`
-          : `github · ${o.branch} · ${o.meta}`
-      }
-      added={isAdded(o)}
-      onClick={() => select(o)}
-    />
-  )
-
-  return (
-    <>
-      {browsing && (
-        <BrowseDialog
-          title="Open Repository"
-          location={['Repositories']}
-          groups={[
-            {
-              label: 'Local',
-              items: rest.filter(isLocalRepo).map((o) => ({
-                id: o.id,
-                name: basename(o.path),
-                meta: `${o.remote ?? 'local only'} · ${o.branch}`,
-                icon: <FolderGit2 size={15} />,
-              })),
-            },
-            {
-              label: 'GitHub',
-              items: rest.filter(isGithubRepo).map((o) => ({
-                id: o.id,
-                name: o.remote,
-                meta: `${o.branch} · ${o.meta}`,
-                icon: <Github size={15} />,
-              })),
-            },
-          ]}
-          onCancel={() => setBrowsing(false)}
-          onConfirm={(id) => {
-            setBrowsing(false)
-            const o = byId.get(id)
-            if (o) select(o)
-          }}
-        />
-      )}
-      <Section label="Recent repositories">
-        <RecentOverflowList
-          maxRows={maxRows}
-          moreLabel="More recent repositories"
-          rows={recent.map((o) => ({ key: o.id, node: repoRow(o) }))}
-        />
-        <BrowseRow label="Browse repositories…" onClick={() => setBrowsing(true)} />
-      </Section>
-      <MultiAddFooter count={addedRepoIds.length} onDone={onClose} />
-    </>
-  )
-}
 
 /** The served folders of one source, recents-ordered. Clicking one fetches its
  *  contents and attaches it as a workspace (its artifacts tagged with the folder
@@ -1085,15 +823,6 @@ function UiHostFolderPicker({ hostFs, onAdd }: { hostFs: UiHostFsModule; onAdd: 
       <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-faint">Up to 24 readable files, 64 KB each and 128 KB total. Original files are never changed or kept in sync. Reattach to import later edits.</p>
       {pending && <p role="status" className="px-1 pt-1.5 text-[11px] text-ink-soft">Reading selected folder… Close this picker or choose another source to cancel.</p>}
       {failure && <p role="alert" className="px-1 pt-1.5 text-[11px] leading-snug text-danger-text">{failure}</p>}
-    </div>
-  )
-}
-
-function Section({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="pb-1">
-      <p className="px-1 pb-1.5 text-[11px] text-ink-faint">{label}</p>
-      {children}
     </div>
   )
 }

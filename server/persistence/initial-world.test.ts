@@ -25,6 +25,7 @@ interface WorldSummary {
   providers: string[]
   prompts: string[]
   agents: string[]
+  contextCatalog: { developmentFixtures: boolean; connectors: number; mcp: number; repos: number; setups: number }
   accounts: string[]
   identity: { userId: string; tenantId: string }
 }
@@ -44,6 +45,16 @@ function boot(file: string, requested: 'demo' | 'clean', backend: 'mock' | 'remo
       providers: store.listProviders().map((row) => row.id),
       prompts: store.listSystemPrompts().map((row) => row.id),
       agents: store.listAgents().map((row) => row.id),
+      contextCatalog: (() => {
+        const catalog = store.contextCatalog()
+        return {
+          developmentFixtures: catalog.developmentFixtures,
+          connectors: catalog.connectors.length,
+          mcp: catalog.mcp.length,
+          repos: catalog.repos.length,
+          setups: catalog.setups.length,
+        }
+      })(),
       accounts: [...accounts.users.keys()],
       identity: { userId: store.identity().user.id, tenantId: store.identity().tenant.id },
     }))
@@ -76,6 +87,7 @@ test('a clean first boot contains infrastructure but no fictional user world, an
     providers: ['provider-anthropic'],
     prompts: ['sp-default'],
     agents: ['agent-default'],
+    contextCatalog: { developmentFixtures: false, connectors: 0, mcp: 0, repos: 0, setups: 0 },
     accounts: ['user-local'],
     identity: { userId: 'user-local', tenantId: 'tenant-personal' },
   })
@@ -124,6 +136,10 @@ test('an established historical/demo database is never cleaned by a release envi
   assert.ok(first.artifacts > 0)
   assert.ok(first.artifactContentKeys.includes('a1'), 'demo owner retains readable seed bodies')
   assert.ok(first.schedules > 0)
+  assert.equal(first.contextCatalog.developmentFixtures, true)
+  assert.ok(first.contextCatalog.connectors > 0)
+  assert.ok(first.contextCatalog.mcp > 0)
+  assert.ok(first.contextCatalog.repos > 0)
   assert.ok(first.accounts.includes('user-ada'))
 
   assert.deepEqual(boot(file, 'clean'), first, 'changing INITIAL_WORLD cannot reinterpret existing data')

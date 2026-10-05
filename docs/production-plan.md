@@ -44,6 +44,31 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
+The current implementation closes a first-run catalog mismatch found during the
+native Folder walk: clean profiles had empty saved Contexts but the two Add
+controls still offered bundled demo accounts and repositories. Both now read one
+server-owned catalog selected by the persisted world. Demo fixtures stay explicitly
+labelled and remain available in established demo stores; clean stores expose no
+fixture candidates, including model connector-name lookup. Actual external MCP
+connections and native Folder setup remain independent. Catalog loading/failure
+has explicit recovery without fictional fallback, and the conversation MCP picker
+can open the existing real server-setup dialog. No stored contexts are deleted or
+reinterpreted. Git and service adapters remain required integration milestones;
+this change does not implement them or claim fresh native/signed acceptance.
+
+Ten focused browser checks pass for clean/demo catalogs, loading and Retry,
+real local-fixture MCP setup/inspection/attachment, saved-context acknowledgement,
+and optional-module recovery. The clean UI matrix injects the clean catalog;
+separate real-process persistence tests establish clean/demo world selection.
+Forty targeted screenshots cover clean/error entry points and all three demo
+browsers across five viewports. Review exposed both a hidden demo notice and a
+transformed picker clipping its nested browser: one shared disclosure and a
+document-level browser portal repair these, with regression checks watched fail.
+The separate responsive sweep passes 135/135 cells with zero violations or skips;
+all five screenshot columns were reviewed, and the owner preview remains Ada,
+light, with the six-account roster stacked. Repository-specific UI and MCP detail
+chrome remain deferred, keeping the existing production bundle budget unchanged.
+
 The current acceptance checkpoint closes the real macOS chooser gap for the
 remembered Folder workflow on the unsigned arm64 artifact at `14f20c02`.
 [The recorded native walk](acceptance/native-folder-2026-10-05.md) verifies

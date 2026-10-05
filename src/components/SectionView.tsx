@@ -1,7 +1,8 @@
 import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
-import { DeferredMcpConnectionCreateDialog, DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
+import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
+import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import {
   AlertCircle,
@@ -237,13 +238,8 @@ import { countLabel, countOr } from '../lib/countLabel'
 import { Chip } from './Chip'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { ClaudeMark } from './ClaudeMark'
-import { SAVED_CONTEXTS } from '../data/savedContexts'
-import {
-  CONNECTOR_OPTIONS,
-  GITHUB_REPO_OPTIONS,
-  LOCAL_REPO_OPTIONS,
-  MCP_OPTIONS,
-} from '../data/contextOptions'
+import { useContextCatalog } from '../api/contextCatalog.ts'
+import { ContextCatalogNotice } from './ContextCatalogNotice.tsx'
 import {
   type ArtifactItem,
   type DispatchRun,
@@ -8061,78 +8057,11 @@ function contextIcon(ctx: SavedContext) {
       : connectorIconFor(ctx.connectorKind)
 }
 
-/* ── Add context ─────────────────────────────────────────────────────────────
-   The same catalog a session attaches from (data/contextOptions), surfaced here
-   as savable contexts. An option that's already a saved context reuses its rich
-   seed entry; anything new (not yet set up) gets a freshly-derived one — so the
-   page can add the exact connectors / MCP servers / repos a session can. */
-
-const SEED_BY_ID = new Map(SAVED_CONTEXTS.map((c) => [c.id, c]))
-
-/** The trailing folder name of a local repo path. */
-function repoBasename(p: string) {
-  const parts = p.replace(/\/+$/, '').split('/')
-  return parts[parts.length - 1] || p
-}
-
-const connectorSaved = (o: { id: string; label: string; kind?: Connector['kind'] }): SavedContext =>
-  SEED_BY_ID.get(o.id) ?? {
-    id: o.id,
-    label: o.label,
-    kind: 'connector',
-    connectorKind: o.kind ?? 'connector',
-    status: 'connected',
-    detail: 'Saved connection',
-    lastUsedAt: Date.now(),
-    sessions: 0,
-  }
-
-const mcpSaved = (o: { id: string; label: string; meta: string }): SavedContext =>
-  SEED_BY_ID.get(o.id) ?? {
-    id: o.id,
-    label: o.label,
-    kind: 'mcp',
-    status: 'connected',
-    detail: o.meta,
-    lastUsedAt: Date.now(),
-    sessions: 0,
-  }
-
-const githubRepoSaved = (o: { id: string; remote: string; branch: string }): SavedContext =>
-  SEED_BY_ID.get(o.id) ?? {
-    id: o.id,
-    label: o.remote,
-    kind: 'repo',
-    origin: 'github',
-    dependsOnGitHub: true,
-    status: 'connected',
-    detail: `github · ${o.branch}`,
-    lastUsedAt: Date.now(),
-    sessions: 0,
-  }
-
-const localRepoSaved = (o: { id: string; path: string; branch: string; remote?: string }): SavedContext =>
-  SEED_BY_ID.get(o.id) ?? {
-    id: o.id,
-    label: repoBasename(o.path),
-    kind: 'repo',
-    origin: 'local',
-    dependsOnGitHub: !!o.remote,
-    status: 'connected',
-    detail: `${o.path} · ${o.branch}${o.remote ? '' : ' · local only'}`,
-    lastUsedAt: Date.now(),
-    sessions: 0,
-  }
-
-/** Every addable context, grouped the same way the page lists them. */
-const ADDABLE_GROUPS: { kind: SavedContextKind; label: string; items: SavedContext[] }[] = [
-  { kind: 'connector', label: 'Connectors', items: CONNECTOR_OPTIONS.map(connectorSaved) },
-  { kind: 'mcp', label: 'MCP servers', items: MCP_OPTIONS.map(mcpSaved) },
-  {
-    kind: 'repo',
-    label: 'Repositories',
-    items: [...GITHUB_REPO_OPTIONS.map(githubRepoSaved), ...LOCAL_REPO_OPTIONS.map(localRepoSaved)],
-  },
+/** Presentation groups only; candidates and setup metadata come from the API. */
+const CONTEXT_CATALOG_GROUPS: { kind: SavedContextKind; label: string }[] = [
+  { kind: 'connector', label: 'Connectors' },
+  { kind: 'mcp', label: 'MCP servers' },
+  { kind: 'repo', label: 'Repositories' },
 ]
 
 
@@ -8154,9 +8083,10 @@ function AddContextControl({
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
 
-  const groups = ADDABLE_GROUPS.map((g) => ({
+  const catalog = useContextCatalog(open)
+  const groups = CONTEXT_CATALOG_GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((c) => !existingIds.has(c.id)),
+    items: (catalog.data?.setups ?? []).filter((c) => c.kind === g.kind && !existingIds.has(c.id)),
   })).filter((g) => g.items.length > 0)
 
   return (
@@ -8191,9 +8121,10 @@ function AddContextControl({
               className="mb-2 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] font-medium text-accent-strong hover:bg-panel-2">
               <Server size={15} />Add an MCP server
             </button>
-            {groups.length === 0 ? (
+            <ContextCatalogNotice query={catalog} />
+            {catalog.data && groups.length === 0 ? (
               <div className="px-2 py-6 text-center text-[12px] text-ink-faint">
-                Everything’s set up — nothing new to add.
+                {catalog.data.developmentFixtures ? 'Everything’s set up — nothing new to add.' : 'Add a local folder or an MCP server. Other integrations are not available yet.'}
               </div>
             ) : (
               groups.map((g) => (

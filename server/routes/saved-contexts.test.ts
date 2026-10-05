@@ -8,6 +8,16 @@ import { call } from '../testkit/http.ts'
 
 const find = (snap: any, id: string) => snap.contexts.find((c: any) => c.id === id)
 
+test('GET /context-catalog exposes the demo fixture catalog through a route-owned projection', async () => {
+  const response = await call('GET', '/context-catalog')
+  assert.equal(response.status, 200)
+  assert.equal(response.json.developmentFixtures, true)
+  assert.ok(response.json.connectors.some((option: any) => option.id === 'slack'))
+  assert.ok(response.json.mcp.some((option: any) => option.id === 'postgres'))
+  assert.ok(response.json.repos.some((option: any) => option.id === 'gh-api'))
+  assert.equal(find({ contexts: response.json.setups }, 'slack').detail, 'acme.slack.com · 3 channels')
+})
+
 test('PATCH /saved-contexts/:id disconnects a connector; the snapshot + connected list reflect it', async () => {
   const before = (await call('GET', '/saved-contexts')).json
   assert.equal(find(before, 'slack').status, 'connected', 'slack seeds connected')

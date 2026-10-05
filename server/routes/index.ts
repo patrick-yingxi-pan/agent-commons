@@ -188,7 +188,6 @@ import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { executeConnectorActivity } from '../connectorRuntime.ts'
 import { executeApprovedMcpActivity } from '../mcpExecution.ts'
-import { CONNECTOR_OPTIONS } from '../data/contextOptions.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, SELF_PROJECT_HOLDER, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
 import { providerConnectionUpdate } from './providerConnection.ts'
@@ -4704,7 +4703,7 @@ export function buildRouter(): Router {
         // The Contexts registry (user-saved connectors/MCP servers — custom ones
         // included) merged over the Add-context catalog, deduped by id.
         connectors: (() => {
-          const byId = new Map(CONNECTOR_OPTIONS.map((c) => [c.id, { id: c.id, label: c.label, kind: c.kind }]))
+          const byId = new Map(store.contextCatalog().connectors.map((c) => [c.id, { id: c.id, label: c.label, kind: c.kind }]))
           for (const c of store.savedContexts(tenantId).contexts) {
             if (c.kind === 'connector' || c.kind === 'mcp') byId.set(c.id, { id: c.id, label: c.label, kind: c.connectorKind })
           }
@@ -5227,6 +5226,12 @@ export function buildRouter(): Router {
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
   registerMcpConnectionRoutes(r, accountTransitionSourceMatches)
+  // Demo browse candidates are a public projection of the snapshot's stored
+  // world choice. User-owned set-ups and real external MCP connections remain
+  // on their separate tenant-scoped registries.
+  r.get('/context-catalog', ({ res }) => {
+    sendJson(res, store.contextCatalog())
+  })
   r.get('/saved-contexts', ({ req, res }) => {
     sendJson(res, store.savedContexts(store.identity(req.headers).tenant.id))
   })

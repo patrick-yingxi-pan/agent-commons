@@ -1,9 +1,8 @@
 /** ── Contract: Add-context + saved-context types ───────────────────────────
  *  The six kinds of context a session can attach, plus the set-up contexts the
- *  Contexts page lists and the per-connector sidebar detail. (The Add-context
- *  *catalog* item shapes — CONNECTOR_OPTIONS, FOLDER_OPTIONS, … — are added here
- *  when the picker's reads migrate.) */
-import type { Connector } from './entities.ts'
+ *  Contexts page lists and the per-connector sidebar detail. Add-context browse
+ *  candidates use the route-owned `ContextCatalog` shape below. */
+import type { Connector, DiffLine, FileNode } from './entities.ts'
 import type { FsSource } from './fs.ts'
 
 export type ContextTypeId = 'files' | 'photos' | 'folder' | 'repo' | 'connector' | 'mcp'
@@ -53,6 +52,55 @@ export interface SavedContextsSnapshot {
   contexts: SavedContext[]
   connectedConnectorIds: string[]
   connectedMcpIds: string[]
+}
+
+/** A development-only browse candidate for a connector integration. */
+export interface ConnectorCatalogOption {
+  id: string
+  label: string
+  kind?: Connector['kind']
+}
+
+/** A development-only MCP fixture candidate. Real external MCP connections
+ * arrive through the separately-owned MCP connection registry. */
+export interface McpCatalogOption {
+  id: string
+  label: string
+  meta: string
+}
+
+/** A development-only repository fixture candidate with its authored payload. */
+export type RepoCatalogOption =
+  | {
+      id: string
+      path: string
+      branch: string
+      remote?: string
+      meta: string
+      files: FileNode[]
+      diff: DiffLine[]
+      terminal: string[]
+      origin: 'local'
+    }
+  | {
+      id: string
+      remote: string
+      branch: string
+      meta: string
+      files: FileNode[]
+      diff: DiffLine[]
+      terminal: string[]
+      origin: 'github'
+    }
+
+/** Route-owned browse catalog. Fixture candidates are present only for the
+ * persisted development demo world; `setups` carries their page projection. */
+export interface ContextCatalog {
+  developmentFixtures: boolean
+  connectors: ConnectorCatalogOption[]
+  mcp: McpCatalogOption[]
+  repos: RepoCatalogOption[]
+  setups: SavedContext[]
 }
 
 /** The sidebar detail shown for one connector / MCP server. The mock derives it

@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronRight, FolderOpen } from 'lucide-react'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { SOFT_BUTTON_CLASS } from '../lib/button'
+import { ContextDemoNotice } from './ContextCatalogNotice.tsx'
 
 /* ------------------------------------------------------------------ Browse --
    A simulated file-system explorer window (macOS Finder flavour) for picking
@@ -30,6 +32,7 @@ export function ContextBrowseDialog({
   location,
   groups,
   layout = 'list',
+  developmentFixtures = false,
   onCancel,
   onConfirm,
 }: {
@@ -37,6 +40,7 @@ export function ContextBrowseDialog({
   location: string[]
   groups: BrowseGroup[]
   layout?: 'list' | 'grid'
+  developmentFixtures?: boolean
   onCancel: () => void
   onConfirm: (id: string) => void
 }) {
@@ -60,7 +64,11 @@ export function ContextBrowseDialog({
     return () => document.removeEventListener('keydown', onKey, true)
   }, [onCancel])
 
-  return (
+  // A shifted/scrolling parent popover establishes a fixed containing block.
+  // Keep the browser on the document layer so narrow repositioning cannot
+  // clip its header, disclosure or controls. The panel stops mousedown below
+  // so the parent picker does not treat an internal click as outside intent.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       onMouseDown={onCancel}
@@ -104,6 +112,7 @@ export function ContextBrowseDialog({
 
         {/* Body. */}
         <div className="min-h-[140px] flex-1 overflow-y-auto p-2">
+          {developmentFixtures && <ContextDemoNotice />}
           {items.length === 0 ? (
             <div className="flex h-full min-h-[140px] items-center justify-center px-6 text-center text-[12px] text-ink-faint">
               Everything here is already in your recents.
@@ -173,6 +182,7 @@ export function ContextBrowseDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

@@ -20,7 +20,8 @@ test('saved Context status and removal use held acknowledgement queues', () => {
   assert.match(view, /Existing session attachments stay/, 'confirmation explains the actual removal scope')
   assert.match(view, /enqueueSavedContextDeletion\(target\.id, target\.connectionRevision \?\? 0\)/, 'confirmation freezes the reviewed revision')
   assert.match(view, /contextIdRef\.current === target\.id/, 'a late acknowledgement cannot redirect a person who left the removed detail')
-  assert.match(view, /detail: 'Saved connection'/, 'descriptive fallback copy does not impersonate live status')
+  assert.match(view, /const catalog = useContextCatalog\(open\)/,
+    'setup descriptions come from the server catalog, whose fallback copy is locked by contextCatalog.test.ts')
   assert.match(view, /ctx\.status !== 'connected' \? ' · Needs authentication'/, 'the picker derives setup posture from live status')
   assert.match(connectorDetail, /connected\s*\? detail\.blurb/, 'a disconnected detail cannot reuse a connected-service blurb')
   assert.match(connectorDetail, /Reconnect to make this service available in sessions\./, 'connector recovery copy follows live status')

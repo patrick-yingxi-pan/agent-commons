@@ -44,29 +44,51 @@ test('expanded Contexts rail rows load registry and native metadata behind local
 test('MCP setup and detail bodies stay behind cancellable lazy wrappers in SectionView', () => {
   const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredMcpConnectionPanel.tsx')))
+  const create = stripComments(read(join(ROOT, 'src/components/DeferredMcpConnectionCreate.tsx')))
   assert.doesNotMatch(section, /import\s+\{[^}]*McpConnection(?:CreateDialog|Detail)[^}]*\}\s+from\s+['"]\.\/McpConnectionPanel/,
     'the large MCP panel is absent from the SectionPane graph')
   assert.match(section, /DeferredMcpConnectionCreateDialog/)
   assert.match(section, /DeferredMcpConnectionDetail/)
-  assert.match(deferred, /lazy\(\(\) => import\('\.\/McpConnectionPanel\.tsx'\)/,
-    'both low-frequency MCP bodies share the module’s deferred chunk')
-  assert.match(deferred, /CreateFallback[\s\S]*useFocusTrap\(dialogRef, onClose, \{ initialFocus: cancelRef \}\)[\s\S]*useBoundedDialog\(dialogRef\)[\s\S]*BOUNDED_DIALOG_LAYER_CLASS[\s\S]*Reload app[\s\S]*Cancel/,
+  for (const wrapper of [deferred, create]) {
+    assert.match(wrapper, /lazy\(\(\) => import\('\.\/McpConnectionPanel\.tsx'\)/,
+      'both low-frequency MCP bodies share the module’s deferred chunk')
+    assert.match(wrapper, /getDerivedStateFromError[\s\S]*Suspense/,
+      'module failures stay inside the named MCP recovery shells')
+  }
+  assert.doesNotMatch(create, /AtomicResourcePage|BackButton|DeferredMcpConnectionPanel/,
+    'composer setup does not pull the resource-detail shell into the boot graph')
+  assert.match(create, /CreateFallback[\s\S]*useFocusTrap\(dialogRef, onClose, \{ initialFocus: cancelRef \}\)[\s\S]*useBoundedDialog\(dialogRef\)[\s\S]*BOUNDED_DIALOG_LAYER_CLASS[\s\S]*Reload app[\s\S]*Cancel/,
     'create loading/error uses the shared bounded modal grammar and keeps Cancel/reload')
   assert.match(deferred, /DetailFallback[\s\S]*<AtomicResourcePage[\s\S]*<BackButton to=\{backTo\} onBack=\{onBack\} \/>[\s\S]*Reload details/,
     'detail loading/error preserves canonical page back navigation and explicit reload')
-  assert.match(deferred, /getDerivedStateFromError[\s\S]*Suspense/,
-    'module failures stay inside the named MCP recovery shells')
+})
+
+test('repository options enter through a dismissible lazy shell without granting context on failure', () => {
+  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredRepoContextPicker.tsx')))
+  assert.match(picker, /DeferredRepoContextPicker as RepoPicker/)
+  assert.doesNotMatch(picker, /from ['"]\.\/RepoContextPicker/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/RepoContextPicker\.tsx'\)/)
+  assert.match(deferred, /getDerivedStateFromError[\s\S]*Suspense/)
+  assert.match(deferred, /data-context-repo-load=\{failed \? 'error' : 'loading'\}/)
+  assert.match(deferred, /Copy unsent text before reloading/)
+  assert.match(deferred, /label: 'Done', onClick: this\.props\.onClose/)
+  assert.match(deferred, /label: 'Reload app', onClick: \(\) => window\.location\.reload\(\)/)
+  assert.doesNotMatch(deferred, /onConfirm\(|onAdd\(/)
 })
 
 test('context browsing loads only after explicit Browse with local cancel and warned reload', () => {
   const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const repo = stripComments(read(join(ROOT, 'src/components/RepoContextPicker.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextBrowseDialog.tsx')))
   assert.match(picker, /DeferredContextBrowseDialog as BrowseDialog/)
   assert.doesNotMatch(picker, /from ['"]\.\/ContextBrowseDialog/)
-  assert.equal((picker.match(/browsing && \(\s*<BrowseDialog/g) ?? []).length, 2,
-    'both repository and connector/MCP browsing stay behind explicit intent')
-  assert.equal((picker.match(/return \(\s*<>\s*\{browsing && \(\s*<BrowseDialog/g) ?? []).length, 2,
-    'optional browsing recovery precedes both potentially tall recent lists')
+  for (const source of [picker, repo]) {
+    assert.equal((source.match(/browsing && \(\s*<BrowseDialog/g) ?? []).length, 1,
+      'repository and connector/MCP browsing each stay behind explicit intent')
+    assert.match(source, /return \(\s*<>\s*(?:<ContextCatalogNotice[^>]*\/>\s*)?\{browsing && \(\s*<BrowseDialog/,
+      'optional browsing recovery precedes each potentially tall recent list')
+  }
   assert.match(deferred, /lazy\(\(\) => import\('\.\/ContextBrowseDialog\.tsx'\)/)
   assert.match(deferred, /ComponentProps<typeof ContextBrowseDialog>/)
   assert.match(deferred, /data-context-browse-loading[\s\S]*tone="status"/)

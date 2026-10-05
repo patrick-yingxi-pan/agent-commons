@@ -194,6 +194,7 @@ import { isContributionReviewId } from '../contributionReviewIdentity.ts'
 import { isContributionReviewRequirementId } from '../contributionReviewRequirementIdentity.ts'
 import { isDelegatedJudgmentId } from '../delegatedJudgmentIdentity.ts'
 import { createContextRegistry } from '../contextRegistry.ts'
+import { buildContextCatalog } from '../contextCatalog.ts'
 import {
   createMcpConnectionRegistry,
   McpConnectionError,
@@ -6524,6 +6525,11 @@ export const store = {
   },
 
   // ── Contexts (the set-up ones, on the Contexts page) ──
+  /** Public browse fixtures follow the persisted first-run world, not the
+   * current process profile: a historical demo snapshot stays demo on release. */
+  contextCatalog() {
+    return buildContextCatalog(worldMode)
+  },
   savedContexts(tenantId: string = defaultTenantId()): SavedContextsSnapshot {
     const base = contextRegistry.snapshot(tenantId)
     const external = mcpConnectionRegistry.savedContexts(tenantId)
