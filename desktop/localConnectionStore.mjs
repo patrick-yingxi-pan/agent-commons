@@ -6,6 +6,7 @@ import { secureStorageAvailable } from './credentialVault.mjs'
 import { inspectLocalFolderRoot, readLocalFolderSnapshot } from './localFolderReader.mjs'
 
 export const LOCAL_CONNECTION_FILE = 'local-connections.v1.json'
+export const LOCAL_GIT_CONNECTION_FILE = 'git-connections.v1.json'
 export const MAX_LOCAL_CONNECTIONS = 64
 export const MAX_LOCAL_CAPTURES = 4
 const MAX_PLAINTEXT_BYTES = 256 * 1024
@@ -64,15 +65,15 @@ async function readEncryptedFile(filePath, io) {
   } finally { await file.close() }
 }
 
-function parseConnections(plaintext) {
+function parseConnections(plaintext, idPattern, validateRoot) {
   if (typeof plaintext !== 'string' || Buffer.byteLength(plaintext) > MAX_PLAINTEXT_BYTES) fail()
   const parsed = JSON.parse(plaintext)
   if (!exactKeys(parsed, ['version', 'entries']) || parsed.version !== 1 ||
     !Array.isArray(parsed.entries) || parsed.entries.length > MAX_LOCAL_CONNECTIONS) fail()
   const result = new Map()
   for (const entry of parsed.entries) {
-    if (!exactKeys(entry, ['id', 'owner', 'root']) || typeof entry.id !== 'string' || !ID.test(entry.id) ||
-      !validOwner(entry.owner) || !validRoot(entry.root) || result.has(entry.id)) fail()
+    if (!exactKeys(entry, ['id', 'owner', 'root']) || typeof entry.id !== 'string' || !idPattern.test(entry.id) ||
+      !validOwner(entry.owner) || !validateRoot(entry.root) || result.has(entry.id)) fail()
     result.set(entry.id, { ...entry, remembered: true })
   }
   return result
@@ -95,8 +96,12 @@ function assertStorage(storage, platform) {
 export async function openLocalConnectionStore({
   filePath, storage, platform = process.platform,
   inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, fsApi = REAL_FS,
+  connectionKind = 'folder', validateRoot = validRoot,
 } = {}) {
   try {
+    if (!['folder', 'git'].includes(connectionKind) || typeof validateRoot !== 'function') fail()
+    const idPattern = connectionKind === 'git' ? /^GIT_[A-F0-9]{32}$/ : ID
+    const idPrefix = connectionKind === 'git' ? 'GIT' : 'LOCAL'
     if (typeof filePath !== 'string' || !isAbsolute(filePath)) fail()
     const directoryIdentity = await inspectPrivateDirectory(filePath, fsApi)
     let diskText = await readEncryptedFile(filePath, fsApi)
@@ -107,7 +112,7 @@ export async function openLocalConnectionStore({
       if (!exactKeys(record, ['version', 'ciphertext']) || record.version !== 1 ||
         typeof record.ciphertext !== 'string' || !record.ciphertext ||
         Buffer.from(record.ciphertext, 'base64').toString('base64') !== record.ciphertext) fail()
-      entries = parseConnections(await storage.decryptString(Buffer.from(record.ciphertext, 'base64')))
+      entries = parseConnections(await storage.decryptString(Buffer.from(record.ciphertext, 'base64')), idPattern, validateRoot)
     }
     let queue = Promise.resolve()
     let unavailable = false
@@ -181,8 +186,8 @@ export async function openLocalConnectionStore({
           // Root inspection can be slow (including on mounted volumes). Do not
           // publish a connection if shutdown began while it was in progress.
           available()
-          if (!validRoot(root)) fail()
-          const entry = { id: `LOCAL_${randomBytes(16).toString('hex').toUpperCase()}`, owner: binding,
+          if (!validateRoot(root)) fail()
+          const entry = { id: `${idPrefix}_${randomBytes(16).toString('hex').toUpperCase()}`, owner: binding,
             root: structuredClone(root), remembered: remember }
           if (entries.has(entry.id)) fail()
           const next = new Map(entries).set(entry.id, entry)
@@ -197,7 +202,7 @@ export async function openLocalConnectionStore({
         return serial(() => [...entries.values()].filter((entry) => sameOwner(entry.owner, binding)).map(descriptor))
       },
       async snapshot(owner, id) {
-        if (!validOwner(owner) || typeof id !== 'string' || !ID.test(id)) fail()
+        if (!validOwner(owner) || typeof id !== 'string' || !idPattern.test(id)) fail()
         const binding = { ...owner }
         const pending = await serial(() => {
           const found = entries.get(id)
@@ -221,7 +226,7 @@ export async function openLocalConnectionStore({
         finally { captures.delete(pending) }
       },
       disconnect(owner, id) {
-        if (!validOwner(owner) || typeof id !== 'string' || !ID.test(id)) return Promise.reject(new LocalConnectionError())
+        if (!validOwner(owner) || typeof id !== 'string' || !idPattern.test(id)) return Promise.reject(new LocalConnectionError())
         const binding = { ...owner }
         return serial(async () => {
           const entry = entries.get(id)

@@ -104,6 +104,20 @@ export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, u
       },
     },
   ],
+  [
+    'POST /sessions/:id/workspace/folders/:folderId/local-git-refresh',
+    {
+      expectedSnapshotId: null,
+      requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      snapshot: {
+        version: 1,
+        snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        capturedAt: '2026-10-04T12:00:00.000Z',
+        connectionId: 'GIT_0123456789ABCDEF0123456789ABCDEF',
+        files: [],
+      },
+    },
+  ],
   ['PATCH /saved-contexts/:id', { status: 'connected', expectedRevision: 0 }],
   ['DELETE /saved-contexts/:id', { expectedRevision: 0 }],
   ['PATCH /schedules/:id', { enabled: false, expectedRevision: 0 }],

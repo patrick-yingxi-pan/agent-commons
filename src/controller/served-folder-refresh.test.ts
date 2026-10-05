@@ -19,6 +19,12 @@ const localCapture = (snapshotId: string, text: string, connectionId = localConn
   version: 1 as const, snapshotId, capturedAt: '2026-10-04T12:00:00.000Z', connectionId,
   files: [{ name: 'notes.md', sizeBytes: new TextEncoder().encode(text).length, snapshot: { text } }],
 })
+const gitConnectionId = 'GIT_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as const
+const gitFolderId = fsRecentKey('ui-host', gitConnectionId)
+const gitCapture = (snapshotId: string, text: string, connectionId = gitConnectionId) => ({
+  version: 1 as const, snapshotId, capturedAt: '2026-10-04T12:00:00.000Z', connectionId,
+  files: [{ path: 'src/nested/notes.md', sizeBytes: new TextEncoder().encode(text).length, snapshot: { text } }],
+})
 const initialWorkspace: Workspace = {
   id: 'ws', label: 'Workspace',
   folders: [{ id: folderId, label: 'Docs', snapshot: snapshot(sid, 'old') }],
@@ -178,4 +184,37 @@ test('local folder dismissal reconciliation applies only against the unchanged l
 
   const confirmedDetached = mergeServedFolderRefresh(current, returned([]), target)
   assert.equal(confirmedDetached.workspaces.length, 0, 'authoritative dismissal may remove the exact unchanged target')
+})
+
+test('local Git refresh merges only the exact gitSnapshot receipt and preserves unrelated state', () => {
+  const old = gitCapture(sid, 'old')
+  const next = gitCapture(requestId, 'new')
+  const otherGitId = fsRecentKey('ui-host', 'GIT_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
+  const unrelated = gitCapture('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'unrelated', 'GIT_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
+  const workspace: Workspace = { id: 'git', label: 'Repository', folders: [
+    { id: gitFolderId, label: 'Commons', gitSnapshot: old },
+    { id: otherGitId, label: 'Other', gitSnapshot: unrelated },
+  ], artifacts: [{ id: 'authored', name: 'authored.md', kind: 'doc', meta: '' }] }
+  const current = { ...EMPTY_LIVE, workspaces: [workspace], repos: [{ id: 'repo', label: 'unrelated live repo', path: '/not-rendered' }] }
+  const merged = mergeServedFolderRefresh(current, returned([{ ...workspace, folders: [
+    { id: gitFolderId, label: 'Commons', gitSnapshot: next },
+    { id: otherGitId, label: 'Other', gitSnapshot: gitCapture(sid, 'stale unrelated', 'GIT_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB') },
+  ], artifacts: [] }]), { kind: 'git', folderId: gitFolderId, expectedSnapshotId: sid, requestId })
+  assert.equal(merged.workspaces[0]?.folders?.find(folder => folder.id === gitFolderId)?.gitSnapshot?.files[0]?.path, 'src/nested/notes.md')
+  assert.equal(merged.workspaces[0]?.folders?.find(folder => folder.id === gitFolderId)?.gitSnapshot?.snapshotId, requestId)
+  assert.equal(merged.workspaces[0]?.folders?.find(folder => folder.id === otherGitId)?.gitSnapshot?.snapshotId, unrelated.snapshotId)
+  assert.deepEqual(merged.workspaces[0]?.artifacts, workspace.artifacts, 'authored workspace artifacts survive targeted Git capture replacement')
+  assert.deepEqual(merged.repos, current.repos, 'a folder acknowledgement does not replace live repository state')
+})
+
+test('local Git refresh rejects a mismatched receipt and stale acknowledgement', () => {
+  const workspace: Workspace = { id: 'git', label: 'Repository', folders: [{ id: gitFolderId, label: 'Commons', gitSnapshot: gitCapture(sid, 'saved') }], artifacts: [] }
+  const current = { ...EMPTY_LIVE, workspaces: [workspace] }
+  const target = { kind: 'git' as const, folderId: gitFolderId, expectedSnapshotId: sid, requestId }
+  const mismatch = mergeServedFolderRefresh(current, returned([{ ...workspace, folders: [{ id: gitFolderId, label: 'Commons', gitSnapshot: gitCapture(requestId, 'wrong receipt', 'GIT_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB') }] }]), target)
+  assert.equal(mismatch.workspaces[0]?.folders?.[0]?.gitSnapshot?.snapshotId, sid)
+  const newer = gitCapture('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'newer')
+  const currentNewer = { ...current, workspaces: [{ ...workspace, folders: [{ id: gitFolderId, label: 'Commons', gitSnapshot: newer }] }] }
+  const stale = mergeServedFolderRefresh(currentNewer, returned([{ ...workspace, folders: [{ id: gitFolderId, label: 'Commons', gitSnapshot: gitCapture(requestId, 'stale') }] }]), target)
+  assert.equal(stale.workspaces[0]?.folders?.[0]?.gitSnapshot?.snapshotId, newer.snapshotId)
 })

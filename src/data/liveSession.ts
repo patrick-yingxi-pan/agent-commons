@@ -262,11 +262,13 @@ export function addContextToLive(l: Live, ctx: AddedContext): Live {
         if (l.workspaces.some((workspace) => workspaceFolders(workspace).some((folder) => folder.id === ctx.folder!.id))) return l
         const index = l.workspaces.length ? 0 : -1
         if (index < 0) {
-          return { ...l, workspaces: [...l.workspaces, { id: WS_ID, label: 'Workspace', artifacts: ctx.folder.snapshot ? [] : ctx.artifacts, folders: [ctx.folder] }] }
+          const captured = !!(ctx.folder.snapshot || ctx.folder.localSnapshot || ctx.folder.gitSnapshot)
+          return { ...l, workspaces: [...l.workspaces, { id: WS_ID, label: 'Workspace', artifacts: captured ? [] : ctx.artifacts, folders: [ctx.folder] }] }
         }
         const workspaces = [...l.workspaces]
         const existing = workspaces[index]!
-        const addedArtifacts = ctx.folder.snapshot ? [] : ctx.artifacts.filter((artifact) => !existing.artifacts.some((current) => current.id === artifact.id))
+        const captured = !!(ctx.folder.snapshot || ctx.folder.localSnapshot || ctx.folder.gitSnapshot)
+        const addedArtifacts = captured ? [] : ctx.artifacts.filter((artifact) => !existing.artifacts.some((current) => current.id === artifact.id))
         workspaces[index] = { ...existing, artifacts: [...existing.artifacts, ...addedArtifacts], folders: [...(existing.folders ?? []), ctx.folder] }
         return { ...l, workspaces }
       }

@@ -1,14 +1,15 @@
 import type { SessionContextState } from '../../contract/api.ts'
 import { isServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
 import { isLocalFolderCapture } from '../../contract/localFolderCapture.ts'
+import { isLocalGitCapture } from '../../contract/localGitCapture.ts'
 import type { Workspace, WorkspaceFolder } from '../../contract/entities.ts'
 import { parseFsRecentKey } from '../../contract/fs.ts'
-import { isWorkspaceFolder, replaceLocalFolderSnapshot, replaceServedFolderSnapshot, workspaceFolders } from '../../contract/workspaceFolders.ts'
+import { isWorkspaceFolder, replaceLocalFolderSnapshot, replaceLocalGitSnapshot, replaceServedFolderSnapshot, workspaceFolders } from '../../contract/workspaceFolders.ts'
 import { removeFolderFromLive, type Live } from '../data/liveSession.ts'
 
 export interface ServedFolderRefreshTarget {
   folderId: string
-  kind?: 'local'
+  kind?: 'local' | 'git'
   expectedSnapshotId: string | null
   requestId: string
   reconciled?: boolean
@@ -49,7 +50,7 @@ export function mergeFolderRefresh(
 ): Live {
   const attached = findFolder(current.workspaces, target.folderId)
   if (!attached) return current
-  const snapshotField = target.kind === 'local' ? 'localSnapshot' : 'snapshot'
+  const snapshotField = target.kind === 'local' ? 'localSnapshot' : target.kind === 'git' ? 'gitSnapshot' : 'snapshot'
   const currentSnapshotId = attached.folder[snapshotField]?.snapshotId ?? null
   if (target.reconciled === true) {
     if (currentSnapshotId !== target.baselineSnapshotId) return current
@@ -77,6 +78,8 @@ export function mergeFolderRefresh(
   }
   if (target.kind === 'local') {
     if (!isLocalFolderCapture(snapshot) || source.sourceId !== 'ui-host' || snapshot.connectionId !== source.entryId) return current
+  } else if (target.kind === 'git') {
+    if (!isLocalGitCapture(snapshot) || source.sourceId !== 'ui-host' || snapshot.connectionId !== source.entryId) return current
   } else if (!isServedFolderSnapshot(snapshot) || snapshot.sourceId !== source.sourceId || snapshot.path !== source.entryId) return current
   if (target.reconciled !== true && snapshot.snapshotId !== target.requestId) return current
 
@@ -85,7 +88,9 @@ export function mergeFolderRefresh(
     workspaces: current.workspaces.map((workspace) => workspace === attached.workspace
       ? isLocalFolderCapture(snapshot)
         ? replaceLocalFolderSnapshot(workspace, target.folderId, snapshot)
-        : replaceServedFolderSnapshot(workspace, target.folderId, snapshot) : workspace),
+        : isLocalGitCapture(snapshot)
+          ? replaceLocalGitSnapshot(workspace, target.folderId, snapshot)
+          : replaceServedFolderSnapshot(workspace, target.folderId, snapshot) : workspace),
   }
 }
 

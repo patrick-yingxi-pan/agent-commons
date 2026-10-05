@@ -37,6 +37,21 @@ test('local explicit folders retain their artifact snapshots and attach into the
   assert.deepEqual(live.workspaces[0]?.artifacts, [localArtifact])
 })
 
+test('local Git folders stay distinct saved folder containers and remove with their projected artifacts', () => {
+  const gitSnapshot = {
+    version: 1 as const, snapshotId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    capturedAt: '2026-10-04T12:00:00.000Z', connectionId: 'GIT_0123456789ABCDEF0123456789ABCDEF',
+    files: [{ path: '.github/workflows/check.yml', sizeBytes: 4, snapshot: { text: 'test' } }],
+  }
+  const record: WorkspaceFolder = { id: 'ui-host::GIT_0123456789ABCDEF0123456789ABCDEF', label: 'Agent Commons/', gitSnapshot }
+  const artifact: Artifact = { id: `${record.id}/.github/workflows/check.yml`, name: '.github/workflows/check.yml', kind: 'doc', meta: '', source: { id: record.id, label: record.label } }
+  const context: AddedContext = { kind: 'folder', label: 'Agent Commons', folder: record, source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' }, artifacts: [artifact] }
+  const live = addContextToLive(EMPTY_LIVE, context)
+  assert.deepEqual(live.workspaces[0]?.folders, [record])
+  assert.deepEqual(live.workspaces[0]?.artifacts, [], 'saved Git projection is derived once from gitSnapshot')
+  assert.deepEqual(removeFolderFromLive(live, record.id).workspaces, [])
+})
+
 test('workspace detach includes explicit folder bindings even when there are no artifacts', () => {
   const record = folder('runner:one', 'empty', 'Empty')
   const live = addContextToLive(EMPTY_LIVE, context(record))

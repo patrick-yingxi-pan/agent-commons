@@ -26,6 +26,12 @@ const localFolderChannels = Object.freeze({
   snapshot: 'agent-commons:local-folders:snapshot',
   disconnect: 'agent-commons:local-folders:disconnect',
 })
+const localGitChannels = Object.freeze({
+  list: 'agent-commons:local-git:list',
+  connect: 'agent-commons:local-git:connect',
+  snapshot: 'agent-commons:local-git:snapshot',
+  disconnect: 'agent-commons:local-git:disconnect',
+})
 const mcpCredentialChannels = Object.freeze({
   provision: 'agent-commons:mcp-credentials:provision',
 })
@@ -34,7 +40,9 @@ const MCP_CREDENTIAL_CAPABILITY = 'mcp-provision-v1'
 // Do not forward main-process error objects or IPC rejection strings. Only the
 // closed native outcome selects user guidance, keeping the renderer API intact.
 async function invokeLocalFolder(channel, ...args) {
-  const unavailable = 'The local folder is unavailable. Your saved snapshots have not been changed.'
+  const git = channel.startsWith('agent-commons:local-git:')
+  const unavailable = git ? 'The repository is unavailable or has changed. Your saved snapshots have not been changed.'
+    : 'The local folder is unavailable. Your saved snapshots have not been changed.'
   let reply
   try { reply = await ipcRenderer.invoke(channel, ...args) }
   catch { throw new Error(unavailable) }
@@ -42,7 +50,7 @@ async function invokeLocalFolder(channel, ...args) {
     const keys = Object.keys(reply).sort().join(',')
     if (keys === 'ok,value' && reply.ok === true) return reply.value
     if (keys === 'error,ok' && reply.ok === false) {
-      if (reply.error === 'busy') throw new Error('Local folder reads are busy. Try again when the current reads finish.')
+      if (reply.error === 'busy') throw new Error(git ? 'Repository reads are busy. Try again when the current reads finish.' : 'Local folder reads are busy. Try again when the current reads finish.')
       if (reply.error === 'limit-reached') throw new Error('This device has reached its local connection limit. Disconnect an unused connection first.')
     }
   }
@@ -63,6 +71,12 @@ const bridge = {
       snapshot: (id, source) => invokeLocalFolder(localFolderChannels.snapshot, id, source),
       disconnect: (id, source) => invokeLocalFolder(localFolderChannels.disconnect, id, source),
     }),
+    ...(process.platform === 'darwin' ? { localGit: Object.freeze({
+      list: (source) => invokeLocalFolder(localGitChannels.list, source),
+      connect: (options, source) => invokeLocalFolder(localGitChannels.connect, options, source),
+      snapshot: (id, source) => invokeLocalFolder(localGitChannels.snapshot, id, source),
+      disconnect: (id, source) => invokeLocalFolder(localGitChannels.disconnect, id, source),
+    }) } : {}),
   }),
   data: Object.freeze({
     createBackup: () => ipcRenderer.invoke(dataChannels.createBackup),

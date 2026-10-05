@@ -60,7 +60,42 @@ distribution, then connects capture, persistence, model input and user controls.
 
 ## Progress and next milestones
 
-The Git checkpoint begins the approved bundled-executable prerequisite. macOS
+The current checkpoint connects the approved native Git workflow end to end:
+Repository → This computer offers an explicitly selected read-only connection,
+Remember is opt-in, and Attach/Refresh saves bounded current tracked text through
+the same portable workspace/model-input boundary. Contexts exposes symmetric
+connection rows and an account-local Disconnect page. Saved copies survive lost
+source access, disconnect and relaunch; opening and sending never read the source.
+Repositories above 500 tracked entries refuse capture; smaller repositories keep
+up to 24 readable files at 64 KiB/file and 128 KiB total, with omission reasons.
+Nested paths and uncommitted edits are retained; untracked files and matches from
+`.gitignore` / `.git/info/exclude` are excluded. Other local/global Git configuration
+does not participate. Live diff/terminal, Git writes and hosted Git remain separate.
+
+Native review found that even read-only Git enumeration freshens split-index
+mtime. The implementation therefore runs pinned Git only on private copied
+metadata and a generated worktree. A bundled descriptor-relative reader refuses
+symlink traversal and changed root/file bindings; bounded metadata never enters
+renderer or portable state. SHA-1/SHA-256 and optional zero-checksum indexes,
+linked worktrees, source mutation, cancellation and account/grant isolation have
+focused tests. UI review caught unbounded repository intake and misleading
+truncation copy: the existing shared scroll body keeps Done outside, and one
+limits disclosure supplies honest policy to intake, management and saved preview.
+The four focused browser journeys pass, and the responsive sweep covers 135/135
+cells with no violations or skips; all five screenshot columns and 25 dedicated
+Git workflow screenshots were reviewed. The unsigned arm64 packaged workflow
+passes actual capture, unchanged index/shared-index bytes and mtime, remembered
+relaunch, saved-only model input, missing-source recovery and Disconnect. Final
+review caught case/HFS aliases bypassing the literal metadata-path guard; the
+new regression was watched fail before rejecting those aliases and disguised
+dot traversal at both native enumeration and portable ingress. The complete local
+verifier and a rebuilt packaged run remain the final landing gates, with outcomes
+recorded in the checkpoint handoff. Native OS-dialog, signed/Intel and paid-provider
+acceptance remain separate gates.
+Owner-only retained artifact history is the next approved core milestone after
+this capture workflow is accepted. No GitHub CI is required or monitored.
+
+The preceding Git checkpoint built the approved bundled-executable prerequisite. macOS
 packaging builds the checksum-pinned upstream Git 2.56.0 source for the explicit
 target architecture using only Apple's toolchain and system libraries. Source,
 license texts and an exact build recipe accompany the executable outside ASAR;
@@ -71,9 +106,9 @@ empty entitlement set retains signing and hardened runtime. A disposable ad-hoc
 signed copy passed strict verification and execution, not Developer ID/notarization.
 Package and extracted-release acceptance verify source/license identity, binary
 architecture/version and link dependencies, then enumerate tracked files in a
-generated repository without changing its index or metadata. This does not yet
-connect a user's repository: read-only capture, remembered access, Attach/Refresh,
-portable persistence and saved-only model input remain the next Git work. Native
+generated repository without changing its index or metadata. That foundation
+did not yet connect a user's repository; the current checkpoint adds the capture,
+remembered access, Attach/Refresh and saved-only model workflow above. Native
 Intel and signed release evidence remain separate gates.
 
 Both source builds passed their architecture/system-library checks; only arm64

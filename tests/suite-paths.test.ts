@@ -74,6 +74,10 @@ const NOT_A_READ = new Set([
   // admission tests. Neither is a source file the suite tries to load.
   `server/fs-snapshot.test.ts → '${'../'}outside.md'`,
   `server/routes/served-file-snapshot.test.ts → '${'../'}outside.md'`,
+  // Deliberate Git capture traversal payloads, never repository source reads.
+  `desktop/localGitReader.test.ts → '${'../'}escape.md'`,
+  `server/routes/local-git-snapshot.test.ts → '${'../'}outside.md'`,
+  `src/api/local-git.test.ts → '${'../'}secret.md'`,
 ])
 
 test('every relative path a suite names resolves from where the suite now lives', () => {

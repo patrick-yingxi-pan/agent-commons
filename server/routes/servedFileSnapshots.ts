@@ -2,6 +2,7 @@
  * preparation use the persisted workspace, never this filesystem seam. */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isLocalFolderRefreshRequest } from '../../contract/localFolderCapture.ts'
+import { isLocalGitRefreshRequest } from '../../contract/localGitCapture.ts'
 import { isRefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { sendError, sendJson } from '../http/respond.ts'
@@ -89,6 +90,40 @@ export function registerServedFileSnapshotRoutes(
     try {
       const tenantId = store.identity(req.headers).tenant.id
       const state = store.refreshSessionLocalFolder(params.id, params.folderId, input, tenantId)
+      if (!owner()) return
+      sendJson(res, state)
+    } catch (error) {
+      if (!owner()) return
+      if (error instanceof ConflictError || error instanceof ValidationError) return sendError(res, error.code, error.message)
+      throw error
+    }
+  })
+
+  router.post('/sessions/:id/workspace/folders/:folderId/local-git-refresh', async ({ req, res, params, body }) => {
+    const owner = () => {
+      if (!accountTransitionSourceMatches(req, res)) return false
+      if (denyForeignSession(req, res, params.id)) return false
+      const session = store.getSession(params.id)
+      if (!session) { sendError(res, 'not_found', 'This conversation is unavailable.'); return false }
+      const tenantId = store.identity(req.headers).tenant.id
+      if (!store.sessionOwnedBy(session, tenantId)) {
+        sendError(res, 'forbidden', 'Only the conversation owner may refresh attached folders.'); return false
+      }
+      return true
+    }
+    if (!owner()) return
+    const initialBinding = store.resolveSessionContext(params.id, params.folderId)
+    const input = await body<unknown>()
+    if (!owner()) return
+    if (store.resolveSessionContext(params.id, params.folderId) !== initialBinding) {
+      return sendError(res, 'conflict', 'The attached local Git connection changed while reading. The saved copy is unchanged.')
+    }
+    if (!isLocalGitRefreshRequest(input)) {
+      return sendError(res, 'bad_request', 'A bounded local Git capture and matching refresh receipt are required.')
+    }
+    try {
+      const tenantId = store.identity(req.headers).tenant.id
+      const state = store.refreshSessionLocalGitFolder(params.id, params.folderId, input, tenantId)
       if (!owner()) return
       sendJson(res, state)
     } catch (error) {

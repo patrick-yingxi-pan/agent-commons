@@ -205,6 +205,23 @@ test('curated body examples: every key is a real mutation route, the spine is co
   assert.equal((await toolCall('post_sessions_by_id_local_folders_by_folder_id_refresh', {
     id: sid, folderId: localFolderId, ...ex('POST /sessions/:id/local-folders/:folderId/refresh'),
   }, seam)).status, 200, 'local-folder refresh accepts its frozen empty-capture example')
+  const gitConnectionId = 'GIT_0123456789ABCDEF0123456789ABCDEF'
+  const gitFolderId = `ui-host::${gitConnectionId}`
+  assert.equal((await toolCall('patch_sessions_by_id_context_state', {
+    id: sid,
+    body: {
+      operations: [{ action: 'attach', context: {
+        id: gitFolderId, type: 'folder', label: 'Local Git', scope: gitConnectionId,
+        source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+      } }],
+      workspace: { workspaces: [{ id: 'w', label: 'Workspace', artifacts: [], folders: [
+        { id: localFolderId, label: 'Local notes' }, { id: gitFolderId, label: 'Local Git' },
+      ] }], repos: [], connectors: [], attachments: [] },
+    },
+  }, seam)).status, 200, 'a Git refresh example has an existing attached target')
+  assert.equal((await toolCall('post_sessions_by_id_workspace_folders_by_folder_id_local_git_refresh', {
+    id: sid, folderId: gitFolderId, ...ex('POST /sessions/:id/workspace/folders/:folderId/local-git-refresh'),
+  }, seam)).status, 200, 'Local Git refresh accepts its bounded saved-capture example')
   assert.equal(
     (await toolCall('post_sessions_by_id_messages', { id: sid, ...ex('POST /sessions/:id/messages') }, seam)).status,
     200,
@@ -306,7 +323,7 @@ test('curated body examples: every key is a real mutation route, the spine is co
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 16, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 17, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

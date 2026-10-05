@@ -17,7 +17,8 @@ import { closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, read
 import type { Stats } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
-import { MAX_FOLDER_SNAPSHOT_ENTRIES, MAX_FOLDER_SNAPSHOT_FILE_BYTES, snapshotFolderFiles } from '../contract/localFolderSnapshot.mjs'
+import { MAX_FOLDER_SNAPSHOT_ENTRIES, MAX_FOLDER_SNAPSHOT_FILE_BYTES } from '../contract/localFolderSnapshot.mjs'
+import { snapshotFolderFiles } from '../contract/localFolderSnapshotBuilder.mjs'
 import type { FolderSnapshotFile } from '../contract/localFolderSnapshot.mjs'
 import type {
   Artifact,

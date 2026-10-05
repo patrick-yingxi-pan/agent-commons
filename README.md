@@ -118,7 +118,7 @@ three times by default with exponential backoff; operators can tune
 Requires **Node 26+**.
 
 macOS desktop development and packaging also require Apple's command-line tools
-(`/usr/bin/clang`) to build the small, bundled read-only profile ACL inspector.
+(`/usr/bin/clang`) to build the bundled read-only profile ACL and Git-file helpers.
 End users do not need a compiler.
 
 macOS packaging additionally compiles a pinned Git source archive with Apple's
@@ -126,8 +126,8 @@ toolchain, verifies its SHA-256 before extraction, and checks the resulting
 architecture, version and system-only libraries. Its first build downloads the
 source from kernel.org; subsequent builds reuse the verified archive under
 ignored `desktop/bin/`. The app includes that exact source, license texts and
-build recipe beside the executable. This is the dependency for the approved
-read-only Git context workflow, not a shipped repository connection yet.
+build recipe beside the executable. Desktop startup verifies an existing bundle
+and builds one only when absent; there is no fallback to the user's Git install.
 
 ```bash
 npm install
@@ -349,9 +349,19 @@ is temporary by default; opt-in **Remember this connection** preserves encrypted
 device access across relaunch. Connect does not read content; Attach and Refresh
 capture explicitly, and Disconnect preserves previously saved copies.
 
+On macOS, Add context → Repository → This computer uses the same explicit
+connection, opt-in Remember and saved-only Attach/Refresh workflow. It captures
+tracked working-tree text, including nested paths and uncommitted edits, without
+changing the repository or its index. Untracked files and matches from `.gitignore`
+or `.git/info/exclude` are excluded; other Git configuration is not consulted.
+Repositories above 500 tracked entries are refused; within that bound, at most
+24 readable files, 64 KiB/file and 128 KiB total are saved. Omitted entries retain
+a reason. Contexts manages these device/account-local connections; saved snapshots
+remain readable independently of the source. This is not live diff or terminal access.
+
 The same cloud and mapped-runner sources support bounded PDF/DOCX/XLSX/PPTX text
 projections and normalized saved images, with explicit Refresh. Original document
-and image bytes are transient. Real Git, recursive folders and rich document
+and image bytes are transient. Git writes/live diff, recursive folders and rich document
 fidelity remain unfinished work. The recorded [native Folder acceptance](docs/acceptance/native-folder-2026-10-05.md)
 covers actual macOS selection and remembered-connection lifecycles on its named
 unsigned arm64 build; it is not a signed two-architecture release receipt.

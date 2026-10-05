@@ -124,6 +124,10 @@ test('direct download release pins signing, Keychain notarization, and architect
   assert.equal(ignored(`${nativeGit}/${BUNDLED_GIT.sourceArchive}`), true, 'source archive is sealed data, not executable code')
   assert.equal(ignored(`${nativeGit}/git`), false, 'the bundled executable must still be signed')
   assert.equal(ignored(`${nativeGit}/${BUNDLED_GIT.sourceArchive}.dylib`), false)
+  const nativeFileHelper = `${plan.appPath}/Contents/Resources/agent-commons-git-file`
+  assert.equal(ignored(nativeFileHelper), false, 'the descriptor-relative reader must still be signed')
+  assert.equal(plan.packagerOptions.osxSign.optionsForFile(nativeFileHelper).entitlements,
+    '/repo/desktop/entitlements.git.plist')
   assert.equal(ignored(plan.appPath), false)
   assert.equal(plan.packagerOptions.osxSign.optionsForFile(`${nativeGit}/git`).entitlements,
     '/repo/desktop/entitlements.git.plist')

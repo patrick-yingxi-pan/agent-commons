@@ -1,5 +1,6 @@
 import type { ArtifactItem, ModelProvider, Project, SavedContext, SavedContextKind, SectionId } from '../types.ts'
 import type { LocalFolderConnection } from '../../contract/localFolderCapture.ts'
+import type { LocalGitConnection } from '../../contract/localGitCapture.ts'
 import type { SectionFilterValue } from './sectionFilter.ts'
 
 /** Structural sections inside collection roots. A collection page is still a
@@ -27,6 +28,8 @@ export const CONTEXT_COLLECTION_SECTIONS = [
 export const ACCOUNT_MCP_SECTION = { id: 'account-mcp', label: 'This account is an MCP server' } as const
 export const LOCAL_FOLDERS_SECTION = { id: 'local-folders', label: 'Local folders on this device' } as const
 export type LocalFolderContextRow = LocalFolderConnection & { kind: 'local-folder'; label: string }
+export const LOCAL_GIT_SECTION = { id: 'local-git', label: 'Local repositories on this device' } as const
+export type LocalGitContextRow = LocalGitConnection & { kind: 'local-git'; label: string }
 
 /** Native metadata projects into both navigation densities, never the server's
  * SavedContext registry. No fabricated availability or last-used timestamp. */
@@ -35,6 +38,13 @@ export function localFolderCollectionSection(rows: readonly LocalFolderConnectio
   const selected = filter.facet === 'all' || filter.facet === 'local-folder'
     ? rows.filter(row => !needle || row.name.toLowerCase().includes(needle)) : []
   return { ...LOCAL_FOLDERS_SECTION, items: [...selected].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)).map(row => ({ ...row, kind: 'local-folder', label: row.name })) }
+}
+
+export function localGitCollectionSection(rows: readonly LocalGitConnection[], filter: SectionFilterValue, query = ''): CollectionSection<LocalGitContextRow> {
+  const needle = query.trim().toLowerCase()
+  const selected = filter.facet === 'all' || filter.facet === 'local-git'
+    ? rows.filter(row => !needle || row.name.toLowerCase().includes(needle)) : []
+  return { ...LOCAL_GIT_SECTION, items: [...selected].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)).map(row => ({ ...row, kind: 'local-git', label: row.name })) }
 }
 export const PROVIDERS_SECTION = { id: 'providers', label: 'Providers' } as const
 export const UNFILED_ARTIFACT_SECTION = { id: '__unfiled', label: 'Unfiled' } as const
@@ -88,7 +98,7 @@ export function collectionSectionLabel(
     return id === ARTIFACT_TRASH_SECTION.id ? ARTIFACT_TRASH_SECTION.label
       : id === UNFILED_ARTIFACT_SECTION.id ? UNFILED_ARTIFACT_SECTION.label : projectNames[id]
   if (host === 'contexts')
-    return id === LOCAL_FOLDERS_SECTION.id ? LOCAL_FOLDERS_SECTION.label : id === ACCOUNT_MCP_SECTION.id
+    return id === LOCAL_FOLDERS_SECTION.id ? LOCAL_FOLDERS_SECTION.label : id === LOCAL_GIT_SECTION.id ? LOCAL_GIT_SECTION.label : id === ACCOUNT_MCP_SECTION.id
       ? ACCOUNT_MCP_SECTION.label
       : CONTEXT_COLLECTION_SECTIONS.find((section) => section.id === id)?.label
   if (host === 'models') return id === PROVIDERS_SECTION.id ? PROVIDERS_SECTION.label : undefined

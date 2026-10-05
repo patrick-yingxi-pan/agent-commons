@@ -35,7 +35,7 @@ export interface ContextMutationPlan {
   }
   folderRefresh?: RefreshServedAttachmentRequest & {
     folderId: string
-    kind?: 'local'
+    kind?: 'local' | 'git'
     reconciled?: boolean
     baselineSnapshotId?: string | null
   }
@@ -218,7 +218,7 @@ export function createContextMutationController(deps: ContextMutationDeps) {
               reconciled: true,
               baselineSnapshotId: before.live.workspaces.flatMap((workspace) => workspaceFolders(workspace))
                 .find((folder) => folder.id === entry.failedPlan!.folderRefresh!.folderId)
-                ?.[entry.failedPlan.folderRefresh.kind === 'local' ? 'localSnapshot' : 'snapshot']?.snapshotId ?? null,
+                ?.[entry.failedPlan.folderRefresh.kind === 'local' ? 'localSnapshot' : entry.failedPlan.folderRefresh.kind === 'git' ? 'gitSnapshot' : 'snapshot']?.snapshotId ?? null,
             },
           }
         : entry.failedPlan

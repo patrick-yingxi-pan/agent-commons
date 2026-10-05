@@ -355,6 +355,8 @@ export const paths = {
     `/sessions/${encodeURIComponent(sessionId)}/folders/${encodeURIComponent(folderId)}/refresh`,
   refreshLocalSessionFolder: (sessionId: string, folderId: string) =>
     `/sessions/${encodeURIComponent(sessionId)}/local-folders/${encodeURIComponent(folderId)}/refresh`,
+  refreshLocalGitSessionFolder: (sessionId: string, folderId: string) =>
+    `/sessions/${encodeURIComponent(sessionId)}/workspace/folders/${encodeURIComponent(folderId)}/local-git-refresh`,
   fsContent: (source: string, path: string) =>
     `/fs/content?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`,
   projects: '/projects',

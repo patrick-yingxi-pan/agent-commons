@@ -15,6 +15,7 @@ import { bitmapFixture, iconFixture } from '../tests/helpers/bitmapFixture.mjs'
 import { svgFixture } from '../tests/helpers/svgFixture.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
+import { smokePackagedLocalGit } from './localGitSmoke.mjs'
 import { settledAttachmentPreview } from '../e2e/accessibility-helpers.ts'
 
 const TIMEOUT_MS = 30_000
@@ -1291,6 +1292,12 @@ export async function smokePackagedAttachments({ executable }) {
       { name: 'folder-remembered/remembered-note.md', status: 'ready', text: rememberedLocalText },
     ], 'the explicit saved copies from before and after relaunch remain usable after disconnect')
     console.log('[desktop-local-folder-connection-smoke] Connect remains non-reading by default · Attach and Refresh capture explicitly · unchecked grants expire · remembered grants survive relaunch · disconnect preserves saved copies')
+
+    run = await smokePackagedLocalGit({
+      executable, fixtureRoot, userDataPath, run, providerId: session.providerId, endpoint,
+      relaunch: (appExecutable, profilePath) => launch(appExecutable, profilePath),
+    })
+    ;({ page, origin } = run)
 
     await page.goto(`${origin}${folderRoute}`)
     await page.getByTitle('Open in sidebar').filter({ hasText: 'folder-import/' }).click()

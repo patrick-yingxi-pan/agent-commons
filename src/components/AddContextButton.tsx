@@ -294,6 +294,7 @@ function WorkflowBody({
         onAdd={onAttach}
         onClose={onClose}
         addedRepoIds={addedRepoIds}
+        addedLocalGitIds={addedFolderIds.filter((id) => parseFsRecentKey(id)?.sourceId === 'ui-host' && /^GIT_[A-F0-9]{32}$/.test(parseFsRecentKey(id)?.entryId ?? ''))}
         hasGitHubConnector={hasGitHubConnector}
       />
     )

@@ -68,6 +68,9 @@ function signingOptions({ identity, keychain, entitlementsPath }) {
       if (filePath.endsWith('/Contents/Resources/agent-commons-git/git')) {
         return { entitlements: join(dirname(entitlementsPath), 'entitlements.git.plist') }
       }
+      if (filePath.endsWith('/Contents/Resources/agent-commons-git-file')) {
+        return { entitlements: join(dirname(entitlementsPath), 'entitlements.git.plist') }
+      }
       return filePath.includes('(Plugin).app') ? null : { entitlements: entitlementsPath }
     },
   }

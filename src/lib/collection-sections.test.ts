@@ -4,10 +4,12 @@ import { join } from 'node:path'
 import {
   ACCOUNT_MCP_SECTION,
   CONTEXT_COLLECTION_SECTIONS,
+  LOCAL_GIT_SECTION,
   PROVIDERS_SECTION,
   artifactCollectionSections,
   collectionSectionLabel,
   contextCollectionSections,
+  localGitCollectionSection,
   modelCollectionSections,
 } from './collectionSections.ts'
 import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
@@ -71,8 +73,19 @@ test('Contexts and Models keep their main-page section skeleton in the rail', ()
   const providers = [{ id: 'anthropic' }, { id: 'openai' }] as ModelProvider[]
   assert.deepEqual(modelCollectionSections(providers), [{ ...PROVIDERS_SECTION, items: providers }])
   assert.equal(collectionSectionLabel('contexts', ACCOUNT_MCP_SECTION.id), ACCOUNT_MCP_SECTION.label)
+  assert.equal(collectionSectionLabel('contexts', LOCAL_GIT_SECTION.id), LOCAL_GIT_SECTION.label)
   assert.equal(collectionSectionLabel('models', PROVIDERS_SECTION.id), PROVIDERS_SECTION.label)
   assert.equal(collectionSectionLabel('artifacts', 'p1', { p1: 'Insights' }), 'Insights')
+})
+
+test('native Git repositories share one filtered and sorted page/rail projection', () => {
+  const rows = [
+    { id: `GIT_${'B'.repeat(32)}` as const, name: 'Zebra', remembered: false },
+    { id: `GIT_${'A'.repeat(32)}` as const, name: 'alpha', remembered: true },
+  ]
+  assert.deepEqual(localGitCollectionSection(rows, { facet: 'all', sortBy: 'alpha' }).items.map(row => row.name), ['alpha', 'Zebra'])
+  assert.deepEqual(localGitCollectionSection(rows, { facet: 'local-git', sortBy: 'alpha' }, 'zeb').items.map(row => row.id), [rows[0]!.id])
+  assert.deepEqual(localGitCollectionSection(rows, { facet: 'repo', sortBy: 'alpha' }).items, [], 'other Contexts facets exclude native Git rows')
 })
 
 test('each selected collection section becomes the sole forced-open main-page projection', () => {

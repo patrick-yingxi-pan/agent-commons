@@ -9,7 +9,7 @@
 import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../../contract/localTextFile.mjs'
-import { snapshotFolderFiles } from '../../contract/localFolderSnapshot.mjs'
+import { snapshotFolderFiles } from '../../contract/localFolderSnapshotBuilder.mjs'
 import { isPdfFileName, MAX_PDF_SELECTION_BYTES, pdfImportFailure } from '../../contract/pdfImport.mjs'
 import { isDocxFileName, MAX_DOCX_SELECTION_BYTES, docxImportFailure } from '../../contract/docxImport.mjs'
 import { isXlsxFileName, MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES, xlsxImportFailure } from '../../contract/xlsxImport.mjs'

@@ -8,6 +8,7 @@ import { packager } from '@electron/packager'
 import { generateDesktopIcons, verifyPackagedDesktopIcon } from './icons.mjs'
 import packagerConfig from './packager.config.mjs'
 import { buildDesktopProfileHelper } from './profileHelperBuild.mjs'
+import { buildGitFileHelper } from './gitFileBuild.mjs'
 import { buildBundledGit } from './bundledGitBuild.mjs'
 import { verifyBundledGitDirectory } from './bundledGit.mjs'
 
@@ -40,6 +41,7 @@ export async function packageDesktop({
   releaseOptions,
 } = {}) {
   const profileHelperPath = buildDesktopProfileHelper({ targetPlatform, targetArch })
+  const gitFileHelperPath = buildGitFileHelper({ targetPlatform, targetArch })
   const gitDirectory = await buildBundledGit({ targetPlatform, targetArch })
   await generateDesktopIcons()
   await run(process.execPath, [VITE_BIN, 'build'])
@@ -68,7 +70,7 @@ export async function packageDesktop({
     electronZipDir: dirname(zipPath),
     platform: targetPlatform,
     arch: targetArch,
-    extraResource: [profileHelperPath, gitDirectory].filter(Boolean),
+    extraResource: [profileHelperPath, gitDirectory, gitFileHelperPath].filter(Boolean),
     ...(releaseOptions ?? {}),
   })
   if (!artifacts.length || artifacts.some((artifact) => !existsSync(artifact))) {
@@ -79,6 +81,10 @@ export async function packageDesktop({
     targetPlatform,
   })))
   if (targetPlatform === 'darwin') {
+    for (const artifact of artifacts) {
+      const helperPath = join(artifact, 'Agent Commons.app', 'Contents', 'Resources', 'agent-commons-git-file')
+      if (!existsSync(helperPath)) throw new Error('The packaged macOS Git file helper is missing.')
+    }
     for (const artifact of artifacts) await verifyBundledGitDirectory(
       join(artifact, 'Agent Commons.app', 'Contents', 'Resources', 'agent-commons-git'),
       { targetArch, execute: targetArch === process.arch },

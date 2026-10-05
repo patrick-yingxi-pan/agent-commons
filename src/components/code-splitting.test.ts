@@ -86,7 +86,8 @@ test('context browsing loads only after explicit Browse with local cancel and wa
   for (const source of [picker, repo]) {
     assert.equal((source.match(/browsing && \(\s*<BrowseDialog/g) ?? []).length, 1,
       'repository and connector/MCP browsing each stay behind explicit intent')
-    assert.match(source, /return \(\s*<>\s*(?:<ContextCatalogNotice[^>]*\/>\s*)?\{browsing && \(\s*<BrowseDialog/,
+    const browseSurface = source === repo ? source.slice(source.indexOf('<ContextCatalogNotice query={catalog} />')) : source
+    assert.match(browseSurface, /(?:<ContextCatalogNotice[^>]*\/>\s*)?\{browsing && \(\s*<BrowseDialog/,
       'optional browsing recovery precedes each potentially tall recent list')
   }
   assert.match(deferred, /lazy\(\(\) => import\('\.\/ContextBrowseDialog\.tsx'\)/)

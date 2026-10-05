@@ -10,11 +10,19 @@ const channels = {
   snapshot: 'agent-commons:local-folders:snapshot',
   disconnect: 'agent-commons:local-folders:disconnect',
 }
+const gitChannels = {
+  list: 'agent-commons:local-git:list',
+  connect: 'agent-commons:local-git:connect',
+  snapshot: 'agent-commons:local-git:snapshot',
+  disconnect: 'agent-commons:local-git:disconnect',
+}
 const unavailableMessage = 'The local folder is unavailable. Your saved snapshots have not been changed.'
+const gitUnavailableMessage = 'The repository is unavailable or has changed. Your saved snapshots have not been changed.'
 const busyMessage = 'Local folder reads are busy. Try again when the current reads finish.'
+const gitBusyMessage = 'Repository reads are busy. Try again when the current reads finish.'
 const limitMessage = 'This device has reached its local connection limit. Disconnect an unused connection first.'
 
-function loadPreload(responses = []) {
+function loadPreload(responses = [], platform = 'linux') {
   const calls = []
   let bridge
   const electron = {
@@ -29,7 +37,7 @@ function loadPreload(responses = []) {
     },
   }
   const context = vm.createContext({
-    process: { argv: [] },
+    process: { argv: [], platform },
     require(name) {
       assert.equal(name, 'electron', 'preload may require only Electron in this test harness')
       return electron
@@ -116,5 +124,61 @@ test('raw IPC rejection and malformed or prototype-shaped replies become path-fr
       assert.equal(String(error).includes(channels.list), false)
       return true
     })
+  }
+})
+
+test('macOS Git preload unwraps exact tracked-path snapshots and invokes only the fixed Git channels', async () => {
+  const files = [{ path: '.github/workflows/check.yml', sizeBytes: 4, snapshot: { text: 'test' } }]
+  const values = [
+    [{ id: 'GIT_0123456789ABCDEF0123456789ABCDEF', name: 'Agent Commons', remembered: false }],
+    { status: 'cancelled' },
+    { name: 'Agent Commons', files },
+    undefined,
+  ]
+  const { bridge, calls } = loadPreload(values.map(value => ({ value: { ok: true, value } })), 'darwin')
+  const git = bridge.context.localGit
+  assert.deepEqual(await git.list(sourceIdentity), values[0])
+  const remember = { remember: true }
+  assert.deepEqual(await git.connect(remember, sourceIdentity), values[1])
+  assert.deepEqual(await git.snapshot('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), values[2])
+  assert.equal(await git.disconnect('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), undefined)
+  assert.deepEqual(calls, [
+    [gitChannels.list, sourceIdentity],
+    [gitChannels.connect, remember, sourceIdentity],
+    [gitChannels.snapshot, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
+    [gitChannels.disconnect, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
+  ])
+  assert.equal(JSON.stringify(values[2]).includes('/Users/'), false, 'Git snapshots expose relative tracked paths only')
+})
+
+test('Git preload is absent outside macOS and maps every native failure to fixed path-free guidance', async () => {
+  const linux = loadPreload([], 'linux')
+  assert.equal(Object.hasOwn(linux.bridge.context, 'localGit'), false)
+
+  const methods = [
+    ['list', () => [sourceIdentity]],
+    ['connect', () => [{ remember: false }, sourceIdentity]],
+    ['snapshot', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
+    ['disconnect', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
+  ]
+  const privatePath = '/Users/private/customer/repository'
+  for (const [method, args] of methods) {
+    for (const [response, expected] of [
+      [{ value: { ok: false, error: 'busy' } }, gitBusyMessage],
+      [{ value: { ok: false, error: 'limit-reached' } }, limitMessage],
+      [{ value: { ok: false, error: 'unavailable' } }, gitUnavailableMessage],
+      [{ reject: new Error(`${gitChannels[method]} ${privatePath}`) }, gitUnavailableMessage],
+    ]) {
+      const { bridge, calls } = loadPreload([response], 'darwin')
+      await assert.rejects(bridge.context.localGit[method](...args()), error => {
+        assert.equal(error.message, expected)
+        assert.equal(error.cause, undefined)
+        assert.equal(String(error).includes(privatePath), false)
+        assert.equal(String(error).includes(gitChannels[method]), false)
+        return true
+      })
+      assert.equal(calls.length, 1)
+      assert.equal(calls[0][0], gitChannels[method])
+    }
   }
 })

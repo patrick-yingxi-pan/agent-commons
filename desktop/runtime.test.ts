@@ -17,6 +17,7 @@ import { packagedExecutable } from './smoke.mjs'
 import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import localFolderChannels from './local-folder-channels.cjs'
+import localGitChannels from './local-git-channels.cjs'
 import dataChannels from './data-channels.cjs'
 
 function assertInOrder(source, parts, message) {
@@ -289,11 +290,18 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   for (const channel of Object.values(contextChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const verb of ['list', 'connect', 'snapshot', 'disconnect']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(localFolderChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
+  for (const channel of Object.values(localGitChannels)) assert.ok(preload.includes(channel), `macOS preload must invoke ${channel}`)
   const contextBridge = preload.slice(preload.indexOf('context: Object.freeze('), preload.indexOf('data: Object.freeze('))
   const localFolderBridge = contextBridge.slice(contextBridge.indexOf('localFolders: Object.freeze('))
   assert.ok(contextBridge.includes('localFolders: Object.freeze('), 'native local connections stay under the context capability')
   assert.doesNotMatch(localFolderBridge, /owner|path|ipcRenderer\.(send|on)/i,
     'the renderer can select a connection id but cannot claim a tenant or filesystem path')
+  assert.match(contextBridge, /\.\.\.\(process\.platform === 'darwin' \? \{ localGit: Object\.freeze\(/,
+    'the Git access bridge exists only on macOS')
+  const localGitBridge = contextBridge.slice(contextBridge.indexOf('localGit: Object.freeze('))
+  assert.match(localGitBridge, /list: \(source\) => invokeLocalFolder\(localGitChannels\.list, source\)/)
+  assert.doesNotMatch(localGitBridge, /owner|path|ipcRenderer\.(send|on)/i,
+    'the renderer can select a Git connection id but cannot claim an owner or repository path')
   assert.match(main, /installLocalFolderIpc\(\)/)
   assert.match(main, /assertTrustedDesktopCaller\(event, 'Local folder access is not available from this page\.'\)/)
   assert.match(main, /session\.defaultSession\.cookies\.get\(\{ url: trustedOrigin \}\)/)
@@ -303,8 +311,9 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal((main.match(/quitting = true/g) ?? []).length, 1, 'quitting is a one-way transition owned by beginShutdown')
   assert.equal((main.match(/^\s+beginShutdown\(\)$/gm) ?? []).length, 4, 'update, restore, and both before-quit paths cancel local work')
   const packagedSmokeSource = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
-  assert.ok(packagedSmokeSource.includes("'localFolders,pickFiles,pickFolder'"), 'packaged smoke locks the exact context bridge surface')
+  assert.ok(packagedSmokeSource.includes("'localFolders,localGit,pickFiles,pickFolder'"), 'macOS packaged smoke locks the exact context bridge surface')
   assert.ok(packagedSmokeSource.includes("'connect,disconnect,list,snapshot'"), 'packaged smoke locks all four local-folder methods')
+  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,list,snapshot'"), 'packaged smoke locks all four Git methods')
   assert.match(preload, /mcpCredentials = Object.freeze\(/)
   assert.match(preload, /mcp-provision-v1/)
   assert.match(preload, /mcp-credentials:provision/)

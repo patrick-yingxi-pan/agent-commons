@@ -1,10 +1,12 @@
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { useLocalFolderConnections } from '../controller/localFolderConnections.ts'
+import { useLocalGitConnections } from '../controller/localGitConnections.ts'
 import { listContexts } from '../lib/sectionLists'
 import {
   ACCOUNT_MCP_SECTION,
   contextCollectionSections,
   localFolderCollectionSection,
+  localGitCollectionSection,
 } from '../lib/collectionSections'
 import { useSectionFilter } from '../lib/useSectionFilter'
 import type { RailFoldSignal } from '../lib/railSplit'
@@ -19,7 +21,9 @@ export function ContextChildren({ renderRows: Rows, foldSignal, ...props }: Inst
 }) {
   const [filter] = useSectionFilter('contexts')
   const localFolders = useLocalFolderConnections()
+  const localGit = useLocalGitConnections()
   const nativeGroup = localFolderCollectionSection(localFolders.rows, filter)
+  const gitGroup = localGitCollectionSection(localGit.rows, filter)
   const rows = listContexts(useContextRegistryProjection().data?.contexts ?? [], filter)
   const activeGroupId = props.activeSeed?.collectionSectionId
   const groups = [
@@ -28,6 +32,7 @@ export function ContextChildren({ renderRows: Rows, foldSignal, ...props }: Inst
       items: group.items.map((context) => ({ id: context.id, label: context.label, seed: { contextId: context.id } })),
     })),
     ...(localFolders.available ? [{ ...nativeGroup, items: nativeGroup.items.map(connection => ({ id: connection.id, label: connection.name, seed: { contextId: connection.id } })) }] : []),
+    ...(localGit.available ? [{ ...gitGroup, items: gitGroup.items.map(connection => ({ id: connection.id, label: connection.name, seed: { contextId: connection.id } })) }] : []),
     { ...ACCOUNT_MCP_SECTION, items: [] },
   ]
   return (

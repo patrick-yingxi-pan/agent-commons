@@ -4,8 +4,8 @@ import { basename, isAbsolute, join } from 'node:path'
 import {
   MAX_FOLDER_SNAPSHOT_ENTRIES,
   MAX_FOLDER_SNAPSHOT_FILE_BYTES,
-  snapshotFolderFiles,
 } from '../contract/localFolderSnapshot.mjs'
+import { snapshotFolderFiles } from '../contract/localFolderSnapshotBuilder.mjs'
 
 const ROOT_ERROR = 'The selected folder is unavailable or has changed.'
 const ABORT_ERROR = 'The folder capture was cancelled.'

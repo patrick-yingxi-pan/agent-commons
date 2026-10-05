@@ -5,13 +5,17 @@ import { app, autoUpdater, BrowserWindow, Menu, dialog, ipcMain, safeStorage, se
 import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import localFolderChannels from './local-folder-channels.cjs'
+import localGitChannels from './local-git-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './authRoot.mjs'
 import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
 import { desktopProfileAclInspector } from './profileAcl.mjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
 import { createLocalConnectionHost, localConnectionReply } from './localConnectionHost.mjs'
-import { LocalConnectionError, LOCAL_CONNECTION_FILE, openLocalConnectionStore } from './localConnectionStore.mjs'
+import { LocalConnectionError, LOCAL_CONNECTION_FILE, LOCAL_GIT_CONNECTION_FILE, openLocalConnectionStore } from './localConnectionStore.mjs'
+import { createLocalGitReader, isLocalGitRoot } from './localGitReader.mjs'
+import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs'
+import { gitFileExecutable } from './gitFileRead.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
@@ -63,6 +67,8 @@ let mcpCredentialLifecycle = null
 let dataBackend = null
 let localFolderStore = null
 let localFolderHost = null
+let localGitStore = null
+let localGitHost = null
 let localFolderCookieGeneration = 0
 let quitting = false
 let quitAfterBackend = false
@@ -73,6 +79,7 @@ function beginShutdown() {
   // in-flight local-folder captures are aborted before backend/window teardown.
   quitting = true
   localFolderStore?.shutdown()
+  localGitStore?.shutdown()
 }
 let updateInProgress = false
 let desktopUpdater = null
@@ -130,6 +137,17 @@ async function startDesktop() {
   } catch {
     console.warn('[desktop] remembered local-folder storage is unavailable for this run.')
   }
+  if (process.platform === 'darwin') {
+    try {
+      const gitExecutable = await verifyBundledGitDirectory(bundledGitDirectory({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }))
+      const reader = createLocalGitReader({ gitExecutable, fileExecutable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }) })
+      localGitStore = await openLocalConnectionStore({
+        filePath: join(app.getPath('userData'), LOCAL_GIT_CONNECTION_FILE), storage: safeStorage,
+        connectionKind: 'git', validateRoot: isLocalGitRoot,
+        inspectRoot: reader.inspectLocalGitRoot, capture: reader.readLocalGitSnapshot,
+      })
+    } catch { console.warn('[desktop] local Git access is unavailable for this run.') }
+  }
   let providerCredentials = {}
   if (credentialVault) {
     try {
@@ -163,6 +181,7 @@ async function startDesktop() {
   if (mcpCredentialVault) installMcpCredentialIpc()
   installContextIpc()
   installLocalFolderIpc()
+  installLocalGitIpc()
   installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
   assertCurrentBackend(backendHandle)
@@ -673,6 +692,25 @@ function installLocalFolderIpc() {
       return reply
     })
   }
+}
+
+function installLocalGitIpc() {
+  if (process.platform !== 'darwin') return
+  if (localGitStore) localGitHost = createLocalConnectionHost({
+    store: localGitStore, connectionKind: 'git',
+    assertCaller: (event) => assertTrustedDesktopCaller(event, 'Git access is not available from this page.'),
+    resolveSource: resolveLocalFolderSource,
+    showFolderDialog: async () => dialog.showOpenDialog(mainWindow, { title: 'Connect repository', properties: ['openDirectory'] }),
+    isClosing: () => quitting || !backendReady || !mainWindow || mainWindow.isDestroyed(),
+  })
+  for (const [name, channel] of Object.entries(localGitChannels)) ipcMain.handle(channel, async (event, ...args) => {
+    const reply = await localConnectionReply(async () => {
+      if (!localGitHost) throw new LocalConnectionError()
+      return localGitHost[name](event, ...args)
+    })
+    if (!reply.ok) console.warn(`[desktop] ${channel} failed.`)
+    return reply
+  })
 }
 
 function pipeLines(stream, onLine) {

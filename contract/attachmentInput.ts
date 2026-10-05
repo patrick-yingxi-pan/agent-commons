@@ -41,27 +41,31 @@ export function workspaceInputAttachments(workspace?: Pick<SessionWorkspace, 'at
       }
       return [attachment]
     }))
-  const localFolders = (workspace.workspaces ?? []).flatMap((folder) =>
+  const nativeFolders = (field: 'localSnapshot' | 'gitSnapshot') => (workspace.workspaces ?? []).flatMap((folder) =>
     (!folder || typeof folder !== 'object' ? [] : workspaceArtifacts(folder)).flatMap((artifact): Attachment[] => {
       if (!artifact || typeof artifact !== 'object') return []
       const snapshot = artifact.savedFolderSnapshot
-      const localSnapshot = folder.folders?.find((item) => item.id === artifact.source?.id)?.localSnapshot
+      const localSnapshot = folder.folders?.find((item) => item.id === artifact.source?.id)?.[field]
       if (!localSnapshot || !snapshot || typeof artifact.name !== 'string') return []
       const path = `${localSnapshot.connectionId}/${artifact.name}`
       return [{
-        id: fsRecentKey('ui-host', path), label: `${artifact.source?.label ?? ''}${artifact.name}`,
+        id: fsRecentKey('ui-host', path), label: `${field === 'gitSnapshot' ? `${(artifact.source?.label ?? '').replace(/\/$/, '')}/` : artifact.source?.label ?? ''}${artifact.name}`,
         kind: 'file', source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
         ...(typeof snapshot.text === 'string' ? { previewText: snapshot.text } : {}),
       }]
     }))
+  const localFolders = nativeFolders('localSnapshot')
+  const gitFolders = nativeFolders('gitSnapshot')
   return [
     ...(workspace.attachments ?? []),
     // Metadata-only rows must not crowd readable folder text out of the cap.
     ...served.filter((item) => typeof item.textSnapshot?.text === 'string'),
     ...localFolders.filter((item) => typeof item.previewText === 'string'),
+    ...gitFolders.filter((item) => typeof item.previewText === 'string'),
     ...imported.filter((item) => typeof item.previewText === 'string'),
     ...imported.filter((item) => typeof item.previewText !== 'string'),
     ...localFolders.filter((item) => typeof item.previewText !== 'string'),
+    ...gitFolders.filter((item) => typeof item.previewText !== 'string'),
     ...served.filter((item) => typeof item.textSnapshot?.text !== 'string'),
   ]
 }

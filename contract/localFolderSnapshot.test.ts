@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { snapshotFolderFiles } from './localFolderSnapshot.mjs'
+import { snapshotFolderFiles } from './localFolderSnapshotBuilder.mjs'
 
 const file = (name: string, text: string, sizeBytes = Buffer.byteLength(text)) => ({ name, sizeBytes, text })
 
@@ -81,4 +82,23 @@ test('folder snapshots cap total entries at 500 before reads', async () => {
   let reads = 0
   await assert.rejects(snapshotFolderFiles(files, async () => { reads += 1; return Uint8Array.from([0x78]) }), RangeError)
   assert.equal(reads, 0)
+})
+
+test('folder snapshot builder stays outside the cold wire module and UI reaches it through its lazy filesystem module', () => {
+  const wire = readFileSync(new URL('./localFolderSnapshot.mjs', import.meta.url), 'utf8')
+  const wireTypes = readFileSync(new URL('./localFolderSnapshot.d.mts', import.meta.url), 'utf8')
+  const builder = readFileSync(new URL('./localFolderSnapshotBuilder.mjs', import.meta.url), 'utf8')
+  const uiHost = readFileSync(new URL('../src/lib/uiHostFs.ts', import.meta.url), 'utf8')
+  const lazyLoader = readFileSync(new URL('../src/lib/useUiHostFs.ts', import.meta.url), 'utf8')
+
+  assert.doesNotMatch(wire, /snapshotFolderFiles|localTextFile/,
+    'wire validation does not load text decoders or the snapshot builder')
+  assert.doesNotMatch(wireTypes, /snapshotFolderFiles/,
+    'the cold wire declaration does not expose or pull in the builder')
+  assert.match(builder, /from '\.\/localFolderSnapshot\.mjs'/,
+    'the builder depends on the cold module only for shared bounds')
+  assert.match(uiHost, /localFolderSnapshotBuilder\.mjs/,
+    'the UI filesystem implementation owns its runtime builder import')
+  assert.match(lazyLoader, /import\('\.\/uiHostFs'\)/,
+    'the UI filesystem implementation is loaded through the existing lazy seam')
 })

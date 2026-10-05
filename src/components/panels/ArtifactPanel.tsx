@@ -11,6 +11,9 @@ import { SectionAction } from '../SectionAction'
 import { refreshServedFolder } from '../../controller/servedFolderRefresh.ts'
 import { refreshLocalFolder } from '../../controller/localFolderRefresh.ts'
 import { localFoldersAvailable } from '../../api/localFolders.ts'
+import { refreshLocalGitFolder } from '../../controller/localGitRefresh.ts'
+import { localGitAvailable } from '../../api/localGitCapability.ts'
+import { GitSnapshotPolicy } from '../GitSnapshotPolicy'
 
 export function ArtifactPanel({
   artifacts,
@@ -126,7 +129,8 @@ export function ArtifactPanel({
               const address = parseFsRecentKey(g.id)
               const served = address && address.sourceId !== 'ui-host'
               const local = address?.sourceId === 'ui-host' && g.folder?.localSnapshot
-              const snapshot = local || g.folder?.snapshot
+              const git = address?.sourceId === 'ui-host' && g.folder?.gitSnapshot
+              const snapshot = local || git || g.folder?.snapshot
               const confirming = confirmRemoveId === g.id
               return (
                 <div key={g.id} data-workspace-folder={g.id} className="mb-1.5">
@@ -146,14 +150,14 @@ export function ArtifactPanel({
                       </span>
                       <span className="shrink-0 text-[10px] font-medium text-ink-faint">{g.items.length}</span>
                     </button>
-                    {(served || (local && localFoldersAvailable())) && refreshSessionId && g.folder && (
+                    {(served || (local && localFoldersAvailable()) || (git && localGitAvailable())) && refreshSessionId && g.folder && (
                       <SectionAction
                         label={`${snapshot ? 'Refresh' : 'Save snapshot of'} ${g.label}`}
                         caption={snapshot ? 'Refresh' : 'Save snapshot'}
                         icon={<RefreshCw size={12} />}
                         disabled={refreshDisabled}
                         disabledReason="Resolve the current context update first"
-                        onClick={() => void (local ? refreshLocalFolder : refreshServedFolder)(refreshSessionId, g.folder!)}
+                        onClick={() => void (git ? refreshLocalGitFolder : local ? refreshLocalFolder : refreshServedFolder)(refreshSessionId, g.folder!)}
                       />
                     )}
                     {canRemove && !confirming && (
@@ -165,10 +169,11 @@ export function ArtifactPanel({
                       />
                     )}
                   </div>
-                  {!isCollapsed && (served || local) && (
-                    <p data-served-folder-state={snapshot ? 'saved' : 'missing'} className="px-2 pb-1 text-[11px] leading-snug text-ink-soft">
-                      {snapshot ? <>Saved <time dateTime={snapshot.capturedAt}>{new Date(snapshot.capturedAt).toLocaleString()}</time> · read-only. {!refreshSessionId ? 'Only the conversation owner can refresh this copy.' : local && !localFoldersAvailable() ? 'Refresh requires the connection on its original device.' : 'Refresh to capture later edits.'}</> : 'No saved copy yet. Save a snapshot to preview and send readable text.'}
-                    </p>
+                  {!isCollapsed && (served || local || git) && (
+                    <div data-served-folder-state={snapshot ? 'saved' : 'missing'} className="px-2 pb-1 text-[11px] leading-snug text-ink-soft">
+                      {git ? <>Saved Git snapshot <time dateTime={git.capturedAt}>{new Date(git.capturedAt).toLocaleString()}</time> · read-only. {git.files.filter(file => 'omitted' in file.snapshot).length} tracked file(s) have no saved text. {refreshSessionId ? localGitAvailable() ? 'Refresh to capture later tracked edits.' : 'Refresh requires the connection on its original device.' : 'Only the conversation owner can refresh this copy.'}<GitSnapshotPolicy /></>
+                        : snapshot ? <>Saved <time dateTime={snapshot.capturedAt}>{new Date(snapshot.capturedAt).toLocaleString()}</time> · read-only. {!refreshSessionId ? 'Only the conversation owner can refresh this copy.' : local && !localFoldersAvailable() ? 'Refresh requires the connection on its original device.' : 'Refresh to capture later edits.'}</> : 'No saved copy yet. Save a snapshot to preview and send readable text.'}
+                    </div>
                   )}
                   {/* Folder-scoped confirm, inline in the list. Intentionally
                       simpler than the composer chips' shared RemoveConfirm (no
@@ -210,14 +215,14 @@ export function ArtifactPanel({
 
       {previewOpen && selected && (
         <div className="flex-1 overflow-y-auto border-t border-line bg-surface p-3">
-          <ArtifactPreview artifact={selected} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id && (item.attachment.source?.kind === 'ui-host' || item.attachment.textSnapshot?.snapshotId === selected.savedFolderSnapshotId))?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
+          <ArtifactPreview artifact={selected} gitSnapshot={folders.find(folder => folder.id === selected.source?.id)?.gitSnapshot} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id && (item.attachment.source?.kind === 'ui-host' || item.attachment.textSnapshot?.snapshotId === selected.savedFolderSnapshotId))?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
         </div>
       )}
     </div>
   )
 }
 
-function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: WorkspaceArtifact; inputStatus: AttachmentInputStatus; onClose: () => void }) {
+function ArtifactPreview({ artifact, gitSnapshot, inputStatus, onClose }: { artifact: WorkspaceArtifact; gitSnapshot?: NonNullable<WorkspaceFolder['gitSnapshot']>; inputStatus: AttachmentInputStatus; onClose: () => void }) {
   // Attached folders are saved copies, never live source or library aliases.
   const parsed = artifact.source ? parseFsRecentKey(artifact.source.id) : null
   const snapshot = artifact.savedFolderSnapshot ?? artifact.localSnapshot
@@ -239,7 +244,7 @@ function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: Workspa
       <div className="mb-3 truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
       {parsed ? (
         <div data-folder-snapshot-preview>
-          <p className="mb-2 text-[11px] leading-snug text-ink-soft">{parsed.sourceId === 'ui-host' && !artifact.savedFolderSnapshot
+          <p className="mb-2 text-[11px] leading-snug text-ink-soft">{gitSnapshot ? `Saved Git snapshot · ${new Date(gitSnapshot.capturedAt).toLocaleString()} · read-only. This preview uses saved text only; opening and sending do not read the repository.` : parsed.sourceId === 'ui-host' && !artifact.savedFolderSnapshot
             ? 'Imported snapshot · read-only. Reattach the folder to import later edits.'
             : snapshot ? 'Saved snapshot · read-only. Original files are never changed or read automatically.' : 'No saved copy. Use Save snapshot on the folder to capture its readable text.'}</p>
           {snapshot && <p className="mb-3 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(inputStatus)}</p>}

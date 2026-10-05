@@ -92,7 +92,8 @@ import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttach
 import { isServedImageSnapshot, type ServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
 import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
 import { isLocalFolderRefreshRequest, type LocalFolderCapture, type LocalFolderRefreshRequest } from '../../contract/localFolderCapture.ts'
-import { validWorkspaceFolders, workspaceFolders, replaceLocalFolderSnapshot, replaceServedFolderSnapshot } from '../../contract/workspaceFolders.ts'
+import { isLocalGitRefreshRequest, type LocalGitCapture, type LocalGitRefreshRequest } from '../../contract/localGitCapture.ts'
+import { validWorkspaceFolders, workspaceFolders, replaceLocalFolderSnapshot, replaceLocalGitSnapshot, replaceServedFolderSnapshot } from '../../contract/workspaceFolders.ts'
 import {
   applyGraphOp,
   artifactFromDraft,
@@ -288,6 +289,15 @@ function sameLocalFolderCapture(left: LocalFolderCapture, right: LocalFolderCapt
     left.connectionId === right.connectionId && left.files.length === right.files.length && left.files.every((file, index) => {
       const other = right.files[index]
       return file.name === other?.name && file.sizeBytes === other.sizeBytes &&
+        file.snapshot.text === other?.snapshot.text && file.snapshot.omitted === other?.snapshot.omitted
+    })
+}
+
+function sameLocalGitCapture(left: LocalGitCapture, right: LocalGitCapture): boolean {
+  return left.version === right.version && left.snapshotId === right.snapshotId && left.capturedAt === right.capturedAt &&
+    left.connectionId === right.connectionId && left.files.length === right.files.length && left.files.every((file, index) => {
+      const other = right.files[index]
+      return file.path === other?.path && file.sizeBytes === other.sizeBytes &&
         file.snapshot.text === other?.snapshot.text && file.snapshot.omitted === other?.snapshot.omitted
     })
 }
@@ -3668,6 +3678,7 @@ function preserveSessionWorkspaceSnapshots(
   refreshAttachmentId?: string,
   refreshFolderId?: string,
   refreshLocalFolderId?: string,
+  refreshLocalGitFolderId?: string,
 ): SessionWorkspace {
   if (!validWorkspaceFolders(workspace.workspaces)) throw new ValidationError('Folder snapshots must match their attached source and identity.')
   const previousAttachments = new Map((sessionWorkspaces.get(sessionId)?.attachments ?? []).map((item) => [item.id, item]))
@@ -3680,8 +3691,10 @@ function preserveSessionWorkspaceSnapshots(
         const previous = previousFolders.get(folder.id)
         const served = previous?.snapshot
         const local = previous?.localSnapshot
+        const git = previous?.gitSnapshot
         if (served && refreshFolderId !== folder.id) preserved = replaceServedFolderSnapshot(preserved, folder.id, served)
         if (local && refreshLocalFolderId !== folder.id) preserved = replaceLocalFolderSnapshot(preserved, folder.id, local)
+        if (git && refreshLocalGitFolderId !== folder.id) preserved = replaceLocalGitSnapshot(preserved, folder.id, git)
       }
       return preserved
     }),
@@ -3720,6 +3733,7 @@ function commitSessionContextState(
   refreshAttachmentId?: string,
   refreshFolderId?: string,
   refreshLocalFolderId?: string,
+  refreshLocalGitFolderId?: string,
 ): SessionContextState {
   let contexts = sessionContextBindings.get(sessionId) ?? []
   const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
@@ -3732,7 +3746,7 @@ function commitSessionContextState(
       throw new ValidationError('Inspect and connect this MCP server before attaching it.')
     }
   }
-  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId, refreshFolderId, refreshLocalFolderId)
+  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId, refreshFolderId, refreshLocalFolderId, refreshLocalGitFolderId)
   for (const operation of operations) {
     if (operation.action === 'detach') {
       contexts = contexts.filter((context) => context.id !== operation.contextId)
@@ -4219,6 +4233,53 @@ export const store = {
         ? replaceLocalFolderSnapshot(item, folderId, snapshot)
         : item),
     }, undefined, undefined, folderId)
+  },
+  /** Commit a detached native Git working-tree capture. The connection ID is
+   * only an attached-context correlation key; this path has no Git or filesystem
+   * runtime authority and stores the exact bounded saved projection. */
+  refreshSessionLocalGitFolder(sessionId: string, folderId: string, request: LocalGitRefreshRequest, tenantId: string): SessionContextState {
+    const owned = () => {
+      const session = store.getSession(sessionId)
+      return session && store.sessionOwnedBy(session, tenantId)
+    }
+    if (!owned()) throw new ConflictError('Only the current conversation owner may refresh attached folders.')
+    if (!isLocalGitRefreshRequest(request)) throw new ValidationError('The local Git capture is invalid. The saved copy is unchanged.')
+    const workspace = store.sessionWorkspace(sessionId)
+    const container = workspace?.workspaces.find((item) => workspaceFolders(item).some((folder) => folder.id === folderId))
+    const folder = container && workspaceFolders(container).find((item) => item.id === folderId)
+    const connectionId = request.snapshot.connectionId
+    const binding = store.sessionContexts(sessionId).find((item) => item.id === folderId)
+    const matchesBinding = () => {
+      const current = store.sessionContexts(sessionId).find((item) => item.id === folderId)
+      return current === binding && current?.type === 'folder' && current.source?.id === 'ui-host' &&
+        current.source.kind === 'ui-host' && current.scope === connectionId
+    }
+    if (!folder || !container || folderId !== fsRecentKey('ui-host', connectionId) || !binding || !matchesBinding()) {
+      throw new ConflictError('This local Git connection is no longer attached. Reopen the conversation before refreshing.')
+    }
+    if (folder.gitSnapshot?.snapshotId === request.requestId) {
+      if (!sameLocalGitCapture(folder.gitSnapshot, request.snapshot)) throw new ConflictError('This local Git refresh key was already used for different bytes.')
+      return { contexts: store.sessionContexts(sessionId), workspace }
+    }
+    if ((folder.gitSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+      throw new ConflictError('This saved Git snapshot changed. Reopen it before refreshing again.')
+    }
+    const snapshot = request.snapshot
+    const latest = store.sessionWorkspace(sessionId)
+    const currentContainer = latest?.workspaces.find((item) => item.id === container.id)
+    const current = currentContainer && workspaceFolders(currentContainer).find((item) => item.id === folderId)
+    if (!owned() || !matchesBinding() || !currentContainer || !current ||
+        (current.gitSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+      if (owned() && matchesBinding() && current?.gitSnapshot?.snapshotId === request.requestId &&
+          sameLocalGitCapture(current.gitSnapshot, snapshot)) return { contexts: store.sessionContexts(sessionId), workspace: latest }
+      throw new ConflictError('The attached Git snapshot changed. The saved copy is unchanged.')
+    }
+    return commitSessionContextState(sessionId, [], {
+      ...latest,
+      workspaces: latest.workspaces.map((item) => item.id === currentContainer.id
+        ? replaceLocalGitSnapshot(item, folderId, snapshot)
+        : item),
+    }, undefined, undefined, undefined, folderId)
   },
   refreshSessionAttachment(sessionId: string, attachmentId: string, request: RefreshServedAttachmentRequest): SessionContextState {
     const workspace = store.sessionWorkspace(sessionId)

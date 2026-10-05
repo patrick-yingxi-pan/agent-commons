@@ -39,16 +39,17 @@ function assertExpectedSource(actual, expected) {
     expected.namespace !== actual.owner.namespace || expected.userId !== actual.owner.userId) fail()
 }
 
-function safeSnapshot(value) {
+function safeSnapshot(value, connectionKind) {
   if (!value || typeof value.name !== 'string' || !Array.isArray(value.files)) fail()
   return {
     name: value.name,
     files: value.files.map((file) => {
-      if (!file || typeof file.name !== 'string' || !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 0) fail()
+      const key = connectionKind === 'git' ? 'path' : 'name'
+      if (!file || typeof file[key] !== 'string' || !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 0) fail()
       if (file.snapshot?.text !== undefined && typeof file.snapshot.text !== 'string') fail()
       if (file.snapshot?.omitted !== undefined && !['unsupported', 'too-large', 'budget', 'unreadable'].includes(file.snapshot.omitted)) fail()
       return {
-        name: file.name,
+        [key]: file[key],
         sizeBytes: file.sizeBytes,
         snapshot: file.snapshot?.text !== undefined ? { text: file.snapshot.text } : { omitted: file.snapshot?.omitted ?? 'unsupported' },
       }
@@ -57,10 +58,12 @@ function safeSnapshot(value) {
 }
 
 /** Main-process facade: renderer arguments can name a connection, never its owner or path. */
-export function createLocalConnectionHost({ store, assertCaller, resolveSource, showFolderDialog, isClosing = () => false }) {
+export function createLocalConnectionHost({ store, assertCaller, resolveSource, showFolderDialog, isClosing = () => false, connectionKind = 'folder' }) {
   if (!store || typeof assertCaller !== 'function' || typeof resolveSource !== 'function' || typeof showFolderDialog !== 'function') {
     throw new Error('The native local-folder host is not configured.')
   }
+  if (!['folder', 'git'].includes(connectionKind)) throw new Error('Invalid native connection kind.')
+  const idPattern = connectionKind === 'git' ? /^GIT_[A-F0-9]{32}$/ : ID
 
   const source = async () => {
     if (isClosing()) fail()
@@ -110,18 +113,18 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
     snapshot(event, id, expectedSource, ...extra) {
       return invoke(event, async () => {
         if (extra.length) fail()
-        if (typeof id !== 'string' || !ID.test(id)) fail()
+        if (typeof id !== 'string' || !idPattern.test(id)) fail()
         const before = await source()
         assertExpectedSource(before, expectedSource)
         const value = await store.snapshot(before.owner, id)
         await unchanged(before)
-        return safeSnapshot(value)
+        return safeSnapshot(value, connectionKind)
       })
     },
     disconnect(event, id, expectedSource, ...extra) {
       return invoke(event, async () => {
         if (extra.length) fail()
-        if (typeof id !== 'string' || !ID.test(id)) fail()
+        if (typeof id !== 'string' || !idPattern.test(id)) fail()
         const before = await source()
         assertExpectedSource(before, expectedSource)
         await store.disconnect(before.owner, id)

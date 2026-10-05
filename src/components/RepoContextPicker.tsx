@@ -14,6 +14,9 @@ import { DeferredContextBrowseDialog as BrowseDialog } from './DeferredContextBr
 import { RecentOverflowList } from './RecentOverflowList'
 import { OptionRow } from './ContextOptionRow.tsx'
 import { BrowseRow, MultiAddFooter, Section } from './ContextPickerParts.tsx'
+import { NativeLocalGitPicker } from './LocalGitConnections.tsx'
+import { localGitAvailable } from '../api/localGitCapability.ts'
+import { FS_PICKER_BODY_CLASS } from '../lib/fsSourceLayout.ts'
 
 type RepoContext = Extract<AddedContext, { kind: 'repo' }>
 
@@ -127,6 +130,7 @@ export function RepoPicker({
   onAdd,
   onClose,
   addedRepoIds,
+  addedLocalGitIds,
   hasGitHubConnector,
 }: {
   maxRows: number
@@ -134,6 +138,8 @@ export function RepoPicker({
   onClose: () => void
   /** Live-repo ids already attached — rows for these read ✓ Added. */
   addedRepoIds: readonly string[]
+  /** Source-qualified native Git folders already attached to the workspace. */
+  addedLocalGitIds: readonly string[]
   hasGitHubConnector: boolean
 }) {
   const [pending, setPending] = useState<{ ctx: RepoContext; id: string } | null>(null)
@@ -218,6 +224,8 @@ export function RepoPicker({
 
   return (
     <>
+      <div data-fs-picker-body className={FS_PICKER_BODY_CLASS}>
+      {localGitAvailable() && <NativeLocalGitPicker onAdd={onAdd} addedIds={addedLocalGitIds} onClose={onClose} />}
       <ContextCatalogNotice query={catalog} />
       {browsing && (
         <BrowseDialog
@@ -259,8 +267,9 @@ export function RepoPicker({
           rows={recent.map((o) => ({ key: o.id, node: repoRow(o) }))}
         />
         <BrowseRow label="Browse repositories…" onClick={() => setBrowsing(true)} />
-      </Section> : catalog.data ? <p className="px-1 py-3 text-[12px] text-ink-soft">Repository connections are not available yet. Add files or a folder instead.</p> : null}
-      <MultiAddFooter count={addedRepoIds.length} onDone={onClose} />
+      </Section> : catalog.data && !localGitAvailable() ? <p className="px-1 py-3 text-[12px] text-ink-soft">Local repository connections require the macOS desktop app. Add files or a folder instead.</p> : null}
+      </div>
+      <MultiAddFooter count={addedRepoIds.length + addedLocalGitIds.length} onDone={onClose} />
     </>
   )
 }

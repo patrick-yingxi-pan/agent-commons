@@ -52,10 +52,15 @@ test('every filesystem intake scrolls one shared body while Done stays outside i
     assert.match(body, /<\/FsSourcePanel>\s*<MultiAddFooter/)
   }
   const layout = read(join(ROOT, 'src/lib/fsSourceLayout.ts'))
+  const repo = stripComments(read(join(ROOT, 'src/components/RepoContextPicker.tsx')))
+  assert.match(repo, /data-fs-picker-body className=\{FS_PICKER_BODY_CLASS\}/)
+  assert.match(repo, /<\/div>\s*<MultiAddFooter/)
   assert.match(layout, /--popover-available-height/)
   assert.match(layout, /overflow-y-auto/)
   const native = stripComments(read(join(ROOT, 'src/components/LocalFolderConnections.tsx')))
   assert.doesNotMatch(native, /max-h-\[|overflow-y-auto/, 'native folder rows share the outer intake scroll owner')
+  const git = stripComments(read(join(ROOT, 'src/components/LocalGitConnections.tsx')))
+  assert.doesNotMatch(git, /max-h-\[|overflow-y-auto/, 'native Git rows share the outer intake scroll owner')
   const photos = component.slice(component.indexOf('function ServedPhotos(')).split('\nfunction ')[0]
   assert.doesNotMatch(photos, /overflow-y-auto/, 'photo catalogs share the outer intake scroll owner')
 })

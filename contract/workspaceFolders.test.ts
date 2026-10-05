@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Workspace } from './entities.ts'
-import { isWorkspaceFolder, replaceLocalFolderSnapshot, replaceServedFolderSnapshot, validWorkspaceFolders, workspaceArtifactKey, workspaceArtifacts, workspaceFolders } from './workspaceFolders.ts'
+import { isWorkspaceFolder, replaceLocalFolderSnapshot, replaceLocalGitSnapshot, replaceServedFolderSnapshot, validWorkspaceFolders, workspaceArtifactKey, workspaceArtifacts, workspaceFolders } from './workspaceFolders.ts'
+import { workspaceInputAttachments } from './attachmentInput.ts'
 
 const snapshot = { version: 1 as const, snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'docs', files: [{ name: 'a.txt', sizeBytes: 4, snapshot: { text: 'body' } }, { name: 'b.png', sizeBytes: 8, snapshot: { omitted: 'unsupported' as const } }] }
 
@@ -71,4 +72,31 @@ test('local folder capture projects saved rows without carrying a path or coexis
   assert.equal(validWorkspaceFolders([{ folders: [{ id: folderId, label: 'Local', snapshot, localSnapshot }] }]), false)
   assert.equal(validWorkspaceFolders([{ folders: [{ id: 'ui-host::other', label: 'Local', localSnapshot }] }]), false)
   assert.equal(JSON.stringify(next).includes('/Users/'), false)
+})
+
+test('Local Git capture projects nested tracked dotfiles as saved-only model input', () => {
+  const gitSnapshot = {
+    version: 1 as const, snapshotId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    capturedAt: '2026-10-04T12:00:00.000Z', connectionId: 'GIT_0123456789ABCDEF0123456789ABCDEF',
+    files: [
+      { path: '.github/workflows/check.yml', sizeBytes: 4, snapshot: { text: 'test' } },
+      { path: 'src/main.ts', sizeBytes: 3, snapshot: { omitted: 'unsupported' as const } },
+    ],
+  }
+  const folderId = 'ui-host::GIT_0123456789ABCDEF0123456789ABCDEF'
+  const old = { id: 'w', label: 'Workspace', artifacts: [{ id: 'old', name: 'main.ts', kind: 'doc' as const, meta: '', source: { id: folderId, label: 'Agent Commons' } }] }
+  const next = replaceLocalGitSnapshot(old, folderId, gitSnapshot)
+  assert.equal(validWorkspaceFolders([next]), true)
+  assert.equal(next.artifacts.length, 0)
+  const projection = workspaceArtifacts(next)
+  assert.deepEqual(projection.map((artifact) => [artifact.name, artifact.savedFolderSnapshot]), [
+    ['.github/workflows/check.yml', { text: 'test' }], ['src/main.ts', { omitted: 'unsupported' }],
+  ])
+  assert.equal(projection[0]?.id, `${folderId}/.github/workflows/check.yml`)
+  const input = workspaceInputAttachments({ attachments: [], workspaces: [next] })
+  assert.deepEqual(input.map((item) => [item.label, item.previewText]), [
+    ['Agent Commons/.github/workflows/check.yml', 'test'], ['Agent Commons/src/main.ts', undefined],
+  ])
+  assert.equal(JSON.stringify(next).includes('/Users/'), false)
+  assert.equal(isWorkspaceFolder({ id: folderId, label: 'Agent Commons', gitSnapshot, localSnapshot: { version: 1 } }), false)
 })

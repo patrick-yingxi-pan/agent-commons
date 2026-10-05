@@ -121,7 +121,7 @@ test('clean context catalog keeps Contexts and composer entry points truthful ac
   await page.getByRole('button', { name: 'Add context', exact: true }).click()
   const composerPicker = page.getByRole('dialog', { name: 'Add context', exact: true })
   await composerPicker.getByRole('button', { name: /^Repository/ }).click()
-  await expect(composerPicker).toContainText('Repository connections are not available yet. Add files or a folder instead.')
+  await expect(composerPicker).toContainText('Local repository connections require the macOS desktop app. Add files or a folder instead.')
   await assertNoFixtureChoices(composerPicker)
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport)
@@ -376,7 +376,7 @@ test('rejected repository picker module keeps a fresh draft safe and recovers af
   await page.getByRole('button', { name: 'Add context', exact: true }).click()
   const recoveredPicker = page.getByRole('dialog', { name: 'Add context', exact: true })
   await recoveredPicker.getByRole('button', { name: /^Repository/ }).click()
-  await expect(recoveredPicker).toContainText('Repository connections are not available yet. Add files or a folder instead.')
+  await expect(recoveredPicker).toContainText('Local repository connections require the macOS desktop app. Add files or a folder instead.')
   await expect(recoveredPicker.locator('[data-context-repo-load="error"]')).toHaveCount(0)
   await assertNoFixtureChoices(recoveredPicker)
 })
