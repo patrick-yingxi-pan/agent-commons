@@ -75,10 +75,11 @@ async function saveState(filePath, state) {
 }
 
 /** Electron safeStorage is useful only when it resolves to an OS-backed key.
- * Linux's documented basic_text fallback is deliberately treated as absent. */
+ * Linux is fail-closed unless Electron reports a known secure backend. */
 export function secureStorageAvailable({ platform = process.platform, encryptionAvailable, linuxBackend }) {
   if (!encryptionAvailable) return false
-  return platform !== 'linux' || (linuxBackend !== 'basic_text' && linuxBackend !== 'unknown')
+  if (platform !== 'linux') return true
+  return ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6'].includes(linuxBackend)
 }
 
 /** An encrypted write-only vault. Its public surface has no list/read/decrypt

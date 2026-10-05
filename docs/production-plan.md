@@ -44,7 +44,38 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint closes the already-open conversation live-observation
+The current checkpoint starts the native boundary needed for approved default 1.
+The internal local-connection store separates device-private root identity and
+access lifetime from portable saved snapshots. Selection defaults to memory-only;
+only explicit opt-in enters an OS-encrypted private file. Account bindings are
+exact namespace/user pairs, descriptors are path-free, and opening/listing never
+reads source content. Explicit capture uses the existing bounded top-level text
+policy, pins the selected directory identity, and refuses changed sources.
+Disconnect commits before acknowledgement and fences an unsettled capture without
+touching saved snapshots or source files. Corrupt or unsafe storage is preserved,
+not repaired or replaced. Intentional persistence-filter, owner-gate and late-read
+fence removals each fail their regression locks.
+The source reader also honors cancellation between reads; disconnect cancels
+bounded active captures and independently refuses late output from a reader that
+ignores cancellation. Deterministic filesystem-adapter tests exercise replacement,
+directory changes and exact publication failures, including post-rename sync
+uncertainty. Review caught a test whose retry masked the initial uncertainty wall;
+checking read refusal first now fails when that wall is removed. Review also found
+that the shared Linux storage check accepted unrecognized backend names. Its
+explicit known-secure allowlist now fails closed, with a failure-first regression.
+
+This is an internal foundation, not a completed user workflow: no renderer bridge,
+HTTP route, native menu or model tool calls it yet. The next checkpoint must derive
+the account binding in the trusted native caller, provide explicit selection and
+Remember/Disconnect controls, and wire Attach/Refresh with account-switch and
+acknowledgement recovery. Local Git remains a real-reader milestone, not the seeded
+repository picker. Browser remembered-directory support, recursive selection and
+real native Keychain/relaunch acceptance of this store are not claimed. The full
+Folder/Git workflow remains required; this checkpoint does not reduce its scope.
+The complete local verifier and unsigned packaged gate are required before landing
+these native modules. No public release or GitHub CI evidence is implied.
+
+The preceding checkpoint `4b8852ee` closes the already-open conversation live-observation
 gap recorded below. Every authoritative pane read can discover a remotely
 started reply, including a restarted orphaned turn. One account-scoped stream
 claim per conversation prevents duplicate panes, repeated pushes and late active
@@ -79,8 +110,9 @@ complete verifier passed all five lanes and 445 browser tests. Screenshot review
 then caught short-landscape recovery controls below the picker's visible edge.
 Both browsing entry points now place recovery before the recent-items list;
 source-order and full-notice/action geometry checks failed before this repair
-and pass afterward. The final revision must pass the complete verifier again and
-the separate UI sweep; no retry or timeout budget was relaxed.
+and pass afterward. The final revision passed the complete verifier (all five lanes,
+445 browser tests) and the separate 135/135-cell UI sweep with no violations or
+skips. No retry or timeout budget was relaxed.
 No GitHub CI, paid provider or signed/Intel release evidence is implied.
 
 The preceding workbook checkpoint `ba00e035` passed the complete local verifier

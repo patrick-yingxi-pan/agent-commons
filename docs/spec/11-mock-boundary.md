@@ -39,7 +39,9 @@ Served cloud and mapped-runner text files and top-level folders now use actual
 bounded saved copies, not fixture bodies or automatic per-turn source reads.
 Explicit Refresh alone replaces a saved copy through current source authority;
 folders retain independent identity even when empty. Reusable local connections
-and rich remote document/image input remain production work.
+and rich remote document/image input remain production work. PORT-20 provides an
+internal native local-folder reader and encrypted opt-in grant store only; it is
+not yet connected to renderer selection, Attach/Refresh, or the Git picker.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values
 under exact artifact identities. The model proposes those values for consent;

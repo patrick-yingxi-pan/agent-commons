@@ -20,12 +20,18 @@ async function fixture() {
   return { directory, filePath, vault }
 }
 
-test('secure credential availability rejects missing encryption and Linux basic_text', () => {
+test('secure credential availability accepts only recognized secure Linux backends', () => {
   assert.equal(secureStorageAvailable({ platform: 'darwin', encryptionAvailable: true }), true)
   assert.equal(secureStorageAvailable({ platform: 'win32', encryptionAvailable: false }), false)
-  assert.equal(secureStorageAvailable({ platform: 'linux', encryptionAvailable: true, linuxBackend: 'gnome_libsecret' }), true)
-  assert.equal(secureStorageAvailable({ platform: 'linux', encryptionAvailable: true, linuxBackend: 'basic_text' }), false)
-  assert.equal(secureStorageAvailable({ platform: 'linux', encryptionAvailable: true, linuxBackend: 'unknown' }), false)
+  for (const linuxBackend of ['gnome_libsecret', 'kwallet', 'kwallet5', 'kwallet6']) {
+    assert.equal(secureStorageAvailable({ platform: 'linux', encryptionAvailable: true, linuxBackend }), true, linuxBackend)
+  }
+  for (const linuxBackend of ['basic_text', 'unknown', 'future_backend']) {
+    assert.equal(secureStorageAvailable({ platform: 'linux', encryptionAvailable: true, linuxBackend }), false, linuxBackend)
+  }
+  for (const linuxBackend of [undefined, null]) {
+    assert.equal(secureStorageAvailable({ platform: 'linux', encryptionAvailable: true, linuxBackend }), false, String(linuxBackend))
+  }
 })
 
 test('the vault persists ciphertext only, restores ephemeral environment values, and removes by provider', async () => {
