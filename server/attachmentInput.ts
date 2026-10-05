@@ -1,5 +1,5 @@
 import type { Attachment } from '../contract/entities.ts'
-import { ATTACHMENT_INPUT_MAX_ITEMS, attachmentText, isAttachmentInput, planAttachmentInput } from '../contract/attachmentInput.ts'
+import { ATTACHMENT_INPUT_MAX_ITEMS, attachmentDocumentImport, attachmentText, isAttachmentInput, planAttachmentInput } from '../contract/attachmentInput.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../contract/imageInput.ts'
 import { imageAssetRefMatches } from '../contract/imageAssets.ts'
 
@@ -14,6 +14,7 @@ export function attachmentPrompt(text: string, attachments: readonly Attachment[
   const suppliedImages: ImageSnapshot[] = []
   const files = planAttachmentInput(attachments).slice(0, ATTACHMENT_INPUT_MAX_ITEMS).map(({ attachment, status }) => {
     const name = isAttachmentInput(attachment) ? attachment.label.slice(0, 200) : '(invalid attachment)'
+    const documentImport = isAttachmentInput(attachment) ? attachmentDocumentImport(attachment) : undefined
     if (status === 'image-ready' && attachment.image) {
       const resolved = images[attachment.image.id]
       if (!supportsImages) return { name, status: 'unsupported-model' }
@@ -26,11 +27,11 @@ export function attachmentPrompt(text: string, attachments: readonly Attachment[
     return {
       name, status,
       ...(status === 'ready' ? { text: attachmentText(attachment) } : {}),
-      ...(status === 'ready' && attachment.documentImport ? { extraction: {
-        format: attachment.documentImport.format,
-        ...(attachment.documentImport.format === 'pdf' ? {
-          pages: attachment.documentImport.pages,
-          text_pages: attachment.documentImport.textPages,
+      ...(status === 'ready' && documentImport ? { extraction: {
+        format: documentImport.format,
+        ...(documentImport.format === 'pdf' ? {
+          pages: documentImport.pages,
+          text_pages: documentImport.textPages,
         } : {}),
       } } : {}),
     }

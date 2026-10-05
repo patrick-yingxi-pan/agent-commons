@@ -8,13 +8,13 @@ export function ContextMutationNotice({
   state,
   onRetry,
   onDismiss,
-  floating = false,
+  panel = false,
 }: {
   state: ContextMutationStatus
   onRetry: () => void
   onDismiss?: () => void
-  /** Panel hosts need the same notice over a body that already owns h-full. */
-  floating?: boolean
+  /** Panel hosts put status in a bounded footer, outside the saved-content body. */
+  panel?: boolean
 }) {
   let notice
   if (state.busy) {
@@ -36,10 +36,13 @@ export function ContextMutationNotice({
     )
   }
   if (!notice) return null
-  if (!floating) return notice
+  if (!panel) return notice
   return (
-    <div className="pointer-events-none absolute inset-x-3 bottom-2 z-40">
-      <div className="pointer-events-auto rounded-lg border border-line bg-surface px-2 pt-2">
+    <div
+      data-context-panel-status
+      className="max-h-[35%] min-w-0 shrink-0 overflow-y-auto border-t border-line bg-panel px-2 pt-2"
+    >
+      <div className="rounded-lg border border-line bg-surface px-2 pt-2">
         {notice}
       </div>
     </div>

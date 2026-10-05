@@ -5,6 +5,7 @@ import { IMAGE_MAX_COUNT, IMAGE_TURN_MAX_BYTES } from './imageInput.ts'
 import { isServedTextSnapshot } from './servedTextSnapshot.ts'
 import { fsRecentKey } from './fs.ts'
 import { workspaceArtifacts } from './workspaceFolders.ts'
+import type { DocumentImportOutcome } from './documentImport.mjs'
 
 /** One ordered input projection for the composer, previews and both transports.
  * Folder bodies are durable snapshots, never a request to read a path. Direct
@@ -138,6 +139,13 @@ export function planAttachmentInput(attachments: readonly Attachment[] = []): At
 /** Callers still use the shared admission plan before sending any text. */
 export function attachmentText(attachment: Attachment): string | undefined {
   return attachment.textSnapshot?.text ?? attachment.previewText
+}
+
+/** Resolve extraction provenance from its one authoritative saved location.
+ * Served v2 snapshots carry it alongside their immutable text; local imports
+ * retain the legacy attachment-level field. */
+export function attachmentDocumentImport(attachment: Attachment): DocumentImportOutcome | undefined {
+  return attachment.textSnapshot?.version === 2 ? attachment.textSnapshot.documentImport : attachment.documentImport
 }
 
 export function attachmentInputCopy(status: AttachmentInputStatus): string {

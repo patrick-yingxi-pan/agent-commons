@@ -47,7 +47,7 @@ test('full image previews contain the whole image while compact tiles may crop',
 
 test('docked panel content can shrink below a long file list', () => {
   const src = stripComments(read(join(ROOT, 'src', 'components', 'PanelShell.tsx')))
-  assert.match(src, /className="flex min-h-0 flex-1 flex-col" style=\{\{ width \}\}/)
+  assert.match(src, /className="flex min-h-0 flex-1 flex-col" style=\{\{ width: width - 1 \}\}/)
   const artifacts = stripComments(read(join(ROOT, 'src', 'components', 'panels', 'ArtifactPanel.tsx')))
   assert.match(artifacts, /short:max-h-\[28%\]/, 'short windows reserve room for the first content line and omission notice')
 })

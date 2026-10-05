@@ -273,6 +273,31 @@ test('model prompt uses only captured served text and freezes its contents witho
   ])
 })
 
+test('served v2 document snapshots supply their saved extraction metadata to the model prompt', () => {
+  const attachment = file('', {
+    id: 'cloud::reports/scan.pdf',
+    label: 'reports/scan.pdf',
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
+    textSnapshot: {
+      version: 2,
+      snapshotId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      capturedAt: '2026-10-04T12:00:00.000Z',
+      sourceId: 'cloud',
+      path: 'reports/scan.pdf',
+      text: 'saved page text',
+      documentImport: { format: 'pdf', status: 'ready', pages: 3, textPages: 2 },
+    },
+  })
+  delete attachment.previewText
+  const document = documentFrom(attachmentPrompt('Read the saved PDF', [attachment]))
+  assert.deepEqual(document.attached_files, [{
+    name: 'reports/scan.pdf',
+    status: 'ready',
+    text: 'saved page text',
+    extraction: { format: 'pdf', pages: 3, text_pages: 2 },
+  }])
+})
+
 test('served and UI-host text share one whole-file budget and previews cannot substitute for snapshots', () => {
   const snapshot = {
     version: 1 as const,

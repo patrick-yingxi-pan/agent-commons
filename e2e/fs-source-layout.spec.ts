@@ -41,10 +41,14 @@ test('every filesystem picker keeps long source choices contained and clickable 
       await expect(picker.getByRole('button', {
         name: type === 'Folder' ? /^Choose a folder from this computer/ : new RegExp(`^Add ${type.toLowerCase()} from this computer`),
       })).toBeEnabled()
+      await expect(picker.locator('[data-fs-picker-body]')).toHaveCount(1)
+      await expect.poll(() => picker.getByRole('button', { name: 'Done', exact: true }).evaluate(element => {
+        const box = element.getBoundingClientRect()
+        return box.top >= 0 && box.bottom <= innerHeight
+      }), { message: `${type} completion stays visible without scrolling the whole picker at ${width}x${height}` }).toBe(true)
       await assertWcag22Aa(page, `${type} source choices ${width}x${height}`)
       await page.screenshot({ path: `.data/fs-source-layout/${type}-${width}x${height}.png`, fullPage: true })
-      // A short viewport may scroll the whole bounded picker; its footer must
-      // still be reachable by an ordinary hit-tested click.
+      // Only the shared intake body scrolls; Done remains outside it.
       await picker.getByRole('button', { name: 'Done', exact: true }).click()
       await expect(picker).toHaveCount(0)
     }

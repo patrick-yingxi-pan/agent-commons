@@ -99,28 +99,38 @@ export function registerServedFileSnapshotRoutes(
   })
 
   router.post('/sessions/:id/attachments/:attachmentId/refresh', async ({ req, res, params, body }) => {
-    if (denyForeignSession(req, res, params.id)) return
-    const session = store.getSession(params.id)
-    if (!session) return sendError(res, 'not_found', 'This conversation is unavailable.')
-    const tenantId = store.identity(req.headers).tenant.id
-    if (!store.sessionOwnedBy(session, tenantId)) {
-      return sendError(res, 'forbidden', 'Only the conversation owner may refresh attached files.')
+    const owner = () => {
+      if (!accountTransitionSourceMatches(req, res)) return false
+      if (denyForeignSession(req, res, params.id)) return false
+      const session = store.getSession(params.id)
+      if (!session) { sendError(res, 'not_found', 'This conversation is unavailable.'); return false }
+      const tenantId = store.identity(req.headers).tenant.id
+      if (!store.sessionOwnedBy(session, tenantId)) {
+        sendError(res, 'forbidden', 'Only the conversation owner may refresh attached files.'); return false
+      }
+      return true
     }
+    if (!owner()) return
+    // Pin the exact workspace row before body parsing yields. A detached row
+    // reattached under the same source/path/id must not adopt an older request.
+    const initialAttachment = store.sessionWorkspace(params.id)?.attachments.find((item) => item.id === params.attachmentId)
     const input = await body<unknown>()
-    // Body parsing yields to the event loop. Recheck both visibility and ownership
-    // before validating the request or touching the attached source.
-    if (denyForeignSession(req, res, params.id)) return
-    const current = store.getSession(params.id)
-    if (!current) return sendError(res, 'not_found', 'This conversation is unavailable.')
-    if (!store.sessionOwnedBy(current, tenantId)) {
-      return sendError(res, 'forbidden', 'Only the conversation owner may refresh attached files.')
+    // Body parsing yields to the event loop. Recheck the initiating browser
+    // account, visibility and owner before validating bytes or touching state.
+    if (!owner()) return
+    const currentAttachment = store.sessionWorkspace(params.id)?.attachments.find((item) => item.id === params.attachmentId)
+    if (currentAttachment !== initialAttachment) {
+      return sendError(res, 'conflict', 'The attached file changed while reading. The saved copy is unchanged.')
     }
     if (!isRefreshServedAttachmentRequest(input)) {
-      return sendError(res, 'bad_request', 'expectedSnapshotId (UUID or null) and a distinct requestId UUID are required.')
+      return sendError(res, 'bad_request', 'A valid expected snapshot, refresh key, and optional complete saved document are required.')
     }
     try {
-      sendJson(res, store.refreshSessionAttachment(params.id, params.attachmentId, input))
+      const state = store.refreshSessionAttachment(params.id, params.attachmentId, input)
+      if (!owner()) return
+      sendJson(res, state)
     } catch (error) {
+      if (!owner()) return
       if (error instanceof ConflictError || error instanceof ValidationError) return sendError(res, error.code, error.message)
       throw error
     }

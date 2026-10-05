@@ -41,9 +41,25 @@ test('portal overflow retains real button semantics and explicit intake disablem
 test('unsupported served formats remain metadata-only attachments', () => {
   const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
   const body = source.slice(source.indexOf('function ServedFilePicker(')).split('\nfunction ')[0]
-  assert.match(body, /isLocalTextFileName\(entry\.name\) \? void take\(entry\) : onPreviewOnly\(entry\)/)
+  assert.match(body, /isLocalTextFileName\(entry\.name\) \|\| documentFormatForName\(entry\.id\) \? void take\(entry\) : onPreviewOnly\(entry\)/)
   assert.match(source, /const attachServed = \(e: FsFileEntry \| FsPhotoEntry\) =>\s+active && onAdd\(\{ kind, attachments: \[\{ id: fsRecentKey\(active\.id, e\.id\), label: e\.name, kind: kind === 'photos' \? 'photo' : 'file', source: active \}\] \}\)/)
   assert.doesNotMatch(body, /previewText/)
+})
+
+test('served documents load shared extraction only on capture and disclose its saved result', () => {
+  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  assert.ok(picker.includes("await import('../controller/servedDocumentCapture.ts')"))
+  assert.ok(picker.includes('captureServedDocument(source.id, entry.id, crypto.randomUUID(), controller.signal)'))
+  assert.doesNotMatch(picker, /from ['"].*servedDocumentCapture/)
+  const panel = stripComments(read(join(ROOT, 'src/components/AttachmentPanel.tsx')))
+  assert.ok(panel.includes('documentFormatForName(address.entryId)'))
+  assert.ok(panel.includes('const documentImport = attachmentDocumentImport(item)'))
+  assert.ok(panel.includes('documentImportCopy(documentImport)'))
+  const refresh = stripComments(read(join(ROOT, 'src/controller/servedAttachmentRefresh.ts')))
+  const loaded = refresh.indexOf(`await import('${['.', 'servedDocumentCapture.ts'].join('/')}')`)
+  const capture = refresh.indexOf('return captureServedDocument(')
+  assert.ok(loaded >= 0 && capture > loaded)
+  assert.ok(refresh.slice(loaded, capture).includes('assertCurrent()'), 'a lazy import cannot start capture for a later account')
 })
 test('saved served previews never reread their source and every panel offers owner-only Refresh', () => {
   const panel = stripComments(read(join(ROOT, 'src/components/AttachmentPanel.tsx')))

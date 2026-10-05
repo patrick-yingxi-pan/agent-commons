@@ -133,6 +133,12 @@ Beside them, the suites that lock those sequences (`conversation-store`,
 - **Authority-bearing state waits for acknowledgement.** Context bindings and
   relation entities do not become visible on a transport promise. Their
   controllers preserve intent, expose recovery, and project server truth once.
+- **Pane mounting is not conversation initialization.** The shared
+  `canSeedConversationFromCache` predicate admits only untouched, unreconciled
+  state. An empty transcript can still own a pending/failed context operation,
+  focus, a draft or recovery state; resize and duplicate-pane remounts cannot
+  reset them. `conversation-seed.test.ts` and the held-Refresh resize walk in
+  `e2e/served-document-snapshot.spec.ts` lock UI-166.
 
 ## Verification
 

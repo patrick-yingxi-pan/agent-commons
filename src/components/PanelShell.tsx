@@ -114,7 +114,8 @@ export function PanelShell({
     return (
       <div className="flex h-full w-full min-w-0 flex-col overflow-hidden bg-panel">
         {header}
-        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        <div data-panel-body className="flex min-h-0 flex-1 flex-col">{children}</div>
+        {chrome.footer}
       </div>
     )
   }
@@ -130,7 +131,8 @@ export function PanelShell({
         className="relative flex h-full w-full flex-col overflow-hidden border-l border-line bg-panel"
       >
         {header}
-        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        <div data-panel-body className="flex min-h-0 flex-1 flex-col">{children}</div>
+        {chrome.footer}
       </motion.div>
     )
   }
@@ -157,9 +159,12 @@ export function PanelShell({
           setLayout('rightW', widthRef.current)
         }}
       />
-      <div className="flex min-h-0 flex-1 flex-col" style={{ width }}>
+      {/* The animated border-box includes its 1px leading border. Keep the
+          stable inner width inside that box while the shell animates. */}
+      <div className="flex min-h-0 flex-1 flex-col" style={{ width: width - 1 }}>
         {header}
-        <div className="flex min-h-0 flex-1 flex-col">{children}</div>
+        <div data-panel-body className="flex min-h-0 flex-1 flex-col">{children}</div>
+        {chrome.footer}
       </div>
     </motion.div>
   )

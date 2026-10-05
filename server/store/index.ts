@@ -3606,6 +3606,15 @@ function scheduleArtifactFormatFailure(task: ScheduledTask, spec: ScheduledArtif
     : undefined
 }
 
+function sameServedSnapshot(a: ServedTextSnapshot, b: ServedTextSnapshot): boolean {
+  if (a.version !== b.version || a.snapshotId !== b.snapshotId || a.capturedAt !== b.capturedAt ||
+      a.sourceId !== b.sourceId || a.path !== b.path || a.text !== b.text) return false
+  if (a.version === 1 || b.version === 1) return a.version === b.version
+  return a.documentImport.format === b.documentImport.format && a.documentImport.status === b.documentImport.status &&
+    (a.documentImport.format !== 'pdf' || (b.documentImport.format === 'pdf' &&
+      a.documentImport.pages === b.documentImport.pages && a.documentImport.textPages === b.documentImport.textPages))
+}
+
 /** Keep a store-owned served-file receipt monotonic across workspace projections.
  * Only the refresh commit path may name the one row whose saved copy is replaced. */
 function preserveSessionWorkspaceSnapshots(
@@ -4038,6 +4047,17 @@ export const store = {
     const snapshot = { version: 1 as const, snapshotId, capturedAt: new Date().toISOString(), sourceId, path, text: content.text }
     return isServedTextSnapshot(snapshot) ? snapshot : undefined
   },
+  /** Current authorization to read one exact served path, without opening or
+   *  rereading its contents. Used when the renderer submits an already-frozen
+   *  document import for explicit Refresh. */
+  fsReadPermitted(sourceId: string, path: string): boolean {
+    if (sourceId === 'cloud') return !!cloudReader
+    if (!sourceId.startsWith('runner:')) return false
+    const runner = registry.get(sourceId.slice('runner:'.length))
+    if (!runner || runner.status !== 'online') return false
+    const mapped = runnerFs(runner)
+    return !!mapped && mapped.supports('fs.read') && mapped.permitsRead(path)
+  },
   async fsFolderSnapshot(sourceId: string, path: string, snapshotId = randomUUID()): Promise<ServedFolderSnapshot | undefined> {
     const files = await resolveFsReader(sourceId, 'fs.list')?.reader.folderSnapshot(path)
     if (!files) return undefined
@@ -4149,15 +4169,30 @@ export const store = {
         attachment.source.kind !== expectedKind || attachment.source.id !== address.sourceId) {
       throw new ConflictError('This served file is no longer attached. Reopen the conversation before refreshing.')
     }
+    const frozen = 'snapshot' in request ? request.snapshot : undefined
+    if (frozen && (!isServedTextSnapshot(frozen) || frozen.version !== 2 ||
+        frozen.sourceId !== address.sourceId || frozen.path !== address.entryId || frozen.snapshotId !== request.requestId)) {
+      throw new ValidationError('The saved document does not match this attached file. The saved copy is unchanged.')
+    }
     // The captured ID is the durable receipt. A lost acknowledgement or restart
-    // must not cause another source read for the same logical Refresh.
+    // must recover its exact saved truth even if the source grant was later
+    // revoked. Replay is scoped to both this attachment and the complete payload.
     if (attachment.textSnapshot?.snapshotId === request.requestId) {
+      if (frozen && !sameServedSnapshot(attachment.textSnapshot, frozen)) {
+        throw new ConflictError('This served-file refresh key was already used for different saved text.')
+      }
       return { contexts: store.sessionContexts(sessionId), workspace }
     }
     if ((attachment.textSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
       throw new ConflictError('This saved copy changed. Reopen it before refreshing again.')
     }
-    const textSnapshot = store.fsSnapshot(address.sourceId, address.entryId, request.requestId)
+    // A fresh frozen renderer import remains subject to current exact-path read
+    // authority, but this check requires no content read and cannot revoke an
+    // already-committed receipt's recovery path.
+    if (frozen && !store.fsReadPermitted(address.sourceId, address.entryId)) {
+      throw new ConflictError('This source no longer grants read access to the attached file. The saved copy is unchanged.')
+    }
+    const textSnapshot = frozen ?? store.fsSnapshot(address.sourceId, address.entryId, request.requestId)
     if (!textSnapshot) throw new ValidationError('Could not read a complete text file of 64 KB or less. The saved copy is unchanged.')
     const latest = store.sessionWorkspace(sessionId)
     const current = latest?.attachments.find((item) => item.id === attachmentId)

@@ -27,10 +27,6 @@ import { ContextMutationNotice } from './ContextMutationNotice'
 import { contextPaneId } from '../lib/mainSplit'
 import type { PaneContent } from '../lib/splitFrame'
 
-// Fill the pane, no width/motion, no per-pane X (the rail cluster closes the
-// focused pane — homogeneous with every other pane; the frozen value keeps the
-// embedded panels from re-rendering on unrelated tree edits).
-const EMBEDDED: PaneChrome = { embedded: true }
 const noop = () => {}
 
 export function ContextPanelView({
@@ -98,8 +94,20 @@ export function ContextPanelView({
     if (gone) onGone?.()
   }, [gone, onGone])
 
+  const chrome: PaneChrome = {
+    embedded: true,
+    footer: (
+      <ContextMutationNotice
+        state={contextMutation}
+        onRetry={() => retryContextMutation(sessionId)}
+        onDismiss={() => dismissContextMutation(sessionId)}
+        panel
+      />
+    ),
+  }
+
   return (
-    <PaneChromeContext.Provider value={EMBEDDED}>
+    <PaneChromeContext.Provider value={chrome}>
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col" data-context-pane={contextPaneId(sessionId, panel)}>
         {/* A pane whose content was just detached (before the tree prunes it a
             frame later) shows a quiet placeholder rather than a blank pane. */}
@@ -108,12 +116,6 @@ export function ContextPanelView({
             This context is no longer attached.
           </div>
         )}
-        <ContextMutationNotice
-          state={contextMutation}
-          onRetry={() => retryContextMutation(sessionId)}
-          onDismiss={() => dismissContextMutation(sessionId)}
-          floating
-        />
       </div>
     </PaneChromeContext.Provider>
   )

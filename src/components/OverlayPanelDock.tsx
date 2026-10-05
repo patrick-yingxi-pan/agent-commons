@@ -19,6 +19,7 @@ import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
 import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
 import { ContextMutationNotice } from './ContextMutationNotice'
+import { PaneChromeContext, type PaneChrome } from './paneChrome'
 
 export function OverlayPanelDock({
   sessionId,
@@ -48,6 +49,16 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
   const focusedRepo = focus?.kind === 'repo' ? live.repos.find((r) => r.id === focus.id) : undefined
   const focusedConnector = focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
   const panelOpen = !!focus
+  const chrome: PaneChrome = {
+    footer: panelOpen ? (
+      <ContextMutationNotice
+        state={contextMutation}
+        onRetry={() => retryContextMutation(sessionId)}
+        onDismiss={() => dismissContextMutation(sessionId)}
+        panel
+      />
+    ) : null,
+  }
 
   return (
     <>
@@ -70,59 +81,53 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
             : 'absolute inset-y-0 right-0 z-30 flex'
         }
       >
-        {/* One focused-context sidebar at a time, chosen by the active chip.
-            One keyed WorkspacePanel serves both workspace and repo so the body
-            morphs when you switch between the two. */}
-        <AnimatePresence>
-          {(focusedWorkspace || focusedRepo) && (
-            <WorkspacePanel
-              key="ws"
-              mode={focusedRepo ? 'repo' : 'workspace'}
-              workspace={focusedWorkspace}
-              inputAttachments={inputAttachments}
-              repo={focusedRepo}
-              onClose={closePanel}
-              onRemoveFolder={writable ? removeFolder : undefined}
-              refreshSessionId={writable ? sessionId : undefined}
-              refreshDisabled={isContextMutationHeld(contextMutation)}
-            />
-          )}
-        </AnimatePresence>
+        <PaneChromeContext.Provider value={chrome}>
+          {/* One focused-context sidebar at a time, chosen by the active chip.
+              One keyed WorkspacePanel serves both workspace and repo so the body
+              morphs when you switch between the two. */}
+          <AnimatePresence>
+            {(focusedWorkspace || focusedRepo) && (
+              <WorkspacePanel
+                key="ws"
+                mode={focusedRepo ? 'repo' : 'workspace'}
+                workspace={focusedWorkspace}
+                inputAttachments={inputAttachments}
+                repo={focusedRepo}
+                onClose={closePanel}
+                onRemoveFolder={writable ? removeFolder : undefined}
+                refreshSessionId={writable ? sessionId : undefined}
+                refreshDisabled={isContextMutationHeld(contextMutation)}
+              />
+            )}
+          </AnimatePresence>
 
-        <AnimatePresence>
-          {focusedConnector && (
-            <ConnectorPanel
-              key="conn"
-              connector={focusedConnector}
-              onClose={closePanel}
-              onDisconnect={writable ? () => removeContexts([{ kind: 'connector', id: focusedConnector.id }]) : undefined}
-            />
-          )}
-        </AnimatePresence>
+          <AnimatePresence>
+            {focusedConnector && (
+              <ConnectorPanel
+                key="conn"
+                connector={focusedConnector}
+                onClose={closePanel}
+                onDisconnect={writable ? () => removeContexts([{ kind: 'connector', id: focusedConnector.id }]) : undefined}
+              />
+            )}
+          </AnimatePresence>
 
-        <AnimatePresence>
-          {(focus?.kind === 'file' || focus?.kind === 'photo') && (
-            <DeferredAttachmentPanel
-              key="att"
-              kind={focus.kind}
-              items={live.attachments.filter((a) => a.kind === focus.kind)}
-              allAttachments={inputAttachments}
-              initialId={focus.id}
-              onClose={closePanel}
-              onRemove={writable ? (id) => removeContexts([{ kind: focus.kind, id }]) : undefined}
-              refreshSessionId={writable ? sessionId : undefined}
-              refreshDisabled={isContextMutationHeld(contextMutation)}
-            />
-          )}
-        </AnimatePresence>
-        {panelOpen && (
-          <ContextMutationNotice
-            state={contextMutation}
-            onRetry={() => retryContextMutation(sessionId)}
-            onDismiss={() => dismissContextMutation(sessionId)}
-            floating
-          />
-        )}
+          <AnimatePresence>
+            {(focus?.kind === 'file' || focus?.kind === 'photo') && (
+              <DeferredAttachmentPanel
+                key="att"
+                kind={focus.kind}
+                items={live.attachments.filter((a) => a.kind === focus.kind)}
+                allAttachments={inputAttachments}
+                initialId={focus.id}
+                onClose={closePanel}
+                onRemove={writable ? (id) => removeContexts([{ kind: focus.kind, id }]) : undefined}
+                refreshSessionId={writable ? sessionId : undefined}
+                refreshDisabled={isContextMutationHeld(contextMutation)}
+              />
+            )}
+          </AnimatePresence>
+        </PaneChromeContext.Provider>
       </div>
     </>
   )

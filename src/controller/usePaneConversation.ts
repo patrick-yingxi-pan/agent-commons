@@ -13,7 +13,7 @@ import { keys, loadEarlierSession, loadSession, onSessionPush, peek } from '../a
 import { getPanelPref } from '../lib/panelPrefs'
 import { conversations, useConversation } from './conversationStore'
 import { rememberPanelPreference, resolvePanelPreference } from './panelPreferences'
-import type { ConversationState, PaneReadReceipt } from './conversationCore'
+import { canSeedConversationFromCache, type ConversationState, type PaneReadReceipt } from './conversationCore'
 import type { PanelFocus, RelationGraph, Session } from '../types'
 
 /** The strongest attached context — the auto-open target when a session has
@@ -110,10 +110,9 @@ export function usePaneConversation(sessionId: string): ConversationState & { lo
     // store entry the New-session door reset.
     if (sessionId === DRAFT_ID) return
     const entry = conversations.get(sessionId)
-    const pristine = entry.live.messages.length === 0 && !entry.composerText && !entry.busy && !entry.typing
     // Only this account's previously read detail can seed an initial paint.
     // Bundled demo transcripts are never evidence of access or saved content.
-    if (pristine) {
+    if (canSeedConversationFromCache(entry)) {
       const seed = peek<Session>(keys.session(sessionId))
       if (seed?.id === sessionId) conversations.reset(sessionId, liveFromSession(seed))
       // Restore the session's remembered panel (FWD-2): a stored focus, or

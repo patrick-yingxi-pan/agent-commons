@@ -6,10 +6,11 @@ import { PhotoThumb } from './PhotoThumb'
 import { fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
-import { attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
+import { attachmentDocumentImport, attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
 import { documentImportCopy } from '../../contract/documentImport.mjs'
 import { imageAssetContentUrl } from '../api/imageAssets'
 import { isLocalTextFileName } from '../../contract/localTextFile.mjs'
+import { documentFormatForName } from '../../contract/servedTextSnapshot.ts'
 import { SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { refreshServedAttachment } from '../controller/servedAttachmentRefresh'
 
@@ -203,7 +204,8 @@ function FileBody({
   const address = parseFsRecentKey(item.id)
   const servedText = !!address && address.sourceId === item.source?.id &&
     item.source.kind === (address.sourceId === 'cloud' ? 'cloud' : 'runner') &&
-    isLocalTextFileName(address.entryId.split('/').at(-1) ?? '') && !content.isImage
+    (isLocalTextFileName(address.entryId.split('/').at(-1) ?? '') || !!documentFormatForName(address.entryId)) && !content.isImage
+  const documentImport = attachmentDocumentImport(item)
   const status: AttachmentInputStatus = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
 
   return (
@@ -238,7 +240,7 @@ function FileBody({
         })}
       </div>
 
-      <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
+      <div data-attachment-preview={item.id} data-attachment-input-status={status} tabIndex={0} role="region" aria-label={`Preview ${item.label}`} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
         <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
         {servedText && <div data-served-snapshot={item.textSnapshot ? 'saved' : 'missing'} className="mb-3 shrink-0 space-y-2">
           <p className="text-[11px] leading-snug text-ink-soft">
@@ -256,7 +258,7 @@ function FileBody({
             {item.textSnapshot ? 'Refresh saved copy' : 'Save snapshot'}
           </button>}
         </div>}
-        {item.documentImport && <p data-document-import={item.documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{documentImportCopy(item.documentImport)}</p>}
+        {documentImport && <p data-document-import={documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{documentImportCopy(documentImport)}</p>}
         {item.image && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG (largest image for ICO); the selected model must support vision to use this image.</p>}
         {content.isImage ? (
           <>

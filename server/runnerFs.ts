@@ -73,6 +73,10 @@ export function runnerFs(runner: Runner) {
   return {
     reader,
     supports,
+    /** Check the current registry grant for one exact logical file without
+     * reading that file's bytes. Served-document Refresh uses this after the
+     * renderer has already imported and frozen its saved text. */
+    permitsRead: (path: string) => permits('fs.read', path),
     permitsFolderSnapshot,
     relativeTarget(target: string): string | undefined {
       if (target === scope) return ''

@@ -42,7 +42,12 @@ folders retain independent identity even when empty. CTX-FS-22 connects PORT-20'
 native local-folder reader and encrypted opt-in grant store to explicit
 Connect/Attach/Refresh/Disconnect controls. A local capture is portable saved
 content, not authority to read the original folder on another device or through
-MCP. Real Git, recursive folder selection, rich remote document/image input and
+MCP. CTX-FS-23 extends explicit saved input to PDF/DOCX/XLSX/PPTX from the
+existing cloud and mapped-runner sources using the same renderer-isolated local
+importers. These are saved text projections, not original documents or rich
+Office fidelity. Raw bytes stay transient; extraction metadata persists with the
+complete saved text, and Refresh retries the same captured projection. Real Git,
+recursive folder selection, rich remote document fidelity, served image snapshots and
 signed two-architecture acceptance remain production work.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values

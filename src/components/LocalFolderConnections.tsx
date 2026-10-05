@@ -73,7 +73,7 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, onClose }: { onAdd: (
       if (active.current && generation === accountGeneration()) setReading(null)
     }
   }
-  return <div data-native-folder-picker className="max-h-[min(420px,calc(var(--popover-available-height,100dvh)-140px))] overflow-y-auto">
+  return <div data-native-folder-picker>
     <LocalFolderConnect />
     <p className="py-2 text-[11px] leading-snug text-ink-soft">Attach saves up to 24 top-level text files, 64 KB each and 128 KB total. Hidden files and subfolders are excluded. Only saved text feeds the model; originals never change.</p>
     {reading && <p role="status" className="py-2 text-[12px] text-ink-soft">Reading folder… Close this picker to leave without attaching.</p>}

@@ -41,3 +41,21 @@ test('filesystem source switcher layout is shared, wrapping, and reachable', () 
     assert.match(body, /<FsSourcePanel selection=\{selection\}>/, `${picker} renders the shared source panel`)
   }
 })
+
+test('every filesystem intake scrolls one shared body while Done stays outside it', () => {
+  const component = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const panel = component.slice(component.indexOf('function FsSourcePanel(')).split('\nfunction ')[0]
+  assert.match(panel, /data-fs-picker-body className=\{FS_PICKER_BODY_CLASS\}/)
+  assert.doesNotMatch(panel, /MultiAddFooter/)
+  for (const picker of ['FilePicker', 'FolderPicker']) {
+    const body = component.slice(component.indexOf(`function ${picker}(`)).split('\nfunction ')[0]
+    assert.match(body, /<\/FsSourcePanel>\s*<MultiAddFooter/)
+  }
+  const layout = read(join(ROOT, 'src/lib/fsSourceLayout.ts'))
+  assert.match(layout, /--popover-available-height/)
+  assert.match(layout, /overflow-y-auto/)
+  const native = stripComments(read(join(ROOT, 'src/components/LocalFolderConnections.tsx')))
+  assert.doesNotMatch(native, /max-h-\[|overflow-y-auto/, 'native folder rows share the outer intake scroll owner')
+  const photos = component.slice(component.indexOf('function ServedPhotos(')).split('\nfunction ')[0]
+  assert.doesNotMatch(photos, /overflow-y-auto/, 'photo catalogs share the outer intake scroll owner')
+})

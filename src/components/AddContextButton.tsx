@@ -44,7 +44,7 @@ import { usePopoverShift } from '../lib/usePopoverShift'
 import { useRecentIds } from '../lib/recents'
 import { UI_HOST_SOURCE, useFsPickerSource } from '../lib/fsSources'
 import { fsReadPhase } from '../lib/fsReadState.ts'
-import { FS_SOURCE_GROUP_CLASS, FS_SOURCE_OPTION_CLASS } from '../lib/fsSourceLayout.ts'
+import { FS_PICKER_BODY_CLASS, FS_SOURCE_GROUP_CLASS, FS_SOURCE_OPTION_CLASS } from '../lib/fsSourceLayout.ts'
 import { FsReadNotice } from './FsReadNotice.tsx'
 import type { UiHostFile } from '../lib/uiHostFs'
 import { useUiHostFs, type UiHostFsModule } from '../lib/useUiHostFs'
@@ -57,7 +57,7 @@ import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { isLocalTextFileName } from '../../contract/localTextFile.mjs'
-import type { ServedTextSnapshot } from '../../contract/servedTextSnapshot.ts'
+import { documentFormatForName, type ServedTextSnapshot } from '../../contract/servedTextSnapshot.ts'
 import { RecentOverflowList, type OverflowRow } from './RecentOverflowList'
 import {
   CONNECTOR_OPTIONS,
@@ -592,10 +592,10 @@ function FsSourcePanel({ selection, children }: {
   selection: ReturnType<typeof useFsPickerSource>
   children: ReactNode
 }) {
-  return <>
+  return <div data-fs-picker-body className={FS_PICKER_BODY_CLASS}>
     <SourceSwitcher sources={selection.sources} active={selection.sourceId} onPick={selection.pick} />
     {selection.active ? children : <FsReadNotice phase={selection.phase} label="file sources" onRetry={selection.retry} unavailable={selection.phase === 'empty'} />}
-  </>
+  </div>
 }
 
 /** Entry ids in `recentKeys` that belong to `sourceId` (the source-qualified MRU). */
@@ -665,7 +665,7 @@ function ServedPhotos({
   const phase = fsReadPhase(cat.status, photos.length > 0)
   if (phase !== 'ready') return <FsReadNotice phase={phase} label="photos" onRetry={() => retryFsCatalog(source.id)} />
   return (
-    <div className="grid max-h-[210px] grid-cols-3 gap-1.5 overflow-y-auto px-1 pb-1">
+    <div className="grid grid-cols-3 gap-1.5 px-1 pb-1">
       {photos.map((p) => {
         const added = addedIds.includes(fsRecentKey(source.id, p.id))
         return (
@@ -738,9 +738,8 @@ function FilePicker({
   )
 }
 
-/** Supported served text files become model input only after one explicit,
- * source-pinned whole-file snapshot succeeds. Other formats keep their existing
- * metadata-only attachment behavior. */
+/** Supported served files become model input only after explicit whole-text
+ * capture or bounded document extraction. Source bytes never enter context. */
 function ServedFilePicker({ source, maxRows, addedIds, onAdd, onPreviewOnly }: {
   source: FsSource
   maxRows: number
@@ -748,7 +747,7 @@ function ServedFilePicker({ source, maxRows, addedIds, onAdd, onPreviewOnly }: {
   onAdd: (ctx: AddedContext) => void
   onPreviewOnly: (entry: FsFileEntry) => void
 }) {
-  const [read, setRead] = useState<{ entry: FsFileEntry; status: 'loading' | 'error' } | null>(null)
+  const [read, setRead] = useState<{ entry: FsFileEntry; status: 'loading' | 'error'; error?: string } | null>(null)
   const intake = useRef<AbortController | null>(null)
   useEffect(() => {
     const cancel = () => { intake.current?.abort(); intake.current = null }
@@ -763,7 +762,10 @@ function ServedFilePicker({ source, maxRows, addedIds, onAdd, onPreviewOnly }: {
     intake.current = controller
     setRead({ entry, status: 'loading' })
     try {
-      const snapshot: ServedTextSnapshot = await readFsSnapshot(source.id, entry.id, controller.signal)
+      const snapshot: ServedTextSnapshot = documentFormatForName(entry.id)
+        ? await import('../controller/servedDocumentCapture.ts').then(({ captureServedDocument }) =>
+          captureServedDocument(source.id, entry.id, crypto.randomUUID(), controller.signal))
+        : await readFsSnapshot(source.id, entry.id, controller.signal)
       if (controller.signal.aborted || issuedAccount !== accountGeneration()) return
       if (snapshot.sourceId !== source.id || snapshot.path !== entry.id) throw new Error('Snapshot did not match the selected file.')
       setRead(null)
@@ -774,27 +776,28 @@ function ServedFilePicker({ source, maxRows, addedIds, onAdd, onPreviewOnly }: {
         source,
         textSnapshot: snapshot,
       }] })
-    } catch {
-      if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error' })
+    } catch (error) {
+      if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error', error: error instanceof Error ? error.message : undefined })
     } finally {
       if (intake.current === controller) intake.current = null
     }
   }
 
   return <>
-    <p className="px-1 py-2 text-[11px] leading-snug text-ink-soft">Text files attach as saved copies, up to 64 KB each. Use Refresh in Files to import later changes.</p>
+    <p className="px-1 py-2 text-[11px] leading-snug text-ink-soft">Text and document files attach as saved copies: text up to 64 KB, or extracted text from PDF, DOCX, XLSX and PPTX up to 8 MB. Use Refresh in Files for later changes.</p>
     <fieldset disabled={read?.status === 'loading'}>
       <ServedFiles
         source={source}
         maxRows={maxRows}
         addedIds={addedIds}
         disabled={read?.status === 'loading'}
-        onAttach={(entry) => isLocalTextFileName(entry.name) ? void take(entry) : onPreviewOnly(entry)}
+        onAttach={(entry) => isLocalTextFileName(entry.name) || documentFormatForName(entry.id) ? void take(entry) : onPreviewOnly(entry)}
       />
     </fieldset>
     {read && <div data-fs-file-read={read.status} role={read.status === 'error' ? 'alert' : 'status'} aria-busy={read.status === 'loading'} className="break-words px-1 py-2 text-[12px] text-ink-soft">
       {read.status === 'loading' ? <p>Reading {read.entry.name}… Close this picker or choose another source to cancel.</p> : <>
         <p className="break-words text-danger-text">Could not read {read.entry.name}. Nothing was attached.</p>
+        {read.error && <p className="mt-1 break-words">{read.error}</p>}
         <button type="button" onClick={() => void take(read.entry)} className={`${SECONDARY_BUTTON_CLASS} mt-2 px-2 py-1 text-[12px]`}>Retry</button>
       </>}
     </div>}

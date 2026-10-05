@@ -10,12 +10,14 @@
  *
  *  (The old split-frame's `onSplit` / `onClosePane` chrome was retired with the
  *  ADAPT-16 right frame — the universal split's rail cluster owns split + close.) */
-import { createContext } from 'react'
+import { createContext, type ReactNode } from 'react'
 
 export interface PaneChrome {
   /** Rendered inside a universal-tree pane: fill the parent, no own width /
    *  motion, and no per-pane close X (the rail cluster closes it). */
   embedded?: boolean
+  /** Panel-scoped status/recovery UI, rendered below the scrollable body. */
+  footer?: ReactNode
 }
 
 export const PaneChromeContext = createContext<PaneChrome>({})

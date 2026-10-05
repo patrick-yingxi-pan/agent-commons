@@ -133,6 +133,13 @@ export interface ConversationState {
   reconciled: boolean
 }
 
+/** Cache seeding is initial paint, never a reset of a mounted conversation. */
+export function canSeedConversationFromCache(entry: ConversationState): boolean {
+  return !entry.reconciled && !isContextMutationHeld(entry.contextMutation) &&
+    entry.live.messages.length === 0 && !entry.composerText && !entry.busy && !entry.typing &&
+    !entry.focus && !entry.pendingEscalation && !entry.retryableSend && !entry.sendFailure
+}
+
 /** The streaming callbacks a turn dispatches — structurally the api layer's
  *  SendHandlers, redeclared here so the core stays free of api imports. */
 export interface TurnHandlers {

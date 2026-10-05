@@ -31,3 +31,21 @@ test('conversation composer holds while context truth is pending or retryable', 
   assert.match(conversation, /contextMutation\.busy[\s\S]*Updating context…/)
   assert.match(conversation, /contextMutation\.error[\s\S]*Resolve the context update before sending\./)
 })
+
+test('all context-panel tiers reserve recovery space outside the scrollable body', () => {
+  const notice = read('src/components/ContextMutationNotice.tsx')
+  assert.doesNotMatch(notice, /absolute|pointer-events-none/, 'recovery must not float over saved content')
+  assert.match(notice, /data-context-panel-status/)
+  const shell = read('src/components/PanelShell.tsx')
+  assert.equal((shell.match(/data-panel-body/g) ?? []).length, 3, 'embedded, takeover and docked share the body stamp')
+  assert.equal((shell.match(/\{chrome\.footer\}/g) ?? []).length, 3, 'every panel tier reserves the same footer slot')
+  assert.match(shell, /style=\{\{ width: width - 1 \}\}/, 'the fixed drawer body excludes its shell border')
+  for (const file of ['ContextPanelView.tsx', 'OverlayPanelDock.tsx']) {
+    const source = read(`src/components/${file}`)
+    assert.match(source, /<PaneChromeContext\.Provider/)
+    assert.match(source, /footer:/)
+    assert.doesNotMatch(source, /\bfloating\b/)
+  }
+  const preview = read('src/components/AttachmentPanel.tsx').split('function FileBody(')[1]
+  assert.match(preview, /data-attachment-preview=\{item.id\}[^>]*tabIndex=\{0\}/, 'saved text stays keyboard-scrollable when Refresh is disabled')
+})

@@ -10,10 +10,10 @@ import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../../contract/localTextFile.mjs'
 import { snapshotFolderFiles } from '../../contract/localFolderSnapshot.mjs'
-import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES, pdfImportFailure } from '../../contract/pdfImport.mjs'
-import { isDocxFileName, MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES, docxImportFailure } from '../../contract/docxImport.mjs'
+import { isPdfFileName, MAX_PDF_SELECTION_BYTES, pdfImportFailure } from '../../contract/pdfImport.mjs'
+import { isDocxFileName, MAX_DOCX_SELECTION_BYTES, docxImportFailure } from '../../contract/docxImport.mjs'
 import { isXlsxFileName, MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES, xlsxImportFailure } from '../../contract/xlsxImport.mjs'
-import { isPptxFileName, MAX_PPTX_FILE_BYTES, MAX_PPTX_SELECTION_BYTES, pptxImportFailure } from '../../contract/pptxImport.mjs'
+import { isPptxFileName, MAX_PPTX_SELECTION_BYTES, pptxImportFailure } from '../../contract/pptxImport.mjs'
 import type { DocumentImportOutcome } from '../../contract/documentImport.mjs'
 import { importPdf } from './pdfImport.ts'
 import { importDocx } from './docxImport.ts'
@@ -22,6 +22,7 @@ import { importWorkbook } from './workbookImport.ts'
 import type { WorkbookSnapshot } from '../../contract/workbookImport.ts'
 import { importPptx } from './pptxImport.ts'
 import { importPresentation } from './presentationImport.ts'
+import { documentReaderForName, PPTX_DOCUMENT_READER } from './documentFileImport.ts'
 import type { PresentationSnapshot } from '../../contract/presentationImport.ts'
 import { importImage, ImageImportError } from './imageImport.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
@@ -115,14 +116,7 @@ const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_
 
 // Format adapters differ; allocation, selection admission and whole-read
 // checks do not. Keep that policy on one path as supported formats expand.
-const PPTX_READER = { matches: isPptxFileName, maxBytes: MAX_PPTX_FILE_BYTES, failure: pptxImportFailure, read: importPptx }
-const DOCUMENT_READERS = [
-  { matches: isPdfFileName, maxBytes: MAX_PDF_FILE_BYTES, failure: pdfImportFailure, read: importPdf },
-  { matches: isDocxFileName, maxBytes: MAX_DOCX_FILE_BYTES, failure: docxImportFailure, read: importDocx },
-  { matches: isXlsxFileName, maxBytes: MAX_XLSX_FILE_BYTES, failure: xlsxImportFailure, read: importXlsx },
-  PPTX_READER,
-] as const
-const PRESENTATION_READER = { ...PPTX_READER, read: importPresentation }
+const PRESENTATION_READER = { ...PPTX_DOCUMENT_READER, read: importPresentation }
 const WORKBOOK_READER = { matches: isXlsxFileName, maxBytes: MAX_XLSX_FILE_BYTES, failure: xlsxImportFailure, read: importWorkbook }
 
 async function toUiHostFile(file: File, documentBudget: { used: number }, imageBudget: { used: number }, accept: UiHostFileAccept, signal?: AbortSignal): Promise<UiHostFile> {
@@ -142,7 +136,7 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
   }
   const document = accept === 'slides' ? PRESENTATION_READER
     : accept === 'sheet' && isXlsxFileName(name) ? WORKBOOK_READER
-    : DOCUMENT_READERS.find((reader) => reader.matches(name))
+    : documentReaderForName(name)
   if (document) {
     if (file.size > document.maxBytes) return selectedFile({ name, kind: 'file', ...document.failure('file-too-large') })
     if (documentBudget.used + file.size > MAX_DOCUMENT_SELECTION_BYTES) return selectedFile({ name, kind: 'file', ...document.failure('selection-limit') })

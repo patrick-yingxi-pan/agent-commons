@@ -44,7 +44,47 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint connects the native boundary to the Folder workflow for
+The current checkpoint extends saved context to PDF, DOCX, XLSX and PPTX files
+from the existing cloud and mapped-runner sources. It reuses the bounded local
+worker importers, keeps raw documents transient, and preserves complete extracted
+text plus its format disclosure in a version-2 snapshot. Explicit Refresh owns
+one capture across Retry, while failed reads preserve the previous copy. Source
+authority is checked for a new commit; a previously committed exact receipt is
+recoverable without opening a revoked or absent source. Model input and shared
+previews consume only the saved projection. Focused contract, client and backend
+tests cover these boundaries. Five rendered workflows pass for all four formats,
+saved-copy model input, owner/shared/foreign access, five-viewport recovery,
+malformed/oversized/cancelled intake and exact lost-acknowledgement Retry.
+Review reproduced extensionless format recognition and empty
+ready-document admission and repaired both. Intentional removals of the byte
+ceiling, post-extraction account fence and single-capture Retry each failed their
+new locks before restoration.
+
+Rendered review reproduced Done clipping under long intake errors and a pane
+remount that erased pending Refresh status on an empty transcript. Files,
+Photos and Folder now share one bounded scrolling body with a fixed completion
+footer. Cache seeding now requires an untouched, unreconciled conversation;
+held context operations and recovery survive responsive remounts. Visual review
+also found panel recovery covering the prior text on short screens; the shared
+panel shell now reserves footer space outside its keyboard-scrollable body,
+including while Refresh is disabled. Its drawer body also excludes the shell's
+border instead of clipping the final pixel. These repairs have failure-first
+locks, including a browser keyboard-scroll check while Refresh is disabled.
+The final responsive sweep passed 135/135 cells with no violations or skips;
+all five viewport screenshot sets were reviewed. The rebuilt unsigned arm64
+Electron package passed native imports, saved-copy relaunch, credentials,
+remembered Folder access, update posture and backup/restore smoke journeys.
+Native picker results and model responses remain fixtures; signed/Intel and
+manual OS-dialog acceptance are not claimed. The complete local verifier is
+the final pre-push gate, with no GitHub CI dependency.
+
+This is independent of the pending native Git choices (tracked working-tree
+versus HEAD snapshots; bundled versus system Git). Those decisions are not
+inferred from the earlier six-default approval. Served images, rich Office
+fidelity, Git, permanent deletion, saved-version history and release acceptance
+remain required milestones, not replaced by this increment.
+
+The preceding checkpoint `98efdae1` connects the native boundary to the Folder workflow for
 approved default 1. The desktop picker offers unchecked Remember, metadata-only
 Connect, and separate explicit Attach. Contexts gives each connection one
 canonical detail with Disconnect. Conversation copies persist independently;

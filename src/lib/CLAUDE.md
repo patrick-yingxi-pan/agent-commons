@@ -54,6 +54,12 @@ putting the buttons under a horizontal scrollbar. The source enumeration in
 `fs-source-layout.test.ts` and five-viewport `e2e/fs-source-layout.spec.ts`
 lock this layout (UI-158 / CTX-FS-19).
 
+Their shared `FsSourcePanel` also uses `FS_PICKER_BODY_CLASS` from that same
+layout funnel. Source controls, setup, catalogs and read errors scroll within
+one body, reserving the header and Done footer. Native Folder and Photo rows do
+not introduce nested scrolling. The enumerating source lock and
+`e2e/served-document-snapshot.spec.ts` guard short-landscape completion (UI-171).
+
 ## What lives here
 
 The UI's shared vocabulary — the pure, framework-light half of `src/`: the
