@@ -90,7 +90,8 @@ import type {
 import { randomUUID } from 'node:crypto'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
-import { validWorkspaceFolders, workspaceFolders, replaceServedFolderSnapshot } from '../../contract/workspaceFolders.ts'
+import { isLocalFolderRefreshRequest, type LocalFolderCapture, type LocalFolderRefreshRequest } from '../../contract/localFolderCapture.ts'
+import { validWorkspaceFolders, workspaceFolders, replaceLocalFolderSnapshot, replaceServedFolderSnapshot } from '../../contract/workspaceFolders.ts'
 import {
   applyGraphOp,
   artifactFromDraft,
@@ -279,6 +280,15 @@ const runningExternalMcp = new Set<UnresolvedExternalMcpStatus>(['running'])
 const unresolvedMcpConflict = () => new ConflictError(
   'Resolve proposed MCP tool requests and wait for running MCP tools before changing this conversation history.',
 )
+
+function sameLocalFolderCapture(left: LocalFolderCapture, right: LocalFolderCapture): boolean {
+  return left.version === right.version && left.snapshotId === right.snapshotId && left.capturedAt === right.capturedAt &&
+    left.connectionId === right.connectionId && left.files.length === right.files.length && left.files.every((file, index) => {
+      const other = right.files[index]
+      return file.name === other?.name && file.sizeBytes === other.sizeBytes &&
+        file.snapshot.text === other?.snapshot.text && file.snapshot.omitted === other?.snapshot.omitted
+    })
+}
 
 // Which backend variant this process is: the default mock behaves like a NATIVE
 // sidecar (it can touch the OS); `BACKEND=remote` makes it behave like a remote
@@ -3603,8 +3613,9 @@ function preserveSessionWorkspaceSnapshots(
   workspace: SessionWorkspace,
   refreshAttachmentId?: string,
   refreshFolderId?: string,
+  refreshLocalFolderId?: string,
 ): SessionWorkspace {
-  if (!validWorkspaceFolders(workspace.workspaces)) throw new ValidationError('Folder snapshots must match their attached source and path.')
+  if (!validWorkspaceFolders(workspace.workspaces)) throw new ValidationError('Folder snapshots must match their attached source and identity.')
   const previousAttachments = new Map((sessionWorkspaces.get(sessionId)?.attachments ?? []).map((item) => [item.id, item]))
   const previousFolders = new Map((sessionWorkspaces.get(sessionId)?.workspaces ?? []).flatMap(workspaceFolders).map((item) => [item.id, item]))
   return {
@@ -3612,8 +3623,11 @@ function preserveSessionWorkspaceSnapshots(
     workspaces: workspace.workspaces.map((item) => {
       let preserved = item
       for (const folder of workspaceFolders(item)) {
-        const saved = previousFolders.get(folder.id)?.snapshot
-        if (saved && refreshFolderId !== folder.id) preserved = replaceServedFolderSnapshot(preserved, folder.id, saved)
+        const previous = previousFolders.get(folder.id)
+        const served = previous?.snapshot
+        const local = previous?.localSnapshot
+        if (served && refreshFolderId !== folder.id) preserved = replaceServedFolderSnapshot(preserved, folder.id, served)
+        if (local && refreshLocalFolderId !== folder.id) preserved = replaceLocalFolderSnapshot(preserved, folder.id, local)
       }
       return preserved
     }),
@@ -3639,6 +3653,7 @@ function commitSessionContextState(
   workspace: SessionWorkspace,
   refreshAttachmentId?: string,
   refreshFolderId?: string,
+  refreshLocalFolderId?: string,
 ): SessionContextState {
   let contexts = sessionContextBindings.get(sessionId) ?? []
   const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
@@ -3651,7 +3666,7 @@ function commitSessionContextState(
       throw new ValidationError('Inspect and connect this MCP server before attaching it.')
     }
   }
-  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId, refreshFolderId)
+  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId, refreshFolderId, refreshLocalFolderId)
   for (const operation of operations) {
     if (operation.action === 'detach') {
       contexts = contexts.filter((context) => context.id !== operation.contextId)
@@ -4072,6 +4087,58 @@ export const store = {
       ...latest,
       workspaces: latest.workspaces.map((item) => item.id === currentContainer.id ? replaceServedFolderSnapshot(item, folderId, snapshot) : item),
     }, undefined, folderId)
+  },
+  /** Commit one native local-folder capture as frozen saved bytes. The opaque
+   * connection identity only correlates an already-attached binding; this method
+   * never opens, resolves, or otherwise reads a local path. */
+  refreshSessionLocalFolder(sessionId: string, folderId: string, request: LocalFolderRefreshRequest, tenantId: string): SessionContextState {
+    const owned = () => {
+      const session = store.getSession(sessionId)
+      return session && store.sessionOwnedBy(session, tenantId)
+    }
+    if (!owned()) throw new ConflictError('Only the current conversation owner may refresh attached folders.')
+    if (!isLocalFolderRefreshRequest(request)) throw new ValidationError('The local folder capture is invalid. The saved copy is unchanged.')
+
+    const workspace = store.sessionWorkspace(sessionId)
+    const container = workspace?.workspaces.find((item) => workspaceFolders(item).some((folder) => folder.id === folderId))
+    const folder = container && workspaceFolders(container).find((item) => item.id === folderId)
+    const connectionId = request.snapshot.connectionId
+    const binding = store.sessionContexts(sessionId).find((item) => item.id === folderId)
+    const matchesBinding = () => {
+      const current = store.sessionContexts(sessionId).find((item) => item.id === folderId)
+      return current === binding && current?.type === 'folder' && current.source?.id === 'ui-host' &&
+        current.source.kind === 'ui-host' && current.scope === connectionId
+    }
+    if (!folder || !container || folderId !== `ui-host::${connectionId}` || !binding || !matchesBinding()) {
+      throw new ConflictError('This local folder is no longer attached. Reopen the conversation before refreshing.')
+    }
+    if (folder.localSnapshot?.snapshotId === request.requestId) {
+      if (!sameLocalFolderCapture(folder.localSnapshot, request.snapshot)) {
+        throw new ConflictError('This local folder refresh key was already used for different bytes.')
+      }
+      return { contexts: store.sessionContexts(sessionId), workspace }
+    }
+    if ((folder.localSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+      throw new ConflictError('This saved local folder changed. Reopen it before refreshing again.')
+    }
+    const snapshot = request.snapshot
+    const latest = store.sessionWorkspace(sessionId)
+    const currentContainer = latest?.workspaces.find((item) => item.id === container.id)
+    const current = currentContainer && workspaceFolders(currentContainer).find((item) => item.id === folderId)
+    if (!owned() || !matchesBinding() || !currentContainer || !current ||
+        (current.localSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+      // Replaying a committed id is valid only while the same folder binding is
+      // still attached; a detached/reincarnated target never revives a receipt.
+      if (owned() && matchesBinding() && current?.localSnapshot?.snapshotId === request.requestId &&
+          sameLocalFolderCapture(current.localSnapshot, snapshot)) return { contexts: store.sessionContexts(sessionId), workspace: latest }
+      throw new ConflictError('The attached local folder changed. The saved copy is unchanged.')
+    }
+    return commitSessionContextState(sessionId, [], {
+      ...latest,
+      workspaces: latest.workspaces.map((item) => item.id === currentContainer.id
+        ? replaceLocalFolderSnapshot(item, folderId, snapshot)
+        : item),
+    }, undefined, undefined, folderId)
   },
   refreshSessionAttachment(sessionId: string, attachmentId: string, request: RefreshServedAttachmentRequest): SessionContextState {
     const workspace = store.sessionWorkspace(sessionId)

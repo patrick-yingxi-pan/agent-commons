@@ -85,11 +85,12 @@ function assertStorage(storage, platform) {
   })) fail()
 }
 
-/** A device-private foundation, not a renderer/API capability. The future native
- * caller must derive owner from authenticated app identity and pass only native
- * dialog paths. No HTTP, IPC, model input or product persistence is wired here.
+/** Native-only device-private storage used behind the main-process host. The
+ * host derives owners from authenticated app identity and supplies only native
+ * dialog paths; this store itself is never exposed through HTTP or renderer IPC.
  * The app's single-instance lock and admitted private profile are prerequisites.
  * Only explicit snapshot() reads content; list/reopen never probe selected roots.
+ * shutdown() fences future work and cancels captures without rewriting grants.
  */
 export async function openLocalConnectionStore({
   filePath, storage, platform = process.platform,
@@ -111,7 +112,7 @@ export async function openLocalConnectionStore({
     let queue = Promise.resolve()
     let unavailable = false
     const captures = new Set()
-    const disable = () => {
+    const shutdown = () => {
       unavailable = true
       for (const pending of captures) pending.controller.abort()
     }
@@ -140,7 +141,7 @@ export async function openLocalConnectionStore({
         before = await inspectPrivateDirectory(filePath, fsApi)
         if (before.dev !== directoryIdentity.dev || before.ino !== directoryIdentity.ino ||
           await readEncryptedFile(filePath, fsApi) !== diskText) fail()
-      } catch { disable(); fail() }
+      } catch { shutdown(); fail() }
       const temporary = `${filePath}.${randomBytes(16).toString('hex')}.tmp`
       let file
       let published = false
@@ -161,11 +162,11 @@ export async function openLocalConnectionStore({
       } catch (error) {
         // If directory sync fails after rename, durability is uncertain. Never
         // publish memory-only success or overwrite that disk truth on a retry.
-        if (published) disable()
+        if (published) shutdown()
         throw error
       } finally {
         await file?.close().catch(() => {})
-        await fsApi.unlink(temporary).catch((error) => { if (error?.code !== 'ENOENT') { disable(); fail() } })
+        await fsApi.unlink(temporary).catch((error) => { if (error?.code !== 'ENOENT') { shutdown(); fail() } })
       }
     }
 
@@ -177,6 +178,9 @@ export async function openLocalConnectionStore({
         return serial(async () => {
           if (entries.size >= MAX_LOCAL_CONNECTIONS) throw new LocalConnectionError('limit-reached')
           const root = await inspectRoot(path)
+          // Root inspection can be slow (including on mounted volumes). Do not
+          // publish a connection if shutdown began while it was in progress.
+          available()
           if (!validRoot(root)) fail()
           const entry = { id: `LOCAL_${randomBytes(16).toString('hex').toUpperCase()}`, owner: binding,
             root: structuredClone(root), remembered: remember }
@@ -231,6 +235,10 @@ export async function openLocalConnectionStore({
           for (const pending of captures) if (pending.entry === entry) pending.controller.abort()
         })
       },
+      // Permanently fences new work and aborts active captures. In-flight disk
+      // commits are allowed to finish atomically; shutdown itself never mutates
+      // remembered entries or discards authority.
+      shutdown,
     }
   } catch { throw new LocalConnectionError() }
 }

@@ -258,6 +258,54 @@ test('capture capacity is bounded and disconnect cancels outstanding read work',
   await Promise.all(rejected)
 }))
 
+test('shutdown cancels active captures, refuses queued work, and preserves remembered authority', async () => fixture(async ({ folder, options }) => {
+  let finishCapture
+  let announceActive
+  let announceInspect
+  let finishInspect
+  let activeSignal
+  let blockInspection = false
+  const activeCapture = new Promise((resolve) => { finishCapture = resolve })
+  const activeStarted = new Promise((resolve) => { announceActive = resolve })
+  const inspectionStarted = new Promise((resolve) => { announceInspect = resolve })
+  const inspectionHeld = new Promise((resolve) => { finishInspect = resolve })
+  const store = await openLocalConnectionStore({
+    ...options,
+    inspectRoot: async (path) => {
+      if (blockInspection) { announceInspect(); await inspectionHeld }
+      return { path, identity: { dev: '1', ino: '2' } }
+    },
+    capture: async (_root, { signal }) => {
+      activeSignal = signal
+      announceActive()
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }))
+      return activeCapture
+    },
+  })
+  const remembered = await store.connect({ owner: ada, path: folder, remember: true })
+  const active = assert.rejects(store.snapshot(ada, remembered.id), LocalConnectionError)
+  await activeStarted
+
+  blockInspection = true
+  const connecting = assert.rejects(store.connect({ owner: bob, path: folder }), LocalConnectionError)
+  await inspectionStarted
+  const queuedCapture = assert.rejects(store.snapshot(ada, remembered.id), LocalConnectionError)
+  store.shutdown()
+  assert.equal(activeSignal?.aborted, true, 'shutdown synchronously cancels an active snapshot capture')
+  assert.doesNotThrow(() => store.shutdown(), 'shutdown is idempotent')
+  finishInspect()
+  finishCapture({ name: 'source', files: [] })
+  await Promise.all([active, queuedCapture, connecting])
+
+  for (const operation of [store.list(ada), store.snapshot(ada, remembered.id), store.disconnect(ada, remembered.id),
+    store.connect({ owner: ada, path: folder })]) {
+    await assert.rejects(operation, LocalConnectionError)
+  }
+  const reopened = await openLocalConnectionStore(options)
+  assert.deepEqual(await reopened.list(ada), [remembered], 'shutdown itself must not rewrite or lose the existing remembered grant')
+  assert.deepEqual(await reopened.list(bob), [], 'shutdown cannot widen the grant owner')
+}))
+
 // Wrap real descriptors rather than substituting an in-memory filesystem: the
 // published bytes, temp cleanup, reopened state and acknowledgement stay real.
 function failingDisk(profile: string, shouldFail: (phase: string) => boolean) {

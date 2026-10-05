@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Workspace } from './entities.ts'
-import { isWorkspaceFolder, replaceServedFolderSnapshot, validWorkspaceFolders, workspaceArtifactKey, workspaceArtifacts, workspaceFolders } from './workspaceFolders.ts'
+import { isWorkspaceFolder, replaceLocalFolderSnapshot, replaceServedFolderSnapshot, validWorkspaceFolders, workspaceArtifactKey, workspaceArtifacts, workspaceFolders } from './workspaceFolders.ts'
 
 const snapshot = { version: 1 as const, snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'docs', files: [{ name: 'a.txt', sizeBytes: 4, snapshot: { text: 'body' } }, { name: 'b.png', sizeBytes: 8, snapshot: { omitted: 'unsupported' as const } }] }
 
@@ -50,4 +50,25 @@ test('projects saved file rows and replaces only the chosen served folder', () =
   assert.equal(projection.find((artifact) => artifact.name === 'a.txt')?.savedFolderSnapshot?.text, 'body')
   assert.equal(projection.find((artifact) => artifact.name === 'b.png')?.kind, 'image')
   assert.equal(projection.find((artifact) => artifact.name === 'b.png')?.savedFolderSnapshot?.text, undefined)
+})
+
+test('local folder capture projects saved rows without carrying a path or coexisting with served capture', () => {
+  const localSnapshot = {
+    version: 1 as const,
+    snapshotId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    capturedAt: '2026-10-04T12:00:00.000Z',
+    connectionId: 'LOCAL_0123456789ABCDEF0123456789ABCDEF',
+    files: [{ name: 'local.md', sizeBytes: 5, snapshot: { text: 'local' } }],
+  }
+  const folderId = 'ui-host::LOCAL_0123456789ABCDEF0123456789ABCDEF'
+  const workspace = { id: 'w', label: 'Workspace', artifacts: [{ id: 'old', name: 'local.md', kind: 'doc' as const, meta: '', source: { id: folderId, label: 'Local' } }] }
+  const next = replaceLocalFolderSnapshot(workspace, folderId, localSnapshot)
+  assert.equal(validWorkspaceFolders([next]), true)
+  assert.deepEqual(next.artifacts, [])
+  assert.deepEqual(workspaceArtifacts(next).map((artifact) => [artifact.name, artifact.savedFolderSnapshot, artifact.savedFolderSnapshotId]), [
+    ['local.md', { text: 'local' }, localSnapshot.snapshotId],
+  ])
+  assert.equal(validWorkspaceFolders([{ folders: [{ id: folderId, label: 'Local', snapshot, localSnapshot }] }]), false)
+  assert.equal(validWorkspaceFolders([{ folders: [{ id: 'ui-host::other', label: 'Local', localSnapshot }] }]), false)
+  assert.equal(JSON.stringify(next).includes('/Users/'), false)
 })

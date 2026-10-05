@@ -9,6 +9,8 @@ import { DANGER_BUTTON_CLASS } from '../../lib/button'
 import { parseFsRecentKey } from '../../../contract/index'
 import { SectionAction } from '../SectionAction'
 import { refreshServedFolder } from '../../controller/servedFolderRefresh.ts'
+import { refreshLocalFolder } from '../../controller/localFolderRefresh.ts'
+import { localFoldersAvailable } from '../../api/localFolders.ts'
 
 export function ArtifactPanel({
   artifacts,
@@ -123,6 +125,8 @@ export function ArtifactPanel({
               const canRemove = g.id !== '__default' && !!onRemoveFolder
               const address = parseFsRecentKey(g.id)
               const served = address && address.sourceId !== 'ui-host'
+              const local = address?.sourceId === 'ui-host' && g.folder?.localSnapshot
+              const snapshot = local || g.folder?.snapshot
               const confirming = confirmRemoveId === g.id
               return (
                 <div key={g.id} data-workspace-folder={g.id} className="mb-1.5">
@@ -142,14 +146,14 @@ export function ArtifactPanel({
                       </span>
                       <span className="shrink-0 text-[10px] font-medium text-ink-faint">{g.items.length}</span>
                     </button>
-                    {served && refreshSessionId && g.folder && (
+                    {(served || (local && localFoldersAvailable())) && refreshSessionId && g.folder && (
                       <SectionAction
-                        label={`${g.folder.snapshot ? 'Refresh' : 'Save snapshot of'} ${g.label}`}
-                        caption={g.folder.snapshot ? 'Refresh' : 'Save snapshot'}
+                        label={`${snapshot ? 'Refresh' : 'Save snapshot of'} ${g.label}`}
+                        caption={snapshot ? 'Refresh' : 'Save snapshot'}
                         icon={<RefreshCw size={12} />}
                         disabled={refreshDisabled}
                         disabledReason="Resolve the current context update first"
-                        onClick={() => void refreshServedFolder(refreshSessionId, g.folder!)}
+                        onClick={() => void (local ? refreshLocalFolder : refreshServedFolder)(refreshSessionId, g.folder!)}
                       />
                     )}
                     {canRemove && !confirming && (
@@ -161,9 +165,9 @@ export function ArtifactPanel({
                       />
                     )}
                   </div>
-                  {!isCollapsed && served && (
-                    <p data-served-folder-state={g.folder?.snapshot ? 'saved' : 'missing'} className="px-2 pb-1 text-[11px] leading-snug text-ink-soft">
-                      {g.folder?.snapshot ? <>Saved <time dateTime={g.folder.snapshot.capturedAt}>{new Date(g.folder.snapshot.capturedAt).toLocaleString()}</time> · read-only. Refresh to capture later edits.</> : 'No saved copy yet. Save a snapshot to preview and send readable text.'}
+                  {!isCollapsed && (served || local) && (
+                    <p data-served-folder-state={snapshot ? 'saved' : 'missing'} className="px-2 pb-1 text-[11px] leading-snug text-ink-soft">
+                      {snapshot ? <>Saved <time dateTime={snapshot.capturedAt}>{new Date(snapshot.capturedAt).toLocaleString()}</time> · read-only. {!refreshSessionId ? 'Only the conversation owner can refresh this copy.' : local && !localFoldersAvailable() ? 'Refresh requires the connection on its original device.' : 'Refresh to capture later edits.'}</> : 'No saved copy yet. Save a snapshot to preview and send readable text.'}
                     </p>
                   )}
                   {/* Folder-scoped confirm, inline in the list. Intentionally
@@ -206,7 +210,7 @@ export function ArtifactPanel({
 
       {previewOpen && selected && (
         <div className="flex-1 overflow-y-auto border-t border-line bg-surface p-3">
-          <ArtifactPreview artifact={selected} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id && item.attachment.textSnapshot?.snapshotId === selected.savedFolderSnapshotId)?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
+          <ArtifactPreview artifact={selected} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id && (item.attachment.source?.kind === 'ui-host' || item.attachment.textSnapshot?.snapshotId === selected.savedFolderSnapshotId))?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
         </div>
       )}
     </div>
@@ -216,7 +220,7 @@ export function ArtifactPanel({
 function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: WorkspaceArtifact; inputStatus: AttachmentInputStatus; onClose: () => void }) {
   // Attached folders are saved copies, never live source or library aliases.
   const parsed = artifact.source ? parseFsRecentKey(artifact.source.id) : null
-  const snapshot = parsed?.sourceId === 'ui-host' ? artifact.localSnapshot : artifact.savedFolderSnapshot
+  const snapshot = artifact.savedFolderSnapshot ?? artifact.localSnapshot
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -235,7 +239,7 @@ function ArtifactPreview({ artifact, inputStatus, onClose }: { artifact: Workspa
       <div className="mb-3 truncate text-[15px] font-semibold text-ink">{artifact.name}</div>
       {parsed ? (
         <div data-folder-snapshot-preview>
-          <p className="mb-2 text-[11px] leading-snug text-ink-soft">{parsed.sourceId === 'ui-host'
+          <p className="mb-2 text-[11px] leading-snug text-ink-soft">{parsed.sourceId === 'ui-host' && !artifact.savedFolderSnapshot
             ? 'Imported snapshot · read-only. Reattach the folder to import later edits.'
             : snapshot ? 'Saved snapshot · read-only. Original files are never changed or read automatically.' : 'No saved copy. Use Save snapshot on the folder to capture its readable text.'}</p>
           {snapshot && <p className="mb-3 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(inputStatus)}</p>}

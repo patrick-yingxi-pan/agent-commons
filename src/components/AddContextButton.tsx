@@ -1173,7 +1173,9 @@ function FolderPicker({
     <div className="pb-1">
       <FsSourcePanel selection={selection}>
         {active?.kind === 'ui-host' ? (
-          hostFs.module ? <UiHostFolderPicker hostFs={hostFs.module} onAdd={onAdd} />
+          hostFs.module ? window.agentCommonsDesktop?.context?.localFolders
+        ? <hostFs.module.NativeLocalFolderPicker onAdd={onAdd} addedIds={addedIds} onClose={onClose} />
+            : <UiHostFolderPicker hostFs={hostFs.module} onAdd={onAdd} />
             : <UiHostLoadNotice state={hostFs} label="folder access" />
         ) : active ? (
           <ServedFolderPicker key={active.id} source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAdd={onAdd} />

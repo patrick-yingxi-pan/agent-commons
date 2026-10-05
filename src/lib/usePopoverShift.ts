@@ -44,6 +44,7 @@ export function usePopoverShift<T extends HTMLElement = HTMLDivElement>(
       // set unconditionally (idempotent) so the ResizeObserver can't ping-pong
       // on a clear-measure-reset cycle; when content fits, auto ≡ no scrollbar.
       el.style.maxHeight = `${Math.max(0, height - 2 * POPOVER_MARGIN)}px`
+      el.style.setProperty('--popover-available-height', el.style.maxHeight)
       el.style.overflowY = 'auto'
       // Measure the natural anchored position, without a previous shift.
       el.style.transform = ''

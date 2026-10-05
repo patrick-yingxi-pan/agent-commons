@@ -53,9 +53,13 @@ export interface DraftDeps {
       providerId: string | undefined
       modelId: string | undefined
       idempotencyKey: string
+      expectedSessionUserId?: string | null
+      freezeSessionWriteSource?: true
     },
   ) => Promise<Session>
-  updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest) => Promise<unknown>
+  updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest, expectedSessionUserId?: string | null) => Promise<unknown>
+  /** Read once at send dispatch; materialization retries and context flush use the same source. */
+  captureSessionWriteSourceUserId?: () => string | null | undefined
   patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
   /** FWD-2: remember the draft's panel choice on the real session. */
   setPanelPref: (sessionId: string, focus: PanelFocus | null, ready?: Promise<unknown>) => void
@@ -230,6 +234,7 @@ export function createDraftController(deps: DraftDeps) {
     // (now store-held, per-session) and the sanitized model pick.
     const draftFocus = deps.store.get(DRAFT_ID).focus
     const draftModel = sanitizePick(getPick())
+    const expectedSessionUserId = deps.captureSessionWriteSourceUserId?.()
     const genAtDispatch = resetGen
     const creationKey = materializationKey ?? crypto.randomUUID()
     materializationKey = creationKey
@@ -243,6 +248,8 @@ export function createDraftController(deps: DraftDeps) {
           providerId: draftModel.providerId,
           modelId: draftModel.modelId,
           idempotencyKey: creationKey,
+          expectedSessionUserId,
+          freezeSessionWriteSource: true,
         },
       )
       // A failed response is ambiguous: the row may already be durable. One
@@ -287,7 +294,7 @@ export function createDraftController(deps: DraftDeps) {
             bindingsFor(ctx).map((context) => ({ action: 'attach' as const, context })),
           ),
           workspace: workspaceOf(seededLive),
-        })
+        }, expectedSessionUserId)
         pendingContexts = []
       }
       // Carry the draft's panel choice onto the real session (FWD-2): the

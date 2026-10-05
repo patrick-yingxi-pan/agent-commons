@@ -20,6 +20,12 @@ const contextChannels = Object.freeze({
   pickFiles: 'agent-commons:context:pick-files',
   pickFolder: 'agent-commons:context:pick-folder',
 })
+const localFolderChannels = Object.freeze({
+  list: 'agent-commons:local-folders:list',
+  connect: 'agent-commons:local-folders:connect',
+  snapshot: 'agent-commons:local-folders:snapshot',
+  disconnect: 'agent-commons:local-folders:disconnect',
+})
 const mcpCredentialChannels = Object.freeze({
   provision: 'agent-commons:mcp-credentials:provision',
 })
@@ -33,6 +39,12 @@ const bridge = {
   context: Object.freeze({
     pickFiles: (accept) => ipcRenderer.invoke(contextChannels.pickFiles, accept),
     pickFolder: () => ipcRenderer.invoke(contextChannels.pickFolder),
+    localFolders: Object.freeze({
+      list: (source) => ipcRenderer.invoke(localFolderChannels.list, source),
+      connect: (options, source) => ipcRenderer.invoke(localFolderChannels.connect, options, source),
+      snapshot: (id, source) => ipcRenderer.invoke(localFolderChannels.snapshot, id, source),
+      disconnect: (id, source) => ipcRenderer.invoke(localFolderChannels.disconnect, id, source),
+    }),
   }),
   data: Object.freeze({
     createBackup: () => ipcRenderer.invoke(dataChannels.createBackup),

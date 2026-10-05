@@ -1,5 +1,5 @@
 /** App wiring for the serialized atomic context-state queue. */
-import { onAccountSwitch, updateSessionContextState } from '../api'
+import { captureSessionWriteSourceUserId, onAccountSwitch, updateSessionContextState } from '../api'
 import type { Live } from '../data/liveSession'
 import { conversations } from './conversationStore'
 import {
@@ -10,20 +10,20 @@ import {
 } from './contextMutationsCore'
 import { rememberPanelPreference } from './panelPreferences'
 import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
-import { mergeServedFolderRefresh } from './servedFolderRefreshCore.ts'
+import { mergeFolderRefresh } from './servedFolderRefreshCore.ts'
 
 const controller = createContextMutationController({
   snapshot: (sessionId) => {
     const state = conversations.get(sessionId)
     return { live: state.live, focus: state.focus }
   },
-  mutate: updateSessionContextState,
+  mutate: (sessionId, request, expectedSessionUserId) => updateSessionContextState(sessionId, request, expectedSessionUserId),
   commit: (sessionId, before, planned, returned) => {
     const current = conversations.get(sessionId)
     const live: Live = planned.attachmentRefresh
       ? mergeServedAttachmentRefresh(current.live, returned, planned.attachmentRefresh)
       : planned.folderRefresh
-        ? mergeServedFolderRefresh(current.live, returned, planned.folderRefresh)
+        ? mergeFolderRefresh(current.live, returned, planned.folderRefresh)
         : { ...current.live, ...returned.workspace }
     conversations.setLive(sessionId, live)
 
@@ -49,8 +49,12 @@ onAccountSwitch(() => controller.clearAll())
 export function enqueueContextMutation(
   sessionId: string,
   intent: ContextMutationIntent,
+  expectedSessionUserId?: string | null,
 ): Promise<ContextMutationOutcome> {
-  return controller.enqueue(sessionId, intent)
+  const source = expectedSessionUserId === undefined
+    ? captureSessionWriteSourceUserId()
+    : expectedSessionUserId
+  return controller.enqueue(sessionId, { ...intent, expectedSessionUserId: source })
 }
 
 export function retryContextMutation(sessionId: string): void {

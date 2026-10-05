@@ -52,7 +52,7 @@ test('collection roots derive from the composite frame and the one runtime colle
     assert.match(fn(name), /<MainCollectionTemplate\b/, `${name} delegates its collection body to the shared template`)
     assert.match(
       fn(name),
-      /(?:flat|partitioned|structural)CollectionProjection\(/,
+      /(?:flat|partitioned|structural)CollectionProjection(?:<[^>]+>)?\(/,
       `${name} declares runtime data through the typed projection grammar`,
     )
   }

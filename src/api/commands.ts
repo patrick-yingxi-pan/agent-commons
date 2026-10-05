@@ -93,6 +93,24 @@ import { mergeSystemPromptDefinition } from './systemPromptRevision.ts'
 import { newestCommissionConfiguration } from './commissionRevision.ts'
 import { mergeCommissionIntoCachedRosters } from './commissionRosterCache.ts'
 import { mergeSavedContextConnection, mergeSavedContextConnectionSnapshot } from './savedContextRevision.ts'
+import type { Identity } from '../../contract/identity.ts'
+
+// Bind first-party session writes to the principal visible when intent is
+// dispatched. Cookie changes in another tab must not move captured content to
+// a different account before this tab learns about that transition.
+function sessionWriteSource(expectedSessionUserId?: string | null, freezeWhenAbsent = false) {
+  if (freezeWhenAbsent) return expectedSessionUserId === undefined ? {} : { expectedSessionUserId }
+  if (expectedSessionUserId !== undefined) return { expectedSessionUserId }
+  const me = peek<Identity>(keys.me)
+  return me ? { expectedSessionUserId: me.via === 'session' ? me.user.id : null } : {}
+}
+
+/** Freeze the account source for an async first-party write intent. `null`
+ * means the current cached `/me` is not a verified session identity. */
+export function captureSessionWriteSourceUserId(): string | null | undefined {
+  const me = peek<Identity>(keys.me)
+  return me ? (me.via === 'session' ? me.user.id : null) : undefined
+}
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
@@ -234,6 +252,10 @@ export interface CreateSessionOptions {
    *  write as the Session. Reserved for recovery-safe handoffs; an ordinary
    *  draft still lets the send route append its first turn. */
   persistFirstMessage?: true
+  /** The identity visible when this draft send began; retries reuse it. */
+  expectedSessionUserId?: string | null
+  /** Preserve an uncached source as absent across automatic same-key retries. */
+  freezeSessionWriteSource?: true
 }
 
 export async function createSession(
@@ -248,7 +270,7 @@ export async function createSession(
       modelId: options.modelId,
       persistFirstMessage: options.persistFirstMessage,
     },
-    { idempotencyKey: options.idempotencyKey },
+    { idempotencyKey: options.idempotencyKey, ...sessionWriteSource(options.expectedSessionUserId, options.freezeSessionWriteSource) },
   )
   setData(keys.session(session.id), session)
   invalidate(keys.sessions)
@@ -281,8 +303,10 @@ export function loadEarlierSession(id: string, cursor: string): Promise<Session>
 export async function updateSessionContextState(
   id: string,
   request: UpdateSessionContextStateRequest,
+  expectedSessionUserId?: string | null,
 ): Promise<SessionContextState> {
-  const next = await apiPatch<SessionContextState>(paths.sessionContextState(id), request)
+  const explicitSource = arguments.length >= 3
+  const next = await apiPatch<SessionContextState>(paths.sessionContextState(id), request, sessionWriteSource(expectedSessionUserId, explicitSource))
   setData(keys.sessionContexts(id), next.contexts)
   // The open controller lands the acknowledged workspace directly. Other
   // readers reconcile through the bounded session projection / ambient event.

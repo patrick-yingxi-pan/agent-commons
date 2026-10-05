@@ -38,10 +38,12 @@ notarized two-architecture release gate.
 Served cloud and mapped-runner text files and top-level folders now use actual
 bounded saved copies, not fixture bodies or automatic per-turn source reads.
 Explicit Refresh alone replaces a saved copy through current source authority;
-folders retain independent identity even when empty. Reusable local connections
-and rich remote document/image input remain production work. PORT-20 provides an
-internal native local-folder reader and encrypted opt-in grant store only; it is
-not yet connected to renderer selection, Attach/Refresh, or the Git picker.
+folders retain independent identity even when empty. CTX-FS-22 connects PORT-20's
+native local-folder reader and encrypted opt-in grant store to explicit
+Connect/Attach/Refresh/Disconnect controls. A local capture is portable saved
+content, not authority to read the original folder on another device or through
+MCP. Real Git, recursive folder selection, rich remote document/image input and
+signed two-architecture acceptance remain production work.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values
 under exact artifact identities. The model proposes those values for consent;

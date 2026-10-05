@@ -86,8 +86,13 @@ test('local picker chunk failure has honest explicit recovery without automatic 
   assert.match(loader, /if \(!alive\) return/)
   assert.doesNotMatch(source, /import[^\n]*imageAttachments/)
   assert.match(loader, /import type \{ UiHostDropZone as UiHostDropZoneComponent \} from/)
-  assert.match(loader, /Promise\.all\(\[import\('\.\/uiHostFs'\), import\('\.\.\/components\/UiHostDropZone\.tsx'\)\]\)/)
-  assert.match(loader, /setState\(\{ status: 'ready', module: \{ \.\.\.loaded, UiHostDropZone: dropZone\.UiHostDropZone \} \}\)/)
+  assert.match(loader, /import type \{ NativeLocalFolderPicker \} from '\.\.\/components\/LocalFolderConnections\.tsx'/)
+  assert.match(loader, /Promise\.all\(\[import\('\.\/uiHostFs'\), import\('\.\.\/components\/UiHostDropZone\.tsx'\), import\('\.\.\/components\/LocalFolderConnections\.tsx'\)\]\)/,
+    'local picker runtimes are admitted together without entering the eager picker graph')
+  assert.match(loader, /NativeLocalFolderPicker: typeof NativeLocalFolderPicker/)
+  assert.match(loader, /NativeLocalFolderPicker: localFolders\.NativeLocalFolderPicker/,
+    'the third deferred module is explicitly wired into the admitted module bundle')
+  assert.match(loader, /setState\(\{ status: 'ready', module: \{ \.\.\.loaded, UiHostDropZone: dropZone\.UiHostDropZone, NativeLocalFolderPicker: localFolders\.NativeLocalFolderPicker \} \}\)/)
   assert.match(source, /<hostFs\.module\.UiHostDropZone/)
   assert.match(intake, /hostFs: Pick<UiHostFsModule, 'pickUiHostFiles' \| 'readDroppedFiles'>/)
   assert.match(intake, /import \{ prepareUiHostFiles \} from/)

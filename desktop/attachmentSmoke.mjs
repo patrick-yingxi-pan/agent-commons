@@ -52,8 +52,7 @@ async function launch(executable, userDataPath) {
   }
 }
 
-async function closePreview(page) {
-  const preview = page.locator('[data-attachment-preview]')
+async function closePreview(page, preview = page.locator('[data-attachment-preview]')) {
   const dock = page.locator('[data-overlay-dock]')
   if (await dock.isVisible()) {
     await dock.getByTitle('Close', { exact: true }).click()
@@ -77,6 +76,42 @@ async function openFilesPicker(page) {
   await picker.getByRole('button', { name: /^Files/ }).click()
   await picker.getByRole('button', { name: 'This computer', exact: true }).click()
   return picker
+}
+
+async function openNativeLocalFolderPicker(page) {
+  await page.getByRole('button', { name: 'Add context' }).click()
+  const picker = page.getByRole('dialog', { name: 'Add context' })
+  await picker.getByRole('button', { name: /^Folder/ }).click()
+  await picker.getByRole('button', { name: 'This computer', exact: true }).click()
+  return { picker, native: picker.locator('[data-native-folder-picker]') }
+}
+
+async function chooseNativeConnectionFolder(app, selectedPath) {
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async (_owner, options) => {
+      if (options.title !== 'Connect folder' || options.properties.join(',') !== 'openDirectory') {
+        throw new Error('Expected explicit native folder connection selection')
+      }
+      return { canceled: false, filePaths: [path] }
+    }
+  }, selectedPath)
+}
+
+async function readNativeConnections(page) {
+  return page.evaluate(async () => {
+    const response = await fetch('/api/v1/me')
+    if (!response.ok) throw new Error('The local-folder identity precondition failed.')
+    const identity = await response.json()
+    const source = { namespace: identity.tenant.id, userId: identity.user.id }
+    return window.agentCommonsDesktop.context.localFolders.list(source)
+  })
+}
+
+function visibleLocalWorkspaceFolder(page, connectionId) {
+  if (typeof connectionId !== 'string' || !/^LOCAL_[A-F0-9]{32}$/.test(connectionId)) {
+    throw new Error('Expected an opaque native local-folder connection id')
+  }
+  return page.locator(`[data-workspace-folder="ui-host::${connectionId}"]:visible`)
 }
 
 async function finishReadyTextIntake(page, picker, expectedCount) {
@@ -910,21 +945,11 @@ export async function smokePackagedAttachments({ executable }) {
     const folderRoute = `/s/${encodeURIComponent(folderSession.id)}`
     await page.setViewportSize({ width: 375, height: 812 })
     await page.goto(`${origin}${folderRoute}`)
-    await run.app.evaluate(({ dialog }, path) => {
-      dialog.showOpenDialog = async (_owner, options) => {
-        if (options.properties.join(',') !== 'openDirectory') throw new Error('Expected folder selection')
-        return { canceled: false, filePaths: [path] }
-      }
-    }, folderPath)
-    await page.getByRole('button', { name: 'Add context' }).click()
-    const folderPicker = page.getByRole('dialog', { name: 'Add context' })
-    await folderPicker.getByRole('button', { name: /^Folder/ }).click()
-    try {
-      await folderPicker.getByRole('button', { name: 'This computer', exact: true }).click()
-    } catch (error) {
-      await preserveSmokeFailure(error, () => capturePickerFailure(page, folderPicker))
-    }
-    await folderPicker.getByRole('button', { name: /Choose a folder from this computer/ }).click()
+    await chooseNativeConnectionFolder(run.app, folderPath)
+    const { picker: folderPicker, native: nativeFolderPicker } = await openNativeLocalFolderPicker(page)
+    await nativeFolderPicker.getByRole('button', { name: /Choose a folder from this computer/ }).click()
+    await expect(nativeFolderPicker.getByRole('button', { name: 'Attach folder-import', exact: true })).toBeVisible()
+    await nativeFolderPicker.getByRole('button', { name: 'Attach folder-import', exact: true }).click()
     // Folder intake counts independent folder identities, not its file rows.
     await expect(folderPicker).toContainText('1 added', { timeout: TIMEOUT_MS })
     await folderPicker.getByRole('button', { name: 'Done', exact: true }).click()
@@ -937,6 +962,83 @@ export async function smokePackagedAttachments({ executable }) {
     ])
     assert.equal(JSON.stringify(endpoint.requests).includes('HIDDEN_FOLDER_SECRET'), false)
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+    const folderManagePicker = await openNativeLocalFolderPicker(page)
+    await folderManagePicker.native.getByRole('button', { name: 'Manage folder-import', exact: true }).click()
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+    await expect(page.getByText('This connection is not available to this account on this device. Saved snapshots remain in their conversations.', { exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+
+    // The persistent native connection flow is separate from one-shot folder
+    // intake: choosing a root only grants access; Attach and Refresh are the
+    // content-read boundaries. The remember checkbox starts unchecked.
+    const ephemeralFolder = join(fixtureRoot, 'folder-ephemeral')
+    const rememberedFolder = join(fixtureRoot, 'folder-remembered')
+    await mkdir(ephemeralFolder)
+    await mkdir(rememberedFolder)
+    const initialLocalText = 'native-local-folder-initial\n'
+    const refreshedLocalText = 'native-local-folder-refreshed\n'
+    const rememberedLocalText = 'native-local-folder-after-relaunch\n'
+    await writeFile(join(ephemeralFolder, 'local-note.md'), initialLocalText)
+    await writeFile(join(rememberedFolder, 'remembered-note.md'), 'before connection; never captured automatically\n')
+    const localSession = await page.evaluate(async (providerId) => {
+      const response = await fetch('/api/v1/sessions', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId }),
+      })
+      if (!response.ok) throw new Error(`Local-folder conversation precondition: HTTP ${response.status}`)
+      return response.json()
+    }, session.providerId)
+    const localSessionPath = `/s/${encodeURIComponent(localSession.id)}`
+    await page.goto(`${origin}${localSessionPath}`)
+
+    await chooseNativeConnectionFolder(run.app, ephemeralFolder)
+    let localPicker = await openNativeLocalFolderPicker(page)
+    const rememberCheckbox = localPicker.native.getByRole('checkbox', { name: /Remember this connection/ })
+    await expect(rememberCheckbox).toHaveAttribute('aria-checked', 'false')
+    await localPicker.native.getByRole('button', { name: /Choose a folder from this computer/ }).click()
+    await expect(localPicker.native.getByRole('button', { name: 'Attach folder-ephemeral', exact: true })).toBeVisible()
+    let nativeConnections = await readNativeConnections(page)
+    assert.deepEqual(nativeConnections.map(({ name, remembered }) => [name, remembered]), [['folder-ephemeral', false]])
+    const ephemeralConnectionId = nativeConnections[0].id
+    assert.match(ephemeralConnectionId, /^LOCAL_[A-F0-9]{32}$/)
+    const beforeExplicitAttach = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(id)}`)
+      if (!response.ok) throw new Error('Local-folder saved-state read failed.')
+      return (await response.json()).workspace
+    }, localSession.id)
+    assert.equal(JSON.stringify(beforeExplicitAttach ?? {}).includes('folder-ephemeral'), false,
+      'connect and metadata listing save no folder contents into the conversation')
+
+    await localPicker.native.getByRole('button', { name: 'Attach folder-ephemeral', exact: true }).click()
+    await expect(localPicker.picker).toContainText('1 added', { timeout: TIMEOUT_MS })
+    await localPicker.picker.getByRole('button', { name: 'Done', exact: true }).click()
+    const ephemeralGroup = visibleLocalWorkspaceFolder(page, ephemeralConnectionId)
+    await expect(ephemeralGroup).toBeVisible()
+    await ephemeralGroup.getByRole('button', { name: /local-note\.md/ }).click()
+    const localPreview = page.locator('[data-folder-snapshot-preview]:visible')
+    await expect(localPreview).toContainText(initialLocalText)
+    await writeFile(join(ephemeralFolder, 'local-note.md'), refreshedLocalText)
+    await ephemeralGroup.getByRole('button', { name: /Refresh folder-ephemeral\// }).click()
+    await expect(localPreview).toContainText(refreshedLocalText, { timeout: TIMEOUT_MS })
+    await closePreview(page, localPreview)
+    await send(page, 'Read the refreshed local folder snapshot.', 'native-local-folder-refreshed')
+    assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [
+      { name: 'folder-ephemeral/local-note.md', status: 'ready', text: refreshedLocalText },
+    ])
+
+    await chooseNativeConnectionFolder(run.app, rememberedFolder)
+    localPicker = await openNativeLocalFolderPicker(page)
+    const rememberedCheckbox = localPicker.native.getByRole('checkbox', { name: /Remember this connection/ })
+    await expect(rememberedCheckbox).toHaveAttribute('aria-checked', 'false')
+    await rememberedCheckbox.click()
+    await expect(rememberedCheckbox).toHaveAttribute('aria-checked', 'true')
+    await localPicker.native.getByRole('button', { name: /Choose a folder from this computer/ }).click()
+    await expect(localPicker.native.getByRole('button', { name: 'Attach folder-remembered', exact: true })).toBeVisible()
+    nativeConnections = await readNativeConnections(page)
+    assert.deepEqual(nativeConnections.map(({ name, remembered }) => [name, remembered]), [
+      ['folder-ephemeral', false], ['folder-remembered', true],
+    ])
+    const rememberedConnectionId = nativeConnections.find(({ name }) => name === 'folder-remembered')?.id
+    assert.equal(typeof rememberedConnectionId, 'string')
+    await writeFile(join(rememberedFolder, 'remembered-note.md'), rememberedLocalText)
 
     // The packaged renderer must resolve the real emitted worker under its
     // loopback CSP; a source-server-only PDF test cannot prove this boundary.
@@ -1095,12 +1197,62 @@ export async function smokePackagedAttachments({ executable }) {
     await run.app.close()
     run = undefined
     await rm(folderPath, { recursive: true })
+    await rm(ephemeralFolder, { recursive: true })
     await rm(pdfPath)
     await rm(docxPath)
     await rm(xlsxPath)
     await rm(pptxPath)
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
+    await page.goto(`${origin}${localSessionPath}`)
+    nativeConnections = await readNativeConnections(page)
+    assert.deepEqual(nativeConnections.map(({ name, remembered }) => [name, remembered]), [
+      ['folder-remembered', true],
+    ], 'full relaunch drops the unchecked grant but reopens the explicit remembered grant')
+    assert.equal(nativeConnections[0].id, rememberedConnectionId, 'relaunch restores the exact original remembered grant')
+    const localWorkspaceBeforeAttach = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(id)}`)
+      if (!response.ok) throw new Error('Restored local-folder saved-state read failed.')
+      return (await response.json()).workspace
+    }, localSession.id)
+    const foldersBeforeAttach = localWorkspaceBeforeAttach?.workspaces?.flatMap((workspace) => workspace.folders ?? []) ?? []
+    assert.equal(foldersBeforeAttach.some((folder) => folder.id === `ui-host::${rememberedConnectionId}`), false,
+      'remembering and relaunch do not automatically attach the remembered folder')
+    let reopenedPicker = await openNativeLocalFolderPicker(page)
+    await expect(reopenedPicker.native.getByRole('button', { name: 'Attach folder-remembered', exact: true })).toBeVisible()
+    await reopenedPicker.native.getByRole('button', { name: 'Attach folder-remembered', exact: true }).click()
+    await expect(reopenedPicker.picker).toContainText('1 added', { timeout: TIMEOUT_MS })
+    await reopenedPicker.picker.getByRole('button', { name: 'Done', exact: true }).click()
+    const rememberedGroup = visibleLocalWorkspaceFolder(page, rememberedConnectionId)
+    await expect(rememberedGroup.getByRole('button', { name: /remembered-note\.md/ })).toBeVisible()
+    await rememberedGroup.getByRole('button', { name: /remembered-note\.md/ }).click()
+    const rememberedPreview = page.locator('[data-folder-snapshot-preview]:visible')
+    await expect(rememberedPreview).toContainText(rememberedLocalText)
+    await closePreview(page, rememberedPreview)
+
+    reopenedPicker = await openNativeLocalFolderPicker(page)
+    await reopenedPicker.native.getByRole('button', { name: 'Manage folder-remembered', exact: true }).click()
+    await expect(page.locator('[data-local-folder-detail]')).toBeVisible()
+    await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+    await expect(page.getByText('This connection is not available to this account on this device. Saved snapshots remain in their conversations.', { exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+    await page.goto(`${origin}${localSessionPath}`)
+    const savedAfterDisconnect = await page.evaluate(async (id) => {
+      const response = await fetch(`/api/v1/sessions/${encodeURIComponent(id)}`)
+      if (!response.ok) throw new Error('Disconnected local-folder snapshot read failed.')
+      return (await response.json()).workspace
+    }, localSession.id)
+    const foldersAfterDisconnect = savedAfterDisconnect?.workspaces?.flatMap((workspace) => workspace.folders ?? []) ?? []
+    const rememberedCopy = foldersAfterDisconnect.find((folder) => folder.id === `ui-host::${rememberedConnectionId}`)
+    assert.equal(rememberedCopy?.localSnapshot?.files?.find((file) => file.name === 'remembered-note.md')?.snapshot?.text,
+      rememberedLocalText, 'disconnect retains the explicitly saved conversation copy byte-for-byte')
+    await send(page, 'Read the saved local snapshots after disconnect.', 'native-local-folder-refreshed')
+    assert.deepEqual((endpoint.documents.at(-1)?.attached_files ?? []).map(({ name, status, text }) => ({ name, status, text }))
+      .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0), [
+      { name: 'folder-ephemeral/local-note.md', status: 'ready', text: refreshedLocalText },
+      { name: 'folder-remembered/remembered-note.md', status: 'ready', text: rememberedLocalText },
+    ], 'the explicit saved copies from before and after relaunch remain usable after disconnect')
+    console.log('[desktop-local-folder-connection-smoke] Connect remains non-reading by default · Attach and Refresh capture explicitly · unchecked grants expire · remembered grants survive relaunch · disconnect preserves saved copies')
+
     await page.goto(`${origin}${folderRoute}`)
     await page.getByTitle('Open in sidebar').filter({ hasText: 'folder-import/' }).click()
     await expect(page.locator('[data-folder-snapshot-preview]')).toContainText(folderText)

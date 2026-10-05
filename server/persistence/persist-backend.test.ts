@@ -30,7 +30,15 @@ const sample: PersistedState = {
     { id: 's2', title: 'Bye', caps: ['chat'], preview: 'q', messages: [] },
   ] as unknown as PersistedState['sessions'],
   bindings: [['s1', [{ id: 'c1', type: 'repo', label: 'r', scope: '*' }]]] as unknown as PersistedState['bindings'],
-  workspaces: [['s1', { workspaces: [], repos: [], connectors: [], attachments: [{
+  workspaces: [['s1', { workspaces: [{
+    id: 'Workspace', label: 'Workspace', artifacts: [], folders: [{
+      id: 'ui-host::LOCAL_0123456789ABCDEF0123456789ABCDEF', label: 'Local notes', localSnapshot: {
+        version: 1, snapshotId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        capturedAt: '2026-10-04T12:00:00.000Z', connectionId: 'LOCAL_0123456789ABCDEF0123456789ABCDEF',
+        files: [{ name: 'notes.md', sizeBytes: 13, snapshot: { text: 'local durable' } }],
+      },
+    }],
+  }], repos: [], connectors: [], attachments: [{
     id: 'cloud::notes.md', label: 'notes.md', kind: 'file',
     source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
     textSnapshot: {
@@ -83,6 +91,9 @@ test('SQLite backend round-trips the JSON-canonical snapshot exactly', () => {
   const loaded = db.load()
   assert.deepStrictEqual(loaded, canonical, 'every slice kind survives save → load')
   assert.equal(hasCorePersistedShape(loaded), true, 'a well-formed served text snapshot remains core-valid')
+  assert.deepEqual(loaded?.workspaces?.[0]?.[1].workspaces[0]?.folders?.[0]?.localSnapshot,
+    sample.workspaces?.[0]?.[1].workspaces[0]?.folders?.[0]?.localSnapshot,
+    'a local folder capture survives the portable store round trip without paths')
   assert.deepEqual(loaded?.workspaces?.[0]?.[1].attachments[0]?.textSnapshot, sample.workspaces?.[0]?.[1].attachments[0]?.textSnapshot)
   // Spell out the isolation-critical bit: a session's tenantId must survive the round-trip.
   assert.equal(loaded?.sessions?.[0]?.tenantId, 'tenant-a', 'a session keeps its tenantId across persistence')
@@ -130,6 +141,20 @@ test('persisted served snapshots fail admission when malformed or detached from 
   mismatchedPath.workspaces[0]![1].attachments[0]!.id = 'cloud::other.md'
   assert.equal(hasCorePersistedShape(mismatchedPath), false)
   assert.equal(attachment.textSnapshot?.text, 'durable text', 'validation leaves the canonical fixture unchanged')
+})
+
+test('persisted local folder captures fail admission when their connection binding or file bytes are malformed', () => {
+  const valid = JSON.parse(JSON.stringify(sample)) as PersistedState
+  assert.equal(hasCorePersistedShape(valid), true)
+
+  const mismatchedConnection = JSON.parse(JSON.stringify(valid)) as PersistedState
+  const folder = mismatchedConnection.workspaces[0]![1].workspaces[0]!.folders![0]!
+  folder.localSnapshot!.connectionId = 'LOCAL_FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF'
+  assert.equal(hasCorePersistedShape(mismatchedConnection), false)
+
+  const malformedFile = JSON.parse(JSON.stringify(valid)) as PersistedState
+  malformedFile.workspaces[0]![1].workspaces[0]!.folders![0]!.localSnapshot!.files[0]!.snapshot = { text: 'unmatched' }
+  assert.equal(hasCorePersistedShape(malformedFile), false)
 })
 
 test('SQLite load returns null for a fresh database (caller seeds fresh)', () => {

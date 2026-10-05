@@ -14,20 +14,31 @@ import { ROOT, read, sectionViewComponent, stripComments } from '../../tests/hel
 import type { ArtifactItem, ModelProvider, Project, SavedContext } from '../types.ts'
 
 test('collection grouping is one pure projection shared by rail and page', () => {
-  const rail = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
+  const tree = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
+  const contextRail = stripComments(read(join(ROOT, 'src', 'components', 'ContextChildren.tsx')))
+  const artifactRail = stripComments(read(join(ROOT, 'src', 'components', 'ArtifactChildren.tsx')))
+  const rail = `${tree}\n${contextRail}\n${artifactRail}`
+  const contextDoor = stripComments(read(join(ROOT, 'src', 'components', 'DeferredContextChildren.tsx')))
+  const artifactDoor = stripComments(read(join(ROOT, 'src', 'components', 'DeferredArtifactChildren.tsx')))
   const page = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   for (const fn of ['artifactCollectionSections', 'contextCollectionSections', 'modelCollectionSections']) {
     assert.ok(rail.includes(`${fn}(`), `rail calls ${fn}`)
     assert.ok(page.includes(`${fn}(`), `page calls ${fn}`)
   }
-  assert.match(rail, /<CollectionSectionRows/)
-  assert.match(rail, /structuralCollectionProjection\(/, 'rail groups enter the shared runtime projection')
+  assert.match(tree, /<CollectionSectionRows/)
+  assert.match(tree, /structuralCollectionProjection\(/, 'the shared rail row template enters the runtime projection')
   assert.match(page, /structuralCollectionProjection\(/, 'page groups enter the shared runtime projection')
-  assert.match(rail, /<RailCollectionTemplate/, 'the rail projection owns structural group rendering')
+  assert.match(tree, /<RailCollectionTemplate/, 'the rail projection owns structural group rendering')
   assert.match(page, /<MainCollectionTemplate/, 'the page projection owns structural group rendering')
-  assert.match(rail, /data-collection-section=\{group\.key\}/)
-  assert.match(rail, /onOpenDetail\(section, \{ collectionSectionId: group\.key \}\)/)
-  assert.match(rail, /data-collection-section-resources=\{group\.key\}/)
+  assert.match(tree, /data-collection-section=\{group\.key\}/)
+  assert.match(tree, /onOpenDetail\(section, \{ collectionSectionId: group\.key \}\)/)
+  assert.match(tree, /data-collection-section-resources=\{group\.key\}/)
+  assert.match(tree, /<DeferredContextChildren renderRows=\{CollectionSectionRows\}/)
+  assert.match(tree, /<DeferredArtifactChildren renderRows=\{CollectionSectionRows\}/)
+  assert.match(contextDoor, /lazy\([\s\S]*import\('\.\/ContextChildren\.tsx'\)/,
+    'the actual context group body, not a concatenated decoy, is loaded at the door')
+  assert.match(artifactDoor, /lazy\([\s\S]*import\('\.\/ArtifactChildren\.tsx'\)/,
+    'the actual artifact group body is loaded at its door')
 })
 
 test('Artifacts groups by live project membership with an honest Unfiled tail', () => {

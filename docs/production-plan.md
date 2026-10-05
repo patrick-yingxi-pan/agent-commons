@@ -44,7 +44,39 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint starts the native boundary needed for approved default 1.
+The current checkpoint connects the native boundary to the Folder workflow for
+approved default 1. The desktop picker offers unchecked Remember, metadata-only
+Connect, and separate explicit Attach. Contexts gives each connection one
+canonical detail with Disconnect. Conversation copies persist independently;
+Refresh captures once per intent and retries those same bytes through a targeted
+compare-and-swap endpoint. Preview, shared reading and model input use saved
+content, never automatic filesystem reads. Native ownership comes from the
+trusted window's session cookie, with renderer identity used only as a matching
+precondition. Account transitions fence dialogs, reads and late acknowledgements.
+The client preserves old copies through failed capture/save, and ordinary stale
+workspace writes cannot rewind a refreshed folder.
+
+Five focused browser workflows pass: canonical main/rail navigation, failed
+module recovery, explicit capture and identical-byte Retry, responsive long-name
+controls, and owner/shared/foreign access. The separate responsive sweep passed
+135/135 cells with no violations or skips. The complete unsigned arm64 packaged
+gate passed real native readers, trusted IPC, encrypted remembered grants,
+temporary-grant expiry, saved-copy model input after relaunch/disconnect, and the
+existing credential, import/export and backup/restore journeys. Native dialog
+results and model responses remain test fixtures. The complete local verifier
+is the final landing gate; no GitHub CI is used. Bundle budgets remain unchanged;
+optional connection controls load on demand with visible, non-mutating recovery.
+
+Review caught and repaired short-landscape completion clipping, delayed request
+bodies adopting a detached-and-reattached folder, and shutdown leaving reads
+uncancelled. Their regression checks failed before repair. Account-generation
+fence removal also fails its lock. Shutdown now aborts active captures and
+refuses queued work without erasing remembered grants. Native acceptance exposed
+test-only assumptions about bridge shape, hidden chip controls, escaped newlines
+and which saved copies survive relaunch; exact identities and structured content
+assertions corrected these without weakening product guards or timeout budgets.
+
+The preceding checkpoint `175e2d12` started the native boundary for this default.
 The internal local-connection store separates device-private root identity and
 access lifetime from portable saved snapshots. Selection defaults to memory-only;
 only explicit opt-in enters an OS-encrypted private file. Account bindings are
@@ -64,16 +96,15 @@ checking read refusal first now fails when that wall is removed. Review also fou
 that the shared Linux storage check accepted unrecognized backend names. Its
 explicit known-secure allowlist now fails closed, with a failure-first regression.
 
-This is an internal foundation, not a completed user workflow: no renderer bridge,
-HTTP route, native menu or model tool calls it yet. The next checkpoint must derive
-the account binding in the trusted native caller, provide explicit selection and
-Remember/Disconnect controls, and wire Attach/Refresh with account-switch and
-acknowledgement recovery. Local Git remains a real-reader milestone, not the seeded
-repository picker. Browser remembered-directory support, recursive selection and
-real native Keychain/relaunch acceptance of this store are not claimed. The full
-Folder/Git workflow remains required; this checkpoint does not reduce its scope.
-The complete local verifier and unsigned packaged gate are required before landing
-these native modules. No public release or GitHub CI evidence is implied.
+That revision was an internal foundation; the current workflow supplies its
+renderer/HTTP integration. Local Git remains a required real-reader milestone,
+not the seeded repository picker. Browser remembered-directory support,
+recursive selection, actual native dialog interaction and signed/Intel release
+acceptance are not claimed by automated browser or unsigned arm64 smoke evidence.
+If an account changes after a remembered connection is committed and its cleanup
+also fails, the bridge withholds the result but the grant may remain for its
+original exact owner; no other account receives it. Explicit Check connections
+reconciles uncertain changes. The full Folder/Git workflow remains required.
 
 The preceding checkpoint `4b8852ee` closes the already-open conversation live-observation
 gap recorded below. Every authoritative pane read can discover a remotely

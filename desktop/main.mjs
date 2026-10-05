@@ -1,13 +1,17 @@
 import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { app, autoUpdater, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
 import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
+import localFolderChannels from './local-folder-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './authRoot.mjs'
 import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
 import { desktopProfileAclInspector } from './profileAcl.mjs'
 import { createNativeContextPicker } from './contextPicker.mjs'
+import { createLocalConnectionHost } from './localConnectionHost.mjs'
+import { LocalConnectionError, LOCAL_CONNECTION_FILE, openLocalConnectionStore } from './localConnectionStore.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
@@ -57,9 +61,19 @@ let mcpCredentialVault = null
 let mcpCredentialBackend = null
 let mcpCredentialLifecycle = null
 let dataBackend = null
+let localFolderStore = null
+let localFolderHost = null
+let localFolderCookieGeneration = 0
 let quitting = false
 let quitAfterBackend = false
 let restoreInProgress = false
+
+function beginShutdown() {
+  // This is a one-way lifecycle transition: queued native work is refused and
+  // in-flight local-folder captures are aborted before backend/window teardown.
+  quitting = true
+  localFolderStore?.shutdown()
+}
 let updateInProgress = false
 let desktopUpdater = null
 let backendRecoveryInProgress = false
@@ -108,6 +122,14 @@ async function startDesktop() {
   credentialVault = await openDesktopCredentialVault()
   mcpCredentialVault = await openMcpCredentialVaultForDesktop()
   mcpCredentialLifecycle = mcpCredentialVault ? createMcpCredentialLifecycle(mcpCredentialVault) : null
+  try {
+    localFolderStore = await openLocalConnectionStore({
+      filePath: join(app.getPath('userData'), LOCAL_CONNECTION_FILE),
+      storage: safeStorage,
+    })
+  } catch {
+    console.warn('[desktop] remembered local-folder storage is unavailable for this run.')
+  }
   let providerCredentials = {}
   if (credentialVault) {
     try {
@@ -124,6 +146,10 @@ async function startDesktop() {
   trustedOrigin = DEVELOPMENT ? exactLoopbackOrigin(DEV_RENDERER_URL) : backendOrigin
   rendererUrl = DEVELOPMENT ? trustedOrigin : backendOrigin
 
+  session.defaultSession.cookies.on('changed', (_event, cookie) => {
+    if (cookie?.name === 'uw_session') localFolderCookieGeneration += 1
+  })
+
   configureSessionPermissions(trustedOrigin)
   const backendHandle = await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials, authSecret })
   const backendFailure = () => backendHandle.exitError
@@ -136,6 +162,7 @@ async function startDesktop() {
   if (credentialVault) installCredentialIpc()
   if (mcpCredentialVault) installMcpCredentialIpc()
   installContextIpc()
+  installLocalFolderIpc()
   installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
   assertCurrentBackend(backendHandle)
@@ -280,7 +307,7 @@ async function installApprovedDesktopUpdate({ update, archive }) {
     return await runManagedUpdateLifecycle({
       createSafetyBackup: () => dataBackend.createBackup(),
       stopBackend: async () => {
-        quitting = true
+        beginShutdown()
         shutdownStarted = true
         await stopBackend({ requireExit: true })
       },
@@ -580,6 +607,75 @@ function installContextIpc() {
   })
 }
 
+async function readBoundedJson(response, maxBytes = 8192) {
+  if (!response.ok || !response.headers.get('content-type')?.toLowerCase().startsWith('application/json')) throw new Error('identity unavailable')
+  const declared = Number(response.headers.get('content-length'))
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error('identity too large')
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('identity unavailable')
+  const chunks = []
+  let length = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      length += value.byteLength
+      if (length > maxBytes) {
+        await reader.cancel().catch(() => {})
+        throw new Error('identity too large')
+      }
+      chunks.push(value)
+    }
+  } finally { reader.releaseLock() }
+  const bytes = new Uint8Array(length)
+  let offset = 0
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
+}
+
+async function resolveLocalFolderSource() {
+  if (!trustedOrigin || !backendReady || quitting) throw new LocalConnectionError()
+  const generation = localFolderCookieGeneration
+  const cookies = await session.defaultSession.cookies.get({ url: trustedOrigin })
+  const sessionCookie = cookies.find((cookie) => cookie.name === 'uw_session')
+  const cookieFingerprint = createHash('sha256').update(sessionCookie?.value ?? '').digest('hex')
+  const response = await fetch(`${trustedOrigin}/api/v1/me`, {
+    headers: {
+      Accept: 'application/json',
+      Origin: trustedOrigin,
+      ...(sessionCookie ? { Cookie: `uw_session=${sessionCookie.value}` } : {}),
+    },
+    redirect: 'error',
+    signal: AbortSignal.timeout(3000),
+  })
+  const identity = await readBoundedJson(response)
+  if (generation !== localFolderCookieGeneration) throw new LocalConnectionError()
+  return { identity, cookieGeneration: generation, cookieFingerprint }
+}
+
+function installLocalFolderIpc() {
+  if (localFolderStore) {
+    localFolderHost = createLocalConnectionHost({
+      store: localFolderStore,
+      assertCaller: (event) => assertTrustedDesktopCaller(event, 'Local folder access is not available from this page.'),
+      resolveSource: resolveLocalFolderSource,
+      showFolderDialog: async () => dialog.showOpenDialog(mainWindow, { title: 'Connect folder', properties: ['openDirectory'] }),
+      isClosing: () => quitting || !backendReady || !mainWindow || mainWindow.isDestroyed(),
+    })
+  }
+  for (const [name, method] of Object.entries(localFolderChannels)) {
+    ipcMain.handle(method, async (event, ...args) => {
+      try {
+        if (!localFolderHost) throw new LocalConnectionError()
+        return await localFolderHost[name](event, ...args)
+      } catch {
+        console.warn(`[desktop] ${method} failed.`)
+        throw new Error('The local folder is unavailable. Your saved snapshots have not been changed.')
+      }
+    })
+  }
+}
+
 function pipeLines(stream, onLine) {
   if (!stream) return
   let pending = ''
@@ -822,7 +918,7 @@ async function restoreFromManagedBackup({ startup = false } = {}) {
         return backup
       },
       stopBackend: async () => {
-        quitting = true
+        beginShutdown()
         shutdownStarted = true
         await stopBackend({ requireExit: true })
       },
@@ -857,11 +953,14 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
-  if (quitAfterBackend || (!backend && !desktopUpdater)) return
+  if (quitAfterBackend || (!backend && !desktopUpdater)) {
+    beginShutdown()
+    return
+  }
   event.preventDefault()
   if (updateInProgress) return
   if (quitting) return
-  quitting = true
+  beginShutdown()
   void Promise.resolve().then(() => desktopUpdater?.dispose())
     .catch(error => console.warn('[desktop] temporary update cleanup failed.', error))
     .then(() => stopBackend()).finally(() => {

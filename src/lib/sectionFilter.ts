@@ -100,6 +100,7 @@ export const SECTION_FILTERS: Partial<Record<SectionId, SectionFilterSpec>> = {
       { id: 'connector', label: 'Connectors' },
       { id: 'mcp', label: 'MCP servers' },
       { id: 'repo', label: 'Repositories' },
+      { id: 'local-folder', label: 'Local folders' },
     ],
     sorts: [
       { id: 'recency', label: 'Last used' },

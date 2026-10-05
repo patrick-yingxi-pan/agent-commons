@@ -1,5 +1,6 @@
 import type { Artifact, ArtifactKind, Workspace, WorkspaceFolder } from './entities.ts'
 import { isServedFolderSnapshot } from './servedFolderSnapshot.ts'
+import { isLocalFolderCapture, type LocalFolderCapture } from './localFolderCapture.ts'
 import { fsRecentKey } from './fs.ts'
 
 export type WorkspaceArtifact = Artifact & { savedFolderSnapshot?: import('./localFolderSnapshot.mjs').FolderFileSnapshot; savedFolderSnapshotId?: string }
@@ -13,9 +14,12 @@ export function workspaceArtifactKey(artifact: Pick<Artifact, 'id' | 'name' | 's
 export function isWorkspaceFolder(value: unknown): value is WorkspaceFolder {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const row = value as Record<string, unknown>
-  if (Object.keys(row).some((key) => !['id', 'label', 'snapshot'].includes(key))) return false
+  if (Object.keys(row).some((key) => !['id', 'label', 'snapshot', 'localSnapshot'].includes(key))) return false
   if (typeof row.id !== 'string' || !row.id || typeof row.label !== 'string' || !row.label) return false
-  return row.snapshot === undefined || (isServedFolderSnapshot(row.snapshot) && row.id === fsRecentKey(row.snapshot.sourceId, row.snapshot.path))
+  if (row.snapshot !== undefined && row.localSnapshot !== undefined) return false
+  if (row.snapshot !== undefined) return isServedFolderSnapshot(row.snapshot) && row.id === fsRecentKey(row.snapshot.sourceId, row.snapshot.path)
+  if (row.localSnapshot !== undefined) return isLocalFolderCapture(row.localSnapshot) && row.id === fsRecentKey('ui-host', row.localSnapshot.connectionId)
+  return true
 }
 
 /** Additive validator for workspace folder records; old workspace rows remain valid. */
@@ -65,13 +69,15 @@ const artifactKind = (name: string): ArtifactKind => {
 
 export function workspaceArtifacts(workspace: Workspace): WorkspaceArtifact[] {
   const folders = workspaceFolders(workspace)
-  const captured = new Set(folders.filter((folder) => folder.snapshot).map((folder) => folder.id))
+  const captured = new Set(folders.filter((folder) => folder.snapshot || folder.localSnapshot).map((folder) => folder.id))
   const legacy = (Array.isArray(workspace.artifacts) ? workspace.artifacts : []).filter((artifact) => !artifact?.source || !captured.has(artifact.source.id))
   const projected = folders.flatMap((folder): WorkspaceArtifact[] => {
-    const snapshot = folder.snapshot
+    const snapshot = folder.snapshot ?? folder.localSnapshot
     if (!snapshot) return []
     return snapshot.files.map((file) => ({
-      id: fsRecentKey(snapshot.sourceId, `${snapshot.path}/${file.name}`), name: file.name,
+      id: 'sourceId' in snapshot
+        ? fsRecentKey(snapshot.sourceId, `${snapshot.path}/${file.name}`)
+        : fsRecentKey('ui-host', `${snapshot.connectionId}/${file.name}`), name: file.name,
       kind: artifactKind(file.name), meta: `${file.sizeBytes} bytes`, source: { id: folder.id, label: folder.label },
       savedFolderSnapshot: file.snapshot, savedFolderSnapshotId: snapshot.snapshotId,
     }))
@@ -84,6 +90,20 @@ export function replaceServedFolderSnapshot(workspace: Workspace, folderId: stri
   const folders = workspaceFolders(workspace)
   const old = folders.find((folder) => folder.id === folderId)
   const folder: WorkspaceFolder = { id: folderId, label: old?.label ?? snapshot.path.split('/').at(-1) ?? folderId, snapshot }
+  const artifacts = (workspace.artifacts ?? []).filter((artifact) => artifact?.source?.id !== folderId)
+  const nextFolders = old
+    ? folders.map((item) => item.id === folderId ? folder : item)
+    : [...folders, folder]
+  return { ...workspace, artifacts, folders: nextFolders }
+}
+
+/** Replace one local folder's saved copy, never introducing its native path. */
+export function replaceLocalFolderSnapshot(workspace: Workspace, folderId: string, snapshot: LocalFolderCapture): Workspace {
+  if (folderId !== fsRecentKey('ui-host', snapshot.connectionId)) throw new Error('Local folder snapshot identity mismatch.')
+  const folders = workspaceFolders(workspace)
+  const old = folders.find((folder) => folder.id === folderId)
+  const { snapshot: _served, ...metadata } = old ?? { id: folderId, label: folderId }
+  const folder: WorkspaceFolder = { ...metadata, id: folderId, localSnapshot: snapshot }
   const artifacts = (workspace.artifacts ?? []).filter((artifact) => artifact?.source?.id !== folderId)
   const nextFolders = old
     ? folders.map((item) => item.id === folderId ? folder : item)

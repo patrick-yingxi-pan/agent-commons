@@ -76,6 +76,7 @@ export interface Workspace {
 
 export interface WorkspaceFolder extends ArtifactSource {
   snapshot?: import('./servedFolderSnapshot.ts').ServedFolderSnapshot
+  localSnapshot?: import('./localFolderCapture.ts').LocalFolderCapture
 }
 
 /** A repo attached to the conversation. A conversation can hold several — each

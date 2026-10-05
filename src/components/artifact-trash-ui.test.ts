@@ -13,7 +13,7 @@ test('Artifact Trash is one owner-only canonical lifecycle and shared recovery p
   assert.match(page, /enqueueArtifactLifecycle\(trashReview\.artifact, 'trashed', trashReview\.sourceUserId\)/)
   assert.match(page, /setTrashReview\(\{ artifact: structuredClone\(artifact\), sourceUserId \}\)/)
   assert.match(page, /draftState !== undefined/)
-  for (const file of ['./SectionView.tsx', './SectionTreeChildren.tsx']) {
+  for (const file of ['./SectionView.tsx', './ArtifactChildren.tsx']) {
     const projection = read(file)
     assert.match(projection, /artifactTrashProjection\(rel\.allArtifacts\(\), trashQ\.data \?\? \[\], heldArtifactLifecycles\(\)\.map/)
     assert.match(projection, /useArtifactLifecycleStatus\(\)/)

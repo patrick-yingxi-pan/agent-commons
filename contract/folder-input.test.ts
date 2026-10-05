@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { planAttachmentInput, workspaceInputAttachments } from './attachmentInput.ts'
-import type { Artifact, SessionWorkspace } from './entities.ts'
+import { ATTACHMENT_TEXT_FILE_BYTES, planAttachmentInput, workspaceInputAttachments } from './attachmentInput.ts'
+import type { Artifact, SessionWorkspace, Workspace } from './entities.ts'
+import { replaceLocalFolderSnapshot } from './workspaceFolders.ts'
 
 const folder = (artifacts: Artifact[]) => ({ attachments: [], workspaces: [{ id: 'ws', label: 'Workspace', artifacts }] })
 const source = { id: 'ui-host::opaque', label: 'research/' }
@@ -42,4 +43,59 @@ test('saved served-folder bodies become exact snapshot attachments after direct 
   assert.equal(attachments[1]?.textSnapshot?.path, 'docs/a.txt')
   assert.equal(attachments[2]?.textSnapshot, undefined)
   assert.equal(attachments[2]?.id, 'cloud::docs/z.bin')
+})
+
+test('native local-folder captures become stable UI-host inputs with whole-file limits and omissions intact', () => {
+  const connectionId = 'LOCAL_0123456789ABCDEF0123456789ABCDEF' as const
+  const folderId = `ui-host::${connectionId}`
+  const largeText = 'x'.repeat(ATTACHMENT_TEXT_FILE_BYTES)
+  const capture = {
+    version: 1 as const, snapshotId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    capturedAt: '2026-10-04T12:00:00.000Z', connectionId,
+    files: [
+      { name: 'a.md', sizeBytes: new TextEncoder().encode(largeText).byteLength, snapshot: { text: largeText } },
+      { name: 'b.md', sizeBytes: 4, snapshot: { text: 'full' } },
+      { name: 'image.png', sizeBytes: 9, snapshot: { omitted: 'unsupported' as const } },
+    ],
+  }
+  const workspace: Workspace = {
+    id: 'ws', label: 'Workspace', artifacts: [],
+    folders: [{ id: folderId, label: 'Local/', localSnapshot: capture }],
+  }
+  const attachments = workspaceInputAttachments({ attachments: [], workspaces: [workspace] })
+  assert.deepEqual(attachments.map((item) => item.id), [
+    `ui-host::${connectionId}/a.md`, `ui-host::${connectionId}/b.md`, `ui-host::${connectionId}/image.png`,
+  ])
+  assert.equal(attachments[0]?.source?.id, 'ui-host')
+  assert.equal(attachments[0]?.source?.kind, 'ui-host')
+  assert.equal(attachments[0]?.label, 'Local/a.md')
+  assert.equal(attachments[0]?.previewText, largeText, 'an exact 64 KiB saved body stays whole')
+  assert.equal(attachments[2]?.previewText, undefined, 'omitted binary content remains metadata only')
+  const plan = planAttachmentInput(attachments)
+  assert.deepEqual(plan.map((item) => item.status), ['ready', 'ready', 'unavailable'])
+  assert.equal(plan[0]?.bytes, ATTACHMENT_TEXT_FILE_BYTES)
+  assert.equal(plan[1]?.attachment.previewText, 'full')
+})
+
+test('local-folder input after Refresh uses only the replacement capture bytes', () => {
+  const connectionId = 'LOCAL_FEDCBA9876543210FEDCBA9876543210' as const
+  const folderId = `ui-host::${connectionId}`
+  const workspace: Workspace = {
+    id: 'ws', label: 'Workspace', artifacts: [],
+    folders: [{ id: folderId, label: 'Local/', localSnapshot: {
+      version: 1, snapshotId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      capturedAt: '2026-10-04T12:00:00.000Z', connectionId,
+      files: [{ name: 'notes.md', sizeBytes: 3, snapshot: { text: 'old' } }],
+    } }],
+  }
+  const refreshed = replaceLocalFolderSnapshot(workspace, folderId, {
+    version: 1, snapshotId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    capturedAt: '2026-10-04T12:01:00.000Z', connectionId,
+    files: [{ name: 'notes.md', sizeBytes: 3, snapshot: { text: 'new' } }],
+  })
+  const attachments = workspaceInputAttachments({ attachments: [], workspaces: [refreshed] })
+  assert.equal(attachments.length, 1)
+  assert.equal(attachments[0]?.id, `ui-host::${connectionId}/notes.md`)
+  assert.equal(attachments[0]?.previewText, 'new')
+  assert.equal(attachments.some((item) => item.previewText === 'old'), false)
 })

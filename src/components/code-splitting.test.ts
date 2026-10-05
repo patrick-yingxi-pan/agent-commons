@@ -5,6 +5,59 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
 
+test('expanded Contexts rail rows load registry and native metadata behind local recovery', () => {
+  const tree = stripComments(read(join(ROOT, 'src/components/SectionTreeChildren.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextChildren.tsx')))
+  const boundary = stripComments(read(join(ROOT, 'src/components/DeferredRailChildren.tsx')))
+  const body = stripComments(read(join(ROOT, 'src/components/ContextChildren.tsx')))
+  assert.doesNotMatch(tree, /import\s+\{\s*useLocalFolderConnections\s*\}\s+from/,
+    'native connection metadata is absent from the eager tree graph')
+  assert.match(tree, /<DeferredContextChildren\b/, 'the Contexts branch enters through its deferred shell')
+  assert.match(deferred, /lazy\(\(\)\s*=>\s*import\('\.\/ContextChildren\.tsx'\)/,
+    'the Contexts body is admitted only when its branch expands')
+  assert.match(boundary, /data-rail-children-loading[\s\S]*Loading \$\{label\}/,
+    'loading remains visible in the expanded branch')
+  assert.match(deferred, /lazy\([\s\S]*DeferredRailChildrenBoundary/)
+  assert.match(boundary, /data-rail-children-load-error[\s\S]*Couldn’t load \$\{label\} rows/)
+  assert.match(boundary, /getDerivedStateFromError/,
+    'a rejected chunk has a local failure face')
+  assert.match(boundary, /Reload \$\{label\}[\s\S]*window\.location\.reload\(\)/,
+    'recovery is explicit and reloads the document')
+  assert.match(boundary, /Copy any unsent workspace text before reloading/)
+  assert.match(body, /useLocalFolderConnections\(\)/,
+    'only the deferred body reads native connection metadata')
+  assert.doesNotMatch(body, /captureLocalFolder|refreshLocalFolder|snapshot\(/,
+    'rail expansion lists metadata without browsing or capturing folder contents')
+  assert.match(body, /CollectionSectionRows/,
+    'the body reuses the shared collection projection template')
+  const artifactBody = stripComments(read(join(ROOT, 'src/components/ArtifactChildren.tsx')))
+  const artifactDoor = stripComments(read(join(ROOT, 'src/components/DeferredArtifactChildren.tsx')))
+  assert.doesNotMatch(tree, /import\s+\{\s*useTrashedArtifacts\s*\}|artifactLifecycleMutations|artifactTrashProjection/,
+    'artifact lifecycle and Trash projection are absent until the branch opens')
+  assert.match(tree, /<DeferredArtifactChildren\b/)
+  assert.match(artifactDoor, /lazy\(\(\) => import\('\.\/ArtifactChildren\.tsx'\)/)
+  assert.match(artifactBody, /artifactTrashProjection[\s\S]*CollectionSectionRowsProps/)
+  assert.match(artifactBody, /renderRows: Rows/,
+    'artifact rows reuse the shared rail collection renderer without a chunk cycle')
+})
+
+test('MCP setup and detail bodies stay behind cancellable lazy wrappers in SectionView', () => {
+  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredMcpConnectionPanel.tsx')))
+  assert.doesNotMatch(section, /import\s+\{[^}]*McpConnection(?:CreateDialog|Detail)[^}]*\}\s+from\s+['"]\.\/McpConnectionPanel/,
+    'the large MCP panel is absent from the SectionPane graph')
+  assert.match(section, /DeferredMcpConnectionCreateDialog/)
+  assert.match(section, /DeferredMcpConnectionDetail/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/McpConnectionPanel\.tsx'\)/,
+    'both low-frequency MCP bodies share the module’s deferred chunk')
+  assert.match(deferred, /CreateFallback[\s\S]*useFocusTrap\(dialogRef, onClose, \{ initialFocus: cancelRef \}\)[\s\S]*useBoundedDialog\(dialogRef\)[\s\S]*BOUNDED_DIALOG_LAYER_CLASS[\s\S]*Reload app[\s\S]*Cancel/,
+    'create loading/error uses the shared bounded modal grammar and keeps Cancel/reload')
+  assert.match(deferred, /DetailFallback[\s\S]*<AtomicResourcePage[\s\S]*<BackButton to=\{backTo\} onBack=\{onBack\} \/>[\s\S]*Reload details/,
+    'detail loading/error preserves canonical page back navigation and explicit reload')
+  assert.match(deferred, /getDerivedStateFromError[\s\S]*Suspense/,
+    'module failures stay inside the named MCP recovery shells')
+})
+
 test('context browsing loads only after explicit Browse with local cancel and warned reload', () => {
   const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextBrowseDialog.tsx')))

@@ -15,6 +15,7 @@ import { mergeServedFolderRefresh } from './servedFolderRefreshCore.ts'
 
 interface Deferred {
   request: UpdateSessionContextStateRequest
+  expectedSessionUserId?: string | null
   resolve: (value: SessionContextState) => void
   reject: (error: Error) => void
 }
@@ -26,8 +27,8 @@ function harness(initialLive: Live = EMPTY_LIVE) {
   const commits: string[] = []
   const controller = createContextMutationController({
     snapshot: () => snapshot,
-    mutate: (_sid, request) => new Promise<SessionContextState>((resolve, reject) => {
-      calls.push({ request, resolve, reject })
+    mutate: (_sid, request, expectedSessionUserId) => new Promise<SessionContextState>((resolve, reject) => {
+      calls.push({ request, expectedSessionUserId, resolve, reject })
     }),
     commit: (_sid, _before, planned, returned) => {
       snapshot = {
@@ -120,6 +121,19 @@ test('a failed head stays retryable and blocks later intents until explicit retr
   ack(h.calls[2]!)
   await tick()
   assert.deepEqual(h.snapshot().live.connectors.map((connector) => connector.id), ['slack', 'notion'])
+})
+
+test('a queued context intent freezes its account source across explicit retry', async () => {
+  const h = harness()
+  const intent = { ...addConnector('slack'), expectedSessionUserId: 'user-dispatch' }
+  h.controller.enqueue('s1', intent)
+  assert.equal(h.calls[0]?.expectedSessionUserId, 'user-dispatch')
+  h.calls[0]!.reject(new Error('account transition in flight'))
+  await tick()
+  h.controller.retry('s1')
+  assert.equal(h.calls[1]?.expectedSessionUserId, 'user-dispatch', 'retry cannot rebind the queued bytes to a later account')
+  ack(h.calls[1]!)
+  await tick()
 })
 
 test('clearing on account switch drops a late acknowledgement', async () => {

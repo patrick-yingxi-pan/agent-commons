@@ -27,22 +27,30 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   let contextAttempts = 0
   const contextRequests: Array<{ sid: string; operations: number }> = []
   const contextWorkspaces: unknown[] = []
+  const createSources: Array<string | null | undefined> = []
+  const frozenCreateSources: Array<boolean | undefined> = []
+  const contextSources: Array<string | null | undefined> = []
+  let currentSource: string | null = 'user-at-dispatch'
   const deps: DraftDeps = {
-    createSession: (text, { idempotencyKey }) => {
+    createSession: (text, { idempotencyKey, expectedSessionUserId, freezeSessionWriteSource }) => {
       created += 1
       creationKeys.push(idempotencyKey)
+      createSources.push(expectedSessionUserId)
+      frozenCreateSources.push(freezeSessionWriteSource)
       log.push(`create:${text}`)
       return opts?.failCreate ? Promise.reject(new Error('unreachable')) : Promise.resolve(session(`real-${created}`))
     },
-    updateContextState: (sid, request) => {
+    updateContextState: (sid, request, expectedSessionUserId) => {
       contextAttempts += 1
       contextRequests.push({ sid, operations: request.operations.length })
       contextWorkspaces.push(request.workspace)
+      contextSources.push(expectedSessionUserId)
       log.push(`context:${sid}:${request.operations.length}`)
       return opts?.failContextOnce && contextAttempts === 1
         ? Promise.reject(new Error('context unavailable'))
         : Promise.resolve()
     },
+    captureSessionWriteSourceUserId: () => currentSource,
     patchSession: (sid, p) => {
       patches.push({ id: sid, ...p })
       return Promise.resolve()
@@ -69,7 +77,11 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
       },
     },
   }
-  return { deps, log, prefs, patches, focuses, contextRequests, contextWorkspaces, creationKeys, createdCount: () => created }
+  return {
+    deps, log, prefs, patches, focuses, contextRequests, contextWorkspaces, creationKeys, createSources, frozenCreateSources, contextSources,
+    setCurrentSource: (source: string | null) => { currentSource = source },
+    createdCount: () => created,
+  }
 }
 
 test('first send materializes, adopts, then streams under the real id — in that order', async () => {
@@ -115,7 +127,7 @@ test('a rapid second send COALESCES into the first materialization (one session,
 })
 
 test('FWD-1 seeds flush BEFORE the turn streams (P6: tools derive from server-side contexts)', async () => {
-  const { deps, log } = fakeDeps()
+  const { deps, log, contextSources } = fakeDeps()
   const draft = createDraftController(deps)
   draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
   await draft.sendDraftTurn('go', () => ({}))
@@ -123,6 +135,7 @@ test('FWD-1 seeds flush BEFORE the turn streams (P6: tools derive from server-si
   const sendAt = log.findIndex((l) => l.startsWith('send:real-1'))
   assert.ok(attachAt !== -1, 'the buffered context was attached to the real session')
   assert.ok(attachAt < sendAt, 'binding lands BEFORE the turn streams')
+  assert.deepEqual(contextSources, ['user-at-dispatch'], 'the seed flush stays bound to the draft send source')
   // A second send has nothing left to flush (the buffer cleared).
   await draft.sendDraftTurn('again', () => ({}))
   assert.equal(log.filter((l) => l.startsWith('context:')).length, 1)
@@ -195,28 +208,54 @@ test('unreachable server: the turn streams against the draft id, and a retry re-
     'automatic reconciliation and manual Retry retain one durable creation identity')
 })
 
-test('a lost materialization response automatically recovers the exact committed session', async () => {
-  const { deps, log } = fakeDeps()
+test('a lost materialization response automatically recovers the exact committed session under its dispatch source', async () => {
+  const { deps, log, createSources, frozenCreateSources, setCurrentSource } = fakeDeps()
   const rows = new Map<string, Session>()
   const keys: string[] = []
   let attempts = 0
-  deps.createSession = (text, { idempotencyKey }) => {
+  deps.createSession = (text, { idempotencyKey, expectedSessionUserId, freezeSessionWriteSource }) => {
     attempts += 1
     keys.push(idempotencyKey)
+    createSources.push(expectedSessionUserId)
+    frozenCreateSources.push(freezeSessionWriteSource)
     const represented = rows.get(idempotencyKey) ?? session(`real-${rows.size + 1}`)
     rows.set(idempotencyKey, represented)
-    return attempts === 1
-      ? Promise.reject(new Error('response lost after commit'))
-      : Promise.resolve(represented)
+    if (attempts === 1) {
+      setCurrentSource('user-after-switch')
+      return Promise.reject(new Error('response lost after commit'))
+    }
+    return Promise.resolve(represented)
   }
   const draft = createDraftController(deps)
   await draft.sendDraftTurn('go', () => ({}))
   assert.equal(keys[1], keys[0])
+  assert.deepEqual(createSources, ['user-at-dispatch', 'user-at-dispatch'], 'automatic same-key retry retains the frozen source')
+  assert.deepEqual(frozenCreateSources, [true, true])
   assert.equal(rows.size, 1, 'one logical draft owns one server row')
   assert.ok(log.includes('adopt:draft->real-1'))
   assert.ok(log.includes('send:real-1:go'))
   assert.equal(log.includes(`send:${DRAFT_ID}:go`), false,
     'represented server truth wins before any ephemeral fallback')
+})
+
+test('draft materialization preserves an uncached source as absent across automatic retry', async () => {
+  const { deps, createSources, frozenCreateSources, setCurrentSource } = fakeDeps()
+  deps.captureSessionWriteSourceUserId = () => undefined
+  let attempts = 0
+  deps.createSession = (_text, options) => {
+    createSources.push(options.expectedSessionUserId)
+    frozenCreateSources.push(options.freezeSessionWriteSource)
+    attempts += 1
+    if (attempts === 1) {
+      setCurrentSource('later-cached-user')
+      return Promise.reject(new Error('response lost'))
+    }
+    return Promise.resolve(session('real-recovered'))
+  }
+  const draft = createDraftController(deps)
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.deepEqual(createSources, [undefined, undefined])
+  assert.deepEqual(frozenCreateSources, [true, true], 'absence is a frozen dispatch fact, not permission to recalculate on Retry')
 })
 
 test('a failed superseded materialization cannot clear or send into the new draft', async () => {

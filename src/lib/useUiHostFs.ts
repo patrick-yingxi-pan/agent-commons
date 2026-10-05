@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import type { UiHostDropZone as UiHostDropZoneComponent } from '../components/UiHostDropZone.tsx'
+import type { NativeLocalFolderPicker } from '../components/LocalFolderConnections.tsx'
 
 export type UiHostFsModule = Pick<
   typeof import('./uiHostFs'),
   'pickUiHostFiles' | 'readDroppedFiles' | 'pickUiHostFolder'
-> & { UiHostDropZone: typeof UiHostDropZoneComponent }
+> & { UiHostDropZone: typeof UiHostDropZoneComponent; NativeLocalFolderPicker: typeof NativeLocalFolderPicker }
 
 export type UiHostFsLoadState =
   | { status: 'idle'; module: null }
@@ -27,9 +28,9 @@ export function useUiHostFs(enabled: boolean): UiHostFsLoadState {
       return () => { alive = false }
     }
     setState({ status: 'loading', module: null })
-    void Promise.all([import('./uiHostFs'), import('../components/UiHostDropZone.tsx')]).then(([loaded, dropZone]) => {
+    void Promise.all([import('./uiHostFs'), import('../components/UiHostDropZone.tsx'), import('../components/LocalFolderConnections.tsx')]).then(([loaded, dropZone, localFolders]) => {
       if (!alive) return
-      setState({ status: 'ready', module: { ...loaded, UiHostDropZone: dropZone.UiHostDropZone } })
+      setState({ status: 'ready', module: { ...loaded, UiHostDropZone: dropZone.UiHostDropZone, NativeLocalFolderPicker: localFolders.NativeLocalFolderPicker } })
     }).catch(() => {
       if (!alive) return
       setState({ status: 'error', module: null })

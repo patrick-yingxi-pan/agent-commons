@@ -1,7 +1,7 @@
 import { useCallback, useContext, useEffect, useId, useMemo, useRef, useState, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { createPortal } from 'react-dom'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
-import { McpConnectionCreateDialog, McpConnectionDetail } from './McpConnectionPanel.tsx'
+import { DeferredMcpConnectionCreateDialog, DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import {
   AlertCircle,
@@ -23,6 +23,7 @@ import {
   ExternalLink,
   FileText,
   Folder,
+  FolderOpen,
   FolderGit2,
   GitBranch,
   GitFork,
@@ -216,11 +217,19 @@ import {
 } from '../lib/collectionProjection'
 import {
   ACCOUNT_MCP_SECTION,
+  LOCAL_FOLDERS_SECTION,
+  localFolderCollectionSection,
+  type LocalFolderContextRow,
+  type CollectionSection,
   artifactCollectionSections,
   collectionSectionLabel,
   contextCollectionSections,
   modelCollectionSections,
 } from '../lib/collectionSections'
+import { LocalFolderConnect, LocalFolderDetail, LocalFolderRow, LocalFolderStatus } from './DeferredLocalFolders.tsx'
+import { useLocalFolderConnections } from '../controller/localFolderConnections.ts'
+import { localFoldersAvailable } from '../api/localFolderCapability.ts'
+import { isLocalConnectionId } from '../../contract/localFolderCapture.ts'
 import { clampRoutineFilter, filterRoutines } from '../lib/routineFilter'
 import { clampSessionFilter, filterSessions } from '../lib/sessionFilter'
 import { relativeTime, shortRelativeTime } from '../lib/relativeTime'
@@ -8141,6 +8150,7 @@ function AddContextControl({
 }) {
   const [open, setOpen] = useState(false)
   const [mcpSetup, setMcpSetup] = useState(false)
+  const [localSetup, setLocalSetup] = useState(false)
   const ref = useDismissable<HTMLDivElement>(open, () => setOpen(false))
   const popRef = usePopoverShift<HTMLDivElement>(open)
 
@@ -8170,6 +8180,13 @@ function AddContextControl({
           className={`absolute right-0 z-30 mt-2 w-[320px] overflow-hidden ${POPOVER_SURFACE}`}
         >
           <div className="max-h-[min(60dvh,420px)] overflow-y-auto p-2">
+            {localFoldersAvailable() && <>
+              <button type="button" onClick={() => setLocalSetup(value => !value)} aria-expanded={localSetup}
+                className="mb-2 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] font-medium text-accent-strong hover:bg-panel-2">
+                <FolderOpen size={15} />Connect a local folder
+              </button>
+              {localSetup && <LocalFolderConnect />}
+            </>}
             <button type="button" onClick={() => { setOpen(false); setMcpSetup(true) }}
               className="mb-2 flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-[13px] font-medium text-accent-strong hover:bg-panel-2">
               <Server size={15} />Add an MCP server
@@ -8198,7 +8215,7 @@ function AddContextControl({
           </div>
         </div>
       )}
-      {mcpSetup && <McpConnectionCreateDialog onClose={() => setMcpSetup(false)} />}
+      {mcpSetup && <DeferredMcpConnectionCreateDialog onClose={() => setMcpSetup(false)} />}
     </div>
   )
 }
@@ -8260,6 +8277,7 @@ function ContextsSection({
   // on every other client. Until that first answer, the registry stays empty — a
   // bundled demo row is not a truthful substitute for server-owned state.
   const saved = useContextRegistryProjection()
+  const localFolders = useLocalFolderConnections()
   const items = saved.data?.contexts ?? []
   const me = useMe().data
   const creation = useSavedContextCreationStatus()
@@ -8319,7 +8337,10 @@ function ContextsSection({
     />
   ) : null
   if (contextId && isExternalMcpId(contextId)) {
-    return <McpConnectionDetail key={contextId} id={contextId} onBack={onBack} backTo={backTo} />
+    return <DeferredMcpConnectionDetail key={contextId} id={contextId} onBack={onBack} backTo={backTo} />
+  }
+  if (contextId && isLocalConnectionId(contextId)) {
+    return <LocalFolderDetail key={contextId} id={contextId} onBack={onBack} backTo={backTo} />
   }
   if (open)
     return (
@@ -8354,12 +8375,16 @@ function ContextsSection({
   const visible = listContexts(items, filter).filter(
     (c) => needle === '' || c.label.toLowerCase().includes(needle) || c.detail.toLowerCase().includes(needle),
   )
-  const groups = contextCollectionSections(visible).filter((group) => group.items.length > 0)
+  const allGroups: CollectionSection<SavedContext | LocalFolderContextRow>[] = [
+    ...contextCollectionSections(visible),
+    ...(localFolders.available ? [localFolderCollectionSection(localFolders.rows, filter, query)] : []),
+  ]
+  const groups = allGroups.filter((group) => group.items.length > 0 || group.id === LOCAL_FOLDERS_SECTION.id)
   const selectedLabel = collectionSectionId
     ? collectionSectionLabel('contexts', collectionSectionId)
     : undefined
   const selectedResourceGroup = collectionSectionId
-    ? contextCollectionSections(visible).find((group) => group.id === collectionSectionId) ?? null
+    ? allGroups.find((group) => group.id === collectionSectionId) ?? null
     : null
   const accountMcpSelected = collectionSectionId === ACCOUNT_MCP_SECTION.id
   const sectionSelected = selectedLabel !== undefined
@@ -8373,7 +8398,7 @@ function ContextsSection({
     : accountMcpSelected
       ? [accountMcpGroup]
       : [...groups, accountMcpGroup]
-  const projection = structuralCollectionProjection({
+  const projection = structuralCollectionProjection<SavedContext | LocalFolderContextRow>({
     section: 'contexts',
     fallbackLabel: 'Contexts',
     empty: 'No contexts match.',
@@ -8382,9 +8407,9 @@ function ContextsSection({
       key: group.id,
       label: group.label,
       summary: group.id === ACCOUNT_MCP_SECTION.id ? accountMcpGroup.summary : undefined,
-      keepEmpty: selectedResourceGroup?.id === group.id || group.id === ACCOUNT_MCP_SECTION.id,
+      keepEmpty: selectedResourceGroup?.id === group.id || group.id === ACCOUNT_MCP_SECTION.id || group.id === LOCAL_FOLDERS_SECTION.id,
       empty: 'No contexts in this section.',
-      items: collectionProjectionItems(
+      items: collectionProjectionItems<SavedContext | LocalFolderContextRow>(
         group.items,
         (context) => context.id,
         (context) => context.label,
@@ -8414,20 +8439,23 @@ function ContextsSection({
           section="contexts"
           filter={<SectionFilterMenu section="contexts" placement="page" />}
         />
+        {localFolders.available && <LocalFolderStatus />}
 
         <MainCollectionTemplate
           projection={projection}
-          renderItem={(item) => (
+          renderItem={(item) => item.value.kind === 'local-folder'
+            ? <LocalFolderRow connection={item.value} onOpen={() => rel.navigate('contexts', item.value.id)} /> : (
             <ContextRow
               ctx={item.value}
               onOpen={() => rel.navigate('contexts', item.value.id)}
               onToggle={() => toggle(item.value.id)}
               mutationHeld={mutationHeld(item.value.id)}
-              onRemove={() => requestRemove(item.value)}
+              onRemove={() => { if (item.value.kind !== 'local-folder') requestRemove(item.value) }}
             />
           )}
           renderEmptyGroup={(group) =>
-            group.key === ACCOUNT_MCP_SECTION.id ? <McpAccessCard /> : undefined
+            group.key === ACCOUNT_MCP_SECTION.id ? <McpAccessCard />
+              : group.key === LOCAL_FOLDERS_SECTION.id && localFolders.status === 'ready' ? <p className="py-2 text-[12px] text-ink-soft">{localFolders.rows.length ? 'No local folders match this filter.' : 'Use Add context → Connect a local folder. Connections belong to this account on this device; saved conversation copies are separate.'}</p> : undefined
           }
         />
       </CompositeResourcePage>

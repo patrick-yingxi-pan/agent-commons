@@ -16,9 +16,6 @@
  *
  *  Each section's children mount only while its row is EXPANDED, so a rail
  *  that never opens Models never fetches providers. */
-import { useTrashedArtifacts } from '../api/artifactLifecycle'
-import { heldArtifactLifecycles, useArtifactLifecycleStatus } from '../controller/artifactLifecycleMutations'
-import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import {
   Children,
   Fragment,
@@ -61,7 +58,7 @@ import {
 } from '../lib/sidebar'
 import { RAIL_INSTANCE_CAP, SECTION_INSTANCE_KEY } from '../lib/subviews'
 import { useSectionFilter } from '../lib/useSectionFilter'
-import { groupProjects, listArtifacts, listContexts, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
+import { groupProjects, listDiscussions, listProjects, listProviders } from '../lib/sectionLists'
 import {
   OWNER_PROFILE_SECTIONS,
   PROJECT_SECTIONS,
@@ -71,13 +68,9 @@ import {
   type ProjectSectionId,
 } from '../lib/compositeSections'
 import { AGENT_SECTIONS, agentSectionForSubview, agentToolLabel } from '../lib/agentStructure'
-import {
-  ACCOUNT_MCP_SECTION,
-  artifactCollectionSections,
-  contextCollectionSections,
-  modelCollectionSections,
-  type CollectionSection,
-} from '../lib/collectionSections'
+import { modelCollectionSections, type CollectionSection } from '../lib/collectionSections'
+import { DeferredContextChildren } from './DeferredContextChildren.tsx'
+import { DeferredArtifactChildren } from './DeferredArtifactChildren.tsx'
 import { railFoldAffects, type RailFoldSignal } from '../lib/railSplit'
 import {
   capCollectionProjection,
@@ -90,7 +83,6 @@ import {
   type CollectionProjectionGroup,
   type CollectionProjectionItem,
 } from '../lib/collectionProjection'
-import { collectionEmptyCopy } from '../lib/collectionEmpty'
 
 /** Stable, path-shaped identity for one canonical rail node. A split stores
  * this key rather than a row ordinal, so filtering, capping, and async arrival
@@ -1461,10 +1453,17 @@ function ProjectSectionBranch({
 
 type CollectionRailItem = { id: string; label: string; seed: PaneSeed }
 
+export type CollectionSectionRowsProps = {
+  section: SectionId
+  groups: CollectionSection<CollectionRailItem>[]
+  empty: string
+  foldSignal?: RailFoldSignal | null
+} & InstanceChildProps
+
 /** Collection roots preserve the same intermediate section level their main
  * pages draw. The section row is itself a canonical page; its resources sit
  * one guide deeper and keep their existing canonical leaf pages. */
-function CollectionSectionRows({
+export function CollectionSectionRows({
   section,
   groups,
   empty,
@@ -1472,12 +1471,7 @@ function CollectionSectionRows({
   activeSeed,
   onOpenDetail,
   foldSignal,
-}: {
-  section: SectionId
-  groups: CollectionSection<CollectionRailItem>[]
-  empty: string
-  foldSignal?: RailFoldSignal | null
-} & InstanceChildProps) {
+}: CollectionSectionRowsProps) {
   const projection = structuralCollectionProjection({
     section,
     fallbackLabel: section,
@@ -1503,59 +1497,11 @@ function CollectionSectionRows({
 }
 
 function ArtifactChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
-  const [filter] = useSectionFilter('artifacts')
-  const rel = useRelations()
-  const trashQ = useTrashedArtifacts()
-  useArtifactLifecycleStatus()
-  const library = artifactTrashProjection(rel.allArtifacts(), trashQ.data ?? [], heldArtifactLifecycles().map(held => held.artifact))
-  const artifacts = library.active
-  const rows = listArtifacts(artifacts, filter)
-  const allGroups = artifactCollectionSections(artifacts, rel.allProjects(), rel.artifactProjectId, library.trashed)
-  const groups = artifactCollectionSections(rows, rel.allProjects(), rel.artifactProjectId, listArtifacts(library.trashed, filter))
-  const activeGroup = props.activeSeed?.collectionSectionId
-    ? allGroups.find((group) => group.id === props.activeSeed?.collectionSectionId)
-    : undefined
-  // A standing facet may hide every leaf in the selected structural section.
-  // Keep its section row mounted anyway: the main page preserves the same
-  // empty selected section, and navigation structure must not disappear merely
-  // because a filter currently leaves it with zero visible resources.
-  const visibleGroups = activeGroup && !groups.some((group) => group.id === activeGroup.id)
-    ? [...groups, { ...activeGroup, items: [] }]
-    : groups
-  return (
-    <CollectionSectionRows
-      section="artifacts"
-      groups={visibleGroups.map((group) => ({
-        ...group,
-        items: group.items.map((artifact) => ({ id: artifact.id, label: artifact.name, seed: { artifactId: artifact.id } })),
-      }))}
-      empty={collectionEmptyCopy('artifacts', artifacts.length)}
-      foldSignal={foldSignal}
-      {...props}
-    />
-  )
+  return <DeferredArtifactChildren renderRows={CollectionSectionRows} foldSignal={foldSignal} {...props} />
 }
 
 function ContextChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {
-  const [filter] = useSectionFilter('contexts')
-  const rows = listContexts(useContextRegistryProjection().data?.contexts ?? [], filter)
-  const activeGroupId = props.activeSeed?.collectionSectionId
-  const groups = [
-    ...contextCollectionSections(rows).filter((group) => group.items.length > 0 || group.id === activeGroupId).map((group) => ({
-      ...group,
-      items: group.items.map((context) => ({ id: context.id, label: context.label, seed: { contextId: context.id } })),
-    })),
-    { ...ACCOUNT_MCP_SECTION, items: [] },
-  ]
-  return (
-    <CollectionSectionRows
-      section="contexts"
-      groups={groups}
-      empty="No contexts here yet."
-      foldSignal={foldSignal}
-      {...props}
-    />
-  )
+  return <DeferredContextChildren renderRows={CollectionSectionRows} foldSignal={foldSignal} {...props} />
 }
 
 function ProviderChildren({ foldSignal, ...props }: InstanceChildProps & { foldSignal?: RailFoldSignal | null }) {

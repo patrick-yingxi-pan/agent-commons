@@ -34,16 +34,19 @@ export interface ContextMutationPlan {
   }
   folderRefresh?: RefreshServedAttachmentRequest & {
     folderId: string
+    kind?: 'local'
     reconciled?: boolean
     baselineSnapshotId?: string | null
   }
 }
 
 export interface ContextMutationIntent {
+  /** Account source captured when queued; retries must retain this precondition. */
+  expectedSessionUserId?: string | null
   plan: (snapshot: ContextMutationSnapshot) => ContextMutationPlan
   /** Targeted refresh participates in the same FIFO without replacing stale
    * whole-workspace state on the server. It returns the usual acknowledgement. */
-  mutate?: (snapshot: ContextMutationSnapshot, plan: ContextMutationPlan) => Promise<SessionContextState>
+  mutate?: (snapshot: ContextMutationSnapshot, plan: ContextMutationPlan, expectedSessionUserId?: string | null) => Promise<SessionContextState>
   /** Read authoritative current state before an explicit safe dismissal. This
    *  is never called for retry-only intents and must not issue another write. */
   reconcile?: (snapshot: ContextMutationSnapshot, signal: AbortSignal) => Promise<SessionContextState>
@@ -56,7 +59,7 @@ export type ContextMutationOutcome = 'applied' | 'discarded'
 
 export interface ContextMutationDeps {
   snapshot: (sessionId: string) => ContextMutationSnapshot
-  mutate: (sessionId: string, request: UpdateSessionContextStateRequest) => Promise<SessionContextState>
+  mutate: (sessionId: string, request: UpdateSessionContextStateRequest, expectedSessionUserId?: string | null) => Promise<SessionContextState>
   commit: (
     sessionId: string,
     before: ContextMutationSnapshot,
@@ -126,8 +129,8 @@ export function createContextMutationController(deps: ContextMutationDeps) {
     deps.setStatus(sessionId, { busy: true, error: null, retryable: false })
     entry.failedPlan = planned
     void (intent.mutate
-      ? intent.mutate(before, planned)
-      : deps.mutate(sessionId, { operations: planned.operations, workspace: workspaceOf(planned.live) }))
+      ? intent.mutate(before, planned, intent.expectedSessionUserId)
+      : deps.mutate(sessionId, { operations: planned.operations, workspace: workspaceOf(planned.live) }, intent.expectedSessionUserId))
       .then(
         (returned) => {
           // An account switch clears the queue; its late response belongs to a
@@ -214,7 +217,8 @@ export function createContextMutationController(deps: ContextMutationDeps) {
               ...entry.failedPlan.folderRefresh,
               reconciled: true,
               baselineSnapshotId: before.live.workspaces.flatMap((workspace) => workspaceFolders(workspace))
-                .find((folder) => folder.id === entry.failedPlan!.folderRefresh!.folderId)?.snapshot?.snapshotId ?? null,
+                .find((folder) => folder.id === entry.failedPlan!.folderRefresh!.folderId)
+                ?.[entry.failedPlan.folderRefresh.kind === 'local' ? 'localSnapshot' : 'snapshot']?.snapshotId ?? null,
             },
           }
         : entry.failedPlan

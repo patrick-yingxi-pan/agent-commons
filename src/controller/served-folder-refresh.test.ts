@@ -13,6 +13,12 @@ const snapshot = (snapshotId: string, text: string) => ({
 const sid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const requestId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const folderId = fsRecentKey('cloud', 'docs')
+const localConnectionId = 'LOCAL_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as const
+const localFolderId = fsRecentKey('ui-host', localConnectionId)
+const localCapture = (snapshotId: string, text: string, connectionId = localConnectionId) => ({
+  version: 1 as const, snapshotId, capturedAt: '2026-10-04T12:00:00.000Z', connectionId,
+  files: [{ name: 'notes.md', sizeBytes: new TextEncoder().encode(text).length, snapshot: { text } }],
+})
 const initialWorkspace: Workspace = {
   id: 'ws', label: 'Workspace',
   folders: [{ id: folderId, label: 'Docs', snapshot: snapshot(sid, 'old') }],
@@ -89,4 +95,87 @@ test('folder reconciliation adopts canonical capture, handles legacy folder, and
   const staleReconcile = mergeServedFolderRefresh({ ...live, workspaces: [{ ...initialWorkspace, folders: [{ id: folderId, label: 'Docs', snapshot: snapshot(requestId, 'local newer') }] }] },
     returned([]), { folderId, expectedSnapshotId: sid, requestId, reconciled: true, baselineSnapshotId: sid })
   assert.equal(staleReconcile.workspaces[0]?.folders?.[0]?.snapshot?.snapshotId, requestId)
+})
+
+test('local folder refresh replaces only the exact capture target and preserves unrelated newer live state', () => {
+  const unrelatedId = fsRecentKey('ui-host', 'LOCAL_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
+  const priorLocal = localCapture(sid, 'old')
+  const unrelatedLocal = localCapture('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'newer unrelated')
+  const workspace: Workspace = {
+    id: 'ws', label: 'Workspace',
+    folders: [
+      { id: localFolderId, label: 'Local docs', localSnapshot: priorLocal },
+      { id: unrelatedId, label: 'Other local folder', localSnapshot: unrelatedLocal },
+    ],
+    artifacts: [{ id: 'keep', name: 'authored.md', kind: 'doc', meta: 'authored' }],
+  }
+  const current = { ...live, workspaces: [workspace], repos: [{ id: 'newer-repo', label: 'Newer', path: '/repo' }] }
+  const captured = localCapture(requestId, 'fresh local bytes')
+  const result = mergeServedFolderRefresh(current, returned([{
+    ...workspace,
+    folders: [
+      { id: localFolderId, label: 'Local docs', localSnapshot: captured },
+      { id: unrelatedId, label: 'Other local folder', localSnapshot: localCapture(sid, 'stale unrelated') },
+    ],
+    artifacts: [],
+  }]), { kind: 'local', folderId: localFolderId, expectedSnapshotId: sid, requestId })
+
+  assert.equal(result.workspaces[0]?.folders?.find((folder) => folder.id === localFolderId)?.localSnapshot?.files[0]?.snapshot.text, 'fresh local bytes')
+  assert.equal(result.workspaces[0]?.folders?.find((folder) => folder.id === unrelatedId)?.localSnapshot?.snapshotId, unrelatedLocal.snapshotId)
+  assert.deepEqual(result.workspaces[0]?.artifacts, workspace.artifacts, 'authored rows survive targeted capture replacement')
+  assert.deepEqual(result.repos, current.repos, 'newer unrelated session state is not replaced by the response')
+})
+
+test('local folder refresh rejects a mismatched connection receipt and keeps old or unresolved snapshots', () => {
+  const workspace: Workspace = {
+    id: 'local-ws', label: 'Local workspace',
+    folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: localCapture(sid, 'saved') }],
+    artifacts: [],
+  }
+  const current = { ...EMPTY_LIVE, workspaces: [workspace] }
+  const target = { kind: 'local' as const, folderId: localFolderId, expectedSnapshotId: sid, requestId }
+  const mismatched = mergeServedFolderRefresh(current, returned([{
+    ...workspace,
+    folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: localCapture(requestId, 'wrong receipt', 'LOCAL_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB') }],
+  }]), target)
+  assert.equal(mismatched.workspaces[0]?.folders?.[0]?.localSnapshot?.snapshotId, sid)
+
+  const missingAck = mergeServedFolderRefresh(current, returned([]), target)
+  assert.equal(missingAck.workspaces[0]?.folders?.[0]?.localSnapshot?.snapshotId, sid, 'a missing target in an ordinary acknowledgement is not a detach')
+  const missingCapture = mergeServedFolderRefresh(current, returned([{
+    ...workspace, folders: [{ id: localFolderId, label: 'Local docs' }],
+  }]), target)
+  assert.equal(missingCapture.workspaces[0]?.folders?.[0]?.localSnapshot?.snapshotId, sid, 'an unresolved capture cannot erase saved bytes')
+
+  const newer = localCapture('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'newer live state')
+  const newerCurrent = { ...current, workspaces: [{ ...workspace, folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: newer }] }] }
+  const staleAcknowledgement = mergeServedFolderRefresh(newerCurrent, returned([{
+    ...workspace, folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: localCapture(requestId, 'stale response') }],
+  }]), target)
+  assert.equal(staleAcknowledgement.workspaces[0]?.folders?.[0]?.localSnapshot?.snapshotId, newer.snapshotId)
+})
+
+test('local folder dismissal reconciliation applies only against the unchanged local baseline', () => {
+  const workspace: Workspace = {
+    id: 'local-ws', label: 'Local workspace',
+    folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: localCapture(sid, 'before') }],
+    artifacts: [],
+  }
+  const current = { ...EMPTY_LIVE, workspaces: [workspace] }
+  const target = { kind: 'local' as const, folderId: localFolderId, expectedSnapshotId: sid, requestId, reconciled: true, baselineSnapshotId: sid }
+  const canonicalCapture = localCapture(requestId, 'committed before lost acknowledgement')
+  const reconciled = mergeServedFolderRefresh(current, returned([{
+    ...workspace, folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: canonicalCapture }],
+  }]), target)
+  assert.equal(reconciled.workspaces[0]?.folders?.[0]?.localSnapshot?.files[0]?.snapshot.text, 'committed before lost acknowledgement')
+
+  const nowNewer = localCapture('cccccccc-cccc-4ccc-8ccc-cccccccccccc', 'another refresh')
+  const changed = { ...current, workspaces: [{ ...workspace, folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: nowNewer }] }] }
+  const staleRead = mergeServedFolderRefresh(changed, returned([{
+    ...workspace, folders: [{ id: localFolderId, label: 'Local docs', localSnapshot: canonicalCapture }],
+  }]), target)
+  assert.equal(staleRead.workspaces[0]?.folders?.[0]?.localSnapshot?.snapshotId, nowNewer.snapshotId, 'a dismissal read cannot rewind a changed local target')
+
+  const confirmedDetached = mergeServedFolderRefresh(current, returned([]), target)
+  assert.equal(confirmedDetached.workspaces.length, 0, 'authoritative dismissal may remove the exact unchanged target')
 })

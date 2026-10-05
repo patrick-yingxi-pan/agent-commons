@@ -140,8 +140,11 @@ test('the rail and the page compute a section’s list with the SAME function', 
     discussions: 'listDiscussions',
     scheduled: 'filterRoutines',
   }
+  const tree = stripComments(read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')))
   const rail = stripComments(
-    read(join(ROOT, 'src', 'components', 'SectionTreeChildren.tsx')) +
+    tree +
+      read(join(ROOT, 'src', 'components', 'ContextChildren.tsx')) +
+      read(join(ROOT, 'src', 'components', 'ArtifactChildren.tsx')) +
       read(join(ROOT, 'src', 'components', 'Sidebar.tsx')),
   )
   const page = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
@@ -155,6 +158,13 @@ test('the rail and the page compute a section’s list with the SAME function', 
     assert.ok(rail.includes(`${fn}(`), `the rail's ${section} children go through ${fn}`)
     assert.ok(page.includes(`${fn}(`), `the ${section} page goes through ${fn}`)
   }
+  assert.match(tree, /<DeferredContextChildren renderRows=\{CollectionSectionRows\}/)
+  assert.match(tree, /<DeferredArtifactChildren renderRows=\{CollectionSectionRows\}/)
+  assert.match(stripComments(read(join(ROOT, 'src', 'components', 'DeferredContextChildren.tsx'))),
+    /lazy\([\s\S]*import\('\.\/ContextChildren\.tsx'\)/)
+  assert.match(stripComments(read(join(ROOT, 'src', 'components', 'DeferredArtifactChildren.tsx'))),
+    /lazy\([\s\S]*import\('\.\/ArtifactChildren\.tsx'\)/,
+    'extracted row funnels are reachable from the rail rather than satisfying the scan as dead copies')
 })
 
 test('the instance tail row unfolds in place — never a jump to the section page', () => {

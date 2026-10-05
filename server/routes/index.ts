@@ -4239,6 +4239,7 @@ export function buildRouter(): Router {
   // cache means Retry sees current row truth and can never replay a deleted or
   // since-renamed HTTP envelope.
   r.post('/sessions', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const tenantId = store.identity(req.headers).tenant.id
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     const logicalSessionId = idempotencyKey
@@ -4251,6 +4252,7 @@ export function buildRouter(): Router {
     if (represented === 'invalid') return sendError(res, 'bad_request', 'This conversation creation identity is not valid for this account')
     if (represented === 'retired') return sendError(res, 'not_found', 'This draft was already removed')
     const { firstMessage, persistFirstMessage, providerId, modelId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
+    if (!accountTransitionSourceMatches(req, res)) return
     if (persistFirstMessage !== undefined && persistFirstMessage !== true) {
       return sendError(res, 'bad_request', 'persistFirstMessage, when present, must be true')
     }
@@ -4401,12 +4403,14 @@ export function buildRouter(): Router {
   // request failure to commit only one half; this complete-state transaction is
   // deliberately idempotent so a lost acknowledgement can be retried safely.
   r.patch('/sessions/:id/context-state', async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     if (denyForeignSession(req, res, params.id)) return
     const session = store.getSession(params.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     const tenantId = store.identity(req.headers).tenant.id
     if (!store.sessionOwnedBy(session, tenantId)) return sendError(res, 'forbidden', 'Only the conversation owner may change attached context.')
     const input = await body<UpdateSessionContextStateRequest>()
+    if (!accountTransitionSourceMatches(req, res)) return
     const ws = input?.workspace
     if (!input || !Array.isArray(input.operations)) {
       return sendError(res, 'bad_request', 'operations and workspace are required')
@@ -4448,7 +4452,7 @@ export function buildRouter(): Router {
     sendJson(res, store.updateSessionContextState(params.id, input.operations, ws))
   })
 
-  registerServedFileSnapshotRoutes(r, denyForeignSession)
+  registerServedFileSnapshotRoutes(r, denyForeignSession, accountTransitionSourceMatches)
 
   // Send a turn → stream the assistant reply as SSE (mirrors the Anthropic
   // Messages API). The body carries typed events, not just text: an assistant

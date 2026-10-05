@@ -8,9 +8,12 @@ const source = (name: string) => stripComments(read(join(ROOT, 'src', name)))
 test('real MCP identities open the authoritative shared catalog, never the fixture detail', () => {
   const panel = source('components/ConnectorPanel.tsx')
   const page = source('components/SectionView.tsx')
+  const deferred = source('components/DeferredMcpConnectionPanel.tsx')
   assert.match(panel, /if \(isExternalMcpId\(connector\.id\)\) return <McpConnectionPreview/)
   assert.match(page, /if \(contextId && isExternalMcpId\(contextId\)\)/)
-  assert.match(page, /<McpConnectionDetail key=\{contextId\}/)
+  assert.match(page, /<DeferredMcpConnectionDetail key=\{contextId\}/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/McpConnectionPanel\.tsx'\)\.then\(\(module\) => \(\{ default: module\.McpConnectionDetail \}\)\)\)/,
+    'the real external detail remains the body behind the deferred boundary')
   assert.match(page, /!isExternalMcpId\(ctx\.id\) && <div/)
   const catalog = source('components/McpCatalogBody.tsx')
   assert.match(catalog, /Refresh this catalog before attaching the server/)

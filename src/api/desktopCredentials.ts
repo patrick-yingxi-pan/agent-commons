@@ -4,6 +4,7 @@ import type { DocxImportStatus } from '../../contract/docxImport.mjs'
 import type { XlsxImportStatus } from '../../contract/xlsxImport.mjs'
 import type { PptxImportStatus } from '../../contract/pptxImport.mjs'
 import type { McpCredentialBinding } from '../../contract/mcpConnections.ts'
+import type { NativeLocalFolderBridge } from '../../contract/localFolderCapture.ts'
 
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
@@ -65,6 +66,7 @@ export interface DesktopBridge {
   context?: {
     pickFiles(accept: 'image' | 'any'): Promise<DesktopFilePickResult>
     pickFolder(): Promise<DesktopFolderPickResult>
+    localFolders?: NativeLocalFolderBridge
   }
   credentials?: {
     provision(secret: string): Promise<string>

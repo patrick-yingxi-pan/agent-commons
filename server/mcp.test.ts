@@ -190,6 +190,21 @@ test('curated body examples: every key is a real mutation route, the spine is co
   const created = await toolCall('post_sessions', ex('POST /sessions'), seam)
   assert.equal(created.status, 200, 'POST /sessions example creates')
   const sid = created.body.id
+  const localConnectionId = 'LOCAL_0123456789ABCDEF0123456789ABCDEF'
+  const localFolderId = `ui-host::${localConnectionId}`
+  assert.equal((await toolCall('patch_sessions_by_id_context_state', {
+    id: sid,
+    body: {
+      operations: [{ action: 'attach', context: {
+        id: localFolderId, type: 'folder', label: 'Local notes', scope: localConnectionId,
+        source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+      } }],
+      workspace: { workspaces: [{ id: 'w', label: 'Workspace', artifacts: [], folders: [{ id: localFolderId, label: 'Local notes' }] }], repos: [], connectors: [], attachments: [] },
+    },
+  }, seam)).status, 200, 'a local-folder refresh example has an existing attached target')
+  assert.equal((await toolCall('post_sessions_by_id_local_folders_by_folder_id_refresh', {
+    id: sid, folderId: localFolderId, ...ex('POST /sessions/:id/local-folders/:folderId/refresh'),
+  }, seam)).status, 200, 'local-folder refresh accepts its frozen empty-capture example')
   assert.equal(
     (await toolCall('post_sessions_by_id_messages', { id: sid, ...ex('POST /sessions/:id/messages') }, seam)).status,
     200,
@@ -291,7 +306,7 @@ test('curated body examples: every key is a real mutation route, the spine is co
 
   // The coverage ratchet: a NEW example key must be added to the success-path
   // drive above — this count pins the two lists together.
-  assert.equal(API_BODY_EXAMPLES.size, 15, 'every example key is driven through its success path above (update both together)')
+  assert.equal(API_BODY_EXAMPLES.size, 16, 'every example key is driven through its success path above (update both together)')
 })
 
 test('a malformed schedule seed is refused with a descriptive 400, not a crash (INV-9 — the shape the examples teach is guarded)', async () => {

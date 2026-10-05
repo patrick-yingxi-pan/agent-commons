@@ -21,11 +21,14 @@ test('main and rail collection projections consume the one empty-copy funnel', (
   const sectionView = component('SectionView.tsx')
   const sidebar = component('Sidebar.tsx')
   const tree = component('SectionTreeChildren.tsx')
+  const artifactRail = component('ArtifactChildren.tsx')
 
   assert.match(sectionView, /collectionEmptyCopy\('sessions', sessions\.length\)/)
   assert.match(sectionView, /collectionEmptyCopy\('artifacts', artifacts\.length\)/)
   assert.match(sectionView, /collectionEmptyCopy\('routines', items\.length\)/)
   assert.match(sidebar, /collectionEmptyCopy\('sessions', sessions\.length\)/)
   assert.match(sidebar, /collectionEmptyCopy\('routines', routines\.length\)/)
-  assert.match(tree, /collectionEmptyCopy\('artifacts', artifacts\.length\)/)
+  assert.match(artifactRail, /collectionEmptyCopy\('artifacts', artifacts\.length\)/)
+  assert.match(tree, /DeferredArtifactChildren/,
+    'the rail consumes the deferred body that owns the shared empty-copy decision')
 })
