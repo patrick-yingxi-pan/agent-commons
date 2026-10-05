@@ -121,6 +121,14 @@ macOS desktop development and packaging also require Apple's command-line tools
 (`/usr/bin/clang`) to build the small, bundled read-only profile ACL inspector.
 End users do not need a compiler.
 
+macOS packaging additionally compiles a pinned Git source archive with Apple's
+toolchain, verifies its SHA-256 before extraction, and checks the resulting
+architecture, version and system-only libraries. Its first build downloads the
+source from kernel.org; subsequent builds reuse the verified archive under
+ignored `desktop/bin/`. The app includes that exact source, license texts and
+build recipe beside the executable. This is the dependency for the approved
+read-only Git context workflow, not a shipped repository connection yet.
+
 ```bash
 npm install
 npm run dev        # UI 127.0.0.1:5173 + API 127.0.0.1:8787 + mock model :8788

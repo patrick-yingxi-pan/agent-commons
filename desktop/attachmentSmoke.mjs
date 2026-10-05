@@ -1053,6 +1053,7 @@ export async function smokePackagedAttachments({ executable }) {
       }, localSession.id)
       assert.deepEqual(afterFailedRefresh, beforeFailedRefresh, 'failed native refresh and Use saved state preserve the exact saved workspace')
       await page.setViewportSize({ width: 375, height: 812 })
+      await settledAttachmentPreview(page, '[data-folder-snapshot-preview]')
     } finally {
       await rename(`${ephemeralFolder}-held`, ephemeralFolder)
     }

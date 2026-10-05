@@ -42,7 +42,50 @@ credentials. Signing/notarization credentials, download hosting, and native Inte
 acceptance remain release prerequisites. Feature implementation must retain the
 existing local verification, UI/native acceptance, and spec-ledger requirements.
 
+### Approved follow-on decisions (2026-10-05)
+
+The owner approved the three recommendations requested after the Folder checkpoint:
+
+- Real Git context captures tracked working-tree files, including uncommitted
+  edits, through explicit Attach or Refresh; untracked and ignored files stay
+  excluded. Remember remains opt-in and access stays read-only.
+- Bundle a pinned Git executable so end users do not need a separate Git install.
+- Previous artifact versions are owner-only and retained without automatic
+  pruning until permanent deletion. Shared readers see only the current version.
+
+These are implementation targets, not completed acceptance. Permanent-deletion
+cascade semantics and original-image retention remain separate decisions. The
+Git milestone starts with the verified native executable and its source/license
+distribution, then connects capture, persistence, model input and user controls.
+
 ## Progress and next milestones
+
+The Git checkpoint begins the approved bundled-executable prerequisite. macOS
+packaging builds the checksum-pinned upstream Git 2.56.0 source for the explicit
+target architecture using only Apple's toolchain and system libraries. Source,
+license texts and an exact build recipe accompany the executable outside ASAR;
+build inputs and acceptance helpers stay excluded. The source archive is sealed
+as app data, while the Git executable remains in normal hardened-runtime signing.
+Review removed the generic Electron JIT entitlement from standalone Git; its
+empty entitlement set retains signing and hardened runtime. A disposable ad-hoc
+signed copy passed strict verification and execution, not Developer ID/notarization.
+Package and extracted-release acceptance verify source/license identity, binary
+architecture/version and link dependencies, then enumerate tracked files in a
+generated repository without changing its index or metadata. This does not yet
+connect a user's repository: read-only capture, remembered access, Attach/Refresh,
+portable persistence and saved-only model input remain the next Git work. Native
+Intel and signed release evidence remain separate gates.
+
+Both source builds passed their architecture/system-library checks; only arm64
+was executed here. The rebuilt unsigned arm64 app passed the complete native
+smoke suite and the first local verifier passed all 470 browser tests. Checksum,
+architecture, signing-exclusion and JIT-entitlement regressions were watched
+fail their locks. A repeat packaged run timed out when the Folder recovery walk
+reset from desktop to phone and selected closing controls before the requested
+tier settled. The harness now reuses its existing exact-tier/geometry readiness
+check after that reset; no product behavior, retries or timeouts changed. Landing
+requires the complete local verifier and packaged acceptance on the corrected
+tree, with their outcomes recorded in the checkpoint handoff; no GitHub CI is used.
 
 The current checkpoint repairs native Folder recovery observed in the recorded
 macOS walk. A closed native outcome preserves busy and connection-limit guidance,

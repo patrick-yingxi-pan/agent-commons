@@ -8,6 +8,8 @@ import { packager } from '@electron/packager'
 import { generateDesktopIcons, verifyPackagedDesktopIcon } from './icons.mjs'
 import packagerConfig from './packager.config.mjs'
 import { buildDesktopProfileHelper } from './profileHelperBuild.mjs'
+import { buildBundledGit } from './bundledGitBuild.mjs'
+import { verifyBundledGitDirectory } from './bundledGit.mjs'
 
 const require = createRequire(import.meta.url)
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -38,6 +40,7 @@ export async function packageDesktop({
   releaseOptions,
 } = {}) {
   const profileHelperPath = buildDesktopProfileHelper({ targetPlatform, targetArch })
+  const gitDirectory = await buildBundledGit({ targetPlatform, targetArch })
   await generateDesktopIcons()
   await run(process.execPath, [VITE_BIN, 'build'])
 
@@ -65,7 +68,7 @@ export async function packageDesktop({
     electronZipDir: dirname(zipPath),
     platform: targetPlatform,
     arch: targetArch,
-    ...(profileHelperPath ? { extraResource: [profileHelperPath] } : {}),
+    extraResource: [profileHelperPath, gitDirectory].filter(Boolean),
     ...(releaseOptions ?? {}),
   })
   if (!artifacts.length || artifacts.some((artifact) => !existsSync(artifact))) {
@@ -75,6 +78,12 @@ export async function packageDesktop({
     artifactPath,
     targetPlatform,
   })))
+  if (targetPlatform === 'darwin') {
+    for (const artifact of artifacts) await verifyBundledGitDirectory(
+      join(artifact, 'Agent Commons.app', 'Contents', 'Resources', 'agent-commons-git'),
+      { targetArch, execute: targetArch === process.arch },
+    )
+  }
   if (targetPlatform === 'darwin') console.log('[desktop-package] verified canonical macOS app icon')
   for (const artifact of artifacts) console.log(`[desktop-package] ${artifact}`)
   return artifacts

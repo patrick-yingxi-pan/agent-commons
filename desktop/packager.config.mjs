@@ -59,12 +59,15 @@ export function ignoreFromPackage(path) {
     normalized === 'desktop/bin' ||
     normalized.startsWith('desktop/bin/') ||
     normalized === 'desktop/entitlements.mac.plist' ||
+    normalized === 'desktop/entitlements.git.plist' ||
     [
       'desktop/dev.mjs',
       'desktop/icons.mjs',
       'desktop/package.mjs',
       'desktop/packager.config.mjs',
       'desktop/profileHelperBuild.mjs',
+      'desktop/bundledGitBuild.mjs',
+      'desktop/bundledGitSmoke.mjs',
       'desktop/release-plan.mjs',
       'desktop/release-publish.mjs',
       'desktop/release-set.mjs',

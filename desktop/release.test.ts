@@ -20,6 +20,7 @@ import {
 } from './release-plan.mjs'
 import { publishImmutableRelease, publishImmutableReleaseSet } from './release-publish.mjs'
 import { finalizeMacDirectDownloadSet } from './release-set.mjs'
+import { BUNDLED_GIT } from './bundledGit.mjs'
 
 const root = '/repo'
 const manifest = { version: '0.1.0', productName: 'Agent Commons' }
@@ -118,6 +119,17 @@ test('direct download release pins signing, Keychain notarization, and architect
     '/repo/desktop/entitlements.mac.plist',
   )
   assert.equal(plan.packagerOptions.osxSign.optionsForFile(`${plan.appPath}/Contents/Frameworks/Agent Commons Helper (Plugin).app`), null)
+  const nativeGit = `${plan.appPath}/Contents/Resources/agent-commons-git`
+  const ignored = (path) => plan.packagerOptions.osxSign.ignore.some((predicate) => predicate(path))
+  assert.equal(ignored(`${nativeGit}/${BUNDLED_GIT.sourceArchive}`), true, 'source archive is sealed data, not executable code')
+  assert.equal(ignored(`${nativeGit}/git`), false, 'the bundled executable must still be signed')
+  assert.equal(ignored(`${nativeGit}/${BUNDLED_GIT.sourceArchive}.dylib`), false)
+  assert.equal(ignored(plan.appPath), false)
+  assert.equal(plan.packagerOptions.osxSign.optionsForFile(`${nativeGit}/git`).entitlements,
+    '/repo/desktop/entitlements.git.plist')
+  const gitEntitlements = readFileSync(new URL('./entitlements.git.plist', import.meta.url), 'utf8')
+  assert.match(gitEntitlements, /<dict\s*\/>/)
+  assert.doesNotMatch(gitEntitlements, /<key>/, 'standalone Git needs no JIT or other entitlement')
 })
 
 test('release identity is read from the app and its executable, not inferred for the receipt', () => {

@@ -2,6 +2,7 @@ import { basename, dirname, join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import packagerConfig, { DESKTOP_BUNDLE_ID, DESKTOP_PRODUCT_NAME } from './packager.config.mjs'
 import { assertUpdateBaseUrl, parseStableVersion } from './updateMetadata.mjs'
+import { BUNDLED_GIT } from './bundledGit.mjs'
 
 export const DIRECT_DOWNLOAD_ENV = Object.freeze({
   signingIdentity: 'APPLE_SIGNING_IDENTITY',
@@ -55,11 +56,18 @@ function signingOptions({ identity, keychain, entitlementsPath }) {
     strictVerify: true,
     continueOnError: false,
     preAutoEntitlements: false,
+    // The source archive is data, sealed by the enclosing app signature. Do
+    // not apply executable signing/xattrs to it; the adjacent Mach-O Git is
+    // still discovered and signed normally, then checked again after extraction.
+    ignore: [(filePath) => filePath.endsWith(`/Contents/Resources/agent-commons-git/${BUNDLED_GIT.sourceArchive}`)],
     preEmbedProvisioningProfile: false,
     // The plugin helper needs Electron's extra executable-memory/library
     // exceptions. Renderer and GPU helpers already resolve to this same JIT
     // profile; every generic binary avoids osx-sign's broad device defaults.
     optionsForFile(filePath) {
+      if (filePath.endsWith('/Contents/Resources/agent-commons-git/git')) {
+        return { entitlements: join(dirname(entitlementsPath), 'entitlements.git.plist') }
+      }
       return filePath.includes('(Plugin).app') ? null : { entitlements: entitlementsPath }
     },
   }
