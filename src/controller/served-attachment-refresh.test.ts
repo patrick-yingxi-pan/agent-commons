@@ -110,3 +110,26 @@ test('capturing a legacy preview replaces its preview-only payload with one vali
   assert.equal(merged.attachments[0]?.textSnapshot?.snapshotId, requestId)
   assert.equal(isAttachmentInput(merged.attachments[0]), true)
 })
+
+test('image receipt merge preserves exact target, newer snapshots, kind and reconciliation baseline', () => {
+  const image = { id: 'img-' + 'a'.repeat(64), mimeType: 'image/png' as const, width: 2, height: 2, byteLength: 80 }
+  const captured = (snapshotId: string) => ({ version: 1 as const, snapshotId, capturedAt: '2026-01-01T00:00:00.000Z', sourceId: 'cloud', path: 'a.png', image })
+  for (const kind of ['file', 'photo'] as const) {
+    const photo = { id: 'cloud::a.png', label: 'a.png', kind, source, imageSnapshot: captured(expectedSnapshotId) }
+    const target = { attachmentId: photo.id, expectedSnapshotId, requestId }
+    const canonical = { ...photo, imageSnapshot: captured(requestId) }
+    const merged = mergeServedAttachmentRefresh(live([photo]), state([canonical]), target)
+    assert.deepEqual(merged.attachments, [canonical])
+    assert.equal(isAttachmentInput(merged.attachments[0]), true)
+    const newer = { ...photo, imageSnapshot: captured(remoteSnapshotId) }
+    assert.deepEqual(mergeServedAttachmentRefresh(live([newer]), state([canonical]), target).attachments, [newer])
+    assert.deepEqual(mergeServedAttachmentRefresh(live([]), state([canonical]), target).attachments, [])
+    assert.deepEqual(mergeServedAttachmentRefresh(live([photo]), state([canonical]), { ...target, reconciled: true, baselineSnapshotId: remoteSnapshotId }).attachments, [photo])
+    assert.deepEqual(mergeServedAttachmentRefresh(live([photo]), state([newer]), { ...target, reconciled: true, baselineSnapshotId: expectedSnapshotId }).attachments, [newer])
+    assert.deepEqual(mergeServedAttachmentRefresh(live([photo]), state([{ ...canonical, kind: kind === 'photo' ? 'file' : 'photo' }]), target).attachments, [photo])
+    const legacy = { ...photo, imageSnapshot: undefined, previewUrl: 'stale://unreadable' }
+    const upgrade = mergeServedAttachmentRefresh(live([legacy]), state([canonical]), { ...target, expectedSnapshotId: null })
+    assert.equal(upgrade.attachments[0].previewUrl, undefined)
+    assert.deepEqual(upgrade.attachments[0].imageSnapshot, canonical.imageSnapshot)
+  }
+})

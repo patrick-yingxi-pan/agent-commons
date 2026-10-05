@@ -45,7 +45,7 @@ export function registerServedFileSnapshotRoutes(
     if (!owner()) return
     const input = await body<unknown>()
     if (!owner()) return
-    if (!isRefreshServedAttachmentRequest(input)) {
+    if (!isRefreshServedAttachmentRequest(input) || 'snapshot' in input || 'imageSnapshot' in input) {
       return sendError(res, 'bad_request', 'expectedSnapshotId (UUID or null) and a distinct requestId UUID are required.')
     }
     try {
@@ -123,7 +123,7 @@ export function registerServedFileSnapshotRoutes(
       return sendError(res, 'conflict', 'The attached file changed while reading. The saved copy is unchanged.')
     }
     if (!isRefreshServedAttachmentRequest(input)) {
-      return sendError(res, 'bad_request', 'A valid expected snapshot, refresh key, and optional complete saved document are required.')
+      return sendError(res, 'bad_request', 'A valid expected snapshot, refresh key, and optional complete saved file or image are required.')
     }
     try {
       const state = store.refreshSessionAttachment(params.id, params.attachmentId, input)

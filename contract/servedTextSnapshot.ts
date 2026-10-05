@@ -1,5 +1,10 @@
 import { MAX_FOLDER_SNAPSHOT_FILE_BYTES } from './localFolderSnapshot.mjs'
 import { isDocumentImportOutcome, type DocumentImportOutcome } from './documentImport.mjs'
+import type { ServedImageSnapshot } from './servedImageSnapshot.ts'
+import { isServedImageSnapshot } from './servedImageSnapshot.ts'
+import { isServedCaptureTime, isServedPath, isServedSourceId, isSnapshotId } from './servedSnapshotIdentity.ts'
+
+export { isServedCaptureTime, isServedPath, isServedSourceId, isSnapshotId } from './servedSnapshotIdentity.ts'
 
 /** Captured reference data, never a grant or an instruction to reread a path. */
 export interface ServedTextSnapshotV1 {
@@ -36,6 +41,10 @@ export type RefreshServedAttachmentRequest = {
   expectedSnapshotId: string | null
   requestId: string
   snapshot: ServedTextSnapshotV2
+} | {
+  expectedSnapshotId: string | null
+  requestId: string
+  imageSnapshot: ServedImageSnapshot
 }
 
 export function isRefreshServedAttachmentRequest(value: unknown): value is RefreshServedAttachmentRequest {
@@ -46,29 +55,15 @@ export function isRefreshServedAttachmentRequest(value: unknown): value is Refre
     isSnapshotId(item.requestId) && item.requestId !== item.expectedSnapshotId
   if (!commonValid || !Object.hasOwn(item, 'expectedSnapshotId') || !Object.hasOwn(item, 'requestId')) return false
   if (keys.length === 2 && keys.every((key) => key === 'expectedSnapshotId' || key === 'requestId')) return true
-  if (keys.length !== 3 || !keys.every((key) => key === 'expectedSnapshotId' || key === 'requestId' || key === 'snapshot') ||
-      !Object.hasOwn(item, 'snapshot') || !isServedTextSnapshot(item.snapshot) || item.snapshot.version !== 2) return false
-  return item.requestId === item.snapshot.snapshotId && item.requestId !== item.expectedSnapshotId
-}
-
-export function isSnapshotId(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value)
-}
-
-export function isServedSourceId(value: unknown): value is string {
-  return typeof value === 'string' && /^(cloud|runner:[A-Za-z0-9_-]+)$/.test(value)
-}
-
-export function isServedPath(value: unknown): value is string {
-  if (typeof value !== 'string' || !value || value.length > 4096 || /[\\\x00-\x1f\x7f]/.test(value)) return false
-  const parts = value.split('/')
-  return parts.length <= 64 && parts.every((part) => !!part && !part.startsWith('.') && !/^[a-z]:/i.test(part))
-}
-
-export function isServedCaptureTime(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) return false
-  const instant = Date.parse(value)
-  return Number.isFinite(instant) && new Date(instant).toISOString() === value
+  if (keys.length !== 3 || !keys.every((key) => key === 'expectedSnapshotId' || key === 'requestId' || key === 'snapshot' || key === 'imageSnapshot')) return false
+  if (Object.hasOwn(item, 'snapshot') && !Object.hasOwn(item, 'imageSnapshot') &&
+      isServedTextSnapshot(item.snapshot) && item.snapshot.version === 2) {
+    return item.requestId === item.snapshot.snapshotId && item.requestId !== item.expectedSnapshotId
+  }
+  if (Object.hasOwn(item, 'imageSnapshot') && !Object.hasOwn(item, 'snapshot') && isServedImageSnapshot(item.imageSnapshot)) {
+    return item.requestId === item.imageSnapshot.snapshotId && item.requestId !== item.expectedSnapshotId
+  }
+  return false
 }
 
 export function isServedSnapshotText(value: unknown, maxBytes = SERVED_TEXT_SNAPSHOT_MAX_BYTES): value is string {

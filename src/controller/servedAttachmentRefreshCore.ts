@@ -1,5 +1,6 @@
 import type { SessionContextState } from '../../contract/api.ts'
 import { parseFsRecentKey } from '../../contract/fs.ts'
+import { attachmentSnapshotId } from '../../contract/attachmentInput.ts'
 import { type Live } from '../data/liveSession.ts'
 
 export interface ServedAttachmentRefreshTarget {
@@ -23,7 +24,7 @@ export function mergeServedAttachmentRefresh(
 ): Live {
   const attached = current.attachments.find((item) => item.id === target.attachmentId)
   if (!attached) return current
-  const currentSnapshotId = attached.textSnapshot?.snapshotId ?? null
+  const currentSnapshotId = attachmentSnapshotId(attached)
   if (target.reconciled === true) {
     if (currentSnapshotId !== target.baselineSnapshotId) return current
   } else if (currentSnapshotId !== target.expectedSnapshotId && currentSnapshotId !== target.requestId) return current
@@ -36,8 +37,8 @@ export function mergeServedAttachmentRefresh(
       ? { ...current, attachments: current.attachments.filter((item) => item.id !== target.attachmentId) }
       : current
   }
-  if (canonical.source?.id !== source.sourceId || canonical.source.kind === 'ui-host') return current
-  const snapshot = canonical.textSnapshot
+  if (canonical.kind !== attached.kind || canonical.source?.id !== source.sourceId || canonical.source.kind === 'ui-host') return current
+  const snapshot = canonical.imageSnapshot ?? canonical.textSnapshot
   if (snapshot && (snapshot.sourceId !== source.sourceId || snapshot.path !== source.entryId)) return current
   if (target.reconciled !== true && snapshot?.snapshotId !== target.requestId) return current
 
@@ -45,10 +46,10 @@ export function mergeServedAttachmentRefresh(
     ...current,
     attachments: current.attachments.map((item) => {
       if (item.id !== target.attachmentId) return item
-      const { textSnapshot: _oldSnapshot, ...metadata } = item
+      const { textSnapshot: _oldSnapshot, imageSnapshot: _oldImageSnapshot, ...metadata } = item
       if (!snapshot) return metadata
-      const { previewText: _preview, documentImport: _import, ...savedMetadata } = metadata
-      return { ...savedMetadata, textSnapshot: snapshot }
+      const { previewText: _preview, previewUrl: _url, documentImport: _import, image: _image, ...savedMetadata } = metadata
+      return { ...savedMetadata, ...(canonical.imageSnapshot ? { imageSnapshot: canonical.imageSnapshot } : { textSnapshot: canonical.textSnapshot }) }
     }),
   }
 }

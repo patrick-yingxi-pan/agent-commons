@@ -251,6 +251,32 @@ test('failed refresh reconciliation retains its hold and account clearing aborts
   assert.deepEqual(h.commits, [], 'a late read after account clearing cannot publish')
 })
 
+test('image refresh dismissal records the current image receipt before adopting canonical truth', async () => {
+  const expectedSnapshotId = '11111111-1111-4111-8111-111111111111'
+  const requestId = '22222222-2222-4222-8222-222222222222'
+  const attachment: Attachment = {
+    id: fsRecentKey('cloud', 'a.png'), label: 'a.png', kind: 'photo',
+    source: { id: 'cloud', kind: 'cloud', label: 'Cloud storage' },
+    imageSnapshot: {
+      version: 1, snapshotId: expectedSnapshotId, capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'a.png',
+      image: { id: `img-${'a'.repeat(64)}`, mimeType: 'image/png', width: 2, height: 2, byteLength: 80 },
+    },
+  }
+  const h = harness({ ...EMPTY_LIVE, attachments: [attachment] })
+  const outcome = h.controller.enqueue('s-image', {
+    plan: ({ live, focus }) => ({ live, focus, operations: [], attachmentRefresh: { attachmentId: attachment.id, expectedSnapshotId, requestId } }),
+    mutate: async () => { throw new Error('acknowledgement lost') },
+    reconcile: async () => ({ contexts: [], workspace: {
+      workspaces: [], repos: [], connectors: [],
+      attachments: [{ ...attachment, imageSnapshot: { ...attachment.imageSnapshot!, snapshotId: requestId } }],
+    } }),
+  })
+  await tick()
+  h.controller.dismiss('s-image')
+  assert.equal(await outcome, 'discarded')
+  assert.equal(h.snapshot().live.attachments[0]?.imageSnapshot?.snapshotId, requestId)
+})
+
 test('folder save retry keeps one request id; read-only dismissal commits canonical folder snapshot before queued work', async () => {
   const folderId = fsRecentKey('cloud', 'docs')
   const currentWorkspace = {

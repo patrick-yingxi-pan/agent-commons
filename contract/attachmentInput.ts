@@ -1,8 +1,10 @@
 import type { Attachment, SessionWorkspace } from './entities.ts'
 import { isDocumentImportOutcome } from './documentImport.mjs'
 import { isImageAssetRef } from './imageAssets.ts'
+import type { ImageAssetRef } from './imageAssets.ts'
 import { IMAGE_MAX_COUNT, IMAGE_TURN_MAX_BYTES } from './imageInput.ts'
 import { isServedTextSnapshot } from './servedTextSnapshot.ts'
+import { isServedImageSnapshot } from './servedImageSnapshot.ts'
 import { fsRecentKey } from './fs.ts'
 import { workspaceArtifacts } from './workspaceFolders.ts'
 import type { DocumentImportOutcome } from './documentImport.mjs'
@@ -96,6 +98,15 @@ export function isAttachmentInput(value: unknown): value is Attachment {
         source.kind !== (snapshot.sourceId === 'cloud' ? 'cloud' : 'runner') ||
         item.id !== fsRecentKey(snapshot.sourceId, snapshot.path)) return false
   }
+  if (item.imageSnapshot !== undefined) {
+    if (!isServedImageSnapshot(item.imageSnapshot) || item.image !== undefined || item.textSnapshot !== undefined ||
+        item.previewText !== undefined || item.documentImport !== undefined || item.previewUrl !== undefined) return false
+    const source = item.source as Record<string, unknown> | undefined
+    const snapshot = item.imageSnapshot
+    if (!source || source.id !== snapshot.sourceId ||
+        source.kind !== (snapshot.sourceId === 'cloud' ? 'cloud' : 'runner') ||
+        item.id !== fsRecentKey(snapshot.sourceId, snapshot.path)) return false
+  }
   if (item.source !== undefined) {
     if (!item.source || typeof item.source !== 'object' || Array.isArray(item.source)) return false
     const source = item.source as Record<string, unknown>
@@ -114,12 +125,13 @@ export function planAttachmentInput(attachments: readonly Attachment[] = []): At
   return attachments.map((attachment, index) => {
     if (!isAttachmentInput(attachment)) return { attachment, status: 'unavailable' }
     if (index >= ATTACHMENT_INPUT_MAX_ITEMS) return { attachment, status: 'item-limit' }
-    if (attachment.image) {
+    const image = attachmentImageRef(attachment)
+    if (image) {
       if (imageCount >= IMAGE_MAX_COUNT) return { attachment, status: 'image-count-limit' }
-      if (imageBytes + attachment.image.byteLength > IMAGE_TURN_MAX_BYTES) return { attachment, status: 'image-total-limit' }
+      if (imageBytes + image.byteLength > IMAGE_TURN_MAX_BYTES) return { attachment, status: 'image-total-limit' }
       imageCount++
-      imageBytes += attachment.image.byteLength
-      return { attachment, status: 'image-ready', bytes: attachment.image.byteLength }
+      imageBytes += image.byteLength
+      return { attachment, status: 'image-ready', bytes: image.byteLength }
     }
     if (attachment.kind !== 'file' || (attachment.source?.kind !== 'ui-host' && !attachment.textSnapshot)) return { attachment, status: 'preview-only' }
     if (attachment.documentImport && attachment.documentImport.status !== 'ready') return { attachment, status: 'unavailable' }
@@ -146,6 +158,16 @@ export function attachmentText(attachment: Attachment): string | undefined {
  * retain the legacy attachment-level field. */
 export function attachmentDocumentImport(attachment: Attachment): DocumentImportOutcome | undefined {
   return attachment.textSnapshot?.version === 2 ? attachment.textSnapshot.documentImport : attachment.documentImport
+}
+
+/** Resolve either a saved served image or the existing local image reference. */
+export function attachmentImageRef(attachment: Attachment | null | undefined): ImageAssetRef | undefined {
+  return attachment?.imageSnapshot?.image ?? attachment?.image
+}
+
+/** The receipt for a saved source snapshot, independent of its media type. */
+export function attachmentSnapshotId(attachment: Attachment | null | undefined): string | null {
+  return attachment?.textSnapshot?.snapshotId ?? attachment?.imageSnapshot?.snapshotId ?? null
 }
 
 export function attachmentInputCopy(status: AttachmentInputStatus): string {

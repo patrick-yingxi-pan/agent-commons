@@ -1,11 +1,11 @@
 import { documentImportCopy, type DocumentImportOutcome } from '../../contract/documentImport.mjs'
 import { isServedTextSnapshot, type ServedDocumentSnapshot } from '../../contract/servedTextSnapshot.ts'
 import { accountGeneration, onAccountSwitch } from '../api/account.ts'
-import { readFsDocumentBytes } from '../api/fsDocumentBytes.ts'
+import { readFsBinaryBytes } from '../api/fsBinaryBytes.ts'
 import { documentReaderForName } from '../lib/documentFileImport.ts'
 
 interface CaptureDependencies {
-  read?: typeof readFsDocumentBytes
+  read?: typeof readFsBinaryBytes
   reader?: typeof documentReaderForName
 }
 
@@ -24,7 +24,7 @@ export async function captureServedDocument(sourceId: string, path: string, snap
   }
   try {
     assertCurrent()
-    const bytes = await (deps.read ?? readFsDocumentBytes)(sourceId, path, reader.maxBytes, intake)
+    const bytes = await (deps.read ?? readFsBinaryBytes)(sourceId, path, reader.maxBytes, intake)
     assertCurrent()
     const capturedAt = new Date().toISOString()
     const result = await reader.read(bytes, intake)

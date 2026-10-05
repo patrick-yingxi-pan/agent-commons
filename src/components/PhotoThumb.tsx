@@ -13,6 +13,7 @@ export function PhotoThumb({
   className = '',
   title,
   onClick,
+  disabled = false,
   children,
   showUnavailableLabel = false,
   fit = 'cover',
@@ -26,6 +27,7 @@ export function PhotoThumb({
   title?: string
   /** When set, renders as a button (the interactive picker/strip cells). */
   onClick?: () => void
+  disabled?: boolean
   children?: ReactNode
   /** Full previews disclose a missing/stale URL; small picker tiles stay compact. */
   showUnavailableLabel?: boolean
@@ -37,7 +39,9 @@ export function PhotoThumb({
   // gradient. Tracks the failed URL so a new `src` retries.
   const [failedSrc, setFailedSrc] = useState<string | undefined>(undefined)
   const showImg = !!src && src !== failedSrc
-  const cls = `relative overflow-hidden ${showImg ? '' : gradientFor(id)} ${className}`
+  // Full references keep their aspect box in a scrollable flex body; only
+  // navigation tiles may yield space. Otherwise short panes flatten the image.
+  const cls = `relative overflow-hidden ${fit === 'contain' ? 'shrink-0' : ''} ${showImg ? '' : gradientFor(id)} ${className}`
   const inner = (
     <>
       {showImg && (
@@ -58,7 +62,7 @@ export function PhotoThumb({
     </>
   )
   return onClick ? (
-    <button type="button" title={title} onClick={onClick} className={cls}>
+    <button type="button" title={title} onClick={onClick} disabled={disabled} className={cls}>
       {inner}
     </button>
   ) : (

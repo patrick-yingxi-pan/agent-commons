@@ -30,7 +30,7 @@ validation is not complete codec decoding. Protocol and persistence
 locks, packaged executable smoke, and the complete responsive sweep exercise
 this boundary. Automated repository and packaged-executable verification cover
 the implemented path; they do not by themselves claim a completed manual macOS
-picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants, other documents, live folder/Git, remote image/document input,
+picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants, other documents, live folder/Git, rich document fidelity,
 paid-provider acceptance, and manual OS-dialog acceptance remain outside this
 milestone. A public native release additionally still requires the signed,
 notarized two-architecture release gate.
@@ -46,9 +46,13 @@ MCP. CTX-FS-23 extends explicit saved input to PDF/DOCX/XLSX/PPTX from the
 existing cloud and mapped-runner sources using the same renderer-isolated local
 importers. These are saved text projections, not original documents or rich
 Office fidelity. Raw bytes stay transient; extraction metadata persists with the
-complete saved text, and Refresh retries the same captured projection. Real Git,
-recursive folder selection, rich remote document fidelity, served image snapshots and
-signed two-architecture acceptance remain production work.
+complete saved text, and Refresh retries the same captured projection. CTX-FS-24
+extends the existing bounded PNG normalization and tenant-asset path to explicit
+Files/Photos capture from these sources. Saved previews and model input never
+reread the original image; legacy attachments require explicit Save snapshot.
+Original-image retention is not added. Real Git, recursive folder selection,
+rich remote document fidelity and signed two-architecture acceptance remain
+production work.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values
 under exact artifact identities. The model proposes those values for consent;

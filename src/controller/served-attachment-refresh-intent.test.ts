@@ -72,3 +72,29 @@ test('account changes after capture prevent publication and reconciliation does 
   await assert.rejects(intent.mutate!(before, intent.plan(before)), /account changed/)
   await assert.rejects(intent.reconcile!(before, new AbortController().signal), /account changed/)
 })
+
+test('served image Retry and drafts use the exact nested image receipt without text payloads', async () => {
+  const image = { id: 'img-' + 'a'.repeat(64), mimeType: 'image/png', width: 2, height: 2, byteLength: 80 }
+  const imageSnapshot = { version: 1, snapshotId: oldId, capturedAt: saved.capturedAt, sourceId: 'cloud', path: 'a.png', image }
+  const photo = { id: 'cloud::a.png', label: 'a.png', kind: 'photo', source: attachment.source, imageSnapshot }
+  const state = { live: { ...EMPTY_LIVE, attachments: [photo] }, focus: null }
+  const captured = { ...imageSnapshot, snapshotId: newId, image: { ...image, id: 'img-' + 'b'.repeat(64) } }
+  let reads = 0; const writes: unknown[] = []
+  const deps = {
+    assertCurrent() {}, capture: async () => { reads++; return captured },
+    refresh: async (...args) => { writes.push(args); if (writes.length === 1) throw new Error('lost acknowledgement'); return { contexts: [], workspace: workspaceOf(state.live) } },
+    reconcile: async () => { throw new Error('unexpected read') },
+  }
+  const intent = createServedAttachmentRefreshIntent('session', photo, newId, deps)
+  await assert.rejects(intent.mutate!(state, intent.plan(state), 'ada'), /lost acknowledgement/)
+  await intent.mutate!(state, intent.plan(state), 'ada')
+  assert.equal(reads, 1)
+  assert.deepEqual(writes[0], writes[1])
+  assert.deepEqual(writes[0][2], { expectedSnapshotId: oldId, requestId: newId, imageSnapshot: captured })
+  const draft = createServedAttachmentRefreshIntent(DRAFT_ID, photo, newId, deps)
+  const updated = await draft.mutate!(state, draft.plan(state))
+  assert.deepEqual(updated.workspace.attachments[0].imageSnapshot, captured)
+  assert.equal(updated.workspace.attachments[0].image, undefined)
+  assert.equal(updated.workspace.attachments[0].textSnapshot, undefined)
+  assert.equal(writes.length, 2, 'draft capture cannot issue a session mutation')
+})

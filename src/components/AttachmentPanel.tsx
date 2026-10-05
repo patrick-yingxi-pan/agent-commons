@@ -3,28 +3,25 @@ import { FileText, Image as ImageIcon, RefreshCw, Sheet, Trash2 } from 'lucide-r
 import type { Attachment } from '../types'
 import { PanelShell } from './PanelShell'
 import { PhotoThumb } from './PhotoThumb'
-import { fsContentUrl } from '../api/hooks'
 import { parseFsRecentKey } from '../../contract/index'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
-import { attachmentDocumentImport, attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
+import { attachmentDocumentImport, attachmentImageRef, attachmentInputCopy, planAttachmentInput, type AttachmentInputStatus } from '../../contract/attachmentInput.ts'
 import { documentImportCopy } from '../../contract/documentImport.mjs'
 import { imageAssetContentUrl } from '../api/imageAssets'
 import { isLocalTextFileName } from '../../contract/localTextFile.mjs'
 import { documentFormatForName } from '../../contract/servedTextSnapshot.ts'
+import { isServedImageFileName } from '../../contract/servedImageSnapshot.ts'
 import { SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { refreshServedAttachment } from '../controller/servedAttachmentRefresh'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
 
-/** Durable asset content or a served file endpoint; legacy local preview URLs
- * are not portable and never treated as a readable image. */
+/** Only saved asset content is preview authority. Legacy served attachments
+ * require explicit Save snapshot instead of silently opening their source. */
 function attachmentImageUrl(att: Attachment): string | undefined {
-  if (att.image) return imageAssetContentUrl(att.image.id)
-  if (att.source?.kind === 'ui-host') return undefined
-  const path = parseFsRecentKey(att.id)?.entryId
-  if (att.source && path) return fsContentUrl(att.source.id, path)
-  return undefined
+  const image = attachmentImageRef(att)
+  return image ? imageAssetContentUrl(image.id) : undefined
 }
 
 interface AttachmentContent {
@@ -37,7 +34,7 @@ interface AttachmentContent {
  * Missing content remains unavailable, never replaced by invented file content.
  * All rendered content is read-only; model availability is disclosed separately. */
 function attachmentContent(att: Attachment): AttachmentContent {
-  const isImage = !att.textSnapshot && (att.kind === 'photo' || isImageLabel(att.label))
+  const isImage = !att.textSnapshot && (!!att.imageSnapshot || att.kind === 'photo' || isImageLabel(att.label))
   const imageUrl = attachmentImageUrl(att)
   if (isImage) return { body: '', isImage: true, imageUrl }
   if (att.textSnapshot) return { body: att.textSnapshot.text, isImage: false }
@@ -45,6 +42,32 @@ function attachmentContent(att: Attachment): AttachmentContent {
     return { body: att.previewText ?? '', isImage: false }
   }
   return { body: '', isImage: false }
+}
+
+/** Text and image saved copies share the same owner-only explicit refresh act. */
+function ServedSnapshotControls({ item, onRefresh, refreshDisabled }: {
+  item: Attachment
+  onRefresh?: (attachment: Attachment) => void
+  refreshDisabled: boolean
+}) {
+  const address = parseFsRecentKey(item.id)
+  if (!address || address.sourceId !== item.source?.id ||
+      item.source.kind !== (address.sourceId === 'cloud' ? 'cloud' : 'runner')) return null
+  const image = isServedImageFileName(address.entryId)
+  if (!image && !isLocalTextFileName(address.entryId.split('/').at(-1) ?? '') && !documentFormatForName(address.entryId)) return null
+  const snapshot = item.imageSnapshot ?? item.textSnapshot
+  return <div data-served-snapshot={snapshot ? 'saved' : 'missing'} className="mb-3 shrink-0 space-y-2">
+    <p className="text-[11px] leading-snug text-ink-soft">
+      {snapshot ? 'Saved copy. Source changes are used only after Refresh.'
+        : image ? 'No saved image yet. Save a snapshot to preview and use this image as model input.'
+          : 'No saved text yet. Save a snapshot to use this file as model input.'}
+    </p>
+    {onRefresh && <button type="button" disabled={refreshDisabled} onClick={() => onRefresh(item)}
+      className={`${SECONDARY_BUTTON_CLASS} inline-flex items-center gap-1.5 px-2 py-1 text-[12px]`}>
+      <RefreshCw size={13} />
+      {snapshot ? 'Refresh saved copy' : 'Save snapshot'}
+    </button>}
+  </div>
 }
 
 /** Right-side panel that displays a group of file or photo attachments and lets
@@ -105,6 +128,8 @@ export function AttachmentPanel({
             allAttachments={allAttachments}
             onSelect={setSelectedId}
             onRemove={onRemove}
+            onRefresh={refreshSessionId ? (attachment) => { void refreshServedAttachment(refreshSessionId, attachment) } : undefined}
+            refreshDisabled={refreshDisabled}
           />
         ) : (
           <FileBody
@@ -130,17 +155,22 @@ function PhotoBody({
   allAttachments,
   onSelect,
   onRemove,
+  onRefresh,
+  refreshDisabled,
 }: {
   item: Attachment
   items: Attachment[]
   allAttachments: Attachment[]
   onSelect: (id: string) => void
   onRemove?: (id: string) => void
+  onRefresh?: (attachment: Attachment) => void
+  refreshDisabled: boolean
 }) {
   const status = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
+  const image = attachmentImageRef(item)
   return (
-    <div data-attachment-preview={item.id} data-attachment-input-status={status} className="flex flex-1 flex-col overflow-y-auto">
-      <div className="grid grid-cols-3 gap-1.5 p-2.5">
+    <div data-attachment-preview={item.id} data-attachment-input-status={status} tabIndex={0} role="region" aria-label={`Preview ${item.label}`} className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="grid shrink-0 grid-cols-3 gap-1.5 p-2.5">
         {items.map((p) => (
           <PhotoThumb
             key={p.id}
@@ -155,7 +185,7 @@ function PhotoBody({
         ))}
       </div>
 
-      <div className="border-t border-line p-3">
+      <div className="shrink-0 border-t border-line p-3">
         <PhotoThumb
           id={item.id}
           src={attachmentImageUrl(item)}
@@ -169,7 +199,8 @@ function PhotoBody({
         </PhotoThumb>
 
         <p className="mt-2 text-[11px] leading-snug text-ink-faint">{attachmentInputCopy(status)}</p>
-        {item.image && <p className="mt-1 text-[11px] leading-snug text-ink-faint">Saved {item.image.width} × {item.image.height} image. Local imports save a PNG copy of the first frame (largest image for ICO).</p>}
+        {image && <p className="mt-1 text-[11px] leading-snug text-ink-faint">Saved {image.width} × {image.height} image. Imports save a PNG copy of the first frame (largest image for ICO).</p>}
+        <div className="mt-2"><ServedSnapshotControls item={item} onRefresh={onRefresh} refreshDisabled={refreshDisabled} /></div>
 
         {onRemove && <button
           onClick={() => onRemove(item.id)}
@@ -201,10 +232,6 @@ function FileBody({
   refreshDisabled: boolean
 }) {
   const content = attachmentContent(item)
-  const address = parseFsRecentKey(item.id)
-  const servedText = !!address && address.sourceId === item.source?.id &&
-    item.source.kind === (address.sourceId === 'cloud' ? 'cloud' : 'runner') &&
-    (isLocalTextFileName(address.entryId.split('/').at(-1) ?? '') || !!documentFormatForName(address.entryId)) && !content.isImage
   const documentImport = attachmentDocumentImport(item)
   const status: AttachmentInputStatus = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
 
@@ -242,24 +269,9 @@ function FileBody({
 
       <div data-attachment-preview={item.id} data-attachment-input-status={status} tabIndex={0} role="region" aria-label={`Preview ${item.label}`} className="flex flex-1 flex-col overflow-y-auto border-t border-line bg-surface p-3">
         <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
-        {servedText && <div data-served-snapshot={item.textSnapshot ? 'saved' : 'missing'} className="mb-3 shrink-0 space-y-2">
-          <p className="text-[11px] leading-snug text-ink-soft">
-            {item.textSnapshot
-              ? 'Saved copy. Source changes are used only after Refresh.'
-              : 'No saved text yet. Save a snapshot to use this file as model input.'}
-          </p>
-          {onRefresh && <button
-            type="button"
-            disabled={refreshDisabled}
-            onClick={() => onRefresh(item)}
-            className={`${SECONDARY_BUTTON_CLASS} inline-flex items-center gap-1.5 px-2 py-1 text-[12px]`}
-          >
-            <RefreshCw size={13} />
-            {item.textSnapshot ? 'Refresh saved copy' : 'Save snapshot'}
-          </button>}
-        </div>}
+        <ServedSnapshotControls item={item} onRefresh={onRefresh} refreshDisabled={refreshDisabled} />
         {documentImport && <p data-document-import={documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{documentImportCopy(documentImport)}</p>}
-        {item.image && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG (largest image for ICO); the selected model must support vision to use this image.</p>}
+        {attachmentImageRef(item) && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG (largest image for ICO); the selected model must support vision to use this image.</p>}
         {content.isImage ? (
           <>
             <div className="mb-2 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">

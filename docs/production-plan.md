@@ -44,7 +44,38 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint extends saved context to PDF, DOCX, XLSX and PPTX files
+The current checkpoint extends the same explicit saved-context workflow to images
+from existing cloud and mapped-runner sources, preserving Files/Photos placement.
+One bounded capture normalizes the first frame to PNG and stores it through the
+existing tenant-asset boundary. Original bytes remain transient. Preview, shared
+reading and model input use only saved assets; legacy images expose Save snapshot.
+Refresh and upload Retry retain one capture. New commits require source and asset
+authority, while exact replay recovers a committed receipt after access revocation.
+JSON/SQLite persistence, shared visibility, collection, model budgets and monotonic
+workspace merging use the same image-reference resolver. Intentional removal of
+retry caching, account fencing, reconciliation identity and fresh source authority
+failed focused locks before restoration. Review additionally exposed receipts
+whose asset was absent, mismatched, orphaned or owned by another tenant. Both
+JSON and SQLite now refuse those states at startup; unstamped legacy sessions
+retain the runtime-default ownership rule. All ten corruption regressions failed
+before repair, and the 16-case persistence suite retains malformed-path refusal
+beside the new cross-reference checks.
+
+Nine rendered workflows pass for image capture, saved-only reload/sharing/model
+input, held Refresh and identical-payload Retry, malformed/oversized input,
+cancellation, account switching and optional-module recovery. The served catalog
+and capture code now load only on explicit intake, keeping existing bundle
+budgets unchanged. Visual review found a full Files image collapsing into a
+thin strip at 844×390; the shared full-preview primitive now preserves its
+aspect box and scrolls, with a browser assertion watched fail before repair.
+The responsive sweep passed 135/135 cells with zero violations or skips, and
+all five viewport screenshot columns were reviewed. The rebuilt unsigned arm64
+Electron package passed its complete smoke gate, including imports, source-free
+relaunch, remembered Folder access, credentials and backup/restore. Native
+dialog results and model responses remain fixtures; signed/Intel acceptance is
+not claimed. The complete local verifier remains the final pre-push gate.
+
+The preceding checkpoint `0470d7ae` extends saved context to PDF, DOCX, XLSX and PPTX files
 from the existing cloud and mapped-runner sources. It reuses the bounded local
 worker importers, keeps raw documents transient, and preserves complete extracted
 text plus its format disclosure in a version-2 snapshot. Explicit Refresh owns
@@ -80,8 +111,8 @@ the final pre-push gate, with no GitHub CI dependency.
 
 This is independent of the pending native Git choices (tracked working-tree
 versus HEAD snapshots; bundled versus system Git). Those decisions are not
-inferred from the earlier six-default approval. Served images, rich Office
-fidelity, Git, permanent deletion, saved-version history and release acceptance
+inferred from the earlier six-default approval. Rich Office fidelity, Git,
+permanent deletion, saved-version history and release acceptance
 remain required milestones, not replaced by this increment.
 
 The preceding checkpoint `98efdae1` connects the native boundary to the Folder workflow for

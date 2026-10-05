@@ -28,7 +28,7 @@ import { isSpreadsheetContent } from '../../contract/workbook.ts'
 import { artifactBodyExcerpt } from '../../contract/artifactExcerpt.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { isArtifactCreationId, type CreateArtifactRequest, type CreateArtifactResponse } from '../../contract/artifactCreation.ts'
-import { imageAssetRef, imageAssetRefMatches } from '../../contract/imageAssets.ts'
+import { imageAssetRef, imageAssetRefMatches, type ImageAssetRef } from '../../contract/imageAssets.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
 import type {
   A2aPeer,
@@ -89,6 +89,7 @@ import type {
 } from '../../contract/index.ts'
 import { randomUUID } from 'node:crypto'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
+import { isServedImageSnapshot, type ServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
 import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
 import { isLocalFolderRefreshRequest, type LocalFolderCapture, type LocalFolderRefreshRequest } from '../../contract/localFolderCapture.ts'
 import { validWorkspaceFolders, workspaceFolders, replaceLocalFolderSnapshot, replaceServedFolderSnapshot } from '../../contract/workspaceFolders.ts'
@@ -130,7 +131,7 @@ import {
 import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from '../fs.ts'
-import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { attachmentImageRef, attachmentSnapshotId, isAttachmentInput } from '../../contract/attachmentInput.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../../contract/index.ts'
 import { fsRecentKey, parseFsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity.ts'
@@ -3332,6 +3333,23 @@ function rehydrate(s: PersistedState): boolean {
     },
     { demoSeeds: demoWorld, localSeed: demoWorld || NATIVE },
   )
+  // The leaf persistence format can enforce owner equality for stamped Sessions,
+  // but legacy rows without tenantId inherit this store's runtime default. Resolve
+  // that owner only after seed/account reconciliation, before admitting the state.
+  const sessionsById = new Map(SESSIONS.map((session) => [session.id, session]))
+  for (const [sessionId, workspace] of sessionWorkspaces) {
+    const session = sessionsById.get(sessionId)
+    for (const attachment of workspace.attachments ?? []) {
+      const snapshot = attachment.imageSnapshot
+      if (!snapshot) continue
+      const ownerTenant = session?.tenantId ?? defaultTenantId()
+      const asset = imageAssets.get(snapshot.image.id)
+      if (!session || !isServedImageSnapshot(snapshot) || !asset || asset.tenantId !== ownerTenant ||
+          !imageAssetRefMatches(snapshot.image, asset.image)) {
+        throw new Error('Invalid served image receipt ownership in persisted workspace.')
+      }
+    }
+  }
   usageRegistry.rehydrate(s.usageMeters, demoWorld)
   rehydrateModelPreferences(s.modelPreferences)
   const knownUsers = new Set(accounts.toPersisted().users.map(([id]) => id))
@@ -3615,6 +3633,32 @@ function sameServedSnapshot(a: ServedTextSnapshot, b: ServedTextSnapshot): boole
       a.documentImport.pages === b.documentImport.pages && a.documentImport.textPages === b.documentImport.textPages))
 }
 
+function sameServedImageSnapshot(a: ServedImageSnapshot, b: ServedImageSnapshot): boolean {
+  return a.version === b.version && a.snapshotId === b.snapshotId && a.capturedAt === b.capturedAt &&
+    a.sourceId === b.sourceId && a.path === b.path && a.image.id === b.image.id &&
+    a.image.mimeType === b.image.mimeType && a.image.width === b.image.width &&
+    a.image.height === b.image.height && a.image.byteLength === b.image.byteLength
+}
+
+/** First attachment may arrive with its renderer-captured image already saved.
+ * Admit only its own tenant asset and a still-current exact-path read grant;
+ * an existing same-key receipt is projection/replay data, not new authority. */
+function canAdmitServedImageSnapshot(
+  sessionId: string,
+  attachment: import('../../contract/entities.ts').Attachment,
+): boolean {
+  const snapshot = attachment.imageSnapshot
+  if (!snapshot || !isServedImageSnapshot(snapshot) ||
+      attachment.id !== fsRecentKey(snapshot.sourceId, snapshot.path) ||
+      attachment.source?.id !== snapshot.sourceId ||
+      attachment.source.kind !== (snapshot.sourceId === 'cloud' ? 'cloud' : 'runner')) return false
+  const session = SESSIONS.find((candidate) => candidate.id === sessionId)
+  const tenantId = session?.tenantId ?? defaultTenantId()
+  const asset = imageAssets.get(snapshot.image.id)
+  return !!asset && asset.tenantId === tenantId && imageAssetRefMatches(snapshot.image, asset.image) &&
+    store.fsReadPermitted(snapshot.sourceId, snapshot.path)
+}
+
 /** Keep a store-owned served-file receipt monotonic across workspace projections.
  * Only the refresh commit path may name the one row whose saved copy is replaced. */
 function preserveSessionWorkspaceSnapshots(
@@ -3641,15 +3685,27 @@ function preserveSessionWorkspaceSnapshots(
       return preserved
     }),
     attachments: workspace.attachments.map((item) => {
-      const saved = previousAttachments.get(item.id)?.textSnapshot
-      if (!saved || refreshAttachmentId === item.id) return item
+      const previous = previousAttachments.get(item.id)
+      const savedText = previous?.textSnapshot
+      const savedImage = previous?.imageSnapshot
+      if (refreshAttachmentId === item.id) return item
+      if (!savedText && !savedImage) {
+        if (item.imageSnapshot && !canAdmitServedImageSnapshot(sessionId, item)) {
+          throw new ValidationError('The saved image requires its current exact-path read grant and an image asset owned by this conversation.')
+        }
+        return item
+      }
+      const saved = savedText ?? savedImage!
       const expectedKind = saved.sourceId === 'cloud' ? 'cloud' : 'runner'
-      if (item.kind !== 'file' || item.id !== fsRecentKey(saved.sourceId, saved.path) ||
-          item.source?.id !== saved.sourceId || item.source.kind !== expectedKind) {
+      if (item.id !== fsRecentKey(saved.sourceId, saved.path) || item.source?.id !== saved.sourceId ||
+          item.source.kind !== expectedKind || (savedText && item.kind !== 'file')) {
         throw new ConflictError('This served attachment changed. Reopen the conversation before updating its context.')
       }
-      const { previewText: _preview, documentImport: _import, ...metadata } = item
-      return { ...metadata, textSnapshot: saved }
+      const { previewText: _preview, previewUrl: _url, documentImport: _import, image: _image, imageSnapshot: _imageSnapshot,
+        textSnapshot: _textSnapshot, ...metadata } = item
+      return savedText
+        ? { ...metadata, kind: previous!.kind, textSnapshot: savedText }
+        : { ...metadata, kind: previous!.kind, imageSnapshot: savedImage }
     }),
   }
 }
@@ -3737,12 +3793,13 @@ export const store = {
    *  Called once by the real server entrypoint; tests leave it off and run
    *  in-memory. On first boot (no snapshot) the selected initial world is written
    *  as the baseline; after that the stored discriminator owns the choice.
-   *  Existing unusable state throws before persistence is enabled or memory mutates. */
+   *  Existing unusable state throws before persistence is enabled or requests
+   *  are admitted, including runtime ownership checks during rehydration. */
   initPersistence(): void {
     const loaded = loadState()
-    persistEnabled = true
     if (loaded) {
       const recoveredState = rehydrate(loaded)
+      persistEnabled = true
       // Older stores never recorded usage. Publish the one-time world-appropriate
       // baseline so even an otherwise read-only restart retains its period anchor.
       // Execution uncertainty and orphan standing-authority cleanup likewise
@@ -3754,11 +3811,13 @@ export const store = {
       // product infrastructure, then persist that canonical state. Rehydrate is
       // deliberately reused so first boot and every later boot take one path.
       rehydrate(cleanFirstBootState())
+      persistEnabled = true
       persist()
     } else {
       // First boot (no snapshot): the commons showcase seeds THROUGH the real
       // mutators before the baseline snapshot is written — the demo is the
       // argument, and every workflow stage should be visible on first sign-in.
+      persistEnabled = true
       this.seedCommonsShowcase()
       persist()
     }
@@ -4165,42 +4224,67 @@ export const store = {
     const attachment = workspace?.attachments.find((item) => item.id === attachmentId)
     const address = parseFsRecentKey(attachmentId)
     const expectedKind = address?.sourceId === 'cloud' ? 'cloud' : 'runner'
-    if (!attachment || attachment.kind !== 'file' || !address || !attachment.source ||
+    const frozenText = 'snapshot' in request ? request.snapshot : undefined
+    const frozenImage = 'imageSnapshot' in request ? request.imageSnapshot : undefined
+    if (!attachment || (!frozenImage && attachment.kind !== 'file') || !address || !attachment.source ||
         attachment.source.kind !== expectedKind || attachment.source.id !== address.sourceId) {
       throw new ConflictError('This served file is no longer attached. Reopen the conversation before refreshing.')
     }
-    const frozen = 'snapshot' in request ? request.snapshot : undefined
-    if (frozen && (!isServedTextSnapshot(frozen) || frozen.version !== 2 ||
-        frozen.sourceId !== address.sourceId || frozen.path !== address.entryId || frozen.snapshotId !== request.requestId)) {
+    if (frozenText && (!isServedTextSnapshot(frozenText) || frozenText.version !== 2 ||
+        frozenText.sourceId !== address.sourceId || frozenText.path !== address.entryId || frozenText.snapshotId !== request.requestId ||
+        attachment.kind !== 'file' || attachment.imageSnapshot !== undefined)) {
       throw new ValidationError('The saved document does not match this attached file. The saved copy is unchanged.')
+    }
+    if (frozenImage && (!isServedImageSnapshot(frozenImage) ||
+        frozenImage.sourceId !== address.sourceId || frozenImage.path !== address.entryId ||
+        frozenImage.snapshotId !== request.requestId || attachment.textSnapshot !== undefined)) {
+      throw new ValidationError('The saved image does not match this attached file. The saved copy is unchanged.')
     }
     // The captured ID is the durable receipt. A lost acknowledgement or restart
     // must recover its exact saved truth even if the source grant was later
     // revoked. Replay is scoped to both this attachment and the complete payload.
-    if (attachment.textSnapshot?.snapshotId === request.requestId) {
-      if (frozen && !sameServedSnapshot(attachment.textSnapshot, frozen)) {
+    const representedId = attachmentSnapshotId(attachment)
+    if (representedId === request.requestId) {
+      if (frozenImage && (!attachment.imageSnapshot || !sameServedImageSnapshot(attachment.imageSnapshot, frozenImage))) {
+        throw new ConflictError('This served-image refresh key was already used for a different saved image.')
+      }
+      if (frozenText && (!attachment.textSnapshot || !sameServedSnapshot(attachment.textSnapshot, frozenText))) {
         throw new ConflictError('This served-file refresh key was already used for different saved text.')
+      }
+      if (!frozenImage && !frozenText && !attachment.textSnapshot) {
+        throw new ConflictError('This served-file refresh key belongs to a different saved snapshot.')
       }
       return { contexts: store.sessionContexts(sessionId), workspace }
     }
-    if ((attachment.textSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
+    if ((representedId ?? null) !== request.expectedSnapshotId) {
       throw new ConflictError('This saved copy changed. Reopen it before refreshing again.')
     }
     // A fresh frozen renderer import remains subject to current exact-path read
     // authority, but this check requires no content read and cannot revoke an
     // already-committed receipt's recovery path.
-    if (frozen && !store.fsReadPermitted(address.sourceId, address.entryId)) {
+    if ((frozenText || frozenImage) && !store.fsReadPermitted(address.sourceId, address.entryId)) {
       throw new ConflictError('This source no longer grants read access to the attached file. The saved copy is unchanged.')
     }
-    const textSnapshot = frozen ?? store.fsSnapshot(address.sourceId, address.entryId, request.requestId)
-    if (!textSnapshot) throw new ValidationError('Could not read a complete text file of 64 KB or less. The saved copy is unchanged.')
+    let textSnapshot: ServedTextSnapshot | undefined
+    if (frozenImage) {
+      const session = store.getSession(sessionId)
+      const tenantId = session?.tenantId ?? defaultTenantId()
+      const row = imageAssets.get(frozenImage.image.id)
+      if (!row || row.tenantId !== tenantId || !imageAssetRefMatches(frozenImage.image, row.image)) {
+        throw new ValidationError('The saved image asset is unavailable to this conversation owner. The saved copy is unchanged.')
+      }
+    } else {
+      textSnapshot = frozenText ?? store.fsSnapshot(address.sourceId, address.entryId, request.requestId)
+      if (!textSnapshot) throw new ValidationError('Could not read a complete text file of 64 KB or less. The saved copy is unchanged.')
+    }
     const latest = store.sessionWorkspace(sessionId)
     const current = latest?.attachments.find((item) => item.id === attachmentId)
-    if (!store.getSession(sessionId) || current !== attachment) {
+    if (!store.getSession(sessionId) || current !== attachment || (attachmentSnapshotId(current) ?? null) !== request.expectedSnapshotId) {
       throw new ConflictError('The attached file changed while reading. The saved copy is unchanged.')
     }
-    const { previewText: _preview, documentImport: _import, ...metadata } = current
-    const refreshedAttachment = { ...metadata, textSnapshot }
+    const { previewText: _preview, previewUrl: _url, documentImport: _import, image: _image, imageSnapshot: _imageSnapshot,
+      textSnapshot: _textSnapshot, ...metadata } = current
+    const refreshedAttachment = frozenImage ? { ...metadata, imageSnapshot: frozenImage } : { ...metadata, textSnapshot }
     if (!isAttachmentInput(refreshedAttachment)) {
       throw new ValidationError('The refreshed file no longer matches its attached source. The saved copy is unchanged.')
     }
@@ -4751,7 +4835,10 @@ export const store = {
    * account's upload. Abandoned selections expire only when unreferenced. */
   putImageAsset(tenantId: string, image: unknown) {
     if (!isImageSnapshot(image)) throw new ValidationError('Choose a valid PNG, JPEG, GIF, or WebP image snapshot up to 3 MB.')
-    const referenced = new Set([...sessionWorkspaces.values()].flatMap((workspace) => workspace.attachments.flatMap((item) => item.image ? [item.image.id] : [])))
+    const referenced = new Set([...sessionWorkspaces.values()].flatMap((workspace) => workspace.attachments.flatMap((item) => {
+      const image = attachmentImageRef(item)
+      return image ? [image.id] : []
+    })))
     const cutoff = Date.now() - 60 * 60 * 1000
     // Garbage collection is its own committed transition; a later quota refusal
     // must not leave an uncommitted removal or poison the compound-mutation wall.
@@ -4765,15 +4852,22 @@ export const store = {
     if (!row) return undefined
     const visible = row.tenantId === tenantId || SESSIONS.some((session) =>
       this.sessionVisibleToTenant(session, tenantId) &&
-      sessionWorkspaces.get(session.id)?.attachments.some((item) => item.image?.id === id))
+      sessionWorkspaces.get(session.id)?.attachments.some((item) => attachmentImageRef(item)?.id === id))
     return visible ? row.image : undefined
   },
   imageReferencesAttachable(attachments: readonly import('../../contract/entities.ts').Attachment[], sessionId: string, tenantId: string): boolean {
+    const current = this.sessionWorkspace(sessionId).attachments
     return attachments.every((item) => {
-      if (!item.image) return true
-      const row = imageAssets.get(item.image.id)
-      if (!row || !imageAssetRefMatches(item.image, row.image)) return false
-      return row.tenantId === tenantId || this.sessionWorkspace(sessionId).attachments.some((old) => old.image?.id === row.id)
+      const image = attachmentImageRef(item)
+      if (!image) return true
+      const row = imageAssets.get(image.id)
+      if (!row || !imageAssetRefMatches(image, row.image)) return false
+      if (item.imageSnapshot) {
+        const represented = current.find((old) => old.id === item.id)?.imageSnapshot
+        if (!represented &&
+            (row.tenantId !== tenantId || !canAdmitServedImageSnapshot(sessionId, item))) return false
+      }
+      return row.tenantId === tenantId || this.sessionWorkspace(sessionId).attachments.some((old) => attachmentImageRef(old)?.id === row.id)
     })
   },
   /** Capture exactly the references in this authorized conversation; neither
@@ -4781,9 +4875,10 @@ export const store = {
   sessionImageInput(sessionId: string): Readonly<Record<string, ImageSnapshot>> {
     const images: Record<string, ImageSnapshot> = Object.create(null)
     for (const item of this.sessionWorkspace(sessionId).attachments) {
-      if (!item.image) continue
-      const row = imageAssets.get(item.image.id)
-      if (row && imageAssetRefMatches(item.image, row.image)) images[row.id] = row.image
+      const image = attachmentImageRef(item)
+      if (!image) continue
+      const row = imageAssets.get(image.id)
+      if (row && imageAssetRefMatches(image, row.image)) images[row.id] = row.image
     }
     return images
   },

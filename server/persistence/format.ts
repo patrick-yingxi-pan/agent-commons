@@ -42,6 +42,9 @@ import type {
   WorkItemComment,
 } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { imageAssetRefMatches } from '../../contract/imageAssets.ts'
+import type { ImageAssetRef } from '../../contract/imageAssets.ts'
+import { isServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
 import { validWorkspaceFolders } from '../../contract/workspaceFolders.ts'
 import { rehydrateImageAssets, type ImageAssetRow } from '../imageAssets.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
@@ -737,7 +740,34 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       if (record(workspace) && Array.isArray(workspace.workspaces) && !validWorkspaceFolders(workspace.workspaces)) return false
       if (!record(workspace) || !Array.isArray(workspace.attachments)) continue
       for (const attachment of workspace.attachments) {
-        if (record(attachment) && Object.hasOwn(attachment, 'textSnapshot') && !isAttachmentInput(attachment)) return false
+        if (record(attachment) && (Object.hasOwn(attachment, 'textSnapshot') || Object.hasOwn(attachment, 'imageSnapshot')) && !isAttachmentInput(attachment)) return false
+      }
+    }
+    return true
+  }
+  const servedImageReferencesValid = (sessions: unknown, workspaces: unknown, assets: unknown): boolean => {
+    if (!Array.isArray(sessions) || !Array.isArray(workspaces) || !Array.isArray(assets)) return false
+    const sessionsById = new Map<string, Record<string, unknown>>()
+    for (const session of sessions) {
+      if (record(session) && typeof session.id === 'string') sessionsById.set(session.id, session)
+    }
+    const assetsById = new Map<string, ImageAssetRow>()
+    for (const asset of assets) {
+      if (record(asset) && typeof asset.id === 'string') assetsById.set(asset.id, asset as unknown as ImageAssetRow)
+    }
+    for (const entry of workspaces) {
+      if (!Array.isArray(entry) || entry.length !== 2) continue
+      const workspace = entry[1]
+      if (!record(workspace) || !Array.isArray(workspace.attachments)) continue
+      for (const attachment of workspace.attachments) {
+        if (!record(attachment) || !Object.hasOwn(attachment, 'imageSnapshot')) continue
+        const snapshot = attachment.imageSnapshot
+        if (!isServedImageSnapshot(snapshot) || typeof entry[0] !== 'string') return false
+        const session = sessionsById.get(entry[0])
+        const asset = assetsById.get(snapshot.image.id)
+        if (!session || !asset || asset.id !== snapshot.image.id ||
+            !imageAssetRefMatches(snapshot.image as ImageAssetRef, asset.image)) return false
+        if (session.tenantId !== undefined && asset.tenantId !== session.tenantId) return false
       }
     }
     return true
@@ -750,6 +780,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)
       && servedSnapshotsValid(state.workspaces)
+      && servedImageReferencesValid(state.sessions, state.workspaces, state.imageAssets ?? [])
       && Array.isArray(state.schedules)
       && state.schedules.every((task) => record(task) && Array.isArray(task.runs) && task.runs.every((run) => {
         if (!record(run)) return false

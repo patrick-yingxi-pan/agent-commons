@@ -77,6 +77,31 @@ test('context browsing loads only after explicit Browse with local cancel and wa
   assert.doesNotMatch(deferred, /onConfirm\(/, 'loading and failure cannot attach a candidate')
 })
 
+test('served file and photo snapshot runtime loads only after opening its picker with local recovery', () => {
+  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredServedFileIntake.tsx')))
+  const intake = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
+  const loadingTest = stripComments(read(join(ROOT, 'e2e/served-file-intake-loading.spec.ts')))
+  assert.match(picker, /DeferredServedFileIntake key=\{`\$\{active\.id\}:\$\{kind\}`\}/,
+    'the selected source and Files/Photos kind own one intake lifetime')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ServedFileIntake\.tsx'\)/,
+    'served read, extraction, normalization, and upload are outside the cold picker graph')
+  assert.doesNotMatch(picker, /from ['"]\.\/ServedFileIntake\.tsx/)
+  assert.doesNotMatch(picker, /readFsSnapshot\(/)
+  assert.match(deferred, /data-served-file-intake=\{failed \? 'error' : 'loading'\}/)
+  assert.match(deferred, /tone=\{failed \? 'alert' : 'status'\}/)
+  assert.match(deferred, /Nothing was attached/)
+  assert.match(deferred, /onClick: this\.props\.onClose/)
+  assert.match(deferred, /window\.location\.reload\(\)/)
+  assert.match(intake, /onAccountSwitch\(\(\) => \{ cancel\(\); setRead\(null\) \}\)/)
+  assert.match(intake, /if \(intake\.current\) return/)
+  assert.match(intake, /<fieldset disabled=\{disabled\}>[\s\S]*<PhotoThumb[\s\S]*disabled=\{disabled\}/)
+  assert.match(intake, /<OptionRow[\s\S]*disabled=\{disabled\}/)
+  assert.match(loadingTest, /served-file-intake="loading"/)
+  assert.match(loadingTest, /Cancel intake/)
+  assert.match(loadingTest, /Reload app/)
+})
+
 test('MainSplit lazy-loads SectionPane behind accessible in-pane loading and failure states', () => {
   const source = stripComments(read(join(ROOT, 'src', 'components', 'MainSplit.tsx')))
   assert.doesNotMatch(source, /import\s+\{\s*SectionPane\s*\}\s+from/, 'SectionPane must stay out of the boot graph')

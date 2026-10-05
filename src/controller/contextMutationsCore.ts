@@ -17,6 +17,7 @@ import { sameFocus } from '../lib/focus.ts'
 import type { ContextMutationStatus } from './conversationCore.ts'
 import type { RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 import { workspaceFolders } from '../../contract/workspaceFolders.ts'
+import { attachmentSnapshotId } from '../../contract/attachmentInput.ts'
 
 export interface ContextMutationSnapshot {
   live: Live
@@ -205,8 +206,7 @@ export function createContextMutationController(deps: ContextMutationDeps) {
           attachmentRefresh: {
             ...entry.failedPlan.attachmentRefresh,
             reconciled: true,
-            baselineSnapshotId: before.live.attachments.find((item) => item.id === entry.failedPlan!.attachmentRefresh!.attachmentId)
-              ?.textSnapshot?.snapshotId ?? null,
+            baselineSnapshotId: attachmentSnapshotId(before.live.attachments.find((item) => item.id === entry.failedPlan!.attachmentRefresh!.attachmentId)),
           },
         }
       : entry.failedPlan.folderRefresh

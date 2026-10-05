@@ -5,10 +5,12 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('served text files attach only an explicit, exact source snapshot', () => {
   const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
-  assert.match(source, /readFsSnapshot\(source\.id, entry\.id, controller\.signal\)/)
-  assert.match(source, /isLocalTextFileName\(entry\.name\)/)
-  assert.match(source, /<ServedFilePicker key=\{active\.id\}/)
-  const body = source.slice(source.indexOf('function ServedFilePicker(')).split('\nfunction ')[0]
+  const body = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredServedFileIntake.tsx')))
+  assert.match(body, /readFsSnapshot\(source\.id, entry\.id, controller\.signal\)/)
+  assert.match(body, /isLocalTextFileName\(entry\.name\)/)
+  assert.ok(source.includes('<DeferredServedFileIntake key={`${active.id}:${kind}`}'), 'source or Files/Photos changes create a new intake lifetime')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ServedFileIntake\.tsx'\)/, 'read/parse/upload runtime stays outside the eager picker graph')
   assert.match(body, /if \(intake\.current\) return/)
   assert.match(body, /intake\.current\?\.abort\(\)/)
   assert.match(body, /onAccountSwitch/)
@@ -20,16 +22,18 @@ test('served text files attach only an explicit, exact source snapshot', () => {
   assert.ok(take.indexOf('await readFsSnapshot') < take.indexOf('textSnapshot: snapshot'), 'attachment publication follows the successful read')
   assert.ok(take.indexOf('snapshot.path !== entry.id') < take.indexOf('textSnapshot: snapshot'), 'the response identity is checked before publication')
   assert.match(body, /data-fs-file-read=\{read\.status\}/)
-  assert.match(body, /disabled=\{read\?\.status === 'loading'\}/)
+  assert.match(body, /<fieldset disabled=\{disabled\}>/)
+  assert.match(body, /onClick=\{added \? undefined : \(\) => onCapture\(photo\)\} disabled=\{disabled\}/)
+  assert.match(body, /disabled=\{disabled\} onClick=\{\(\) => onSelect\(file\)\}/)
   assert.match(body, /Nothing was attached/)
   assert.match(body, />Retry<\/button>/)
 })
 
 test('portal overflow retains real button semantics and explicit intake disablement', () => {
   const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
-  const files = picker.slice(picker.indexOf('function ServedFiles(')).split('\nfunction ')[0]
+  const files = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   assert.match(files, /<OptionRow[\s\S]*disabled=\{disabled\}/)
-  const row = picker.slice(picker.indexOf('function OptionRow('))
+  const row = stripComments(read(join(ROOT, 'src/components/ContextOptionRow.tsx')))
   assert.match(row, /disabled=\{disabled\}/)
   assert.match(row, /onClick=\{added \|\| disabled \? undefined : onClick\}/)
   const overflow = stripComments(read(join(ROOT, 'src/components/RecentOverflowList.tsx')))
@@ -40,14 +44,14 @@ test('portal overflow retains real button semantics and explicit intake disablem
 
 test('unsupported served formats remain metadata-only attachments', () => {
   const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
-  const body = source.slice(source.indexOf('function ServedFilePicker(')).split('\nfunction ')[0]
-  assert.match(body, /isLocalTextFileName\(entry\.name\) \|\| documentFormatForName\(entry\.id\) \? void take\(entry\) : onPreviewOnly\(entry\)/)
+  const intake = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
+  assert.match(intake, /if \(kind === 'photos' \|\| isServedImageFileName\(entry\.id\) \|\| documentFormatForName\(entry\.id\) \|\| isLocalTextFileName\(entry\.name\)\) onCapture\(entry\)/)
   assert.match(source, /const attachServed = \(e: FsFileEntry \| FsPhotoEntry\) =>\s+active && onAdd\(\{ kind, attachments: \[\{ id: fsRecentKey\(active\.id, e\.id\), label: e\.name, kind: kind === 'photos' \? 'photo' : 'file', source: active \}\] \}\)/)
-  assert.doesNotMatch(body, /previewText/)
+  assert.doesNotMatch(intake, /previewText/)
 })
 
 test('served documents load shared extraction only on capture and disclose its saved result', () => {
-  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const picker = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   assert.ok(picker.includes("await import('../controller/servedDocumentCapture.ts')"))
   assert.ok(picker.includes('captureServedDocument(source.id, entry.id, crypto.randomUUID(), controller.signal)'))
   assert.doesNotMatch(picker, /from ['"].*servedDocumentCapture/)
@@ -63,7 +67,7 @@ test('served documents load shared extraction only on capture and disclose its s
 })
 test('saved served previews never reread their source and every panel offers owner-only Refresh', () => {
   const panel = stripComments(read(join(ROOT, 'src/components/AttachmentPanel.tsx')))
-  assert.doesNotMatch(panel, /useFsText|readFsText|readFsSnapshot/)
+  assert.doesNotMatch(panel, /useFsText|readFsText|readFsSnapshot|fsContentUrl/)
   assert.match(panel, /item\.textSnapshot/)
   assert.match(panel, /data-served-snapshot/)
   assert.match(panel, /Refresh saved copy/)

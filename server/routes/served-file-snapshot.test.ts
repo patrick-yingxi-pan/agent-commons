@@ -12,6 +12,7 @@ const EMPTY = { workspaces: [], repos: [], connectors: [], attachments: [] }
 const FIRST_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const REQUEST_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const RETRY_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const PNG_DATA = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
 let sequence = 0
 
 function snapshot(overrides: Partial<ServedTextSnapshot> = {}): ServedTextSnapshot {
@@ -83,6 +84,33 @@ function refresh(sid: string, attachmentId: string, expectedSnapshotId: string |
 function refreshDocument(sid: string, attachmentId: string, expectedSnapshotId: string | null, snapshot: ServedTextSnapshotV2, headers: Record<string, string>) {
   return call('POST', `/sessions/${sid}/attachments/${encodeURIComponent(attachmentId)}/refresh`, {
     expectedSnapshotId, requestId: snapshot.snapshotId, snapshot,
+  }, headers)
+}
+
+function servedImageSnapshot(image: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
+  return {
+    version: 1,
+    snapshotId: REQUEST_ID,
+    capturedAt: '2026-10-04T12:02:00.000Z',
+    sourceId: 'cloud',
+    path: 'photos/cover.png',
+    image,
+    ...overrides,
+  }
+}
+
+async function uploadImage(tenant: string, png = PNG_DATA) {
+  const data = Buffer.from(png, 'base64')
+  return call('POST', '/image-assets', {
+    mimeType: 'image/png', data: png, width: 1, height: 1, byteLength: data.byteLength,
+  }, { 'x-tenant-id': tenant })
+}
+
+function refreshImage(sid: string, attachmentId: string, expectedSnapshotId: string | null, imageSnapshot: unknown, headers: Record<string, string>) {
+  return call('POST', `/sessions/${sid}/attachments/${encodeURIComponent(attachmentId)}/refresh`, {
+    expectedSnapshotId,
+    requestId: (imageSnapshot as { snapshotId: string }).snapshotId,
+    imageSnapshot,
   }, headers)
 }
 
@@ -190,6 +218,124 @@ test('document Refresh commits only frozen renderer text, replays exact bytes, a
   const conflict = await refreshDocument(owner.id, sourceAttachment.id, null, changed, owner.headers)
   assert.equal(conflict.status, 409)
   assert.deepEqual(store.sessionWorkspace(owner.id)?.attachments[0]?.textSnapshot, frozen)
+})
+
+test('served image Refresh commits only an owned immutable asset reference and replays the exact receipt', async (t) => {
+  const owner = await ownedSession()
+  const target = attachment('cloud::photos/cover.png', {
+    label: 'cover.png', kind: 'photo', previewText: undefined, previewUrl: 'https://example.test/old-preview.png',
+  })
+  assert.equal((await attach(owner.id, owner.headers, [target])).status, 200)
+  const uploaded = await uploadImage(owner.tenant)
+  assert.equal(uploaded.status, 200)
+  const frozen = servedImageSnapshot(uploaded.json)
+  const reads = countSnapshotReads(t, () => { throw new Error('served image Refresh must not use text capture') })
+
+  const first = await refreshImage(owner.id, target.id, null, frozen, owner.headers)
+  assert.equal(first.status, 200)
+  assert.deepEqual(first.json.workspace.attachments[0].imageSnapshot, frozen)
+  assert.equal(first.json.workspace.attachments[0].image, undefined, 'served bytes are represented once by their nested asset ref')
+  assert.equal(first.json.workspace.attachments[0].previewText, undefined)
+  assert.equal(first.json.workspace.attachments[0].previewUrl, undefined, 'saving removes an older preview URL')
+  assert.equal(reads.length, 0)
+
+  const staleProjection = await attach(owner.id, owner.headers, [{ ...target, kind: 'file' }])
+  assert.equal(staleProjection.status, 200)
+  assert.deepEqual(staleProjection.json.workspace.attachments[0].imageSnapshot, frozen,
+    'an ordinary stale workspace replacement cannot rewind a saved image')
+  assert.equal(staleProjection.json.workspace.attachments[0].kind, 'photo', 'a stale projection cannot change the saved image attachment kind')
+  assert.equal(staleProjection.json.workspace.attachments[0].previewUrl, undefined)
+
+  const revoked = t.mock.method(store, 'fsReadPermitted', () => false)
+  const savedProjection = await attach(owner.id, owner.headers, [{ ...target, previewUrl: undefined, imageSnapshot: frozen }])
+  assert.equal(savedProjection.status, 200, 'an existing receipt survives unrelated projections after its source grant is revoked')
+  assert.deepEqual(savedProjection.json.workspace.attachments[0].imageSnapshot, frozen)
+  assert.equal(revoked.mock.callCount(), 0, 'a represented receipt is not re-authorized as a fresh capture')
+  const replay = await refreshImage(owner.id, target.id, null, frozen, owner.headers)
+  assert.equal(replay.status, 200, 'exact acknowledgement recovery survives a later grant revocation')
+  assert.deepEqual(replay.json.workspace.attachments[0].imageSnapshot, frozen)
+  assert.equal(revoked.mock.callCount(), 0, 'represented replay requires neither a source grant check nor a source read')
+
+  const changed = servedImageSnapshot(uploaded.json, { capturedAt: '2026-10-04T12:03:00.000Z' })
+  assert.equal((await refreshImage(owner.id, target.id, null, changed, owner.headers)).status, 409,
+    'same request ID with any changed snapshot field conflicts')
+  const fresh = servedImageSnapshot(uploaded.json, { snapshotId: RETRY_ID, capturedAt: '2026-10-04T12:04:00.000Z' })
+  assert.equal((await refreshImage(owner.id, target.id, REQUEST_ID, fresh, owner.headers)).status, 409,
+    'a fresh request cannot commit after the exact source grant is revoked')
+  assert.equal(reads.length, 0)
+})
+
+test('initial served image admission requires current exact-path authority and an owned asset', async (t) => {
+  const owner = await ownedSession()
+  const ownAsset = await uploadImage(owner.tenant)
+  assert.equal(ownAsset.status, 200)
+  const target = attachment('cloud::photos/cover.png', { label: 'cover.png', kind: 'photo', previewText: undefined })
+  const initialReceipt = servedImageSnapshot(ownAsset.json)
+  const initial = await attach(owner.id, owner.headers, [{ ...target, imageSnapshot: initialReceipt }])
+  assert.equal(initial.status, 200, 'an explicit picker capture may attach its already-uploaded owned asset')
+  assert.deepEqual(initial.json.workspace.attachments[0].imageSnapshot, initialReceipt)
+
+  const foreignAsset = await uploadImage('image-foreign-owner')
+  assert.equal(foreignAsset.status, 200)
+  const foreign = servedImageSnapshot(foreignAsset.json)
+  const denied = await attach(owner.id, owner.headers, [{ ...target, imageSnapshot: foreign }])
+  assert.equal(denied.status, 400, 'matching metadata cannot attach another tenant’s unowned image asset')
+  assert.deepEqual(store.sessionWorkspace(owner.id)?.attachments[0]?.imageSnapshot, initialReceipt)
+
+  const runnerId = 'runner-local'
+  const currentRunner = store.registry.get(runnerId)
+  assert.ok(currentRunner)
+  const original = { id: runnerId, label: currentRunner.label, host: currentRunner.host, capabilities: structuredClone(currentRunner.capabilities) }
+  t.after(() => { store.registry.register(original) })
+  const source = { id: `runner:${runnerId}`, kind: 'runner' as const, label: currentRunner.label, runnerId }
+  const path = 'insights-dashboard/photos/cover.png'
+  const runnerTarget = attachment(`runner:${runnerId}::${path}`, { label: 'cover.png', kind: 'photo', source, previewText: undefined })
+  const runnerReceipt = servedImageSnapshot(ownAsset.json, { sourceId: source.id, path })
+  store.registry.register({
+    id: runnerId, label: original.label, host: original.host,
+    capabilities: [{ type: 'fs.read', scopes: ['~/projects/insights-dashboard/other.png'] }],
+  })
+  assert.equal((await attach(owner.id, owner.headers, [{ ...runnerTarget, imageSnapshot: runnerReceipt }])).status, 400,
+    'a different runner path grant does not authorize initial image admission')
+  assert.deepEqual(store.sessionWorkspace(owner.id)?.attachments[0]?.imageSnapshot, initialReceipt)
+  store.registry.register({
+    id: runnerId, label: original.label, host: original.host,
+    capabilities: [{ type: 'fs.read', scopes: [`~/projects/${path}`] }],
+  })
+  assert.equal((await attach(owner.id, owner.headers, [{ ...runnerTarget, imageSnapshot: runnerReceipt }])).status, 200,
+    'the exact current runner path grant permits initial image admission')
+})
+
+test('runner image Refresh checks the current exact fs.read path, then permits exact replay after revocation', async (t) => {
+  const runnerId = 'runner-local'
+  const currentRunner = store.registry.get(runnerId)
+  assert.ok(currentRunner)
+  const original = { id: runnerId, label: currentRunner.label, host: currentRunner.host, capabilities: structuredClone(currentRunner.capabilities) }
+  t.after(() => { store.registry.register(original) })
+  const source = { id: `runner:${runnerId}`, kind: 'runner' as const, label: currentRunner.label, runnerId }
+  const owner = await ownedSession()
+  const path = 'insights-dashboard/photos/cover.png'
+  const id = `runner:${runnerId}::${path}`
+  store.registry.register({
+    id: runnerId, label: original.label, host: original.host,
+    capabilities: [{ type: 'fs.read', scopes: ['~/projects/insights-dashboard/photos/cover.png'] }],
+  })
+  const target = attachment(id, { label: 'cover.png', kind: 'photo', source })
+  assert.equal((await attach(owner.id, owner.headers, [target])).status, 200)
+  const uploaded = await uploadImage(owner.tenant)
+  const frozen = servedImageSnapshot(uploaded.json, { sourceId: source.id, path })
+  assert.equal((await refreshImage(owner.id, id, null, frozen, owner.headers)).status, 200)
+
+  store.registry.register({
+    id: runnerId, label: original.label, host: original.host,
+    capabilities: [{ type: 'fs.read', scopes: ['~/projects/insights-dashboard/other.png'] }],
+  })
+  const replay = await refreshImage(owner.id, id, null, frozen, owner.headers)
+  assert.equal(replay.status, 200)
+  assert.deepEqual(replay.json.workspace.attachments[0].imageSnapshot, frozen)
+  const fresh = servedImageSnapshot(uploaded.json, { sourceId: source.id, path, snapshotId: RETRY_ID })
+  assert.equal((await refreshImage(owner.id, id, REQUEST_ID, fresh, owner.headers)).status, 409,
+    'a different path grant does not authorize fresh image Refresh')
 })
 
 test('runner document Refresh requires its current exact path grant even when another fs.read grant remains', async (t) => {

@@ -57,6 +57,8 @@ export interface Attachment {
   /** Explicitly captured whole served-file text. Refresh is a user action;
    * previewing and generation consume this saved copy without source I/O. */
   textSnapshot?: import('./servedTextSnapshot.ts').ServedTextSnapshot
+  /** Explicitly captured normalized served-image pixels and source provenance. */
+  imageSnapshot?: import('./servedImageSnapshot.ts').ServedImageSnapshot
   /** Text-extraction provenance only, never raw document bytes or authority. */
   documentImport?: import('./documentImport.mjs').DocumentImportOutcome
   /** Server-owned image snapshot, durable across reload; no local path or bytes. */

@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Cloud,
-  FileText,
   FolderGit2,
   FolderOpen,
   FolderSearch,
@@ -49,15 +48,15 @@ import { FsReadNotice } from './FsReadNotice.tsx'
 import type { UiHostFile } from '../lib/uiHostFs'
 import { useUiHostFs, type UiHostFsModule } from '../lib/useUiHostFs'
 import { UiHostLoadNotice } from './UiHostLoadNotice.tsx'
+import { DeferredServedFileIntake } from './DeferredServedFileIntake.tsx'
+import { OptionRow } from './ContextOptionRow.tsx'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button'
 import { useFsCatalog, useSavedContexts, fsContentUrl } from '../api/hooks'
 import { useMcpConnections } from '../api/mcpConnectionHooks.ts'
-import { readFsFolderSnapshot, readFsSnapshot, retryFsCatalog } from '../api/fsReads.ts'
+import { readFsFolderSnapshot, retryFsCatalog } from '../api/fsReads.ts'
 import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 import { fsRecentKey, parseFsRecentKey } from '../../contract/index'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
-import { isLocalTextFileName } from '../../contract/localTextFile.mjs'
-import { documentFormatForName, type ServedTextSnapshot } from '../../contract/servedTextSnapshot.ts'
 import { RecentOverflowList, type OverflowRow } from './RecentOverflowList'
 import {
   CONNECTOR_OPTIONS,
@@ -546,13 +545,6 @@ const SOURCE_ICON: Record<FsSource['kind'], typeof Cloud> = {
   runner: Server,
 }
 
-/** Human file size for a catalog row's meta. */
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
 /** The source switcher — This computer · Cloud storage · each runner. */
 function SourceSwitcher({
   sources,
@@ -608,89 +600,6 @@ function recentEntryIds(recentKeys: readonly string[], sourceId: string): Set<st
   )
 }
 
-/** The served files of one source (cloud / runner), recents-ordered. */
-function ServedFiles({
-  source,
-  maxRows,
-  addedIds,
-  onAttach,
-  disabled = false,
-}: {
-  source: FsSource
-  maxRows: number
-  addedIds: readonly string[]
-  onAttach: (e: FsFileEntry) => void
-  disabled?: boolean
-}) {
-  const cat = useFsCatalog(source.id)
-  const recentKeys = useRecentIds('files')
-  const files = cat.data?.files ?? []
-  const recent = recentEntryIds(recentKeys, source.id)
-  const ordered = [...files.filter((f) => recent.has(f.id)), ...files.filter((f) => !recent.has(f.id))]
-  const phase = fsReadPhase(cat.status, files.length > 0)
-  if (phase !== 'ready') return <FsReadNotice phase={phase} label="files" onRetry={() => retryFsCatalog(source.id)} />
-  return (
-    <RecentOverflowList
-      maxRows={maxRows}
-      moreLabel="More files"
-      rows={ordered.map((f) => ({
-        key: f.id,
-        node: (
-          <OptionRow
-            icon={<FileText size={16} />}
-            label={f.name}
-            meta={`${f.ext ? f.ext.toUpperCase() + ' · ' : ''}${fmtSize(f.size)}`}
-            added={addedIds.includes(fsRecentKey(source.id, f.id))}
-            disabled={disabled}
-            onClick={() => onAttach(f)}
-          />
-        ),
-      }))}
-    />
-  )
-}
-
-/** The served photos of one source as a scrollable grid (real `<img>`). */
-function ServedPhotos({
-  source,
-  addedIds,
-  onAttach,
-}: {
-  source: FsSource
-  addedIds: readonly string[]
-  onAttach: (e: FsPhotoEntry) => void
-}) {
-  const cat = useFsCatalog(source.id)
-  const photos = cat.data?.photos ?? []
-  const phase = fsReadPhase(cat.status, photos.length > 0)
-  if (phase !== 'ready') return <FsReadNotice phase={phase} label="photos" onRetry={() => retryFsCatalog(source.id)} />
-  return (
-    <div className="grid grid-cols-3 gap-1.5 px-1 pb-1">
-      {photos.map((p) => {
-        const added = addedIds.includes(fsRecentKey(source.id, p.id))
-        return (
-          <PhotoThumb
-            key={p.id}
-            id={p.id}
-            src={fsContentUrl(source.id, p.id)}
-            title={p.name}
-            onClick={added ? undefined : () => onAttach(p)}
-            className={`aspect-square rounded-lg ring-1 transition ${
-              added ? 'ring-2 ring-ok' : 'ring-black/5 hover:opacity-80'
-            }`}
-          >
-            {added && (
-              <span className="absolute inset-0 flex items-center justify-center bg-black/35">
-                <Check size={18} className="text-on-solid" strokeWidth={3} />
-              </span>
-            )}
-          </PhotoThumb>
-        )
-      })}
-    </div>
-  )
-}
-
 /** Files and photos share source admission and intake; only their catalog view
  * and accepted local formats differ. */
 function FilePicker({
@@ -727,81 +636,13 @@ function FilePicker({
           hostFs.module ? (
             <hostFs.module.UiHostDropZone accept={kind === 'photos' ? 'image' : 'any'} label={`Add ${kind} from this computer`} onPicked={attachUiHost} hostFs={hostFs.module} />
           ) : <UiHostLoadNotice state={hostFs} label={kind === 'photos' ? 'photo access' : 'file access'} />
-        ) : active ? kind === 'photos' ? (
-          <ServedPhotos source={active} addedIds={addedIds} onAttach={attachServed} />
-        ) : (
-          <ServedFilePicker key={active.id} source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAdd={onAdd} onPreviewOnly={attachServed} />
+        ) : active ? (
+          <DeferredServedFileIntake key={`${active.id}:${kind}`} kind={kind} source={active} onAdd={onAdd} onClose={onClose} maxRows={maxRows} addedIds={addedIds} onPreviewOnly={attachServed} PhotoThumb={PhotoThumb} />
         ) : null}
       </FsSourcePanel>
       <MultiAddFooter count={addedIds.length} onDone={onClose} />
     </div>
   )
-}
-
-/** Supported served files become model input only after explicit whole-text
- * capture or bounded document extraction. Source bytes never enter context. */
-function ServedFilePicker({ source, maxRows, addedIds, onAdd, onPreviewOnly }: {
-  source: FsSource
-  maxRows: number
-  addedIds: readonly string[]
-  onAdd: (ctx: AddedContext) => void
-  onPreviewOnly: (entry: FsFileEntry) => void
-}) {
-  const [read, setRead] = useState<{ entry: FsFileEntry; status: 'loading' | 'error'; error?: string } | null>(null)
-  const intake = useRef<AbortController | null>(null)
-  useEffect(() => {
-    const cancel = () => { intake.current?.abort(); intake.current = null }
-    const unsubscribe = onAccountSwitch(() => { cancel(); setRead(null) })
-    return () => { unsubscribe(); cancel() }
-  }, [])
-
-  const take = async (entry: FsFileEntry) => {
-    if (intake.current) return
-    const controller = new AbortController()
-    const issuedAccount = accountGeneration()
-    intake.current = controller
-    setRead({ entry, status: 'loading' })
-    try {
-      const snapshot: ServedTextSnapshot = documentFormatForName(entry.id)
-        ? await import('../controller/servedDocumentCapture.ts').then(({ captureServedDocument }) =>
-          captureServedDocument(source.id, entry.id, crypto.randomUUID(), controller.signal))
-        : await readFsSnapshot(source.id, entry.id, controller.signal)
-      if (controller.signal.aborted || issuedAccount !== accountGeneration()) return
-      if (snapshot.sourceId !== source.id || snapshot.path !== entry.id) throw new Error('Snapshot did not match the selected file.')
-      setRead(null)
-      onAdd({ kind: 'files', attachments: [{
-        id: fsRecentKey(source.id, entry.id),
-        label: entry.name,
-        kind: 'file',
-        source,
-        textSnapshot: snapshot,
-      }] })
-    } catch (error) {
-      if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error', error: error instanceof Error ? error.message : undefined })
-    } finally {
-      if (intake.current === controller) intake.current = null
-    }
-  }
-
-  return <>
-    <p className="px-1 py-2 text-[11px] leading-snug text-ink-soft">Text and document files attach as saved copies: text up to 64 KB, or extracted text from PDF, DOCX, XLSX and PPTX up to 8 MB. Use Refresh in Files for later changes.</p>
-    <fieldset disabled={read?.status === 'loading'}>
-      <ServedFiles
-        source={source}
-        maxRows={maxRows}
-        addedIds={addedIds}
-        disabled={read?.status === 'loading'}
-        onAttach={(entry) => isLocalTextFileName(entry.name) || documentFormatForName(entry.id) ? void take(entry) : onPreviewOnly(entry)}
-      />
-    </fieldset>
-    {read && <div data-fs-file-read={read.status} role={read.status === 'error' ? 'alert' : 'status'} aria-busy={read.status === 'loading'} className="break-words px-1 py-2 text-[12px] text-ink-soft">
-      {read.status === 'loading' ? <p>Reading {read.entry.name}… Close this picker or choose another source to cancel.</p> : <>
-        <p className="break-words text-danger-text">Could not read {read.entry.name}. Nothing was attached.</p>
-        {read.error && <p className="mt-1 break-words">{read.error}</p>}
-        <button type="button" onClick={() => void take(read.entry)} className={`${SECONDARY_BUTTON_CLASS} mt-2 px-2 py-1 text-[12px]`}>Retry</button>
-      </>}
-    </div>}
-  </>
 }
 
 type RepoContext = Extract<AddedContext, { kind: 'repo' }>
@@ -1254,65 +1095,5 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
       <p className="px-1 pb-1.5 text-[11px] text-ink-faint">{label}</p>
       {children}
     </div>
-  )
-}
-
-function OptionRow({
-  icon,
-  label,
-  meta,
-  status,
-  added,
-  onClick,
-  disabled = false,
-}: {
-  icon: ReactNode
-  label: string
-  meta?: string
-  /** The row's LIVE auth state dot (the quick list): green = connected, amber =
-   *  needs auth. Read from the saved-contexts registry, never asserted — a
-   *  disconnect on the Contexts page must show here too (registries have one
-   *  home and live points-of-use). */
-  status?: 'connected' | 'needs-auth'
-  /** Already attached to the thread — shows ✓ Added (not a plus) and isn't
-   *  clickable, so it can't be added twice. Persists across reopens. */
-  added?: boolean
-  /** Explicitly crosses a portal; a parent fieldset cannot disable flyout rows. */
-  disabled?: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={added || disabled ? undefined : onClick}
-      disabled={disabled}
-      aria-disabled={added || disabled}
-      className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${
-        added ? 'cursor-default' : 'hover:bg-panel-2'
-      }`}
-    >
-      {status && (
-        <span
-          className={`h-1.5 w-1.5 shrink-0 rounded-full ${status === 'connected' ? 'bg-ok' : 'bg-warn'}`}
-          title={status === 'connected' ? 'Connected' : 'Needs auth'}
-        />
-      )}
-      <span className="shrink-0 text-ink-soft">{icon}</span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-[13px] font-medium text-ink">{label}</span>
-        {meta && <span className="block truncate text-[11px] text-ink-faint">{meta}</span>}
-      </span>
-      {added ? (
-        <span className="flex shrink-0 items-center gap-1 text-[11px] font-medium text-ok-strong">
-          <Check size={13} strokeWidth={2.5} /> Added
-        </span>
-      ) : (
-        <span
-          title="Add"
-          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid"
-        >
-          <Plus size={14} />
-        </span>
-      )}
-    </button>
   )
 }

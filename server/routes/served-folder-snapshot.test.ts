@@ -150,6 +150,10 @@ test('stale, malformed, detached and unreadable refreshes preserve the saved fol
     { expectedSnapshotId: 'bad', requestId: REQUEST_ID },
     { expectedSnapshotId: prior.snapshotId, requestId: prior.snapshotId },
     { expectedSnapshotId: prior.snapshotId, requestId: REQUEST_ID, extra: true },
+    { expectedSnapshotId: null, requestId: REQUEST_ID, imageSnapshot: {
+      version: 1, snapshotId: REQUEST_ID, capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'photos/cover.png',
+      image: { id: `img-${'a'.repeat(64)}`, mimeType: 'image/png', width: 1, height: 1, byteLength: 68 },
+    } },
   ]) {
     assert.equal((await call('POST', `/sessions/${owner.id}/folders/cloud%3A%3Aresearch/refresh`, body, owner.headers)).status, 400)
   }

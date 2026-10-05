@@ -281,7 +281,7 @@ test('UI-20: sampled customization extremes preserve the contrast contract', () 
  *  a file that has meanwhile grown a real violation. */
 const IMAGE_BACKDROP_EXEMPTIONS = [
   {
-    file: join('src', 'components', 'AddContextButton.tsx'),
+    file: join('src', 'components', 'ServedFileIntake.tsx'),
     literal: 'text-on-solid',
     why: 'the added-photo check, centred on a bg-black/35 scrim over the thumbnail',
   },

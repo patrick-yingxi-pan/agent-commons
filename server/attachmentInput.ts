@@ -1,5 +1,5 @@
 import type { Attachment } from '../contract/entities.ts'
-import { ATTACHMENT_INPUT_MAX_ITEMS, attachmentDocumentImport, attachmentText, isAttachmentInput, planAttachmentInput } from '../contract/attachmentInput.ts'
+import { ATTACHMENT_INPUT_MAX_ITEMS, attachmentDocumentImport, attachmentImageRef, attachmentText, isAttachmentInput, planAttachmentInput } from '../contract/attachmentInput.ts'
 import { isImageSnapshot, type ImageSnapshot } from '../contract/imageInput.ts'
 import { imageAssetRefMatches } from '../contract/imageAssets.ts'
 
@@ -15,10 +15,11 @@ export function attachmentPrompt(text: string, attachments: readonly Attachment[
   const files = planAttachmentInput(attachments).slice(0, ATTACHMENT_INPUT_MAX_ITEMS).map(({ attachment, status }) => {
     const name = isAttachmentInput(attachment) ? attachment.label.slice(0, 200) : '(invalid attachment)'
     const documentImport = isAttachmentInput(attachment) ? attachmentDocumentImport(attachment) : undefined
-    if (status === 'image-ready' && attachment.image) {
-      const resolved = images[attachment.image.id]
+    const image = isAttachmentInput(attachment) ? attachmentImageRef(attachment) : undefined
+    if (status === 'image-ready' && image) {
+      const resolved = images[image.id]
       if (!supportsImages) return { name, status: 'unsupported-model' }
-      if (!isImageSnapshot(resolved) || !imageAssetRefMatches(attachment.image, resolved)) return { name, status: 'unavailable' }
+      if (!isImageSnapshot(resolved) || !imageAssetRefMatches(image, resolved)) return { name, status: 'unavailable' }
       // Copy metadata with the immutable string now, not during a later tool
       // round. The ordinal identifies the actual preceding binary image block.
       suppliedImages.push({ ...resolved })
