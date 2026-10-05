@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-04 UTC. The standing goal remains production readiness for Agent
+Reviewed 2026-10-05 UTC. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -44,7 +44,21 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint extends the same explicit saved-context workflow to images
+The current acceptance checkpoint closes the real macOS chooser gap for the
+remembered Folder workflow on the unsigned arm64 artifact at `14f20c02`.
+[The recorded native walk](acceptance/native-folder-2026-10-05.md) verifies
+unchecked Remember and Cancel, temporary-selection expiry, opt-in encrypted
+connection persistence, explicit Attach/Refresh, saved-only model input,
+missing-source recovery, and Disconnect persisting across native Quit/relaunch.
+Exact saved state survives independently of both the source path and device
+grant. The temporary connection's full saved-copy journey remains automated
+evidence; this manual run does not claim it. Early native-control disagreement
+recovered after a clean Quit/relaunch and is recorded without inferring a product
+defect. Product source and security policy were unchanged during acceptance.
+The separate history-visibility and retention questions remain unanswered;
+their answers are not inferred from approval of the six desktop defaults.
+
+The preceding checkpoint extends the same explicit saved-context workflow to images
 from existing cloud and mapped-runner sources, preserving Files/Photos placement.
 One bounded capture normalizes the first frame to PNG and stores it through the
 existing tenant-asset boundary. Original bytes remain transient. Preview, shared

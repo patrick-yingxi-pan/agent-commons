@@ -45,11 +45,11 @@ when changing the renderer-facing bridge or setup UI.
 | DESKTOP-O6 | operations | Local-service loss has one owner: an exit before the first window completes aborts startup into startup recovery, while a later unexpected exit closes stale native clients and offers one default-Restart whole-app boundary or Quit. Saved device state and possibly lost unsaved window text are distinguished, concurrent ceremonies are suppressed, and restart failure is reported generically before quit. | [`nativeRecovery.mjs`](nativeRecovery.mjs) · [`backendRecovery.mjs`](backendRecovery.mjs) · [`main.mjs`](main.mjs) | [`nativeRecovery.test.ts`](nativeRecovery.test.ts) · [`backendRecovery.test.ts`](backendRecovery.test.ts) · [`runtime.test.ts`](runtime.test.ts) | requires DESKTOP-O1; requires DESKTOP-S1 |
 | DESKTOP-O7 | operations | Signed macOS builds check bounded credential-free metadata at their bundled HTTPS URL; native menu/dialogs grant separate default-Later download and install/restart consent, never renderer IPC. Private ZIP size/hash validation precedes an inert ready state. Installation requires a safety backup and strict backend stop before a capability-only loopback handoff to Squirrel. Quit, restore and recovery drain/erase temporary downloads; automatic checks never stage native updates. Unconfigured builds are honest; real signed two-version acceptance remains required. | [`updateConfiguration.mjs`](updateConfiguration.mjs) · [`updateMetadata.mjs`](updateMetadata.mjs) · [`updateArchive.mjs`](updateArchive.mjs) · [`updateController.mjs`](updateController.mjs) · [`updateLifecycle.mjs`](updateLifecycle.mjs) · [`main.mjs`](main.mjs) | [`updateConfiguration.test.ts`](updateConfiguration.test.ts) · [`updateMetadata.test.ts`](updateMetadata.test.ts) · [`updateArchive.test.ts`](updateArchive.test.ts) · [`updateController.test.ts`](updateController.test.ts) · [`updateLifecycle.test.ts`](updateLifecycle.test.ts) · [`runtime.test.ts`](runtime.test.ts) · packaged menu smoke | requires DESKTOP-O4; requires DESKTOP-V5; requires DESKTOP-S1 |
 <!-- context-rules:end -->
-The native foundation in PORT-20 is now connected through CTX-FS-22. The
-`localConnectionHost.mjs` facade derives its namespace/user from cookie-backed
-identity and checks the renderer source only as a precondition. Metadata access
-never captures files. `localConnectionHost.test.ts` and the packaged attachment
-walk cover source transitions, explicit capture and connection lifetimes.
+CTX-FS-22 connects PORT-20 through `localConnectionHost.mjs`: cookie-derived
+ownership, renderer preconditions and metadata-only listing. Its colocated tests
+and packaged attachment walk cover source transitions, capture and lifetimes.
+The [native Folder record](../docs/acceptance/native-folder-2026-10-05.md) scopes
+actual macOS chooser, persistence, Refresh, recovery and Disconnect evidence.
 
 ## Verification
 

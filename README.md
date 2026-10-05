@@ -336,8 +336,17 @@ Cloud and mapped-runner text files and bounded top-level folders attach as saved
 copies (64 KiB/file, 128 KiB/folder, at most 24 readable files). Opening or sending
 a conversation uses the saved copy without rereading its source. Owners can
 explicitly Refresh; failure preserves saved text and offers Retry or **Use saved
-state**. Empty folders retain independent identity. Remembered local Folder/Git
-connections and rich remote document/image input remain unfinished work.
+state**. Empty folders retain independent identity. Desktop local Folder access
+is temporary by default; opt-in **Remember this connection** preserves encrypted
+device access across relaunch. Connect does not read content; Attach and Refresh
+capture explicitly, and Disconnect preserves previously saved copies.
+
+The same cloud and mapped-runner sources support bounded PDF/DOCX/XLSX/PPTX text
+projections and normalized saved images, with explicit Refresh. Original document
+and image bytes are transient. Real Git, recursive folders and rich document
+fidelity remain unfinished work. The recorded [native Folder acceptance](docs/acceptance/native-folder-2026-10-05.md)
+covers actual macOS selection and remembered-connection lifecycles on its named
+unsigned arm64 build; it is not a signed two-architecture release receipt.
 
 For a provider you created, Models → provider → **Update connection** replaces
 only the URL, model, or key you enter. The server merges those write-only fields,

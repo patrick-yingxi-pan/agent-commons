@@ -33,6 +33,13 @@
 
 ## Files / photos / folders are really served (L2)
 
+The [October 5 native Folder review](../acceptance/native-folder-2026-10-05.md)
+adds actual macOS selection, encrypted opt-in relaunch, explicit saved-copy
+Refresh, missing-source recovery and durable Disconnect evidence for CTX-FS-22
+on its recorded unsigned arm64 artifact. Temporary selection/expiry passed;
+the temporary saved-copy journey, account/race matrices and signed release gates
+remain separate evidence, not implied by this manual walk.
+
 Served text, document, image and folder attachments use explicit saved copies. Preview,
 reload and model input read those copies, never the source. An owner chooses
 Refresh to capture later edits. Empty folders retain independent identity;
