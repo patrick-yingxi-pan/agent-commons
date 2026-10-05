@@ -3,6 +3,23 @@ import { test } from 'node:test'
 import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
+test('workbook reading and editing share an accessible identity-based tab strip and one draft', () => {
+  const tabs = stripComments(read(join(ROOT, 'src', 'components', 'WorkbookTabs.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'StructuredArtifactView.tsx')))
+  const editor = stripComments(read(join(ROOT, 'src', 'components', 'StructuredArtifactEditor.tsx')))
+  for (const source of [view, editor]) assert.match(source, /<WorkbookTabs\b/)
+  assert.match(tabs, /role="tablist" aria-label="Worksheets"/)
+  assert.match(tabs, /role="tab"/)
+  assert.match(tabs, /role="tabpanel"/)
+  assert.match(tabs, /aria-selected=\{index === activeIndex\}/)
+  assert.match(tabs, /tabIndex=\{index === activeIndex \? 0 : -1\}/)
+  for (const key of ['Home', 'End', 'ArrowRight', 'ArrowLeft']) assert.ok(tabs.includes(`'${key}'`))
+  assert.match(tabs, /flex-wrap/, 'all tab labels fit the pane instead of hiding beyond a strip')
+  assert.match(editor, /spreadsheetSheets\(body\)/, 'legacy and named sheets use one projection')
+  assert.match(editor, /Undo removal/, 'removal is reversible before saving')
+  assert.match(editor, /onChange\(\{ type: 'workbook', sheets: next \}\)/, 'tab operations edit one complete draft')
+})
+
 test('structured artifact editor is one held whole-body owner draft with structural controls', () => {
   const editor = stripComments(read(join(ROOT, 'src', 'components', 'StructuredArtifactEditor.tsx')))
   const page = stripComments(read(join(ROOT, 'src', 'components', 'artifactPreview.tsx')))

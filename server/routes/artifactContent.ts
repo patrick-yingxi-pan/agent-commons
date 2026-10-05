@@ -14,9 +14,9 @@ export async function updateArtifactContent({ req, res, params, body }: Ctx): Pr
   try {
     if (Object.hasOwn(input, 'content')) {
       const patch = parseStructuredArtifactEdit(input)
-      if (!patch) return sendError(res, 'bad_request', 'content must be a valid saved sheet or slide body and expectedRevision is required; no other fields are accepted')
+      if (!patch) return sendError(res, 'bad_request', 'content must be a valid saved sheet, workbook, or slide body and expectedRevision is required; no other fields are accepted')
       const updated = store.updateStructuredArtifactContent(params.id, patch.content, patch.expectedRevision, tenantId)
-      if (!updated) return sendError(res, 'bad_request', 'That saved sheet or slide content cannot be replaced; its type must stay unchanged')
+      if (!updated) return sendError(res, 'bad_request', 'That saved sheet, workbook, or slide content cannot be replaced; workbook tabs cannot be discarded by changing body type')
       return sendJson(res, updated)
     }
     const patch = input as UpdateArtifactContentRequest

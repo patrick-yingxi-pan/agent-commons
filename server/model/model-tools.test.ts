@@ -26,10 +26,16 @@ test('save_artifact advertises a document-or-structured-body union', () => {
   assert.ok(save)
   assert.equal(save.input_schema.properties.kind.enum?.join(','), 'doc,sheet,slide')
   assert.equal(save.input_schema.properties.body.oneOf?.length, 3)
-  assert.equal(save.input_schema.properties.body.oneOf?.[1]?.properties?.type.enum?.[0], 'sheet')
+  const spreadsheet = save.input_schema.properties.body.oneOf?.[1]
+  assert.equal(spreadsheet?.oneOf?.length, 2)
+  const sheet = spreadsheet?.oneOf?.[0]
+  const workbook = spreadsheet?.oneOf?.[1]
+  assert.equal(sheet?.properties?.type.enum?.[0], 'sheet')
+  assert.equal(sheet?.properties?.columns.maxItems, 32)
+  assert.equal(sheet?.properties?.rows.maxItems, 200)
+  assert.equal(workbook?.properties?.type.enum?.[0], 'workbook')
+  assert.equal(workbook?.properties?.sheets.maxItems, 20)
   assert.equal(save.input_schema.properties.body.oneOf?.[2]?.properties?.type.enum?.[0], 'slides')
-  assert.equal(save.input_schema.properties.body.oneOf?.[1]?.properties?.columns.maxItems, 32)
-  assert.equal(save.input_schema.properties.body.oneOf?.[1]?.properties?.rows.maxItems, 200)
   assert.equal(save.input_schema.properties.body.oneOf?.[2]?.properties?.slides.maxItems, 40)
 })
 

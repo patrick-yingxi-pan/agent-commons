@@ -38,6 +38,15 @@ export * from './content.ts'
 export * from './artifactExport.ts'
 export * from './artifactMetadata.ts'
 export * from './artifactAuthoring.ts'
+export {
+  isSpreadsheetContent,
+  parseAuthoredWorkbook,
+  spreadsheetSheets,
+  MAX_AUTHORED_WORKBOOK_CELLS,
+  MAX_AUTHORED_WORKBOOK_SHEETS,
+  MAX_WORKBOOK_SHEET_ID_CHARS,
+  MAX_WORKBOOK_SHEET_NAME_CHARS,
+} from './workbook.ts'
 export * from './artifactEditing.ts'
 export * from './artifactCreation.ts'
 export * from './artifactLifecycle.ts'

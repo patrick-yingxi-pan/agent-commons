@@ -42,7 +42,8 @@ export function workbookSheets(xml: string): Array<{ name: string; relation: str
     if (depth === 2 && tag.uri === namespace && tag.local === 'sheets') { if (++containers > 1) invalid(); inSheets = true }
     if (!inSheets || depth !== 3 || tag.uri !== namespace || tag.local !== 'sheet') return
     if (sheets.length >= MAX_XLSX_SHEETS) bounded()
-    const name = attr(tag, 'name')
+    const encodedName = attr(tag, 'name')
+    const name = encodedName === undefined ? undefined : cellString(encodedName)
     const id = attr(tag, 'sheetId')
     const relationAttributes = Object.values(tag.attributes).filter((value) => value.local === 'id' && OFFICE.has(value.uri))
     const relation = relationAttributes[0]?.value
@@ -57,7 +58,7 @@ export function workbookSheets(xml: string): Array<{ name: string; relation: str
   return sheets
 }
 
-// SpreadsheetML escapes are decoded once: _x005F_x0041_ denotes literal
+// SpreadsheetML cell and worksheet-name escapes are decoded once: _x005F_x0041_ denotes literal
 // "_x0041_", not "A". JSON-quoted cell text keeps control/tab/newline data distinct
 // from the projection's own separators. Never run formulas or resolve links.
 const cellString = (value: string) => value.replace(/_x([\da-f]{4})_/gi, (_, hex: string) => String.fromCharCode(Number.parseInt(hex, 16)))

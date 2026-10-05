@@ -82,9 +82,13 @@ test('sheet intake requires explicit valid header mapping and adoption before cr
   assert.ok(surface.includes('intake.selectWorksheet(Number(event.target.value))'))
   assert.ok(hook.includes('selection?.candidate === intake.state'), 'worksheet choices belong to one reviewed candidate')
   assert.ok(surface.includes('<StructuredArtifactView body={mapping.body}'))
-  assert.ok(surface.includes('aria-label="Imported sheet" tabIndex={0}'))
+  assert.ok(surface.includes("aria-label={intake.importAllVisible ? 'Imported workbook' : 'Imported sheet'} tabIndex={0}"), 'preview names the selected-sheet or whole-workbook candidate and remains keyboard reachable')
+  assert.ok(surface.includes('All visible worksheets'))
+  assert.ok(surface.includes('replaces all current tabs, columns, rows and notes'))
   assert.ok(surface.includes('Replace sheet with imported sheet'))
   assert.ok(surface.includes("disabled={disabled || mapping?.status === 'error'}"))
+  assert.ok(hook.includes('allVisibleCandidate === intake.state'), 'all-visible import scope belongs only to the reviewed workbook candidate')
+  assert.ok(hook.includes('setAllVisibleCandidate(enabled ? intake.state : null)'), 'only explicit all-scope choice binds the current candidate')
 })
 
 test('one global held creation owns recovery and only a still-mounted dialog follows its exact id', () => {

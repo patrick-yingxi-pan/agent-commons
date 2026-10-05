@@ -53,7 +53,7 @@ async function expectContained(page: Page, dialog: Locator) {
 
 async function captureDialog(page: Page, dialog: Locator, testInfo: TestInfo, label: string, failed = false) {
   const viewport = page.viewportSize()!
-  const preview = failed ? dialog.getByRole('alert') : dialog.getByRole('region', { name: 'Imported sheet', exact: true })
+  const preview = failed ? dialog.getByRole('alert') : dialog.getByRole('region', { name: /^Imported (sheet|workbook)$/ })
   await preview.scrollIntoViewIfNeeded()
   await expectContained(page, dialog)
   if (failed) await expect(preview).toBeVisible()
@@ -72,13 +72,13 @@ async function captureAllDialogViewports(page: Page, dialog: Locator, testInfo: 
 async function createSheetFromDialog(page: Page, dialog: Locator, suggestedName: string, finalName: string) {
   await dialog.getByRole('button', { name: 'Use imported sheet', exact: true }).click()
   await expect(dialog.getByRole('region', { name: 'Imported sheet', exact: true })).toHaveCount(0)
-  await expect(dialog.getByLabel('Name')).toHaveValue(suggestedName)
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(suggestedName)
   await expect(dialog.getByLabel('Sheet column 1', { exact: true })).toBeFocused()
   await expect(dialog.getByLabel('Sheet column 1', { exact: true })).toHaveValue('Metric')
   await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Revenue')
-  await dialog.getByLabel('Name').fill(finalName)
+  await dialog.getByLabel('Name', { exact: true }).fill(finalName)
   await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('00043')
-  await expect(dialog.getByLabel('Name')).toHaveValue(finalName)
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(finalName)
   await dialog.getByRole('button', { name: 'Create sheet', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page).toHaveURL(/\/artifacts\/[^/]+$/)
@@ -196,10 +196,77 @@ test('XLSX review chooses a worksheet, keeps cached values literal and saves onl
   await exportXlsx(page, name)
 })
 
+test('all-visible XLSX review keeps the draft until explicit adoption and blocks missing cached values', async ({ page }, testInfo) => {
+  test.setTimeout(ms(120_000))
+  const stamp = Date.now().toString(36)
+  const filename = `all-visible-${stamp}.xlsx`
+  const badWorkbook: PickedFile = {
+    name: `missing-cache-${stamp}.xlsx`,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: xlsxFixture({ sheets: [
+      { name: 'Ready first', rows: [['Metric', 'Value'], ['Revenue', '00042']] },
+      { name: 'Missing cache', rows: [['Metric', 'Formula'], ['Revenue', { formula: '1+1' }]] },
+    ] }),
+  }
+  const allVisibleWorkbook: PickedFile = {
+    name: filename,
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    buffer: xlsxFixture({ sheets: [
+      { name: 'Overview', rows: [['Metric', 'Value'], ['Revenue', '00042']] },
+      { name: 'Hidden tab', hidden: true, rows: [['Do not import', 'hidden']] },
+      { name: 'Selected sales', rows: [['Metric', 'Value'], ['Costs', '00017']] },
+    ] }),
+  }
+  const dialog = await openSheetDialog(page)
+  await dialog.getByLabel('Name', { exact: true }).fill('Keep my draft.xlsx')
+  await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Draft column')
+  await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Draft value')
+  await chooseSheet(page, dialog, badWorkbook)
+  await dialog.getByLabel('Import scope').selectOption({ label: 'All visible worksheets' })
+  const invalidPreview = dialog.getByRole('region', { name: 'Imported workbook', exact: true })
+  await expect(invalidPreview.getByRole('alert')).toContainText(/Missing cache.*no saved cached value/i)
+  await expect(dialog.getByRole('button', { name: 'Replace spreadsheet with imported workbook', exact: true })).toBeDisabled()
+  await expect(dialog.getByRole('button', { name: 'Create sheet', exact: true })).toBeDisabled()
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('Keep my draft.xlsx')
+  await expect(dialog.getByLabel('Sheet column 1', { exact: true })).toHaveValue('Draft column')
+  await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Draft value')
+  await dialog.getByRole('button', { name: 'Discard import', exact: true }).click()
+
+  await chooseSheet(page, dialog, allVisibleWorkbook)
+  await dialog.getByLabel('Import scope').selectOption({ label: 'All visible worksheets' })
+  const preview = dialog.getByRole('region', { name: 'Imported workbook', exact: true })
+  const tabs = preview.getByRole('tablist', { name: 'Worksheets', exact: true })
+  await expect(tabs.getByRole('tab')).toHaveText(['Overview', 'Selected sales'])
+  await expect(tabs.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(preview.locator('table thead th')).toHaveText(['Metric', 'Value'])
+  await expect(preview.locator('table tbody td')).toHaveText(['Revenue', '00042'])
+  await tabs.getByRole('tab', { name: 'Selected sales', exact: true }).click()
+  await expect(preview.locator('table tbody td')).toHaveText(['Costs', '00017'])
+  await expect(preview).toContainText(/all 2 visible worksheets in source order/i)
+  await expect(preview).toContainText(/first row as column names/i)
+  await expect(dialog.getByRole('button', { name: 'Replace spreadsheet with imported workbook', exact: true })).toBeEnabled()
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('Keep my draft.xlsx')
+  await expect(dialog.getByLabel('Sheet column 1', { exact: true })).toHaveValue('Draft column')
+  await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Draft value')
+  await captureAllDialogViewports(page, dialog, testInfo, 'xlsx-all-visible')
+
+  await dialog.getByRole('button', { name: 'Replace spreadsheet with imported workbook', exact: true }).click()
+  await expect(dialog.getByRole('region', { name: 'Imported workbook', exact: true })).toHaveCount(0)
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('Keep my draft.xlsx')
+  const editorTabs = dialog.getByRole('tablist', { name: 'Worksheets', exact: true })
+  await expect(editorTabs.getByRole('tab')).toHaveText(['Overview', 'Selected sales'])
+  await expect(editorTabs.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(dialog.getByLabel('Worksheet name')).toHaveValue('Overview')
+  await expect(dialog.getByLabel('Sheet column 1', { exact: true })).toHaveValue('Metric')
+  await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Revenue')
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+})
+
 test('XLSX missing formula results refuse adoption without changing the draft and a new candidate resets worksheet choice', async ({ page }, testInfo) => {
   test.setTimeout(ms(120_000))
   const dialog = await openSheetDialog(page)
-  await dialog.getByLabel('Name').fill('My unchanged sheet.xlsx')
+  await dialog.getByLabel('Name', { exact: true }).fill('My unchanged sheet.xlsx')
   await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Original')
   await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Keep this draft')
   await chooseSheet(page, dialog, { name: 'uncalculated.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: xlsxFixture({ sheets: [
@@ -210,16 +277,28 @@ test('XLSX missing formula results refuse adoption without changing the draft an
   await expect(dialog.getByRole('alert')).toBeVisible()
   await worksheet.selectOption({ label: 'Missing saved result' })
   await expect(dialog.getByRole('alert')).toContainText(/recalculate/i)
-  await expect(dialog.getByRole('button', { name: 'Replace sheet with imported sheet', exact: true })).toBeDisabled()
+  const scope = dialog.getByLabel('Import scope', { exact: true })
+  await scope.selectOption({ label: 'All visible worksheets' })
+  await expect(scope).toHaveValue('all')
+  await expect(dialog.getByRole('button', { name: 'Replace spreadsheet with imported workbook', exact: true })).toBeDisabled()
   await expect(dialog.getByRole('button', { name: 'Create sheet', exact: true })).toBeDisabled()
   await captureAllDialogViewports(page, dialog, testInfo, 'xlsx-missing-cache', true)
   await page.setViewportSize(VIEWPORTS[0])
   await dialog.getByRole('button', { name: 'Discard import', exact: true }).click()
   await chooseSheet(page, dialog, workbookFile('replacement.xlsx'))
+  await expect(scope, 'scope from a previous workbook cannot carry to a new candidate').toHaveValue('selected')
   await expect(worksheet).toHaveValue('1')
   await expect(dialog.getByRole('region', { name: 'Imported sheet', exact: true })).toContainText('Do not save this worksheet')
+  await scope.selectOption({ label: 'All visible worksheets' })
+  await expect(scope).toHaveValue('all')
   await dialog.getByRole('button', { name: 'Discard import', exact: true }).click()
-  await expect(dialog.getByLabel('Name')).toHaveValue('My unchanged sheet.xlsx')
+  await chooseSheet(page, dialog, { name: 'replacement.csv', mimeType: 'text/csv', buffer: Buffer.from('Metric,Value\nImported,00042\n') })
+  await expect(dialog.getByRole('region', { name: 'Imported sheet', exact: true })).toBeVisible()
+  await expect(dialog.getByRole('region', { name: 'Imported workbook', exact: true })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: 'Replace sheet with imported sheet', exact: true })).toBeEnabled()
+  await expect(dialog.getByRole('button', { name: 'Replace spreadsheet with imported workbook', exact: true })).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Discard import', exact: true }).click()
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('My unchanged sheet.xlsx')
   await expect(dialog.getByLabel('Sheet column 1', { exact: true })).toHaveValue('Original')
   await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Keep this draft')
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
@@ -260,11 +339,11 @@ test('TSV replacement, malformed input, and discard preserve the authored draft'
   test.setTimeout(ms(120_000))
   const stamp = Date.now().toString(36)
   const dialog = await openSheetDialog(page)
-  await dialog.getByLabel('Name').fill(`held-sheet-${stamp}.xlsx`)
+  await dialog.getByLabel('Name', { exact: true }).fill(`held-sheet-${stamp}.xlsx`)
   await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Original')
   await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Draft stays')
   await chooseSheet(page, dialog, { name: `replacement-${stamp}.tsv`, mimeType: 'text/tab-separated-values', buffer: Buffer.from(`Header A\tHeader B\n00042\t=1+1\n`) })
-  await expect(dialog.getByLabel('Name')).toHaveValue(`held-sheet-${stamp}.xlsx`)
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(`held-sheet-${stamp}.xlsx`)
   await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Draft stays')
   await captureAllDialogViewports(page, dialog, testInfo, 'replacement-review')
   await dialog.getByRole('button', { name: 'Replace sheet with imported sheet', exact: true }).click()

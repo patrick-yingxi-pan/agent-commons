@@ -61,7 +61,11 @@ or determine XLSX workbook identity. ADAPT-38 adds explicit visible-worksheet
 selection from actual bounded XLSX cells, importing only saved literal values
 after review. Missing formula caches refuse adoption; rich formatting, merges,
 media and calculation remain unbuilt. Saved bodies and XLSX exports use the same
-canonical authored-artifact boundary, never fixture content.
+canonical authored-artifact boundary, never fixture content. ADAPT-39 adds real
+ordered workbook tabs under one artifact identity and access boundary, with
+whole-workbook edits, all-visible-sheet adoption and multi-tab XLSX export.
+Revisions are conflict-detection counters, not browsable saved-version history.
+This still does not execute formulas or retain rich Office fidelity.
 
 Saved authored Documents and draft emails also export through the authenticated
 boundary as bounded DOCX projections of the current saved text snapshot. The

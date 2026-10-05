@@ -5351,7 +5351,7 @@ export function buildRouter(): Router {
     sendJson(res, store.artifactContent(store.identity(req.headers).tenant.id))
   })
   /** Owner-only content editing: addressed prose blocks or one complete
-   *  revision-pinned sheet/deck. Grants widen reads, never this write door;
+   *  revision-pinned sheet/workbook/deck. Grants widen reads, never this write door;
    *  missing and foreign identities share the same existence-hiding wall. */
   r.patch('/artifacts/:id/content', idempotent(updateArtifactContent, artifactReplayVisible))
   r.get('/schedule-templates', ({ res }) => {

@@ -7,6 +7,7 @@ import {
   parseStructuredArtifactBody,
   type StructuredArtifactBody,
 } from '../../contract/artifactAuthoring.ts'
+import { parseAuthoredWorkbook } from '../../contract/workbook.ts'
 import { LOCAL_TEXT_PREVIEW_BYTES } from '../../contract/localTextFile.mjs'
 import { normalizeArtifactName } from '../../contract/artifactMetadata.ts'
 import { parseWorkbookImportResult, parseWorkbookSnapshot, type WorkbookSnapshot } from '../../contract/workbookImport.ts'
@@ -24,7 +25,7 @@ export type ArtifactSheetImportResult =
   | { status: 'ready'; name: string; workbook: WorkbookSnapshot }
 
 export type ArtifactSheetMappingResult =
-  | { status: 'ready'; body: Extract<StructuredArtifactBody, { type: 'sheet' }>; disclosure: string; worksheet?: { sourceSheet: number; name: string } }
+  | { status: 'ready'; body: Extract<StructuredArtifactBody, { type: 'sheet' | 'workbook' }>; disclosure: string; worksheet?: { sourceSheet: number; name: string } }
   | { status: 'error'; message: string }
 
 export function isArtifactSheetFileName(name: string): boolean {
@@ -152,43 +153,64 @@ export function reviewArtifactSheetImport(
   return { status: 'ready', name: importedName(file.name), records, delimiter }
 }
 
-export function mapArtifactSheetImport(candidate: ArtifactSheetImportResult, firstRowHeaders: boolean, sourceSheet?: number): ArtifactSheetMappingResult {
+export function mapArtifactSheetImport(candidate: ArtifactSheetImportResult, firstRowHeaders: boolean, sourceSheet?: number, importAllVisible = false): ArtifactSheetMappingResult {
   if (candidate.status !== 'ready') return { status: 'error', message: candidate.status === 'cancelled' ? 'Sheet import was cancelled.' : candidate.message }
   if ('workbook' in candidate) {
     const workbook = parseWorkbookSnapshot(candidate.workbook)
     if (!workbook) return { status: 'error', message: 'The worksheet snapshot is invalid. No cells were imported.' }
-    const worksheet = sourceSheet === undefined
+    const worksheets = importAllVisible ? workbook.worksheets : [sourceSheet === undefined
       ? workbook.worksheets[0]
-      : workbook.worksheets.find((sheet) => sheet.sourceSheet === sourceSheet)
-    if (!worksheet) return { status: 'error', message: 'Choose a visible worksheet from this workbook. No cells were imported.' }
-    if (worksheet.cells.some((cell) => cell.formula === 'missing')) {
-      return { status: 'error', message: `A formula in “${worksheet.name}” has no saved cached value. Recalculate and save the workbook in Excel, then choose it again. No cells were imported.` }
+      : workbook.worksheets.find((sheet) => sheet.sourceSheet === sourceSheet)].filter((sheet): sheet is NonNullable<typeof sheet> => !!sheet)
+    if (!worksheets.length) return { status: 'error', message: 'Choose a visible worksheet from this workbook. No cells were imported.' }
+    const mappedSheets: Array<{ id: string; name: string; columns: string[]; rows: string[][] }> = []
+    const worksheetDisclosures: string[] = []
+    for (const worksheet of worksheets) {
+      if (worksheet.cells.some((cell) => cell.formula === 'missing')) {
+        return { status: 'error', message: `A formula in “${worksheet.name}” has no saved cached value. Recalculate and save the workbook in Excel, then choose it again. No cells were imported.` }
+      }
+      const nonempty = worksheet.cells.filter((cell) => cell.value.length > 0)
+      if (!nonempty.length) return { status: 'error', message: `No nonempty cells were found in “${worksheet.name}”. No cells were imported.` }
+      const minRow = Math.min(...nonempty.map((cell) => cell.row))
+      const maxRow = Math.max(...nonempty.map((cell) => cell.row))
+      const minColumn = Math.min(...nonempty.map((cell) => cell.column))
+      const maxColumn = Math.max(...nonempty.map((cell) => cell.column))
+      const height = maxRow - minRow + 1
+      const width = maxColumn - minColumn + 1
+      if (height > MAX_SOURCE_RECTANGLE_ROWS || width > MAX_SOURCE_RECTANGLE_COLUMNS) {
+        return { status: 'error', message: `The nonempty source rectangle in “${worksheet.name}” exceeds ${MAX_SOURCE_RECTANGLE_ROWS} source rows or ${MAX_SOURCE_RECTANGLE_COLUMNS} columns. Narrow the used range before importing. No cells were imported.` }
+      }
+      const records = Array.from({ length: height }, () => Array<string>(width).fill(''))
+      for (const cell of nonempty) records[cell.row - minRow]![cell.column - minColumn] = cell.value
+      if (records.some((record) => record.some((value) => value.length > MAX_AUTHORED_CELL_CHARS))) {
+        return { status: 'error', message: `A cell exceeds the ${MAX_AUTHORED_CELL_CHARS.toLocaleString()} character limit. Shorten it before importing. No cells were imported.` }
+      }
+      const mapped = mapRecords(records, firstRowHeaders)
+      if (mapped.status === 'error') return mapped
+      if (mapped.body.type !== 'sheet') return { status: 'error', message: 'The worksheet could not be mapped. No cells were imported.' }
+      mappedSheets.push({ id: `source-sheet-${worksheet.sourceSheet}`, name: worksheet.name, columns: mapped.body.columns, rows: mapped.body.rows })
+      let worksheetDisclosure = mapped.disclosure
+      const hidden = workbook.hiddenSheets ? ` ${workbook.hiddenSheets} hidden ${workbook.hiddenSheets === 1 ? 'sheet is' : 'sheets are'} omitted.` : ''
+      const unsupported = workbook.unsupportedSheets ? ` ${workbook.unsupportedSheets} unsupported ${workbook.unsupportedSheets === 1 ? 'sheet is' : 'sheets are'} omitted.` : ''
+      const sourceRange = `${columnLabel(minColumn - 1).slice(7)}${minRow}:${columnLabel(maxColumn - 1).slice(7)}${maxRow}`
+      worksheetDisclosure += ` Source worksheet “${worksheet.name}” (${worksheet.sourceSheet} of ${workbook.totalSheets}); source range ${sourceRange} was cropped to the top-left while retaining interior gaps.${hidden}${unsupported} Cached formula values may be out of date; formulas are not calculated. Dates and formatted numbers remain raw values. Formatting, merged cells, charts, images, and hidden contents are not imported.`
+      worksheetDisclosures.push(worksheetDisclosure)
     }
-    const nonempty = worksheet.cells.filter((cell) => cell.value.length > 0)
-    if (!nonempty.length) return { status: 'error', message: `No nonempty cells were found in “${worksheet.name}”. No cells were imported.` }
-    const minRow = Math.min(...nonempty.map((cell) => cell.row))
-    const maxRow = Math.max(...nonempty.map((cell) => cell.row))
-    const minColumn = Math.min(...nonempty.map((cell) => cell.column))
-    const maxColumn = Math.max(...nonempty.map((cell) => cell.column))
-    const height = maxRow - minRow + 1
-    const width = maxColumn - minColumn + 1
-    if (height > MAX_SOURCE_RECTANGLE_ROWS || width > MAX_SOURCE_RECTANGLE_COLUMNS) {
-      return { status: 'error', message: `The nonempty source rectangle in “${worksheet.name}” exceeds ${MAX_SOURCE_RECTANGLE_ROWS} source rows or ${MAX_SOURCE_RECTANGLE_COLUMNS} columns. Narrow the used range before importing. No cells were imported.` }
+    let body: Extract<StructuredArtifactBody, { type: 'sheet' | 'workbook' }>
+    if (importAllVisible) {
+      const workbookBody = parseAuthoredWorkbook({ type: 'workbook', sheets: mappedSheets })
+      if (!workbookBody) return { status: 'error', message: 'All visible worksheets together exceed the workbook authoring limits. No cells were imported.' }
+      body = workbookBody
+    } else {
+      const sheetBody = parseStructuredArtifactBody({ type: 'sheet', columns: mappedSheets[0]!.columns, rows: mappedSheets[0]!.rows })
+      if (!sheetBody || sheetBody.type !== 'sheet') return { status: 'error', message: 'The selected worksheet exceeds the sheet authoring limits. No cells were imported.' }
+      body = sheetBody
     }
-    const records = Array.from({ length: height }, () => Array<string>(width).fill(''))
-    for (const cell of nonempty) records[cell.row - minRow]![cell.column - minColumn] = cell.value
-    if (records.some((record) => record.some((value) => value.length > MAX_AUTHORED_CELL_CHARS))) {
-      return { status: 'error', message: `A cell exceeds the ${MAX_AUTHORED_CELL_CHARS.toLocaleString()} character limit. Shorten it before importing. No cells were imported.` }
-    }
-    const mapped = mapRecords(records, firstRowHeaders)
-    if (mapped.status === 'error') return mapped
-    const hidden = workbook.hiddenSheets ? ` ${workbook.hiddenSheets} hidden ${workbook.hiddenSheets === 1 ? 'sheet is' : 'sheets are'} omitted.` : ''
-    const unsupported = workbook.unsupportedSheets ? ` ${workbook.unsupportedSheets} unsupported ${workbook.unsupportedSheets === 1 ? 'sheet is' : 'sheets are'} omitted.` : ''
-    const sourceRange = `${columnLabel(minColumn - 1).slice(7)}${minRow}:${columnLabel(maxColumn - 1).slice(7)}${maxRow}`
     return {
-      ...mapped,
-      worksheet: { sourceSheet: worksheet.sourceSheet, name: worksheet.name },
-      disclosure: `${mapped.disclosure} Source worksheet “${worksheet.name}” (${worksheet.sourceSheet} of ${workbook.totalSheets}); source range ${sourceRange} was cropped to the top-left while retaining interior gaps.${hidden}${unsupported} Cached formula values may be out of date; formulas are not calculated. Dates and formatted numbers remain raw values. Formatting, merged cells, charts, images, and hidden contents are not imported.`,
+      status: 'ready', body,
+      ...(importAllVisible ? {} : { worksheet: { sourceSheet: worksheets[0]!.sourceSheet, name: worksheets[0]!.name } }),
+      disclosure: importAllVisible
+        ? `Imported all ${mappedSheets.length} visible worksheets in source order using ${firstRowHeaders ? 'the first row as column names' : 'generated column names'} for every worksheet. ${worksheetDisclosures.join(' ')}`
+        : worksheetDisclosures[0]!,
     }
   }
   const { records } = candidate

@@ -13,9 +13,23 @@ export type DocBlock =
 
 export type FigureShape = 'hero' | 'bars' | 'line' | 'funnel'
 
+/** One literal worksheet grid. Sheet IDs identify tabs inside a workbook only;
+ * they carry no artifact identity or permission authority. */
+export interface SheetGrid {
+  columns: string[]
+  rows: string[][]
+  note?: string
+}
+
+export interface WorkbookSheet extends SheetGrid {
+  id: string
+  name: string
+}
+
 export type ArtifactContent = (
   | { type: 'doc'; title: string; blocks: DocBlock[] }
   | { type: 'sheet'; columns: string[]; rows: string[][]; note?: string }
+  | { type: 'workbook'; sheets: WorkbookSheet[] }
   | { type: 'slides'; slides: { title: string; bullets: string[] }[] }
   | {
       type: 'figure'

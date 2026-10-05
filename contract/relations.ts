@@ -638,7 +638,7 @@ export function relationContentPreview(
       const authored = authoredArtifact(op.artifact.name, op.artifact.kind, op.artifact.body)
       if (!authored || typeof authored.draftBody === 'string') return null
       return {
-        label: authored.draftBody.type === 'sheet' ? 'Sheet content' : 'Slide content',
+        label: authored.draftBody.type === 'slides' ? 'Slide content' : 'Sheet content',
         proposed: JSON.stringify(authored.draftBody, null, 2),
         structured: authored.draftBody,
       }

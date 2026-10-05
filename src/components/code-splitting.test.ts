@@ -100,3 +100,38 @@ test('artifact form admission includes the complete mutation runtime before edit
   assert.match(deferred, /window\.location\.reload\(\)/,
     'failed browser module URLs recover by explicit document navigation')
 })
+
+test('structured artifact bodies load through one shared announced boundary', () => {
+  const consumers = [
+    'artifactPreview.tsx',
+    'RelationActionCard.tsx',
+    'StructuredArtifactEditor.tsx',
+    'ArtifactSheetImport.tsx',
+    'ArtifactPresentationImport.tsx',
+  ].map((file) => stripComments(read(join(ROOT, 'src', 'components', file))))
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredStructuredArtifactView.tsx')))
+  const renderer = stripComments(read(join(ROOT, 'src', 'components', 'StructuredArtifactView.tsx')))
+
+  assert.doesNotMatch(consumers.join('\n'), /import\s+\{\s*StructuredArtifactView\s*\}\s+from\s+['"].\/StructuredArtifactView/u,
+    'every saved, consent, editing, and import consumer uses the shared lazy door')
+  assert.match(consumers.join('\n'), /DeferredStructuredArtifactView/u,
+    'all consumers mount one shared wrapper')
+  assert.match(deferred, /lazy\(\(\)\s*=>\s*import\(['"]\.\/StructuredArtifactView\.tsx['"]\)/,
+    'the renderer itself is the one deferred module')
+  assert.match(deferred, /data-structured-body-loading[\s\S]*Loading artifact content/u,
+    'the in-flow pending body is announced and browser-addressable')
+  assert.match(deferred, /getDerivedStateFromError[\s\S]*data-structured-body-load-error/u,
+    'a rejected renderer chunk is contained at the shared boundary')
+  assert.match(deferred, /Couldn’t load artifact content[\s\S]*unsaved workspace text will be lost/u,
+    'reload copy names the risk of losing unsaved workspace text')
+  assert.match(deferred, /window\.location\.reload\(\)/u,
+    'recovery performs an explicit document reload')
+  assert.match(deferred, /Reload content/u,
+    'the recovery action names its purpose')
+  assert.match(deferred, /role="status"[\s\S]*data-structured-body-loading/u,
+    'loading is exposed as a polite status')
+  assert.match(deferred, /role="alert"[\s\S]*data-structured-body-load-error/u,
+    'failure is exposed assertively')
+  assert.match(renderer, /export function StructuredArtifactView/u,
+    'the original structured renderer remains the rendering authority')
+})

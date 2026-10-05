@@ -56,7 +56,7 @@ import {
 import { InlineOperationStatus } from './InlineOperationStatus'
 import { normalizeArtifactName } from '../../contract/index.ts'
 import { HOVER_CUE } from '../lib/hoverReveal'
-import { StructuredArtifactView } from './StructuredArtifactView'
+import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 import { StructuredArtifactEditor } from './StructuredArtifactEditor'
 import {
   isStructuredArtifactMutationHeld,
@@ -579,6 +579,7 @@ export function ArtifactBodyView({
       case 'doc':
         return <DocView doc={lib} size={size} edit={edit} discuss={discuss} />
       case 'sheet':
+      case 'workbook':
         return <StructuredArtifactView body={lib} size={size} />
       case 'slides':
         return <StructuredArtifactView body={lib} size={size} />
@@ -723,7 +724,7 @@ export function ArtifactDetailPage({
   const structuredBody = artifactContent.data?.[artifact.id]
   const draftBlock = structuredBody?.type === 'doc' && editing !== null ? structuredBody.blocks[editing] : undefined
   const documentTargetUnavailable = Boolean(documentDraft && (!draftBlock || docBlockText(draftBlock) === undefined))
-  const editableStructuredBody = structuredBody?.type === 'sheet' || structuredBody?.type === 'slides' ? structuredBody : undefined
+  const editableStructuredBody = structuredBody?.type === 'sheet' || structuredBody?.type === 'workbook' || structuredBody?.type === 'slides' ? structuredBody : undefined
   const structuredBusy = saving || isStructuredArtifactMutationHeld(artifact.id) ||
     (structuredMutation.busy && structuredMutation.activeResourceId === artifact.id)
   const [sharing, setSharing] = useState(false)
@@ -905,7 +906,7 @@ export function ArtifactDetailPage({
           summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
           actions={<div className="flex flex-wrap items-center gap-1.5">
             {own && editableStructuredBody && <SectionAction
-              label={editingStructured ? 'Cancel editing' : editableStructuredBody.type === 'sheet' ? 'Edit sheet' : 'Edit slides'}
+              label={editingStructured ? 'Cancel editing' : editableStructuredBody.type === 'slides' ? 'Edit slides' : 'Edit sheet'}
               icon={editingStructured ? <X size={14} /> : <Pencil size={14} />}
               onClick={editingStructured ? () => artifactEditDrafts.cancel(artifact.id) : startStructuredEdit}
               disabled={structuredBusy}

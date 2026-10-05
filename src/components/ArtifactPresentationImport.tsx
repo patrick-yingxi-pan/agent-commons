@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import type { useArtifactPresentationImport } from '../lib/useArtifactPresentationImport.ts'
 import { ArtifactImportReview } from './ArtifactImportReview.tsx'
-import { StructuredArtifactView } from './StructuredArtifactView.tsx'
+import { StructuredArtifactView } from './DeferredStructuredArtifactView.tsx'
 
 export function ArtifactPresentationImport({ intake, hasContent, disabled, onUse }: {
   intake: ReturnType<typeof useArtifactPresentationImport>

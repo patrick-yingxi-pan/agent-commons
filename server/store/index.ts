@@ -24,6 +24,7 @@ import { documentDocx, hasWordText } from '../artifactDocx.ts'
 import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
 import { authoredArtifact, parseStructuredArtifactBody, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
+import { isSpreadsheetContent } from '../../contract/workbook.ts'
 import { artifactBodyExcerpt } from '../../contract/artifactExcerpt.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { isArtifactCreationId, type CreateArtifactRequest, type CreateArtifactResponse } from '../../contract/artifactCreation.ts'
@@ -6536,7 +6537,7 @@ export const store = {
     const artifact = findArtifact(artifactId)
     if (!artifact || !this.artifactVisibleToTenant(artifact, tenantId)) return undefined
     const body = artifactBodyOf(artifactId)
-    if (artifact.kind !== 'sheet' || body?.type !== 'sheet') return null
+    if (artifact.kind !== 'sheet' || !body || !isSpreadsheetContent(body)) return null
     // Take one saved revision before the async writer yields; never mix rows
     // from different reads or borrow the compatibility name-keyed library.
     const exported = await sheetXlsx(artifact.name, structuredClone(body))
@@ -6558,7 +6559,7 @@ export const store = {
   artifactBlockText(artifactId: string, block: number): string | undefined {
     return artifactBlockTextOf(artifactId, block)
   },
-  /** Commit a reviewed complete sheet/deck draft. The acting tenant, original
+  /** Commit a reviewed complete sheet/workbook/deck draft. The acting tenant, original
    * kind, literal-body bounds and mandatory body revision all precede effects.
    * Metadata, immutable save origin and sharing remain independent. */
   updateStructuredArtifactContent(artifactId: string, content: unknown, expectedRevision: number, tenantId: string): ArtifactContent | undefined {
@@ -6566,8 +6567,10 @@ export const store = {
     if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
     const body = artifactBodyOf(artifactId)
     const next = parseStructuredArtifactBody(content)
-    if (!body || !next || body.type !== next.type ||
-      (artifact.kind === 'sheet' ? next.type !== 'sheet' : artifact.kind !== 'slide' || next.type !== 'slides') ||
+    const validKind = !!body && !!next && (artifact.kind === 'sheet'
+      ? isSpreadsheetContent(body) && isSpreadsheetContent(next) && (body.type !== 'workbook' || next.type === 'workbook')
+      : artifact.kind === 'slide' && body.type === 'slides' && next.type === 'slides')
+    if (!body || !next || !validKind ||
       !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return undefined
     const revision = body.revision ?? 0
     if (revision !== expectedRevision || revision >= Number.MAX_SAFE_INTEGER) {

@@ -7,6 +7,10 @@ import {
   MAX_AUTHORED_SLIDES,
   MAX_AUTHORED_SLIDE_BULLETS,
   MAX_AUTHORED_STRUCTURE_CHARS,
+  MAX_AUTHORED_WORKBOOK_CELLS,
+  MAX_AUTHORED_WORKBOOK_SHEETS,
+  MAX_WORKBOOK_SHEET_ID_CHARS,
+  MAX_WORKBOOK_SHEET_NAME_CHARS,
   authoredArtifact,
   type ScheduledArtifactSpec,
   type StructuredArtifactBody,
@@ -37,6 +41,8 @@ export interface ArtifactBodySchema {
   minItems?: number
   maxItems?: number
   maxLength?: number
+  minLength?: number
+  pattern?: string
 }
 
 function sheetBodySchema(): ArtifactBodySchema {
@@ -52,6 +58,38 @@ function sheetBodySchema(): ArtifactBodySchema {
     required: ['type', 'columns', 'rows'],
     additionalProperties: false,
   }
+}
+
+function workbookBodySchema(): ArtifactBodySchema {
+  return {
+    type: 'object',
+    description: `One workbook artifact with 1–${MAX_AUTHORED_WORKBOOK_SHEETS} ordered worksheets, at most ${MAX_AUTHORED_WORKBOOK_CELLS} data cells total, and ${MAX_AUTHORED_STRUCTURE_CHARS} UTF-16 characters total across grid labels, literal cells and notes. Tab IDs are stable within this workbook; names are unique ignoring case. Values are literal; formulas are not calculated.`,
+    properties: {
+      type: { type: 'string', enum: ['workbook'], description: 'Must be workbook.' },
+      sheets: {
+        type: 'array', minItems: 1, maxItems: MAX_AUTHORED_WORKBOOK_SHEETS,
+        description: 'Ordered worksheets inside the one workbook artifact.',
+        items: {
+          type: 'object', description: 'One named worksheet with a bounded rectangular literal grid.',
+          properties: {
+            id: { type: 'string', minLength: 1, maxLength: MAX_WORKBOOK_SHEET_ID_CHARS, pattern: '^[A-Za-z0-9_-]+$', description: 'Stable tab identifier, local to this workbook.' },
+            name: { type: 'string', minLength: 1, maxLength: MAX_WORKBOOK_SHEET_NAME_CHARS, description: 'Trimmed, nonblank Excel worksheet name; names must be unique ignoring case.' },
+            columns: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_COLUMNS, description: 'Nonblank column labels.', items: { type: 'string', maxLength: MAX_AUTHORED_LABEL_CHARS } },
+            rows: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_ROWS, description: 'Rectangular literal cell rows.', items: { type: 'array', minItems: 1, maxItems: MAX_AUTHORED_SHEET_COLUMNS, items: { type: 'string', maxLength: MAX_AUTHORED_CELL_CHARS } } },
+            note: { type: 'string', maxLength: MAX_AUTHORED_CELL_CHARS, description: 'Optional literal worksheet note.' },
+          },
+          required: ['id', 'name', 'columns', 'rows'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['type', 'sheets'],
+    additionalProperties: false,
+  }
+}
+
+function spreadsheetBodySchema(): ArtifactBodySchema {
+  return { description: 'One legacy single-sheet body or one named multi-worksheet workbook body.', oneOf: [sheetBodySchema(), workbookBodySchema()] }
 }
 
 function slideBodySchema(): ArtifactBodySchema {
@@ -86,17 +124,17 @@ function slideBodySchema(): ArtifactBodySchema {
  * shared definition and thereby weaken a later turn. */
 export function authoredArtifactBodySchema(): ArtifactBodySchema {
   return {
-    description: `The complete document text, or one structured sheet/slides body. Documents are limited to ${MAX_AUTHORED_DOCUMENT_SOURCE_CHARS} characters; structured values are literal, non-calculated data with a ${MAX_AUTHORED_STRUCTURE_CHARS}-character aggregate budget.`,
+    description: `The complete document text, a sheet or workbook, or slides. Documents are limited to ${MAX_AUTHORED_DOCUMENT_SOURCE_CHARS} characters; spreadsheet and slide values are literal and not calculated.`,
     oneOf: [
       { type: 'string', description: 'Document text.', maxLength: MAX_AUTHORED_DOCUMENT_SOURCE_CHARS },
-      sheetBodySchema(),
+      spreadsheetBodySchema(),
       slideBodySchema(),
     ],
   }
 }
 
 function structuredBodySchema(kind: 'sheet' | 'slide'): ArtifactBodySchema {
-  return kind === 'sheet' ? sheetBodySchema() : slideBodySchema()
+  return kind === 'sheet' ? spreadsheetBodySchema() : slideBodySchema()
 }
 
 export function routineArtifactToolDefinition(capture: RoutineArtifactCapture) {
@@ -104,7 +142,7 @@ export function routineArtifactToolDefinition(capture: RoutineArtifactCapture) {
   if (spec.kind === 'doc') throw new Error('Document routines use the prose result, not the structured artifact tool.')
   return {
     name: ROUTINE_ARTIFACT_TOOL_NAME,
-    description: `Submit the complete ${spec.kind === 'sheet' ? 'sheet' : 'slide deck'} body for the routine output '${spec.name}'. Submit exactly once; the server already owns its name and kind.`,
+    description: `Submit the complete ${spec.kind === 'sheet' ? 'sheet or workbook' : 'slide deck'} body for the routine output '${spec.name}'. Submit exactly once; the server already owns its name and kind.`,
     input_schema: {
       type: 'object' as const,
       properties: { body: structuredBodySchema(spec.kind) },

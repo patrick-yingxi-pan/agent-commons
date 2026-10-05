@@ -44,7 +44,42 @@ existing local verification, UI/native acceptance, and spec-ledger requirements.
 
 ## Progress and next milestones
 
-The current checkpoint implements the native workflow for approved default 5.
+The current checkpoint implements the tabbed-workbook portion of approved
+default 4. One artifact contains ordered named worksheets and shares access,
+filing, Trash, and one revision-checked Save. Legacy single-sheet content remains
+readable and promotes only when a tab-level edit needs the workbook shape.
+Import explicitly chooses one visible sheet or all visible sheets, with complete
+validation before adoption; XLSX export retains all saved tabs and names.
+Limits remain explicit: 20 tabs, 32 columns and 200 rows per tab, 6,400 cells and
+20,000 characters across the workbook. Formula execution and rich Office fidelity
+remain separate required work. Current revision counters do not retain prior
+bodies; browsable/restorable saved versions are not claimed in this checkpoint.
+The responsive sweep completed 135/135 cells with no violations or skips.
+Review caught stale import-scope labels on a new candidate and an XLSX escape
+edge that changed literal tab names. Candidate-scoped choices and one-pass name
+encoding/decoding now have regression locks. Structured previews load on demand
+without raising the startup budget, with explicit loading/failure/reload states.
+Focused browser acceptance covers owner editing/reading, shared reading, foreign
+denial, all-visible import, held-save recovery and lazy-preview failure, including
+all five viewport sizes. The complete unsigned arm64 packaged gate passes native
+workbook import and exact tab persistence after full relaunch. Review corrected
+test-only single-sheet selectors, an active-preview mismatch and the import
+viewport helper without relaxing retries or timeouts. The complete local
+verifier remains the mandatory final landing gate; no GitHub CI is used.
+Final review also removed an unrelated blank-header failure from the aggregate
+cell-limit fixture: the well-formed over-limit workbook now fails specifically
+when that limit is enforced, and omitting the guard was watched fail the lock.
+The full gate exposed a source-scan race with Playwright trace cleanup. Its
+identity scanner now prunes generated directories before reading them, and an
+observed failing regression fixture verifies that authored nested source remains
+covered. Orphaned isolated test servers from the interrupted run were stopped;
+the live development preview was preserved. A fresh complete gate is required.
+That run passed static checks and three browser shards; the fourth exposed one
+PPTX test's broad status locator when the new deferred preview announced loading.
+The test now names its import-review status explicitly; the final full run must
+cover this fix too.
+
+The preceding checkpoint implements the native workflow for approved default 5.
 Signed candidates now require a canonical owner-selected update base URL embedded
 before signing, checked again in the extracted app, and recorded in schema-v3
 candidate receipts. Finalization refuses a different destination; the paired

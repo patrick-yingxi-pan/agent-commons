@@ -19,6 +19,15 @@ const sharedType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.
 const chartSheetRel = `${OFFICE_NS}/chartsheet`
 const chartSheetType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.chartsheet+xml'
 
+test('worksheet names decode Xstring once before uniqueness and name validation', () => {
+  const workbook = (names: string[]) => `<workbook xmlns="${SHEET_NS}" xmlns:r="${OFFICE_NS}"><sheets>${names.map((name, index) => `<sheet name="${name}" sheetId="${index + 1}" r:id="r${index + 1}"/>`).join('')}</sheets></workbook>`
+  const names = ['_x0041_', '_x005F_x0041_', '日本語 &amp; data', '_x005F_x005F_']
+  assert.deepEqual(workbookSheets(workbook(names)).map(sheet => sheet.name), ['A', '_x0041_', '日本語 & data', '_x005F_'])
+  assert.throws(() => workbookSheets(workbook(['A', '_x0061_'])), (error) => error.status === 'invalid')
+  assert.throws(() => workbookSheets(workbook(['_x000A_'])), (error) => error.status === 'invalid')
+  assert.equal(workbookSheets(workbook(['_x005F_x0041_'.repeat(4)]))[0]?.name, '_x0041_'.repeat(4), 'the 31-character limit applies to the decoded name')
+})
+
 const readyText = (result: Awaited<ReturnType<typeof extractXlsx>>) => {
   assert.equal(result.documentImport.status, 'ready')
   assert.equal(typeof result.text, 'string')

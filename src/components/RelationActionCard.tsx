@@ -33,7 +33,7 @@ import { SECTION_LABELS } from '../lib/nav'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { renderRich } from '../lib/rich'
 import { TextDiff } from './TextDiff'
-import { StructuredArtifactView } from './StructuredArtifactView'
+import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 
 /** The lead glyph for an op, by the relationship it edits. */
 const RELATION_ICON: Record<string, LucideIcon> = {

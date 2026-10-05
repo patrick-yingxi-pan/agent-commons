@@ -56,6 +56,24 @@ export async function runArtifactSheetImportSmoke({ page, app, origin, fixtureRo
       firstRowHeaders: true,
       worksheet: 'Selected values',
     },
+    {
+      path: join(fixtureRoot, 'native-artifact-multi-tab-workbook.xlsx'),
+      name: 'native-artifact-multi-tab-workbook.xlsx',
+      source: xlsxFixture({ sheets: [
+        { name: 'Overview', rows: [['Metric', 'Value'], ['Revenue', '00042']] },
+        { name: 'Hidden', state: 'hidden', rows: [['Hidden-only', 'must not appear']] },
+        { name: 'Expressions', rows: [['Name', 'Result'], ['Cached formula', { formula: '40+2', cached: 42 }]] },
+      ] }),
+      body: {
+        type: 'workbook', revision: 0,
+        sheets: [
+          { id: 'source-sheet-1', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Revenue', '00042']] },
+          { id: 'source-sheet-3', name: 'Expressions', columns: ['Name', 'Result'], rows: [['Cached formula', '42']] },
+        ],
+      },
+      firstRowHeaders: true,
+      allVisible: true,
+    },
   ]
   await Promise.all(importedSheets.map((imported) => writeFile(imported.path, imported.source, { mode: 0o600 })))
   for (const imported of importedSheets) {
@@ -69,15 +87,33 @@ export async function runArtifactSheetImportSmoke({ page, app, origin, fixtureRo
       await worksheet.selectOption({ label: imported.worksheet })
       await expect(worksheet).toHaveValue('3')
     }
+    if (imported.allVisible) {
+      await sheetDialog.getByLabel('Import scope', { exact: true }).selectOption({ label: 'All visible worksheets' })
+      const workbookPreview = sheetDialog.getByRole('region', { name: 'Imported workbook', exact: true })
+      const previewTabs = workbookPreview.getByRole('tablist', { name: 'Worksheets', exact: true })
+      await expect(previewTabs.getByRole('tab')).toHaveText(['Overview', 'Expressions'])
+      await expect(previewTabs.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute('aria-selected', 'true')
+      await expect(workbookPreview.locator('table thead th')).toHaveText(['Metric', 'Value'])
+      await expect(workbookPreview.locator('table tbody td')).toHaveText(['Revenue', '00042'])
+      await previewTabs.getByRole('tab', { name: 'Expressions', exact: true }).click()
+      await expect(workbookPreview.locator('table thead th')).toHaveText(['Name', 'Result'])
+      await expect(workbookPreview.locator('table tbody td')).toHaveText(['Cached formula', '42'])
+      await expect(workbookPreview).toContainText(/all 2 visible worksheets in source order/i)
+      await expect(workbookPreview).toContainText(/1 hidden sheet is omitted/i)
+      await expect(workbookPreview).not.toContainText('must not appear')
+      await previewTabs.getByRole('tab', { name: 'Overview', exact: true }).click()
+      await expect(previewTabs.getByRole('tab', { name: 'Overview', exact: true })).toHaveAttribute('aria-selected', 'true')
+    }
     const headers = sheetDialog.getByRole('checkbox', { name: 'First row contains column names', exact: true })
     await expect(headers).toBeChecked()
     if (!imported.firstRowHeaders) {
       await headers.click()
       await expect(headers).not.toBeChecked()
     }
-    const importedRegion = sheetDialog.getByRole('region', { name: 'Imported sheet', exact: true })
-    await expect(importedRegion).toContainText(imported.body.columns[0])
-    await expect(importedRegion).toContainText(imported.body.rows[0][0])
+    const firstGrid = imported.body.type === 'workbook' ? imported.body.sheets[0] : imported.body
+    const importedRegion = sheetDialog.getByRole('region', { name: imported.allVisible ? 'Imported workbook' : 'Imported sheet', exact: true })
+    await expect(importedRegion).toContainText(firstGrid.columns[0])
+    await expect(importedRegion).toContainText(firstGrid.rows[0][0])
     if (imported.worksheet) {
       await expect(importedRegion).toContainText('00123')
       await expect(importedRegion).toContainText('42')
@@ -88,11 +124,22 @@ export async function runArtifactSheetImportSmoke({ page, app, origin, fixtureRo
     }
     await expect(sheetDialog.getByLabel('Name', { exact: true })).toHaveValue('')
     await expect(sheetDialog.getByRole('button', { name: 'Create sheet', exact: true })).toBeDisabled()
-    await sheetDialog.getByRole('button', { name: 'Use imported sheet', exact: true }).click()
-    for (const [index, column] of imported.body.columns.entries()) {
+    await sheetDialog.getByRole('button', { name: imported.allVisible ? 'Use imported workbook' : 'Use imported sheet', exact: true }).click()
+    if (imported.allVisible) {
+      const editorTabs = sheetDialog.getByRole('tablist', { name: 'Worksheets', exact: true })
+      await expect(editorTabs.getByRole('tab')).toHaveText(['Overview', 'Expressions'])
+      await expect(sheetDialog.getByRole('textbox', { name: 'Worksheet name', exact: true })).toHaveValue('Overview')
+      await editorTabs.getByRole('tab', { name: 'Expressions', exact: true }).click()
+      await expect(sheetDialog.getByRole('textbox', { name: 'Worksheet name', exact: true })).toHaveValue('Expressions')
+      await expect(sheetDialog.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true })).toHaveValue('Cached formula')
+      await expect(sheetDialog.getByRole('textbox', { name: 'Sheet row 1 value 2', exact: true })).toHaveValue('42')
+      await editorTabs.getByRole('tab', { name: 'Overview', exact: true }).click()
+      await expect(sheetDialog.getByRole('textbox', { name: 'Worksheet name', exact: true })).toHaveValue('Overview')
+    }
+    for (const [index, column] of firstGrid.columns.entries()) {
       await expect(sheetDialog.getByRole('textbox', { name: `Sheet column ${index + 1}`, exact: true })).toHaveValue(column)
     }
-    for (const [rowIndex, row] of imported.body.rows.entries()) {
+    for (const [rowIndex, row] of firstGrid.rows.entries()) {
       for (const [columnIndex, cell] of row.entries()) {
         await expect(sheetDialog.getByRole('textbox', { name: `Sheet row ${rowIndex + 1} value ${columnIndex + 1}`, exact: true })).toHaveValue(cell)
       }
@@ -114,6 +161,6 @@ export async function runArtifactSheetImportSmoke({ page, app, origin, fixtureRo
     assert.deepEqual(saved.body, imported.body)
     imported.id = id
   }
-  console.log('[desktop-artifact-sheet-import-smoke] native dialog result · real CSV/TSV/XLSX readers + IPC · worksheet selection · quoted/literal cells · header mapping · explicit adoption · exact saved sheet bodies')
+  console.log('[desktop-artifact-sheet-import-smoke] native dialog result · real CSV/TSV/XLSX readers + IPC · worksheet/all-visible selection · quoted/literal cells · header mapping · explicit adoption · exact saved Sheet and workbook bodies')
   return importedSheets
 }

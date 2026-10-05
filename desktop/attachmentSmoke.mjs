@@ -66,6 +66,11 @@ async function closePreview(page) {
   await expect(preview).toHaveCount(0)
 }
 
+async function expectSheetGrid(sheetPreview, sheet) {
+  await expect(sheetPreview.locator('table thead th')).toHaveText(sheet.columns)
+  await expect(sheetPreview.locator('table tbody td')).toHaveText(sheet.rows.flat())
+}
+
 async function openFilesPicker(page) {
   await page.getByRole('button', { name: 'Add context' }).click()
   const picker = page.getByRole('dialog', { name: 'Add context' })
@@ -851,9 +856,18 @@ export async function smokePackagedAttachments({ executable }) {
         return (await response.json())[id]
       }, imported.id)
       assert.deepEqual(restoredSheet, imported.body)
-      const sheetPreview = page.locator('[data-structured-artifact-body="sheet"]')
-      await expect(sheetPreview).toContainText(imported.body.columns[0])
-      await expect(sheetPreview).toContainText(imported.body.rows[0][0])
+      if (imported.body.type === 'workbook') {
+        const workbookView = page.locator('[data-structured-artifact-body="workbook"]')
+        const tabs = workbookView.getByRole('tablist', { name: 'Worksheets', exact: true })
+        for (const sheet of imported.body.sheets) {
+          const tab = tabs.getByRole('tab', { name: sheet.name, exact: true })
+          await tab.click()
+          await expect(tab).toHaveAttribute('aria-selected', 'true')
+          await expectSheetGrid(workbookView.locator('[data-structured-artifact-body="sheet"]'), sheet)
+        }
+      } else {
+        await expectSheetGrid(page.locator('[data-structured-artifact-body="sheet"]'), imported.body)
+      }
     }
     console.log('[desktop-artifact-sheet-import-smoke] exact saved sheet identities + bodies survive full relaunch without source CSV/TSV/XLSX files')
     console.log('[desktop-artifact-import-smoke] exact saved document identities + rendered bodies survive full relaunch without source files')

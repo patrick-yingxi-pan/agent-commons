@@ -55,7 +55,7 @@ function executionPrompt(task: ScheduledTask, output?: ScheduledArtifactSpec | n
     task.prompt,
     workflow ? `Workflow to complete:\n${workflow}` : '',
     output && output.kind !== 'doc'
-      ? `Produce the standing-approved ${output.kind === 'sheet' ? 'Sheet' : 'Slides'} named ${JSON.stringify(output.name)}. Submit its complete literal content exactly once with submit_routine_artifact, then give a brief run recap. The tool captures a candidate; the server saves it only after this run succeeds. Do not serialize the artifact as prose or claim a failed submission was saved.`
+      ? `Produce the standing-approved ${output.kind === 'sheet' ? 'Sheet or workbook' : 'Slides'} named ${JSON.stringify(output.name)}. Submit its complete literal content exactly once with submit_routine_artifact, then give a brief run recap. The tool captures a candidate; the server saves it only after this run succeeds. Do not serialize the artifact as prose or claim a failed submission was saved.`
       : output
         ? `Write the complete Document text for the standing-approved output named ${JSON.stringify(output.name)} as your final response.`
         : `Deliver the final result for: ${task.delivery.target}.`,

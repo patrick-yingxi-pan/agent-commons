@@ -1,4 +1,6 @@
-import type { StructuredArtifactBody } from '../../contract/index.ts'
+import { useState } from 'react'
+import type { StructuredArtifactBody, SheetGrid } from '../../contract/index.ts'
+import { WorkbookTabs } from './WorkbookTabs'
 
 type Size = 'thumb' | 'compact' | 'full'
 
@@ -14,16 +16,31 @@ const HEX = /^#[0-9a-f]{6}$/i
  * Wide sheets scroll inside a named, keyboard-focusable region; cells wrap rather
  * than silently clipping model-authored labels or values. */
 export function StructuredArtifactView({ body, size }: { body: StructuredArtifactBody; size: Size }) {
+  if (body.type === 'workbook') return <StructuredWorkbookView body={body} size={size} />
   return body.type === 'sheet'
     ? <StructuredSheetView body={body} size={size} />
     : <StructuredSlidesView body={body} size={size} />
+}
+
+function StructuredWorkbookView({ body, size }: { body: Extract<StructuredArtifactBody, { type: 'workbook' }>; size: Size }) {
+  const [selected, select] = useState(body.sheets[0]!.id)
+  const active = body.sheets.find(sheet => sheet.id === selected) ?? body.sheets[0]!
+  if (size === 'thumb') return <div data-structured-artifact-body="workbook">
+    <StructuredSheetView body={body.sheets[0]!} size={size} />
+    <p className="mt-1 text-[11px] text-ink-faint">{body.sheets.length} worksheets · first sheet preview</p>
+  </div>
+  return <div data-structured-artifact-body="workbook">
+    <WorkbookTabs sheets={body.sheets} activeId={active.id} onSelect={select}>
+      <StructuredSheetView body={active} size={size} />
+    </WorkbookTabs>
+  </div>
 }
 
 function StructuredSheetView({
   body,
   size,
 }: {
-  body: Extract<StructuredArtifactBody, { type: 'sheet' }>
+  body: SheetGrid
   size: Size
 }) {
   const t = SHEET[size]

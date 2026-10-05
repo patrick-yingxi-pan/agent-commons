@@ -255,6 +255,8 @@ dialog ever ships without one, extract a `DIALOG_SURFACE` funnel the same way.
 
 | UI-168 | **Review prose wraps inside its own content box, not a clipping ancestor.** Confirmation bodies and document reading surfaces share min-content-safe emergency wrapping. Confirmation uses the bounded dialog layout so a longer body cannot hide Cancel or the confirmed action. | `src/lib/prose.ts`; `src/components/ConfirmDialog.tsx`; `src/components/artifactPreview.tsx`; `src/lib/dialog.ts` | `src/lib/prose.test.ts` · `src/lib/dialog.test.ts` · `e2e/artifact-trash.spec.ts` | Trash visual review, 2026-10-04: the 240-character unbroken name was visibly cut off in both the confirmation and its document title even though the page had no horizontal overflow. The new wrapping lock failed before the shared rule; browser checks enumerate inner prose widths at all five viewports as well as action containment. |
 
+| UI-169 | **Import choices belong to the reviewed candidate, not the next selected file.** Spreadsheet worksheet and all-visible scope are derived from candidate identity through the shared import hook; a new workbook begins with selected-sheet review, and CSV/TSV cannot inherit workbook labels or adoption scope. | `src/lib/useArtifactSheetImport.ts`; `src/components/ArtifactSheetImport.tsx` | `src/components/artifact-creation-ui.test.ts` · `e2e/artifact-sheet-import.spec.ts` | Workbook review, 2026-10-04: unconditional all-visible state survived a new file, so a CSV body could be presented as an imported workbook. Candidate-scoped state keeps the review labels and the body being adopted aligned. |
+
 ## The ratchet procedure
 
 When a UI escape is confirmed (by a user report or a `/ui-review` sweep):

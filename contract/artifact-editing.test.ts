@@ -13,6 +13,17 @@ test('structured edit preserves detached literal values and requires reviewed bo
   }
 })
 
+test('structured edit accepts one complete workbook body under the existing whole-body revision precondition', () => {
+  const content = {
+    type: 'workbook',
+    sheets: [{ id: 'main', name: 'Main', columns: ['A'], rows: [['=literal']] }],
+  }
+  const parsed = parseStructuredArtifactEdit({ content, expectedRevision: 12 })
+  assert.deepEqual(parsed, { content, expectedRevision: 12 })
+  assert.notEqual(parsed?.content, content)
+  assert.equal(parseStructuredArtifactEdit({ content: { ...content, revision: 3 }, expectedRevision: 12 }), undefined)
+})
+
 test('structured edits reject mixed operations, forged ordering, unknown keys and invalid bodies whole', () => {
   for (const input of [null, [], {}, { content }, Object.create({ content, expectedRevision: 0 }),
     { content, expectedRevision: 0, block: 0, text: 'mixed' },

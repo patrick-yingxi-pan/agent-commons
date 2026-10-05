@@ -179,7 +179,7 @@ test('real PPTX import reviews exact outline, creates editable slides, reloads, 
   const file = sourceDeck(stamp)
   const dialog = await openArtifactDialog(page)
   await chooseFile(page, dialog, file)
-  await expect(dialog.getByRole('status')).toContainText('Review imported slides')
+  await expect(dialog.getByRole('status').filter({ hasText: 'Review imported slides' })).toBeVisible()
   await expectPreview(dialog, stamp)
   await expect(dialog.getByLabel('Slide 1 title', { exact: true })).toHaveValue('')
   await captureDialogMatrix(page, dialog, testInfo, 'review')

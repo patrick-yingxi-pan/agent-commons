@@ -306,7 +306,7 @@ const TOOLS: ToolSpec[] = [
   },
   {
     name: 'save_artifact',
-    description: 'Save authored document, sheet, or slides from this session, optionally filing it under a project. The user reviews its actual content before confirming.',
+    description: 'Save authored document, sheet or multi-worksheet workbook, or slides from this session, optionally filing it under a project. The user reviews its actual content before confirming.',
     properties: {
       name: { type: 'string', description: 'The artifact file name, e.g. "launch-recap.md".' },
       kind: { type: 'string', enum: ['doc', 'sheet', 'slide'], description: 'The artifact kind. Omit for a document; never infer the kind from the body.' },

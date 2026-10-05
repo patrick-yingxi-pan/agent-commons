@@ -19,6 +19,9 @@ export function artifactBodyExcerpt(body: ArtifactContent): string | undefined {
     case 'sheet':
       text = `${body.rows.length} rows · ${body.columns.join(' · ')}`
       break
+    case 'workbook':
+      text = `${body.sheets.length} sheets · ${body.sheets[0]?.name ?? ''}`
+      break
     case 'slides':
       text = `${body.slides.length} slides · ${body.slides[0]?.title ?? ''}`
       break

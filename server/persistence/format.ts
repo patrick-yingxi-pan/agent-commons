@@ -609,7 +609,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     for (const entry of state.artifactBodies) {
       if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string') return false
       const body = entry[1]
-      if (body?.type !== 'sheet' && body?.type !== 'slides') continue
+      if (body?.type !== 'sheet' && body?.type !== 'workbook' && body?.type !== 'slides') continue
       const { revision, ...values } = body
       if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) return false
       if (!parseStructuredArtifactBody(values)) return false

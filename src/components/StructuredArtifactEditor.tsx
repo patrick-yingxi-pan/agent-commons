@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ArrowDown, ArrowUp, Minus, Plus, Save, X } from 'lucide-react'
 import {
   MAX_AUTHORED_CELL_CHARS,
@@ -6,12 +7,17 @@ import {
   MAX_AUTHORED_SHEET_ROWS,
   MAX_AUTHORED_SLIDE_BULLETS,
   MAX_AUTHORED_SLIDES,
+  MAX_AUTHORED_WORKBOOK_SHEETS,
+  MAX_WORKBOOK_SHEET_NAME_CHARS,
+  spreadsheetSheets,
   parseStructuredArtifactBody,
+  type SheetGrid,
   type StructuredArtifactBody,
 } from '../../contract/index.ts'
-import { StructuredArtifactView } from './StructuredArtifactView'
+import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { WorkbookTabs } from './WorkbookTabs'
 
 type Props = {
   body: StructuredArtifactBody
@@ -45,7 +51,7 @@ export function StructuredArtifactEditor({ body, onChange, latestBody, onSave, o
         </button>
       </div>
       {error && <p className="text-[11px] text-danger-text" role="status">{error}</p>}
-      {!valid && <p className="text-[11px] text-removed" role="alert">Review blank labels or the saved size limits before saving.</p>}
+      {!valid && <p className="text-[11px] text-danger-text" role="alert">Review blank labels, duplicate or invalid worksheet names, or the saved size limits before saving.</p>}
       {showLatest && latestBody && (
         <div className="space-y-1.5 rounded-lg border border-line bg-panel-2/40 p-2.5" role="status">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Latest saved version</div>
@@ -64,9 +70,72 @@ export function StructuredArtifactFields({ body, onChange, disabled = false }: {
   onChange: (body: StructuredArtifactBody) => void
   disabled?: boolean
 }) {
-  return body.type === 'sheet'
-    ? <SheetEditor body={body} onChange={onChange} disabled={disabled} />
-    : <SlidesEditor body={body} onChange={onChange} disabled={disabled} />
+  return body.type === 'slides'
+    ? <SlidesEditor body={body} onChange={onChange} disabled={disabled} />
+    : <WorkbookEditor body={body} onChange={onChange} disabled={disabled} />
+}
+
+function WorkbookEditor({ body, onChange, disabled }: {
+  body: Exclude<StructuredArtifactBody, { type: 'slides' }>
+  onChange: (body: StructuredArtifactBody) => void
+  disabled: boolean
+}) {
+  const sheets = spreadsheetSheets(body)
+  const [selected, select] = useState(sheets[0]!.id)
+  const [removed, setRemoved] = useState<{ sheet: typeof sheets[number]; index: number } | null>(null)
+  const active = sheets.find(sheet => sheet.id === selected) ?? sheets[0]!
+  const index = sheets.indexOf(active)
+  const setSheets = (next: typeof sheets) => onChange({ type: 'workbook', sheets: next })
+  const move = (delta: number) => {
+    const target = index + delta
+    if (target < 0 || target >= sheets.length) return
+    const next = [...sheets]
+    ;[next[index], next[target]] = [next[target]!, next[index]!]
+    setSheets(next)
+  }
+  const add = () => {
+    let number = sheets.length + 1
+    while (sheets.some(sheet => sheet.name.toLowerCase() === `sheet ${number}`)) number++
+    const sheet = { id: crypto.randomUUID(), name: `Sheet ${number}`, columns: ['Column 1'], rows: [['']] }
+    setSheets([...sheets, sheet])
+    select(sheet.id)
+  }
+  return <div className="min-w-0 space-y-2">
+    <WorkbookTabs sheets={sheets} activeId={active.id} onSelect={select}>
+      <div className="space-y-2">
+        <label className="block text-[11px] text-ink-soft">Worksheet name
+          <input aria-label="Worksheet name" maxLength={MAX_WORKBOOK_SHEET_NAME_CHARS} className={`${FORM_INPUT_CLASS} mt-1 w-full`} value={active.name} disabled={disabled}
+            onChange={event => setSheets(sheets.map(sheet => sheet.id === active.id ? { ...sheet, name: event.target.value } : sheet))} />
+        </label>
+        <div className="flex flex-wrap gap-1.5">
+          <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length >= MAX_AUTHORED_WORKBOOK_SHEETS} onClick={add}><Plus size={12} /> Add worksheet</button>
+          <button type="button" data-inline-action className={buttonClass} disabled={disabled || index === 0} onClick={() => move(-1)}><ArrowUp size={12} /> Move worksheet earlier</button>
+          <button type="button" data-inline-action className={buttonClass} disabled={disabled || index === sheets.length - 1} onClick={() => move(1)}><ArrowDown size={12} /> Move worksheet later</button>
+          <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length <= 1} onClick={() => {
+            setRemoved({ sheet: active, index })
+            setSheets(sheets.filter(sheet => sheet.id !== active.id))
+            select(sheets[index === 0 ? 1 : index - 1]!.id)
+          }}><Minus size={12} /> Remove worksheet</button>
+        </div>
+        <SheetEditor body={active} disabled={disabled} onChange={({ columns, rows, note }) => {
+          const grid = { columns, rows, ...(note === undefined ? {} : { note }) }
+          if (body.type === 'sheet') onChange({ type: 'sheet', ...grid })
+          else setSheets(sheets.map(sheet => sheet.id === active.id ? { id: sheet.id, name: sheet.name, ...grid } : sheet))
+        }} />
+      </div>
+    </WorkbookTabs>
+    {removed && <div role="status" className="flex flex-wrap items-center gap-2 text-[11px] text-ink-soft">
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]">Removed “{removed.sheet.name}” from this draft.</span>
+      <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length >= MAX_AUTHORED_WORKBOOK_SHEETS || sheets.some(sheet => sheet.id === removed.sheet.id || sheet.name.toLowerCase() === removed.sheet.name.toLowerCase())} onClick={() => {
+        const next = [...sheets]
+        next.splice(Math.min(removed.index, next.length), 0, removed.sheet)
+        setSheets(next)
+        select(removed.sheet.id)
+        setRemoved(null)
+      }}>Undo removal</button>
+    </div>}
+    <p className="text-[11px] leading-relaxed text-ink-faint">All worksheets share this artifact’s access and one Save. Up to 20 tabs, 6,400 cells and 20,000 characters total. Names must be unique, 1–31 characters, with no []:*?/\\ or outer spaces/apostrophes. Values are literal; formulas are not calculated.</p>
+  </div>
 }
 
 function SheetEditor({
@@ -74,8 +143,8 @@ function SheetEditor({
   onChange,
   disabled,
 }: {
-  body: Extract<StructuredArtifactBody, { type: 'sheet' }>
-  onChange: (body: StructuredArtifactBody) => void
+  body: SheetGrid
+  onChange: (body: SheetGrid) => void
   disabled: boolean
 }) {
   const setColumn = (index: number, value: string) => onChange({ ...body, columns: body.columns.map((column, i) => i === index ? value : column) })

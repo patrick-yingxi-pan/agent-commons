@@ -55,7 +55,7 @@ test('documents, sheets, and slides create canonical bodies that survive reload 
 
   const documentName = `direct-document-${stamp}.md`
   let dialog = await openArtifactDialog(page)
-  await dialog.getByLabel('Name').fill(documentName)
+  await dialog.getByLabel('Name', { exact: true }).fill(documentName)
   await dialog.getByLabel('Content').fill(`Opening ${stamp}.\n\nDurable document paragraph.`)
   await dialog.getByRole('button', { name: 'Create document', exact: true }).click()
   await expect(dialog).toHaveCount(0)
@@ -68,7 +68,7 @@ test('documents, sheets, and slides create canonical bodies that survive reload 
 
   const sheetName = `direct-sheet-${stamp}.xlsx`
   dialog = await openArtifactDialog(page)
-  await dialog.getByLabel('Name').fill(sheetName)
+  await dialog.getByLabel('Name', { exact: true }).fill(sheetName)
   await dialog.getByLabel('Format').selectOption({ label: 'Sheet' })
   await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Metric')
   await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Revenue')
@@ -86,7 +86,7 @@ test('documents, sheets, and slides create canonical bodies that survive reload 
 
   const slidesName = `direct-slides-${stamp}.pptx`
   dialog = await openArtifactDialog(page)
-  await dialog.getByLabel('Name').fill(slidesName)
+  await dialog.getByLabel('Name', { exact: true }).fill(slidesName)
   await dialog.getByLabel('Format').selectOption({ label: 'Slides' })
   await dialog.getByLabel('Slide 1 title').fill('Launch review')
   await dialog.getByRole('button', { name: 'Add bullet to slide 1', exact: true }).click()
@@ -107,7 +107,7 @@ test('format changes retain separate drafts while name and project remain shared
   test.setTimeout(ms(30_000))
   const dialog = await openArtifactDialog(page)
   await expect(dialog.getByRole('button', { name: 'Create document', exact: true })).toBeDisabled()
-  await dialog.getByLabel('Name').fill('retained-drafts.artifact')
+  await dialog.getByLabel('Name', { exact: true }).fill('retained-drafts.artifact')
   await dialog.getByLabel('Project').selectOption({ label: 'Insights dashboard' })
   await dialog.getByLabel('Content').fill('Document draft stays independent.')
   await expect(dialog.getByRole('button', { name: 'Create document', exact: true })).toBeEnabled()
@@ -132,7 +132,7 @@ test('format changes retain separate drafts while name and project remain shared
   await dialog.getByLabel('Format').selectOption({ label: 'Slides' })
   await expect(dialog.getByLabel('Slide 1 title')).toHaveValue('Retained slide title')
   await expect(dialog.getByLabel('Slide 1 bullet 1', { exact: true })).toHaveValue('Retained slide bullet')
-  await expect(dialog.getByLabel('Name')).toHaveValue('retained-drafts.artifact')
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('retained-drafts.artifact')
   await expect(dialog.getByLabel('Project')).toHaveValue('p-insights')
 })
 
@@ -144,7 +144,7 @@ test('creation fields and actions remain operable across the canonical viewport 
     await page.setViewportSize(viewport)
     const size = `${viewport.width}x${viewport.height}`
     const dialog = await openArtifactDialog(page)
-    await dialog.getByLabel('Name').fill(`creation-review-${size}-${stamp}`)
+    await dialog.getByLabel('Name', { exact: true }).fill(`creation-review-${size}-${stamp}`)
 
     const createDocument = dialog.getByRole('button', { name: 'Create document', exact: true })
     await expect(createDocument).toBeDisabled()
@@ -186,7 +186,7 @@ test('creation fields and actions remain operable across the canonical viewport 
       expect(await sheet.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0)
     }
     const [nameWidth, formatWidth] = await Promise.all([
-      dialog.getByLabel('Name').evaluate((node) => node.getBoundingClientRect().width),
+      dialog.getByLabel('Name', { exact: true }).evaluate((node) => node.getBoundingClientRect().width),
       dialog.getByLabel('Format').evaluate((node) => node.getBoundingClientRect().width),
     ])
     expect(nameWidth, `Name field width after sheet pan at ${size}`).toBeGreaterThanOrEqual(formatWidth - 1)
@@ -232,7 +232,7 @@ test('same-name authored sheets and slides keep distinct identities and remain f
     await foreignDialog.getByRole('button', { name: 'Cancel', exact: true }).click()
 
     let dialog = await openArtifactDialog(owner.page)
-    await dialog.getByLabel('Name').fill(name)
+    await dialog.getByLabel('Name', { exact: true }).fill(name)
     await dialog.getByLabel('Format').selectOption({ label: 'Sheet' })
     await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Metric')
     await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Sheet-only value')
@@ -242,7 +242,7 @@ test('same-name authored sheets and slides keep distinct identities and remain f
     await expect(owner.page.getByText('Sheet-only value', { exact: true })).toBeVisible()
 
     dialog = await openArtifactDialog(owner.page)
-    await dialog.getByLabel('Name').fill(name)
+    await dialog.getByLabel('Name', { exact: true }).fill(name)
     await dialog.getByLabel('Format').selectOption({ label: 'Slides' })
     await dialog.getByLabel('Slide 1 title').fill('Slides-only title')
     await dialog.getByRole('button', { name: 'Create slides', exact: true }).click()
@@ -290,13 +290,13 @@ test('a lost create response freezes the exact structured draft and reconciles w
   })
 
   const dialog = await openArtifactDialog(page)
-  await dialog.getByLabel('Name').fill(name)
+  await dialog.getByLabel('Name', { exact: true }).fill(name)
   await dialog.getByLabel('Format').selectOption({ label: 'Sheet' })
   await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Metric')
   await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Held exact cell')
   await dialog.getByRole('button', { name: 'Create sheet', exact: true }).click()
   await expect(dialog).toHaveAttribute('aria-busy', 'true')
-  await expect(dialog.getByLabel('Name')).toBeDisabled()
+  await expect(dialog.getByLabel('Name', { exact: true })).toBeDisabled()
   await expect(dialog.getByLabel('Format')).toBeDisabled()
   await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toBeDisabled()
   await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Held exact cell')
@@ -335,7 +335,7 @@ test('pre-commit failure retains one exact draft across navigation for Retry and
   })
 
   let dialog = await openArtifactDialog(page)
-  await dialog.getByLabel('Name').fill(retryName)
+  await dialog.getByLabel('Name', { exact: true }).fill(retryName)
   await dialog.getByLabel('Format').selectOption({ label: 'Sheet' })
   await dialog.getByLabel('Sheet column 1', { exact: true }).fill('Metric')
   await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Retry exact cell')
@@ -359,9 +359,9 @@ test('pre-commit failure retains one exact draft across navigation for Retry and
   await expect(page).toHaveURL(/\/artifacts$/)
   dialog = page.getByRole('dialog', { name: 'New artifact' })
   await expect(dialog).toBeVisible()
-  await expect(dialog.getByLabel('Name')).toHaveValue(retryName)
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(retryName)
   await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue('Retry exact cell')
-  await expect(dialog.getByLabel('Name')).toBeDisabled()
+  await expect(dialog.getByLabel('Name', { exact: true })).toBeDisabled()
   allowRetry = true
   await failed.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(dialog).toHaveCount(0)
@@ -372,7 +372,7 @@ test('pre-commit failure retains one exact draft across navigation for Retry and
   expect(retryKeys[1]).toBe(retryKeys[0])
 
   dialog = await openArtifactDialog(page)
-  await dialog.getByLabel('Name').fill(dismissName)
+  await dialog.getByLabel('Name', { exact: true }).fill(dismissName)
   await dialog.getByLabel('Content').fill('Dismiss keeps this exact editable document draft.')
   await dialog.getByRole('button', { name: 'Create document', exact: true }).click()
   failed = page.locator('[data-revisioned-mutation="artifact-create"][data-mutation-status="failed"]')
@@ -380,8 +380,8 @@ test('pre-commit failure retains one exact draft across navigation for Retry and
   await failed.getByRole('button', { name: 'Dismiss', exact: true }).click()
   await expect(failed).toHaveCount(0)
   await expect(dialog).toHaveAttribute('aria-busy', 'false')
-  await expect(dialog.getByLabel('Name')).toBeEnabled()
-  await expect(dialog.getByLabel('Name')).toHaveValue(dismissName)
+  await expect(dialog.getByLabel('Name', { exact: true })).toBeEnabled()
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue(dismissName)
   await expect(dialog.getByLabel('Content')).toHaveValue('Dismiss keeps this exact editable document draft.')
   await expect(dialog).toContainText('Creation was not completed. Your draft is ready to review.')
   expect(keysByName.get(dismissName)).toHaveLength(1)

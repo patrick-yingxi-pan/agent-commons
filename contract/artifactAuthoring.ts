@@ -1,20 +1,24 @@
 import { authoredDocument, type ArtifactContent } from './content.ts'
 import { artifactBodyExcerpt } from './artifactExcerpt.ts'
 import { normalizeArtifactName } from './artifactMetadata.ts'
+import {
+  MAX_AUTHORED_CELL_CHARS,
+  MAX_AUTHORED_LABEL_CHARS,
+  MAX_AUTHORED_STRUCTURE_CHARS,
+  parseAuthoredSheet,
+  parseAuthoredWorkbook,
+} from './workbook.ts'
 
 /** Authored values, not spreadsheet execution or an Office file format. Body
  * revisions belong to the server and are never accepted from an author. */
 export type StructuredArtifactBody =
   | Omit<Extract<ArtifactContent, { type: 'sheet' }>, 'revision'>
+  | Omit<Extract<ArtifactContent, { type: 'workbook' }>, 'revision'>
   | Omit<Extract<ArtifactContent, { type: 'slides' }>, 'revision'>
 
-export const MAX_AUTHORED_SHEET_COLUMNS = 32
-export const MAX_AUTHORED_SHEET_ROWS = 200
-export const MAX_AUTHORED_CELL_CHARS = 2_000
+export { MAX_AUTHORED_CELL_CHARS, MAX_AUTHORED_LABEL_CHARS, MAX_AUTHORED_SHEET_COLUMNS, MAX_AUTHORED_SHEET_ROWS, MAX_AUTHORED_STRUCTURE_CHARS } from './workbook.ts'
 export const MAX_AUTHORED_SLIDES = 40
 export const MAX_AUTHORED_SLIDE_BULLETS = 20
-export const MAX_AUTHORED_LABEL_CHARS = 240
-export const MAX_AUTHORED_STRUCTURE_CHARS = 20_000
 
 export interface AuthoredArtifact {
   body: ArtifactContent
@@ -38,33 +42,13 @@ function fields(value: Record<string, unknown>, required: string[], optional: st
  * Formula-looking strings remain literal data in the same contract as prose. */
 export function parseStructuredArtifactBody(value: unknown): StructuredArtifactBody | undefined {
   if (!record(value)) return undefined
+  if (value.type === 'workbook') return parseAuthoredWorkbook(value)
+  if (value.type === 'sheet') return parseAuthoredSheet(value)
   let characters = 0
   const text = (raw: unknown, limit: number, nonblank = false): raw is string => {
     if (typeof raw !== 'string' || raw.length > limit || (nonblank && !raw.trim())) return false
     characters += raw.length
     return characters <= MAX_AUTHORED_STRUCTURE_CHARS
-  }
-  if (value.type === 'sheet') {
-    if (!fields(value, ['type', 'columns', 'rows'], ['note']) ||
-      !Array.isArray(value.columns) || value.columns.length < 1 || value.columns.length > MAX_AUTHORED_SHEET_COLUMNS ||
-      !Array.isArray(value.rows) || value.rows.length < 1 || value.rows.length > MAX_AUTHORED_SHEET_ROWS) return undefined
-    const columns: string[] = []
-    for (const column of value.columns) {
-      if (!text(column, MAX_AUTHORED_LABEL_CHARS, true)) return undefined
-      columns.push(column)
-    }
-    const rows: string[][] = []
-    for (const row of value.rows) {
-      if (!Array.isArray(row) || row.length !== columns.length) return undefined
-      const cells: string[] = []
-      for (const cell of row) {
-        if (!text(cell, MAX_AUTHORED_CELL_CHARS)) return undefined
-        cells.push(cell)
-      }
-      rows.push(cells)
-    }
-    if (Object.hasOwn(value, 'note') && !text(value.note, MAX_AUTHORED_CELL_CHARS)) return undefined
-    return { type: 'sheet', columns, rows, ...(typeof value.note === 'string' ? { note: value.note } : {}) }
   }
   if (value.type === 'slides') {
     if (!fields(value, ['type', 'slides']) || !Array.isArray(value.slides) ||
@@ -96,6 +80,6 @@ export function authoredArtifact(name: string, kind: unknown, raw: unknown): Aut
   }
   if (kind !== 'sheet' && kind !== 'slide') return undefined
   const structured = parseStructuredArtifactBody(raw)
-  if (!structured || (kind === 'sheet' ? structured.type !== 'sheet' : structured.type !== 'slides')) return undefined
+  if (!structured || (kind === 'sheet' ? structured.type !== 'sheet' && structured.type !== 'workbook' : structured.type !== 'slides')) return undefined
   return { body: { ...structured, revision: 0 }, draftBody: structured, excerpt: artifactBodyExcerpt(structured)! }
 }

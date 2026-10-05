@@ -234,6 +234,66 @@ for (const backend of ['json', 'sqlite'] as const) {
   })
 }
 
+for (const backend of ['json', 'sqlite'] as const) {
+  test(`${backend}: a multi-worksheet workbook keeps one identity, revision, grant, and portable body across restart`, () => {
+    const file = join(ROOT, `workbook-edit-${backend}`)
+    const portable = join(ROOT, `workbook-edit-${backend}.portable.json`)
+    const owner = `tenant-workbook-edit-${backend}`
+    const reader = `${owner}-reader`
+    const first = ok(boot(file, backend, portable, `
+      const owner = ${JSON.stringify(owner)};
+      const reader = ${JSON.stringify(reader)};
+      const initial = { type: 'workbook', sheets: [
+        { id: 'overview', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Users', '42']] },
+        { id: 'details', name: 'Details', columns: ['Metric', 'Value'], rows: [['Formula', '=SUM(A1:A2)']], note: 'Literal formula text.' },
+      ] };
+      store.applyRelationOp({ kind: 'save-artifact', artifact: { name: 'quarterly-workbook.xlsx', kind: 'sheet', meta: 'Sheet', body: initial }, sessionTitle: 'Workbook source' }, owner);
+      const row = store.listArtifacts(owner).find(a => a.name === 'quarterly-workbook.xlsx');
+      const grant = store.createGrant({ subject: { kind: 'artifact', id: row.id }, audience: { kind: 'link' }, tier: 'view' }, owner);
+      store.redeemGrant(grant.audience.token, reader);
+      const edited = structuredClone(initial);
+      edited.sheets[1].rows[0][1] = 'updated literal';
+      const saved = store.updateStructuredArtifactContent(row.id, edited, 0, owner);
+      const demotion = store.updateStructuredArtifactContent(row.id, { type: 'sheet', columns: ['Only'], rows: [['lost tab']] }, 1, owner);
+      const invalid = store.updateStructuredArtifactContent(row.id, { ...edited, sheets: [] }, 1, owner);
+      let stale = false;
+      try { store.updateStructuredArtifactContent(row.id, initial, 0, owner); } catch (error) { stale = /changed|conflict|revision/i.test(String(error)); }
+      writePortableSnapshot(${JSON.stringify(portable)}, loadState());
+      console.log(JSON.stringify({ id: row.id, grantId: grant.id, saved, demotion, invalid, stale, ownerBody: store.artifactContent(owner)[row.id], readerBody: store.artifactContent(reader)[row.id], row: store.listArtifacts(owner).find(a => a.id === row.id), state: loadState() }));
+    `))
+    const expected = {
+      type: 'workbook',
+      sheets: [
+        { id: 'overview', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Users', '42']] },
+        { id: 'details', name: 'Details', columns: ['Metric', 'Value'], rows: [['Formula', 'updated literal']], note: 'Literal formula text.' },
+      ],
+      revision: 1,
+    }
+    assert.equal(first.saved.revision, 1)
+    assert.equal(first.demotion, undefined, `${backend}: editing cannot discard tabs by demoting to a legacy Sheet`)
+    assert.equal(first.invalid, undefined, `${backend}: malformed whole-body edit is refused`)
+    assert.equal(first.stale, true, `${backend}: stale workbook revision is refused`)
+    assert.deepEqual(first.ownerBody, expected)
+    assert.deepEqual(first.readerBody, expected, `${backend}: one artifact grant covers all workbook tabs`)
+    assert.ok(first.grantId)
+    assert.equal(first.row.id, first.id)
+    assert.equal(first.row.kind, 'sheet')
+    assert.deepEqual(first.state.artifactBodies.find(([id]: [string]) => id === first.id)?.[1], expected)
+    assert.deepEqual(readPortableSnapshot(portable).artifactBodies?.find(([id]) => id === first.id)?.[1], expected)
+
+    const restarted = ok(boot(file, backend, portable, `
+      const owner = ${JSON.stringify(owner)};
+      const reader = ${JSON.stringify(reader)};
+      const row = store.listArtifacts(owner).find(a => a.id === ${JSON.stringify(first.id)});
+      console.log(JSON.stringify({ row, ownerBody: store.artifactContent(owner)[row.id], readerBody: store.artifactContent(reader)[row.id], state: loadState() }));
+    `))
+    assert.equal(restarted.row.id, first.id)
+    assert.deepEqual(restarted.ownerBody, expected)
+    assert.deepEqual(restarted.readerBody, expected)
+    assert.ok(restarted.state.grants.some((grant: any) => grant.id === first.grantId))
+  })
+}
+
 test('a failed body commit publishes no artifact event or timestamp', () => {
   const file = join(ROOT, 'structured-edit-failure-json')
   const blocked = join(ROOT, 'structured-edit-failure-blocked')

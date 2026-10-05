@@ -135,7 +135,7 @@ export function NewArtifactDialog({
         </select>
       </FormField>
       {kind === 'sheet' && <ArtifactSheetImport intake={sheetImport}
-        hasContent={sheet.type === 'sheet' && (sheet.columns.length > 1 || sheet.rows.length > 1 || sheet.columns.some(Boolean) || sheet.rows.some((row) => row.some(Boolean)) || !!sheet.note)}
+        hasContent={sheet.type === 'workbook' || (sheet.type === 'sheet' && (sheet.columns.length > 1 || sheet.rows.length > 1 || sheet.columns.some(Boolean) || sheet.rows.some((row) => row.some(Boolean)) || !!sheet.note))}
         disabled={busy} onUse={() => sheetImport.accept((candidate) => {
           setSheet(candidate.body)
           setName((current) => current.trim() ? current : candidate.name)

@@ -29,9 +29,26 @@ test('the routine tool declares only the approved structured body, never model-c
   assert.deepEqual(Object.keys(definition.input_schema.properties), ['body'])
   assert.deepEqual(definition.input_schema.required, ['body'])
   assert.equal(definition.input_schema.additionalProperties, false)
-  assert.equal(definition.input_schema.properties.body.properties?.type.enum?.[0], 'sheet')
-  assert.equal((definition.input_schema.properties.body as { oneOf?: unknown }).oneOf, undefined)
+  assert.deepEqual(definition.input_schema.properties.body.oneOf?.map((schema) => schema.properties?.type.enum?.[0]), ['sheet', 'workbook'])
+  assert.ok(definition.input_schema.properties.body.oneOf, 'the sheet kind declares legacy sheet and workbook body alternatives')
   assert.throws(() => createRoutineArtifactCapture({ name: 'recap.md', kind: 'doc' }), /sheet or slide/i)
+})
+
+test('a sheet-format routine can capture one complete named workbook candidate', async () => {
+  const capture = createRoutineArtifactCapture({ name: 'metrics.xlsx', kind: 'sheet' })
+  const body = {
+    type: 'workbook' as const,
+    sheets: [
+      { id: 'overview', name: 'Overview', columns: ['Metric'], rows: [['42']] },
+      { id: 'detail', name: 'Detail', columns: ['Metric'], rows: [['=literal']] },
+    ],
+  }
+  const output = await executeToolBatch(
+    [{ id: 'workbook', name: ROUTINE_ARTIFACT_TOOL_NAME, input: { body } }],
+    options(capture),
+  )
+  assert.equal(output.results[0]?.isError, undefined)
+  assert.deepEqual(capture.result, body)
 })
 
 test('one settled valid submission publishes one detached structured candidate and no product effects', async () => {

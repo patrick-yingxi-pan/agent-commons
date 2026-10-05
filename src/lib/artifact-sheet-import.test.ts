@@ -101,6 +101,66 @@ test('XLSX mapping selects one visible worksheet and preserves sparse literal ca
   assert.equal(mapArtifactSheetImport(candidate, true, 2).status, 'error', 'hidden and unsupported sheets are not selectable')
 })
 
+test('all-visible XLSX mapping imports every visible worksheet atomically in source order', () => {
+  const candidate = reviewArtifactSheetImport([workbookFile(sourceWorkbook([
+    { sourceSheet: 1, name: 'FY 2025', cells: [{ row: 1, column: 1, value: 'Metric' }, { row: 2, column: 1, value: 'Revenue' }] },
+    { sourceSheet: 3, name: 'Exact Name', cells: [{ row: 1, column: 1, value: 'Metric' }, { row: 2, column: 1, value: 'Costs' }] },
+  ], { totalSheets: 3, hiddenSheets: 1 }))])
+  assert.equal(candidate.status, 'ready')
+  if (candidate.status !== 'ready') return
+  const mapped = mapArtifactSheetImport(candidate, true, undefined, true)
+  assert.equal(mapped.status, 'ready')
+  if (mapped.status !== 'ready') return
+  assert.deepEqual(mapped.body, {
+    type: 'workbook',
+    sheets: [
+      { id: 'source-sheet-1', name: 'FY 2025', columns: ['Metric'], rows: [['Revenue']] },
+      { id: 'source-sheet-3', name: 'Exact Name', columns: ['Metric'], rows: [['Costs']] },
+    ],
+  }, 'all tabs retain their exact valid names and source-based identities')
+  assert.match(mapped.disclosure, /all 2 visible worksheets in source order/i)
+  assert.match(mapped.disclosure, /first row as column names/i)
+})
+
+test('all-visible XLSX mapping rejects any invalid tab or aggregate overflow without a partial workbook', () => {
+  const empty = reviewArtifactSheetImport([workbookFile(sourceWorkbook([
+    { sourceSheet: 1, name: 'Populated', cells: [{ row: 1, column: 1, value: 'Value' }, { row: 2, column: 1, value: 'x' }] },
+    { sourceSheet: 2, name: 'Empty', cells: [] },
+  ]))])
+  assert.equal(empty.status, 'ready')
+  if (empty.status === 'ready') {
+    const mapped = mapArtifactSheetImport(empty, true, undefined, true)
+    assert.equal(mapped.status, 'error', 'an empty visible worksheet cannot be silently dropped')
+    if (mapped.status === 'error') assert.match(mapped.message, /Empty.*No cells were imported/)
+  }
+
+  const missingCache = reviewArtifactSheetImport([workbookFile(sourceWorkbook([
+    { sourceSheet: 1, name: 'First', cells: [{ row: 1, column: 1, value: 'Value' }, { row: 2, column: 1, value: 'ok' }] },
+    { sourceSheet: 2, name: 'Second', cells: [{ row: 1, column: 1, value: 'Value' }, { row: 2, column: 1, value: '', formula: 'missing' }] },
+  ]))])
+  assert.equal(missingCache.status, 'ready')
+  if (missingCache.status === 'ready') {
+    const mapped = mapArtifactSheetImport(missingCache, true, undefined, true)
+    assert.equal(mapped.status, 'error', 'one uncached formula rejects all tabs')
+    if (mapped.status === 'error') assert.match(mapped.message, /Second.*no saved cached value.*No cells were imported/i)
+  }
+
+  const oversized = reviewArtifactSheetImport([workbookFile(sourceWorkbook([
+    { sourceSheet: 1, name: 'First', cells: [{ row: 1, column: 1, value: 'Value' }, { row: 2, column: 1, value: 'ok' }] },
+    { sourceSheet: 2, name: 'Too wide', cells: [{ row: 1, column: 1, value: 'A' }, { row: 1, column: 34, value: 'AH' }] },
+  ]))])
+  assert.equal(oversized.status, 'ready')
+  if (oversized.status === 'ready') assert.equal(mapArtifactSheetImport(oversized, false, undefined, true).status, 'error', 'one oversize tab rejects all tabs')
+
+  const aggregate = reviewArtifactSheetImport([workbookFile(sourceWorkbook(Array.from({ length: 10 }, (_, index) => ({
+    sourceSheet: index + 1,
+    name: `Tab ${index + 1}`,
+    cells: [{ row: 1, column: 1, value: 'h'.repeat(240) }, { row: 2, column: 1, value: 'x'.repeat(1_900) }],
+  }))))])
+  assert.equal(aggregate.status, 'ready')
+  if (aggregate.status === 'ready') assert.equal(mapArtifactSheetImport(aggregate, true, undefined, true).status, 'error', 'whole-workbook text limit is enforced atomically')
+})
+
 test('XLSX sparse source rectangles are bounded before allocation and still obey sheet authoring limits', () => {
   const candidate = reviewArtifactSheetImport([workbookFile(sourceWorkbook([{
     sourceSheet: 1,
