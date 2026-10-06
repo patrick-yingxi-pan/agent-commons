@@ -40,7 +40,7 @@ test('Git file helper has a fixed packaged path and build inputs stay out of ASA
 
   const packageSource = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')
   assert.match(packageSource, /buildGitFileHelper\(\{ targetPlatform, targetArch \}\)/)
-  assert.match(packageSource, /extraResource: \[profileHelperPath, gitDirectory, gitFileHelperPath\]\.filter\(Boolean\)/)
+  assert.match(packageSource, /extraResource: \[profileHelperPath, gitDirectory, gitFileHelperPath, imageOcrHelperPath\]\.filter\(Boolean\)/)
   assert.ok(packageSource.indexOf('buildGitFileHelper(') < packageSource.indexOf('await packager('))
   assert.equal(packagerConfig.asar, true)
   const devSource = readFileSync(new URL('./dev.mjs', import.meta.url), 'utf8')

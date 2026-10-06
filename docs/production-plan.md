@@ -84,6 +84,38 @@ failed, stale and uncertain outcomes have distinct public history. Existing
 local usage counters are metering, not a strict reservation of concurrent or
 unreported spend. Legacy reviewer omission remains a development fixture only.
 
+### Approved OCR and Discussion attachment defaults (2026-10-06 UTC)
+
+The owner approved both recommended defaults:
+
+- OCR runs on-device. Extracted text is editable and must be reviewed and
+  explicitly adopted before saving. Extraction itself does not upload an image,
+  contact a configured provider or incur a provider charge.
+- A Discussion attaches as an explicit saved copy. Attach and Refresh check
+  current source access; the copy follows the destination conversation's sharing.
+  The UI must warn before copying. Later source revocation does not erase the
+  existing copy or prior replies. This is not a live permission-linked view.
+
+The first OCR implementation checkpoint is the bounded macOS recognition engine,
+using the OS Vision framework over normalized PNG bytes. No IPC or UI authority
+is implied by this internal prerequisite. Explicit extraction, editable review,
+adoption, account fencing and durable saved-text acceptance remain the next slice.
+Browser/other-platform OCR and scanned-PDF page rendering are not silently added
+by the desktop image engine. Discussion attachment remains required subsequent
+work under the approved copy/sharing semantics; neither choice is pending now.
+
+The internal engine locks recognize generated pixels with the real native helper,
+including blank and malformed images. Packaged acceptance checks the shipped
+single-architecture binary, system-only dependencies and ASAR-matched runtime.
+The capacity lock was watched fail when cancellation released its child slot
+before process close; the real helper lock also failed when malformed PNG framing
+was misreported as no-text. Compressed metadata and APNG chunks are refused before
+OS decoding. This does not establish a renderer review/save workflow,
+scanned-PDF extraction, complete language/corpus accuracy or native Intel evidence.
+Implementation uses Apple's [Vision text-recognition request](https://developer.apple.com/documentation/vision/recognizing-text-in-images)
+with a fixed accurate revision and automatic language detection; accuracy and
+language support are OS-dependent, not a promise of universal recognition.
+
 ## Progress and next milestones
 
 ### Actual native Git review and update notice (2026-10-06 UTC)
@@ -99,13 +131,12 @@ No product source, native policy, normal user profile or shared demo state chang
 This closes those unsigned arm64 manual cells, not signed update consent,
 two-version installation, Intel or paid-provider acceptance.
 
-The next identified core composition gap is Discussion-as-Context (SOCIAL-6b):
+Another identified core composition gap is Discussion-as-Context (SOCIAL-6b):
 the existing Discuss with Claude action seeds a digest into a new conversation,
 but does not attach a reusable Discussion to an existing conversation. Its
-read-wall, freshness and shared-conversation semantics must be checked against
-the social-layer design before implementation. OCR remains a separate pending
-choice: on-device extraction with editable review is recommended; uploading to a
-configured model must not be inferred from the general development goal.
+read-wall, freshness and shared-conversation implementation must follow the
+subsequently approved saved-copy policy above. The OCR choice above is also now
+approved; configured-model uploads are not authorized by that decision.
 
 ### Explicit local Git review (2026-10-06 UTC)
 

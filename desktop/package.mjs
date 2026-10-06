@@ -9,6 +9,7 @@ import { generateDesktopIcons, verifyPackagedDesktopIcon } from './icons.mjs'
 import packagerConfig from './packager.config.mjs'
 import { buildDesktopProfileHelper } from './profileHelperBuild.mjs'
 import { buildGitFileHelper } from './gitFileBuild.mjs'
+import { buildImageOcrHelper } from './ocrHelperBuild.mjs'
 import { buildBundledGit } from './bundledGitBuild.mjs'
 import { verifyBundledGitDirectory } from './bundledGit.mjs'
 
@@ -42,6 +43,7 @@ export async function packageDesktop({
 } = {}) {
   const profileHelperPath = buildDesktopProfileHelper({ targetPlatform, targetArch })
   const gitFileHelperPath = buildGitFileHelper({ targetPlatform, targetArch })
+  const imageOcrHelperPath = buildImageOcrHelper({ targetPlatform, targetArch })
   const gitDirectory = await buildBundledGit({ targetPlatform, targetArch })
   await generateDesktopIcons()
   await run(process.execPath, [VITE_BIN, 'build'])
@@ -70,7 +72,7 @@ export async function packageDesktop({
     electronZipDir: dirname(zipPath),
     platform: targetPlatform,
     arch: targetArch,
-    extraResource: [profileHelperPath, gitDirectory, gitFileHelperPath].filter(Boolean),
+    extraResource: [profileHelperPath, gitDirectory, gitFileHelperPath, imageOcrHelperPath].filter(Boolean),
     ...(releaseOptions ?? {}),
   })
   if (!artifacts.length || artifacts.some((artifact) => !existsSync(artifact))) {
@@ -84,6 +86,8 @@ export async function packageDesktop({
     for (const artifact of artifacts) {
       const helperPath = join(artifact, 'Agent Commons.app', 'Contents', 'Resources', 'agent-commons-git-file')
       if (!existsSync(helperPath)) throw new Error('The packaged macOS Git file helper is missing.')
+      const ocrPath = join(artifact, 'Agent Commons.app', 'Contents', 'Resources', 'agent-commons-image-ocr')
+      if (!existsSync(ocrPath)) throw new Error('The packaged macOS image OCR helper is missing.')
     }
     for (const artifact of artifacts) await verifyBundledGitDirectory(
       join(artifact, 'Agent Commons.app', 'Contents', 'Resources', 'agent-commons-git'),
