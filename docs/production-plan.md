@@ -96,11 +96,30 @@ version, and an out-of-range request cannot silently return partial bytes.
 Only canonical SHA-1/SHA-256 object paths are accepted. Pack discovery excludes
 alternates and unrelated names, and both operations recheck descriptor bindings.
 
+The internal baseline transaction now resolves real detached, loose or packed
+HEAD references and preserves staged/unmerged index identities, including
+SHA-1/SHA-256, split indexes, unborn branches and linked worktrees. Git decodes
+loose and packed/delta objects only in private generated metadata; source paths,
+configuration, hooks and alternate stores never become Git execution authority.
+Pack/index checksums, independently hashed returned objects and final source
+version/root fences protect publication. Metadata-only probes explicitly return
+unverified hints; they cannot establish content integrity. Limits include
+500 paths, 64 tree levels, 1 MiB/object, 8 MiB decoded bodies, 32 MiB pack indexes,
+512 MiB staged object data and a 30-second operation lifetime. Regular baseline
+blobs retain the shared 64 KiB bound. Private staging is removed on normal exit;
+forced-crash cleanup is not yet claimed.
+
+Packaged acceptance now exercises generated packed HEAD/index baselines through
+the actual bundled Git and descriptor helper, checks unchanged source metadata,
+and byte-compares the baseline modules/dependencies against their ASAR copies.
+This is internal-library acceptance, not product IPC, native selection or diff UI.
+
 This is not a shipped diff workflow: no renderer bridge, saved-context schema,
-HTTP route or model input changes. The existing capture remains unchanged. Next
-build the bounded object/baseline reader with cross-read version checks, then an
-explicit local review separating staged HEAD-to-index and unstaged
-index-to-working-tree changes. Keep source Git configuration, external diff
+HTTP route or model input changes. The existing capture reuses extracted index
+preparation/parsing without new authority. Next integrate working-tree capture
+and ignore exclusions into one consistent transaction, then an explicit local
+review separating staged HEAD-to-index and unstaged index-to-working-tree
+changes. Keep source Git configuration, external diff
 drivers, untracked/ignored files and repository writes excluded. Persisting,
 sharing or sending this new diff to a model needs a separate product decision.
 The OCR choice and signed/paid-provider release gates remain pending.

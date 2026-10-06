@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   assertBundledGitProbes,
@@ -11,6 +11,7 @@ import {
 } from './bundledGit.mjs'
 import { assertGitSourceArchive, bundledGitBuildPlan } from './bundledGitBuild.mjs'
 import { ignoreFromPackage } from './packager.config.mjs'
+import { ROOT, read } from '../tests/helpers/source.ts'
 
 const DESKTOP = fileURLToPath(new URL('.', import.meta.url))
 
@@ -155,4 +156,46 @@ test('the build recipe and desktop packaging keep Git self-contained, outside AS
   assert.equal(ignoreFromPackage('/desktop/bundledGitSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/entitlements.git.plist'), true)
   assert.equal(ignoreFromPackage('/desktop/bundledGit.test.ts'), true)
+})
+
+test('packaged Git smoke verifies the internal baseline against shipped ASAR dependencies', () => {
+  const smokeSource = readFileSync(new URL('./bundledGitSmoke.mjs', import.meta.url), 'utf8')
+  const baselineDependencies = [
+    'desktop/gitBaselineReader.mjs',
+    'desktop/gitIndex.mjs',
+    'desktop/gitHead.mjs',
+    'desktop/gitObjectReader.mjs',
+    'desktop/gitPackIndex.mjs',
+    'desktop/gitFileRead.mjs',
+    'desktop/gitFilePaths.mjs',
+    'desktop/localGitReader.mjs',
+    'desktop/localFolderReader.mjs',
+    'desktop/bundledGit.mjs',
+    'contract/localGitSnapshot.mjs',
+    'contract/localFolderSnapshot.mjs',
+    'contract/localFolderSnapshotBuilder.mjs',
+    'contract/localTextFile.mjs',
+  ]
+  assert.ok(smokeSource.includes('await assertBaselineSourcesMatchPackagedAsar(executable)'))
+  assert.ok(smokeSource.includes('extractFile(archive, name)'))
+  assert.ok(smokeSource.includes('assert.deepEqual(packaged, source'))
+  assert.ok(smokeSource.includes('withLocalGitBaseline(pinned'))
+  assert.ok(smokeSource.includes("createLocalGitReader({ gitExecutable: git, fileExecutable: fileHelper })"))
+  assert.ok(smokeSource.includes("headBytes.toString('utf8'), 'HEAD baseline bytes\\n'"))
+  assert.ok(smokeSource.includes("indexBytes.toString('utf8'), 'staged index bytes\\n'"))
+  assert.ok(smokeSource.includes("'uncommitted working text\\n'"))
+  assert.ok(smokeSource.includes("run(['pack-refs', '--all', '--prune'])"))
+  assert.ok(smokeSource.includes("'the fixture exercises packed refs'"))
+  assert.ok(smokeSource.includes("'the fixture exercises packed objects'"))
+  assert.ok(smokeSource.includes("metadataSnapshot(join(fixture, '.git'))"))
+  for (const modulePath of baselineDependencies) {
+    assert.ok(smokeSource.includes(`'${modulePath}'`), `smoke verifies ${modulePath} in ASAR`)
+    assert.equal(ignoreFromPackage(`/${modulePath}`), false, `${modulePath} ships inside app.asar`)
+    const source = read(join(ROOT, modulePath))
+    for (const [, specifier] of source.matchAll(/from\s+['"](\.[^'"]+)['"]/g)) {
+      const dependency = posix.normalize(posix.join(posix.dirname(modulePath), specifier))
+      assert.ok(baselineDependencies.includes(dependency), `${modulePath} dependency ${dependency} must also be verified`)
+    }
+  }
+  assert.equal(ignoreFromPackage('/desktop/gitBaselineReader.test.ts'), true)
 })

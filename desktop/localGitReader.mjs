@@ -1,13 +1,15 @@
 import { spawn } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
-import { isGitSnapshotPath, MAX_GIT_SNAPSHOT_ENTRIES, MAX_GIT_SNAPSHOT_FILE_BYTES, snapshotGitFiles } from '../contract/localGitSnapshot.mjs'
+import { MAX_GIT_SNAPSHOT_FILE_BYTES, snapshotGitFiles } from '../contract/localGitSnapshot.mjs'
 import { bundledGitProbeEnvironment } from './bundledGit.mjs'
+import { parseGitIndexStages, prepareGitIndex } from './gitIndex.mjs'
 import { readGitFile, listGitSharedIndexes } from './gitFileRead.mjs'
 import { inspectLocalFolderRoot } from './localFolderReader.mjs'
+
+export { parseGitIndexStages } from './gitIndex.mjs'
 
 const FAILURE = 'The repository is unavailable or has changed. Your saved snapshots have not been changed.'
 const MAX_METADATA_BYTES = 16 * 1024 * 1024
@@ -55,22 +57,10 @@ export function runLocalGit(executable, args, { cwd, signal, input } = {}) {
 }
 
 export function parseGitIndexEntries(bytes) {
-  if (!(bytes instanceof Uint8Array) || bytes.byteLength > 2 * 1024 * 1024) fail()
-  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
-  if (!text) return []
-  if (!text.endsWith('\0')) fail()
-  const records = text.slice(0, -1).split('\0')
-  if (records.length > MAX_GIT_SNAPSHOT_ENTRIES * 4) fail()
   const entries = new Map()
-  for (const record of records) {
-    const match = /^(100644|100755|120000|160000|040000) ([a-f0-9]{40}|[a-f0-9]{64}) [0-3]\t([^\0]+)$/.exec(record)
-    if (!match) fail()
-    const mode = match[1]
-    const name = mode === '040000' && match[3].endsWith('/') ? match[3].slice(0, -1) : match[3]
-    if (!isGitSnapshotPath(name)) fail()
-    const previous = entries.get(name)
-    entries.set(name, { name, mode: previous && previous.mode !== mode ? 'mixed' : mode })
-    if (entries.size > MAX_GIT_SNAPSHOT_ENTRIES) fail()
+  for (const entry of parseGitIndexStages(bytes)) {
+    const previous = entries.get(entry.name)
+    entries.set(entry.name, { name: entry.name, mode: previous && previous.mode !== entry.mode ? 'mixed' : entry.mode })
   }
   return [...entries.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
 }
@@ -168,32 +158,18 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
       }
       const git = { path: root.repository.path, identity: root.repository.identity }
       const common = { path: root.repository.commonPath, identity: root.repository.commonIdentity }
-      const index = await copyMetadata(git, 'index', join(metadata, 'index'), MAX_METADATA_BYTES, true)
-      // Only exact shared-index filenames are copied. Git may freshen these
-      // private copies; source metadata is only opened by the no-follow reader.
-      const sharedNames = await listSharedIndexes(git, { signal, executable: fileExecutable })
-      for (const name of sharedNames) await copyMetadata(git, name, join(metadata, name), MAX_METADATA_BYTES)
-      let objectFormat = index && ['sha1', 'sha256'].find(algorithm => {
-        const size = algorithm === 'sha1' ? 20 : 32
-        return index.byteLength > size && createHash(algorithm).update(index.subarray(0, -size)).digest().equals(index.subarray(-size))
+      const objectFormat = await prepareGitIndex({
+        git,
+        common,
+        metadata,
+        staging,
+        load,
+        copyMetadata,
+        listSharedIndexes,
+        fileExecutable,
+        runGit,
+        signal,
       })
-      // Normal indexes identify their hash format by a verified trailing
-      // checksum. Git's optional zero-checksum format needs only this one
-      // config key: parse a bounded in-memory copy without includes. Never
-      // persist source configuration (which can contain credentials) in temp.
-      if (index && !objectFormat) {
-        const config = await load(common, 'config', 128 * 1024)
-        if (config.status !== 'missing') {
-          if (config.status !== 'file' || !config.bytes) fail()
-          const result = await runGit(['config', '--file', '-', '--no-includes', '--get', 'extensions.objectformat'], { cwd: staging, signal, input: config.bytes })
-          if (![0, 1].includes(result.status)) fail()
-          const declared = result.status === 1 ? 'sha1' : new TextDecoder('utf-8', { fatal: true }).decode(result.stdout).trim()
-          if (!['sha1', 'sha256'].includes(declared)) fail()
-          objectFormat = declared
-        }
-      }
-      objectFormat ??= 'sha1'
-      await writeFile(join(metadata, 'config'), `[core]\nrepositoryformatversion=${objectFormat === 'sha256' ? 1 : 0}\nbare=false\nsparseCheckout=true\n[index]\nsparse=true\n${objectFormat === 'sha256' ? '[extensions]\nobjectformat=sha256\n' : ''}`, { mode: 0o600 })
       const list = async (ignored = false) => {
         const result = await runGit([`--git-dir=${metadata}`, `--work-tree=${worktree}`, 'ls-files', '--cached', '--stage', '--sparse', '-z', '--full-name',
           ...(ignored ? ['--ignored', '--exclude-standard'] : []), '--'], { cwd: staging, signal })
