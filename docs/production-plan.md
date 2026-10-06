@@ -86,6 +86,27 @@ unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
 
+### Actual native Git review and update notice (2026-10-06 UTC)
+
+The [revision-scoped native acceptance](acceptance/native-git-review-2026-10-06.md)
+now covers the real macOS chooser and PORT-25's explicit staged/unstaged review,
+freshness, Dismiss, missing-source Retry and durable Disconnect across three
+ordinary launches. The remembered connection survives while transient results
+do not. Exact generated index/shared-index hashes and timestamps remain unchanged;
+no provider was configured and the session registry stayed empty. The actual
+application menu and unconfigured-update notice were also visually reviewed.
+No product source, native policy, normal user profile or shared demo state changed.
+This closes those unsigned arm64 manual cells, not signed update consent,
+two-version installation, Intel or paid-provider acceptance.
+
+The next identified core composition gap is Discussion-as-Context (SOCIAL-6b):
+the existing Discuss with Claude action seeds a digest into a new conversation,
+but does not attach a reusable Discussion to an existing conversation. Its
+read-wall, freshness and shared-conversation semantics must be checked against
+the social-layer design before implementation. OCR remains a separate pending
+choice: on-device extraction with editable review is recommended; uploading to a
+configured model must not be inferred from the general development goal.
+
 ### Explicit local Git review (2026-10-06 UTC)
 
 The existing repository page now exposes an explicit **Review changes** read,
@@ -916,7 +937,9 @@ exports, schema isolation and exact backup/restore. Its first run caught a
 test-only unsupported dynamic import in Electron's evaluation context; the
 helper now reads the actual packaged plist independently and the complete rerun
 passes. No product guard or timeout was relaxed. Visual OS-menu/dialog review
-is pending because the Mac is locked. Signed two-version installation/relaunch,
+was pending at that checkpoint; the actual menu and unconfigured notice now have
+[native evidence](acceptance/native-git-review-2026-10-06.md), while signed
+download/install consent dialogs still need acceptance. Signed two-version installation/relaunch,
 hosted channel publication and native Intel acceptance remain distinct release
 gates. The final complete local verifier remains mandatory before landing.
 
