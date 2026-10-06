@@ -67,7 +67,41 @@ to models/shared viewers. Implementation must account for both copies in storage
 backups and cleanup and preserve existing imports that have no retained original.
 Approval alone does not establish implementation or release acceptance.
 
+### Approved contribution review policy (2026-10-06 UTC)
+
+The Project owner selects the reviewer Agent/provider and explicitly starts each
+review using the owner's budget. The reviewer receives only the frozen changeset,
+has no tools, and cannot land changes automatically. This approval does not
+authorize delegated policy decisions, envelope fulfilment or a paid-provider
+acceptance run using real credentials.
+
+Implementation is the next core-workflow checkpoint; release review remains
+unavailable until that path is built and verified. It must preserve private
+Project walls, owner-scoped reviewer/provider resolution, budget preflight and
+usage attribution, exact changeset identity, and separate human landing. Persist
+an attempt before provider I/O: retry or restart must not silently repeat a
+possibly paid request, and a late result must not review a newer changeset.
+Expose pending, findings, passed, stale and uncertain outcomes truthfully in the
+same owner workflow. Existing local usage counters are metering, not a strict
+reservation of concurrent or unreported spend.
+
 ## Progress and next milestones
+
+### Actual native image chooser acceptance (2026-10-06 UTC)
+
+The [native image record](acceptance/native-images-2026-10-06.md) now adds actual
+macOS Files cancellation, Files and Photos SVG selection, distinct same-name
+assets, native original-file downloads and source-absent relaunch on the unchanged
+unsigned arm64 package at `da395674`. Exact originals and normalized model-image
+hashes match across the recorded checks; saved workspace, context and message
+hashes match across a full Quit/relaunch. Only generated images, an isolated
+profile and a credential-free loopback model fixture were used.
+
+This closes the local SVG picker/original-download handoff gap for this artifact,
+not signed/notarized, Intel, Photos-library, all-format, multi-account or
+paid-provider acceptance. The normal six-account Ada preview remains untouched.
+The approved owner-controlled contribution review is next; real delegated
+judgment and envelope fulfilment remain independently unavailable.
 
 ### Contribution execution release wall (2026-10-06 UTC)
 
@@ -134,8 +168,9 @@ older artifact-viewer PNGs were excluded from this revision's evidence.
 The rebuilt unsigned arm64 package passes attachment acceptance, including an
 actual original-file download with the exact filename/bytes before and after a
 full relaunch with source files removed. Model image blocks remain normalized.
-Native selection results and model responses in this automated gate are fixtures;
-the earlier native Git chooser record is not substituted for this new image flow.
+Native selection results and model responses in this automated gate are fixtures.
+The separate native image record above now covers actual local Files/Photos SVG
+selection and original download; the earlier Git record is not substituted for it.
 Review corrected private-download vs model-input disclosure, stale intake copy,
 shared-reader send wording, error contrast and invalid deferred rail-status
 nesting, with failing-then-passing locks (UI-129, UI-179, UI-180).

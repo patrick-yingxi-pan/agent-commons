@@ -35,6 +35,12 @@
 
 ## Files / photos / folders are really served (L2)
 
+The [October 6 native image review](../acceptance/native-images-2026-10-06.md)
+adds actual local Files/Photos SVG selection, native original-file downloads,
+distinct same-name assets and source-absent relaunch evidence for CTX-FS-26.
+This is unsigned arm64 acceptance, not Photos-library access, all-format,
+multi-account, Intel or signed-release evidence.
+
 The [October 5 native Folder review](../acceptance/native-folder-2026-10-05.md)
 adds actual macOS selection, encrypted opt-in relaunch, explicit saved-copy
 Refresh, missing-source recovery and durable Disconnect evidence for CTX-FS-22

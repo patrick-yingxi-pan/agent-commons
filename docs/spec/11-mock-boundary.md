@@ -31,11 +31,13 @@ downloads, never inline application markup, shared previews or automatic model
 image input; storage limits, backups and cleanup include both copies. Structural
 validation is not complete codec decoding. Protocol and persistence
 locks, packaged executable smoke, and the complete responsive sweep exercise
-this boundary. Automated repository and packaged-executable verification cover
-the implemented path; they do not by themselves claim a completed manual macOS
-picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants,
+this boundary. The [October 6 native image acceptance](../acceptance/native-images-2026-10-06.md)
+separately verifies actual local Files/Photos SVG selection, exact original
+downloads and normalized saved input after source-absent relaunch on its recorded
+unsigned arm64 artifact. It does not cover Photos-library access or every format.
+OCR, active/external-resource SVG, RLE/embedded BMP variants,
 unsupported documents, live folder/Git browsing and rich document fidelity,
-paid-provider acceptance, and manual OS-dialog acceptance remain outside this
+paid-provider acceptance, and broader manual OS-dialog acceptance remain outside this
 milestone. A public native release additionally still requires the signed,
 notarized two-architecture release gate.
 
