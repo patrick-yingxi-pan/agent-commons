@@ -4,7 +4,7 @@ import type { NativeLocalFolderPicker } from '../components/LocalFolderConnectio
 
 export type UiHostFsModule = Pick<
   typeof import('./uiHostFs'),
-  'pickUiHostFiles' | 'readDroppedFiles' | 'pickUiHostFolder'
+  'pickUiHostFiles' | 'readDroppedFiles' | 'pickUiHostFolder' | 'UiHostPickerError'
 > & { UiHostDropZone: typeof UiHostDropZoneComponent; NativeLocalFolderPicker: typeof NativeLocalFolderPicker }
 
 export type UiHostFsLoadState =

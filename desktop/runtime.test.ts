@@ -18,6 +18,7 @@ import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import localFolderChannels from './local-folder-channels.cjs'
 import localGitChannels from './local-git-channels.cjs'
+import imageOcrChannels from './image-ocr-channels.cjs'
 import dataChannels from './data-channels.cjs'
 
 function assertInOrder(source, parts, message) {
@@ -28,6 +29,31 @@ function assertInOrder(source, parts, message) {
     previous = position
   }
 }
+
+function assertImageOcrWiring(main, preload) {
+  for (const channel of Object.values(imageOcrChannels)) assert.ok(preload.includes(channel))
+  assert.match(preload, /process\.platform === 'darwin' \? \{ imageOcr: Object\.freeze/)
+  assert.match(main, /assertTrustedDesktopCaller\(event, 'Image text recognition[^]*event\.senderFrame !== event\.sender\.mainFrame/)
+  assert.match(main, /function installImageOcrIpc\(\) \{\s*if \(process\.platform !== 'darwin'\) return/)
+  assert.match(main, /imageOcrExecutable\(\{ packaged: app\.isPackaged, resourcesPath: process\.resourcesPath/)
+  assert.match(main, /assertCaller: assertTrustedImageOcrCaller/)
+  assert.match(main, /ipcMain\.handle\(imageOcrChannels\.recognize/)
+  assert.match(main, /ipcMain\.handle\(imageOcrChannels\.cancel/)
+  assert.match(main, /'did-start-navigation'[^]*if \(isMainFrame\) imageOcrHost\?\.cancelSender/)
+  assert.match(main, /'render-process-gone'[^]*imageOcrHost\?\.cancelSender/)
+  assert.match(main, /win\.on\('closed', \(\) => \{\s*imageOcrHost\?\.cancelSender/)
+  assert.match(main, /function beginShutdown\(\)[^]*imageOcrHost\?\.dispose\(\)/)
+  assertInOrder(main, ['installImageOcrIpc()', 'await createMainWindow(rendererUrl'], 'OCR bridge installation precedes the renderer')
+}
+
+test('image OCR is main-frame-only, explicit and disposed with its native window/process lifetime', () => {
+  const main = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
+  const preload = readFileSync(new URL('./preload.cjs', import.meta.url), 'utf8')
+  assertImageOcrWiring(main, preload)
+  const mutated = main.replace('assertCaller: assertTrustedImageOcrCaller', 'assertCaller: () => {}')
+  assert.notEqual(mutated, main)
+  assert.throws(() => assertImageOcrWiring(mutated, preload), assert.AssertionError)
+})
 
 function assertDesktopUpdaterWiring(main, preload) {
   assert.match(main, /import \{[^}]*autoUpdater[^}]*\} from 'electron'/,

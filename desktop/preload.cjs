@@ -36,7 +36,28 @@ const localGitChannels = Object.freeze({
 const mcpCredentialChannels = Object.freeze({
   provision: 'agent-commons:mcp-credentials:provision',
 })
+const imageOcrChannels = Object.freeze({
+  recognize: 'agent-commons:image-ocr:recognize',
+  cancel: 'agent-commons:image-ocr:cancel',
+})
 const MCP_CREDENTIAL_CAPABILITY = 'mcp-provision-v1'
+const IMAGE_OCR_FAILURES = new Set(['no-text', 'invalid', 'too-large', 'unavailable', 'busy', 'cancelled', 'timeout'])
+
+function safeImageOcrResult(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'unavailable' }
+  const keys = Object.keys(value).sort().join(',')
+  if (keys === 'status' && IMAGE_OCR_FAILURES.has(value.status)) return { status: value.status }
+  if (keys === 'status,text' && value.status === 'ready' && typeof value.text === 'string' && value.text.trim() &&
+      value.text.length <= 64 * 1024 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value.text)) {
+    return { status: 'ready', text: value.text }
+  }
+  return { status: 'unavailable' }
+}
+
+async function invokeImageOcr(channel, ...args) {
+  try { return await ipcRenderer.invoke(channel, ...args) }
+  catch { return undefined }
+}
 
 // Do not forward main-process error objects or IPC rejection strings. Only the
 // closed native outcome selects user guidance, keeping the renderer API intact.
@@ -86,6 +107,12 @@ const bridge = {
     revealBackups: () => ipcRenderer.invoke(dataChannels.revealBackups),
     restoreBackup: () => ipcRenderer.invoke(dataChannels.restoreBackup),
   }),
+  ...(process.platform === 'darwin' ? { imageOcr: Object.freeze({
+    recognize: async (operationId, png) => safeImageOcrResult(
+      await invokeImageOcr(imageOcrChannels.recognize, operationId, png),
+    ),
+    cancel: async (operationId) => (await invokeImageOcr(imageOcrChannels.cancel, operationId)) === true,
+  }) } : {}),
 }
 if (process.argv.includes('--agent-commons-secure-credentials')) {
   bridge.credentials = Object.freeze({

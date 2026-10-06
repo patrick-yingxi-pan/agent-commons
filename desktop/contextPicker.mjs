@@ -105,16 +105,18 @@ export function createNativeContextPicker({
 
   return {
     async pickFiles(owner, accept = 'any') {
-      if (accept !== 'any' && accept !== 'image') return rejected('invalid-request')
+      if (accept !== 'any' && accept !== 'image' && accept !== 'single-image') return rejected('invalid-request')
+      const imageOnly = accept === 'image' || accept === 'single-image'
       try {
         const result = await showOpenDialog(owner, {
-          title: accept === 'image' ? 'Add photos' : 'Add files',
-          properties: ['openFile', 'multiSelections'],
-          ...(accept === 'image'
+          title: imageOnly ? 'Add photos' : 'Add files',
+          properties: accept === 'single-image' ? ['openFile'] : ['openFile', 'multiSelections'],
+          ...(imageOnly
             ? { filters: [{ name: 'Images', extensions: [...IMAGE_MIME.keys()].map((extension) => extension.slice(1)) }] }
             : {}),
         })
         if (result.canceled || result.filePaths.length === 0) return { status: 'cancelled' }
+        if (accept === 'single-image' && result.filePaths.length > 1) return rejected('invalid-request')
         if (result.filePaths.length > MAX_PICKED_FILES) return rejected('too-many-files')
 
         const selected = []
@@ -124,7 +126,7 @@ export function createNativeContextPicker({
           const details = await safeFileDetails(filePath, inspect)
           const mimeType = imageMime(filePath)
           const document = DOCUMENT_READERS.find((reader) => reader.matches(basename(filePath)))
-          if (accept === 'image' && !mimeType) return rejected('unsupported-image')
+          if (imageOnly && !mimeType) return rejected('unsupported-image')
           if (mimeType && details.size > MAX_IMAGE_PREVIEW_BYTES) return rejected('image-too-large')
           if (mimeType && imageBytes + details.size > MAX_IMAGE_SELECTION_BYTES) return rejected('selection-too-large')
 

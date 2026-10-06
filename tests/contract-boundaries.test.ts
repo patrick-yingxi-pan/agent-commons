@@ -17,6 +17,18 @@ import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
+test('image OCR shares its native contract without gaining HTTP, model, file-path or save authority', () => {
+  for (const file of ['desktop/imageOcr.mjs', 'desktop/imageOcrHost.mjs', 'src/api/desktopImageOcr.ts']) {
+    const source = stripComments(read(join(ROOT, file)))
+    assert.match(source, /from ['"][.\/]+contract\/imageOcr\.mjs['"]/, file)
+  }
+  const adapter = stripComments(read(join(ROOT, 'src/api/desktopImageOcr.ts')))
+  const review = stripComments(read(join(ROOT, 'src/lib/artifactImageImport.ts')))
+  assert.doesNotMatch(adapter + review, /\bfetch\s*\(|\bpaths\.|localStorage|sessionStorage|imageOriginal|enqueueArtifactCreation/)
+  assert.match(review, /await recognize\(bytes, signal\)/)
+  assert.match(stripComments(read(join(ROOT, 'src/api/desktopCredentials.ts'))), /imageOcr\?: NativeImageOcrBridge/)
+})
+
 test('production assets are root-absolute so the SPA fallback can boot nested canonical URLs', async () => {
   // `server/index.ts` deliberately serves dist/index.html for a route such as
   // `/projects/p-insights`. With a relative Vite base (`./`), that HTML asks

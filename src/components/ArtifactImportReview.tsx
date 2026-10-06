@@ -8,7 +8,7 @@ type Controls = Pick<ReturnType<typeof useArtifactFileImport>, 'state' | 'picker
 
 /** Same local-review ceremony for every artifact format; only the source
  * explanation and nature of the read-only preview vary. */
-export function ArtifactImportReview({ intake, label, description, summary, adoptionCopy, useLabel, disabled, onUse, previewRef, children }: {
+export function ArtifactImportReview({ intake, label, description, summary, adoptionCopy, useLabel, disabled, onUse, previewRef, children, alternatePick, readingCopy = 'Reading selected file… Your draft is unchanged.' }: {
   intake: Controls
   label: string
   description: string
@@ -19,6 +19,8 @@ export function ArtifactImportReview({ intake, label, description, summary, adop
   onUse: () => void
   previewRef: RefObject<HTMLElement | null>
   children: ReactNode
+  alternatePick?: { label: string; onClick: () => void }
+  readingCopy?: string
 }) {
   const helpId = useId()
   const importButtonRef = useRef<HTMLButtonElement>(null)
@@ -36,9 +38,12 @@ export function ArtifactImportReview({ intake, label, description, summary, adop
   return <section aria-label={label} className="min-w-0 space-y-2">
     <p id={helpId} className="text-[11px] leading-relaxed text-ink-soft">{description}</p>
     <UiHostLoadNotice state={intake.picker} label="file access" />
-    {intake.picker.status === 'ready' && !intake.reviewing && <button ref={importButtonRef} type="button" className={IMPORT_BUTTON_CLASS} disabled={disabled} aria-describedby={helpId} onClick={intake.pick}>Import file</button>}
+    {intake.picker.status === 'ready' && !intake.reviewing && <div className="flex flex-wrap gap-2">
+      <button ref={importButtonRef} type="button" className={IMPORT_BUTTON_CLASS} disabled={disabled} aria-describedby={helpId} onClick={intake.pick}>Import file</button>
+      {alternatePick && <button type="button" className={IMPORT_BUTTON_CLASS} disabled={disabled} aria-describedby={helpId} onClick={alternatePick.onClick}>{alternatePick.label}</button>}
+    </div>}
     {state.status === 'reading' && <div className="flex flex-wrap items-center gap-2">
-      <p role="status" className="text-[12px] text-ink-soft">Reading selected file… Your draft is unchanged.</p>
+      <p role="status" className="text-[12px] text-ink-soft">{readingCopy}</p>
       <button type="button" className={IMPORT_BUTTON_CLASS} onClick={intake.discard}>Cancel import</button>
     </div>}
     {state.status === 'error' && <p role="alert" className="text-[12px] text-danger-text">{state.message}</p>}

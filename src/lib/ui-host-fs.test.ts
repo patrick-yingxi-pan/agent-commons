@@ -11,6 +11,27 @@ import { bitmapFixture, iconFixture } from '../../tests/helpers/bitmapFixture.mj
 
 const dropped = (files: File[]): FileList => files as unknown as FileList
 
+test('OCR intake is single-image and rejects extra/unsupported selections before byte processing', async () => {
+  const unread = () => { assert.fail('refused selection must not read image bytes') }
+  const file = (name: string) => ({ name, size: 10, slice: unread }) as unknown as File
+  for (const files of [[file('one.png'), file('two.png')], [file('notes.txt')]]) {
+    const result = await readDroppedFiles(dropped(files), 'image-text')
+    assert.ok(result.every(entry => entry.imageInput === undefined && entry.imageOriginal === undefined))
+  }
+  const calls: string[] = []
+  const scope: DesktopBridgeScope = { agentCommonsDesktop: { context: {
+    pickFiles: async (accept) => { calls.push(accept); return { status: 'selected', files: [
+      { name: 'one.png', kind: 'photo', sizeBytes: 10, get previewDataUrl() { return unread() } },
+      { name: 'two.png', kind: 'photo', sizeBytes: 10, get previewDataUrl() { return unread() } },
+    ] } },
+    pickFolder: async () => ({ status: 'cancelled' }),
+  } } }
+  const result = await pickUiHostFiles('image-text', scope)
+  assert.equal(result.length, 2)
+  assert.ok(result.every(entry => entry.imageInput === undefined && entry.imageOriginal === undefined))
+  assert.deepEqual(calls, ['single-image'])
+})
+
 test('document-only selections reject multiple or unsupported files before reading bytes', async () => {
   let reads = 0
   const file = (name: string) => ({ name, size: 10, slice: () => { reads++; throw new Error('unexpected read') } }) as unknown as File
@@ -85,7 +106,7 @@ test('native document selection uses existing authority and rejects before media
   assert.deepEqual(calls, ['any'], 'already cancelled work never opens a native chooser')
 })
 
-for (const mode of ['document', 'slides', 'sheet'] as const) test(`browser ${mode} chooser is single-select and abort releases its late selection handlers`, async () => {
+for (const mode of ['document', 'slides', 'sheet', 'image-text'] as const) test(`browser ${mode} chooser is single-select and abort releases its late selection handlers`, async () => {
   const previous = globalThis.document
   const controller = new AbortController()
   const listeners = new Map<string, () => void>()

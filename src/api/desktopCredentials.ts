@@ -6,6 +6,7 @@ import type { PptxImportStatus } from '../../contract/pptxImport.mjs'
 import type { McpCredentialBinding } from '../../contract/mcpConnections.ts'
 import type { NativeLocalFolderBridge } from '../../contract/localFolderCapture.ts'
 import type { NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
+import type { NativeImageOcrBridge } from '../../contract/imageOcr.mjs'
 
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
@@ -65,7 +66,7 @@ export type DesktopFolderPickResult =
 
 export interface DesktopBridge {
   context?: {
-    pickFiles(accept: 'image' | 'any'): Promise<DesktopFilePickResult>
+    pickFiles(accept: 'image' | 'any' | 'single-image'): Promise<DesktopFilePickResult>
     pickFolder(): Promise<DesktopFolderPickResult>
     localFolders?: NativeLocalFolderBridge
     localGit?: NativeLocalGitBridge
@@ -85,6 +86,7 @@ export interface DesktopBridge {
     revealBackups(): Promise<void>
     restoreBackup(): Promise<DesktopRestoreResult>
   }
+  imageOcr?: NativeImageOcrBridge
 }
 
 /** Compatibility name retained for the provider controller and its fixtures. */

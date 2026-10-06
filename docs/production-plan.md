@@ -96,10 +96,10 @@ The owner approved both recommended defaults:
   The UI must warn before copying. Later source revocation does not erase the
   existing copy or prior replies. This is not a live permission-linked view.
 
-The first OCR implementation checkpoint is the bounded macOS recognition engine,
-using the OS Vision framework over normalized PNG bytes. No IPC or UI authority
-is implied by this internal prerequisite. Explicit extraction, editable review,
-adoption, account fencing and durable saved-text acceptance remain the next slice.
+The bounded macOS recognition engine is now connected to Document creation:
+explicit single-image selection, on-device extraction, read-only text review,
+explicit adoption into editable Content, then ordinary Create. Neither selecting
+nor extracting saves or uploads the image; recognition never calls a provider.
 Browser/other-platform OCR and scanned-PDF page rendering are not silently added
 by the desktop image engine. Discussion attachment remains required subsequent
 work under the approved copy/sharing semantics; neither choice is pending now.
@@ -110,13 +110,41 @@ single-architecture binary, system-only dependencies and ASAR-matched runtime.
 The capacity lock was watched fail when cancellation released its child slot
 before process close; the real helper lock also failed when malformed PNG framing
 was misreported as no-text. Compressed metadata and APNG chunks are refused before
-OS decoding. This does not establish a renderer review/save workflow,
-scanned-PDF extraction, complete language/corpus accuracy or native Intel evidence.
+OS decoding. The renderer workflow adds account/operation fences and explicit
+adoption; none of this establishes scanned-PDF extraction, complete
+language/corpus accuracy or native Intel evidence.
 Implementation uses Apple's [Vision text-recognition request](https://developer.apple.com/documentation/vision/recognizing-text-in-images)
 with a fixed accurate revision and automatic language detection; accuracy and
 language support are OS-dependent, not a promise of universal recognition.
 
 ## Progress and next milestones
+
+### Local image to editable Document (2026-10-06 UTC)
+
+PORT-26 now completes the approved bounded macOS workflow. Extract image text
+shares the ordinary Document import review and preserves any typed name/content.
+The native chooser admits only one image; the normalized PNG alone crosses the
+trusted main-frame bridge. The shared contract rejects diagnostic fields and
+incomplete, invalid Unicode or oversized text. Explicit Use/Replace adopts the
+candidate, the Content field permits corrections, and Create saves through the
+existing acknowledged Document lifecycle. There is no image upload, original
+retention, provider request or OCR-specific durable record in this path.
+
+Cancellation, format change, account transition, navigation and shutdown fence
+late work. Native child capacity remains occupied until process exit; an outer
+renderer deadline also prevents an unanswered bridge from stranding the form.
+The result-shape, sender-ownership, single-image admission and post-recognition
+lifetime locks are deliberately mutation/failure checked. Acceptance gates cover
+five-viewport review/accessibility, standard document/sheet/slides regressions,
+the complete local verifier and general UI sweep, plus real packaged OCR from
+generated PNG pixels and corrected Document content after a source-absent relaunch.
+Browser bridge fixtures establish UI wiring, not recognition accuracy.
+
+Next core workflow: Discussion-as-Context under the approved explicit-copy and
+sharing policy. Browser/non-macOS OCR, scanned PDFs and broader accuracy/language
+acceptance remain distinct future work. Release blockers are still signed and
+notarized Apple Silicon/Intel evidence, public update hosting and authorized
+real-provider/external-effect acceptance; no GitHub CI dependency is introduced.
 
 ### Actual native Git review and update notice (2026-10-06 UTC)
 

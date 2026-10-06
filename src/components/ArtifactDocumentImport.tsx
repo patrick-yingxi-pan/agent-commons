@@ -13,7 +13,9 @@ export function ArtifactDocumentImport({ intake, hasContent, disabled, onUse }: 
   const previewRef = useRef<HTMLTextAreaElement>(null)
   const { state } = intake
   return <ArtifactImportReview intake={intake} label="Import document text"
-    description="Start from one text, PDF, or Word (.docx) file. Text only: formatting, images, and page layout are not preserved; scanned pages need OCR elsewhere. Nothing is saved until you create the document."
+    description={`Start from one text, PDF, or Word (.docx) file. Text only: formatting, images, and page layout are not preserved. ${intake.imageTextAvailable ? 'Or extract text from one image on this Mac, with no image upload or provider charge.' : 'Image text extraction requires the macOS app.'} Nothing is saved until you create the document.`}
+    alternatePick={intake.imageTextAvailable ? { label: 'Extract image text', onClick: intake.pickImage } : undefined}
+    readingCopy={intake.selectionMode === 'image-text' ? 'Reading the image and recognizing text on this Mac… Your draft is unchanged.' : undefined}
     summary={state.status === 'ready' ? `Review imported text. ${state.text.length.toLocaleString()} characters; your draft is unchanged.` : ''}
     adoptionCopy={hasContent ? 'Using this text replaces the current content.' : 'Using this text fills the document content.'}
     useLabel={hasContent ? 'Replace content with imported text' : 'Use imported text'}

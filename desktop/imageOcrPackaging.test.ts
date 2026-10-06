@@ -25,9 +25,13 @@ test('OCR is a native packaged prerequisite, with recognition proof in executabl
   assert.equal(ignoreFromPackage('/desktop/imageOcr.mjs'), false)
 })
 
-test('internal OCR engine adds no renderer bridge before explicit review/adoption', () => {
-  for (const name of ['main.mjs', 'preload.cjs', 'contextPicker.mjs']) {
-    const source = readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
-    assert.doesNotMatch(source, /createImageOcrRunner|imageOcr|image-ocr/, name)
-  }
+test('native file selection never starts OCR and packaged UI acceptance exercises explicit review/adoption', () => {
+  const picker = readFileSync(new URL('./contextPicker.mjs', import.meta.url), 'utf8')
+  assert.doesNotMatch(picker, /createImageOcrRunner|imageOcr|image-ocr/, 'picking is never implicit extraction')
+  const smoke = readFileSync(new URL('./attachmentSmoke.mjs', import.meta.url), 'utf8')
+  assert.match(smoke, /runArtifactImageImportSmoke\(/)
+  assert.match(smoke, /assert\.deepEqual\(restoredImageOcrBody, importedImage\.body/)
+  for (const path of ['imageOcr.mjs', 'imageOcrHost.mjs', 'image-ocr-channels.cjs']) assert.equal(ignoreFromPackage(`/desktop/${path}`), false, path)
+  assert.equal(ignoreFromPackage('/contract/imageOcr.mjs'), false)
+  assert.equal(ignoreFromPackage('/desktop/artifactImageImportSmoke.mjs'), true)
 })

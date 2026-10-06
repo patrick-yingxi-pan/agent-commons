@@ -13,6 +13,7 @@ import { pptxFixture } from '../tests/helpers/pptxFixture.mjs'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 import { bitmapFixture, iconFixture } from '../tests/helpers/bitmapFixture.mjs'
 import { svgFixture } from '../tests/helpers/svgFixture.mjs'
+import { runArtifactImageImportSmoke } from './artifactImageImportSmoke.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
 import { smokePackagedLocalGit } from './localGitSmoke.mjs'
@@ -478,8 +479,11 @@ export async function smokePackagedAttachments({ executable }) {
     const importedSheets = await runArtifactSheetImportSmoke({
       page, app: run.app, origin, fixtureRoot, openArtifactImportDialog, chooseNativeArtifactFile,
     })
+    const importedImage = await runArtifactImageImportSmoke({
+      page, app: run.app, origin, fixtureRoot, openArtifactImportDialog,
+    })
 
-    await Promise.all([...importedDocuments.map(({ path }) => rm(path)), rm(importedPresentation.path), ...importedSheets.map(({ path }) => rm(path))])
+    await Promise.all([...importedDocuments.map(({ path }) => rm(path)), rm(importedPresentation.path), ...importedSheets.map(({ path }) => rm(path)), rm(importedImage.path)])
     console.log('[desktop-artifact-import-smoke] real native reader + IPC · text/PDF/DOCX review · explicit adoption · saved document bodies')
 
     // Markdown export is a renderer download, not a native bridge. Create a real
@@ -1065,6 +1069,16 @@ export async function smokePackagedAttachments({ executable }) {
     }
     console.log('[desktop-artifact-sheet-import-smoke] exact saved sheet identities + bodies survive full relaunch without source CSV/TSV/XLSX files')
     console.log('[desktop-artifact-import-smoke] exact saved document identities + rendered bodies survive full relaunch without source files')
+    await page.goto(`${origin}/artifacts/${encodeURIComponent(importedImage.id)}`)
+    await expect(page.getByRole('heading', { name: importedImage.name, exact: true })).toBeVisible()
+    const restoredImageOcrBody = await page.evaluate(async (id) => {
+      const response = await fetch('/api/v1/artifact-content')
+      if (!response.ok) throw new Error('Restored image OCR artifact read failed.')
+      return (await response.json())[id]
+    }, importedImage.id)
+    assert.deepEqual(restoredImageOcrBody, importedImage.body, 'full packaged relaunch retains corrected OCR-derived document after the PNG source is removed')
+    await expect(page.getByText('Cobalt garden 427 — verified', { exact: true })).toBeVisible()
+    console.log('[desktop-artifact-image-import-smoke] exact corrected OCR document survives full relaunch without source PNG')
     await page.goto(`${origin}${sessionPath}`)
     await inspectPair(page, ids)
     await expect(page.locator('[data-turn]').filter({ hasText: 'native-first-body' })).toBeVisible()

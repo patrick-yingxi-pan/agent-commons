@@ -11,7 +11,7 @@ export type ArtifactDocumentImportResult =
   | { status: 'error'; message: string }
   | { status: 'ready'; name: string; text: string; disclosure?: string }
 
-function importedName(name: string): string {
+export function importedDocumentName(name: string): string {
   const leaf = name.trim().split(/[\\/]/).at(-1) ?? ''
   const dot = leaf.lastIndexOf('.')
   const candidate = `${dot > 0 ? leaf.slice(0, dot) : leaf}.md`
@@ -71,6 +71,6 @@ export function reviewArtifactDocumentImport(
 
   const disclosure = pdfFile || docxFile ? documentImportCopy(file.documentImport) : undefined
   return disclosure
-    ? { status: 'ready', name: importedName(file.name), text: file.text, disclosure }
-    : { status: 'ready', name: importedName(file.name), text: file.text }
+    ? { status: 'ready', name: importedDocumentName(file.name), text: file.text, disclosure }
+    : { status: 'ready', name: importedDocumentName(file.name), text: file.text }
 }

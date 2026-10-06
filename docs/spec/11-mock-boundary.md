@@ -35,16 +35,18 @@ this boundary. The [October 6 native image acceptance](../acceptance/native-imag
 separately verifies actual local Files/Photos SVG selection, exact original
 downloads and normalized saved input after source-absent relaunch on its recorded
 unsigned arm64 artifact. It does not cover Photos-library access or every format.
-OCR, active/external-resource SVG, RLE/embedded BMP variants,
+Scanned-PDF and non-macOS OCR, active/external-resource SVG, RLE/embedded BMP variants,
 unsupported documents, live folder/Git browsing and rich document fidelity,
 paid-provider acceptance, and broader manual OS-dialog acceptance remain outside this
 milestone. A public native release additionally still requires the signed,
 notarized two-architecture release gate.
 
-PORT-26 adds a real bounded internal macOS image-recognition engine using OS
-Vision, without renderer IPC, persistence or provider calls. The approved OCR
-review/adoption workflow is not yet exposed; this prerequisite does not change
-the user-facing OCR gap above or imply scanned-PDF extraction.
+PORT-26 adds explicit local-image text extraction in the macOS Document creation
+form using OS Vision. The path-free native bridge receives normalized PNG bytes;
+extraction does not upload or save an image or call a provider. Users review and
+explicitly adopt the recognized text into an editable draft, then Create saves
+an ordinary Document. This does not imply scanned-PDF extraction, browser OCR,
+universal language support, rich-layout recognition or corpus-wide accuracy.
 
 Served cloud and mapped-runner text files and top-level folders now use actual
 bounded saved copies, not fixture bodies or automatic per-turn source reads.

@@ -74,10 +74,10 @@ export function uiHostKind(name: string): ArtifactKind {
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
 const isImportableImage = (name: string) => IMPORTABLE_IMAGE_EXTS.has(extOf(name))
-type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides' | 'sheet'
+type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides' | 'sheet' | 'image-text'
 function rejectedArtifactSelection(files: readonly { name: string }[], accept: UiHostFileAccept): boolean {
   if (accept === 'any' || accept === 'image') return false
-  const matches = accept === 'document' ? isArtifactDocumentFileName : accept === 'slides' ? isPptxFileName : isArtifactSheetFileName
+  const matches = accept === 'image-text' ? isImportableImage : accept === 'document' ? isArtifactDocumentFileName : accept === 'slides' ? isPptxFileName : isArtifactSheetFileName
   return files.length !== 1 || !matches(files[0].name)
 }
 
@@ -132,7 +132,7 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
       const bytes = new Uint8Array(await file.slice(0, 8 * 1024 * 1024 + 1).arrayBuffer())
       if (bytes.byteLength !== file.size) throw new ImageImportError('invalid')
       const imageInput = await importImage(bytes, signal)
-      return selectedFile({ name, kind: 'photo', imageInput, imageOriginal: imageOriginal(name, bytes) })
+      return selectedFile({ name, kind: 'photo', imageInput, ...(accept !== 'image-text' && { imageOriginal: imageOriginal(name, bytes) }) })
     } catch (error) {
       if (error instanceof UiHostPickerError || error instanceof ImageImportError) throw error
       throw new UiHostPickerError('unreadable')
@@ -183,7 +183,7 @@ export async function pickUiHostFiles(
   const native = scope.agentCommonsDesktop?.context
   if (native) {
     // Artifact modes narrow renderer intake, not native filesystem authority.
-    const result = await native.pickFiles(accept === 'image' ? 'image' : 'any')
+    const result = await native.pickFiles(accept === 'image-text' ? 'single-image' : accept === 'image' ? 'image' : 'any')
     if (signal?.aborted) return []
     if (result.status === 'cancelled') return []
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
@@ -194,7 +194,7 @@ export async function pickUiHostFiles(
     const nativeImages = new Map<(typeof result.files)[number], Uint8Array>()
     let nativeImageBytes = 0
     for (const file of result.files) {
-      if (accept === 'image' && file.kind !== 'photo') throw new UiHostPickerError('unsupported-image')
+      if ((accept === 'image' || accept === 'image-text') && file.kind !== 'photo') throw new UiHostPickerError('unsupported-image')
       if (file.kind !== 'photo') continue
       if (!isImportableImage(file.name)) throw new UiHostPickerError('unsupported-image')
       if (!file.previewDataUrl) throw new ImageImportError('invalid')
@@ -223,14 +223,14 @@ export async function pickUiHostFiles(
         : file.kind === 'photo'
           ? await (async () => {
               const bytes = nativeImages.get(file)!
-              return { imageInput: await importImage(bytes, signal), imageOriginal: imageOriginal(file.name, bytes) }
+              return { imageInput: await importImage(bytes, signal), ...(accept !== 'image-text' && { imageOriginal: imageOriginal(file.name, bytes) }) }
             })()
           : { text: file.text }
       files.push(selectedFile({ name: file.name, kind: file.kind, ...extracted }))
     }
     return signal?.aborted ? [] : files
   }
-  const files = await openInput({ multiple: accept === 'any' || accept === 'image', accept: accept === 'image' ? 'image/*' : undefined }, signal)
+  const files = await openInput({ multiple: accept === 'any' || accept === 'image', accept: accept === 'image' || accept === 'image-text' ? 'image/*' : undefined }, signal)
   return readSelectedFiles(files, accept, signal)
 }
 

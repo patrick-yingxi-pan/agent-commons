@@ -6,6 +6,19 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 const creationSource = () => stripComments(read(join(ROOT, 'src/components/SectionView.tsx'))) + '\n' +
   stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
 
+test('image OCR uses the same explicit review and adoption with a post-recognition lifetime fence', () => {
+  const hook = stripComments(read(join(ROOT, 'src/lib/useArtifactFileImport.ts')))
+  const documentHook = stripComments(read(join(ROOT, 'src/lib/useArtifactDocumentImport.ts')))
+  const surface = stripComments(read(join(ROOT, 'src/components/ArtifactDocumentImport.tsx')))
+  assert.match(hook, /const result = await review\(files, current\.abort\.signal, selectionMode\)\s*if \(!live\(\)\) return/,
+    'an async review cannot publish after operation, format, abort or account lifetime changes')
+  assert.match(documentHook, /imageTextAvailable = desktopImageOcrAvailable\(\)/)
+  assert.match(documentHook, /mode === 'image-text' \? reviewArtifactImageImport\(files, signal\) : reviewArtifactDocumentImport\(files\)/)
+  assert.match(surface, /alternatePick=\{intake\.imageTextAvailable \? \{ label: 'Extract image text'/)
+  assert.match(surface, /no image upload or provider charge/)
+  assert.match(surface, /Nothing is saved until you create the document/)
+})
+
 test('document intake is review-only, bounded, account-fenced and shares picker recovery', () => {
   const section = creationSource()
   const surface = stripComments(read(join(ROOT, 'src/components/ArtifactDocumentImport.tsx')))

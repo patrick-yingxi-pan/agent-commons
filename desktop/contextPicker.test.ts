@@ -66,6 +66,30 @@ test('native BMP, ICO and SVG selections use their exact bounded image MIME prev
   assert.equal(JSON.stringify(result).includes('/private/work'), false)
 })
 
+test('native single-image selection disables multi-select and rejects multiple returned paths before reading', async () => {
+  const paths = ['/private/work/first.png', '/private/work/second.png']
+  const dialogs: unknown[] = []
+  let inspections = 0
+  let reads = 0
+  const picker = createNativeContextPicker({
+    showOpenDialog: async (_owner: unknown, options: unknown) => {
+      dialogs.push(options)
+      return { canceled: false, filePaths: paths }
+    },
+    inspect: async () => { inspections += 1; return regularFile(3) },
+    readBytes: async () => { reads += 1; return Buffer.from([1, 2, 3]) },
+  })
+
+  assert.deepEqual(await picker.pickFiles({}, 'single-image'), { status: 'rejected', reason: 'invalid-request' })
+  assert.deepEqual(dialogs, [{
+    title: 'Add photos',
+    properties: ['openFile'],
+    filters: [{ name: 'Images', extensions: ['bmp', 'gif', 'ico', 'jpeg', 'jpg', 'png', 'svg', 'webp'] }],
+  }])
+  assert.equal(inspections, 0)
+  assert.equal(reads, 0)
+})
+
 test('native text selection recognizes source files and common extensionless files, but omits unsafe content', async () => {
   const payloads = new Map<string, Uint8Array>([
     ['/private/example.py', Buffer.from('print("python")')],

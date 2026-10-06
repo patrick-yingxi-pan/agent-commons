@@ -6,6 +6,7 @@ import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
 import localFolderChannels from './local-folder-channels.cjs'
 import localGitChannels from './local-git-channels.cjs'
+import imageOcrChannels from './image-ocr-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './authRoot.mjs'
 import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
@@ -17,6 +18,8 @@ import { createLocalGitReader, isLocalGitRoot } from './localGitReader.mjs'
 import { readLocalGitReview } from './localGitReview.mjs'
 import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs'
 import { gitFileExecutable } from './gitFileRead.mjs'
+import { createImageOcrHost } from './imageOcrHost.mjs'
+import { imageOcrExecutable } from './imageOcr.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
@@ -70,6 +73,7 @@ let localFolderStore = null
 let localFolderHost = null
 let localGitStore = null
 let localGitHost = null
+let imageOcrHost = null
 let localFolderCookieGeneration = 0
 let quitting = false
 let quitAfterBackend = false
@@ -81,6 +85,7 @@ function beginShutdown() {
   quitting = true
   localFolderStore?.shutdown()
   localGitStore?.shutdown()
+  imageOcrHost?.dispose()
 }
 let updateInProgress = false
 let desktopUpdater = null
@@ -185,6 +190,7 @@ async function startDesktop() {
   installContextIpc()
   installLocalFolderIpc()
   installLocalGitIpc()
+  installImageOcrIpc()
   installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
   assertCurrentBackend(backendHandle)
@@ -517,6 +523,11 @@ function assertTrustedDesktopCaller(event, message) {
   }
 }
 
+function assertTrustedImageOcrCaller(event) {
+  assertTrustedDesktopCaller(event, 'Image text recognition is not available from this page.')
+  if (event.senderFrame !== event.sender.mainFrame) throw new Error('Image text recognition is not available from this page.')
+}
+
 function installCredentialIpc() {
   const handle = (channel, operation) => {
     ipcMain.handle(channel, async (event, ...args) => {
@@ -716,6 +727,18 @@ function installLocalGitIpc() {
   })
 }
 
+function installImageOcrIpc() {
+  if (process.platform !== 'darwin') return
+  imageOcrHost = createImageOcrHost({
+    targetPlatform: process.platform,
+    executable: imageOcrExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, targetPlatform: process.platform }),
+    assertCaller: assertTrustedImageOcrCaller,
+    isClosing: () => quitting || !backendReady || !mainWindow || mainWindow.isDestroyed(),
+  })
+  ipcMain.handle(imageOcrChannels.recognize, (event, ...args) => imageOcrHost?.recognize(event, ...args) ?? { status: 'unavailable' })
+  ipcMain.handle(imageOcrChannels.cancel, (event, ...args) => imageOcrHost?.cancel(event, ...args) ?? false)
+}
+
 function pipeLines(stream, onLine) {
   if (!stream) return
   let pending = ''
@@ -782,6 +805,7 @@ async function createMainWindow(url, origin) {
     },
   })
   mainWindow = win
+  const contents = win.webContents
   let initialLoadComplete = false
 
   const leaveApp = (candidate) => {
@@ -794,12 +818,16 @@ async function createMainWindow(url, origin) {
   }
   win.webContents.on('will-navigate', guardNavigation)
   win.webContents.on('will-redirect', guardNavigation)
+  win.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
+    if (isMainFrame) imageOcrHost?.cancelSender(contents)
+  })
   win.webContents.setWindowOpenHandler(({ url: candidate }) => {
     if (isTrustedAppUrl(candidate, origin)) void win.loadURL(candidate)
     else leaveApp(candidate)
     return { action: 'deny' }
   })
   win.webContents.on('render-process-gone', (_event, details) => {
+    imageOcrHost?.cancelSender(contents)
     if (!initialLoadComplete || quitting || rendererRecoveryInProgress || win.isDestroyed() || mainWindow !== win) return
     console.error(`[desktop] renderer exited: ${details.reason}`)
     const currentUrl = win.webContents.getURL()
@@ -832,6 +860,7 @@ async function createMainWindow(url, origin) {
   })
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
+    imageOcrHost?.cancelSender(contents)
     if (mainWindow === win) mainWindow = null
   })
 

@@ -1,15 +1,22 @@
 import { spawn } from 'node:child_process'
 import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  IMAGE_OCR_CAPACITY,
+  IMAGE_OCR_MAX_OUTPUT_BYTES,
+  IMAGE_OCR_TIMEOUT_MS,
+  isImageOcrHelperResult,
+  snapshotImageOcrInput,
+} from '../contract/imageOcr.mjs'
 
-export const IMAGE_OCR_MAX_INPUT_BYTES = 3 * 1024 * 1024
-export const IMAGE_OCR_MAX_EDGE = 2_000
-export const IMAGE_OCR_MAX_TEXT_BYTES = 64 * 1024
-export const IMAGE_OCR_MAX_OUTPUT_BYTES = IMAGE_OCR_MAX_TEXT_BYTES * 6 + 128
-export const IMAGE_OCR_TIMEOUT_MS = 30_000
-export const IMAGE_OCR_CAPACITY = 2
-const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
-const FAILURE_STATUSES = new Set(['no-text', 'invalid', 'too-large', 'unavailable'])
+export {
+  IMAGE_OCR_CAPACITY,
+  IMAGE_OCR_MAX_EDGE,
+  IMAGE_OCR_MAX_INPUT_BYTES,
+  IMAGE_OCR_MAX_OUTPUT_BYTES,
+  IMAGE_OCR_MAX_TEXT_BYTES,
+  IMAGE_OCR_TIMEOUT_MS,
+} from '../contract/imageOcr.mjs'
 
 export function imageOcrExecutable({ packaged = false, resourcesPath, targetPlatform = process.platform } = {}) {
   if (targetPlatform !== 'darwin') return null
@@ -20,17 +27,8 @@ export function imageOcrExecutable({ packaged = false, resourcesPath, targetPlat
 /** The helper independently performs complete ImageIO admission. This cheap
  * preflight bounds IPC-sized allocations before any process is started. */
 function snapshotInput(bytes) {
-  if (!(bytes instanceof Uint8Array) || bytes.buffer instanceof SharedArrayBuffer) return { status: 'invalid' }
-  if (bytes.byteLength > IMAGE_OCR_MAX_INPUT_BYTES) return { status: 'too-large' }
-  if (bytes.byteLength < 33) return { status: 'invalid' }
-  const input = Buffer.from(bytes)
-  if (!input.subarray(0, 8).equals(PNG_SIGNATURE) || input.readUInt32BE(8) !== 13 ||
-      input.toString('ascii', 12, 16) !== 'IHDR') return { status: 'invalid' }
-  const width = input.readUInt32BE(16)
-  const height = input.readUInt32BE(20)
-  if (!width || !height) return { status: 'invalid' }
-  if (width > IMAGE_OCR_MAX_EDGE || height > IMAGE_OCR_MAX_EDGE) return { status: 'too-large' }
-  return input
+  const snapshot = snapshotImageOcrInput(bytes)
+  return snapshot.status === 'ready' ? Buffer.from(snapshot.png) : snapshot
 }
 
 /** A closed, path-free publication; malformed/native diagnostics never become
@@ -40,21 +38,15 @@ export function parseImageOcrOutput(bytes) {
     if (!(bytes instanceof Uint8Array) || !bytes.byteLength || bytes.byteLength > IMAGE_OCR_MAX_OUTPUT_BYTES) return { status: 'unavailable' }
     const result = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes))
     if (!result || typeof result !== 'object' || Array.isArray(result)) return { status: 'unavailable' }
-    const keys = Object.keys(result).sort().join(',')
-    if (keys === 'status' && FAILURE_STATUSES.has(result.status)) return { status: result.status }
-    if (keys !== 'status,text' || result.status !== 'ready' || typeof result.text !== 'string' ||
-        !result.text.trim() || !result.text.isWellFormed() ||
-        /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(result.text) ||
-        Buffer.byteLength(result.text, 'utf8') > IMAGE_OCR_MAX_TEXT_BYTES) return { status: 'unavailable' }
-    return { status: 'ready', text: result.text }
+    return isImageOcrHelperResult(result) ? result : { status: 'unavailable' }
   } catch {
     return { status: 'unavailable' }
   }
 }
 
-/** Internal engine only: no renderer IPC, file access, persistence, model call,
- * or automatic extraction. The eventual review workflow must explicitly call
- * it with already-normalized image bytes and separately adopt editable text.
+/** Byte-only engine: no file access, persistence, model call or automatic
+ * extraction. The host's explicit review workflow supplies normalized image
+ * bytes; adopting editable text and saving are separate renderer actions.
  * Packaged hosts must supply imageOcrExecutable({ packaged: true, resourcesPath }).
  * Cancellation settles promptly, but retains capacity until the process closes. */
 export function createImageOcrRunner({
