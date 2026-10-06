@@ -48,8 +48,8 @@ when changing the renderer-facing bridge or setup UI.
 <!-- context-rules:end -->
 CTX-FS-22 connects PORT-20 through `localConnectionHost.mjs`: cookie-derived ownership, renderer preconditions and metadata-only listing. Its colocated tests
 and packaged attachment walk cover source transitions, capture and lifetimes.
-The [native Folder record](../docs/acceptance/native-folder-2026-10-05.md) scopes
-actual macOS chooser, persistence, Refresh, recovery and Disconnect evidence.
+The [Folder](../docs/acceptance/native-folder-2026-10-05.md) and
+[Git](../docs/acceptance/native-git-2026-10-06.md) records scope native selection, lifetimes, saved-only sends, Refresh, recovery and Disconnect.
 
 ## Verification
 

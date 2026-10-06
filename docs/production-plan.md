@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-05 UTC. The standing goal remains production readiness for Agent
+Reviewed 2026-10-06 UTC. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -59,13 +59,35 @@ preserve conversations, content-free audit/retirement records and existing backu
 files. A later explicitly confirmed whole-backup restore can restore older
 content; permanent deletion is not a promise of forensic erasure. This approves
 the feature policy, not deletion of any real user artifact.
-Original-image retention remains a separate decision. Approval alone does not
-establish completed implementation or release acceptance; the checkpoint evidence
-below distinguishes those gates.
+The owner also approved keeping original imported image files privately for later
+download alongside their normalized preview/model copies. Original means the
+selected source bytes, not another decoded frame. This applies to explicit local
+and served-image imports; it does not grant new source access or send originals
+to models/shared viewers. Implementation must account for both copies in storage,
+backups and cleanup and preserve existing imports that have no retained original.
+Approval alone does not establish implementation or release acceptance.
 
 ## Progress and next milestones
 
-The current checkpoint implements the approved permanent-delete workflow from
+The current checkpoint closes the actual macOS Git chooser acceptance gate on
+the unchanged unsigned arm64 build at `a4212731`. The
+[dated native record](acceptance/native-git-2026-10-06.md) covers real selection
+and cancellation, explicit temporary/remembered grants, Attach, saved-only model
+input, opt-in persistence, explicit Refresh, missing-source recovery and durable
+Disconnect across four ordinary launches. Exact saved state and model-input
+comparisons pass; split-index/shared-index bytes and nanosecond mtimes remain
+unchanged. Only generated repositories, an isolated profile and a credential-free
+loopback model fixture were used. Native-control limitations are recorded without
+turning unresponsive actions into passes. No product code changed in this check.
+
+The next implementation slice is approved private original-image retention and
+authenticated download. Extend the existing immutable image-asset boundary,
+including quota/identity accounting, persistence/portable backups and lifecycle
+cleanup; normalized copies remain the preview/shared/model representation.
+Signing/notarization credentials, hosting, native Intel and real signed updates
+remain separate release gates. No public production-release claim is made.
+
+The preceding checkpoint implemented the approved permanent-delete workflow from
 Trash: a separate owner-only consequence preview and confirmation, exact reviewed
 state held through recovery, one atomic cascade, and durable retirement that
 prevents old saves, create retries or routine writes from resurrecting a deleted
@@ -105,16 +127,17 @@ The first complete verifier passed all four browser lanes but found the old Tras
 and history source locks still requiring their prior guards. They now explicitly
 require the deletion hold, its history exclusion and both lifecycle/deletion row projections. The
 three module-refusal browser cases use separate declarations so the unchanged
-coverage planner counts each case. A final complete verifier is required after
-these test-only corrections.
+coverage planner counts each case. The corrected complete local verifier passed
+all five lanes, including 490 browser tests, before `a4212731` landed. The separate
+135/135 UI sweep and rebuilt unsigned arm64 packaged gate also passed.
 
 The live preview remains signed in as Ada with all six demo accounts stacked,
 on an active disposable deletion walkthrough; no real user artifact was purged.
-Real native Git chooser acceptance remains the next open verification task and
-is not substituted by packaged dialog-result fixtures. Original-image retention,
-signing/notarization credentials, download hosting, native Intel and signed update
-acceptance remain separate production gates. This checkpoint is not a public
-production-release claim.
+That checkpoint left native Git chooser acceptance open; the current dated record
+above supplies actual OS-dialog evidence without substituting packaged fixtures.
+Original-image retention is now approved but not implemented. Signing/notarization
+credentials, download hosting, native Intel and signed update acceptance remain
+separate production gates.
 
 The preceding checkpoint implemented owner-only retained Artifact history. Each saved body
 revision remains inspectable through the canonical Artifact page and the
