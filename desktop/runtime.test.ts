@@ -537,3 +537,42 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(html, /object-src 'none'/)
   assert.doesNotMatch(html, /unsafe-eval/)
 })
+
+test('packaged delegated judgment smoke locks rendered authority and crash recovery evidence', () => {
+  const smoke = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
+  const driver = readFileSync(new URL('./contributionReviewSmoke.mjs', import.meta.url), 'utf8')
+  assert.ok(smoke.includes('await smokePackagedContributionReview({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })'),
+    'ordinary and extracted-release smoke must await delegated judgment acceptance')
+  assert.equal(ignoreFromPackage('/desktop/contributionReviewSmoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/contributionReviewSmokeFixture.mjs'), true)
+
+  assertInOrder(driver, [
+    "stage = 'delegated-draft'",
+    "data-delegated-judgment-status=\"draft\"",
+    "stage = 'delegated-pending-before-quit'",
+    "judgmentSaved().contribution.judgmentAttempts.at(-1).status).toBe('pending')",
+    "stage = 'delegated-relaunch-uncertain'",
+    "data-delegated-judgment-status=\"uncertain\"",
+    "const judgmentReplay = await request(page, `${judgmentPath}/delegated/${grant.id}`, interruptedJudgment.body, interruptedJudgment.key)",
+    "stage = 'delegated-explicit-decide'",
+    "assert.equal(promotedGrant.revision, 1)",
+    "data-delegated-judgment-status=\"decided\"",
+    "stage = 'delegated-read-only-envelope'",
+    "assert.deepEqual(envelopeFinal.contribution.envelope.lines, proposed.envelope.lines, 'approval never fulfills the read envelope')",
+    "stage = 'managed-backup'",
+    "managed backup retains exact private judgment receipts",
+  ], 'packaged delegated judgment smoke must preserve the reviewed acceptance sequence')
+  assert.match(driver, /const judgmentOldOrigin = origin\s*await close\(run\)/,
+    'the actual pending judgment is interrupted by closing the ordinary packaged process')
+
+  for (const evidence of [
+    "assert.equal((await request(page, '/me')).user.id, identity.user.id)",
+    "assert.equal(fixture.requests.length, 6, 'judgment restart and exact replay never redispatch')",
+    "assert.equal(decidedJudgment.status, 'landed', 'Decide applies the permitted non-effectful landing')",
+    "assert.equal(envelopeFinal.contribution.envelope.approvedVersion, proposed.envelope.version)",
+    'assertSpend(envelopeFinal, 6)',
+    'portable.contributions.find(candidate => candidate.id === accepted.contribution.id).judgmentAttempts',
+  ]) assert.ok(driver.includes(evidence), `packaged delegated judgment smoke must prove ${evidence}`)
+  assert.doesNotMatch(driver, /_electron|use-mock-keychain|saveState\(|store\.runDelegatedModelJudgment/,
+    'packaged delegated judgment uses ordinary launches, the shipped API, and no injected store')
+})

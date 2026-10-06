@@ -4,13 +4,20 @@ import { test } from 'node:test'
 import { REVIEW_SMOKE_MODEL, startContributionReviewSmokeEndpoint } from './contributionReviewSmokeFixture.mjs'
 
 const reviewBody = () => ({ model: REVIEW_SMOKE_MODEL, messages: [{ role: 'user', content: JSON.stringify({ version: 4, entries: [{ id: 'entry-one', body: 'First' }, { id: 'entry-two', body: 'Second' }] }) }] })
+const judgmentInput = () => ({
+  policy: { actKind: 'land', mode: 'draft', policy: 'Approve only this frozen work.', escalation: ['effectful'], revision: 2 },
+  changeset: { version: 4, entries: [{ id: 'entry-one', kind: 'note', target: 'release note', after: 'frozen text' }] },
+  envelope: null,
+  risk: { effectful: false, unreviewed: false, stranger: false, readOnlyEnvelope: true },
+})
+const judgmentBody = () => ({ model: REVIEW_SMOKE_MODEL, messages: [{ role: 'user', content: JSON.stringify(judgmentInput()) }] })
 const post = (origin: string, body: unknown) => fetch(`${origin}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer do-not-capture' }, body: typeof body === 'string' ? body : JSON.stringify(body) })
 
 async function waitForCaptured(fixture: Awaited<ReturnType<typeof startContributionReviewSmokeEndpoint>>, count: number) {
   for (let attempt = 0; fixture.requests.length < count && attempt < 100; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 5))
   }
-  assert.equal(fixture.requests.length, count, `expected ${count} captured review request(s)`)
+  assert.equal(fixture.requests.length, count, `expected ${count} captured model request(s)`)
 }
 
 async function waitForHeldCount(fixture: Awaited<ReturnType<typeof startContributionReviewSmokeEndpoint>>, count: number) {
@@ -78,6 +85,59 @@ test('held reviews release as passed by default or as findings when requested', 
     await waitForCaptured(fixture, 2)
     assert.equal(fixture.releaseHeld('findings'), 1)
     assert.deepEqual(JSON.parse((await (await heldFindings).json()).content[0].text).findings[0].entryId, 'entry-one')
+  } finally {
+    await fixture.close()
+  }
+})
+
+test('captures frozen judgment inputs and returns a strict approval without capturing probes or headers', async () => {
+  const fixture = await startContributionReviewSmokeEndpoint()
+  try {
+    fixture.setMode('passed')
+    const probe = await post(fixture.origin, { model: REVIEW_SMOKE_MODEL, messages: [{ role: 'user', content: 'connection probe' }] })
+    assert.equal(probe.status, 200)
+    assert.equal(fixture.requests.length, 0, 'registration probes remain outside the captured model-request list')
+
+    const submitted = judgmentBody()
+    const response = await post(fixture.origin, submitted)
+    const result = await response.json()
+    assert.equal(response.status, 200)
+    assert.deepEqual(result.usage, { input_tokens: 137, output_tokens: 29 })
+    assert.deepEqual(result.content, [{ type: 'text', text: JSON.stringify({
+      decision: 'approve', summary: 'The delegated policy approves this frozen work.',
+    }) }])
+    assert.equal(result.stop_reason, 'end_turn')
+    assert.deepEqual(JSON.parse(result.content[0].text), {
+      decision: 'approve', summary: 'The delegated policy approves this frozen work.',
+    })
+    assert.deepEqual(fixture.requests, [judgmentBody()])
+    assert.deepEqual(JSON.parse(fixture.requests[0].messages[0].content), judgmentInput())
+    assert.doesNotMatch(JSON.stringify(fixture.requests), /do-not-capture|authorization/i)
+  } finally {
+    await fixture.close()
+  }
+})
+
+test('held delegated judgments release explicitly as approval or a defined findings-mode decline', async () => {
+  const fixture = await startContributionReviewSmokeEndpoint()
+  try {
+    fixture.setMode('hold')
+    const approved = post(fixture.origin, judgmentBody())
+    await waitForCaptured(fixture, 1)
+    assert.equal(fixture.heldCount, 1)
+    assert.equal(fixture.releaseHeld(), 1)
+    assert.deepEqual(JSON.parse((await (await approved).json()).content[0].text), {
+      decision: 'approve', summary: 'The delegated policy approves this frozen work.',
+    })
+
+    const declined = post(fixture.origin, judgmentBody())
+    await waitForCaptured(fixture, 2)
+    assert.equal(fixture.heldCount, 1)
+    assert.equal(fixture.releaseHeld('findings'), 1)
+    assert.deepEqual(JSON.parse((await (await declined).json()).content[0].text), {
+      decision: 'decline', summary: 'The frozen delegated work needs owner attention.',
+    })
+    assert.equal(fixture.requests.length, 2)
   } finally {
     await fixture.close()
   }

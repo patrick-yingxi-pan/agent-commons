@@ -86,6 +86,36 @@ unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
 
+### Packaged delegated judgment acceptance (2026-10-06 UTC)
+
+The unsigned arm64 packaged workflow now covers delegated judgment through the
+ordinary Electron executable, real OS-backed authentication and SQLite. It
+reuses the existing local Messages fixture and generated profile; no credentials
+or user workspace are involved. Rendered Draft keeps work open. The exact wire
+contains only policy, changeset/envelope and structural risk, without tools,
+Project/discussion context or Agent instructions. Review instructions remain
+allowed for the separate review path, so independent test markers distinguish
+those two input boundaries.
+
+A second judgment is observed pending on disk before and after shutdown. An
+independent launch durably records uncertainty while retaining the first result,
+owner identity and exact usage windows. The captured body/key returns that
+receipt with no provider redispatch. Explicit promotion to policy revision one
+does not execute; a new rendered Decide lands the permitted non-effectful work.
+A separate Decide approves a read-only envelope without landing or fulfilling
+its lines. The actual managed backup retains both private judgment histories.
+
+The focused walk passed eight fixture requests with six completed responses and
+996 reported tokens in each usage window. Its ordinary package ASAR hash was
+`a00e01c32048fcb69d3f80ba35cba0f82819f60c6129c5f190835d1da9c93210`.
+Removing judgment recovery in a disposable package copy failed precisely at the
+rendered uncertain-state check after relaunch; the altered copy was removed and
+the ordinary package hash stayed unchanged. Fixture recognition and acceptance
+source locks were also watched fail and restored. The complete desktop smoke
+passed its startup, credential, native-import, Git, schema and restore phases.
+The complete local verifier remains the final delivery gate. Paid-provider, signed and
+native Intel acceptance, and real external-effect fulfilment remain outstanding.
+
 ### Real delegated judgment implementation (2026-10-06 UTC)
 
 The approved owner-started model path now uses an exact policy/work/reviewer

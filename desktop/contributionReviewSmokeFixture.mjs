@@ -25,6 +25,22 @@ async function readBody(req) {
   return { kind: 'ok', raw: Buffer.concat(chunks).toString('utf8') }
 }
 
+function judgmentFrom(body) {
+  if (!Array.isArray(body?.messages) || body.messages.length !== 1) return undefined
+  const message = body.messages[0]
+  if (message?.role !== 'user' || typeof message.content !== 'string') return undefined
+  try {
+    const judgment = JSON.parse(message.content)
+    return judgment && typeof judgment === 'object' && !Array.isArray(judgment) &&
+      Object.keys(judgment).length === 4 &&
+      ['policy', 'changeset', 'envelope', 'risk'].every((key) => Object.hasOwn(judgment, key))
+      ? judgment
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function reviewFrom(body) {
   if (!Array.isArray(body?.messages) || body.messages.length !== 1) return undefined
   const message = body.messages[0]
@@ -40,6 +56,13 @@ function reviewFrom(body) {
   }
 }
 
+function requestFrom(body) {
+  const judgment = judgmentFrom(body)
+  if (judgment) return { kind: 'judgment', input: judgment }
+  const review = reviewFrom(body)
+  return review ? { kind: 'review', input: review } : undefined
+}
+
 function resultFor(review, mode) {
   const finding = mode === 'findings' && typeof review.entries[0]?.id === 'string'
     ? [{ entryId: review.entries[0].id, body: 'The first entry needs a clearer acceptance condition.' }]
@@ -53,6 +76,21 @@ function resultFor(review, mode) {
     role: 'assistant',
     model: REVIEW_SMOKE_MODEL,
     content: [{ type: 'text', text: JSON.stringify({ summary, findings: finding }) }],
+    stop_reason: 'end_turn',
+    usage: { input_tokens: 137, output_tokens: 29 },
+  }
+}
+
+function judgmentResultFor(_judgment, mode) {
+  const result = mode === 'findings'
+    ? { decision: 'decline', summary: 'The frozen delegated work needs owner attention.' }
+    : { decision: 'approve', summary: 'The delegated policy approves this frozen work.' }
+  return {
+    id: 'msg_delegated_judgment_smoke',
+    type: 'message',
+    role: 'assistant',
+    model: REVIEW_SMOKE_MODEL,
+    content: [{ type: 'text', text: JSON.stringify(result) }],
     stop_reason: 'end_turn',
     usage: { input_tokens: 137, output_tokens: 29 },
   }
@@ -88,8 +126,8 @@ export async function startContributionReviewSmokeEndpoint() {
       writeJson(res, 400, { error: { type: 'invalid_request', message: 'Request body must be JSON.' } })
       return
     }
-    const review = reviewFrom(body)
-    if (!review) {
+    const recognized = requestFrom(body)
+    if (!recognized) {
       writeJson(res, 200, {
         id: 'msg_contribution_review_probe', type: 'message', role: 'assistant',
         model: REVIEW_SMOKE_MODEL, content: [{ type: 'text', text: 'Fixture is ready.' }],
@@ -101,7 +139,7 @@ export async function startContributionReviewSmokeEndpoint() {
     const selectedMode = mode
     if (selectedMode === 'hold') {
       await new Promise((resolve) => {
-        const entry = { res, review, resolve }
+        const entry = { res, request: recognized, resolve }
         held.add(entry)
         const finish = () => {
           held.delete(entry)
@@ -111,13 +149,17 @@ export async function startContributionReviewSmokeEndpoint() {
         entry.release = (releaseMode) => {
           if (!held.has(entry)) return
           res.off('close', finish)
-          writeJson(res, 200, resultFor(review, releaseMode))
+          writeJson(res, 200, recognized.kind === 'judgment'
+            ? judgmentResultFor(recognized.input, releaseMode)
+            : resultFor(recognized.input, releaseMode))
           finish()
         }
       })
       return
     }
-    writeJson(res, 200, resultFor(review, selectedMode))
+    writeJson(res, 200, recognized.kind === 'judgment'
+      ? judgmentResultFor(recognized.input, selectedMode)
+      : resultFor(recognized.input, selectedMode))
   })
   server.on('connection', (socket) => {
     sockets.add(socket)
