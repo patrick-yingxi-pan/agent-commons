@@ -451,6 +451,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
     run.summary === 'Snapshot fixture review, not a real quality assessment.' &&
     typeof run.tenantId === 'string' && typeof run.binding.agentId === 'string' && run.changesetHash.length === 64)),
   'real model review attempts retain exact frozen identity, private billing scope, and bounded result')
+  assert.ok(s.contributions?.some((contribution) => contribution.judgmentAttempts?.some((run) =>
+    run.status === 'draft' && run.decision === 'approve' && run.delegationRevision === 0 && run.changesetVersion === 1 &&
+    run.summary === 'Snapshot fixture judgment, not a real policy assessment.' &&
+    typeof run.tenantId === 'string' && typeof run.request.reviewer.agentId === 'string' && run.contextHash.length === 64)),
+  'real delegated judgments retain their exact private request and frozen-context proof after authority removal')
   assert.ok(
     s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'delegated-judgment-000000000000000000000000' &&

@@ -18,6 +18,9 @@ import { contributionRuntimeMode, contributionReviewVersion } from '../contribut
 import { publicReviewRun, reviewChangesetHash, sameReviewerBinding, validReviewerBinding, type StoredContributionReview } from '../contributionReviewState.ts'
 import { MAX_CONTRIBUTION_REVIEWS, type ContributionReviewerBinding } from '../../contract/contributionReview.ts'
 import { ContributionReviewGenerationError } from '../contributionReviewResult.ts'
+import { MAX_DELEGATED_JUDGMENTS, type DelegatedJudgmentRequest } from '../../contract/delegatedJudgment.ts'
+import { judgmentContextHash, publicJudgmentRun, sameJudgmentRequest, validJudgmentRequest, type StoredDelegatedJudgment } from '../delegatedJudgmentState.ts'
+import { DelegatedJudgmentGenerationError, type DelegatedJudgmentInput } from '../delegatedJudgmentResult.ts'
 import { delegationPolicyPatch, delegationVersions, sameDelegationPolicy, validDelegationExpiry } from '../delegationPolicy.ts'
 import { MAX_DELEGATION_POLICY_CHARS, MAX_DELEGATION_VERSIONS, type PatchDelegationRequest } from '../../contract/delegations.ts'
 import { UsageRecordingError } from '../modelUsage.ts'
@@ -172,7 +175,7 @@ import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
 import { SEED_COMMISSIONS } from '../data/commissions.ts'
 import { baseToolDefinitions } from '../model/tools.ts'
-import { systemPrompt, resolvedModelId, generateContributionReview } from '../generate.ts'
+import { systemPrompt, resolvedModelId, generateContributionReview, generateDelegatedJudgment } from '../generate.ts'
 import { RunnerRegistry } from '../registry.ts'
 import { RunnerJournal } from '../journal.ts'
 import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from '../relay.ts'
@@ -529,6 +532,7 @@ const contributions: StoredContribution[] = []
 // Only a newly durably admitted attempt may execute in this process. Rehydrate
 // clears these fences: persisted pending attempts become uncertain, never retries.
 const activeContributionReviews = new Map<string, object>()
+const activeDelegatedJudgments = new Map<string, object>()
 let contributionSeq = 0
 // Ledger bounds — a queue, not a blob store (the MAX_OPEN_WORK rationale). The
 // TOTAL cap exists because landing is contributor-or-owner and the contributor
@@ -1422,7 +1426,7 @@ function tierFor(c: StoredContribution): import('../../contract/index.ts').Contr
 }
 
 function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
-  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, reviewAttempts, ...pub } = c
+  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, reviewAttempts, judgmentAttempts, ...pub } = c
   const effectiveReview = c.status === 'open' || reviewAttempts?.length ? contributionReviewVersion(c) : reviewedVersion
   return {
     ...pub,
@@ -1437,6 +1441,7 @@ function publicContribution(c: StoredContribution, viewerTenant?: string): Contr
     tier: tierFor(c),
     events: events.map(publicContributionEvent),
     ...(reviewAttempts ? { reviews: reviewAttempts.map(publicReviewRun) } : {}),
+    ...(judgmentAttempts ? { judgments: judgmentAttempts.map((run) => publicJudgmentRun(run, viewerTenant)) } : {}),
   }
 }
 // D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
@@ -3510,13 +3515,20 @@ function rehydrate(s: PersistedState): boolean {
   // `seq.contribution`, which predates both features; every writer persists it.)
   contributions.splice(0, contributions.length, ...(s.contributions ?? []))
   activeContributionReviews.clear()
-  let recoveredContributionReviews = false
+  activeDelegatedJudgments.clear()
+  let recoveredContributionAttempts = false
   for (const contribution of contributions) {
+    for (const run of contribution.judgmentAttempts ?? []) {
+      if (run.status !== 'pending') continue
+      run.status = 'uncertain'
+      run.finishedAt = Math.max(Date.now(), run.startedAt)
+      recoveredContributionAttempts = true
+    }
     for (const run of contribution.reviewAttempts ?? []) {
       if (run.status !== 'pending') continue
       run.status = 'uncertain'
       run.finishedAt = Math.max(Date.now(), run.startedAt)
-      recoveredContributionReviews = true
+      recoveredContributionAttempts = true
     }
   }
   contributionSeq = s.seq.contribution ?? contributions.reduce((m, c) => m + 1 + c.events.length, 0)
@@ -3660,7 +3672,7 @@ function rehydrate(s: PersistedState): boolean {
   materializeRunSessions()
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionReviews
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -10436,6 +10448,9 @@ export const store = {
       (candidate) => candidate.id === contributionId && candidate.projectId === projectId,
     )
     if (!contribution) return undefined
+    // A real attempt cannot be adopted by the legacy fixture path, including
+    // while pending or after an uncertain result without a timeline event.
+    if (contributions.some((candidate) => candidate.judgmentAttempts?.some((run) => run.id === id))) return 'invalid'
     const event = contribution.events.find((candidate) => candidate.id === id)
     if (!event) {
       const collision = contributions.some((candidate) => candidate.events.some((entry) => entry.id === id))
@@ -10533,6 +10548,151 @@ export const store = {
       pushEvent('delegated-decision', verdict.replace('would ', ''))
       return publicContribution(c, tenantId)
     })
+  },
+
+  /** Owner-started policy evaluation. Durable admission precedes the one paid
+   * request; a result is advice until current authority proves the exact act. */
+  async runDelegatedModelJudgment(
+    projectId: string,
+    cid: string,
+    did: string,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    logicalId: string,
+    request: DelegatedJudgmentRequest,
+  ): Promise<Contribution | 'forbidden' | 'invalid' | 'conflict' | 'unconfigured' | 'limit' | undefined> {
+    if (!isDelegatedJudgmentId(logicalId) || !validJudgmentRequest(request)) return 'invalid'
+    const c = contributions.find((entry) => entry.id === cid && entry.projectId === projectId)
+    if (!c) return undefined
+    const represented = c.judgmentAttempts?.find((run) => run.id === logicalId)
+    if (represented) {
+      return represented.tenantId === tenantId && represented.delegationId === did && sameJudgmentRequest(represented.request, request)
+        ? publicContribution(c, tenantId) : 'conflict'
+    }
+    if (contributions.some((entry) => entry.events.some((event) => event.id === logicalId) ||
+      entry.judgmentAttempts?.some((run) => run.id === logicalId))) return 'conflict'
+    if (!this.contributionReviewOwner(projectId, tenantId)) return 'forbidden'
+    const d = delegations.find((entry) => entry.id === did && entry.projectId === projectId)
+    if (!d) return undefined
+    if (d.delegatorTenant !== tenantId) return 'forbidden'
+    const applicable = (): boolean => c.status === 'open' &&
+      (d.expiresAt === undefined || d.expiresAt > Date.now()) &&
+      (d.actKind === 'approve-envelope' ? c.envelope?.status === 'proposed' : !!c.changeset?.length && c.envelope?.status !== 'proposed')
+    if (!applicable() || (d.revision ?? 0) !== request.expectedDelegationRevision ||
+      (c.changeset?.at(-1)?.version ?? null) !== request.expectedChangesetVersion ||
+      (c.envelope?.version ?? null) !== request.expectedEnvelopeVersion ||
+      (c.judgmentAttempts?.length ?? 0) >= MAX_DELEGATED_JUDGMENTS ||
+      c.judgmentAttempts?.some((run) => run.status === 'pending') || c.events.length >= MAX_CONTRIBUTION_EVENTS - 1) return 'conflict'
+
+    const binding = structuredClone(request.reviewer)
+    const agent = WORKER_AGENTS.get(binding.agentId)
+    const provider = this.listProviders(tenantId).find((entry) => entry.id === binding.providerId)
+    if (!agent || !provider) return undefined
+    const bindingCurrent = (): boolean => {
+      const currentAgent = WORKER_AGENTS.get(binding.agentId)
+      const currentProvider = this.listProviders(tenantId).find((entry) => entry.id === binding.providerId)
+      return !!currentAgent && !!currentProvider && d.agentId === binding.agentId &&
+        (currentAgent.tenantId ?? defaultTenantId()) === tenantId && currentAgent.providerId === binding.providerId &&
+        (currentAgent.revision ?? 0) === binding.agentRevision && (currentProvider.definitionRevision ?? 0) === binding.providerRevision &&
+        (currentProvider.connectionRevision ?? 0) === binding.connectionRevision
+    }
+    if (!bindingCurrent()) return 'conflict'
+    const config = structuredClone(PROVIDER_CONFIGS.get(provider.id) ?? {})
+    if (provider.kind === 'session' || endpointExecution(config) !== 'configured') return 'unconfigured'
+    if (this.overSpendLimit(provider.plan, tenantId) || this.overSpendLimit(agent.budget, tenantId)) return 'limit'
+    const captureInput = (): DelegatedJudgmentInput => structuredClone({
+      policy: {
+        actKind: d.actKind, mode: d.mode, policy: d.policy!, escalation: d.escalation, revision: d.revision ?? 0,
+        ...(d.expiresAt === undefined ? {} : { expiresAt: d.expiresAt }),
+      },
+      changeset: c.changeset?.at(-1) ?? null,
+      envelope: c.envelope ?? null,
+      risk: {
+        effectful: isEffectfulContribution(c),
+        unreviewed: !c.changeset?.length || contributionReviewVersion(c) !== c.changeset.at(-1)!.version,
+        stranger: landedCountFor(projectId, c.contributorTenant) === 0,
+        readOnlyEnvelope: (c.envelope?.lines ?? []).every((line) => isProjectEffectMonotonic(line.type)),
+      },
+    })
+    const contextHash = (input: DelegatedJudgmentInput): string => judgmentContextHash({
+      input, contributor: c.contributorTenant, owner: findProject(projectId)?.tenantId ?? defaultTenantId(),
+      reviewRequired: c.reviewRequired === true, reviewedVersion: contributionReviewVersion(c),
+    })
+    const frozen = captureInput()
+    const run: StoredDelegatedJudgment = {
+      id: logicalId, delegationId: did, delegationRevision: d.revision ?? 0, actKind: d.actKind, mode: d.mode,
+      changesetVersion: request.expectedChangesetVersion, envelopeVersion: request.expectedEnvelopeVersion,
+      reviewer: agent.label, provider: provider.label, model: resolvedModelId(config),
+      startedAt: Math.max(Date.now(), (c.judgmentAttempts?.at(-1)?.startedAt ?? 0) + 1), status: 'pending',
+      tenantId, request: structuredClone(request), delegationCreatedAt: d.createdAt, contextHash: contextHash(frozen),
+    }
+    const fence = {}
+    commitMutationBatch(() => {
+      c.judgmentAttempts ??= []
+      c.judgmentAttempts.push(run)
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+    })
+    activeDelegatedJudgments.set(logicalId, fence)
+    try {
+      let result: { decision: 'approve' | 'decline' | 'escalate'; summary: string } | undefined
+      let failure: 'failed' | 'uncertain' | undefined
+      const fired = frozen.policy.escalation.filter((trigger) => frozen.risk[trigger])
+      // The hard floor is independent of editable triggers and model output.
+      if (frozen.risk.effectful || !frozen.risk.readOnlyEnvelope || fired.length) {
+        result = { decision: 'escalate', summary: `Human judgment required: ${fired.length ? fired.join(', ') : 'external effects'}. No model request was sent.` }
+      } else {
+        try {
+          result = await generateDelegatedJudgment(frozen, config, (usage) => {
+            if (activeDelegatedJudgments.get(logicalId) !== fence) throw new Error('Judgment execution was replaced.')
+            this.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
+          })
+        } catch (error) {
+          if (error instanceof UsageRecordingError) throw error.cause ?? error
+          failure = error instanceof DelegatedJudgmentGenerationError ? 'failed' : 'uncertain'
+        }
+      }
+      if (activeDelegatedJudgments.get(logicalId) !== fence) return 'conflict'
+      return commitMutationBatch(() => {
+        run.finishedAt = Math.max(Date.now(), run.startedAt)
+        if (!result) run.status = failure ?? 'uncertain'
+        else {
+          run.decision = result.decision
+          run.summary = result.summary
+          const currentGrant = delegations.find((entry) => entry.id === did && entry.projectId === projectId)
+          const current = this.contributionReviewOwner(projectId, tenantId) && currentGrant === d &&
+            d.delegatorTenant === tenantId && d.createdAt === run.delegationCreatedAt &&
+            (d.revision ?? 0) === run.delegationRevision && applicable() && bindingCurrent() &&
+            JSON.stringify(PROVIDER_CONFIGS.get(provider.id) ?? {}) === JSON.stringify(config) &&
+            contextHash(captureInput()) === run.contextHash && c.events.length < MAX_CONTRIBUTION_EVENTS - 1
+          if (!current) run.status = 'stale'
+          else {
+            const stamp = `${run.reviewer} for ${tenantName(tenantId)} · ${did} v${run.delegationRevision}`
+            run.status = result.decision === 'decline' ? 'declined' : result.decision === 'escalate' ? 'escalated' : d.mode === 'draft' ? 'draft' : 'decided'
+            if (run.status === 'decided') {
+              const applied = d.actKind === 'approve-envelope'
+                ? this.approveEnvelope(projectId, cid, tenantId, principal, stamp, { expectedVersion: run.envelopeVersion! })
+                : this.landContribution(projectId, cid, tenantId, principal, { eventActor: stamp })
+              if (typeof applied !== 'object') run.status = 'stale'
+            }
+            if (run.status !== 'stale') c.events.push({
+              id: logicalId, at: run.finishedAt, actor: stamp, delegationId: did, delegationRevision: run.delegationRevision,
+              delegatedByTenant: tenantId, ...(principal ? { principal } : {}),
+              kind: run.status === 'decided' ? 'delegated-decision' : run.status === 'draft' ? 'delegated-draft' :
+                run.status === 'declined' ? 'delegated-decline' : 'delegated-escalation',
+              // Public history never contains model prose derived from private policy.
+              body: run.status === 'decided' ? 'Applied the approved delegated act.' : run.status === 'draft' ? 'Recommended approval; no act applied.' :
+                run.status === 'declined' ? 'Declined the delegated act; the owner remains in control.' : 'Escalated to the owner; no act applied.',
+            })
+          }
+        }
+        emit({ type: 'contribution.changed', projectId })
+        persist()
+        return publicContribution(c, tenantId)
+      })
+    } finally {
+      if (activeDelegatedJudgments.get(logicalId) === fence) activeDelegatedJudgments.delete(logicalId)
+    }
   },
 
   // ── The review tier (CW5, Phase E) — the gate as arithmetic ─────────────────

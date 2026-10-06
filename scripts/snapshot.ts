@@ -653,6 +653,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
   store.setMute('Playground muted actor', true, store.defaultTenantId())
   // ── Delegations (CW8, Phase F) ── exercise the persisted roster through the
   // real mint funnel (the default agent is the default tenant's own worker).
+  const { buildDelegatedJudgment } = await import('./snapshotDelegatedJudgment.ts')
+  await buildDelegatedJudgment('p-insights')
   const snapshotDelegation = store.createDelegation(
     'p-insights',
     { agentId: 'agent-default', actKind: 'land', policy: 'Draft routine landing judgments for the dashboard.', mode: 'draft' },

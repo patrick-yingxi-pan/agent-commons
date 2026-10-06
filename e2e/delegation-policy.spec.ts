@@ -1,6 +1,7 @@
 /** Rendered owner policy versioning, UTC expiry, and exact-write recovery. */
+import { createServer, type Server } from 'node:http'
 import { test, expect, type Browser, type Page, type TestInfo } from '@playwright/test'
-import type { Agent, Contribution, CreateProjectResponse, Delegation, Project } from '../contract/index.ts'
+import type { Agent, Contribution, CreateProjectResponse, Delegation, ModelProvider, Project, SystemPromptEntry } from '../contract/index.ts'
 import { DEFAULT_PROVIDER_ID } from '../contract/providers.ts'
 import { SP_DEFAULT_ID } from '../server/data/prompts.ts'
 import { tierFor } from '../src/lib/viewport.ts'
@@ -16,6 +17,87 @@ const viewports = [
   { width: 844, height: 390 },
   { width: 1280, height: 800 },
 ]
+
+interface PolicyJudgmentFixture {
+  server: Server
+  baseURL: string
+  close(): Promise<void>
+}
+const activePolicyFixtures = new Set<PolicyJudgmentFixture>()
+test.afterEach(async () => {
+  await Promise.all([...activePolicyFixtures].map((fixture) => fixture.close()))
+})
+
+async function startPolicyJudgmentFixture(): Promise<PolicyJudgmentFixture> {
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = []
+    for await (const chunk of req) chunks.push(Buffer.from(chunk))
+    const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, any> : {}
+    if (req.method === 'GET' && (req.url ?? '').split('?')[0] === '/v1/models') {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ data: [{ id: 'policy-hold-fixture-model', display_name: 'Policy hold fixture' }] }))
+      return
+    }
+    if (req.method !== 'POST' || (req.url ?? '').split('?')[0] !== '/v1/messages') {
+      res.writeHead(404).end()
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      id: 'msg-policy-hold-fixture', type: 'message', role: 'assistant', model: body.model,
+      content: [{ type: 'text', text: JSON.stringify({ decision: 'approve', summary: 'The configured fixture is ready.' }) }],
+      stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 },
+    }))
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  const address = server.address()
+  expect(address && typeof address === 'object').toBeTruthy()
+  const fixture: PolicyJudgmentFixture = {
+    server,
+    baseURL: `http://127.0.0.1:${(address as { port: number }).port}`,
+    close: async () => {
+      if (!activePolicyFixtures.has(fixture)) return
+      activePolicyFixtures.delete(fixture)
+      server.closeAllConnections?.()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    },
+  }
+  activePolicyFixtures.add(fixture)
+  return fixture
+}
+
+async function createConfiguredAgent(page: Page, label: string): Promise<{ agent: Agent; fixture: PolicyJudgmentFixture }> {
+  const fixture = await startPolicyJudgmentFixture()
+  const providerResponse = await page.request.post(`${API}/providers`, {
+    data: {
+      label: `Configured ${label}`,
+      modelFamily: 'claude',
+      effortLevels: ['Low'],
+      models: [{ id: 'policy-hold-fixture-model', label: 'Policy hold fixture' }],
+      config: { baseURL: fixture.baseURL, model: 'policy-hold-fixture-model' },
+    },
+    headers: { 'Idempotency-Key': `policy-provider-${Date.now()}-${Math.random()}` },
+  })
+  expect(providerResponse.ok(), 'local judgment provider configured').toBe(true)
+  const provider = await providerResponse.json() as ModelProvider
+  const promptsResponse = await page.request.get(`${API}/system-prompts`)
+  expect(promptsResponse.ok()).toBe(true)
+  const prompts = await promptsResponse.json() as SystemPromptEntry[]
+  const agentResponse = await page.request.post(`${API}/agents`, {
+    data: { label, providerId: provider.id, systemPromptId: prompts[0]!.id, tools: [] },
+    headers: { 'Idempotency-Key': `policy-agent-${Date.now()}-${Math.random()}` },
+  })
+  expect(agentResponse.ok(), 'Agent uses the configured judgment provider').toBe(true)
+  const agent = await agentResponse.json() as Agent
+  const providersResponse = await page.request.get(`${API}/providers`)
+  expect(providersResponse.ok()).toBe(true)
+  const savedProvider = (await providersResponse.json() as ModelProvider[]).find((candidate) => candidate.id === provider.id)
+  expect(savedProvider?.execution).toBe('configured')
+  return { agent, fixture }
+}
 
 async function createProject(page: Page, name: string): Promise<Project> {
   const response = await page.request.post(`${API}/projects`, {
@@ -256,13 +338,18 @@ test('owner writes a complete UTC policy version and private history while share
   await owner.context.close()
 })
 
-test('a pre-commit policy outage holds its exact draft through navigation and disables Revoke and Ask', async ({ page }) => {
+test('a pre-commit policy outage holds its exact draft and pauses a configured Delegated judgment', async ({ page }) => {
   test.setTimeout(ms(90_000))
   const stamp = Date.now().toString(36)
   const project = await createProject(page, `Held policy ${stamp}`)
-  const agent = await createAgent(page, `Held Agent ${stamp}`)
+  const { agent } = await createConfiguredAgent(page, `Held Agent ${stamp}`)
   const delegation = await createDelegation(page, project, agent, 'land')
   const contribution = await createContribution(page, project, stamp)
+  const changesetResponse = await page.request.post(`${API}/projects/${encodeURIComponent(project.id)}/contributions/${encodeURIComponent(contribution.id)}/changeset`, {
+    data: { entries: [{ kind: 'note', target: 'policy hold check', after: 'A stable judgment input.' }] },
+    headers: { 'Idempotency-Key': `policy-hold-changeset-${stamp}` },
+  })
+  expect(changesetResponse.ok()).toBe(true)
   const policy = `Keep exact pending policy ${stamp}`
   const keys: string[] = []
   const bodies: Record<string, unknown>[] = []
@@ -279,6 +366,14 @@ test('a pre-commit policy outage holds its exact draft through navigation and di
     await route.continue()
   })
 
+  await page.goto(`/projects/${encodeURIComponent(project.id)}/changes/${encodeURIComponent(contribution.id)}`)
+  const initialMain = page.locator('main')
+  const initialPanel = initialMain.getByRole('region', { name: 'Delegated judgments', exact: true })
+  await expect(initialPanel).toBeVisible()
+  await initialPanel.getByRole('combobox', { name: 'Current Delegation', exact: true }).selectOption(delegation.id)
+  await expect(initialPanel.getByRole('button', { name: 'Run judgment · uses budget', exact: true })).toBeEnabled()
+  await initialMain.getByRole('button', { name: project.name, exact: true }).click()
+
   const { main: projectMain, editor } = await openEditor(page, project, delegation, agent)
   await editor.getByLabel('Delegation policy').fill(policy)
   await editor.getByLabel('Delegation autonomy').selectOption('decide')
@@ -293,9 +388,10 @@ test('a pre-commit policy outage holds its exact draft through navigation and di
   await projectMain.getByRole('button', { name: contribution.title, exact: true }).first().click()
   const contributionMain = page.locator('main')
   await expect(contributionMain.getByRole('heading', { name: contribution.title, exact: true })).toBeVisible()
-  const ask = contributionMain.getByRole('button', { name: `Ask ${agent.label}`, exact: true })
-  await expect(ask).toBeVisible()
-  await expect(ask).toBeDisabled()
+  const heldPanel = contributionMain.getByRole('region', { name: 'Delegated judgments', exact: true })
+  await expect(heldPanel.locator(`option[value="${delegation.id}"]`)).toHaveAttribute('disabled', '')
+  await expect(heldPanel.locator(`option[value="${delegation.id}"]`)).toContainText('policy update pending')
+  await expect(heldPanel.getByRole('button', { name: 'Run judgment · uses budget', exact: true })).toBeDisabled()
   await expect(page.locator('[data-delegation-policy-mutation="failed"]')).toBeVisible()
 
   await contributionMain.getByRole('button', { name: project.name, exact: true }).click()
@@ -323,6 +419,11 @@ test('a pre-commit policy outage holds its exact draft through navigation and di
   const saved = (await roster(page, project.id)).find((candidate) => candidate.id === delegation.id)
   expect(saved?.revision).toBe(1)
   expect(saved?.policy).toBe(policy)
+  await main.getByRole('button', { name: contribution.title, exact: true }).first().click()
+  const recoveredPanel = page.getByRole('region', { name: 'Delegated judgments', exact: true })
+  await expect(recoveredPanel).toBeVisible()
+  await recoveredPanel.getByRole('combobox', { name: 'Current Delegation', exact: true }).selectOption(delegation.id)
+  await expect(recoveredPanel.getByRole('button', { name: 'Run judgment · uses budget', exact: true })).toBeEnabled()
 })
 
 test('a lost policy acknowledgement heals from the exact immutable version without another PATCH', async ({ page }) => {

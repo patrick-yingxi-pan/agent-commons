@@ -21,7 +21,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
       return { message: 'You no longer have permission to ask this delegate. Dismiss it to continue.', retryable: false }
     }
     if (error.status === 409) {
-      return { message: 'The delegated act is no longer pending. Dismiss this request and inspect the current Contribution.', retryable: false }
+      return { message: `${error.message} Dismiss this request and inspect the current Contribution before starting another judgment.`, retryable: false }
     }
     if (error.status === 429) {
       return { message: 'Delegated judgment is temporarily rate-limited. Retry shortly.', retryable: true }
@@ -38,6 +38,7 @@ const controller = createAcknowledgedActionMutationController<DelegatedJudgmentI
   snapshot: () => undefined,
   mutate: applyDelegatedJudgment,
   reconcile: reconcileDelegatedJudgment,
+  discardReconcileFailure: 'retain',
   describeFailure,
   setStatus: publishDelegatedJudgmentStatus,
   mintIdempotencyKey: (intent) => intent.intentId,

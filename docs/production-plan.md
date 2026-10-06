@@ -86,6 +86,35 @@ unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
 
+### Real delegated judgment implementation (2026-10-06 UTC)
+
+The approved owner-started model path now uses an exact policy/work/reviewer
+request and commits its pending receipt before provider I/O. It sends only the
+written policy, frozen changeset/envelope and structural risk, without tools or
+Agent instructions. Draft recommendations do not act. Decide can approve only
+a read-only envelope or land non-effectful work after policy revision, expiry,
+revocation, ownership, provider binding and all frozen work/risk facts are
+rechecked. Irreversible work escalates before model I/O. Refusal and escalation
+are distinct outcomes, including in the attention ledger.
+
+Model explanations remain initiating-owner-only because they can quote private
+policy. Shared readers see attributed status and content-free timeline acts.
+Same-key recovery returns the exact durable attempt; restart converts pending
+to uncertain without another call. A fresh paid attempt always requires a new
+explicit activation. Local fixture verification and browser review precede this
+checkpoint's delivery; packaged native judgment acceptance remains the next
+release gate. No paid-provider run or external envelope execution is implied.
+
+Adversarial review repaired model-label/ID receipt confusion, delayed approval
+overwriting newer envelope usage, and a failed lazy load stranding later held
+intent. Independent guards were watched fail and restored. Compatibility tests
+also exposed a consumed request body being read twice; the legacy wrapper now
+receives the already-parsed body, with a bounded regression lock. Real pending
+attempts are observed on JSON/SQLite disk before a fixture response, survive an
+abrupt child-process exit, and recover to uncertainty in a fresh process. The
+comprehensive snapshot exercises a completed judgment through the actual store
+mutator and retains history after its temporary authority is removed.
+
 ### Approved delegation lifecycle and judgment policy (2026-10-06 UTC)
 
 The owner approved both pending defaults: real delegated judgment is explicitly

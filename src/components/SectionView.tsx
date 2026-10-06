@@ -62,7 +62,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import type { AddedContext, ApiToken, AppNotification, ArtifactKind, Connector, Delegation, SavedContext, SavedContextKind, SectionId, Session } from '../types'
+import type { AddedContext, ApiToken, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId, Session } from '../types'
 import { SECTION_META } from '../lib/sections'
 import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
@@ -289,7 +289,6 @@ import {
   useGrants,
   reactToDiscussionPost,
   reportDiscussionPost,
-  useDelegations,
   useAttention,
   useMyWork,
   useOwnerProfile,
@@ -441,16 +440,10 @@ import {
 } from '../controller/systemPromptDefinitionMutations'
 import { enqueueSystemPromptCreation } from '../controller/systemPromptCreationMutations'
 import {
-  isDelegationRevocationHeld,
   useDelegationRevocationStatus,
 } from '../controller/delegationRevocationMutations.ts'
-import { isDelegationPolicyHeld, useDelegationPolicyHolds } from '../controller/delegationPolicyHolds.ts'
-import {
-  enqueueDelegatedJudgment,
-  heldDelegatedJudgmentIntent,
-  isDelegatedJudgmentHeld,
-  useDelegatedJudgmentStatus,
-} from '../controller/delegatedJudgmentMutations.ts'
+import { useDelegationPolicyHolds } from '../controller/delegationPolicyHolds.ts'
+import { isDelegatedJudgmentHeld, useDelegatedJudgmentStatus } from '../controller/delegatedJudgmentMutations.ts'
 import {
   apiTokenMintReveal,
   clearApiTokenMintReveal,
@@ -699,6 +692,7 @@ import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
 import { DeferredContributionReviewPanel } from './DeferredContributionReviewPanel.tsx'
+import { DeferredDelegatedJudgmentPanel } from './DeferredDelegatedJudgmentPanel.tsx'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { artifactSourceSessionId } from '../lib/artifactSource'
@@ -6625,8 +6619,6 @@ function ContributionPage({
   const list = useContributions(project.id).data ?? []
   const c = list.find((x) => x.id === contributionId) ?? null
   // Hook order: read before any early return (the missing-contribution page).
-  const delegationList = useDelegations(project.id).data ?? []
-  const delegationNow = useDelegationClock()
   useDelegationRevocationStatus()
   useDelegationPolicyHolds()
   const me = useMe().data
@@ -6650,14 +6642,14 @@ function ContributionPage({
   const commentHeld = heldComment !== null
   const reviewHeld = isContributionReviewHeld(project.id, contributionId)
   const reviewRequirementHeld = isContributionReviewRequirementHeld(project.id, contributionId)
-  const heldDelegatedJudgment = heldDelegatedJudgmentIntent(project.id, contributionId)
   const delegatedJudgmentHeld = isDelegatedJudgmentHeld(project.id, contributionId)
+  const delegatedJudgmentPending = c?.judgments?.some((run) => run.status === 'pending') === true
   const landingHeld = isContributionLandingHeld(project.id, contributionId)
   const effectExecutionHeld = isContributionEffectExecutionHeld(project.id, contributionId)
   const crystallizationHeld = isContributionCrystallizationHeld(project.id, contributionId)
   const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
   const envelopeProposalHeld = isContributionEnvelopeProposalHeld(project.id, contributionId)
-  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld || reviewRequirementHeld || delegatedJudgmentHeld
+  const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld || reviewRequirementHeld || delegatedJudgmentHeld || delegatedJudgmentPending
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -6683,31 +6675,6 @@ function ContributionPage({
     c.mine === true &&
     (c.tier?.level === 0 || (c.tier?.level === 1 && c.reviewedVersion === latestVersion && latestVersion > 0))
   const mayLand = c.status === 'open' && (project.own !== false || contributorMayLand)
-  // CW8 — the first applicable Delegation per pending act; hidden from the
-  // contributor on foreign projects (SoD — the server refuses; a door that
-  // can never open is worse than none).
-  const sodBlocked = c.mine === true && project.own === false
-  const applicableDelegation =
-    c.status !== 'open' || sodBlocked
-      ? undefined
-      : delegationList.find(
-          (d) =>
-            d.expired !== true && !(d.expiresAt != null && d.expiresAt <= delegationNow)
-            && !isDelegationRevocationHeld(d.id)
-            && (
-              (d.actKind === 'approve-envelope' && c.envelope?.status === 'proposed') ||
-              (d.actKind === 'land' && c.envelope?.status !== 'proposed')
-            ),
-        )
-  const delegationAction: Pick<Delegation, 'id' | 'agentLabel' | 'actKind' | 'escalation'> | undefined =
-    heldDelegatedJudgment
-      ? {
-          id: heldDelegatedJudgment.delegationId,
-          agentLabel: heldDelegatedJudgment.agentLabel,
-          actKind: heldDelegatedJudgment.actKind,
-          escalation: [],
-        }
-      : applicableDelegation
   // Offered at Tier 0 AND Tier 1: trust is live arithmetic, so an open Tier-1
   // contribution can drift to Tier 0 as the contributor's other landings
   // accrue — the owner must be able to PIN the review before that happens
@@ -6753,26 +6720,6 @@ function ContributionPage({
       if (outcome === 'discarded') setError('The review requirement was dismissed. Inspect the current gate before trying again.')
     })
   }
-  const askDelegate = (delegation: Pick<Delegation, 'id' | 'agentLabel' | 'actKind'>) => {
-    if (lifecycleHeld || !me) return
-    setError(null)
-    void enqueueDelegatedJudgment({
-      tenantId: me.tenant.id,
-      projectId: project.id,
-      contributionId: c.id,
-      delegationId: delegation.id,
-      agentLabel: delegation.agentLabel,
-      actKind: delegation.actKind,
-      ...(delegation.actKind === 'approve-envelope' && c.envelope
-        ? { envelopeVersion: c.envelope.version }
-        : {}),
-    }).then((outcome) => {
-      if (outcome === 'discarded') {
-        setError('The delegated request was dismissed. Inspect the current Contribution before asking again.')
-      }
-    })
-  }
-
   const badge =
     c.status === 'landed' ? (
       <span className="inline-flex items-center gap-1.5 rounded-full bg-ok-solid px-2.5 py-0.5 text-[12px] font-medium text-on-solid">
@@ -6842,18 +6789,6 @@ function ContributionPage({
                 {reviewRequirementHeld ? 'Requiring review…' : 'Require review'}
               </button>
             )}
-            {delegationAction && (
-              <button
-                onClick={() => askDelegate(delegationAction)}
-                disabled={lifecycleHeld || isDelegationPolicyHeld(delegationAction.id)}
-                title={heldDelegatedJudgment
-                  ? `Waiting to confirm ${heldDelegatedJudgment.agentLabel}’s judgment`
-                  : `Ask ${delegationAction.agentLabel} to ${delegationAction.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${delegationAction.escalation.join(', ')}`}
-                className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
-              >
-                {heldDelegatedJudgment ? `Asking ${heldDelegatedJudgment.agentLabel}…` : `Ask ${delegationAction.agentLabel}`}
-              </button>
-            )}
             {mayLand && (
               <button
                 onClick={() => void land()}
@@ -6885,6 +6820,12 @@ function ContributionPage({
           project={project}
           contribution={c}
           latestVersion={latestVersion}
+          lifecycleHeld={lifecycleHeld}
+        />
+
+        <DeferredDelegatedJudgmentPanel
+          project={project}
+          contribution={c}
           lifecycleHeld={lifecycleHeld}
         />
 
@@ -6933,6 +6874,11 @@ function ContributionPage({
                 <span>
                   {ev.actor} drafted: {ev.body} · {relativeTime(ev.at)}
                 </span>
+              </div>
+            ) : ev.kind === 'delegated-decline' ? (
+              <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+                <MinusCircle size={14} className="shrink-0" />
+                <span>{ev.actor} declined within policy · {relativeTime(ev.at)}</span>
               </div>
             ) : ev.kind === 'delegated-escalation' ? (
               <div key={ev.id} className="flex items-center gap-2 py-0.5 text-[12px] text-warn-text">
@@ -7097,16 +7043,6 @@ function AttentionPanel({ project, standalone = false }: { project: Project; sta
       )}
     </FoldSection>
   )
-}
-
-/** Keep deadline affordances current; the server rechecks expiry at execution. */
-function useDelegationClock(): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
-    return () => window.clearInterval(timer)
-  }, [])
-  return now
 }
 
 /** The changeset card (CW3/CW4, Phase D) — the contribution page's payload

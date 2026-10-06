@@ -15,10 +15,9 @@
  *  - a delegate Agent the delegator doesn't own (judgment can't be outsourced
  *    to a stranger's worker).
  *
- *  The DECISION itself ("does the policy admit this?") is the declared
- *  model-seam — the mock engine always finds the policy satisfied; production
- *  points it at the delegate agent. The ESCALATION TRIGGERS are mechanical
- *  and real: structural conditions checked before any decision runs. */
+ *  Explicit model judgment pins this policy and the work under review; legacy
+ *  empty-body requests retain development-only fixture behavior. Structural
+ *  escalation and the irreversible human floor precede every model call. */
 export type DelegatedActKind = 'approve-envelope' | 'land'
 export const DELEGATED_ACT_KINDS: DelegatedActKind[] = ['approve-envelope', 'land']
 

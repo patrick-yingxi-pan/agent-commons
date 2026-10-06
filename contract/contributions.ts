@@ -14,6 +14,7 @@
 import type { PrincipalKind } from './identity.ts'
 import type { ProjectEffectType } from './coordination.ts'
 import type { ContributionReviewerBinding, ContributionReviewRun } from './contributionReview.ts'
+import type { DelegatedJudgmentRun } from './delegatedJudgment.ts'
 
 export type ContributionStatus = 'open' | 'landed'
 
@@ -179,6 +180,7 @@ export interface ContributionEvent {
      *  its draft-mode guess, and its mechanical escalation back to the human. */
     | 'delegated-decision'
     | 'delegated-draft'
+    | 'delegated-decline'
     | 'delegated-escalation'
   at: number
   /** The acting workspace's display name (public identity, like `postedBy`). */
@@ -223,6 +225,8 @@ export interface Contribution {
   /** Durable model attempts; pending becomes uncertain if its executing process
    * is gone. Retrying an attempt never dispatches a second provider request. */
   reviews?: ContributionReviewRun[]
+  /** Explicit owner-started model judgment; private policy prose is redacted. */
+  judgments?: DelegatedJudgmentRun[]
   id: string
   projectId: string
   /** The landing number — the project-ledger position (L{n}), assigned ONLY at

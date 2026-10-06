@@ -1177,7 +1177,7 @@ test('delegations (CW8): the mint funnel, the conservation law, SoD, mechanical 
   assert.equal(swept.json.length, 0, 'the dead delegate’s rows are gone')
 })
 
-test('a keyed delegated judgment owns one exact durable outcome beyond mutable applicability', async () => {
+test('a keyed delegated judgment owns one exact durable outcome beyond mutable applicability', { timeout: 10_000 }, async () => {
   const projectId = `p-deleg-judgment-${(n += 1)}`
   store.applyRelationOp({ kind: 'create-project', projectId, projectName: 'Durable Judgment', projectDescription: '' }, A)
   store.applyRelationOp({ kind: 'share-project', projectId, projectName: 'Durable Judgment', shared: true }, A)

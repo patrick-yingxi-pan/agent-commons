@@ -44,6 +44,7 @@ import type {
 } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { validStoredReviews, type StoredContributionReview } from '../contributionReviewState.ts'
+import { validStoredJudgments, type StoredDelegatedJudgment } from '../delegatedJudgmentState.ts'
 import { validStoredDelegations, validDelegationRetirements } from '../delegationPolicy.ts'
 import { imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
@@ -173,8 +174,9 @@ export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments
  *  D23 lesson: display names are attacker-controlled, authorization compares
  *  tenant ids) and the acting principals. Server-private; `publicContribution`
  *  strips all of it and serves display names + principal KINDs only. */
-export interface StoredContribution extends Omit<Contribution, 'events' | 'reviews'> {
+export interface StoredContribution extends Omit<Contribution, 'events' | 'reviews' | 'judgments'> {
   reviewAttempts?: StoredContributionReview[]
+  judgmentAttempts?: StoredDelegatedJudgment[]
   contributorTenant?: string
   contributorPrincipal?: PrincipalRef
   /** Private acknowledgement anchor for a keyed native landing. */
@@ -631,8 +633,13 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     if (!Array.isArray(state.contributions)) return false
     const reviewIds = new Set<string>()
     for (const contribution of state.contributions) {
-      if (!contribution || Object.hasOwn(contribution, 'reviews') || !validStoredReviews(contribution.reviewAttempts, contribution.changeset)) return false
+      if (!contribution || Object.hasOwn(contribution, 'reviews') || Object.hasOwn(contribution, 'judgments') ||
+        !validStoredReviews(contribution.reviewAttempts, contribution.changeset) || !validStoredJudgments(contribution.judgmentAttempts)) return false
       for (const run of contribution.reviewAttempts ?? []) {
+        if (reviewIds.has(run.id)) return false
+        reviewIds.add(run.id)
+      }
+      for (const run of contribution.judgmentAttempts ?? []) {
         if (reviewIds.has(run.id)) return false
         reviewIds.add(run.id)
       }

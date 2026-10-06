@@ -4,6 +4,7 @@
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { contributionRuntimeMode, CONTRIBUTION_RUNTIME_UNAVAILABLE } from '../contributionRuntime.ts'
 import { validReviewerBinding } from '../contributionReviewState.ts'
+import { validJudgmentRequest } from '../delegatedJudgmentState.ts'
 import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
 import { messageHistoryText } from '../toolActivityHistory.ts'
 import { exportArtifact } from './artifactExport.ts'
@@ -3348,39 +3349,63 @@ export function buildRouter(): Router {
       throw err
     }
   }))
-  r.post('/projects/:id/contributions/:cid/delegated/:did', idempotent(({ req, res, params }) => {
+  r.post('/projects/:id/contributions/:cid/delegated/:did', async (ctx) => {
+    const { req, res, params, body } = ctx
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    if (contributionRuntimeMode() === 'unconfigured') {
-      return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.delegation)
+    const input = await body<unknown>()
+    if (input && typeof input === 'object' && Object.hasOwn(input, 'judgment')) {
+      const request = (input as Record<string, unknown>).judgment
+      const key = headerValue(req.headers, 'idempotency-key')
+      if (!key?.trim() || key.length > 200 || Object.keys(input).length !== 1 || !validJudgmentRequest(request)) {
+        return sendError(res, 'bad_request', 'Model judgment requires exact policy/work versions, a reviewer binding, and a bounded idempotency key')
+      }
+      const who = store.identity(req.headers)
+      const out = await store.runDelegatedModelJudgment(params.id, params.cid, params.did, who.tenant.id, userPrincipal(who),
+        delegatedJudgmentId(who.tenant.id, params.id, params.cid, params.did, key), request)
+      if (out === undefined) return sendError(res, 'not_found', 'The Contribution, Delegation, or bound reviewer is unavailable')
+      if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the original delegator with current Project ownership may start judgment using their budget')
+      if (out === 'invalid') return sendError(res, 'bad_request', 'This model judgment request is invalid')
+      if (out === 'conflict') return sendError(res, 'conflict', 'The policy, work, or reviewer changed, a judgment is running, or the retained judgment limit was reached')
+      if (out === 'unconfigured') return sendError(res, 'capability_unavailable', 'The delegate needs a configured endpoint provider. No judgment was run.')
+      if (out === 'limit') return sendError(res, 'limit_exceeded', 'The owner’s judgment budget is exhausted. No judgment was run.')
+      return sendJson(res, out)
     }
-    const who = store.identity(req.headers)
-    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
-    const logicalJudgmentId = idempotencyKey
-      ? delegatedJudgmentId(who.tenant.id, params.id, params.cid, params.did, idempotencyKey)
-      : undefined
-    const represented = logicalJudgmentId
-      ? store.getDelegatedJudgment(logicalJudgmentId, params.id, params.cid, params.did, who.tenant.id)
-      : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
-    if (represented === 'invalid') {
-      return sendError(res, 'bad_request', 'This delegated judgment identity is not valid for this account, Contribution, and Delegation')
-    }
-    const out = store.runDelegation(
-      params.id,
-      params.cid,
-      params.did,
-      who.tenant.id,
-      userPrincipal(who),
-      { logicalId: logicalJudgmentId },
-    )
-    if (out === undefined) return sendError(res, 'not_found', `No contribution or delegation`)
-    if (out === 'self') return sendError(res, 'forbidden', 'Separation of duties — the contributor may not trigger the decision on their own work')
-    if (out === 'forbidden') return sendError(res, 'forbidden', 'Not permitted')
-    if (out === 'inapplicable') return sendError(res, 'conflict', 'Nothing for this delegation to decide here (no pending act, or the contribution landed)')
-    if (out === 'invalid') return sendError(res, 'bad_request', 'This delegated judgment identity is invalid')
-    if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.delegation)
-    sendJson(res, out)
-  }))
+    // Legacy fixture requests retain their old replay semantics. Explicit model
+    // requests above use only the durable exact-body receipt, never this cache.
+    return idempotent(({ req, res, params }) => {
+      if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+      if (contributionRuntimeMode() === 'unconfigured') {
+        return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.delegation)
+      }
+      const who = store.identity(req.headers)
+      const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+      const logicalJudgmentId = idempotencyKey
+        ? delegatedJudgmentId(who.tenant.id, params.id, params.cid, params.did, idempotencyKey)
+        : undefined
+      const represented = logicalJudgmentId
+        ? store.getDelegatedJudgment(logicalJudgmentId, params.id, params.cid, params.did, who.tenant.id)
+        : undefined
+      if (typeof represented === 'object') return sendJson(res, represented)
+      if (represented === 'invalid') {
+        return sendError(res, 'bad_request', 'This delegated judgment identity is not valid for this account, Contribution, and Delegation')
+      }
+      const out = store.runDelegation(
+        params.id,
+        params.cid,
+        params.did,
+        who.tenant.id,
+        userPrincipal(who),
+        { logicalId: logicalJudgmentId },
+      )
+      if (out === undefined) return sendError(res, 'not_found', `No contribution or delegation`)
+      if (out === 'self') return sendError(res, 'forbidden', 'Separation of duties — the contributor may not trigger the decision on their own work')
+      if (out === 'forbidden') return sendError(res, 'forbidden', 'Not permitted')
+      if (out === 'inapplicable') return sendError(res, 'conflict', 'Nothing for this delegation to decide here (no pending act, or the contribution landed)')
+      if (out === 'invalid') return sendError(res, 'bad_request', 'This delegated judgment identity is invalid')
+      if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.delegation)
+      sendJson(res, out)
+    })({ ...ctx, body: async <T>() => input as T })
+  })
   // The changeset (CW3/CW4, Phase D): crystallize a version — contributor or
   // owner (the work's own act), append-only, behind the same project wall.
   r.post('/projects/:id/contributions/:cid/changeset', idempotent(async ({ req, res, params, body }) => {
