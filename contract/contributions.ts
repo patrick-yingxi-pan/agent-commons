@@ -13,6 +13,7 @@
  *  item's: display names cross, raw foreign tenant ids never do. */
 import type { PrincipalKind } from './identity.ts'
 import type { ProjectEffectType } from './coordination.ts'
+import type { ContributionReviewerBinding, ContributionReviewRun } from './contributionReview.ts'
 
 export type ContributionStatus = 'open' | 'landed'
 
@@ -141,6 +142,9 @@ export interface ApproveEnvelopeRequest {
  * best-effort model seam; first-party UI pins the exact changeset it presents. */
 export interface ReviewContributionRequest {
   expectedVersion?: number
+  /** Explicit selection enables real owner-controlled review. Absence is the
+   * development-only legacy fixture; it never enables release execution. */
+  reviewer?: ContributionReviewerBinding
 }
 
 /** Body of `POST .../contributions/:cid/effects` — fire one act against a line. */
@@ -214,6 +218,9 @@ export interface ContributionEvent {
  *  changeset arrives in Phase D on this same entity, so nothing here is a
  *  throwaway shape. */
 export interface Contribution {
+  /** Durable model attempts; pending becomes uncertain if its executing process
+   * is gone. Retrying an attempt never dispatches a second provider request. */
+  reviews?: ContributionReviewRun[]
   id: string
   projectId: string
   /** The landing number — the project-ledger position (L{n}), assigned ONLY at

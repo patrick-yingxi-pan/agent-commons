@@ -3,6 +3,7 @@
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { contributionRuntimeMode, CONTRIBUTION_RUNTIME_UNAVAILABLE } from '../contributionRuntime.ts'
+import { validReviewerBinding } from '../contributionReviewState.ts'
 import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
 import { messageHistoryText } from '../toolActivityHistory.ts'
 import { exportArtifact } from './artifactExport.ts'
@@ -3603,11 +3604,29 @@ export function buildRouter(): Router {
   })
   r.post('/projects/:id/contributions/:cid/review', async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    const who = store.identity(req.headers)
+    const input = await body<ReviewContributionRequest>()
+    if (input && typeof input === 'object' && Object.hasOwn(input, 'reviewer')) {
+      if (!store.contributionReviewOwner(params.id, who.tenant.id)) return sendError(res, 'forbidden', 'Only the project owner may start a model review using their budget')
+      const key = headerValue(req.headers, 'idempotency-key')
+      if (!key?.trim() || key.length > 200 || !validReviewerBinding(input.reviewer) ||
+        !Number.isSafeInteger(input.expectedVersion) || (input.expectedVersion ?? 0) < 1 ||
+        Object.keys(input).some((field) => !['expectedVersion', 'reviewer'].includes(field))) {
+        return sendError(res, 'bad_request', 'A model review requires an exact version, reviewer binding, and bounded idempotency key')
+      }
+      const out = await store.runContributionModelReview(params.id, params.cid, who.tenant.id,
+        contributionReviewId(who.tenant.id, params.id, params.cid, key), input.expectedVersion!, input.reviewer)
+      if (out === undefined) return sendError(res, 'not_found', 'The Contribution or selected reviewer is unavailable')
+      if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may start a model review')
+      if (out === 'invalid') return sendError(res, 'bad_request', 'This model review request is invalid')
+      if (out === 'conflict') return sendError(res, 'conflict', 'The review intent or Contribution changed, a review is running, or the retained review limit was reached')
+      if (out === 'unconfigured') return sendError(res, 'capability_unavailable', 'Select an Agent bound to a configured endpoint provider. No review was run.')
+      if (out === 'limit') return sendError(res, 'limit_exceeded', 'The owner’s review budget is exhausted. No review was run.')
+      return sendJson(res, out)
+    }
     if (contributionRuntimeMode() === 'unconfigured') {
       return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.review)
     }
-    const who = store.identity(req.headers)
-    const input = await body<ReviewContributionRequest>()
     const expectedVersion = input?.expectedVersion
     if (
       expectedVersion !== undefined &&

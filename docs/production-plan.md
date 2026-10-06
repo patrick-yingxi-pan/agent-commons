@@ -75,17 +75,62 @@ has no tools, and cannot land changes automatically. This approval does not
 authorize delegated policy decisions, envelope fulfilment or a paid-provider
 acceptance run using real credentials.
 
-Implementation is the next core-workflow checkpoint; release review remains
-unavailable until that path is built and verified. It must preserve private
-Project walls, owner-scoped reviewer/provider resolution, budget preflight and
-usage attribution, exact changeset identity, and separate human landing. Persist
-an attempt before provider I/O: retry or restart must not silently repeat a
-possibly paid request, and a late result must not review a newer changeset.
-Expose pending, findings, passed, stale and uncertain outcomes truthfully in the
-same owner workflow. Existing local usage counters are metering, not a strict
-reservation of concurrent or unreported spend.
+The explicit reviewer path now preserves private Project walls, owner-scoped
+reviewer/provider resolution, budget preflight and usage attribution, exact
+changeset identity, and separate human landing. An attempt commits before
+provider I/O: retry or restart cannot silently repeat a possibly paid request,
+and a late result cannot review a newer changeset. Pending, findings, passed,
+failed, stale and uncertain outcomes have distinct public history. Existing
+local usage counters are metering, not a strict reservation of concurrent or
+unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
+
+### Owner-controlled contribution review (2026-10-06 UTC)
+
+The Contribution page offers an explicit eligible Agent selection and discloses
+its configured endpoint model, frozen version and owner-funded budget. The
+reviewer receives only that changeset plus its selected review instructions;
+the separate Messages call declares no tools, performs no fallback or automatic
+retry, and has bounded input, output and deadline. Strict entry-bound JSON
+findings or a no-findings verdict enter retained review history, not discussion
+comments or automatic landing.
+
+A private exact-version/reviewer receipt commits before outbound I/O. Same-key
+replay returns current receipt truth even if reviewer configuration later
+changes; changed intent conflicts. A restart durably changes unfinished work to
+uncertain. Invalid completed output still meters reported usage; ambiguous
+transport has no passing authority. A new version or newer unsuccessful attempt
+cannot borrow an older pass. Public history includes display attribution and
+results, never tenant anchors, credential references or endpoint configuration.
+
+Verification covers deterministic local Messages fixtures, owner/shared/foreign
+boundaries, immutable retry intent, separate landing, and JSON/SQLite/portable
+state. It does not claim paid-provider or signed-package acceptance. Delegated
+policy judgment and envelope fulfilment remain independently release-blocked;
+neither is implicitly authorized by this reviewer policy.
+
+The responsive sweep covered all 135 cells without violations or skips, with
+separate owner/shared review screens at all five canonical viewports. Its new
+long-label check caught and locked a 320px disclosure overflow. Final review
+also requires uncertain billable holds to survive failed Dismiss truth reads,
+failed controller loading to retain visible recovery, and malformed provider
+usage to settle uncertain rather than pass unmetered or remain pending forever.
+These are explicit regression cases in the focused review suites. The local
+preview retains the walkthrough and findings after its temporary fixture Agent
+and provider are removed; no dead endpoint is left available for selection.
+
+The first complete gate passed 4,198 Node tests and all four browser shards,
+then rejected the new section bundle at 507,460 bytes against its unchanged
+500,000-byte async-graph ceiling. Review history and controls now have a dedicated
+deferred boundary: both display and the actual shared write runtime must load
+before intent can be accepted. Loading dispatches nothing; a rejected module
+offers explicit full reload with an unsent-text warning, not a same-URL retry
+that the browser module cache cannot recover.
+The emitted graph exposed a shared `CircleX` icon assigned to the section chunk;
+using the already-shared alert icon for the red Failed state removes that
+dependency. The budgeted build passes without changing its ceilings, and the
+deferred review panel itself is 9.09 KB.
 
 ### Actual native image chooser acceptance (2026-10-06 UTC)
 
@@ -100,8 +145,8 @@ profile and a credential-free loopback model fixture were used.
 This closes the local SVG picker/original-download handoff gap for this artifact,
 not signed/notarized, Intel, Photos-library, all-format, multi-account or
 paid-provider acceptance. The normal six-account Ada preview remains untouched.
-The approved owner-controlled contribution review is next; real delegated
-judgment and envelope fulfilment remain independently unavailable.
+Owner-controlled contribution review is recorded in the checkpoint above;
+real delegated judgment and envelope fulfilment remain independently unavailable.
 
 ### Contribution execution release wall (2026-10-06 UTC)
 
@@ -121,8 +166,8 @@ proposes an unavailable delegated reviewer. Manual owner approval and landing
 remain intact; approving an envelope is not a claim that its effect ran.
 
 This closes a false-success defect, not the underlying production feature gap.
-Real adversarial review, delegated policy evaluation and envelope effect
-fulfilment remain required core work. A configured conversation provider or
+The explicit owner-selected review path is now recorded above; delegated policy
+evaluation and envelope effect fulfilment remain required core work. A configured conversation provider or
 connector does not silently configure these seams or approve paid acceptance.
 Direct-store and route regressions were watched fail against the old behavior
 before implementation; focused tests cover both release profiles, old fixture

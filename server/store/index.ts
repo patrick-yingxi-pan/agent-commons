@@ -15,6 +15,10 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
+import { publicReviewRun, reviewChangesetHash, sameReviewerBinding, validReviewerBinding, type StoredContributionReview } from '../contributionReviewState.ts'
+import { MAX_CONTRIBUTION_REVIEWS, type ContributionReviewerBinding } from '../../contract/contributionReview.ts'
+import { ContributionReviewGenerationError } from '../contributionReviewResult.ts'
+import { UsageRecordingError } from '../modelUsage.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseArtifactLifecycleEntries } from '../artifactLifecycle.ts'
 import { nextArtifactLifecycle, type ArtifactLifecycle, type TrashedArtifact } from '../../contract/artifactLifecycle.ts'
@@ -166,7 +170,7 @@ import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
 import { SEED_COMMISSIONS } from '../data/commissions.ts'
 import { baseToolDefinitions } from '../model/tools.ts'
-import { systemPrompt, resolvedModelId } from '../generate.ts'
+import { systemPrompt, resolvedModelId, generateContributionReview } from '../generate.ts'
 import { RunnerRegistry } from '../registry.ts'
 import { RunnerJournal } from '../journal.ts'
 import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from '../relay.ts'
@@ -520,6 +524,9 @@ let openSubGoalSeq = 0
  *  item: raw tenant ids + principals are server-private anchors; the wire face
  *  carries display names + principal KINDs only. */
 const contributions: StoredContribution[] = []
+// Only a newly durably admitted attempt may execute in this process. Rehydrate
+// clears these fences: persisted pending attempts become uncertain, never retries.
+const activeContributionReviews = new Map<string, object>()
 let contributionSeq = 0
 // Ledger bounds — a queue, not a blob store (the MAX_OPEN_WORK rationale). The
 // TOTAL cap exists because landing is contributor-or-owner and the contributor
@@ -1410,8 +1417,8 @@ function tierFor(c: StoredContribution): import('../../contract/index.ts').Contr
 }
 
 function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
-  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, ...pub } = c
-  const effectiveReview = c.status === 'open' ? contributionReviewVersion(c) : reviewedVersion
+  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, reviewAttempts, ...pub } = c
+  const effectiveReview = c.status === 'open' || reviewAttempts?.length ? contributionReviewVersion(c) : reviewedVersion
   return {
     ...pub,
     ...(effectiveReview !== undefined ? { reviewedVersion: effectiveReview } : {}),
@@ -1424,6 +1431,7 @@ function publicContribution(c: StoredContribution, viewerTenant?: string): Contr
     // contributor's record and the envelope move.
     tier: tierFor(c),
     events: events.map(publicContributionEvent),
+    ...(reviewAttempts ? { reviews: reviewAttempts.map(publicReviewRun) } : {}),
   }
 }
 // D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
@@ -3496,6 +3504,16 @@ function rehydrate(s: PersistedState): boolean {
   // counted here — latent-only: the fallback fires only for a snapshot with no
   // `seq.contribution`, which predates both features; every writer persists it.)
   contributions.splice(0, contributions.length, ...(s.contributions ?? []))
+  activeContributionReviews.clear()
+  let recoveredContributionReviews = false
+  for (const contribution of contributions) {
+    for (const run of contribution.reviewAttempts ?? []) {
+      if (run.status !== 'pending') continue
+      run.status = 'uncertain'
+      run.finishedAt = Math.max(Date.now(), run.startedAt)
+      recoveredContributionReviews = true
+    }
+  }
   contributionSeq = s.seq.contribution ?? contributions.reduce((m, c) => m + 1 + c.events.length, 0)
   // Phase F delegations — same restore shape (each row consumes exactly one id).
   delegations.splice(0, delegations.length, ...(s.delegations ?? []))
@@ -3637,7 +3655,7 @@ function rehydrate(s: PersistedState): boolean {
   materializeRunSessions()
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionReviews
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -10207,9 +10225,7 @@ export const store = {
         if (latest === 0) {
           asks.push({ contributionId: c.id, title: c.title, function: 'error-catching', label: 'Crystallize a changeset — un-crystallized work has nothing a reviewer can pass' })
         } else if (contributionReviewVersion(c) !== latest) {
-          const label = contributionRuntimeMode() === 'fixture'
-            ? `Run the adversarial review over v${latest} — then this self-lands`
-            : 'Ask the project owner to review and land this contribution — automated review is not configured'
+          const label = `Ask the project owner to start a model review of v${latest}, or review and land manually`
           asks.push({ contributionId: c.id, title: c.title, function: 'error-catching', label })
         }
       }
@@ -10467,6 +10483,88 @@ export const store = {
   },
 
   // ── The review tier (CW5, Phase E) — the gate as arithmetic ─────────────────
+  contributionReviewOwner(projectId: string, tenantId: string): boolean {
+    const project = findProject(projectId)
+    return !!project && tenantWritesAs(tenantId, project.tenantId ?? defaultTenantId())
+  },
+  /** One explicit owner-funded, tool-free call. The pending receipt is the
+   * durable execution boundary; no catch/replay path may dispatch it again. */
+  async runContributionModelReview(
+    projectId: string,
+    cid: string,
+    tenantId: string,
+    logicalId: string,
+    expectedVersion: number,
+    binding: ContributionReviewerBinding,
+  ): Promise<Contribution | 'forbidden' | 'invalid' | 'conflict' | 'unconfigured' | 'limit' | undefined> {
+    if (!this.contributionReviewOwner(projectId, tenantId)) return 'forbidden'
+    if (!isContributionReviewId(logicalId) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !validReviewerBinding(binding)) return 'invalid'
+    const c = contributions.find((entry) => entry.id === cid && entry.projectId === projectId)
+    if (!c) return undefined
+    const represented = c.reviewAttempts?.find((run) => run.id === logicalId)
+    if (represented) {
+      return represented.tenantId === tenantId && represented.version === expectedVersion && sameReviewerBinding(represented.binding, binding)
+        ? publicContribution(c, tenantId) : 'conflict'
+    }
+    if (contributions.some((entry) => entry.events.some((event) => event.id === logicalId) || entry.reviewAttempts?.some((run) => run.id === logicalId))) return 'conflict'
+    const version = c.changeset?.at(-1)
+    if (c.status !== 'open' || !version || version.version !== expectedVersion ||
+      (c.reviewAttempts?.length ?? 0) >= MAX_CONTRIBUTION_REVIEWS || c.reviewAttempts?.some((run) => run.status === 'pending')) return 'conflict'
+    // Exact scoped lookups, never the conversation seam's default fallback.
+    const agent = this.listAgents(tenantId).find((entry) => entry.id === binding.agentId)
+    const provider = this.listProviders(tenantId).find((entry) => entry.id === binding.providerId)
+    if (!agent || !provider) return undefined
+    if (agent.providerId !== provider.id || (agent.revision ?? 0) !== binding.agentRevision ||
+      (provider.definitionRevision ?? 0) !== binding.providerRevision || (provider.connectionRevision ?? 0) !== binding.connectionRevision) return 'conflict'
+    const config = structuredClone(PROVIDER_CONFIGS.get(provider.id) ?? {})
+    if (provider.kind === 'session' || endpointExecution(config) !== 'configured') return 'unconfigured'
+    if (this.overSpendLimit(provider.plan, tenantId) || this.overSpendLimit(agent.budget, tenantId)) return 'limit'
+    const frozenVersion = structuredClone(version)
+    const frozenAgent = structuredClone(agent)
+    const run: StoredContributionReview = {
+      id: logicalId, version: expectedVersion, tenantId, binding: { ...binding },
+      changesetHash: reviewChangesetHash(frozenVersion),
+      reviewer: agent.label, provider: provider.label, model: resolvedModelId(config),
+      startedAt: Math.max(Date.now(), (c.reviewAttempts?.at(-1)?.startedAt ?? 0) + 1), status: 'pending',
+    }
+    const fence = {}
+    commitMutationBatch(() => {
+      c.reviewAttempts ??= []
+      c.reviewAttempts.push(run)
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+    })
+    activeContributionReviews.set(logicalId, fence)
+    try {
+      let result: import('../../contract/index.ts').ContributionReviewResult | undefined
+      let failure: 'failed' | 'uncertain' | undefined
+      try {
+        result = await generateContributionReview(frozenVersion, frozenAgent, config, (usage) => {
+          // A restore fences callbacks from the replaced world as well as its verdict.
+          if (activeContributionReviews.get(logicalId) !== fence) throw new Error('Review execution was replaced.')
+          this.recordUsage(usage.inputTokens, usage.outputTokens, tenantId)
+        })
+      } catch (error) {
+        if (error instanceof UsageRecordingError) throw error.cause ?? error
+        failure = error instanceof ContributionReviewGenerationError ? 'failed' : 'uncertain'
+      }
+      if (activeContributionReviews.get(logicalId) !== fence) return 'conflict'
+      return commitMutationBatch(() => {
+        run.finishedAt = Math.max(Date.now(), run.startedAt)
+        if (result) {
+          run.summary = result.summary
+          run.findings = result.findings
+          run.status = c.status !== 'open' || !c.changeset?.at(-1) || reviewChangesetHash(c.changeset.at(-1)!) !== run.changesetHash
+            ? 'stale' : result.findings.length ? 'findings' : 'passed'
+        } else run.status = failure ?? 'uncertain'
+        emit({ type: 'contribution.changed', projectId })
+        persist()
+        return publicContribution(c, tenantId)
+      })
+    } finally {
+      if (activeContributionReviews.get(logicalId) === fence) activeContributionReviews.delete(logicalId)
+    }
+  },
   /** Current containing ledger row for one durable exact-version review receipt. */
   getContributionReview(
     id: string,

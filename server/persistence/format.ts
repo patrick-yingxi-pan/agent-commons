@@ -43,6 +43,7 @@ import type {
   WorkItemComment,
 } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { validStoredReviews, type StoredContributionReview } from '../contributionReviewState.ts'
 import { imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
 import { isServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
@@ -171,7 +172,8 @@ export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments
  *  D23 lesson: display names are attacker-controlled, authorization compares
  *  tenant ids) and the acting principals. Server-private; `publicContribution`
  *  strips all of it and serves display names + principal KINDs only. */
-export interface StoredContribution extends Omit<Contribution, 'events'> {
+export interface StoredContribution extends Omit<Contribution, 'events' | 'reviews'> {
+  reviewAttempts?: StoredContributionReview[]
   contributorTenant?: string
   contributorPrincipal?: PrincipalRef
   /** Private acknowledgement anchor for a keyed native landing. */
@@ -621,6 +623,17 @@ export interface PersistenceBackend {
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
 export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  if (state?.contributions !== undefined) {
+    if (!Array.isArray(state.contributions)) return false
+    const reviewIds = new Set<string>()
+    for (const contribution of state.contributions) {
+      if (!contribution || Object.hasOwn(contribution, 'reviews') || !validStoredReviews(contribution.reviewAttempts, contribution.changeset)) return false
+      for (const run of contribution.reviewAttempts ?? []) {
+        if (reviewIds.has(run.id)) return false
+        reviewIds.add(run.id)
+      }
+    }
+  }
   // Authored rich bodies retain their exact shape through portable restores.
   // A revision is storage-owned metadata, not an author-supplied body field.
   if (state?.artifactBodies !== undefined) {

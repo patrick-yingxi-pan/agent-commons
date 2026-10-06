@@ -521,8 +521,6 @@ import {
   useContributionCommentCreationStatus,
 } from '../controller/contributionCommentCreationMutations.ts'
 import {
-  enqueueContributionReview,
-  heldContributionReviewIntent,
   isContributionReviewHeld,
   useContributionReviewStatus,
 } from '../controller/contributionReviewMutations.ts'
@@ -708,6 +706,7 @@ import { heldArtifactPermanentDeletionRow, useArtifactPermanentDeletionRows } fr
 import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
+import { DeferredContributionReviewPanel } from './DeferredContributionReviewPanel.tsx'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { artifactSourceSessionId } from '../lib/artifactSource'
@@ -6631,7 +6630,6 @@ function ContributionPage({
   const [error, setError] = useState<string | null>(null)
   const heldComment = heldContributionCommentIntent(project.id, contributionId)
   const commentHeld = heldComment !== null
-  const heldReview = heldContributionReviewIntent(project.id, contributionId)
   const reviewHeld = isContributionReviewHeld(project.id, contributionId)
   const reviewRequirementHeld = isContributionReviewRequirementHeld(project.id, contributionId)
   const heldDelegatedJudgment = heldDelegatedJudgmentIntent(project.id, contributionId)
@@ -6667,8 +6665,6 @@ function ContributionPage({
     c.mine === true &&
     (c.tier?.level === 0 || (c.tier?.level === 1 && c.reviewedVersion === latestVersion && latestVersion > 0))
   const mayLand = c.status === 'open' && (project.own !== false || contributorMayLand)
-  const mayReview =
-    c.status === 'open' && c.tier?.level === 1 && latestVersion > 0 && c.reviewedVersion !== latestVersion
   // CW8 — the first applicable Delegation per pending act; hidden from the
   // contributor on foreign projects (SoD — the server refuses; a door that
   // can never open is worse than none).
@@ -6722,18 +6718,6 @@ function ContributionPage({
       contributionId: c.id,
     }).then((outcome) => {
       if (outcome === 'discarded') setError('Landing was dismissed. Review the current gate before trying again.')
-    })
-  }
-  const runReview = () => {
-    if (lifecycleHeld || !me) return
-    setError(null)
-    void enqueueContributionReview({
-      tenantId: me.tenant.id,
-      projectId: project.id,
-      contributionId: c.id,
-      reviewedVersion: latestVersion,
-    }).then((outcome) => {
-      if (outcome === 'discarded') setError('The review was dismissed. Inspect the current changeset before trying again.')
     })
   }
   const tighten = () => {
@@ -6836,18 +6820,6 @@ function ContributionPage({
                 {reviewRequirementHeld ? 'Requiring review…' : 'Require review'}
               </button>
             )}
-            {mayReview && (
-              <button
-                onClick={() => void runReview()}
-                disabled={lifecycleHeld}
-                title={`Run the adversarial review over v${latestVersion} (mock reviewer — the model seam)`}
-                className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
-              >
-                {reviewHeld
-                  ? `Reviewing v${heldReview?.reviewedVersion ?? latestVersion}…`
-                  : 'Run review'}
-              </button>
-            )}
             {delegationAction && (
               <button
                 onClick={() => askDelegate(delegationAction)}
@@ -6886,6 +6858,13 @@ function ContributionPage({
             visually its own block: an external act must never hide inside the
             prose/diff idiom (CW3). */}
         <EnvelopeCard project={project} c={c} lifecycleHeld={lifecycleHeld} />
+
+        <DeferredContributionReviewPanel
+          project={project}
+          contribution={c}
+          latestVersion={latestVersion}
+          lifecycleHeld={lifecycleHeld}
+        />
 
         {/* The timeline — lifecycle transitions + the conversation, one record
             in time order (append-only, CW4; it keeps accruing after landing, CW7). */}

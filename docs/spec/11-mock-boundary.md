@@ -116,21 +116,29 @@ Actual saved MCP connections and native Folder access remain separate. Locks:
 `server/contextCatalog.test.ts`, `server/persistence/initial-world.test.ts`,
 `src/components/context-catalog.test.ts`, `e2e/context-catalog.spec.ts`.
 
-Contribution governance has three additional explicit development fixtures
-(MOCK-7): adversarial review, delegated policy judgment, and envelope effect
-execution. Desktop/web profiles refuse these operations with
+Contribution governance has three distinct execution seams (MOCK-7). Legacy
+adversarial review without an explicit reviewer remains a deterministic
+development fixture; delegated policy judgment and envelope effect execution
+also remain fixtures. Desktop/web profiles refuse those canned operations with
 `409 capability_unavailable`, including replay attempts against old fixture
-receipts, before any new verdict, effect consumption or event. Old timelines
-remain readable, but a mock review is not current release authority for a
-Tier-1 contributor landing. The owner can still review and land manually or
-approve a proposed envelope; approval alone does not execute it. Configuring a
-conversation model or connector does not configure these independent seams.
-The locks are `server/store/contribution-runtime.test.ts`,
-`server/routes/contribution-runtime.test.ts` and `server/mcp.test.ts`.
+receipts, before verdict, effect consumption or event. An explicit owner-selected
+review can use one exact-revision Agent/provider binding and a configured
+Messages endpoint; it is tool-free, budgeted to the Project owner, and never
+auto-lands. Local loopback fixtures prove the Messages wire, validation, and
+recovery behavior only—not acceptance against a paid provider. Historical mock
+reviews remain readable but cannot satisfy fresh release Tier-1 landing. The
+owner can still land manually or approve a proposed envelope; approval alone
+does not execute it. Configuring a conversation model or connector does not
+configure the separate delegate or effect seams. Locks:
+`server/routes/contribution-model-review.test.ts`,
+`server/model/contribution-review.test.ts`,
+`server/persistence/contribution-model-review.test.ts`,
+`server/store/contribution-runtime.test.ts`,
+`server/routes/contribution-runtime.test.ts`, and `server/mcp.test.ts`.
 
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |
 |----|--------------------------------------------------|--------|--------|
-| MOCK-7 | **Contribution cognition and envelope fulfilment** — the development adversarial reviewer reports no findings, the delegate reports policy satisfied, and a matching envelope line records a simulated effect rather than calling an adapter. Release profiles fail closed before execution or fixture receipt replay; historical mock verdicts cannot satisfy fresh Tier-1 landing. Owner-authored policy/envelope configuration, manual approval/landing, mechanical bounds and the durable ledger are real. Actual reviewer/delegate model execution and effect adapters remain unbuilt (COMMONS-29/31/32). | `server/contributionRuntime.ts`, `server/store/index.ts`, `server/routes/index.ts` | 🟡 |
+| MOCK-7 | **Contribution governance fixtures** — legacy review-without-reviewer reports no findings, delegated policy judgment reports policy satisfied, and a matching envelope line records a simulated effect rather than calling an adapter. Release profiles reject these canned review/delegation/effect operations before execution or fixture receipt replay; historical mock review cannot satisfy fresh Tier-1 landing. Explicit owner-selected model review now uses a configured endpoint through the real tool-free Messages boundary, with durable attempt/replay, usage, strict result and uncertain-restart semantics; local loopback acceptance is not paid-provider acceptance. Delegated judgment and effect adapters remain unbuilt. Owner-authored policy/envelope configuration, manual approval/landing, mechanical bounds and the durable ledger are real. | `server/contributionRuntime.ts`, `server/contributionReviewState.ts`, `server/generate.ts`, `server/store/index.ts`, `server/routes/index.ts` | 🟡 |
 | MOCK-1 | **The development model** — the one intended behavioral mock. Generation runs through a real Messages + tool-use boundary; development fulfilment is a local deterministic endpoint. Release profiles never enable it implicitly: the selected endpoint is visibly unconfigured and fail-before-write until a real connection exists (MODEL-28). Going live remains config only (MODEL-5); Electron's OS-encrypted provider-key creation/rotation lifecycle, acknowledgement recovery, and atomic connection probe/swap are real and never silently select this fixture. | `server/model/index.ts`, `server/model/endpointExecution.ts`, `server/generate.ts`, `server/runtimeProfile.ts`, `server/routes/providerConnection.ts`, `src/controller/providerCreationCredentialCore.ts`, `desktop/credentialVault.mjs` | 🟡 |
 | MOCK-2 | **Seeded/imported artifact bodies** — hand-authored demo doc/email/image/slide/sheet bodies remain fixtures, but `/artifact-content` projects only actual readable seed identities and unambiguous compatibility names under REL-22. It never dumps the global fixture library; clean installs and unrelated tenants receive no fictional body content. CTX-FS-12, CTX-FS-14, CTX-FS-15 and CTX-FS-16 extract actual bounded text/value projections from directly selected PDFs, DOCX, XLSX and PPTX archives; PDF/DOCX/XLSX/PPTX layout, formulas/calculation, images/OCR, notes/media and other rich document extraction remain unbuilt. The fixture does **not** back newly authored documents (including REL-13 standing routine reports), CTX-FS-11 local folder snapshots or PDF/DOCX/XLSX/PPTX attachments: those persist actual bounded bodies under opaque identities. Local previews never substitute the demo library for missing content. Served folder artifacts fetch real content via CTX-FS-5. | `server/data/artifactContent.ts`, `contract/content.ts`, `server/store/index.ts`, `src/components/panels/ArtifactPanel.tsx`, `src/lib/docxExtraction.ts`, `src/lib/xlsxExtraction.ts`, `src/lib/pptxExtraction.ts` | 🟡 |
 | MOCK-3 | **External MCP has a real, bounded interactive execution path; other connector fulfilment remains mocked or unavailable.** Tenant-owned HTTPS connections undergo real catalog discovery and isolated schema admission before exact attachment. Both model transports produce owner-approved proposals; confirmation persists a running receipt before one outbound attempt, then saves a bounded inert result, known failure or uncertainty without automatic replay. Electron provisions OS-encrypted tokens through a write-only bridge. Remote metadata is not consent, safety or live health. Deterministic loopback browser and JSON/SQLite recovery fixtures prove this path, not third-party acceptance. Legacy development connectors remain visibly `(mock)` in demo catalogs; clean release catalogs offer no such candidates, and other release adapters remain `unconfigured`; routines reject failed provenance. Combined real-service/native acceptance, OAuth, stdio, standing trust and MRTR remain unfinished. | `server/mcpDiscovery.ts`, `server/mcpCatalog.ts`, `server/mcpHttpTransport.ts`, `server/mcpConnectionService.ts`, `server/routes/mcpConnections.ts`, `server/connectorRuntime.ts`, `server/model/connectorTools.ts`, `server/data/connectorDetails.ts`, `server/runtimeProfile.ts`, `server/routineRunner.ts`, `server/contextCatalog.ts`, `src/components/McpCatalogBody.tsx` | 🟡 |

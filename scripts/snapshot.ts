@@ -542,6 +542,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
       builder,
       { logicalId: 'contribution-review-000000000000000000000000', expectedVersion: 1 },
     )
+    const { buildContributionReview } = await import('./snapshotContributionReview.ts')
+    await buildContributionReview('p-insights', landedContribution.id)
     store.noteContribution(
       'p-insights',
       landedContribution.id,

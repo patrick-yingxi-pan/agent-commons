@@ -1,5 +1,5 @@
 /** Lazy transport and acknowledgement FIFO behind Contribution review. */
-import { AccountSwitchedError, ApiRequestError } from '../api'
+import { AccountSwitchedError, ApiRequestError } from '../api/client.ts'
 import {
   applyContributionReview,
   reconcileContributionReview,
@@ -24,7 +24,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
       return { message: 'The changeset changed or can no longer be reviewed. Dismiss this review and inspect the current version.', retryable: false }
     }
     if (error.status === 429) {
-      return { message: 'Review is temporarily rate-limited. Retry shortly.', retryable: true }
+      return { message: 'The Project owner’s review budget or request rate limit is exhausted. Retry after the applicable limit resets.', retryable: true }
     }
   }
   return {
@@ -34,10 +34,11 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
 }
 
 const controller = createAcknowledgedActionMutationController<ContributionReviewIntent, undefined>({
-  resourceId: (intent) => intent.contributionId,
+  resourceId: (intent) => `${intent.projectId}\0${intent.contributionId}`,
   snapshot: () => undefined,
   mutate: applyContributionReview,
   reconcile: reconcileContributionReview,
+  discardReconcileFailure: 'retain',
   describeFailure,
   setStatus: publishContributionReviewStatus,
   mintIdempotencyKey: (intent) => intent.intentId,

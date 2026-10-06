@@ -446,6 +446,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
       typeof event.reviewedByTenant === 'string')),
     'acknowledgement-owned Contribution review keeps its durable exact-version receipt and private actor anchor',
   )
+  assert.ok(s.contributions?.some((contribution) => contribution.reviewAttempts?.some((run) =>
+    run.status === 'passed' && run.version === 1 && run.findings?.length === 0 &&
+    run.summary === 'Snapshot fixture review, not a real quality assessment.' &&
+    typeof run.tenantId === 'string' && typeof run.binding.agentId === 'string' && run.changesetHash.length === 64)),
+  'real model review attempts retain exact frozen identity, private billing scope, and bounded result')
   assert.ok(
     s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'delegated-judgment-000000000000000000000000' &&

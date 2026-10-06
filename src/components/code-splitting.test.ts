@@ -271,6 +271,26 @@ test('artifact form admission includes the complete mutation runtime before edit
     'failed browser module URLs recover by explicit document navigation')
 })
 
+test('Contribution review admits its panel and exact mutation runtime behind a local full-reload boundary', () => {
+  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContributionReviewPanel.tsx')))
+  const mutations = stripComments(read(join(ROOT, 'src/controller/contributionReviewMutations.ts')))
+  assert.doesNotMatch(section, /import\s+\{\s*ContributionReviewPanel\s*\}/,
+    'the review UI does not inflate the section pane')
+  assert.match(section, /<DeferredContributionReviewPanel[\s\S]*lifecycleHeld=\{lifecycleHeld\}/,
+    'eager held-state exclusion is retained while the display panel is deferred')
+  assert.match(deferred, /lazy\(loadReviewPanel\)/)
+  assert.match(deferred, /Promise\.all\(\[[\s\S]*import\('\.\/ContributionReviewPanel\.tsx'\),[\s\S]*prepareContributionReviewRuntime\(\)/,
+    'the first review control waits for both its module and exact recovery runtime')
+  assert.match(mutations, /prepare:\s*async\s*\(\): Promise<void> => \{ await loadRuntime\(\) \}/,
+    'admission loads shared recovery machinery without minting an intent or dispatching')
+  assert.match(deferred, /getDerivedStateFromError[\s\S]*data-contribution-review-load="error"/)
+  assert.match(deferred, /Copy any unsent text before reloading/)
+  assert.match(deferred, /window\.location\.reload\(\)/,
+    'a browser-cached rejected module URL recovers through explicit document navigation')
+  assert.match(deferred, /data-contribution-review-load="loading"/)
+})
+
 test('structured artifact bodies load through one shared announced boundary', () => {
   const consumers = [
     'artifactPreview.tsx',

@@ -1,5 +1,6 @@
-/** Transport and exact-version reconciliation for Contribution review. */
-import type { Contribution, ContributionEvent, ReviewContributionRequest } from '../../contract/index.ts'
+/** Transport and exact-receipt reconciliation for owner-selected Contribution review. */
+import type { Contribution, ReviewContributionRequest } from '../../contract/contributions.ts'
+import type { ContributionReviewRun, ContributionReviewerBinding } from '../../contract/contributionReview.ts'
 import { apiGet, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { contributionReviewId } from './contributionReviewIdentity.ts'
@@ -10,67 +11,95 @@ export interface ContributionReviewIntent {
   readonly tenantId: string
   readonly projectId: string
   readonly contributionId: string
-  readonly reviewedVersion: number
+  readonly expectedVersion: number
+  readonly reviewer: ContributionReviewerBinding
+  /** Frozen display-only context used to reconstruct the held act after navigation. */
+  readonly reviewerLabel: string
+  readonly providerLabel: string
+  readonly modelLabel: string
+  readonly budgetLabel: string
 }
 
-const receiptFor = (
+function receiptFor(
   contribution: Contribution,
   expectedId: string,
-  reviewedVersion: number,
-): ContributionEvent | undefined => contribution.events.find((event) =>
-  event.id === expectedId &&
-  event.kind === 'review-passed' &&
-  event.reviewedVersion === reviewedVersion)
+  expectedVersion: number,
+): ContributionReviewRun | undefined {
+  return contribution.reviews?.find((review) =>
+    review.id === expectedId && review.version === expectedVersion)
+}
 
-/** Merge only the exact review receipt and a still-current reviewed-version
- * stamp. Later changesets, landing, envelope state, and history remain truth. */
+function mergeReview(
+  contribution: Contribution,
+  receipt: ContributionReviewRun,
+): Contribution {
+  const reviews = contribution.reviews ?? []
+  let merged: ContributionReviewRun[]
+  const existing = reviews.findIndex((review) => review.id === receipt.id)
+  if (existing >= 0) {
+    const prior = reviews[existing]!
+    if (prior.status !== 'pending' || receipt.status === 'pending') return contribution
+    merged = reviews.map((review) => review.id === receipt.id ? receipt : review)
+  } else {
+    merged = [...reviews, receipt].sort((a, b) => a.startedAt - b.startedAt)
+  }
+  if ((contribution.changeset?.length ?? 0) !== receipt.version) {
+    return { ...contribution, reviews: merged }
+  }
+  const latestForVersion = merged.filter((review) => review.version === receipt.version).at(-1)
+  const { reviewedVersion: _oldStamp, ...withoutCurrentStamp } = contribution
+  return latestForVersion?.status === 'passed'
+    ? { ...contribution, reviews: merged, reviewedVersion: receipt.version }
+    : { ...withoutCurrentStamp, reviews: merged }
+}
+
+/** Preserve current Contribution truth; only append this keyed review receipt. */
 function rememberReview(
   intent: ContributionReviewIntent,
   contribution: Contribution,
   expectedId: string,
 ): void {
-  const receipt = receiptFor(contribution, expectedId, intent.reviewedVersion)
+  const receipt = receiptFor(contribution, expectedId, intent.expectedVersion)
   if (receipt && peek<Contribution[]>(keys.contributions(intent.projectId))) {
     mutate<Contribution[]>(keys.contributions(intent.projectId), (current) =>
-      (current ?? []).map((candidate) => {
-        if (candidate.id !== contribution.id) return candidate
-        const events = candidate.events.some((event) => event.id === receipt.id)
-          ? candidate.events
-          : [...candidate.events, receipt].sort((a, b) => a.at - b.at)
-        const latest = candidate.changeset?.length ?? 0
-        const mayAdoptReview =
-          latest === intent.reviewedVersion &&
-          contribution.reviewedVersion === intent.reviewedVersion
-        return {
-          ...candidate,
-          events,
-          ...(mayAdoptReview ? { reviewedVersion: intent.reviewedVersion } : {}),
-        }
-      }),
+      (current ?? []).map((candidate) =>
+        candidate.id === intent.contributionId ? mergeReview(candidate, receipt) : candidate,
+      ),
     )
   }
   invalidate(keys.contributions(intent.projectId))
   invalidate(keys.attention(intent.projectId))
 }
 
-export async function applyContributionReview(
-  intent: ContributionReviewIntent,
-  idempotencyKey: string,
-): Promise<void> {
-  const expectedId = await contributionReviewId(
+async function receiptId(intent: ContributionReviewIntent, idempotencyKey: string): Promise<string> {
+  return contributionReviewId(
     intent.tenantId,
     intent.projectId,
     intent.contributionId,
     idempotencyKey,
   )
+}
+
+export async function applyContributionReview(
+  intent: ContributionReviewIntent,
+  idempotencyKey: string,
+): Promise<void> {
+  const expectedId = await receiptId(intent, idempotencyKey)
+  const request: ReviewContributionRequest = {
+    expectedVersion: intent.expectedVersion,
+    reviewer: intent.reviewer,
+  }
   const contribution = await apiPost<Contribution>(
     paths.contributionReview(intent.projectId, intent.contributionId),
-    { expectedVersion: intent.reviewedVersion } satisfies ReviewContributionRequest,
+    request,
     { idempotencyKey },
   )
-  if (!receiptFor(contribution, expectedId, intent.reviewedVersion)) {
-    throw new Error('The review acknowledgement did not match the changeset version that was reviewed.')
+  const receipt = receiptFor(contribution, expectedId, intent.expectedVersion)
+  if (!receipt) {
+    throw new Error('The review acknowledgement did not match this reviewer and frozen changeset version.')
   }
+  // A keyed pending receipt is durable transport truth too. The page will keep
+  // it visibly pending and block another paid dispatch until a later read settles it.
   rememberReview(intent, contribution, expectedId)
 }
 
@@ -79,16 +108,11 @@ export async function reconcileContributionReview(
   _baseline: undefined,
   idempotencyKey: string,
 ): Promise<boolean> {
-  const expectedId = await contributionReviewId(
-    intent.tenantId,
-    intent.projectId,
-    intent.contributionId,
-    idempotencyKey,
-  )
+  const expectedId = await receiptId(intent, idempotencyKey)
   const incoming = await apiGet<Contribution[]>(paths.contributions(intent.projectId))
   const contribution = incoming.find((candidate) => candidate.id === intent.contributionId)
   const receipt = contribution
-    ? receiptFor(contribution, expectedId, intent.reviewedVersion)
+    ? receiptFor(contribution, expectedId, intent.expectedVersion)
     : undefined
   if (!peek<Contribution[]>(keys.contributions(intent.projectId))) {
     setData(keys.contributions(intent.projectId), incoming)

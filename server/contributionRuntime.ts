@@ -3,6 +3,7 @@
  * delegated policy evaluator, or effect-envelope executor. Release profiles
  * therefore cannot borrow these deterministic development outcomes. */
 import type { Contribution } from '../contract/index.ts'
+import { realReviewVersion, type StoredContributionReview } from './contributionReviewState.ts'
 
 export function contributionRuntimeMode(
   env: Record<string, string | undefined> = process.env,
@@ -12,7 +13,11 @@ export function contributionRuntimeMode(
 
 /** Old snapshots retain their timeline, but a fixture verdict is not current
  * execution authority in a release. Reuse this for the wire face and the gate. */
-export function contributionReviewVersion(contribution: Pick<Contribution, 'reviewedVersion'>): number | undefined {
+export function contributionReviewVersion(contribution: Pick<Contribution, 'reviewedVersion' | 'changeset'> & { reviewAttempts?: StoredContributionReview[] }): number | undefined {
+  // A newer real attempt supersedes any earlier verdict, including a fixture.
+  if (contribution.reviewAttempts?.some((run) => run.version === contribution.changeset?.at(-1)?.version)) {
+    return realReviewVersion(contribution)
+  }
   return contributionRuntimeMode() === 'fixture' ? contribution.reviewedVersion : undefined
 }
 
