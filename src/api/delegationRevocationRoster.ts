@@ -9,6 +9,7 @@ export function mergeDelegationRevocationRoster(
 ): Delegation[] {
   if (!represented) return current.filter((delegation) => delegation.id !== delegationId)
   return current.some((delegation) => delegation.id === delegationId)
-    ? current.map((delegation) => delegation.id === delegationId ? represented : delegation)
+    ? current.map((delegation) => delegation.id === delegationId &&
+      (represented.revision ?? 0) >= (delegation.revision ?? 0) ? represented : delegation)
     : [...current, represented]
 }

@@ -86,6 +86,55 @@ unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
 
+### Approved delegation lifecycle and judgment policy (2026-10-06 UTC)
+
+The owner approved both pending defaults: real delegated judgment is explicitly
+started by the Project owner on their own budget, with no tools and only the
+written policy, frozen changeset/envelope and necessary risk facts. Draft mode
+is advice; Decide mode may approve a read-only envelope or land a non-effectful
+Contribution only after current authority and exact versions are rechecked.
+Irreversible actions always return to the human. Uncertain requests never retry
+automatically. Delegation policies support explicit versioned edits and expiry;
+changing or expiring a grant invalidates any unfinished decision's authority.
+
+Implementation is staged at complete checkpoints: first the owner-facing policy
+lifecycle and durable version/expiry boundary, then the separately metered model
+judgment seam and native acceptance. This approval does not authorize a paid
+provider acceptance run, external-effect execution or signing credentials.
+
+The policy lifecycle now retains the original grant and up to 49 explicit edits,
+including policy text, autonomy, triggers and expiry, privately for its owner.
+Agent and act identity stay fixed. Editing requires the original delegator's
+current Project ownership and exact reviewed version; retry proves the retained
+next-version payload and returns current truth without reverting later edits.
+Expired grants remain readable and revocable but authorize no new judgment.
+Revocation pins both grant identity and policy revision. Legacy immutable grants
+retain revision-zero meaning and no expiry.
+
+The editor keeps unsent policy and uncertain requests across navigation, exposes
+exact Retry or explicit Dismiss/review, and never rebases authority silently.
+The boundary tests include owner/shared/foreign projections, stale writes,
+bounded history, expiry, JSON/SQLite restart and unchanged release refusal.
+Adversarial review caught two persistence admission gaps: unknown row fields
+could enter shared projections, and a fabricated retirement receipt could
+acknowledge revocation while authority remained live. Strict row/receipt
+admission now rejects both, with each lock watched fail against its disabled
+guard. This checkpoint does not yet enable real delegated model judgment.
+
+The UI review also corrected duplicate-pane draft divergence and aligned Edit
+and Revoke with their distinct server authority rules. All open editors now
+observe one memory-only draft; the original delegator may edit only while still
+owning the Project, while either the delegator or current owner may revoke.
+The final full visual sweep covered 135/135 cells without violations or skips;
+focused browser checks cover held navigation, lost responses, explicit
+stale-policy review and synchronized duplicate panes. Two full-verifier runs
+then exposed a deferred-section layout regression during a neighboring Land
+click. The retained trace identified the swap during the pointer action; a
+delayed-module test reproduced a 21-pixel shift. Loading and failure now retain
+the shared folded-section anatomy, with held-pointer and local-recovery locks.
+The complete local verifier remains mandatory before landing; no GitHub CI is
+used.
+
 ### Packaged owner-review lifecycle acceptance (2026-10-06 UTC)
 
 The rebuilt unsigned arm64 application now has a dedicated acceptance phase in

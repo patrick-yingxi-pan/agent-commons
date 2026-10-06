@@ -28,6 +28,20 @@ export const DELEGATED_ACT_KINDS: DelegatedActKind[] = ['approve-envelope', 'lan
 export type EscalationTrigger = 'effectful' | 'unreviewed' | 'stranger'
 export const ESCALATION_TRIGGERS: EscalationTrigger[] = ['effectful', 'unreviewed', 'stranger']
 
+export const MAX_DELEGATION_POLICY_CHARS = 2000
+export const MAX_DELEGATION_VERSIONS = 50
+
+/** An immutable owner-only policy snapshot. Revision zero is the original grant;
+ * changing criteria, autonomy, triggers or expiry always creates a new version. */
+export interface DelegationPolicyVersion {
+  revision: number
+  policy: string
+  escalation: EscalationTrigger[]
+  mode: 'draft' | 'decide'
+  expiresAt?: number
+  updatedAt: number
+}
+
 export interface Delegation {
   id: string
   projectId: string
@@ -45,6 +59,14 @@ export interface Delegation {
    *  Promotion is the delegator's explicit edit — offered, never automatic. */
   mode: 'draft' | 'decide'
   createdAt: number
+  /** Absent legacy ordering means zero. Agent and act identity remain fixed. */
+  revision?: number
+  /** Absolute UTC milliseconds. Absence means no time limit, never auto-renewal. */
+  expiresAt?: number
+  /** Computed at read time; execution rechecks the deadline independently. */
+  expired?: boolean
+  /** OWNER-ONLY retained criteria, including the original grant. */
+  versions?: DelegationPolicyVersion[]
   /** Viewer-relative (computed, never stored): the caller is the delegator. */
   mine?: boolean
 }
@@ -58,14 +80,25 @@ export interface CreateDelegationRequest {
    *  if omitted — stating it is fine, dropping it is impossible). */
   escalation?: EscalationTrigger[]
   mode?: 'draft' | 'decide'
+  expiresAt?: number
+}
+
+/** Full policy replacement: no field is inferred from mutable server truth.
+ * An exact represented next version is a replay; differing stale intent conflicts.
+ * Null explicitly removes the expiry. Agent/act changes require a new grant. */
+export interface PatchDelegationRequest {
+  expectedRevision: number
+  policy: string
+  escalation: EscalationTrigger[]
+  mode: 'draft' | 'decide'
+  expiresAt: number | null
 }
 
 /** Body of `DELETE /v1/projects/:id/delegations/:did`.
  *
- * Delegations are immutable authority rows, so their creation stamp is the
- * complete compare boundary: a revocation may remove only the exact grant the
- * person saw. Omission preserves the legacy unconditional-delete contract for
- * older callers. */
+ * First-party revocation pins both identity and the reviewed policy version.
+ * Omission retains each legacy unconditional precondition meaning. */
 export interface DeleteDelegationRequest {
   expectedCreatedAt?: number
+  expectedRevision?: number
 }

@@ -44,6 +44,7 @@ import type {
 } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { validStoredReviews, type StoredContributionReview } from '../contributionReviewState.ts'
+import { validStoredDelegations, validDelegationRetirements } from '../delegationPolicy.ts'
 import { imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
 import { isServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
@@ -209,7 +210,7 @@ export type StoredContributionEvent = ContributionEvent & {
  *  raw tenant id (the conservation-law anchor: the delegated decision executes
  *  as this tenant, and authorization compares raw ids — the D23 lesson). The
  *  projection strips it; `policy` is served to the delegator only. */
-export interface StoredDelegation extends Omit<Delegation, 'mine'> {
+export interface StoredDelegation extends Omit<Delegation, 'mine' | 'expired'> {
   delegatorTenant: string
 }
 
@@ -224,6 +225,7 @@ export interface StoredDelegationRetirement {
   revocationId?: string
   revokedByTenant?: string
   expectedCreatedAt?: number
+  expectedRevision?: number
 }
 
 /** A Grant as STORED (social layer S1) — the wire row plus the GRANTER's raw
@@ -623,6 +625,8 @@ export interface PersistenceBackend {
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
 export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  if (state?.delegations !== undefined && !validStoredDelegations(state.delegations)) return false
+  if (state?.delegationRetirements !== undefined && !validDelegationRetirements(state.delegationRetirements, state.delegations ?? [])) return false
   if (state?.contributions !== undefined) {
     if (!Array.isArray(state.contributions)) return false
     const reviewIds = new Set<string>()

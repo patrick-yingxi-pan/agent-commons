@@ -206,6 +206,8 @@ export interface ContributionEvent {
    * event id is the durable receipt for one keyed Ask action, so recovery never
    * infers success from a later envelope/status change. */
   delegationId?: string
+  /** Exact standing-policy version used; absence identifies legacy history. */
+  delegationRevision?: number
   /** `note`: the comment body. The envelope/effect kinds: a one-line record
    *  ("v2 · 2 acts", "connector.write → gmail · draft-escrow", the refusal
    *  reason). `opened` / `landed` carry no body — the contribution's own

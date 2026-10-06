@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('one-tap Delegation revocation stays visible until exact durable acknowledgement', () => {
-  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'DelegationPanel.tsx')))
   const legacy = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'delegationRevocationCommands.ts')))
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'delegationRevocationMutations.ts')))
@@ -22,9 +22,9 @@ test('one-tap Delegation revocation stays visible until exact durable acknowledg
   assert.match(view, /heldDelegationRevocations\(project\.id\)/,
     'an early authoritative absence cannot make uncertain intent disappear')
   assert.match(view, /data-delegation-revocation=\{revoking \|\| undefined\}/)
-  assert.match(view, /disabled=\{revoking\}/)
+  assert.match(view, /disabled=\{revoking \|\| policyHeld\}/)
   assert.match(view, /revoking \? <Spinner/)
-  assert.match(view, /title="Revoke — descent is always one tap"/,
+  assert.match(view, /'Revoke — descent is always one tap'/,
     'durable recovery does not add ceremony to cheap authority descent')
 
   assert.match(facade, /heldSnapshots = new Map<string, Delegation>/)
@@ -32,10 +32,10 @@ test('one-tap Delegation revocation stays visible until exact durable acknowledg
     'held private policy text and late acknowledgements are fenced by account')
   assert.match(facade, /import\('\.\/delegationRevocationMutationRuntime\.ts'\)/,
     'low-frequency transport stays out of the cold-start bundle')
-  assert.match(runtime, /createRevisionedDeletionMutationController<Delegation>/,
+  assert.match(runtime, /createRevisionedDeletionMutationController<Delegation, DeleteDelegationRequest>/,
     'revocation reuses the tested destructive FIFO')
-  assert.match(runtime, /revision: \(delegation\) => delegation\.createdAt/,
-    'the immutable authority row is the exact reviewed precondition')
+  assert.match(runtime, /revision: \(delegation\) => \(\{ expectedCreatedAt: delegation\.createdAt, expectedRevision: delegation\.revision \?\? 0 \}\)/,
+    'identity and the mutable policy version both pin reviewed revocation')
   assert.match(runtime, /mintIdempotencyKey: \(\) => crypto\.randomUUID\(\)/)
 
   assert.match(commands, /apiDelete<\{ ok: true \}>[\s\S]*expectedCreatedAt[\s\S]*idempotencyKey/)

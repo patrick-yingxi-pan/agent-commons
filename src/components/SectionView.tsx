@@ -441,16 +441,10 @@ import {
 } from '../controller/systemPromptDefinitionMutations'
 import { enqueueSystemPromptCreation } from '../controller/systemPromptCreationMutations'
 import {
-  enqueueDelegationCreation,
-  isDelegationCreationHeld,
-  useDelegationCreationStatus,
-} from '../controller/delegationCreationMutations.ts'
-import {
-  enqueueDelegationRevocation,
-  heldDelegationRevocations,
   isDelegationRevocationHeld,
   useDelegationRevocationStatus,
 } from '../controller/delegationRevocationMutations.ts'
+import { isDelegationPolicyHeld, useDelegationPolicyHolds } from '../controller/delegationPolicyHolds.ts'
 import {
   enqueueDelegatedJudgment,
   heldDelegatedJudgmentIntent,
@@ -665,8 +659,6 @@ import {
   AUDIT_CHANNEL_LABEL,
   type EnvelopeHarness,
   type ChangeEntryKind,
-  type DelegatedActKind,
-  type EscalationTrigger,
   type A2aAgentCard,
   type Agent,
   type AgentToolEntry,
@@ -737,6 +729,34 @@ class DesktopDataBoundary extends Component<{ children: ReactNode }, { failed: b
   render() {
     return this.state.failed
       ? <InlineOperationStatus tone="alert" message="Couldn’t load backup controls. Your data was not changed. Copy unsent text before reloading." action={{ label: 'Reload app', onClick: () => window.location.reload() }} />
+      : this.props.children
+  }
+}
+
+const DeferredDelegationPanel = lazy(() => import('./DelegationPanel').then(({ DelegationPanel }) => ({ default: DelegationPanel })))
+
+/** Keep the shared section anatomy while its controls load. A bare status row
+ * moved the neighboring Land button between pointer-down and pointer-up. */
+function DelegationPanelPlaceholder({ failed = false }: { failed?: boolean }) {
+  return (
+    <FoldSection
+      title="Delegation"
+      defaultFolded
+      summary={<span role={failed ? 'alert' : 'status'}>{failed ? 'Couldn’t load Delegation controls. Open for recovery.' : 'Loading Delegation controls…'}</span>}
+    >
+      {failed
+        ? <InlineOperationStatus tone="alert" message="Couldn’t load Delegation controls. Opening the panel does not send changes. Held edits remain available in recovery. Reloading clears unsent drafts and in-memory recovery; copy your draft and check saved versions afterward." action={{ label: 'Reload app', onClick: () => window.location.reload() }} />
+        : <InlineOperationStatus tone="status" message="Loading Delegation controls…" />}
+    </FoldSection>
+  )
+}
+
+class DelegationPanelBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    return this.state.failed
+      ? <DelegationPanelPlaceholder failed />
       : this.props.children
   }
 }
@@ -1778,15 +1798,13 @@ function ProjectDetail({
             <DefaultRolePicker project={project} />
           </FoldSection>}
 
-          {/* Delegation (CW8, Phase F) — the owner's judgment, handed to their
-              own worker Agent under a written policy: band 2 because it is the
-              owner's CONFIGURATION (S16's rule), while the delegated acts
-              themselves show on each contribution's public timeline. */}
-          {showProjectSection('delegation') && <DelegationPanel project={project} />}
+          </>
+          )}
 
-          {/* The whole run is already owner-gated above — these panels don't
-              re-check `own` (the inner guards were dead-always-true). */}
-          {showProjectSection('scheduled') && <FoldSection
+          {/* Shared governance; editing additionally requires current ownership. */}
+          {showProjectSection('delegation') && <DelegationPanelBoundary><Suspense fallback={<DelegationPanelPlaceholder />}><DeferredDelegationPanel project={project} /></Suspense></DelegationPanelBoundary>}
+
+          {project.own !== false && showProjectSection('scheduled') && <FoldSection
             title="Routines"
             defaultFolded
             summary={
@@ -1838,9 +1856,6 @@ function ProjectDetail({
               </div>
             )}
           </FoldSection>}
-
-          </>
-          )}
 
           {/* ── Band 3 · the HISTORIES ────────────────────────────────────────
               What accumulates. Each of these three is as long as the project is
@@ -6611,6 +6626,9 @@ function ContributionPage({
   const c = list.find((x) => x.id === contributionId) ?? null
   // Hook order: read before any early return (the missing-contribution page).
   const delegationList = useDelegations(project.id).data ?? []
+  const delegationNow = useDelegationClock()
+  useDelegationRevocationStatus()
+  useDelegationPolicyHolds()
   const me = useMe().data
   useContributionLandingStatus()
   useContributionEffectExecutionStatus()
@@ -6674,8 +6692,12 @@ function ContributionPage({
       ? undefined
       : delegationList.find(
           (d) =>
-            (d.actKind === 'approve-envelope' && c.envelope?.status === 'proposed') ||
-            (d.actKind === 'land' && c.envelope?.status !== 'proposed'),
+            d.expired !== true && !(d.expiresAt != null && d.expiresAt <= delegationNow)
+            && !isDelegationRevocationHeld(d.id)
+            && (
+              (d.actKind === 'approve-envelope' && c.envelope?.status === 'proposed') ||
+              (d.actKind === 'land' && c.envelope?.status !== 'proposed')
+            ),
         )
   const delegationAction: Pick<Delegation, 'id' | 'agentLabel' | 'actKind' | 'escalation'> | undefined =
     heldDelegatedJudgment
@@ -6823,7 +6845,7 @@ function ContributionPage({
             {delegationAction && (
               <button
                 onClick={() => askDelegate(delegationAction)}
-                disabled={lifecycleHeld}
+                disabled={lifecycleHeld || isDelegationPolicyHeld(delegationAction.id)}
                 title={heldDelegatedJudgment
                   ? `Waiting to confirm ${heldDelegatedJudgment.agentLabel}’s judgment`
                   : `Ask ${delegationAction.agentLabel} to ${delegationAction.actKind === 'land' ? 'land' : 'decide the envelope'} under its delegator's policy — escalates on ${delegationAction.escalation.join(', ')}`}
@@ -7077,205 +7099,14 @@ function AttentionPanel({ project, standalone = false }: { project: Project; sta
   )
 }
 
-/** The delegation panel (CW8, Phase F) — the owner's rail configuration: mint
- *  a Delegation (their own Agent + act kind + written policy + escalation
- *  triggers beyond the mandatory `effectful`) and revoke at a tap. The funnel
- *  refusals live server-side; this only shapes the ask. */
-function DelegationPanel({ project }: { project: Project }) {
-  const currentList = useDelegations(project.id).data ?? []
-  useDelegationRevocationStatus()
-  // A committed DELETE may reach the roster over SSE before its originating
-  // acknowledgement. Keep the exact reviewed authority row visible until the
-  // revocation controller proves success or the person dismisses uncertainty.
-  const list = [
-    ...currentList,
-    ...heldDelegationRevocations(project.id).filter((held) =>
-      !currentList.some((delegation) => delegation.id === held.id)),
-  ].sort((a, b) => a.createdAt - b.createdAt)
-  const agents = useAgents().data ?? []
-  const tenantId = useMe().data?.tenant.id
-  useDelegationCreationStatus()
-  const [composing, setComposing] = useState(false)
-  const [agentId, setAgentId] = useState('')
-  const [actKind, setActKind] = useState<DelegatedActKind>('approve-envelope')
-  const [mode, setMode] = useState<'draft' | 'decide'>('draft')
-  const [policy, setPolicy] = useState('')
-  const [extraTriggers, setExtraTriggers] = useState<Set<EscalationTrigger>>(new Set())
-  const [error, setError] = useState<string | null>(null)
-  const held = isDelegationCreationHeld(project.id)
-  const mint = async () => {
-    const agent = agentId || agents[0]?.id
-    if (held || !tenantId || !agent || !policy.trim()) return
-    setError(null)
-    try {
-      const outcome = await enqueueDelegationCreation({
-        tenantId,
-        projectId: project.id,
-        request: { agentId: agent, actKind, policy: policy.trim(), mode, escalation: [...extraTriggers] },
-      })
-      if (outcome === 'applied') {
-        setPolicy('')
-        setComposing(false)
-      } else {
-        setError('Your Delegation is still here. Review it, then delegate again when ready.')
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not delegate.')
-    }
-  }
-  return (
-    <FoldSection
-      title="Delegation"
-      defaultFolded
-      heldOpen={held}
-      summary={list.length === 0 ? 'No judgment delegated' : `${list.length} standing ${list.length === 1 ? 'policy' : 'policies'}`}
-      actions={
-        <SectionAction
-          label="Delegate judgment"
-          icon={<Plus size={14} />}
-          onClick={() => { if (!held) setComposing((v) => !v) }}
-          expanded={composing}
-          disabled={held || !tenantId}
-          disabledReason={held ? 'Waiting for server acknowledgement' : 'Waiting for your account'}
-        />
-      }
-    >
-      {list.length === 0 ? (
-        <p className="text-[12px] text-ink-faint">
-          No judgment delegated. An Agent of yours can approve envelopes or land contributions under
-          your written policy — irreversible acts always escalate back to you.
-        </p>
-      ) : (
-        <div className="space-y-2.5">
-          {list.map((d) => {
-            const revoking = isDelegationRevocationHeld(d.id)
-            return (
-              <div
-                key={d.id}
-                className="group flex items-start gap-2.5"
-                aria-busy={revoking}
-                data-delegation-revocation={revoking || undefined}
-                data-delegation-id={d.id}
-              >
-                <span className="mt-1 flex h-2.5 w-2.5 shrink-0 items-center justify-center text-accent">
-                  {revoking ? <Spinner size={10} /> : <span className="h-1.5 w-1.5 rounded-full bg-accent" />}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-medium text-ink">
-                    {d.agentLabel} · {d.actKind === 'land' ? 'lands' : 'approves envelopes'}
-                  </div>
-                  <div className="text-[11px] text-ink-faint">
-                    {d.mode === 'draft' ? 'drafts (L1)' : 'decides (L2)'} · escalates on {d.escalation.join(', ')}
-                  </div>
-                  {d.mine === true && d.policy && (
-                    <div className="truncate text-[11px] italic text-ink-faint" title={d.policy}>
-                      “{d.policy}”
-                    </div>
-                  )}
-                </div>
-                {d.mine === true && (
-                  <button
-                    onClick={() => { if (!revoking) void enqueueDelegationRevocation(d) }}
-                    disabled={revoking}
-                    aria-label={`${revoking ? 'Revoking' : 'Revoke'} ${d.agentLabel}'s delegation`}
-                    title="Revoke — descent is always one tap"
-                    className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-ink-faint hover:bg-removed-bg hover:text-removed focus-visible:opacity-100 disabled:opacity-60 ${revoking ? 'opacity-100' : HOVER_REVEAL}`}
-                  >
-                    {revoking ? <Spinner size={12} /> : <X size={13} />}
-                  </button>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
-      {composing && (
-        <div data-delegation-creation-form className="mt-2.5 space-y-2" aria-busy={held}>
-          <p className="text-[11px] leading-relaxed text-ink-faint">
-            Choose what this Agent may judge and write the rule it must follow. Labor moves; liability stays yours.
-          </p>
-          <select
-            value={agentId || agents[0]?.id || ''}
-            onChange={(e) => setAgentId(e.target.value)}
-            aria-label="Delegate agent"
-            disabled={held}
-            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-          >
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
-              </option>
-            ))}
-          </select>
-          <div className="flex items-center gap-1.5">
-            <select
-              value={actKind}
-              onChange={(e) => setActKind(e.target.value as DelegatedActKind)}
-              aria-label="Delegated act"
-              disabled={held}
-              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-            >
-              <option value="approve-envelope">approve envelopes</option>
-              <option value="land">land contributions</option>
-            </select>
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as 'draft' | 'decide')}
-              aria-label="Autonomy rung"
-              title="A recommendation waits for you; an automatic decision acts as you when the policy fits"
-              disabled={held}
-              className="rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-            >
-              <option value="draft">recommend only</option>
-              <option value="decide">decide within policy</option>
-            </select>
-          </div>
-          <input
-            value={policy}
-            onChange={(e) => setPolicy(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void mint()
-              if (e.key === 'Escape' && !held) setComposing(false)
-            }}
-            placeholder="Your policy, in your words (required)…"
-            aria-label="Delegation policy"
-            disabled={held}
-            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-          />
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-ink-soft">
-            <span className="text-ink-faint" title="The floor is not delegable">
-              ✓ Irreversible action (always asks you)
-            </span>
-            {(['unreviewed', 'stranger'] as EscalationTrigger[]).map((t) => (
-              <CheckboxRow
-                key={t}
-                checked={extraTriggers.has(t)}
-                disabled={held}
-                onToggle={() =>
-                  setExtraTriggers((s) => {
-                    const next = new Set(s)
-                    if (next.has(t)) next.delete(t)
-                    else next.add(t)
-                    return next
-                  })
-                }
-              >
-                {t === 'unreviewed' ? 'No adversarial review' : 'Outside contributor'}
-              </CheckboxRow>
-            ))}
-            <button
-              onClick={() => void mint()}
-              disabled={held || !tenantId || !policy.trim() || agents.length === 0}
-              className={`ml-auto ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-            >
-              {held ? 'Establishing…' : 'Delegate'}
-            </button>
-          </div>
-          {error && <p className="text-[11px] text-removed">{error}</p>}
-        </div>
-      )}
-    </FoldSection>
-  )
+/** Keep deadline affordances current; the server rechecks expiry at execution. */
+function useDelegationClock(): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 15_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  return now
 }
 
 /** The changeset card (CW3/CW4, Phase D) — the contribution page's payload

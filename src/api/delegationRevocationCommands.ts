@@ -19,12 +19,12 @@ function rememberTarget(
 export async function applyDelegationRevocation(
   projectId: string,
   delegationId: string,
-  expectedCreatedAt: number,
+  precondition: DeleteDelegationRequest,
   idempotencyKey: string,
 ): Promise<void> {
   await apiDelete<{ ok: true }>(
     paths.delegation(projectId, delegationId),
-    { expectedCreatedAt } satisfies DeleteDelegationRequest,
+    { expectedCreatedAt: precondition.expectedCreatedAt, expectedRevision: precondition.expectedRevision } satisfies DeleteDelegationRequest,
     { idempotencyKey },
   )
   rememberTarget(projectId, delegationId, undefined)

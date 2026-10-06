@@ -18,6 +18,8 @@ import { contributionRuntimeMode, contributionReviewVersion } from '../contribut
 import { publicReviewRun, reviewChangesetHash, sameReviewerBinding, validReviewerBinding, type StoredContributionReview } from '../contributionReviewState.ts'
 import { MAX_CONTRIBUTION_REVIEWS, type ContributionReviewerBinding } from '../../contract/contributionReview.ts'
 import { ContributionReviewGenerationError } from '../contributionReviewResult.ts'
+import { delegationPolicyPatch, delegationVersions, sameDelegationPolicy, validDelegationExpiry } from '../delegationPolicy.ts'
+import { MAX_DELEGATION_POLICY_CHARS, MAX_DELEGATION_VERSIONS, type PatchDelegationRequest } from '../../contract/delegations.ts'
 import { UsageRecordingError } from '../modelUsage.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseArtifactLifecycleEntries } from '../artifactLifecycle.ts'
@@ -676,15 +678,16 @@ const delegations: StoredDelegation[] = []
 const delegationRetirements: StoredDelegationRetirement[] = []
 let delegationSeq = 0
 const MAX_DELEGATIONS_PER_PROJECT = 10
-const MAX_DELEGATION_POLICY_CHARS = 2000
 
 /** Wire face: strip the raw tenant anchor; the POLICY is the delegator's own
  *  instrument — served to them alone (the roster row itself is legible
  *  governance any project viewer may read). */
 function publicDelegation(d: StoredDelegation, viewerTenant?: string): Delegation {
-  const { delegatorTenant, policy, ...pub } = d
+  const { delegatorTenant, policy, versions: _versions, ...pub } = d
   const mine = viewerTenant !== undefined && delegatorTenant === viewerTenant
-  return { ...pub, ...(mine ? { policy, mine: true } : {}) }
+  return structuredClone({ ...pub, revision: d.revision ?? 0,
+    expired: d.expiresAt !== undefined && d.expiresAt <= Date.now(),
+    ...(mine ? { policy, mine: true, versions: delegationVersions(d) } : {}) })
 }
 
 function delegationRevocationReceipt(
@@ -693,6 +696,7 @@ function delegationRevocationReceipt(
   did: string,
   expectedCreatedAt: number | undefined,
   tenantId: string,
+  expectedRevision?: number,
 ): true | 'invalid' | undefined {
   if (!isDelegationRevocationId(revocationId)) return 'invalid'
   const represented = delegationRetirements.find((retirement) => retirement.revocationId === revocationId)
@@ -701,6 +705,7 @@ function delegationRevocationReceipt(
     represented.projectId !== projectId ||
     represented.delegationId !== did ||
     represented.expectedCreatedAt !== expectedCreatedAt ||
+    represented.expectedRevision !== expectedRevision ||
     represented.revokedByTenant !== tenantId
   ) return 'invalid'
   return true
@@ -10233,7 +10238,8 @@ export const store = {
     // The self-proposed optimization (owner-only): ≥2 manual approvals of
     // MONOTONIC envelopes with no approve-envelope delegation standing —
     // a pattern a draft-mode delegation could hold.
-    const hasApproveDelegation = delegations.some((d) => d.projectId === projectId && d.actKind === 'approve-envelope')
+    const hasApproveDelegation = delegations.some((d) => d.projectId === projectId && d.actKind === 'approve-envelope' &&
+      (d.expiresAt === undefined || d.expiresAt > Date.now()))
     const proposal =
       contributionRuntimeMode() === 'fixture' && ownerActs && manualMonotonicApprovals >= 2 && !hasApproveDelegation
         ? `${manualMonotonicApprovals} of your approvals were monotonic-only envelopes — a draft-mode delegation could hold these (irreversible ones would still escalate to you).`
@@ -10283,7 +10289,9 @@ export const store = {
       (req.escalation !== undefined && (!Array.isArray(req.escalation) || req.escalation.some((t) => !ESCALATION_TRIGGERS.includes(t)))) ||
       (req.mode !== undefined && req.mode !== 'draft' && req.mode !== 'decide')
     ) return 'invalid'
-    const escalation = [...new Set(['effectful' as const, ...(req.escalation ?? [])])]
+    if (req.policy.trim().length > MAX_DELEGATION_POLICY_CHARS ||
+      (req.expiresAt !== undefined && (!validDelegationExpiry(req.expiresAt) || req.expiresAt <= Date.now()))) return 'invalid'
+    const escalation = ESCALATION_TRIGGERS.filter((trigger) => trigger === 'effectful' || req.escalation?.includes(trigger))
     return commitMutationBatch(() => {
       const id = options.logicalId ?? `delegation-${delegationSeq + 1}`
       if (!options.logicalId) delegationSeq += 1
@@ -10297,9 +10305,46 @@ export const store = {
         escalation,
         mode: req.mode ?? 'draft',
         createdAt: Date.now(),
+        revision: 0,
+        ...(req.expiresAt === undefined ? {} : { expiresAt: req.expiresAt }),
         delegatorTenant: tenantId,
       }
+      d.versions = delegationVersions(d)
       delegations.push(d)
+      emit({ type: 'delegation.changed', projectId })
+      persist()
+      return publicDelegation(d, tenantId)
+    })
+  },
+  /** Exact-version full replacement. Retained next-version truth proves replay
+   * even after later edits; neither Retry nor a stale tab can widen authority. */
+  patchDelegation(projectId: string, did: string, request: PatchDelegationRequest, tenantId: string): Delegation | 'forbidden' | undefined {
+    const d = delegations.find((row) => row.id === did && row.projectId === projectId)
+    const project = findProject(projectId)
+    if (!d || !project) return undefined
+    if (d.delegatorTenant !== tenantId || !tenantWritesAs(tenantId, project.tenantId ?? defaultTenantId())) return 'forbidden'
+    const input = delegationPolicyPatch(request)
+    const versions = delegationVersions(d)
+    const represented = versions.find((version) => version.revision === input.expectedRevision + 1)
+    if (represented && sameDelegationPolicy(represented, input)) return publicDelegation(d, tenantId)
+    if (input.expectedRevision !== (d.revision ?? 0)) {
+      throw new ConflictError('This Delegation policy changed. Review its current version before editing again.')
+    }
+    if (versions.length >= MAX_DELEGATION_VERSIONS) throw new ConflictError('This Delegation has reached its 50-version limit. Revoke it and create a replacement.')
+    if (input.expiresAt !== null && input.expiresAt <= Date.now()) throw new ValidationError('The expiry must be in the future.')
+    const version = {
+      revision: input.expectedRevision + 1, policy: input.policy, escalation: input.escalation, mode: input.mode,
+      ...(input.expiresAt === null ? {} : { expiresAt: input.expiresAt }),
+      updatedAt: Math.max(Date.now(), versions.at(-1)!.updatedAt),
+    }
+    return commitMutationBatch(() => {
+      d.policy = version.policy
+      d.escalation = version.escalation
+      d.mode = version.mode
+      d.revision = version.revision
+      if (version.expiresAt === undefined) delete d.expiresAt
+      else d.expiresAt = version.expiresAt
+      d.versions = [...versions, version]
       emit({ type: 'delegation.changed', projectId })
       persist()
       return publicDelegation(d, tenantId)
@@ -10309,14 +10354,14 @@ export const store = {
    *  The PROJECT OWNER's write-union may also revoke (review finding: a seat-
    *  holder who minted and then lost the seat must not leave an irrevocable
    *  row squatting on the roster — the owner governs their project's gates).
-   *  The immutable creation stamp pins first-party consent. A keyed act also
+   *  The creation stamp and policy revision pin first-party consent. A keyed act also
    *  leaves a private durable receipt; every keyed-created row leaves a
    *  tombstone so a delayed creation Retry cannot resurrect revoked authority. */
   deleteDelegation(
     projectId: string,
     did: string,
     tenantId: string,
-    options: { expectedCreatedAt?: number; revocationId?: string } = {},
+    options: { expectedCreatedAt?: number; expectedRevision?: number; revocationId?: string } = {},
   ): true | 'forbidden' | 'invalid' | undefined {
     if (options.revocationId) {
       const replay = delegationRevocationReceipt(
@@ -10325,6 +10370,7 @@ export const store = {
         did,
         options.expectedCreatedAt,
         tenantId,
+        options.expectedRevision,
       )
       if (replay !== undefined) return replay
     }
@@ -10333,6 +10379,9 @@ export const store = {
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
     if (delegations[i].delegatorTenant !== tenantId && !tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     const delegation = delegations[i]
+    if (options.expectedRevision !== undefined && options.expectedRevision !== (delegation.revision ?? 0)) {
+      throw new ConflictError('This Delegation policy changed. Review its current version before revoking it.')
+    }
     if (options.expectedCreatedAt !== undefined && options.expectedCreatedAt !== delegation.createdAt) {
       throw new ConflictError(
         `This delegation no longer matches the reviewed authority (expected creation stamp ${options.expectedCreatedAt}, current stamp ${delegation.createdAt}).`,
@@ -10349,7 +10398,8 @@ export const store = {
             ? {
                 revocationId: options.revocationId,
                 revokedByTenant: tenantId,
-                expectedCreatedAt: options.expectedCreatedAt,
+                ...(options.expectedCreatedAt === undefined ? {} : { expectedCreatedAt: options.expectedCreatedAt }),
+                ...(options.expectedRevision === undefined ? {} : { expectedRevision: options.expectedRevision }),
               }
             : {}),
         })
@@ -10367,8 +10417,9 @@ export const store = {
     did: string,
     expectedCreatedAt: number | undefined,
     tenantId: string,
+    expectedRevision?: number,
   ): true | 'invalid' | undefined {
-    return delegationRevocationReceipt(revocationId, projectId, did, expectedCreatedAt, tenantId)
+    return delegationRevocationReceipt(revocationId, projectId, did, expectedCreatedAt, tenantId, expectedRevision)
   },
   /** Current containing ledger row for one exact delegated-judgment receipt.
    * Replay does not depend on the Delegation still standing or on the acted-on
@@ -10425,6 +10476,7 @@ export const store = {
     const d = delegations.find((x) => x.id === did && x.projectId === projectId)
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!d || !c) return undefined
+    if (d.expiresAt !== undefined && d.expiresAt <= Date.now()) return 'inapplicable'
     if (c.status !== 'open') return 'inapplicable'
     const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
     if (isContributor && tenantId !== d.delegatorTenant) return 'self'
@@ -10441,6 +10493,7 @@ export const store = {
         actor: stamp,
         body,
         delegationId: d.id,
+        delegationRevision: d.revision ?? 0,
         ...(options.logicalId ? { delegatedByTenant: tenantId } : {}),
         ...(principal ? { principal } : {}),
       })

@@ -578,11 +578,10 @@ funnel):
   uncertainty above a stated bar, out-of-policy shape, stakes above a ceiling.
   An empty escalation set is invalid: a delegation with no path back to its
   human is abdication, not delegation.
-- **Delegated release keeps a rope.** When a delegate approves an
-  *irreversible* act, a **cooling window** (CW5 harness 4) attaches by default
-  — the human's overrule affordance survives the delegation for the window's
-  duration. Waivable, but only by the human, explicitly, in the delegation
-  text.
+- **Irreversible decisions remain human-only.** The October 6 desktop policy
+  approval supersedes the earlier cooling-window proposal: no delegation may
+  approve or land an irreversible act, even if its written policy asks to waive
+  escalation. The mandatory mechanical floor returns it to the human.
 
 **The autonomy ladder — delegation is earned by demonstrated fidelity, not
 flipped on.** A Delegation is not a switch but a position on a ladder, per
@@ -606,8 +605,9 @@ live**, not asserted by the policy text. Descent is free: one tap, any
 escalation trigger, or any distribution-shift signal (novel counterparty, new
 effect kind, a policy past its review TTL) drops the class back down. The
 irreversibility floor (CW5) caps the ladder: an external irreversible act's
-*envelope approval* can climb at most to L2-with-cooling-window — there is
-always a rope, and always a human whose rope it is.
+approval remains a separate human decision. Draft and Decide policies have
+explicit retained versions and optional expiry; editing or expiring a policy
+removes an unfinished decision's authority rather than automatically rerunning it.
 
 1. **The inbox is triaged by "who can decide this."** A human's queue shows
    only what genuinely needs *them* — instances the delegations don't cover

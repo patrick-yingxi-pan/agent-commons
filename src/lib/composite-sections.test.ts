@@ -33,6 +33,8 @@ test('the composite section registries name the complete ordered page skeleton',
     'a visitor tree never advertises an owner-private section',
   )
   assert.deepEqual(visibleCompositeSections(PROJECT_SECTIONS, true), PROJECT_SECTIONS)
+  assert.ok(visibleCompositeSections(PROJECT_SECTIONS, false).some((section) => section.id === 'delegation'),
+    'shared Project readers can inspect public delegation governance without owner policy or edit controls')
 })
 
 test('the rail projects composite → section → resource, never a flat descendant list', () => {

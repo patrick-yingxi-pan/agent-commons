@@ -49,6 +49,7 @@ export function enqueueDelegationRevocation(
         delegation.id,
         delegation.projectId,
         delegation.createdAt,
+        delegation.revision ?? 0,
       )
       : 'discarded' as const,
   )

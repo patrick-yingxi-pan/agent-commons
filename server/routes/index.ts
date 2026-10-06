@@ -202,6 +202,7 @@ import { systemPromptCreate, systemPromptDefinitionUpdate } from './systemPrompt
 import { commissionConfigurationUpdate, commissionCreate, commissionDelete } from './commissionConfiguration.ts'
 import { revisionedDelete } from './revisionedDeletion.ts'
 import { delegationRevocation } from './delegationRevocation.ts'
+import { delegationPolicyPatch } from '../delegationPolicy.ts'
 import { savedContextFrom } from '../contextRegistry.ts'
 import type {
   A2aDataPart,
@@ -3293,6 +3294,19 @@ export function buildRouter(): Router {
     if (out === 'invalid') return sendError(res, 'bad_request', 'a delegation needs YOUR OWN agent, a valid act kind, a non-empty policy, and known escalation triggers (effectful is always included — the floor is not delegable)')
     sendJson(res, out)
   }))
+  r.patch('/projects/:id/delegations/:did', async ({ req, res, params, body }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    try {
+      const input = delegationPolicyPatch(await body<unknown>())
+      const out = store.patchDelegation(params.id, params.did, input, store.identity(req.headers).tenant.id)
+      if (out === undefined) return sendError(res, 'not_found', `No delegation '${params.did}'`)
+      if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the delegator with current Project ownership may edit this policy')
+      sendJson(res, out)
+    } catch (err) {
+      if (err instanceof ConflictError || err instanceof ValidationError) return sendError(res, err.code, err.message)
+      throw err
+    }
+  })
   r.delete('/projects/:id/delegations/:did', idempotent(async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
@@ -3314,6 +3328,7 @@ export function buildRouter(): Router {
         params.did,
         input.expectedCreatedAt,
         who.tenant.id,
+        input.expectedRevision,
       )
       if (represented === true) return sendJson(res, { ok: true })
       if (represented === 'invalid') return sendError(res, 'conflict', 'That revocation key already represents a different request')
@@ -3321,6 +3336,7 @@ export function buildRouter(): Router {
     try {
       const out = store.deleteDelegation(params.id, params.did, who.tenant.id, {
         expectedCreatedAt: input.expectedCreatedAt,
+        expectedRevision: input.expectedRevision,
         revocationId,
       })
       if (out === undefined) return sendError(res, 'not_found', `No delegation '${params.did}'`)

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('Delegate judgment holds one exact authority request until server truth', () => {
-  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'DelegationPanel.tsx')))
   const legacy = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'delegationCreationCommands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'delegationCreationMutations.ts')))
@@ -19,7 +19,7 @@ test('Delegate judgment holds one exact authority request until server truth', (
   assert.doesNotMatch(view, /createDelegation\(/,
     'the form cannot bypass acknowledgement-owned creation')
   assert.match(view, /enqueueDelegationCreation\(\{[\s\S]*?tenantId,[\s\S]*?projectId: project\.id,[\s\S]*?request:/)
-  assert.match(view, /heldOpen=\{held\}/, 'the section cannot fold away held authority intent')
+  assert.match(view, /heldOpen=\{held \|\| editingDelegationId !== null\}/, 'the section cannot fold away held authority intent')
   assert.match(view, /aria-busy=\{held\}/)
   assert.match(view, /disabled=\{held\}/, 'every value-bearing field freezes')
   assert.match(view, /e\.key === 'Escape' && !held/,
@@ -45,7 +45,7 @@ test('Delegate judgment holds one exact authority request until server truth', (
 })
 
 test('the Delegate form uses end-user language while preserving the authority choices', () => {
-  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'DelegationPanel.tsx')))
   assert.match(view, /label="Delegate judgment"/)
   assert.match(view, /<option value="draft">recommend only<\/option>/)
   assert.match(view, /<option value="decide">decide within policy<\/option>/)

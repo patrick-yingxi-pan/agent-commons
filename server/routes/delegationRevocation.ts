@@ -1,4 +1,4 @@
-/** Strict parser for an immutable Delegation's deletion precondition. */
+/** Strict parser for a Delegation's identity and policy deletion preconditions. */
 import type { DeleteDelegationRequest } from '../../contract/index.ts'
 import { ValidationError } from '../conflict.ts'
 
@@ -8,15 +8,19 @@ export function delegationRevocation(value: unknown): DeleteDelegationRequest {
     throw new ValidationError('A delegation revocation precondition must be an object.')
   }
   const input = value as Record<string, unknown>
-  const unknown = Object.keys(input).filter((field) => field !== 'expectedCreatedAt')
+  const unknown = Object.keys(input).filter((field) => field !== 'expectedCreatedAt' && field !== 'expectedRevision')
   if (unknown.length > 0) {
     throw new ValidationError(
       `Unknown delegation revocation field${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}.`,
     )
   }
-  if (!Object.hasOwn(input, 'expectedCreatedAt')) return {}
-  if (!Number.isSafeInteger(input.expectedCreatedAt) || (input.expectedCreatedAt as number) < 0) {
-    throw new ValidationError('expectedCreatedAt must be a non-negative safe integer.')
+  const out: DeleteDelegationRequest = {}
+  for (const field of ['expectedCreatedAt', 'expectedRevision'] as const) {
+    if (!Object.hasOwn(input, field)) continue
+    if (!Number.isSafeInteger(input[field]) || (input[field] as number) < 0) {
+      throw new ValidationError(`${field} must be a non-negative safe integer.`)
+    }
+    out[field] = input[field] as number
   }
-  return { expectedCreatedAt: input.expectedCreatedAt as number }
+  return out
 }

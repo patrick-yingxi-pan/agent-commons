@@ -4,6 +4,7 @@ import { apiGet, apiPost } from './client.ts'
 import { invalidate, mutate, peek, setData } from './cache.ts'
 import { delegationCreationId } from './delegationCreationIdentity.ts'
 import type { DelegationCreationIntent } from './delegationCreationRevision.ts'
+import { preferNewerDelegation } from './delegationRevision.ts'
 import { keys, paths } from './keys.ts'
 
 function remember(projectId: string, delegation: Delegation): void {
@@ -11,7 +12,7 @@ function remember(projectId: string, delegation: Delegation): void {
     mutate<Delegation[]>(keys.delegations(projectId), (current) => {
       const rows = current ?? []
       return rows.some((candidate) => candidate.id === delegation.id)
-        ? rows.map((candidate) => candidate.id === delegation.id ? delegation : candidate)
+        ? rows.map((candidate) => candidate.id === delegation.id ? preferNewerDelegation(candidate, delegation) : candidate)
         : [...rows, delegation]
     })
   }

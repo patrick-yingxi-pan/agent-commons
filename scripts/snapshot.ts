@@ -659,6 +659,12 @@ export async function buildComprehensive(): Promise<PersistedState> {
     store.defaultTenantId(),
   )
   if (typeof snapshotDelegation === 'object' && typeof inFlightContribution === 'object') {
+    store.patchDelegation('p-insights', snapshotDelegation.id, {
+      expectedRevision: 0,
+      policy: 'Recommend only reviewed, non-effectful dashboard changes.',
+      escalation: ['effectful'], mode: 'draft',
+      expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000,
+    }, store.defaultTenantId())
     store.runDelegation(
       'p-insights',
       inFlightContribution.id,
@@ -681,6 +687,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
       store.defaultTenantId(),
       {
         expectedCreatedAt: retiredDelegation.createdAt,
+        expectedRevision: retiredDelegation.revision ?? 0,
         revocationId: 'delegation-revoke-000000000000000000000000',
       },
     )

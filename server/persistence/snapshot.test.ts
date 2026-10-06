@@ -455,10 +455,14 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'delegated-judgment-000000000000000000000000' &&
       event.kind === 'delegated-draft' &&
+      event.delegationRevision === 1 &&
       typeof event.delegationId === 'string' &&
       typeof event.delegatedByTenant === 'string')),
     'acknowledgement-owned delegated judgment keeps its exact public receipt and private actor anchor',
   )
+  assert.ok(s.delegations?.some((delegation) => delegation.revision === 1 &&
+    delegation.versions?.length === 2 && delegation.versions[0].revision === 0 && typeof delegation.expiresAt === 'number'),
+  'the playground retains original and edited policy versions with the exact current expiry')
   assert.ok(
     s.contributions?.some((contribution) => contribution.events.some((event) =>
       event.id === 'contribution-require-review-000000000000000000000000' &&
@@ -803,6 +807,7 @@ test('the built snapshot boots through the real rehydrate path', async () => {
       delegationRetirement.delegationId,
       delegationRetirement.expectedCreatedAt,
       delegationRetirement.revokedByTenant,
+      delegationRetirement.expectedRevision,
     ),
     true,
     'an exact keyed Delegation revocation remains replayable after a real boot',

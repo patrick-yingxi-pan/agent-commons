@@ -1,5 +1,5 @@
 /** Lazy transport and destructive FIFO behind Delegation revocation. */
-import type { Delegation } from '../../contract/index.ts'
+import type { Delegation, DeleteDelegationRequest } from '../../contract/index.ts'
 import {
   applyDelegationRevocation,
   reconcileDelegationRevocation,
@@ -59,16 +59,16 @@ function describeFailure(error: unknown): RevisionedMutationFailure & { rebaseOn
   }
 }
 
-const controller = createRevisionedDeletionMutationController<Delegation>({
+const controller = createRevisionedDeletionMutationController<Delegation, DeleteDelegationRequest>({
   reconcile: async (resourceId) => {
     const [delegationId, projectId] = ids(resourceId)
     return reconcileDelegationRevocation(projectId, delegationId)
   },
-  mutate: async (resourceId, expectedCreatedAt, idempotencyKey) => {
+  mutate: async (resourceId, precondition, idempotencyKey) => {
     const [delegationId, projectId] = ids(resourceId)
-    return applyDelegationRevocation(projectId, delegationId, expectedCreatedAt, idempotencyKey)
+    return applyDelegationRevocation(projectId, delegationId, precondition, idempotencyKey)
   },
-  revision: (delegation) => delegation.createdAt,
+  revision: (delegation) => ({ expectedCreatedAt: delegation.createdAt, expectedRevision: delegation.revision ?? 0 }),
   describeFailure,
   setStatus: publishDelegationRevocationStatus,
   mintIdempotencyKey: () => crypto.randomUUID(),
@@ -78,7 +78,8 @@ export const enqueueDelegationRevocationRuntime = (
   delegationId: string,
   projectId: string,
   expectedCreatedAt: number,
-) => controller.enqueue(target(delegationId, projectId), expectedCreatedAt)
+  expectedRevision: number,
+) => controller.enqueue(target(delegationId, projectId), { expectedCreatedAt, expectedRevision })
 export const retryDelegationRevocationRuntime = controller.retry
 export const discardDelegationRevocationRuntime = controller.discard
 export const clearDelegationRevocations = controller.clearAll

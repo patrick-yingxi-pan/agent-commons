@@ -78,6 +78,10 @@ pinned consent, held-row recovery, and an atomic release of its claimed work.
 Delegating judgment now keeps the complete Agent, act, autonomy, policy, and
 escalation choice visible until durable truth settles it; a lost response
 reconciles one exact authority row instead of granting the same policy twice.
+Owners can edit a delegation's policy, autonomy and expiry as explicit retained
+versions. Stale edits conflict, expiry blocks new decisions, and private policy
+history survives restart without entering the shared governance roster. The
+production model-judgment seam remains separately unavailable until implemented.
 Declaring work follows the same rule: its title and summary stay visible before
 the Changes ledger until one exact durable Contribution is acknowledged, so a
 lost response cannot create a second review record.

@@ -19,7 +19,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { ROOT, read, resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
+import { ROOT, read, concatSource, resourcePageComponent, sectionViewComponent, stripComments } from '../../tests/helpers/source.ts'
 import { SECTION_BODY_CLASS, SECTION_BODY_INSET, SECTION_LIST_UNDOUBLE } from '../lib/foldHeader.ts'
 
 const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
@@ -30,6 +30,9 @@ const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
  *  parsed as a real section with a dynamic title and no summary. A source scan
  *  that reads comments is asserting about comments. */
 const code = stripComments(src)
+// Extracted panels use the same section primitive. Its invariants follow every
+// consumer instead of silently ending at the former monolithic page module.
+const foldCode = concatSource('src/components', ['.tsx'])
 
 test('shared Project guidance does not promise contributor authority to read-only grantees', () => {
   assert.ok(code.includes('Projects shared with you — open a project to see its content and available actions.'))
@@ -67,14 +70,14 @@ const fn = (name: string): string =>
  *  used to be `icon={<Globe size={14} />}`, which is gone; the hazard is not.) */
 function foldSectionTags(): string[] {
   const out: string[] = []
-  for (let i = code.indexOf('<FoldSection'); i >= 0; i = code.indexOf('<FoldSection', i + 1)) {
+  for (let i = foldCode.indexOf('<FoldSection'); i >= 0; i = foldCode.indexOf('<FoldSection', i + 1)) {
     let depth = 0
-    for (let j = i; j < code.length; j++) {
-      const c = code[j]
+    for (let j = i; j < foldCode.length; j++) {
+      const c = foldCode[j]
       if (c === '{') depth++
       else if (c === '}') depth--
       else if (c === '>' && depth === 0) {
-        out.push(code.slice(i, j))
+        out.push(foldCode.slice(i, j))
         break
       }
     }

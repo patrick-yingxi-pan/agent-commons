@@ -220,7 +220,7 @@ test('one-tap Delegation revocation holds the exact row and retries with one key
   await expect(row).toHaveAttribute('aria-busy', 'true')
   await expect(row.getByRole('button', { name: `Revoking ${agent.label}'s delegation`, exact: true })).toBeDisabled()
   expect(attempts).toBe(1)
-  expect(bodies[0]).toEqual({ expectedCreatedAt: delegation.createdAt })
+  expect(bodies[0]).toEqual({ expectedCreatedAt: delegation.createdAt, expectedRevision: delegation.revision ?? 0 })
 
   await failed.getByRole('button', { name: 'Retry', exact: true }).click()
   await expect(row).toHaveCount(0)
