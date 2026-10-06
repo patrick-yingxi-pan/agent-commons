@@ -16,6 +16,7 @@
 #define MAX_COMPONENTS 256U
 #define MAX_READ_BYTES (16U * 1024U * 1024U)
 #define MAX_HEADER_BYTES 512U
+#define MAX_SAFE_INTEGER UINT64_C(9007199254740991)
 
 enum result { RESULT_FILE, RESULT_MISSING, RESULT_UNSUPPORTED, RESULT_UNREADABLE, RESULT_TOO_LARGE, RESULT_CHANGED };
 
@@ -213,7 +214,34 @@ static int is_shared_index_name(const char *name) {
   return 1;
 }
 
-static int list_shared_indexes(const char *root_path, const char *device_text, const char *inode_text) {
+static int is_lower_hex(const char *text, size_t length) {
+  for (size_t index = 0; index < length; ++index) {
+    if (!((text[index] >= '0' && text[index] <= '9') || (text[index] >= 'a' && text[index] <= 'f'))) return 0;
+  }
+  return 1;
+}
+
+static int is_pack_index_name(const char *name) {
+  size_t length = strlen(name);
+  return (length == 49 || length == 73) && strncmp(name, "pack-", 5) == 0 &&
+    strcmp(name + length - 4, ".idx") == 0 && is_lower_hex(name + 5, length - 9);
+}
+
+static int is_object_path(const char *path) {
+  if (strncmp(path, "objects/", 8) != 0) return 0;
+  const char *name = path + 8;
+  size_t length = strlen(name);
+  if ((length == 41 || length == 65) && name[2] == '/' && is_lower_hex(name, 2) &&
+      is_lower_hex(name + 3, length - 3)) return 1;
+  if (strncmp(name, "pack/", 5) != 0) return 0;
+  name += 5;
+  length -= 5;
+  if (is_pack_index_name(name)) return 1;
+  return (length == 50 || length == 74) && strncmp(name, "pack-", 5) == 0 &&
+    strcmp(name + length - 5, ".pack") == 0 && is_lower_hex(name + 5, length - 10);
+}
+
+static int list_metadata_names(const char *root_path, const char *device_text, const char *inode_text, int packs) {
   uint64_t pinned_device, pinned_inode;
   if (!parse_u64(device_text, &pinned_device) || !parse_u64(inode_text, &pinned_inode)) return 64;
   int root_fd = open(root_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
@@ -229,11 +257,53 @@ static int list_shared_indexes(const char *root_path, const char *device_text, c
     return 0;
   }
 
-  int scan_fd = dup(root_fd);
+  struct directory_step steps[3];
+  memset(steps, 0, sizeof(steps));
+  size_t directory_count = 0;
+  int parent_fd = root_fd;
+  const char *components[] = { "objects", "pack" };
+  for (size_t index = 0; packs && index < 2; ++index) {
+    const char *name = components[index];
+    struct stat before, opened;
+    enum result failure = RESULT_CHANGED;
+    if (fstatat(parent_fd, name, &before, AT_SYMLINK_NOFOLLOW) != 0) {
+      int error = errno;
+      failure = validate_failed_leaf(root_path, root_fd, root_info, steps, directory_count,
+        parent_fd, name, NULL, error) ? classify_errno(error) : RESULT_CHANGED;
+    } else if (!S_ISDIR(before.st_mode)) {
+      failure = validate_failed_leaf(root_path, root_fd, root_info, steps, directory_count,
+        parent_fd, name, &before, 0) ? RESULT_UNSUPPORTED : RESULT_CHANGED;
+    } else {
+      int child_fd = openat(parent_fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+      if (child_fd >= 0 && fstat(child_fd, &opened) == 0 && S_ISDIR(opened.st_mode) && same_identity(&before, &opened)) {
+        char *copy = strdup(name);
+        if (copy) {
+          ++directory_count;
+          steps[directory_count] = (struct directory_step){ child_fd, parent_fd, copy, opened };
+          parent_fd = child_fd;
+          continue;
+        }
+      }
+      if (child_fd >= 0) close(child_fd);
+    }
+    close_directories(root_fd, steps, directory_count);
+    emit_status(failure, NULL);
+    return 0;
+  }
+  struct stat directory_info;
+  if (fstat(parent_fd, &directory_info) != 0) {
+    close_directories(root_fd, steps, directory_count);
+    emit_status(RESULT_CHANGED, NULL);
+    return 0;
+  }
+#ifdef AGENT_COMMONS_GIT_FILE_TEST_HOOKS
+  test_pause_before_open();
+#endif
+  int scan_fd = dup(parent_fd);
   DIR *directory = scan_fd < 0 ? NULL : fdopendir(scan_fd);
   if (!directory) {
     if (scan_fd >= 0) close(scan_fd);
-    close(root_fd);
+    close_directories(root_fd, steps, directory_count);
     emit_status(RESULT_UNREADABLE, NULL);
     return 0;
   }
@@ -246,7 +316,7 @@ static int list_shared_indexes(const char *root_path, const char *device_text, c
   while ((entry = readdir(directory)) != NULL) {
     if (++visited_count > 512) { scan_error = 1; break; }
     if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
-    if (!is_shared_index_name(entry->d_name)) continue;
+    if (!(packs ? is_pack_index_name(entry->d_name) : is_shared_index_name(entry->d_name))) continue;
     if (match_count >= 64) { scan_error = 1; break; }
     names[match_count] = strdup(entry->d_name);
     if (!names[match_count]) { scan_error = 1; break; }
@@ -256,9 +326,9 @@ static int list_shared_indexes(const char *root_path, const char *device_text, c
   if (errno != 0) scan_error = 1;
   closedir(directory);
 
-  int stable = !scan_error && fstat(root_fd, &after) == 0 && same_directory_version(&root_info, &after) &&
-    validate_directory_chain(root_path, root_fd, root_info, NULL, 0);
-  close(root_fd);
+  int stable = !scan_error && fstat(parent_fd, &after) == 0 && same_directory_version(&directory_info, &after) &&
+    validate_directory_chain(root_path, root_fd, root_info, steps, directory_count);
+  close_directories(root_fd, steps, directory_count);
   if (!stable) {
     for (size_t index = 0; index < match_count; ++index) free(names[index]);
     emit_status(RESULT_CHANGED, NULL);
@@ -288,14 +358,22 @@ list_failure:
 
 int main(int argc, char **argv) {
   if (argc == 5 && strcmp(argv[1], "--list-shared-indexes") == 0 && argv[2][0] == '/') {
-    return list_shared_indexes(argv[2], argv[3], argv[4]);
+    return list_metadata_names(argv[2], argv[3], argv[4], 0);
   }
-  if (argc != 6 || argv[1][0] != '/') return 64;
-  uint64_t pinned_device, pinned_inode, maximum;
+  if (argc == 5 && strcmp(argv[1], "--list-pack-indexes") == 0 && argv[2][0] == '/') {
+    return list_metadata_names(argv[2], argv[3], argv[4], 1);
+  }
+  int range_read = argc == 8 && strcmp(argv[1], "--read-range") == 0;
+  if (range_read) { --argc; ++argv; }
+  if (argc != (range_read ? 7 : 6) || argv[1][0] != '/') return 64;
+  uint64_t pinned_device, pinned_inode, maximum, offset = 0;
   int metadata_only;
   size_t component_count;
   if (!parse_u64(argv[2], &pinned_device) || !parse_u64(argv[3], &pinned_inode) ||
-      !parse_maximum(argv[5], &metadata_only, &maximum) || !valid_relative_path(argv[4], &component_count)) return 64;
+      !parse_maximum(argv[range_read ? 6 : 5], &metadata_only, &maximum) ||
+      !valid_relative_path(argv[4], &component_count)) return 64;
+  if (range_read && (!is_object_path(argv[4]) || metadata_only || maximum == 0 ||
+      !parse_u64(argv[5], &offset) || offset > MAX_SAFE_INTEGER || maximum > MAX_SAFE_INTEGER - offset)) return 64;
 
   int root_fd = open(argv[1], O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
   if (root_fd < 0) {
@@ -402,12 +480,27 @@ int main(int argc, char **argv) {
     result = RESULT_CHANGED;
     goto report;
   }
-  if (file_info.st_size < 0) {
+  if (file_info.st_size < 0 || (range_read && (uint64_t)file_info.st_size > MAX_SAFE_INTEGER)) {
     close(file_fd);
     result = RESULT_UNREADABLE;
     goto report;
   }
-  if (!metadata_only && (uint64_t)file_info.st_size > maximum) {
+  if (range_read && offset + maximum > (uint64_t)file_info.st_size) {
+    struct stat after_file, binding;
+    int stable = fstat(file_fd, &after_file) == 0 && same_file_version(&file_info, &after_file) &&
+      fstatat(parent_fd, leaf, &binding, AT_SYMLINK_NOFOLLOW) == 0 && same_file_version(&file_info, &binding) &&
+      validate_directory_chain(argv[1], root_fd, root_info, steps, directory_count);
+    close(file_fd);
+    if (!stable) { result = RESULT_CHANGED; goto report; }
+    char version[256], header[MAX_HEADER_BYTES];
+    file_version(&file_info, version, sizeof(version));
+    int count = snprintf(header, sizeof(header), "E %jd %s\n", (intmax_t)file_info.st_size, version);
+    if (count <= 0 || (size_t)count >= sizeof(header) || !write_all(STDOUT_FILENO, header, (size_t)count)) goto cleanup;
+    free(leaf);
+    close_directories(root_fd, steps, directory_count);
+    return 0;
+  }
+  if (!range_read && !metadata_only && (uint64_t)file_info.st_size > maximum) {
     struct stat binding;
     int stable = fstatat(parent_fd, leaf, &binding, AT_SYMLINK_NOFOLLOW) == 0 &&
       same_file_version(&file_info, &binding) && validate_directory_chain(argv[1], root_fd, root_info, steps, directory_count);
@@ -419,14 +512,16 @@ int main(int argc, char **argv) {
   unsigned char *body = NULL;
   size_t body_length = 0;
   if (!metadata_only) {
-    size_t capacity = (size_t)maximum + 1;
+    size_t capacity = (size_t)maximum + (range_read ? 0 : 1);
     body = malloc(capacity ? capacity : 1);
     if (!body) {
       close(file_fd);
       goto cleanup;
     }
     while (body_length < capacity) {
-      ssize_t count = read(file_fd, body + body_length, capacity - body_length);
+      ssize_t count = range_read
+        ? pread(file_fd, body + body_length, capacity - body_length, (off_t)(offset + body_length))
+        : read(file_fd, body + body_length, capacity - body_length);
       if (count < 0) {
         if (errno == EINTR) continue;
         free(body);
@@ -447,13 +542,20 @@ int main(int argc, char **argv) {
     fstatat(parent_fd, leaf, &binding, AT_SYMLINK_NOFOLLOW) == 0 && same_file_version(&file_info, &binding) &&
     validate_directory_chain(argv[1], root_fd, root_info, steps, directory_count);
   close(file_fd);
-  if (!stable || (!metadata_only && (body_length != (size_t)file_info.st_size || body_length > maximum))) {
+  if (!stable || (!metadata_only && (body_length != (range_read ? (size_t)maximum : (size_t)file_info.st_size) || body_length > maximum))) {
     free(body);
     result = RESULT_CHANGED;
     goto report;
   }
   result = RESULT_FILE;
-  if (!emit_status(result, &file_info) || (body_length && !write_all(STDOUT_FILENO, body, body_length))) {
+  int emitted;
+  if (range_read) {
+    char version[256], header[MAX_HEADER_BYTES];
+    file_version(&file_info, version, sizeof(version));
+    int count = snprintf(header, sizeof(header), "B %jd %" PRIu64 " %zu %s\n", (intmax_t)file_info.st_size, offset, body_length, version);
+    emitted = count > 0 && (size_t)count < sizeof(header) && write_all(STDOUT_FILENO, header, (size_t)count);
+  } else emitted = emit_status(result, &file_info);
+  if (!emitted || (body_length && !write_all(STDOUT_FILENO, body, body_length))) {
     free(body);
     goto cleanup;
   }

@@ -86,6 +86,25 @@ unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
 
+### Read-only Git diff foundation (2026-10-06 UTC)
+
+The next core workflow is a real Git baseline review, not a comparison of saved
+snapshots. Its first prerequisite adds internal no-follow object range reads and
+fixed-depth pack-index discovery to the existing native helper. Exact slices are
+bounded at 16 MiB even when a pack is larger; every result carries the whole-file
+version, and an out-of-range request cannot silently return partial bytes.
+Only canonical SHA-1/SHA-256 object paths are accepted. Pack discovery excludes
+alternates and unrelated names, and both operations recheck descriptor bindings.
+
+This is not a shipped diff workflow: no renderer bridge, saved-context schema,
+HTTP route or model input changes. The existing capture remains unchanged. Next
+build the bounded object/baseline reader with cross-read version checks, then an
+explicit local review separating staged HEAD-to-index and unstaged
+index-to-working-tree changes. Keep source Git configuration, external diff
+drivers, untracked/ignored files and repository writes excluded. Persisting,
+sharing or sending this new diff to a model needs a separate product decision.
+The OCR choice and signed/paid-provider release gates remain pending.
+
 ### Packaged delegated judgment acceptance (2026-10-06 UTC)
 
 The unsigned arm64 packaged workflow now covers delegated judgment through the

@@ -148,18 +148,56 @@ export async function readGitFile(root, relativePath, {
   return parseResult(output, maxBytes)
 }
 
-/** List only exact Git shared-index filenames in a pinned metadata directory. */
-export async function listGitSharedIndexes(root, { signal, executable = gitFileExecutable() } = {}) {
+const OBJECT_PATH = /^objects\/(?:[a-f0-9]{2}\/(?:[a-f0-9]{38}|[a-f0-9]{62})|pack\/pack-(?:[a-f0-9]{40}|[a-f0-9]{64})\.(?:pack|idx))$/
+
+/** Internal object-store primitive, not renderer authority. The complete source
+ * version accompanies every exact bounded slice so callers can fence multiple
+ * reads. A range crossing EOF is never silently shortened. */
+export async function readGitFileRange(root, relativePath, {
+  offset, length, signal, executable = gitFileExecutable(),
+} = {}) {
+  if (!validRoot(root)) throw new Error('The Git source root identity is invalid.')
+  if (typeof relativePath !== 'string' || !OBJECT_PATH.test(relativePath)) return { status: 'unsupported' }
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(length) || length < 1 ||
+    length > MAX_GIT_FILE_BYTES || !Number.isSafeInteger(offset + length)) {
+    throw new Error('The Git object range is invalid or exceeds its byte limit.')
+  }
+  if (typeof executable !== 'string' || !isAbsolute(executable)) throw new Error('The macOS Git file helper is unavailable.')
+  const output = await runHelper(executable, [
+    '--read-range', root.path, root.identity.dev, root.identity.ino, relativePath, String(offset), String(length),
+  ], { signal, outputLimit: MAX_OUTPUT_HEADER_BYTES + length + 1 })
+  const newline = output.indexOf(0x0a)
+  if (newline < 0 || newline > MAX_OUTPUT_HEADER_BYTES) throw new Error('The Git file helper returned an invalid range.')
+  const header = output.subarray(0, newline).toString('utf8')
+  const payload = output.subarray(newline + 1)
+  if (['M', 'U', 'R', 'C'].includes(header)) return parseResult(output, 0)
+  const outside = /^E (0|[1-9]\d*) ([0-9]+:[0-9]+:[0-9]+:-?\d+:-?\d+:-?\d+:-?\d+:-?\d+)$/.exec(header)
+  if (outside) {
+    const sizeBytes = Number(outside[1])
+    if (payload.length || !Number.isSafeInteger(sizeBytes) || offset + length <= sizeBytes) {
+      throw new Error('The Git file helper returned an invalid range.')
+    }
+    return { status: 'out-of-range', sizeBytes, version: outside[2] }
+  }
+  const match = /^B (0|[1-9]\d*) (0|[1-9]\d*) (0|[1-9]\d*) ([0-9]+:[0-9]+:[0-9]+:-?\d+:-?\d+:-?\d+:-?\d+:-?\d+)$/.exec(header)
+  const sizeBytes = Number(match?.[1])
+  if (!match || !Number.isSafeInteger(sizeBytes) || offset + length > sizeBytes || Number(match[2]) !== offset ||
+    Number(match[3]) !== length || payload.length !== length) throw new Error('The Git file helper returned an invalid range.')
+  return { status: 'file', sizeBytes, version: match[4], offset, bytes: new Uint8Array(payload) }
+}
+
+async function listMetadataNames(root, command, pattern, { signal, executable = gitFileExecutable() } = {}) {
   if (!validRoot(root)) throw new Error('The Git source root identity is invalid.')
   if (typeof executable !== 'string' || !isAbsolute(executable)) {
     throw new Error('The macOS Git file helper is unavailable.')
   }
   const output = await runHelper(executable, [
-    '--list-shared-indexes', root.path, root.identity.dev, root.identity.ino,
+    command, root.path, root.identity.dev, root.identity.ino,
   ], { signal, outputLimit: MAX_LIST_OUTPUT_BYTES })
-  const text = output.toString('ascii')
+  const text = output.toString('utf8')
   if (text === 'C\n') throw genericChangedError()
   if (text === 'R\n') throw new Error('The Git source metadata is unreadable.')
+  if (command === '--list-pack-indexes' && text === 'M\n') return []
   const lines = text.split('\n')
   if (!text.endsWith('\n') || !/^L (0|[1-9]\d*)$/.test(lines[0] ?? '')) {
     throw new Error('The Git file helper returned an invalid directory listing.')
@@ -167,9 +205,20 @@ export async function listGitSharedIndexes(root, { signal, executable = gitFileE
   const count = Number(lines[0].slice(2))
   const names = lines.slice(1, -1)
   if (!Number.isSafeInteger(count) || count > 64 || names.length !== count ||
-    names.some((name) => !/^sharedindex\.(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(name)) ||
+    names.some((name) => !pattern.test(name)) ||
     new Set(names).size !== names.length) {
     throw new Error('The Git file helper returned an invalid directory listing.')
   }
   return names.sort()
+}
+
+/** List only exact Git shared-index filenames in a pinned metadata directory. */
+export function listGitSharedIndexes(root, options) {
+  return listMetadataNames(root, '--list-shared-indexes', /^sharedindex\.(?:[a-f0-9]{40}|[a-f0-9]{64})$/, options)
+}
+
+/** Internal fixed-depth discovery; alternates, config and unrelated files are
+ * not opened. Object reads still require their own pinned version checks. */
+export function listGitPackIndexes(root, options) {
+  return listMetadataNames(root, '--list-pack-indexes', /^pack-(?:[a-f0-9]{40}|[a-f0-9]{64})\.idx$/, options)
 }
